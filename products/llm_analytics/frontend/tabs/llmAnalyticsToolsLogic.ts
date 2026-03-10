@@ -158,8 +158,9 @@ export const llmAnalyticsToolsLogic = kea<llmAnalyticsToolsLogicType>([
                         },
                     ],
                     breakdownFilter: {
-                        breakdown: '$ai_tools_called',
-                        breakdown_type: 'event',
+                        breakdown:
+                            "arrayStringConcat(arraySort(arrayDistinct(splitByChar(',', ifNull(properties.$ai_tools_called, '')))), ', ')",
+                        breakdown_type: 'hogql',
                         breakdown_limit: 20,
                     },
                     trendsFilter: {

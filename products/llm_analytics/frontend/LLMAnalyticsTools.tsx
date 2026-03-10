@@ -4,9 +4,11 @@ import { combineUrl, router } from 'kea-router'
 import { IconGraph, IconUserPaths } from '@posthog/icons'
 
 import { escapeRegex } from 'lib/actionUtils'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -23,7 +25,9 @@ export function LLMAnalyticsTools(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
     const { setToolsSort } = useActions(llmAnalyticsToolsLogic)
     const { toolsQuery, toolsSort, buildToolPathsQuery, buildToolSequencesQuery } = useValues(llmAnalyticsToolsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
+    const showToolsCharts = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_CHARTS]
 
     const { renderSortableColumnTitle } = useSortableColumns(toolsSort, setToolsSort)
 
@@ -74,39 +78,43 @@ export function LLMAnalyticsTools(): JSX.Element {
                                                     }).url
                                                 }
                                                 className="font-mono text-sm"
-                                                data-attr="llm-tools-row-click"
+                                                data-attr="llma-tools-row-click"
                                             >
                                                 {toolString}
                                             </Link>
                                         </Tooltip>
-                                        <Tooltip title={`View tool sequences for ${toolString}`}>
-                                            <LemonButton
-                                                icon={<IconGraph />}
-                                                size="xsmall"
-                                                to={urls.insightNew({
-                                                    query: {
-                                                        kind: NodeKind.InsightVizNode,
-                                                        source: buildToolSequencesQuery(toolString),
-                                                    } as InsightVizNode,
-                                                })}
-                                                targetBlank
-                                                data-attr="llm-tools-sequences-click"
-                                            />
-                                        </Tooltip>
-                                        <Tooltip title={`View tool paths from ${toolString}`}>
-                                            <LemonButton
-                                                icon={<IconUserPaths />}
-                                                size="xsmall"
-                                                to={urls.insightNew({
-                                                    query: {
-                                                        kind: NodeKind.InsightVizNode,
-                                                        source: buildToolPathsQuery(toolString),
-                                                    } as InsightVizNode,
-                                                })}
-                                                targetBlank
-                                                data-attr="llm-tools-paths-click"
-                                            />
-                                        </Tooltip>
+                                        {showToolsCharts && (
+                                            <>
+                                                <Tooltip title={`View tool sequences for ${toolString}`}>
+                                                    <LemonButton
+                                                        icon={<IconGraph />}
+                                                        size="xsmall"
+                                                        to={urls.insightNew({
+                                                            query: {
+                                                                kind: NodeKind.InsightVizNode,
+                                                                source: buildToolSequencesQuery(toolString),
+                                                            } as InsightVizNode,
+                                                        })}
+                                                        targetBlank
+                                                        data-attr="llma-tools-sequences-click"
+                                                    />
+                                                </Tooltip>
+                                                <Tooltip title={`View tool paths from ${toolString}`}>
+                                                    <LemonButton
+                                                        icon={<IconUserPaths />}
+                                                        size="xsmall"
+                                                        to={urls.insightNew({
+                                                            query: {
+                                                                kind: NodeKind.InsightVizNode,
+                                                                source: buildToolPathsQuery(toolString),
+                                                            } as InsightVizNode,
+                                                        })}
+                                                        targetBlank
+                                                        data-attr="llma-tools-paths-click"
+                                                    />
+                                                </Tooltip>
+                                            </>
+                                        )}
                                     </div>
                                 )
                             },
