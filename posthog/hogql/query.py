@@ -16,12 +16,10 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_default_limit_for_context
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.schema.logs import HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES
-from posthog.hogql.direct_connection import (
-    create_database_for_connection_source,
-    get_direct_connection_source_none_or_raise,
-)
+from posthog.hogql.direct_connection import get_direct_connection_source_none_or_raise
 from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.hogql import HogQLContext
@@ -262,12 +260,12 @@ class HogQLQueryExecutor:
 
         database = self.context.database
         if database is None or self.connection_id is not None:
-            database = create_database_for_connection_source(
+            database = Database.create_for(
                 team=self.team,
                 user=self.user,
                 modifiers=self.query_modifiers,
                 timings=self.timings,
-                source=source,
+                connection_id=self.connection_id,
             )
 
         self.hogql_context = dataclasses.replace(

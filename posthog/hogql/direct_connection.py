@@ -32,23 +32,6 @@ def get_direct_connection_source_none_or_raise(
     return source
 
 
-def create_database_for_connection_source(
-    team: "Team",
-    *,
-    user: Optional["User"] = None,
-    source: ExternalDataSource | None = None,
-    modifiers: HogQLQueryModifiers | None = None,
-    timings: HogQLTimings | None = None,
-) -> Database:
-    return Database.create_for(
-        team=team,
-        user=user,
-        modifiers=modifiers,
-        timings=timings,
-        connection_id=str(source.id) if source else None,
-    )
-
-
 def resolve_database_for_connection(
     team: "Team",
     connection_id: str | None,
@@ -59,11 +42,11 @@ def resolve_database_for_connection(
     error_factory: Callable[[str], Exception],
 ) -> tuple[ExternalDataSource | None, Database]:
     source = get_direct_connection_source_none_or_raise(team, connection_id, error_factory=error_factory)
-    database = create_database_for_connection_source(
-        team,
+    database = Database.create_for(
+        team=team,
         user=user,
-        source=source,
         modifiers=modifiers,
         timings=timings,
+        connection_id=str(source.id) if source else None,
     )
     return source, database

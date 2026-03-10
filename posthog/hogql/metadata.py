@@ -8,7 +8,8 @@ from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.direct_connection import create_database_for_connection_source, get_direct_connection_source
+from posthog.hogql.database.database import Database
+from posthog.hogql.direct_connection import get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -49,11 +50,11 @@ def get_hogql_metadata(
 
     database = None
     if source and source.source_id:
-        database = create_database_for_connection_source(
+        database = Database.create_for(
             team=team,
             user=user,
             modifiers=query_modifiers,
-            source=source,
+            connection_id=str(source.id),
         )
 
     try:
