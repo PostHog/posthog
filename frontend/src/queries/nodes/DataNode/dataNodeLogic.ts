@@ -161,7 +161,7 @@ function addModifiers<T extends Record<string, any>, N extends DataNode<T> | Dat
         // for Nodes with a source, add the modifier to the source instead
         return {
             ...query,
-            source: addTags(query.source),
+            source: addModifiers(query.source),
         }
     }
     return {
