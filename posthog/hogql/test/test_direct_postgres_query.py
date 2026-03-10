@@ -13,10 +13,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.postgres_table import PostgresTable
-from posthog.hogql.errors import (
-    ExposedHogQLError,
-    NotImplementedError as HogQLNotImplementedError,
-)
+from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.query import HogQLQueryExecutor, postgres_error_to_message, postgres_oid_to_clickhouse_type
 
 from posthog.temporal.data_imports.sources.postgres.postgres import SSL_REQUIRED_AFTER_DATE
@@ -132,7 +129,7 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         self.assertEqual(executor._should_use_direct_postgres(), expected)
 
-    def test_should_use_direct_postgres_resolves_query_type_when_missing(self):
+    def test_should_use_direct_postgres_returns_false_when_hidden_without_connection(self):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="source_id",
@@ -166,10 +163,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         )
 
         executor._parse_query()
-        executor._generate_hogql()
-
-        self.assertIsNone(executor.select_query.type)
-        self.assertEqual(executor._should_use_direct_postgres(), True)
+        self.assertEqual(executor._should_use_direct_postgres(), False)
 
     def test_generate_sql_for_direct_postgres_table_does_not_require_team_id_field(self):
         source = ExternalDataSource.objects.create(
@@ -288,10 +282,10 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         executor = HogQLQueryExecutor(query="SELECT * FROM postgres.ph3.without_team_id", team=self.team)
 
-        with self.assertRaises(ExposedHogQLError) as error:
+        with self.assertRaises(QueryError) as error:
             executor.generate_clickhouse_sql()
 
-        self.assertEqual(str(error.exception), "Direct Postgres queries require selecting a connection.")
+        self.assertEqual(str(error.exception), "Unknown table `postgres.ph3.without_team_id`.")
 
     def test_mixed_direct_and_clickhouse_query_without_connection_rejects_clickhouse_printing(self):
         source = ExternalDataSource.objects.create(
@@ -326,10 +320,10 @@ class TestDirectPostgresQuery(APIBaseTest):
             team=self.team,
         )
 
-        with self.assertRaises(HogQLNotImplementedError) as error:
+        with self.assertRaises(QueryError) as error:
             executor.generate_clickhouse_sql()
 
-        self.assertEqual(str(error.exception), "Direct Postgres tables cannot be printed to ClickHouse SQL")
+        self.assertEqual(str(error.exception), "Unknown table `postgres.ph3.posthog_dashboard`.")
 
     def test_selected_connection_prioritizes_matching_direct_source_for_canonical_table_name(self):
         first_source = ExternalDataSource.objects.create(
@@ -420,10 +414,10 @@ class TestDirectPostgresQuery(APIBaseTest):
             connection_id=str(source.id),
         )
 
-        with self.assertRaises(ExposedHogQLError) as error:
+        with self.assertRaises(QueryError) as error:
             executor.execute()
 
-        self.assertEqual(str(error.exception), "Table not found in the selected connection.")
+        self.assertEqual(str(error.exception), "Unknown table `persons`.")
 
     def test_selected_connection_rejects_disabled_direct_tables(self):
         source = ExternalDataSource.objects.create(
