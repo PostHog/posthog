@@ -24,7 +24,6 @@ from posthog.schema import (
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import TableNode
 from posthog.hogql.database.postgres_table import PostgresTable
-from posthog.hogql.database.schema.numbers import NumbersTable
 
 from posthog.api.services.query import process_query_model
 
@@ -470,7 +469,7 @@ class TestQueryService(APIBaseTest):
 
     @patch("posthog.api.services.query.get_hogql_autocomplete")
     @patch("posthog.api.services.query.Database.create_for")
-    def test_hogql_autocomplete_with_direct_connection_keeps_helper_tables_only(
+    def test_hogql_autocomplete_with_direct_connection_exposes_selected_tables_only(
         self,
         mock_create_for: MagicMock,
         mock_get_hogql_autocomplete: MagicMock,
@@ -502,11 +501,6 @@ class TestQueryService(APIBaseTest):
             table_conflict_mode="override",
             children_conflict_mode="override",
         )
-        database.tables.add_child(
-            TableNode(name="numbers", table=NumbersTable()),
-            table_conflict_mode="override",
-            children_conflict_mode="override",
-        )
         database._connection_id = str(source.id)
         database._connection_scope = "connection"
         database._warehouse_table_names = ["selected_table"]
@@ -517,8 +511,8 @@ class TestQueryService(APIBaseTest):
             database_arg = kwargs["database_arg"]
             self.assertIsNotNone(database_arg)
             self.assertTrue(database_arg.has_table("selected_table"))
-            self.assertTrue(database_arg.has_table("numbers"))
             self.assertFalse(database_arg.has_table("events"))
+            self.assertEqual(database_arg.get_all_table_names(), ["selected_table"])
             return HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
 
         mock_get_hogql_autocomplete.side_effect = _mock_autocomplete
