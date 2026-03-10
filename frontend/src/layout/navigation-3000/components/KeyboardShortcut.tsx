@@ -22,7 +22,6 @@ const KEY_TO_SYMBOL: Partial<Record<HotKeyOrModifier, string>> = {
     delete: '⌫',
     atsign: '@',
     s: 'S',
-    control: 'Ctrl',
 }
 /** For consistency, we always show modifiers in this order, before other keys. */
 const MODIFIER_PRIORITY: HotKeyOrModifier[] = ['command', 'option', 'shift']

@@ -58,7 +58,7 @@ export function EditModeActions(): JSX.Element {
                     Save
                     {canEditDashboard && (
                         <span className="hidden md:inline-flex ml-2">
-                            <KeyboardShortcut control s />
+                            <KeyboardShortcut command s />
                         </span>
                     )}
                 </LemonButton>
