@@ -5331,6 +5331,7 @@ export interface DataModelingNode {
     id: string
     name: string
     type: DataModelingNodeType
+    description?: string
     dag_id: string
     saved_query_id?: string
     created_at: string
