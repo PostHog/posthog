@@ -289,7 +289,9 @@ export function EditSubscription({
                                                             onChange={onChange}
                                                             integration={selectedIntegration}
                                                         />
-                                                    ) : null
+                                                    ) : (
+                                                        <></>
+                                                    )
                                                 }}
                                             </LemonField>
                                         )}

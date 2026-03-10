@@ -504,5 +504,9 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert sub_team2.integration_id == other_integration.id
 
         # And both match what get_slack_integration_for_team would return
-        assert sub_team1.integration_id == get_slack_integration_for_team(self.team.id).id
-        assert sub_team2.integration_id == get_slack_integration_for_team(other_team.id).id
+        delivery_team1 = get_slack_integration_for_team(self.team.id)
+        delivery_team2 = get_slack_integration_for_team(other_team.id)
+        assert delivery_team1 is not None
+        assert delivery_team2 is not None
+        assert sub_team1.integration_id == delivery_team1.id
+        assert sub_team2.integration_id == delivery_team2.id
