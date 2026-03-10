@@ -1,7 +1,6 @@
 {
     "name": "@posthog/products-event-definitions",
     "scripts": {
-        "backend:test": "echo 'No backend tests'",
-        "backend:contract-check": "echo 'Contract files unchanged'"
+        "backend:test": "echo 'No backend tests'"
     }
 }
