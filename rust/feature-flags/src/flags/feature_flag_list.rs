@@ -11,7 +11,10 @@ use metrics::counter;
 
 impl FeatureFlagList {
     pub fn new(flags: Vec<FeatureFlag>) -> Self {
-        Self { flags }
+        Self {
+            flags,
+            ..Default::default()
+        }
     }
 
     /// Parses a JSON Value from hypercache into a list of feature flags.

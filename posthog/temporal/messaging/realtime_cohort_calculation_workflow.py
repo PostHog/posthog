@@ -1,3 +1,4 @@
+import os
 import time
 import asyncio
 import datetime as dt
@@ -26,6 +27,9 @@ from posthog.temporal.common.logger import get_logger
 
 if TYPE_CHECKING:
     from posthog.kafka_client.client import _KafkaProducer
+
+# Configuration
+FLUSH_BATCH_SIZE = int(os.environ.get("COHORT_KAFKA_FLUSH_BATCH_SIZE", "1000"))
 
 # Cohort calculation timing histograms
 COHORT_CALCULATION_TOTAL_DURATION_HISTOGRAM = Histogram(
@@ -358,7 +362,6 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                 ):
                     status_counts = {"entered": 0, "left": 0}
                     pending_kafka_messages = []
-                    FLUSH_BATCH_SIZE = 10_000  # Flush every 10k messages to allow heartbeats
                     # Count of messages successfully produced to Kafka (pending flush), excluding failed produce attempts
                     total_messages = 0
                     total_flushed = 0
@@ -490,6 +493,19 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                 # Includes: query execution + Kafka message production + message flushing
                 cohort_end_time = time.monotonic()
                 duration_ms = int((cohort_end_time - cohort_start_time) * 1000)
+                duration_seconds = duration_ms / 1000
+
+                # Log slow cohorts for investigation
+                if duration_seconds > 10:
+                    logger.warning(
+                        f"Slow cohort detected: cohort {cohort.pk} took {duration_seconds:.1f}s to process",
+                        cohort_id=cohort.pk,
+                        duration_seconds=duration_seconds,
+                        duration_ms=duration_ms,
+                        team_id=cohort.team_id,
+                        cohort_name=cohort.name,
+                        is_slow_cohort=True,
+                    )
 
                 # Record total cohort calculation duration
                 COHORT_CALCULATION_TOTAL_DURATION_HISTOGRAM.labels(percentile_bucket=percentile_bucket).observe(
@@ -503,6 +519,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                     f"Cohort {cohort.pk} processing completed",
                     cohort_id=cohort.pk,
                     duration_ms=duration_ms,
+                    duration_seconds=duration_seconds,
                 )
 
                 get_cohort_calculation_success_metric().add(1)

@@ -213,7 +213,11 @@ function processChoiceQuestion(
     const predefined = new Set(question.choices ?? [])
 
     let total = 0
-    const data: ChoiceQuestionResponseData[] = dataEntries
+    const noResponseEntry = entries.find(([l]) => l === '__no_response__')
+    const noResponseCount = noResponseEntry ? noResponseEntry[1] : 0
+    const filteredEntries = dataEntries.filter(([l]) => l !== '__no_response__')
+
+    const data: ChoiceQuestionResponseData[] = filteredEntries
         .map(([label, count]) => {
             if (questionType === SurveyQuestionType.SingleChoice) {
                 total += count
@@ -238,6 +242,7 @@ function processChoiceQuestion(
         type: questionType,
         data,
         totalResponses: total,
+        noResponseCount,
     }
 }
 
@@ -292,6 +297,7 @@ function processRatingQuestion(
         type: SurveyQuestionType.Rating,
         data,
         totalResponses: total,
+        noResponseCount: 0,
     }
 }
 
@@ -419,7 +425,7 @@ export function processOpenEndedResults(
             }
             const otherData = collectOpenChoiceResponses(question, type, rows, columnIndex, distinctIdIdx, timestampIdx)
             if (otherData.length > 0) {
-                result[questionId] = { type, data: otherData, totalResponses: 0 }
+                result[questionId] = { type, data: otherData, totalResponses: 0, noResponseCount: 0 }
             }
         }
     }

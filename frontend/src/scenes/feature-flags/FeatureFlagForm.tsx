@@ -790,6 +790,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                 <div className="rounded border p-3 bg-bg-light">
                                     <FeatureFlagReleaseConditionsCollapsible
                                         id={String(props.id)}
+                                        flagId={props.id}
                                         filters={featureFlag.filters}
                                         onChange={setFeatureFlagFilters}
                                         variants={nonEmptyVariants}

@@ -14,15 +14,13 @@ HMAC_SECRET = "test_hmac_secret"
 
 @override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
 class StripeProvisioningTestBase(APIBaseTest):
-    HMAC_SECRET = HMAC_SECRET
-
     def setUp(self):
         super().setUp()
         self.client = APIClient()
 
     def _sign_body(self, body: bytes, timestamp: int | None = None) -> str:
         ts = timestamp if timestamp is not None else int(time.time())
-        sig = compute_signature(self.HMAC_SECRET, ts, body)
+        sig = compute_signature(HMAC_SECRET, ts, body)
         return f"t={ts},v1={sig}"
 
     def _post_signed(

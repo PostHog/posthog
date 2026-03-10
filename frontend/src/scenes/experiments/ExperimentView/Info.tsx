@@ -211,7 +211,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                                     isExperimentDraft={isExperimentDraft}
                                 />
                             )}
-                            {experiment.start_date && (
+                            {status !== ExperimentProgressStatus.Draft && (
                                 <ExperimentReloadAction
                                     isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
                                     lastRefresh={lastRefresh}

@@ -21,7 +21,15 @@ import { SidebarQuestionInputWithSuggestions } from './SidebarQuestionInputWithS
 import { ThreadAutoScroller } from './ThreadAutoScroller'
 
 /* Sits above the chat area */
-export function ChatHeader({ conversationId, tabId }: { conversationId: string | null; tabId?: string }): JSX.Element {
+export function ChatHeader({
+    conversationId,
+    tabId,
+    children,
+}: {
+    conversationId: string | null
+    tabId?: string
+    children?: React.ReactNode
+}): JSX.Element {
     const { openSidePanelMax } = useActions(maxGlobalLogic)
     const { chatTitle } = useValues(maxLogic)
     const { closeTabId } = useActions(sceneLogic)
@@ -30,6 +38,7 @@ export function ChatHeader({ conversationId, tabId }: { conversationId: string |
     return (
         <div className="flex w-full gap-2 py-2 border-b border-primary items-center justify-between px-2">
             <div className="flex items-center gap-2 pl-2 text-sm font-medium truncate min-w-0 flex-1">
+                {children}
                 {chatTitle === null ? null : isTitleLoading ? (
                     <div className="w-100">
                         <SceneName name="New chat" isLoading />
