@@ -19,7 +19,7 @@ pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
     --output ../../products/your_product/mcp/tools.yaml
 
 # 2. Configure the YAML – enable tools, add scopes, annotations, descriptions
-#    Place in products/<product>/mcp/*.yaml (preferred) or services/mcp/definitions/*.yaml
+#    Place in products/<product>/mcp/*.yaml (preferred, e.g. actions, cohorts)
 
 # 3. Add a HogQL system table in posthog/hogql/database/schema/system.py
 #    and a model reference in products/posthog_ai/skills/query-examples/references/
@@ -156,10 +156,10 @@ build:openapi-mcp-tools  YAML definitions + Zod schemas → TypeScript tool hand
 ### YAML definitions
 
 YAML definitions are the configuration layer.
-They can live in two locations:
+They live in **`products/<product>/mcp/*.yaml`**, keeping config close to the owning product's code.
 
-- **`products/<product>/mcp/*.yaml`** – preferred for product-owned definitions, keeps config close to the code.
-- **`services/mcp/definitions/*.yaml`** – shared location.
+> **Fallback path:** `services/mcp/definitions/*.yaml` is available for functionality that doesn't have a product folder.
+> When a product folder exists, always place definitions there.
 
 The build pipeline discovers YAML files from both paths.
 Product teams own their definitions and control which operations are exposed as MCP tools.
@@ -239,7 +239,7 @@ it only adds newly discovered operations (with `enabled: false`) and removes sta
 All hand-authored configuration is preserved.
 CI runs this as a drift check.
 
-See [`services/mcp/definitions/README.md`](https://github.com/PostHog/posthog/blob/master/services/mcp/definitions/README.md) for the full YAML schema reference
+See [`services/mcp/definitions/README.md`](https://github.com/PostHog/posthog/blob/master/services/mcp/definitions/README.md) for the full YAML schema reference (note: YAML definitions themselves now live in product folders)
 and [`services/mcp/scripts/yaml-config-schema.ts`](https://github.com/PostHog/posthog/blob/master/services/mcp/scripts/yaml-config-schema.ts) for the Zod validation source.
 
 ## Testing
@@ -259,6 +259,9 @@ Product teams should **type and describe** their serializer fields.
 These descriptions are what agents read to understand tool parameters –
 vague or missing descriptions lead to worse agent behavior.
 
+See the [type system guide](/handbook/engineering/type-system) for the full backend → frontend pipeline,
+including how to set up viewsets, serializers, and `@extend_schema` correctly.
+
 **Tips:**
 
 - Use `help_text` on serializer fields – it becomes the OpenAPI description.
@@ -268,6 +271,15 @@ vague or missing descriptions lead to worse agent behavior.
   This is useful when you want to add imperative instructions for specific fields.
 - Be specific about formats, constraints, and valid values.
 - Avoid jargon that an LLM wouldn't understand without context.
+- `ListField` and `JSONField` need explicit types —
+  use `ListField(child=serializers.CharField())` instead of bare `ListField()`,
+  and `@extend_schema_field(PydanticModel)` on `JSONField` subclasses
+  (see `posthog/api/alert.py` for the pattern).
+  Without this, Orval generates `z.unknown()`.
+- Plain `ViewSet` methods that validate manually need `@extend_schema(request=YourSerializer)` —
+  without it, drf-spectacular can't discover the request body
+  and the generated tool gets an empty schema with zero parameters.
+  `ModelViewSet` with `serializer_class` works automatically.
 
 ## HogQL query schemas (WIP)
 

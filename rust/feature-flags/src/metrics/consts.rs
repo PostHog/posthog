@@ -24,6 +24,7 @@ pub const FLAG_REQUEST_FAULTS_COUNTER: &str = "flags_request_faults_total";
 pub const DB_CONNECTION_POOL_ACTIVE_COUNTER: &str = "flags_db_connection_pool_active_total";
 pub const DB_CONNECTION_POOL_IDLE_COUNTER: &str = "flags_db_connection_pool_idle_total";
 pub const DB_CONNECTION_POOL_MAX_COUNTER: &str = "flags_db_connection_pool_max_total";
+pub const DB_CONNECTION_POOL_SIZE_GAUGE: &str = "flags_db_connection_pool_size";
 
 // Flag evaluation timing
 pub const FLAG_EVALUATION_TIME: &str = "flags_evaluation_time";
@@ -124,6 +125,12 @@ pub const RAYON_DISPATCHER_TOTAL_ACQUIRES: &str = "flags_rayon_dispatcher_acquir
 // With N semaphore permits, this should stay in [0, N]. Consistently at N
 // means the pool is saturated and the semaphore is the bottleneck.
 pub const RAYON_DISPATCHER_INFLIGHT_TASKS: &str = "flags_rayon_dispatcher_inflight_tasks";
+
+// Counter of semaphore acquisitions that timed out (request failed fast with 504).
+// Non-zero means the configured timeout is being hit and requests are being
+// redistributed to other pods via ingress retry.
+pub const RAYON_DISPATCHER_SEMAPHORE_TIMEOUTS: &str =
+    "flags_rayon_dispatcher_semaphore_timeouts_total";
 
 // Flag batch evaluation metrics
 // These track the performance difference between sequential and parallel evaluation strategies.
