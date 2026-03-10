@@ -155,7 +155,6 @@ class HogQLQueryExecutor:
     direct_postgres_source_id: Optional[str] = None
     direct_postgres_values: dict[str, object] | None = None
     connection_id: Optional[str] = None
-    selected_direct_source_id: Optional[str] = None
     user: Optional[User] = None
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
@@ -253,16 +252,16 @@ class HogQLQueryExecutor:
             )
             if source is None:
                 raise ExposedHogQLError("Invalid connectionId for this team")
-            self.selected_direct_source_id = str(source.id)
+            self.connection_id = str(source.id)
 
         database = self.context.database
-        if database is None or self.selected_direct_source_id is not None:
+        if database is None or self.connection_id is not None:
             database = Database.create_for(
                 team=self.team,
                 user=self.user,
                 modifiers=self.query_modifiers,
                 timings=self.timings,
-                direct_query_source_id=self.selected_direct_source_id,
+                direct_query_source_id=self.connection_id,
             )
 
         self.hogql_context = dataclasses.replace(
@@ -380,17 +379,17 @@ class HogQLQueryExecutor:
         direct_source_ids = self._extract_direct_postgres_sources_from_type(query_type)
 
         if len(direct_source_ids) == 0:
-            if self.selected_direct_source_id is not None:
+            if self.connection_id is not None:
                 raise ExposedHogQLError("Table not found in the selected connection.")
             return
 
-        if self.selected_direct_source_id is None:
+        if self.connection_id is None:
             raise ExposedHogQLError("Direct Postgres queries require selecting a connection.")
 
         if len(direct_source_ids) > 1:
             raise ExposedHogQLError("Direct Postgres queries can only reference a single source.")
 
-        if self.selected_direct_source_id is not None and self.selected_direct_source_id not in direct_source_ids:
+        if self.connection_id not in direct_source_ids:
             raise ExposedHogQLError("The query references a different source than the selected connection.")
 
         has_non_direct_tables = any(
@@ -664,11 +663,7 @@ class HogQLQueryExecutor:
         self._apply_limit()
         with self.timings.measure("_generate_hogql"):
             self._generate_hogql()
-        if (
-            self.connection_id is not None
-            or self.selected_direct_source_id is not None
-            or self._should_use_direct_postgres()
-        ):
+        if self.connection_id is not None or self._should_use_direct_postgres():
             self._maybe_prepare_direct_postgres_query()
             if self.direct_postgres_sql is not None:
                 return self.direct_postgres_sql, self.context
@@ -686,11 +681,7 @@ class HogQLQueryExecutor:
         with self.timings.measure("_generate_hogql"):
             self._generate_hogql()
 
-        if (
-            self.connection_id is not None
-            or self.selected_direct_source_id is not None
-            or self._should_use_direct_postgres()
-        ):
+        if self.connection_id is not None or self._should_use_direct_postgres():
             self._maybe_prepare_direct_postgres_query()
         if self.direct_postgres_sql is None:
             with self.timings.measure("_generate_clickhouse_sql"):

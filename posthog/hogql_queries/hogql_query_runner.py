@@ -102,7 +102,6 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             # p95 duration of HogQL query is 2.78sec
             self.settings.max_execution_time = 10
 
-        selected_source_id = self.query.connectionId
         if self.query.connectionId:
             source = get_direct_external_data_source_for_connection(
                 team_id=self.team.pk, connection_id=self.query.connectionId
@@ -120,7 +119,6 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             timings=self.timings,
             variables=self.query.variables,
             connection_id=self.query.connectionId,
-            selected_direct_source_id=selected_source_id,
             limit_context=self.limit_context,
             workload=self.workload,
             settings=self.settings,

@@ -202,7 +202,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         executor = HogQLQueryExecutor(
             query="SELECT * FROM without_team_id",
             team=self.team,
-            selected_direct_source_id=str(source.id),
+            connection_id=str(source.id),
         )
 
         sql, _context = executor.generate_clickhouse_sql()
@@ -250,7 +250,6 @@ class TestDirectPostgresQuery(APIBaseTest):
             """,
             team=self.team,
             connection_id=str(source.id),
-            selected_direct_source_id=str(source.id),
         )
 
         sql, _context = executor.generate_clickhouse_sql()
@@ -389,7 +388,6 @@ class TestDirectPostgresQuery(APIBaseTest):
             query="SELECT id FROM posthog_team",
             team=self.team,
             connection_id=str(second_source.id),
-            selected_direct_source_id=str(second_source.id),
         )
 
         sql, _context = executor.generate_clickhouse_sql()
@@ -420,7 +418,6 @@ class TestDirectPostgresQuery(APIBaseTest):
             query="SELECT * FROM persons",
             team=self.team,
             connection_id=str(source.id),
-            selected_direct_source_id=str(source.id),
         )
 
         with self.assertRaises(ExposedHogQLError) as error:
@@ -467,7 +464,6 @@ class TestDirectPostgresQuery(APIBaseTest):
             query="SELECT id FROM posthog_dashboard",
             team=self.team,
             connection_id=str(source.id),
-            selected_direct_source_id=str(source.id),
         )
 
         with self.assertRaises(ExposedHogQLError) as error:
@@ -531,7 +527,6 @@ class TestDirectPostgresQuery(APIBaseTest):
             query="SELECT id FROM posthog_dashboard LIMIT 1",
             team=self.team,
             connection_id=str(source.id),
-            selected_direct_source_id=str(source.id),
         )
 
         with self.assertRaises(ExposedHogQLError) as error:
@@ -584,7 +579,6 @@ class TestDirectPostgresQuery(APIBaseTest):
             query="SELECT name, count(id) FROM posthog_dashboard LIMIT 100",
             team=self.team,
             connection_id=str(source.id),
-            selected_direct_source_id=str(source.id),
         )
 
         with self.assertRaises(ExposedHogQLError) as error:
@@ -641,7 +635,6 @@ class TestDirectPostgresQuery(APIBaseTest):
             query="SELECT id FROM posthog_dashboard LIMIT 1",
             team=self.team,
             connection_id=str(source.id),
-            selected_direct_source_id=str(source.id),
             settings=HogQLGlobalSettings(max_execution_time=12),
         )
 
@@ -696,7 +689,6 @@ class TestDirectPostgresQuery(APIBaseTest):
             query="SELECT id FROM posthog_dashboard LIMIT 1",
             team=self.team,
             connection_id=str(source.id),
-            selected_direct_source_id=str(source.id),
         )
 
         response = executor.execute()
@@ -744,7 +736,6 @@ class TestDirectPostgresQuery(APIBaseTest):
             query="SELECT id FROM posthog_dashboard LIMIT 1",
             team=self.team,
             connection_id=str(source.id),
-            selected_direct_source_id=str(source.id),
         )
 
         with self.assertRaises(RuntimeError) as error:
@@ -799,7 +790,6 @@ class TestDirectPostgresQuery(APIBaseTest):
             query="SELECT id FROM posthog_dashboard LIMIT 1",
             team=self.team,
             connection_id=str(source.id),
-            selected_direct_source_id=str(source.id),
         )
 
         executor.execute()

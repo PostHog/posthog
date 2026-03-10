@@ -11383,7 +11383,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional direct query connection id for schema introspection",
+                    "description": "Optional direct external data source id for schema introspection",
                     "type": "string"
                 },
                 "kind": {
@@ -11455,6 +11455,9 @@
         "DatabaseSchemaSource": {
             "additionalProperties": false,
             "properties": {
+                "access_method": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -17383,7 +17386,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional direct query connection id for running against a specific source",
+                    "description": "Optional direct external data source id for running against a specific source",
                     "type": "string"
                 },
                 "endPosition": {
@@ -17490,7 +17493,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional direct query connection id for running against a specific source",
+                    "description": "Optional direct external data source id for running against a specific source",
                     "type": "string"
                 },
                 "debug": {
@@ -17635,7 +17638,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional direct query connection id for running against a specific source",
+                    "description": "Optional direct external data source id for running against a specific source",
                     "type": "string"
                 },
                 "explain": {

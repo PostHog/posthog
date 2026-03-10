@@ -470,6 +470,8 @@ export interface HogQLVariable {
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     kind: NodeKind.HogQLQuery
     query: string
+    /** Optional direct external data source id for running against a specific source */
+    connectionId?: string
     filters?: HogQLFilters
     /** Variables to be substituted into the query */
     variables?: Record<string, HogQLVariable>
@@ -479,8 +481,6 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     explain?: boolean
     /** Client provided name of the query */
     name?: string
-    /** Optional direct query connection id for running against a specific source */
-    connectionId?: string
 }
 
 export interface HogQueryResponse {
@@ -679,6 +679,8 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     language: HogLanguage
     /** Query to validate */
     query: string
+    /** Optional direct external data source id for running against a specific source */
+    connectionId?: string
     /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
     sourceQuery?: AnyDataNode
     /** Extra globals for the query */
@@ -689,8 +691,6 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     variables?: Record<string, HogQLVariable>
     /** Enable more verbose output, usually run from the /debug page */
     debug?: boolean
-    /** Optional direct query connection id for running against a specific source */
-    connectionId?: string
 }
 
 export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
@@ -699,6 +699,8 @@ export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
     language: HogLanguage
     /** Query to validate */
     query: string
+    /** Optional direct external data source id for running against a specific source */
+    connectionId?: string
     /** Query in whose context to validate. */
     sourceQuery?: AnyDataNode
     /** Global values in scope */
@@ -713,8 +715,6 @@ export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
      * End position of the editor word
      */
     endPosition: integer
-    /** Optional direct query connection id for running against a specific source */
-    connectionId?: string
 }
 
 export type MathType =
@@ -3613,6 +3613,7 @@ export interface DatabaseSchemaSource {
     source_type: string
     prefix: string
     last_synced_at?: string
+    access_method?: string
 }
 
 export interface DatabaseSchemaField {
@@ -3721,7 +3722,7 @@ export interface DatabaseSchemaQueryResponse {
 
 export interface DatabaseSchemaQuery extends DataNode<DatabaseSchemaQueryResponse> {
     kind: NodeKind.DatabaseSchemaQuery
-    /** Optional direct query connection id for schema introspection */
+    /** Optional direct external data source id for schema introspection */
     connectionId?: string
 }
 
