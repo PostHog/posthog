@@ -3476,7 +3476,7 @@ async def test_stripe_webhook_s3_charges(team, stripe_charge, mock_stripe_client
 
     # Run the pipeline again with webhook feature flag enabled
     with (
-        mock.patch.object(WebhookSourceManager, "_is_webhook_feature_flag_enabled", return_value=True),
+        mock.patch.object(WebhookSourceManager, "_is_webhook_feature_flag_enabled", new=AsyncMock(return_value=True)),
         mock.patch.object(DeltaTableHelper, "compact_table"),
     ):
         workflow_id = str(uuid.uuid4())
