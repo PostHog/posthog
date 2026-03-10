@@ -137,6 +137,8 @@ def credentials_touched(data: dict[str, Any], fields: list[FieldType]) -> bool:
                 return True
 
     return False
+
+
 class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExternalDataSourceRevenueAnalyticsConfig
@@ -385,12 +387,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         existing_job_inputs = instance.job_inputs or {}
         incoming_job_inputs = validated_data.get("job_inputs", {})
-        host_changed = "host" in incoming_job_inputs and incoming_job_inputs.get("host") != existing_job_inputs.get("host")
 
         source_type_model = ExternalDataSourceType(instance.source_type)
         source = SourceRegistry.get_source(source_type_model)
         password_fields = get_password_field_names(source.get_source_config.fields)
-        should_validate_connection = False
 
         new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
 
@@ -427,11 +427,6 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
             new_job_inputs["ssh_tunnel"] = merged_ssh_tunnel
 
-        if "job_inputs" in validated_data:
-            should_validate_connection = host_changed or credentials_touched(
-                incoming_job_inputs, source.get_source_config.fields
-            )
-
         is_valid, errors = source.validate_config(new_job_inputs)
         if not is_valid:
             raise ValidationError(f"Invalid source config: {', '.join(errors)}")
@@ -439,9 +434,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         source_config: Config = source.parse_config(new_job_inputs)
         validated_data["job_inputs"] = source_config.to_dict()
 
-        if should_validate_connection:
-            # Host changes and secret changes both need a real auth/connectivity check against
-            # the resolved config, so keep that in a single validation path.
+        # Host changes and secret changes both need a real auth/connectivity check
+        if incoming_job_inputs and (
+            incoming_job_inputs.get("host") != existing_job_inputs.get("host")
+            or credentials_touched(incoming_job_inputs, source.get_source_config.fields)
+        ):
             credentials_valid, credentials_error = source.validate_credentials(source_config, instance.team_id)
             if not credentials_valid:
                 raise ValidationError(credentials_error or "Invalid credentials")
