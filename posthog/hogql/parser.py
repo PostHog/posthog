@@ -1451,6 +1451,12 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         include_nulls = ctx.INCLUDE() is not None
         return ast.UnpivotExpr(table=table, columns=columns, include_nulls=include_nulls)
 
+    def visitJoinExprUnpivot(self, ctx: HogQLParser.JoinExprUnpivotContext):
+        join = self.visit(ctx.joinExpr())
+        columns = self.visit(ctx.unpivotColumnList())
+        include_nulls = ctx.INCLUDE() is not None
+        return ast.JoinExpr(table=ast.UnpivotExpr(table=join, columns=columns, include_nulls=include_nulls))
+
     def visitUnpivotColumnList(self, ctx: HogQLParser.UnpivotColumnListContext):
         return [self.visit(col) for col in ctx.unpivotColumn()]
 

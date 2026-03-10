@@ -119,6 +119,8 @@ public:
 
     virtual std::any visitJoinExprTable(HogQLParser::JoinExprTableContext *context) = 0;
 
+    virtual std::any visitJoinExprUnpivot(HogQLParser::JoinExprUnpivotContext *context) = 0;
+
     virtual std::any visitJoinExprParens(HogQLParser::JoinExprParensContext *context) = 0;
 
     virtual std::any visitJoinExprCrossOp(HogQLParser::JoinExprCrossOpContext *context) = 0;

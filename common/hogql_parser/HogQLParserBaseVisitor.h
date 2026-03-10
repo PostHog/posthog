@@ -215,6 +215,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitJoinExprUnpivot(HogQLParser::JoinExprUnpivotContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitJoinExprParens(HogQLParser::JoinExprParensContext *ctx) override {
     return visitChildren(ctx);
   }

@@ -118,6 +118,7 @@ joinExpr
     | joinExpr POSITIONAL JOIN joinExpr joinConstraintClause?                # JoinExprPositional
     | joinExpr joinOpCross joinExpr                                          # JoinExprCrossOp
     | joinExpr PIVOT LPAREN columnExprList pivotColumnList (GROUP BY columnExprList)? RPAREN  # JoinExprPivot
+    | joinExpr UNPIVOT (INCLUDE NULLS)? LPAREN unpivotColumnList RPAREN      # JoinExprUnpivot
     | tableExpr FINAL? sampleClause?                                         # JoinExprTable
     | LPAREN joinExpr RPAREN                                                 # JoinExprParens
     ;
@@ -208,9 +209,9 @@ columnExpr
     | COLUMNS LPAREN identifier DOT ASTERISK RPAREN                                       # ColumnExprColumnsQualifiedAll
     | ASTERISK COLUMNS LPAREN STRING_LITERAL RPAREN                                      # ColumnExprSpreadColumnsRegex
     | ASTERISK COLUMNS LPAREN columnExprList RPAREN                                      # ColumnExprSpreadColumnsList
-    | identifier (LPAREN columnExprs=columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList=columnExprList? RPAREN)? OVER LPAREN windowExpr RPAREN # ColumnExprWinFunction
-    | identifier (LPAREN columnExprs=columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList=columnExprList? RPAREN)? OVER identifier               # ColumnExprWinFunctionTarget
     | identifier LPAREN columnExprs=columnExprList? RPAREN withinGroupClause                                                                        # ColumnExprFunctionWithinGroup
+    | identifier (LPAREN columnExprs=columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList=columnExprList? RPAREN)? (FILTER LPAREN WHERE filterExpr=columnExpr RPAREN)? OVER LPAREN windowExpr RPAREN # ColumnExprWinFunction
+    | identifier (LPAREN columnExprs=columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList=columnExprList? RPAREN)? (FILTER LPAREN WHERE filterExpr=columnExpr RPAREN)? OVER identifier               # ColumnExprWinFunctionTarget
     | identifier (LPAREN columnExprs=columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList=columnExprList? (ORDER BY orderExprList)? RPAREN (FILTER LPAREN WHERE filterExpr=columnExpr RPAREN)?  # ColumnExprFunction
     | columnExpr LPAREN selectSetStmt RPAREN                                              # ColumnExprCallSelect
     | columnExpr LPAREN columnExprList? RPAREN                                            # ColumnExprCall

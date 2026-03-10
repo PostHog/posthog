@@ -259,6 +259,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#JoinExprUnpivot.
+    def visitJoinExprUnpivot(self, ctx:HogQLParser.JoinExprUnpivotContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by HogQLParser#JoinExprParens.
     def visitJoinExprParens(self, ctx:HogQLParser.JoinExprParensContext):
         return self.visitChildren(ctx)

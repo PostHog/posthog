@@ -1074,6 +1074,50 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     return json;
   }
 
+  VISIT(JoinExprUnpivot) {
+    Json unpivot_json = Json::object();
+    unpivot_json["node"] = "UnpivotExpr";
+    if (!is_internal) addPositionInfo(unpivot_json, ctx);
+    unpivot_json["table"] = visitAsJSON(ctx->joinExpr());
+    Json columns = Json::array();
+    for (auto unpivot_col : ctx->unpivotColumnList()->unpivotColumn()) {
+      Json col_json = Json::object();
+      col_json["node"] = "UnpivotColumn";
+      auto tuple_or_singles = unpivot_col->columnExprTupleOrSingle();
+      auto val_ctx = tuple_or_singles[0];
+      if (val_ctx->columnExprList()) {
+        Json tuple_json = Json::object();
+        tuple_json["node"] = "Tuple";
+        tuple_json["exprs"] = visitAsJSON(val_ctx->columnExprList());
+        col_json["value_columns"] = std::move(tuple_json);
+      } else {
+        col_json["value_columns"] = visitAsJSON(val_ctx->columnExpr());
+      }
+      auto name_ctx = tuple_or_singles[1];
+      if (name_ctx->columnExprList()) {
+        Json tuple_json = Json::object();
+        tuple_json["node"] = "Tuple";
+        tuple_json["exprs"] = visitAsJSON(name_ctx->columnExprList());
+        col_json["name_columns"] = std::move(tuple_json);
+      } else {
+        col_json["name_columns"] = visitAsJSON(name_ctx->columnExpr());
+      }
+      col_json["unpivot_values"] = visitAsJSON(unpivot_col->columnExprList()[0]);
+      columns.pushBack(std::move(col_json));
+    }
+    unpivot_json["columns"] = std::move(columns);
+    unpivot_json["include_nulls"] = ctx->INCLUDE() != nullptr;
+    Json json = Json::object();
+    json["node"] = "JoinExpr";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["table"] = std::move(unpivot_json);
+    json["table_final"] = Json(nullptr);
+    json["sample"] = Json(nullptr);
+    json["next_join"] = Json(nullptr);
+    json["alias"] = Json(nullptr);
+    return json;
+  }
+
   VISIT(JoinExprPositional) {
     Json join2_json = visitAsJSON(ctx->joinExpr(1));
     Json join1_json = visitAsJSON(ctx->joinExpr(0));

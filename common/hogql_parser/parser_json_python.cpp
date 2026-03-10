@@ -17,7 +17,7 @@
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "s|p", (char**)kwlist, &str, &internal)) {                \
       return NULL;                                                                                           \
     }                                                                                                        \
-    auto input_stream = new antlr4::ANTLRInputStream(str, strnlen(str, 65536));                              \
+    auto input_stream = new antlr4::ANTLRInputStream(str, strlen(str));                                      \
     auto lexer = new HogQLLexer(input_stream);                                                               \
     auto stream = new antlr4::CommonTokenStream(lexer);                                                      \
     auto parser = new HogQLParser(stream);                                                                   \
