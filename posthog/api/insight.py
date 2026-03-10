@@ -1181,6 +1181,9 @@ class InsightViewSet(
         """
         Returns basic details about the last 5 insights viewed by this user. Most recently viewed first.
         """
+        if not request.user.is_authenticated:
+            return Response([])
+
         queryset = (
             Insight.objects.filter(team=self.team, insightviewed__user=request.user, deleted=False)
             .annotate(last_viewed_at=F("insightviewed__last_viewed_at"))
