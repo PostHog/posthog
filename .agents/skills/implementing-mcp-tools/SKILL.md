@@ -74,7 +74,7 @@ YAML files configure which operations are exposed as MCP tools.
 See existing definitions for patterns:
 
 - `products/<product>/mcp/*.yaml` — preferred, keeps config close to the code
-- `services/mcp/definitions/*.yaml` — shared location
+- `services/mcp/definitions/*.yaml` — fallback for functionality without a product folder
 
 The build pipeline discovers YAML files from both paths.
 

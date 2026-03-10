@@ -12,7 +12,6 @@ import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analy
 import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/FilterTestAccountsConfiguration'
 import { GoalsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/GoalsConfiguration'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -114,7 +113,6 @@ import { ApprovalPolicies } from './organization/Approvals/ApprovalPolicies'
 import { ChangeRequestsList } from './organization/Approvals/ChangeRequestsList'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
-import { MembersPlatformAddonAd } from './organization/MembersPlatformAddonAd'
 import { OAuthApps } from './organization/OAuthApps'
 import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
@@ -319,6 +317,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
             },
             {
+                // FIXME: changelog should probably not be here since it updates user's settings. Maybe belongs under account settings?
                 id: 'changelog',
                 title: 'Changelog',
                 description:
@@ -559,21 +558,16 @@ export const SETTINGS_MAP: SettingSection[] = [
         },
         settings: [
             {
+                // FIXME: remove from "Revenue definitions" page
                 id: 'revenue-base-currency',
                 title: 'Base currency',
                 description: 'Set the base currency for revenue analytics calculations.',
-                component: (
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.RevenueAnalytics}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <BaseCurrency hideTitle />
-                    </AccessControlAction>
-                ),
+                component: <BaseCurrency hideTitle />,
                 hideWhenNoSection: true,
                 keywords: ['money', 'currency', 'usd', 'eur'],
             },
             {
+                // FIXME: remove from "Revenue definitions" page
                 id: 'revenue-analytics-filter-test-accounts',
                 title: 'Filter out internal and test users from revenue analytics',
                 description: 'Exclude test accounts from revenue calculations and reports.',
@@ -581,6 +575,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['test account', 'internal', 'exclude', 'filter', 'revenue'],
             },
             {
+                // FIXME: should not be in settings
                 id: 'revenue-analytics-goals',
                 title: 'Revenue goals',
                 description: 'Set revenue targets to track performance against your business objectives.',
@@ -588,6 +583,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['target', 'mrr', 'arr', 'goal'],
             },
             {
+                // FIXME: should not be in settings
                 id: 'revenue-analytics-events',
                 title: 'Revenue events',
                 description: 'Configure which events represent revenue-generating actions.',
@@ -596,6 +592,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['purchase', 'payment', 'subscription', 'charge'],
             },
             {
+                // FIXME: should not be in settings
                 id: 'revenue-analytics-external-data-sources',
                 title: 'External data sources',
                 description: 'Connect external data sources like Stripe for revenue tracking.',
@@ -1349,11 +1346,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'organization-members',
         title: 'Members',
         settings: [
-            {
-                id: 'banner',
-                title: null,
-                component: <MembersPlatformAddonAd />,
-            },
             {
                 id: 'invites',
                 title: 'Pending invites',

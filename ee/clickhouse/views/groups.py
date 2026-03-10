@@ -37,7 +37,7 @@ from posthog.models.group_type_mapping import (
 )
 from posthog.models.user import User
 from posthog.personhog_client.converters import GroupTypeMappingResult
-from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL
+from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 from products.event_definitions.backend.models.property_definition import PropertyType
@@ -229,14 +229,19 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             try:
                 result = fetch_group_type_mapping_result(self.team.project_id, group_type_index)
                 if result is not None:
-                    PERSONHOG_ROUTING_TOTAL.labels(operation="get_group_type_mapping_or_404", source="personhog").inc()
+                    PERSONHOG_ROUTING_TOTAL.labels(
+                        operation="get_group_type_mapping_or_404", source="personhog", client_name=get_client_name()
+                    ).inc()
                     return result
                 raise NotFound()
             except NotFound:
                 raise
             except Exception:
                 PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-                    operation="get_group_type_mapping_or_404", source="personhog", error_type="grpc_error"
+                    operation="get_group_type_mapping_or_404",
+                    source="personhog",
+                    error_type="grpc_error",
+                    client_name=get_client_name(),
                 ).inc()
                 logger.warning(
                     "personhog_group_type_mapping_failure",
@@ -247,7 +252,9 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
 
         try:
             obj = GroupTypeMapping.objects.get(project_id=self.team.project_id, group_type_index=group_type_index)
-            PERSONHOG_ROUTING_TOTAL.labels(operation="get_group_type_mapping_or_404", source="django_orm").inc()
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="get_group_type_mapping_or_404", source="django_orm", client_name=get_client_name()
+            ).inc()
             return GroupTypeMappingResult(group_type=obj.group_type, group_type_index=obj.group_type_index)
         except GroupTypeMapping.DoesNotExist:
             raise NotFound()

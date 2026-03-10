@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import json
 import time
@@ -10,9 +12,12 @@ import logging
 import tempfile
 import subprocess
 from collections.abc import Iterable
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
+
+if TYPE_CHECKING:
+    from products.tasks.backend.temporal.process_task.utils import McpServerConfig
 
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.temporal.exceptions import (
@@ -44,7 +49,7 @@ class DockerSandbox:
     config: SandboxConfig
     _container_id: str
     _host_port: int | None
-    _registry: dict[str, "DockerSandbox"] = {}
+    _registry: dict[str, DockerSandbox] = {}
 
     def __init__(self, container_id: str, config: SandboxConfig, host_port: int | None = None):
         self._container_id = container_id
@@ -225,7 +230,7 @@ class DockerSandbox:
         return url
 
     @staticmethod
-    def create(config: SandboxConfig) -> "DockerSandbox":
+    def create(config: SandboxConfig) -> DockerSandbox:
         try:
             image = DockerSandbox._get_image(config)
             container_name = f"{config.name}-{uuid.uuid4().hex[:6]}"
@@ -285,7 +290,7 @@ class DockerSandbox:
             )
 
     @staticmethod
-    def get_by_id(sandbox_id: str) -> "DockerSandbox":
+    def get_by_id(sandbox_id: str) -> DockerSandbox:
         if sandbox_id in DockerSandbox._registry:
             return DockerSandbox._registry[sandbox_id]
 
@@ -549,6 +554,7 @@ class DockerSandbox:
         mode: str,
         interaction_origin: str | None = None,
         branch: str | None = None,
+        mcp_servers_arg: str = "",
     ) -> str:
         env_prefix = f"env TWIG_INTERACTION_ORIGIN={shlex.quote(interaction_origin)} " if interaction_origin else ""
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
@@ -556,7 +562,7 @@ class DockerSandbox:
             f"cd /scripts && "
             f"nohup {env_prefix}npx agent-server --port {AGENT_SERVER_PORT} --repositoryPath {shlex.quote(repo_path)} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{branch_flag} "
+            f"{branch_flag}{mcp_servers_arg} "
             f"> /tmp/agent-server.log 2>&1 &"
         )
 
@@ -579,6 +585,7 @@ class DockerSandbox:
         mode: str = "background",
         interaction_origin: str | None = None,
         branch: str | None = None,
+        mcp_configs: list[McpServerConfig] | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -594,7 +601,14 @@ class DockerSandbox:
         org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        command = self._build_agent_server_command(repo_path, task_id, run_id, mode, interaction_origin, branch)
+        mcp_servers_arg = ""
+        if mcp_configs:
+            mcp_json = json.dumps([c.to_dict() for c in mcp_configs])
+            mcp_servers_arg = f" --mcpServers {shlex.quote(mcp_json)}"
+
+        command = self._build_agent_server_command(
+            repo_path, task_id, run_id, mode, interaction_origin, branch, mcp_servers_arg
+        )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository}")
 
@@ -613,7 +627,7 @@ class DockerSandbox:
             self.execute("pkill -f agent-server || true", timeout_seconds=5)
 
             command = self._build_agent_server_command(
-                repo_path, task_id, run_id, mode, interaction_origin, branch=None
+                repo_path, task_id, run_id, mode, interaction_origin, branch=None, mcp_servers_arg=mcp_servers_arg
             )
             if self._launch_and_check(command):
                 logger.info(f"Agent-server started on port {self._host_port} (without --baseBranch)")

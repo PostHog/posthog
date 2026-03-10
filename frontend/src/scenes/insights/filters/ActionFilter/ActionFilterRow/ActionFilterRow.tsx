@@ -107,8 +107,12 @@ const SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN = new Set([
     PropertyMathType.Maximum,
 ])
 
-const DragHandle = (props: DraggableSyntheticListeners | undefined): JSX.Element => (
-    <span className="ActionFilterRowDragHandle" key="drag-handle" {...props}>
+interface DragHandleProps {
+    listeners: DraggableSyntheticListeners | undefined
+}
+
+const DragHandle = ({ listeners }: DragHandleProps): JSX.Element => (
+    <span className="ActionFilterRowDragHandle" {...listeners}>
         <SortableDragIcon />
     </span>
 )
@@ -599,7 +603,7 @@ export function ActionFilterRow({
     )
 
     const rowStartElements = [
-        sortable && filterCount > 1 ? <DragHandle {...listeners} /> : null,
+        sortable && filterCount > 1 ? <DragHandle key="drag-handle" listeners={listeners} /> : null,
         showSeriesIndicator && <div key="series-indicator">{seriesIndicator}</div>,
     ].filter(Boolean)
 

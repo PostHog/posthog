@@ -28,7 +28,8 @@
         "generate-client": "tsx scripts/update-openapi-client.ts",
         "generate-orval-schemas": "node scripts/generate-orval-schemas.mjs",
         "generate-tools": "tsx scripts/generate-tools.ts",
-        "scaffold-yaml": "tsx scripts/scaffold-yaml.ts"
+        "scaffold-yaml": "tsx scripts/scaffold-yaml.ts",
+        "format": "oxlint --fix --fix-suggestions --fix-dangerously --quiet && oxfmt \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\""
     },
     "dependencies": {
         "@modelcontextprotocol/ext-apps": "^1.0.1",
@@ -62,7 +63,7 @@
         "tailwindcss": "^4.1.10",
         "tsx": "^4.20.5",
         "typed-openapi": "^2.2.2",
-        "typescript": "^5.2.2",
+        "typescript": "catalog:",
         "vite": "^5.4.21",
         "vite-plugin-singlefile": "^2.3.0",
         "vite-tsconfig-paths": "^5.1.4",
