@@ -32,7 +32,7 @@ const emailTrackingErrorsCounter = new Counter({
 })
 
 export const generateTrackingRedirectUrl = (
-    invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id'>,
+    invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id' | 'teamId'>,
     targetUrl: string
 ): string => {
     return `${defaultConfig.CDP_EMAIL_TRACKING_URL}/public/m/redirect?ph_id=${generateEmailTrackingCode(invocation)}&target=${encodeURIComponent(targetUrl)}`
@@ -128,14 +128,6 @@ export class EmailTrackingService {
         })
     }
 
-    private async resolveTeamId(functionId: string): Promise<number | null> {
-        const [hogFunction, hogFlow] = await Promise.all([
-            this.hogFunctionManager.getHogFunction(functionId).catch(() => null),
-            this.hogFlowManager.getHogFlow(functionId).catch(() => null),
-        ])
-        return hogFunction?.team_id ?? hogFlow?.team_id ?? null
-    }
-
     public async handleSesWebhook(req: ModifiedRequest): Promise<{ status: number; message?: string }> {
         if (!req.body) {
             return { status: 403, message: 'Missing request body' }
@@ -159,14 +151,11 @@ export class EmailTrackingService {
 
             // Collect all emails to opt out per team, then batch each team's opt-out in one query
             const emailsByTeam = new Map<number, string[]>()
-            for (const { functionId, emailAddresses } of optOutRecipients || []) {
-                if (!functionId) {
-                    continue
-                }
-                const teamId = await this.resolveTeamId(functionId)
-                if (!teamId) {
-                    logger.error('[EmailTrackingService] handleSesWebhook: Could not resolve team for opt-out', {
-                        functionId,
+            for (const { teamId: teamIdStr, emailAddresses } of optOutRecipients || []) {
+                const teamId = teamIdStr ? parseInt(teamIdStr, 10) : NaN
+                if (!teamId || isNaN(teamId)) {
+                    logger.error('[EmailTrackingService] handleSesWebhook: Missing or invalid teamId for opt-out', {
+                        teamIdStr,
                         emailAddresses,
                     })
                     continue
