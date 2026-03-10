@@ -602,7 +602,7 @@ impl FeatureFlagMatcher {
         cohorts: Vec<Cohort>,
     ) -> Result<bool, FlagError> {
         // Track cohort evaluations in canonical log
-        with_canonical_log(|log| log.cohorts_evaluated += cohort_property_filters.len());
+        with_canonical_log(|log| log.eval.cohorts_evaluated += cohort_property_filters.len());
 
         // Get cached static cohort results or evaluate them if not cached
         let static_cohort_matches = match self.flag_evaluation_state.get_static_cohort_matches() {
@@ -1215,7 +1215,7 @@ impl FeatureFlagMatcher {
                     .as_ref()
                     .is_some_and(|device_id| !device_id.is_empty())
                 {
-                    with_canonical_log(|log| log.flags_device_id_bucketing += 1);
+                    with_canonical_log(|log| log.eval.flags_device_id_bucketing += 1);
                 } else {
                     with_canonical_log(|log| {
                         tracing::warn!(
@@ -1943,7 +1943,7 @@ impl FeatureFlagMatcher {
                 &[("type".to_string(), "person_properties".to_string())],
                 1,
             );
-            with_canonical_log(|log| log.property_cache_hits += 1);
+            with_canonical_log(|log| log.eval.property_cache_hits += 1);
             let mut result = HashMap::new();
             result.clone_from(properties);
             Ok(result)
@@ -1954,8 +1954,8 @@ impl FeatureFlagMatcher {
                 1,
             );
             with_canonical_log(|log| {
-                log.property_cache_misses += 1;
-                log.person_properties_not_cached = true;
+                log.eval.property_cache_misses += 1;
+                log.eval.person_properties_not_cached = true;
             });
             // Return empty HashMap instead of error - no properties is a valid state
             // TODO probably worth error modeling empty cache vs error.
@@ -1981,7 +1981,7 @@ impl FeatureFlagMatcher {
                 &[("type".to_string(), "group_properties".to_string())],
                 1,
             );
-            with_canonical_log(|log| log.property_cache_hits += 1);
+            with_canonical_log(|log| log.eval.property_cache_hits += 1);
             let mut result = HashMap::new();
             result.clone_from(properties);
             Ok(result)
@@ -1992,8 +1992,8 @@ impl FeatureFlagMatcher {
                 1,
             );
             with_canonical_log(|log| {
-                log.property_cache_misses += 1;
-                log.group_properties_not_cached = true;
+                log.eval.property_cache_misses += 1;
+                log.eval.group_properties_not_cached = true;
             });
             // Return empty HashMap instead of error - no properties is a valid state
             Ok(HashMap::new())
