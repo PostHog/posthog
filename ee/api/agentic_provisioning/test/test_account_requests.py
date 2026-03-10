@@ -107,7 +107,6 @@ class TestAccountRequests(StripeProvisioningTestBase):
         assert res.status_code == 400
         assert res.json()["error"]["code"] == "invalid_request"
 
-
     def test_invalid_signature_returns_401(self):
         payload = self._account_request_payload()
         res = self.client.post(

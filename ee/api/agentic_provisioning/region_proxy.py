@@ -139,7 +139,6 @@ def stripe_region_proxy(strategy: str):
             if request.META.get(f"HTTP_{PROXY_LOOP_HEADER.upper().replace('-', '_')}"):
                 return view_func(request, *args, **kwargs)
 
-
             if check_fn(request, current):
                 target = _other_region_domain(current)
                 logger.info(
