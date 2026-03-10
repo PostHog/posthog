@@ -81,7 +81,15 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                 // it's window.location.origin of the app itself, so it's always correct even
                 // for reverse-proxy customers who haven't set ui_host in posthog.init().
                 if (props.uiHost) {
-                    return props.uiHost.replace(/\/+$/, '')
+                    // Validate scheme to prevent javascript:/data: XSS via crafted hash params
+                    try {
+                        const parsed = new URL(props.uiHost)
+                        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+                            return props.uiHost.replace(/\/+$/, '')
+                        }
+                    } catch {
+                        // invalid URL, fall through to other sources
+                    }
                 }
 
                 // requestRouter.uiHost honours explicit ui_host config and derives from
