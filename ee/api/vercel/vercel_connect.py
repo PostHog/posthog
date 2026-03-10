@@ -32,6 +32,23 @@ def _get_connect_cache_key(session_key: str) -> str:
     return f"vercel_connect:{session_key}"
 
 
+def _get_connect_bound_key(session_key: str) -> str:
+    return f"vercel_connect_bound:{session_key}"
+
+
+def _bind_session_to_user(session_key: str, user_pk: int) -> None:
+    """Atomically bind a connect session to a user, or reject if already bound to someone else.
+
+    Uses cache.add() which maps to Redis SET NX -- atomic set-if-not-exists.
+    """
+    bound_key = _get_connect_bound_key(session_key)
+    was_set = cache.add(bound_key, user_pk, timeout=CONNECT_SESSION_TIMEOUT)
+    if not was_set:
+        existing_user_pk = cache.get(bound_key)
+        if existing_user_pk != user_pk:
+            raise exceptions.ValidationError("Session expired. Please try linking again from Vercel.")
+
+
 def _validate_next_url(url: str) -> str:
     """Validate and sanitize the next_url to prevent open redirects."""
     if not url:
@@ -141,12 +158,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         if not cached_data:
             raise exceptions.ValidationError("Session expired. Please try linking again from Vercel.")
 
-        # Bind session to this user if unbound, reject if bound to someone else
-        if "bound_user_id" not in cached_data:
-            cached_data["bound_user_id"] = user.pk
-            cache.set(_get_connect_cache_key(session_key), cached_data, timeout=CONNECT_SESSION_TIMEOUT)
-        elif cached_data["bound_user_id"] != user.pk:
-            raise exceptions.PermissionDenied("Session expired. Please try linking again from Vercel.")
+        _bind_session_to_user(session_key, user.pk)
 
         try:
             membership = OrganizationMembership.objects.get(
@@ -194,8 +206,8 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             created_by=user,
         )
 
-        # Clean up the session
         cache.delete(_get_connect_cache_key(session_key))
+        cache.delete(_get_connect_bound_key(session_key))
 
         logger.info(
             "Vercel connectable account linked",
@@ -228,13 +240,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
 
         user = cast(User, request.user)
 
-        # Bind session to the first authenticated user who accesses it
-        if "bound_user_id" not in cached_data:
-            cached_data["bound_user_id"] = user.pk
-            cache_key = _get_connect_cache_key(session_key)
-            cache.set(cache_key, cached_data, timeout=CONNECT_SESSION_TIMEOUT)
-        elif cached_data["bound_user_id"] != user.pk:
-            raise exceptions.PermissionDenied("Session expired. Please try linking again from Vercel.")
+        _bind_session_to_user(session_key, user.pk)
 
         memberships = OrganizationMembership.objects.filter(
             user=user,
