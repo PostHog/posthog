@@ -262,6 +262,8 @@ class UserOrEmailRateThrottle(SimpleRateThrottle):
             # For unauthenticated requests, we want to throttle on something unique to the user they are trying to work with
             # This could be email for example when logging in or uuid when verifying email
             ident = request.data.get("email") or request.data.get("uuid") or self.get_ident(request)
+            if isinstance(ident, str):
+                ident = ident.lower()
             ident = hashlib.sha256(ident.encode()).hexdigest()
 
         return self.cache_format % {"scope": self.scope, "ident": ident}

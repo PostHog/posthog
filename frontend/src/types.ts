@@ -3316,6 +3316,7 @@ export interface ChoiceQuestionProcessedResponses {
     type: SurveyQuestionType.SingleChoice | SurveyQuestionType.Rating | SurveyQuestionType.MultipleChoice
     data: ChoiceQuestionResponseData[]
     totalResponses: number
+    noResponseCount: number
 }
 
 export interface OpenQuestionProcessedResponses {
@@ -5271,6 +5272,7 @@ export enum ActivityScope {
     USER = 'User',
     LLM_TRACE = 'LLMTrace',
     LOG = 'Log',
+    LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',
     PRODUCT_TOUR = 'ProductTour',
     TICKET = 'Ticket',
 }

@@ -21820,6 +21820,23 @@
             "required": ["type", "id", "query"],
             "type": "object"
         },
+        "MaxNotebookContext": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "type": {
+                    "const": "notebook",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "id"],
+            "type": "object"
+        },
         "MaxOuterUniversalFiltersGroup": {
             "additionalProperties": false,
             "properties": {
@@ -21994,6 +22011,12 @@
                 "insights": {
                     "items": {
                         "$ref": "#/definitions/MaxInsightContext"
+                    },
+                    "type": "array"
+                },
+                "notebooks": {
+                    "items": {
+                        "$ref": "#/definitions/MaxNotebookContext"
                     },
                     "type": "array"
                 }
@@ -22635,6 +22658,10 @@
                     "const": "notebook",
                     "description": "Notebook",
                     "type": "string"
+                },
+                "is_saved": {
+                    "description": "Whether this notebook has been saved to the database (not stored, set during enrichment)",
+                    "type": "boolean"
                 },
                 "title": {
                     "description": "Title for the notebook",

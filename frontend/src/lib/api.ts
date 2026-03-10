@@ -19,7 +19,7 @@ import { SessionSummaryContent } from 'scenes/session-recordings/player/player-m
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
-import { OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
+import { GitHubReposResponseApi, OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
     AnyResponseType,
@@ -3596,12 +3596,9 @@ const api = {
 
         async split(
             issueId: ErrorTrackingIssue['id'],
-            fingerprints: string[],
-            exclusive: boolean
-        ): Promise<{ content: string }> {
-            return await new ApiRequest()
-                .errorTrackingIssueSplit(issueId)
-                .create({ data: { fingerprints: fingerprints, exclusive } })
+            fingerprints: { fingerprint: string; name?: string; description?: string }[]
+        ): Promise<{ success: boolean; new_issue_ids: string[] }> {
+            return await new ApiRequest().errorTrackingIssueSplit(issueId).create({ data: { fingerprints } })
         },
 
         fingerprints: {
@@ -4046,7 +4043,9 @@ const api = {
                 .get()
         },
         async create(
-            data?: Pick<NotebookType, 'content' | 'text_content' | 'title' | '_create_in_folder'>
+            data?: Pick<NotebookType, 'content' | 'text_content' | 'title' | '_create_in_folder'> & {
+                short_id?: string
+            }
         ): Promise<NotebookType> {
             return await new ApiRequest().notebooks().create({ data })
         },
@@ -4962,7 +4961,7 @@ const api = {
         async linearTeams(id: IntegrationType['id']): Promise<{ teams: LinearTeamType[] }> {
             return await new ApiRequest().integrationLinearTeams(id).get()
         },
-        async githubRepositories(id: IntegrationType['id']): Promise<{ repositories: string[] }> {
+        async githubRepositories(id: IntegrationType['id']): Promise<GitHubReposResponseApi> {
             return await new ApiRequest().integrationGitHubRepositories(id).get()
         },
         async jiraProjects(id: IntegrationType['id']): Promise<{ projects: JiraProjectType[] }> {

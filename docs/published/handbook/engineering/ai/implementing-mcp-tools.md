@@ -19,7 +19,7 @@ pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
     --output ../../products/your_product/mcp/tools.yaml
 
 # 2. Configure the YAML – enable tools, add scopes, annotations, descriptions
-#    Place in products/<product>/mcp/*.yaml (preferred) or services/mcp/definitions/*.yaml
+#    Place in products/<product>/mcp/*.yaml (preferred, e.g. actions, cohorts)
 
 # 3. Add a HogQL system table in posthog/hogql/database/schema/system.py
 #    and a model reference in products/posthog_ai/skills/query-examples/references/
@@ -156,10 +156,10 @@ build:openapi-mcp-tools  YAML definitions + Zod schemas → TypeScript tool hand
 ### YAML definitions
 
 YAML definitions are the configuration layer.
-They can live in two locations:
+They live in **`products/<product>/mcp/*.yaml`**, keeping config close to the owning product's code.
 
-- **`products/<product>/mcp/*.yaml`** – preferred for product-owned definitions, keeps config close to the code.
-- **`services/mcp/definitions/*.yaml`** – shared location.
+> **Fallback path:** `services/mcp/definitions/*.yaml` is available for functionality that doesn't have a product folder.
+> When a product folder exists, always place definitions there.
 
 The build pipeline discovers YAML files from both paths.
 Product teams own their definitions and control which operations are exposed as MCP tools.
@@ -239,7 +239,7 @@ it only adds newly discovered operations (with `enabled: false`) and removes sta
 All hand-authored configuration is preserved.
 CI runs this as a drift check.
 
-See [`services/mcp/definitions/README.md`](https://github.com/PostHog/posthog/blob/master/services/mcp/definitions/README.md) for the full YAML schema reference
+See [`services/mcp/definitions/README.md`](https://github.com/PostHog/posthog/blob/master/services/mcp/definitions/README.md) for the full YAML schema reference (note: YAML definitions themselves now live in product folders)
 and [`services/mcp/scripts/yaml-config-schema.ts`](https://github.com/PostHog/posthog/blob/master/services/mcp/scripts/yaml-config-schema.ts) for the Zod validation source.
 
 ## Testing
