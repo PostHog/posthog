@@ -20,6 +20,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import StripeIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken, find_oauth_refresh_token
 from posthog.models.team.team import Team
@@ -637,7 +638,7 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
     try:
         team.reset_token_and_save(user=user, is_impersonated_session=False)
     except Exception:
-        logger.exception("agentic_provisioning.rotate_credentials.reset_token_failed", team_id=team_id)
+        capture_exception(additional_properties={"team_id": team_id})
         return _error_response(
             "credential_rotation_failed", "Failed to rotate credentials", resource_id=resource_id, status=500
         )
