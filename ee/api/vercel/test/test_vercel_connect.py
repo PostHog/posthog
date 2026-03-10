@@ -11,7 +11,7 @@ from rest_framework import status
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 
-from ee.api.vercel.vercel_connect import _get_connect_bound_key, _get_connect_cache_key
+from ee.api.vercel.vercel_connect import _get_connect_cache_key
 from ee.vercel.client import OAuthTokenResponse
 
 CACHED_SESSION_DATA = {
@@ -25,10 +25,8 @@ CACHED_SESSION_DATA = {
 }
 
 
-def _seed_session(session_key: str = "test-session", data: dict | None = None, bound_user_id: int | None = None) -> str:
+def _seed_session(session_key: str = "test-session", data: dict | None = None) -> str:
     cache.set(_get_connect_cache_key(session_key), data or CACHED_SESSION_DATA, timeout=600)
-    if bound_user_id is not None:
-        cache.set(_get_connect_bound_key(session_key), bound_user_id, timeout=600)
     return session_key
 
 
@@ -237,52 +235,6 @@ class TestVercelConnectSessionInfo(VercelConnectTestBase):
         org_names = [o["name"] for o in response.json()["organizations"]]
         assert "Other Org" not in org_names
 
-    def test_session_info_binds_user(self):
-        session_key = _seed_session()
-
-        self.client.get(self.url, {"session": session_key})
-
-        assert cache.get(_get_connect_bound_key(session_key)) == self.user.pk
-
-    def test_session_info_rejects_different_user(self):
-        session_key = _seed_session(bound_user_id=999)
-
-        response = self.client.get(self.url, {"session": session_key})
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-    def test_session_binding_immutable_across_users(self):
-        session_key = _seed_session()
-
-        self.client.get(self.url, {"session": session_key})
-        assert cache.get(_get_connect_bound_key(session_key)) == self.user.pk
-
-        other_user = self._create_user("attacker@posthog.com")
-        self.client.force_login(other_user)
-        response = self.client.get(self.url, {"session": session_key})
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert cache.get(_get_connect_bound_key(session_key)) == self.user.pk
-
-    def test_session_bound_via_session_info_rejects_different_user_on_complete(self):
-        session_key = _seed_session()
-        complete_url = "/api/vercel/connect/complete"
-
-        self.client.get(self.url, {"session": session_key})
-
-        other_user = self._create_user("crossendpoint@posthog.com")
-        OrganizationMembership.objects.filter(user=other_user, organization=self.organization).update(
-            level=OrganizationMembership.Level.ADMIN,
-        )
-        self.client.force_login(other_user)
-        response = self.client.post(
-            complete_url,
-            {"session": session_key, "organization_id": str(self.organization.id)},
-            content_type="application/json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
     def test_unauthenticated_returns_403(self):
         self.client.logout()
         session_key = _seed_session()
@@ -307,7 +259,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_successful_link_creates_integration(self):
-        session_key = _seed_session(bound_user_id=self.user.pk)
+        session_key = _seed_session()
 
         response = self.client.post(
             self.url,
@@ -329,7 +281,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         assert integration.integration_id == "icfg_connect_test"
 
     def test_session_deleted_after_linking(self):
-        session_key = _seed_session(bound_user_id=self.user.pk)
+        session_key = _seed_session()
 
         self.client.post(
             self.url,
@@ -338,11 +290,10 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         )
 
         assert cache.get(_get_connect_cache_key(session_key)) is None
-        assert cache.get(_get_connect_bound_key(session_key)) is None
 
     def test_non_member_returns_403(self):
         other_org = Organization.objects.create(name="Not My Org")
-        session_key = _seed_session(bound_user_id=self.user.pk)
+        session_key = _seed_session()
 
         response = self.client.post(
             self.url,
@@ -359,7 +310,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             organization=other_org,
             level=OrganizationMembership.Level.MEMBER,
         )
-        session_key = _seed_session(bound_user_id=self.user.pk)
+        session_key = _seed_session()
 
         response = self.client.post(
             self.url,
@@ -377,7 +328,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             config={},
             created_by=self.user,
         )
-        session_key = _seed_session(bound_user_id=self.user.pk)
+        session_key = _seed_session()
 
         response = self.client.post(
             self.url,
@@ -387,67 +338,6 @@ class TestVercelConnectComplete(VercelConnectTestBase):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "already has a Vercel integration" in response.json()["detail"]
-
-    def test_complete_rejects_different_user(self):
-        other_user = self._create_user("other@posthog.com")
-        session_key = _seed_session(bound_user_id=other_user.pk)
-
-        response = self.client.post(
-            self.url,
-            {"session": session_key, "organization_id": str(self.organization.id)},
-            content_type="application/json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-    def test_complete_binds_user_if_session_info_was_not_called(self):
-        session_key = _seed_session()
-
-        response = self.client.post(
-            self.url,
-            {"session": session_key, "organization_id": str(self.organization.id)},
-            content_type="application/json",
-        )
-
-        assert response.status_code == status.HTTP_201_CREATED
-        assert cache.get(_get_connect_bound_key(session_key)) is None  # cleaned up after linking
-
-    def test_complete_binds_user_and_verifies_binding_in_cache(self):
-        session_key = _seed_session()
-
-        OrganizationIntegration.objects.create(
-            organization=self.organization,
-            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
-            integration_id="icfg_existing",
-            config={},
-            created_by=self.user,
-        )
-
-        response = self.client.post(
-            self.url,
-            {"session": session_key, "organization_id": str(self.organization.id)},
-            content_type="application/json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert cache.get(_get_connect_bound_key(session_key)) == self.user.pk
-
-    def test_replay_after_consumption_returns_400(self):
-        session_key = _seed_session()
-
-        response = self.client.post(
-            self.url,
-            {"session": session_key, "organization_id": str(self.organization.id)},
-            content_type="application/json",
-        )
-        assert response.status_code == status.HTTP_201_CREATED
-
-        response = self.client.post(
-            self.url,
-            {"session": session_key, "organization_id": str(self.organization.id)},
-            content_type="application/json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_unauthenticated_returns_403(self):
         self.client.logout()
