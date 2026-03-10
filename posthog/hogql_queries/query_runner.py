@@ -1168,7 +1168,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         insight_id: Optional[int] = None,
         dashboard_id: Optional[int] = None,
         cache_age_seconds: Optional[int] = None,
-        is_polling: bool = False,
     ) -> CR | CacheMissResponse | QueryStatusResponse:
         # Set user for access control during query execution
         if user is not None:
@@ -1275,7 +1274,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             "cache_key": cache_key,
                             "cache_hit": True if isinstance(results, CachedResponse) else False,
                             "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
-                            "is_polling": is_polling,
                             **cache_tracking_props,
                         },
                         groups=(groups(self.team.organization, self.team)),
@@ -1350,7 +1348,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
                     "query_duration_ms": query_duration_ms,
                     "has_error": has_error,
-                    "is_polling": is_polling,
                 },
                 groups=(groups(self.team.organization, self.team)),
             )

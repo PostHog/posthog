@@ -202,17 +202,17 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             return_value=PropertyValuesQueryResponse(results=[]),
         ) as mock_run:
             self.client.get(url)
-            mock_run.assert_called_once_with(ExecutionMode[expected_mode_name], is_polling=False)
+            mock_run.assert_called_once_with(ExecutionMode[expected_mode_name])
 
     @parameterized.expand(
         [
-            ("not_set", "", False),
-            ("false", "is_polling=false", False),
-            ("true", "is_polling=true", True),
+            ("not_set", "", "RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS"),
+            ("false", "is_polling=false", "RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS"),
+            ("true", "is_polling=true", "CACHE_ONLY_NEVER_CALCULATE"),
         ]
     )
     @freeze_time("2020-01-10")
-    def test_person_property_values_is_polling(self, _name, param, expected_is_polling):
+    def test_person_property_values_is_polling(self, _name, param, expected_mode_name):
         from posthog.hogql_queries.property_values_query_runner import PropertyValuesQueryResponse
         from posthog.hogql_queries.query_runner import ExecutionMode
 
@@ -228,10 +228,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             return_value=PropertyValuesQueryResponse(results=[]),
         ) as mock_run:
             self.client.get(url)
-            mock_run.assert_called_once_with(
-                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
-                is_polling=expected_is_polling,
-            )
+            mock_run.assert_called_once_with(ExecutionMode[expected_mode_name])
 
     @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
     @snapshot_clickhouse_queries

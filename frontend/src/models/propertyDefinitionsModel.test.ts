@@ -463,7 +463,7 @@ describe('the property definitions model', () => {
             expect(capturedUrl).not.toContain('is_polling')
         })
 
-        it('sends is_polling=true in the URL on the poll request after a refreshing response', async () => {
+        it('sends is_polling=true in the URL on the follow-up poll after a refreshing response', async () => {
             let pollCallback: (() => void) | null = null
             const capturedUrls: string[] = []
 

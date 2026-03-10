@@ -533,9 +533,11 @@ class EventViewSet(
             execution_mode = (
                 ExecutionMode.CALCULATE_BLOCKING_ALWAYS
                 if force_refresh
+                else ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
+                if is_polling
                 else ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
             )
-            result = runner.run(execution_mode, is_polling=is_polling)
+            result = runner.run(execution_mode)
             assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
             is_refreshing = (
                 isinstance(result, CachedPropertyValuesQueryResponse)
