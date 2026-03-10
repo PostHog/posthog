@@ -1067,6 +1067,7 @@ export interface ChartSettings {
     showYAxisBorder?: boolean
     showLegend?: boolean
     showTotalRow?: boolean
+    showNullsAsZero?: boolean
     heatmap?: HeatmapSettings
 }
 
@@ -1351,6 +1352,8 @@ export interface BoxPlotDatum {
     p75: number
     max: number
     mean: number
+    series_index?: integer
+    series_label?: string
 }
 
 export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {
@@ -2458,10 +2461,8 @@ export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     issueId?: ErrorTrackingIssue['id']
-    orderBy: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions' | 'revenue'
+    orderBy: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     orderDirection?: 'ASC' | 'DESC'
-    revenuePeriod?: 'all_time' | 'mrr'
-    revenueEntity?: 'person' | 'group_0' | 'group_1' | 'group_2' | 'group_3' | 'group_4'
     dateRange: DateRange
     status?: ErrorTrackingQueryStatus
     assignee?: ErrorTrackingIssueAssignee | null
@@ -2598,7 +2599,6 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
         timestamp: string
         properties: string
     }
-    revenue?: number
     aggregations?: ErrorTrackingIssueAggregations
     library: string | null
 }
@@ -2942,6 +2942,7 @@ export type FileSystemIconType =
     | 'folder_open'
     | 'conversations'
     | 'toolbar'
+    | 'visual_review'
     | 'settings'
     | 'health'
     | 'inbox'
@@ -5446,6 +5447,7 @@ export enum ProductKey {
     TEAMS = 'teams',
     TOOLBAR = 'toolbar',
     USER_INTERVIEWS = 'user_interviews',
+    VISUAL_REVIEW = 'visual_review',
     WEB_ANALYTICS = 'web_analytics',
     WORKFLOWS = 'workflows',
 }

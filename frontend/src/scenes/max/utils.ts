@@ -47,6 +47,7 @@ import {
     MaxEvaluationContext,
     MaxEventContext,
     MaxInsightContext,
+    MaxNotebookContext,
     MaxUIContext,
 } from './maxTypes'
 import { EnhancedToolCall } from './Thread'
@@ -206,6 +207,15 @@ export const errorTrackingIssueToMaxContextPayload = (issue: {
         name: issue.name,
     }
 }
+
+export const notebookToMaxContextPayload = (notebook: {
+    short_id: string
+    title?: string | null
+}): MaxNotebookContext => ({
+    type: MaxContextType.NOTEBOOK,
+    id: notebook.short_id,
+    name: notebook.title,
+})
 
 export const evaluationToMaxContextPayload = (evaluation: {
     id: string

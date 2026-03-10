@@ -17,6 +17,7 @@ import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/compone
 import { propertyValueLogic } from 'lib/components/PropertyFilters/components/propertyValueLogic'
 import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
+import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { formatDate, isOperatorBetween, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
 
@@ -46,6 +47,7 @@ export interface PropertyValueProps {
     preloadValues?: boolean
     forceSingleSelect?: boolean
     validationError?: string | null
+    showInlineValidationErrors?: boolean
 }
 
 export function PropertyValue({
@@ -66,6 +68,7 @@ export function PropertyValue({
     preloadValues = false,
     forceSingleSelect = false,
     validationError = null,
+    showInlineValidationErrors = false,
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
@@ -83,6 +86,9 @@ export function PropertyValue({
 
     const isAssigneeProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Assignee
+
+    const isNumericProperty =
+        propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Numeric
 
     // TODO: Add semver input validation when a semver operator is selected.
     // This will require detecting isOperatorSemver(operator) and validating the input
@@ -339,46 +345,61 @@ export function PropertyValue({
     ) : undefined
 
     return (
-        <LemonInputSelect
-            className={inputClassName}
-            data-attr="prop-val"
-            loading={propertyOptions?.status === 'loading' || isRefreshing}
-            value={formattedValues}
-            mode={isMultiSelect ? 'multiple' : 'single'}
-            singleValueAsSnack
-            allowCustomValues={propertyOptions?.allowCustomValues ?? true}
-            onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
-            onInputChange={onSearchTextChange}
-            placeholder={placeholder}
-            size={size}
-            disableCommaSplitting={isUserAgentProperty}
-            status={validationError ? 'danger' : 'default'}
-            title={titleNode}
-            popoverClassName="max-w-200"
-            options={displayOptions.map(({ name: _name }, index) => {
-                const name = toString(_name)
-                const isSuggested = initialSuggestedValues.set.has(name)
-                return {
-                    key: name,
-                    label: name,
-                    value: isFlagDependencyProperty ? _name : undefined, // Preserve original type for flags
-                    labelComponent: (
-                        <span
-                            key={name}
-                            data-attr={'prop-val-' + index}
-                            className="ph-no-capture flex items-center gap-1.5"
-                            title={name}
-                        >
-                            {formatLabelContent(isFlagDependencyProperty ? _name : name)}
-                            {isSuggested && currentSearchInput.current && (
-                                <Tooltip title="Suggested value">
-                                    <IconFeatures className="text-muted shrink-0 w-4 h-4" />
-                                </Tooltip>
-                            )}
-                        </span>
-                    ),
+        <div>
+            <LemonInputSelect
+                className={inputClassName}
+                data-attr="prop-val"
+                loading={propertyOptions?.status === 'loading' || isRefreshing}
+                value={formattedValues}
+                mode={isMultiSelect ? 'multiple' : 'single'}
+                singleValueAsSnack
+                allowCustomValues={propertyOptions?.allowCustomValues ?? true}
+                inputTransform={
+                    isNumericProperty
+                        ? (input: string) => {
+                              // Only allow numeric characters, decimal point, and +/- signs
+                              return input.replace(/[^0-9+\-.]/g, '')
+                          }
+                        : undefined
                 }
-            })}
-        />
+                onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
+                onInputChange={onSearchTextChange}
+                placeholder={placeholder}
+                size={size}
+                disableCommaSplitting={isUserAgentProperty}
+                status={validationError ? 'danger' : 'default'}
+                title={titleNode}
+                popoverClassName="max-w-200"
+                options={displayOptions.map(({ name: _name }, index) => {
+                    const name = toString(_name)
+                    const isSuggested = initialSuggestedValues.set.has(name)
+                    return {
+                        key: name,
+                        label: name,
+                        value: isFlagDependencyProperty ? _name : undefined, // Preserve original type for flags
+                        labelComponent: (
+                            <span
+                                key={name}
+                                data-attr={'prop-val-' + index}
+                                className="ph-no-capture flex items-center gap-1.5"
+                                title={name}
+                            >
+                                {formatLabelContent(isFlagDependencyProperty ? _name : name)}
+                                {isSuggested && currentSearchInput.current && (
+                                    <Tooltip title="Suggested value">
+                                        <IconFeatures className="text-muted shrink-0 w-4 h-4" />
+                                    </Tooltip>
+                                )}
+                            </span>
+                        ),
+                    }
+                })}
+            />
+            {showInlineValidationErrors && validationError && (
+                <div className="text-danger flex items-center gap-1 text-sm mt-1">
+                    <IconErrorOutline className="text-xl shrink-0" /> {validationError}
+                </div>
+            )}
+        </div>
     )
 }

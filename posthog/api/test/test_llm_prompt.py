@@ -519,7 +519,7 @@ class TestLLMPromptAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_resolve_prompt_by_name_forbidden_for_personal_api_key_auth(self, mock_feature_enabled):
+    def test_resolve_prompt_by_name_allowed_for_personal_api_key_auth(self, mock_feature_enabled):
         self.create_prompt_version(name="test-prompt")
 
         api_key = self.create_personal_api_key_with_scopes(["llm_prompt:read"])
@@ -527,8 +527,7 @@ class TestLLMPromptAPI(APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/resolve/name/test-prompt/")
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "This endpoint is only available to web-authenticated users."
+        assert response.status_code == status.HTTP_200_OK
 
     @override_settings(TEST=False)
     @patch("posthog.api.llm_prompt.capture_internal")

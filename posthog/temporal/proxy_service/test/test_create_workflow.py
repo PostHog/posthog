@@ -49,10 +49,6 @@ def _make_mock_activities(failing_activity: str | None = None, error_type: str =
     async def mock_create_hostname(inputs: CreateCloudflareProxyInputs):
         _maybe_raise("create_cloudflare_custom_hostname")
 
-    @activity.defn(name="create_cloudflare_worker_route")
-    async def mock_create_route(inputs: CreateCloudflareProxyInputs):
-        _maybe_raise("create_cloudflare_worker_route")
-
     @activity.defn(name="wait_for_cloudflare_certificate")
     async def mock_wait_cert(inputs: CreateCloudflareProxyInputs):
         _maybe_raise("wait_for_cloudflare_certificate")
@@ -65,7 +61,6 @@ def _make_mock_activities(failing_activity: str | None = None, error_type: str =
         mock_wait_for_dns,
         mock_update_record,
         mock_create_hostname,
-        mock_create_route,
         mock_wait_cert,
         mock_schedule_monitor,
     ]
@@ -89,7 +84,6 @@ class TestCreateManagedProxyWorkflowErrorHandling:
         "failing_activity",
         [
             "create_cloudflare_custom_hostname",
-            "create_cloudflare_worker_route",
             "wait_for_cloudflare_certificate",
         ],
     )
