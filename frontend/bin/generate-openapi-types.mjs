@@ -6,6 +6,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { collectSchemaRefs, preprocessSchema, resolveNestedRefs } from '@posthog/openapi-codegen'
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const frontendRoot = path.resolve(__dirname, '..')
 const repoRoot = path.resolve(frontendRoot, '..')
@@ -175,42 +177,6 @@ function createTempDir() {
     return fs.mkdtempSync(path.join(os.tmpdir(), 'openapi-split-'))
 }
 
-function collectSchemaRefs(obj, refs = new Set()) {
-    if (!obj || typeof obj !== 'object') {
-        return refs
-    }
-    if (obj.$ref && typeof obj.$ref === 'string') {
-        refs.add(obj.$ref)
-    }
-    for (const value of Object.values(obj)) {
-        collectSchemaRefs(value, refs)
-    }
-    return refs
-}
-
-function resolveNestedRefs(schemas, refs) {
-    // Iteratively resolve refs until no new ones are found
-    const allRefs = new Set(refs)
-    let changed = true
-    while (changed) {
-        changed = false
-        for (const ref of allRefs) {
-            const schemaName = ref.replace('#/components/schemas/', '')
-            const schema = schemas[schemaName]
-            if (schema) {
-                const nestedRefs = collectSchemaRefs(schema)
-                for (const nestedRef of nestedRefs) {
-                    if (!allRefs.has(nestedRef)) {
-                        allRefs.add(nestedRef)
-                        changed = true
-                    }
-                }
-            }
-        }
-    }
-    return allRefs
-}
-
 /**
  * Group endpoints by output directory.
  *
@@ -357,72 +323,6 @@ function buildGroupedSchemasByOutput(schema, mappings) {
     }
 
     return grouped
-}
-
-// ---------------------------------------------------------------------------
-// Schema preprocessing
-//
-// Orval's PascalCase enum key generation breaks certain schema patterns.
-// We fix this by rewriting the OpenAPI schema *before* orval sees it.
-//
-// Two cases:
-//
-// 1. Named schemas with meaningless PascalCase keys (SCHEMAS_TO_INLINE)
-//    TimezoneEnum has 596 IANA identifiers like "Africa/Abidjan" that become
-//    "AfricaAbidjan" — losing the path separator and making lookups impossible.
-//    We delete the schema and replace every $ref with {type: 'string'}.
-//
-// 2. Inline ordering enums with colliding keys (stripCollidingInlineEnums)
-//    DRF ordering params include both "created_at" and "-created_at", which
-//    both PascalCase to "CreatedAt" — producing an object with duplicate keys
-//    where the second silently overwrites the first. We detect this pattern
-//    (any enum with both "x" and "-x" values) and drop the enum constraint
-//    so orval emits string[] instead.
-// ---------------------------------------------------------------------------
-
-const SCHEMAS_TO_INLINE = new Set(['TimezoneEnum'])
-
-function inlineSchemaRefs(obj) {
-    if (!obj || typeof obj !== 'object') {
-        return obj
-    }
-    if (obj.$ref && SCHEMAS_TO_INLINE.has(obj.$ref.replace('#/components/schemas/', ''))) {
-        return { type: 'string' }
-    }
-    for (const [key, value] of Object.entries(obj)) {
-        obj[key] = inlineSchemaRefs(value)
-    }
-    return obj
-}
-
-function stripCollidingInlineEnums(obj) {
-    if (!obj || typeof obj !== 'object') {
-        return
-    }
-    if (Array.isArray(obj)) {
-        obj.forEach(stripCollidingInlineEnums)
-        return
-    }
-    if (obj.type === 'string' && Array.isArray(obj.enum)) {
-        const positives = new Set(obj.enum.filter((v) => !v.startsWith('-')))
-        if (obj.enum.some((v) => v.startsWith('-') && positives.has(v.slice(1)))) {
-            delete obj.enum
-        }
-    }
-    for (const value of Object.values(obj)) {
-        stripCollidingInlineEnums(value)
-    }
-}
-
-function preprocessSchema(schema) {
-    inlineSchemaRefs(schema)
-    for (const name of SCHEMAS_TO_INLINE) {
-        delete schema.components?.schemas?.[name]
-    }
-
-    stripCollidingInlineEnums(schema)
-
-    return schema
 }
 
 // Main execution
