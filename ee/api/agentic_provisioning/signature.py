@@ -55,7 +55,10 @@ def verify_stripe_signature(request: Request) -> Response | None:
             status=401,
         )
 
-    body = request.body if hasattr(request, "body") else b""
+    # DRF's @api_view parses request.data before decorators run, consuming
+    # the raw stream. Access the underlying Django request which caches body.
+    django_request = getattr(request, "_request", request)
+    body = django_request.body if hasattr(django_request, "body") else b""
     expected_hex = _compute_hmac(secret, timestamp_str, body)
 
     if not hmac.compare_digest(expected_hex.lower(), signature_hex.lower()):
