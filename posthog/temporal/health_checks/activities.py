@@ -39,6 +39,8 @@ def _filter_team_ids_for_rollout(team_ids: list[int], rollout_percentage: float)
 def _get_team_id_batches_sync(inputs: HealthCheckWorkflowInputs) -> list[list[int]]:
     from posthog.models.team import Team
 
+    # Temporal activities run in a thread pool where DB connections can go stale
+    # between executions. close_old_connections() ensures we get a fresh connection.
     close_old_connections()
 
     if inputs.team_ids:
@@ -69,6 +71,7 @@ def _run_health_check_batch_sync(
     kind: str,
     dry_run: bool,
 ) -> dict:
+    # See comment in _get_team_id_batches_sync for why this is needed.
     close_old_connections()
 
     ensure_registry_loaded()

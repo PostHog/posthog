@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 import structlog
@@ -7,10 +8,17 @@ from posthog.clickhouse.client import sync_execute
 
 logger = structlog.get_logger(__name__)
 
-_DEFAULT_HEALTH_QUERY_SETTINGS: dict[str, Any] = {
-    "max_execution_time": 30,
-    "max_threads": 2,
-}
+
+@dataclass(frozen=True)
+class HealthQuerySettings:
+    max_execution_time: int = 30
+    max_threads: int = 2
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"max_execution_time": self.max_execution_time, "max_threads": self.max_threads}
+
+
+DEFAULT_HEALTH_QUERY_SETTINGS = HealthQuerySettings()
 
 
 def _validate_clickhouse_team_query(sql: str) -> None:
@@ -46,7 +54,7 @@ def execute_clickhouse_health_team_query(
             raise ValueError(f"Reserved params cannot be overridden: {', '.join(sorted(reserved))}")
         query_params.update(params)
 
-    query_settings = dict(_DEFAULT_HEALTH_QUERY_SETTINGS)
+    query_settings = DEFAULT_HEALTH_QUERY_SETTINGS.to_dict()
     if settings:
         query_settings.update(settings)
 

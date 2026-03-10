@@ -41,6 +41,7 @@ class HealthCheckTriggerForm(forms.Form):
 
 
 def health_check_list_view(request):
+    # TODO: Add more granular permissions beyond is_staff (e.g. restrict to specific engineering groups)
     if not request.user.is_staff:
         raise PermissionDenied
 

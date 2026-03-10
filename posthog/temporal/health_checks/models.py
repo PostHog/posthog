@@ -7,11 +7,12 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from posthog.temporal.health_checks.framework import HealthCheckRegistration
 
-from posthog.dags.common.health.types import BatchResult, HealthCheckResult
+from posthog.dags.common.health.types import (
+    BatchResult as BatchResult,
+    HealthCheckResult as HealthCheckResult,
+)
 
 BatchDetectFn = Callable[[list[int]], dict[int, list[HealthCheckResult]]]
-
-__all__ = ["BatchDetectFn", "BatchResult", "HealthCheckResult"]
 
 
 @dataclass

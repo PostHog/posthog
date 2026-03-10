@@ -13,6 +13,13 @@ logger = structlog.get_logger(__name__)
 
 
 async def create_health_check_schedules(client: Client) -> None:
+    """Create or update Temporal schedules for all registered health checks.
+
+    Called from `init_schedules()` in `posthog/temporal/schedule.py`, which runs
+    as a management command during deployment (not per-pod startup). Each health
+    check with a `schedule` cron expression gets a corresponding Temporal schedule
+    that triggers the health-check-workflow on the general-purpose task queue.
+    """
     ensure_registry_loaded()
 
     for config in HEALTH_CHECKS.values():
