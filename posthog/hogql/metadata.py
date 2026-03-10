@@ -28,8 +28,8 @@ def get_hogql_metadata(
     team: Team,
     user: Optional[User] = None,
     hogql_ast: Optional[Union[ast.SelectQuery, ast.SelectSetQuery]] = None,
-    clickhouse_prepared_ast: Optional[ast.AST] = None,
-    clickhouse_sql: Optional[str] = None,
+    prepared_ast: Optional[ast.AST] = None,  # precached
+    printed_sql: Optional[str] = None,  # precached
 ) -> HogQLMetadataResponse:
     response = HogQLMetadataResponse(
         isValid=True,
@@ -94,23 +94,15 @@ def get_hogql_metadata(
             hogql_table_names = get_table_names(hogql_ast)
             response.table_names = hogql_table_names
 
-            if source:
-                prepare_and_print_ast(
+            if not printed_sql or not prepared_ast:
+                printed_sql, prepared_ast = prepare_and_print_ast(
                     clone_expr(hogql_ast),
                     context=context,
-                    dialect="postgres",
+                    dialect="postgres" if source else "clickhouse",
                 )
-            else:
-                if not clickhouse_sql or not clickhouse_prepared_ast:
-                    clickhouse_sql, clickhouse_prepared_ast = prepare_and_print_ast(
-                        clone_expr(hogql_ast),
-                        context=context,
-                        dialect="clickhouse",
-                    )
 
-                if clickhouse_prepared_ast:
-                    ch_table_names = get_table_names(clickhouse_prepared_ast)
-                    response.ch_table_names = ch_table_names
+            if prepared_ast:
+                response.ch_table_names = get_table_names(prepared_ast)
         else:
             raise ValueError(f"Unsupported language: {query.language}")
         response.warnings = context.warnings
