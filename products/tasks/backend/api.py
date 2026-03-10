@@ -52,6 +52,7 @@ from .serializers import (
     TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
     TaskRunRelayMessageRequestSerializer,
+    TaskRunRelayMessageResponseSerializer,
     TaskRunSessionLogsQuerySerializer,
     TaskRunUpdateSerializer,
     TaskSerializer,
@@ -474,7 +475,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @validated_request(
         request_serializer=TaskRunRelayMessageRequestSerializer,
         responses={
-            200: OpenApiResponse(description="Relay accepted"),
+            200: OpenApiResponse(response=TaskRunRelayMessageResponseSerializer, description="Relay accepted"),
             404: OpenApiResponse(description="Run not found"),
         },
         summary="Relay run message to Slack",

@@ -226,6 +226,11 @@ class TaskRunAppendLogRequestSerializer(serializers.Serializer):
         return value
 
 
+class TaskRunRelayMessageResponseSerializer(serializers.Serializer):
+    status = serializers.CharField(help_text="Relay status: 'accepted' or 'skipped'")
+    relay_id = serializers.CharField(required=False, help_text="Relay workflow ID when accepted")
+
+
 class TaskRunRelayMessageRequestSerializer(serializers.Serializer):
     text = serializers.CharField(max_length=10000)
 
