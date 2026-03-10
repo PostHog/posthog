@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Any, ClassVar
 from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
@@ -11,7 +10,6 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     flush_persons_and_events,
-    materialized,
     snapshot_clickhouse_queries,
 )
 from unittest import TestCase
@@ -51,7 +49,6 @@ class ErrorTrackingQueryRunnerTestsMixin:
     __test__ = False
 
     use_v2: bool = False
-    _materialized_ctx: ClassVar[Any]
 
     # will be provided by inheritance from PostHogTestCase
     team: Team
@@ -122,14 +119,11 @@ class ErrorTrackingQueryRunnerTestsMixin:
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls._materialized_ctx = materialized("events", "$exception_issue_id", is_nullable=True)
-        cls._materialized_ctx.__enter__()
-        super(ErrorTrackingQueryRunnerTestsMixin, cls).setUpClass()  # type: ignore[misc] # noqa: UP008
+        from ee.clickhouse.materialized_columns.columns import get_materialized_columns, materialize
 
-    @classmethod
-    def tearDownClass(cls) -> None:
-        super(ErrorTrackingQueryRunnerTestsMixin, cls).tearDownClass()  # type: ignore[misc] # noqa: UP008
-        cls._materialized_ctx.__exit__(None, None, None)
+        if ("$exception_issue_id", "properties") not in get_materialized_columns("events"):
+            materialize("events", "$exception_issue_id", is_nullable=True)
+        super(ErrorTrackingQueryRunnerTestsMixin, cls).setUpClass()  # type: ignore[misc] # noqa: UP008
 
     def setUp(self):
         super().setUp()
