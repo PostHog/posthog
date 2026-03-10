@@ -1,5 +1,4 @@
 import { dayjs, Dayjs } from 'lib/dayjs'
-import { dayjsUtcToTimezone } from 'lib/dayjs'
 
 import { IntervalType } from '~/types'
 
@@ -25,14 +24,16 @@ export function createXAxisTickCallback({
         return (value) => String(value)
     }
 
-    // Datetime strings (with time component) are UTC from ClickHouse — convert to project timezone.
-    // Date-only strings are calendar bucket labels — parse as midnight in the project timezone
-    // so that e.g. "2023-07-01" stays July and doesn't drift to June in behind-UTC timezones.
+    // Datetime strings (with time component) are already in the project timezone
+    // (ClickHouse applies toTimeZone before truncation), so parse them directly in
+    // that timezone. Date-only strings are calendar bucket labels — parse as midnight
+    // in the project timezone so that e.g. "2023-07-01" stays July and doesn't drift
+    // to June in behind-UTC timezones.
     const parsedDates = allDays.map((d) => {
         const s = String(d)
         const hasTime = s.includes(' ') || s.includes('T')
         if (hasTime) {
-            return dayjsUtcToTimezone(s, timezone, false)
+            return dayjs.tz(s, timezone)
         }
         try {
             return dayjs.tz(s + ' 00:00:00', timezone)

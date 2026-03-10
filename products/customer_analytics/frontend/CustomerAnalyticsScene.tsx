@@ -25,6 +25,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { SessionInsights } from 'products/customer_analytics/frontend/components/Insights/SessionInsights'
 
 import { CustomerJourneys } from './components/CustomerJourneys/CustomerJourneys'
+import { journeyEditorLogic } from './components/CustomerJourneys/journeyEditorLogic'
 import { FeedbackBanner } from './components/FeedbackBanner'
 import { ActiveUsersInsights } from './components/Insights/ActiveUsersInsights'
 import { SignupInsights } from './components/Insights/SignupInsights'
@@ -46,6 +47,8 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
     const { shouldShowGroupsIntroduction } = useValues(groupsAccessLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
+    const { isEditMode, stagedNodes, isSaving } = useValues(journeyEditorLogic)
+    const { saveChanges, cancelChanges } = useActions(journeyEditorLogic)
 
     if (!tabId) {
         throw new Error('CustomerAnalyticsScene was rendered with no tabId')
@@ -97,31 +100,51 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                         type: sceneConfigurations[Scene.CustomerAnalytics].iconType || 'default_icon_type',
                     }}
                     actions={
-                        <AppShortcut
-                            name="CustomerAnalyticsSettings"
-                            keybind={[keyBinds.settings]}
-                            intent="Configure customer analytics"
-                            interaction="click"
-                            scope={Scene.CustomerAnalytics}
-                        >
-                            <LemonButton
-                                icon={<IconGear />}
-                                size="small"
-                                type="secondary"
-                                to={urls.customerAnalyticsConfiguration()}
-                                onClick={() => {
-                                    addProductIntent({
-                                        product_type: ProductKey.CUSTOMER_ANALYTICS,
-                                        intent_context:
-                                            ProductIntentContext.CUSTOMER_ANALYTICS_DASHBOARD_CONFIGURATION_BUTTON_CLICKED,
-                                    })
-                                    reportCustomerAnalyticsDashboardConfigurationButtonClicked()
-                                }}
-                                tooltip="Configure customer analytics"
-                                children="Configure"
-                                data-attr="customer-analytics-config"
-                            />
-                        </AppShortcut>
+                        isEditMode ? (
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm text-muted font-medium whitespace-nowrap">
+                                    {stagedNodes.length} step{stagedNodes.length !== 1 ? 's' : ''} to add
+                                </span>
+                                <LemonButton type="secondary" size="small" onClick={cancelChanges}>
+                                    Cancel
+                                </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    onClick={saveChanges}
+                                    disabledReason={stagedNodes.length === 0 ? 'No steps staged' : undefined}
+                                    loading={isSaving}
+                                >
+                                    Save
+                                </LemonButton>
+                            </div>
+                        ) : (
+                            <AppShortcut
+                                name="CustomerAnalyticsSettings"
+                                keybind={[keyBinds.settings]}
+                                intent="Configure customer analytics"
+                                interaction="click"
+                                scope={Scene.CustomerAnalytics}
+                            >
+                                <LemonButton
+                                    icon={<IconGear />}
+                                    size="small"
+                                    type="secondary"
+                                    to={urls.customerAnalyticsConfiguration()}
+                                    onClick={() => {
+                                        addProductIntent({
+                                            product_type: ProductKey.CUSTOMER_ANALYTICS,
+                                            intent_context:
+                                                ProductIntentContext.CUSTOMER_ANALYTICS_DASHBOARD_CONFIGURATION_BUTTON_CLICKED,
+                                        })
+                                        reportCustomerAnalyticsDashboardConfigurationButtonClicked()
+                                    }}
+                                    tooltip="Configure customer analytics"
+                                    children="Configure"
+                                    data-attr="customer-analytics-config"
+                                />
+                            </AppShortcut>
+                        )
                     }
                 />
                 <FeedbackBanner feedbackButtonId="dashboard" />

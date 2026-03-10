@@ -325,6 +325,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconPlaylist />,
         iconColor: ['var(--color-product-llm-analytics-light)'],
     },
+    visual_review: {
+        icon: <IconApp />,
+    },
     exports: {
         icon: <IconDownload />,
     },
