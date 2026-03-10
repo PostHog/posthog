@@ -16,6 +16,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.models import Insight
+from posthog.models.integration import Integration
 from posthog.models.subscription import Subscription, unsubscribe_using_token
 from posthog.permissions import PremiumFeaturePermission
 from posthog.security.url_validation import is_url_allowed
@@ -47,6 +48,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
     created_by = UserBasicSerializer(read_only=True)
     invite_message = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    integration_id = serializers.IntegerField(required=False, allow_null=True)
     dashboard_export_insights = DashboardExportInsightsField(required=False)
 
     class Meta:
@@ -96,8 +98,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         self._validate_dashboard_export_subscription(attrs)
 
-        if "integration" in attrs and attrs["integration"] is not None:
-            integration = attrs["integration"]
+        if attrs.get("integration_id") is not None:
+            try:
+                integration = Integration.objects.get(id=attrs["integration_id"])
+            except Integration.DoesNotExist:
+                raise ValidationError({"integration_id": ["This integration does not exist."]})
             if integration.team_id != self.context["team_id"]:
                 raise ValidationError({"integration_id": ["This integration does not belong to your team."]})
             target_type = attrs.get("target_type") or (self.instance.target_type if self.instance else None)

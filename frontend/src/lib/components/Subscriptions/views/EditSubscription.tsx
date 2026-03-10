@@ -251,7 +251,9 @@ export function EditSubscription({
                                                     value={value}
                                                     onChange={(newValue) => {
                                                         onChange(newValue)
-                                                        if (newValue !== value) {
+                                                        // Only clear channel when user actively switches,
+                                                        // not on initial auto-select (value is null)
+                                                        if (value !== null && newValue !== value) {
                                                             logic.actions.setSubscriptionValue('target_value', '')
                                                         }
                                                     }}

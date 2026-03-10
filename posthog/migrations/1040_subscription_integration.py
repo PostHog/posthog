@@ -4,10 +4,9 @@ from django.db import migrations, models
 
 def backfill_subscription_integration(apps, schema_editor):
     """
-    Pin existing Slack subscriptions to the same integration that
-    get_slack_integration_for_team would return (lowest id, matching
-    the .first() default ordering). This prevents silent integration
-    switches when a team later adds a second Slack integration.
+    Populate the new integration FK for existing Slack subscriptions.
+    Uses the integration with the lowest id per team, matching the
+    existing get_slack_integration_for_team .first() behavior.
     """
     Subscription = apps.get_model("posthog", "Subscription")
     Integration = apps.get_model("posthog", "Integration")
