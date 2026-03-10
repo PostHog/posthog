@@ -41,6 +41,7 @@
          "posthog_datamodelingnode"."dag_id_text",
          "posthog_datamodelingnode"."name",
          "posthog_datamodelingnode"."type",
+         "posthog_datamodelingnode"."description",
          "posthog_datamodelingnode"."properties",
          "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
@@ -78,6 +79,7 @@
          "posthog_datamodelingnode"."dag_id_text",
          "posthog_datamodelingnode"."name",
          "posthog_datamodelingnode"."type",
+         "posthog_datamodelingnode"."description",
          "posthog_datamodelingnode"."properties",
          "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
@@ -115,6 +117,7 @@
          "posthog_datamodelingnode"."dag_id_text",
          "posthog_datamodelingnode"."name",
          "posthog_datamodelingnode"."type",
+         "posthog_datamodelingnode"."description",
          "posthog_datamodelingnode"."properties",
          "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
@@ -152,6 +155,7 @@
          "posthog_datamodelingnode"."dag_id_text",
          "posthog_datamodelingnode"."name",
          "posthog_datamodelingnode"."type",
+         "posthog_datamodelingnode"."description",
          "posthog_datamodelingnode"."properties",
          "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
@@ -189,6 +193,7 @@
          "posthog_datamodelingnode"."dag_id_text",
          "posthog_datamodelingnode"."name",
          "posthog_datamodelingnode"."type",
+         "posthog_datamodelingnode"."description",
          "posthog_datamodelingnode"."properties",
          "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
@@ -226,6 +231,7 @@
          "posthog_datamodelingnode"."dag_id_text",
          "posthog_datamodelingnode"."name",
          "posthog_datamodelingnode"."type",
+         "posthog_datamodelingnode"."description",
          "posthog_datamodelingnode"."properties",
          "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
@@ -263,6 +269,7 @@
          "posthog_datamodelingnode"."dag_id_text",
          "posthog_datamodelingnode"."name",
          "posthog_datamodelingnode"."type",
+         "posthog_datamodelingnode"."description",
          "posthog_datamodelingnode"."properties",
          "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
@@ -518,6 +525,7 @@
          "posthog_datamodelingnode"."dag_id_text",
          "posthog_datamodelingnode"."name",
          "posthog_datamodelingnode"."type",
+         "posthog_datamodelingnode"."description",
          "posthog_datamodelingnode"."properties",
          "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
@@ -575,6 +583,7 @@
          "posthog_datamodelingnode"."dag_id_text",
          "posthog_datamodelingnode"."name",
          "posthog_datamodelingnode"."type",
+         "posthog_datamodelingnode"."description",
          "posthog_datamodelingnode"."properties",
          "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
@@ -612,6 +621,7 @@
          "posthog_datamodelingnode"."dag_id_text",
          "posthog_datamodelingnode"."name",
          "posthog_datamodelingnode"."type",
+         "posthog_datamodelingnode"."description",
          "posthog_datamodelingnode"."properties",
          "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
@@ -3619,6 +3629,144 @@
           },
           "id": "system.hog_flows",
           "name": "system.hog_flows",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.hog_functions": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "description": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "description",
+                  "id": null,
+                  "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "type",
+                  "id": null,
+                  "name": "type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "enabled": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "enabled",
+                  "id": null,
+                  "name": "enabled",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "deleted": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted",
+                  "id": null,
+                  "name": "deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "icon_url": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "icon_url",
+                  "id": null,
+                  "name": "icon_url",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "template_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "template_id",
+                  "id": null,
+                  "name": "template_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "execution_order": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "execution_order",
+                  "id": null,
+                  "name": "execution_order",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "inputs_schema": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "inputs_schema",
+                  "id": null,
+                  "name": "inputs_schema",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "filters": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "filters",
+                  "id": null,
+                  "name": "filters",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.hog_functions",
+          "name": "system.hog_functions",
           "row_count": null,
           "type": "system"
       },
@@ -6851,6 +6999,144 @@
           },
           "id": "system.hog_flows",
           "name": "system.hog_flows",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.hog_functions": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "description": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "description",
+                  "id": null,
+                  "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "type",
+                  "id": null,
+                  "name": "type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "enabled": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "enabled",
+                  "id": null,
+                  "name": "enabled",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "deleted": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted",
+                  "id": null,
+                  "name": "deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "icon_url": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "icon_url",
+                  "id": null,
+                  "name": "icon_url",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "template_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "template_id",
+                  "id": null,
+                  "name": "template_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "execution_order": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "execution_order",
+                  "id": null,
+                  "name": "execution_order",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "inputs_schema": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "inputs_schema",
+                  "id": null,
+                  "name": "inputs_schema",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "filters": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "filters",
+                  "id": null,
+                  "name": "filters",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.hog_functions",
+          "name": "system.hog_functions",
           "row_count": null,
           "type": "system"
       },

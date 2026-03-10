@@ -257,6 +257,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             '' as string,
             {
                 selectModelFromPicker: (_, { modelId }) => modelId,
+                setModelConfiguration: (_, { modelConfiguration }) => modelConfiguration?.model || '',
                 loadEvaluationSuccess: (_, { evaluation }) => evaluation?.model_configuration?.model || '',
             },
         ],
@@ -264,6 +265,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             null as string | null,
             {
                 selectModelFromPicker: (_, { providerKeyId }) => providerKeyId,
+                setModelConfiguration: (_, { modelConfiguration }) => modelConfiguration?.provider_key_id || null,
                 loadEvaluationSuccess: (_, { evaluation }) => evaluation?.model_configuration?.provider_key_id || null,
             },
         ],

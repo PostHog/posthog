@@ -91,10 +91,6 @@ export const createDraftExperimentFromFlagLogic = kea<createDraftExperimentFromF
         },
 
         createDraftExperimentSuccess: ({ experiment }) => {
-            actions.reportExperimentCreated(experiment, {
-                creation_source: 'feature_flag_quick_create',
-                has_linked_flag: true,
-            })
             lemonToast.success('Draft experiment created')
             router.actions.push(urls.experiment(experiment.id))
         },

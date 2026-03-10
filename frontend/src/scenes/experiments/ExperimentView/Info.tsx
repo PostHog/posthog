@@ -12,12 +12,12 @@ import { Label } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
-import { ExperimentProgressStatus, ExperimentStatsMethod } from '~/types'
+import { ExperimentStatsMethod, ExperimentStatus } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
-import { getExperimentStatus } from '../experimentsLogic'
+import { getExperimentStatus, isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { StatusTag } from './components'
 import { ExperimentDuration } from './ExperimentDuration'
@@ -65,6 +65,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
         secondaryMetricsResults?.[0]?.last_refresh
 
     const status = getExperimentStatus(experiment)
+    const isPaused = isExperimentPaused(experiment)
 
     return (
         <>
@@ -76,12 +77,12 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                         <div className="flex flex-col" data-attr="experiment-status">
                             <Label intent="menu">Status</Label>
                             <div className="flex gap-1">
-                                {status === ExperimentProgressStatus.Paused ? (
+                                {isPaused ? (
                                     <Tooltip
                                         placement="bottom"
                                         title="Your experiment is paused. The linked flag is disabled and no data is being collected."
                                     >
-                                        <StatusTag status={status} />
+                                        <StatusTag status={status} isPaused={isPaused} />
                                     </Tooltip>
                                 ) : (
                                     <StatusTag status={status} />
@@ -101,7 +102,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                             <div className="flex flex-col max-w-[500px]">
                                 <Label intent="menu">Feature flag</Label>
                                 <div className="flex gap-1 items-center">
-                                    {status === ExperimentProgressStatus.Paused && (
+                                    {isPaused && (
                                         <Tooltip
                                             placement="bottom"
                                             title="Your experiment is paused. The linked flag is disabled and no data is being collected."
@@ -211,7 +212,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                                     isExperimentDraft={isExperimentDraft}
                                 />
                             )}
-                            {status !== ExperimentProgressStatus.Draft && (
+                            {status !== ExperimentStatus.Draft && (
                                 <ExperimentReloadAction
                                     isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
                                     lastRefresh={lastRefresh}

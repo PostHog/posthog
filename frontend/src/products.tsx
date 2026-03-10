@@ -1438,7 +1438,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'llm_playground' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
         href: urls.llmAnalyticsPlayground(),
-        tags: ['beta'],
         sceneKey: 'LLMAnalyticsPlayground',
         sceneKeys: [
             'LLMAnalytics',
@@ -1489,7 +1488,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
         href: urls.llmAnalyticsPrompts(),
         flag: FEATURE_FLAGS.PROMPT_MANAGEMENT,
-        tags: ['alpha'],
+        tags: ['beta'],
         sceneKey: 'LLMAnalyticsPrompts',
         sceneKeys: [
             'LLMAnalytics',

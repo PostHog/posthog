@@ -321,6 +321,8 @@ export const FEATURE_FLAGS = {
     LOGS_SETTINGS_JSON: 'logs-settings-json', // owner: #team-logs
     LOGS_SETTINGS_RETENTION: 'logs-settings-retention', // owner: #team-logs
     LOGS_SPARKLINE_SERVICE_BREAKDOWN: 'logs-sparkline-service-breakdown', // owner: #team-logs
+    LOGS_ALERTING: 'logs-alerting', // owner: #team-logs
+    LOGS_TABBED_VIEW: 'logs-tabbed-view', // owner: #team-logs
     MCP_SERVERS: 'mcp-servers', // owner: #team-posthog-ai
     MANAGED_VIEWSETS: 'managed-viewsets', // owner: @rafaeelaudibert #team-revenue-analytics
     MAX_AI_INSIGHT_SEARCH: 'max-ai-insight-search', // owner: #team-posthog-ai
@@ -381,7 +383,6 @@ export const FEATURE_FLAGS = {
     REPLAY_FILTERS_REDESIGN: 'replay-filters-redesign', // owner: @ksvat #team-replay
     REPLAY_JIRA_INTEGRATION: 'replay-jira-integration', // owner: @fasyy612 #team-replay, used to enable Jira issue creation from session recordings
     REPLAY_NEW_DETECTED_URL_COLLECTIONS: 'replay-new-detected-url-collections', // owner: @ksvat #team-replay multivariate=true
-    REPLAY_SNAPSHOT_STORE: 'replay-snapshot-store', // owner: @tue #team-replay multivariate=control,test
     REPLAY_WAIT_FOR_IFRAME_READY: 'replay-wait-for-full-snapshot-playback', // owner: @ksvat #team-replay
     REPLAY_X_LLM_ANALYTICS_CONVERSATION_VIEW: 'replay-x-llm-analytics-conversation-view', // owner: @pauldambra #team-replay
     REPLAY_COLLAPSE_INSPECTOR_ITEMS: 'replay-collapse-inspector-items', // owner: @fasyy612 #team-replay

@@ -325,6 +325,9 @@ export function getAgentModeForScene(
 export const visualizationTypeToQuery = (
     visualization: VisualizationItem | VisualizationArtifactContent | VisualizationBlock
 ): QuerySchema | null => {
+    if (!visualization) {
+        return null
+    }
     const source = castAssistantQuery('answer' in visualization ? visualization.answer : visualization.query)
     if (isHogQLQuery(source)) {
         return { kind: NodeKind.DataVisualizationNode, source: source } satisfies DataVisualizationNode

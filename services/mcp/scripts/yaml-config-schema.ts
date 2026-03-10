@@ -20,13 +20,24 @@ export const ToolConfigSchema = z
             })
             .strict()
             .optional(),
+        input_schema: z.string().optional(),
         enrich_url: z.string().optional(),
         list: z.boolean().optional(),
         title: z.string().optional(),
         description: z.string().optional(),
         exclude_params: z.array(z.string()).optional(),
         include_params: z.array(z.string()).optional(),
-        param_overrides: z.record(z.string(), z.object({ description: z.string().optional() }).strict()).optional(),
+        param_overrides: z
+            .record(
+                z.string(),
+                z
+                    .object({
+                        description: z.string().optional(),
+                        input_schema: z.string().optional(),
+                    })
+                    .strict()
+            )
+            .optional(),
         mcp_version: z.number().int().positive().optional(),
         ui_resource_uri: z.string().optional(),
         /**
@@ -37,6 +48,15 @@ export const ToolConfigSchema = z
         soft_delete: z.boolean().optional(),
     })
     .strict()
+    .refine(
+        (data) =>
+            !data.input_schema ||
+            (!data.include_params?.length && !data.exclude_params?.length && !data.param_overrides),
+        {
+            message:
+                'input_schema replaces the entire schema, so include_params, exclude_params, and param_overrides have no effect and should be removed',
+        }
+    )
 
 export type ToolConfig = z.infer<typeof ToolConfigSchema>
 

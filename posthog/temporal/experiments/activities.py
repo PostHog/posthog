@@ -10,6 +10,7 @@ import temporalio.activity
 
 from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQuery, ExperimentRatioMetric
 
+from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
@@ -33,6 +34,63 @@ from posthog.temporal.experiments.utils import (
 from products.experiments.stats.shared.statistics import StatisticError
 
 logger = structlog.get_logger(__name__)
+
+
+def _check_significance_transition(
+    experiment: Experiment,
+    metric_uuid: str,
+    fingerprint: str,
+    result_dict: dict,
+    query_to_utc: datetime,
+) -> None:
+    try:
+        if not result_dict.get("significant"):
+            return
+
+        previous = (
+            ExperimentMetricResultModel.objects.filter(
+                experiment=experiment,
+                metric_uuid=metric_uuid,
+                fingerprint=fingerprint,
+                status=ExperimentMetricResultModel.Status.COMPLETED,
+                query_to__lt=query_to_utc,
+            )
+            .order_by("-query_to")
+            .first()
+        )
+
+        if previous and previous.result and previous.result.get("significant"):
+            return
+
+        experiment_url = f"/project/{experiment.team_id}/experiments/{experiment.id}"
+
+        logger.info(
+            "Producing internal event for experiment significance transition",
+            experiment_id=experiment.id,
+            metric_uuid=metric_uuid,
+        )
+
+        produce_internal_event(
+            team_id=experiment.team_id,
+            event=InternalEventEvent(
+                event="$experiment_metric_significant",
+                distinct_id=f"team_{experiment.team_id}",
+                properties={
+                    "experiment_id": experiment.id,
+                    "experiment_name": experiment.name,
+                    "metric_uuid": metric_uuid,
+                    "significance_code": result_dict.get("significance_code"),
+                    "experiment_url": experiment_url,
+                },
+            ),
+        )
+    except Exception:
+        # produce_internal_event already logs on failure; use warning to avoid duplicate tracebacks
+        logger.warning(
+            "Significance transition check failed, skipping notification",
+            experiment_id=experiment.id,
+            metric_uuid=metric_uuid,
+        )
 
 
 @database_sync_to_async
@@ -204,6 +262,8 @@ def _calculate_experiment_regular_metric_sync(
                 "error_message": None,
             },
         )
+
+        _check_significance_transition(experiment, metric_uuid, fingerprint, result_dict, query_to_utc)
 
         logger.info(
             "Successfully calculated experiment metric",
@@ -450,6 +510,8 @@ def _calculate_experiment_saved_metric_sync(
                 "error_message": None,
             },
         )
+
+        _check_significance_transition(experiment, metric_uuid, fingerprint, result_dict, query_to_utc)
 
         logger.info(
             "Successfully calculated experiment saved metric",

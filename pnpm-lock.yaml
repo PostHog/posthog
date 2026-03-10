@@ -539,6 +539,9 @@ importers:
       '@posthog/icons':
         specifier: ^0.36.6
         version: 0.36.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/mosaic':
+        specifier: workspace:*
+        version: link:../common/mosaic
       '@posthog/products-actions':
         specifier: workspace:*
         version: link:../products/actions
@@ -1116,6 +1119,9 @@ importers:
       '@parcel/transformer-typescript-types':
         specifier: 'catalog:'
         version: 2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))(typescript@5.5.4)
+      '@posthog/openapi-codegen':
+        specifier: workspace:*
+        version: link:../tools/openapi-codegen
       '@storybook/addon-actions':
         specifier: 'catalog:'
         version: 7.6.4
@@ -1798,6 +1804,10 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+    devDependencies:
+      '@storybook/react':
+        specifier: 'catalog:'
+        version: 7.6.4(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.5.4)
 
   products/conversations:
     dependencies:
@@ -2921,6 +2931,9 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^4.20260120.0
         version: 4.20260207.0
+      '@posthog/openapi-codegen':
+        specifier: workspace:*
+        version: link:../../tools/openapi-codegen
       '@tailwindcss/postcss':
         specifier: ^4.1.10
         version: 4.2.1
@@ -2969,9 +2982,6 @@ importers:
       tsx:
         specifier: ^4.20.5
         version: 4.20.5
-      typed-openapi:
-        specifier: ^2.2.2
-        version: 2.2.2(openapi-types@12.1.3)(react@18.3.1)
       typescript:
         specifier: 5.5.4
         version: 5.5.4
@@ -3030,6 +3040,8 @@ importers:
       jest:
         specifier: ^27.5.1
         version: 27.5.1(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.5.4))
+
+  tools/openapi-codegen: {}
 
 packages:
 
@@ -3149,24 +3161,6 @@ packages:
   '@apidevtools/json-schema-ref-parser@11.7.2':
     resolution: {integrity: sha512-4gY54eEGEstClvEkGnwVkTkrx0sqwemEFG5OSRRn3tD91XH0+Q8XIkYIfo7IwEWPpJZwILb9GUXeShtplRc/eA==}
     engines: {node: '>= 16'}
-
-  '@apidevtools/openapi-schemas@2.1.0':
-    resolution: {integrity: sha512-Zc1AlqrJlX3SlpupFGpiLi2EbteyP7fXmUOGup6/DnkRgjP9bgMM/ag+n91rsv0U1Gpz0H3VILA/o3bW7Ua6BQ==}
-    engines: {node: '>=10'}
-
-  '@apidevtools/swagger-methods@3.0.2':
-    resolution: {integrity: sha512-QAkD5kK2b1WfjDS/UQn/qQkbwF31uqRjPTrsCs5ZG9BQGAkjwvqGFjjPqAuzac/IYzpPtRzjCP1WrTuAIjMrXg==}
-
-  '@apidevtools/swagger-parser@10.1.1':
-    resolution: {integrity: sha512-u/kozRnsPO/x8QtKYJOqoGtC4kH6yg1lfYkB9Au0WhYB0FNLpyFusttQtvhlwjtG3rOwiRz4D8DnnXa8iEpIKA==}
-    peerDependencies:
-      openapi-types: '>=7'
-
-  '@ark/schema@0.46.0':
-    resolution: {integrity: sha512-c2UQdKgP2eqqDArfBqQIJppxJHvNNXuQPeuSPlDML4rjw+f1cu0qAlzOG4b8ujgm9ctIDWwhpyw6gjG5ledIVQ==}
-
-  '@ark/util@0.46.0':
-    resolution: {integrity: sha512-JPy/NGWn/lvf1WmGCPw2VGpBg5utZraE84I7wli18EDF3p3zc/e9WolT35tINeZO3l7C77SjqRJeAUoT0CvMRg==}
 
   '@aw-web-design/x-default-browser@1.4.126':
     resolution: {integrity: sha512-Xk1sIhyNC/esHGGVjL/niHLowM0csl/kFO5uawBy4IrWwy0o1G8LGt3jP6nmWGz+USxeeqbihAmp/oVZju6wug==}
@@ -9428,17 +9422,11 @@ packages:
   '@simplewebauthn/browser@13.2.2':
     resolution: {integrity: sha512-FNW1oLQpTJyqG5kkDg5ZsotvWgmBaC6jCHR7Ej0qUNep36Wl9tj2eZu7J5rP+uhXgHaLk+QQ3lqcw2vS5MX1IA==}
 
-  '@sinclair/typebox-codegen@0.11.1':
-    resolution: {integrity: sha512-Bckbrf1sJFTIVD88PvI0vWUfE3Sh/6pwu6Jov+6xyMrEqnabOxEFAmPSDWjB1FGPL5C1/HfdScwa1imwAtGi9w==}
-
   '@sinclair/typebox@0.24.51':
     resolution: {integrity: sha512-1P1OROm/rdubP5aFDSZQILU0vrLCJ4fvHt6EoqHEM+2D/G5MK3bIaymUKLit8Js9gbns5UyJnkP/TZROLw4tUA==}
 
   '@sinclair/typebox@0.27.8':
     resolution: {integrity: sha512-+Fj43pSMwJs4KRrH/938Uf+uAELIgVBmQzg/q1YG10djyfA3TnrU8N8XzqCh/okZdszqBQTZf96idMfE5lnwTA==}
-
-  '@sinclair/typebox@0.33.22':
-    resolution: {integrity: sha512-auUj4k+f4pyrIVf4GW5UKquSZFHJWri06QgARy9C0t9ZTjJLIuNIrr1yl9bWcJWJ1Gz1vOvYN1D+QPaIlNMVkQ==}
 
   '@sinclair/typebox@0.34.38':
     resolution: {integrity: sha512-HpkxMmc2XmZKhvaKIZZThlHmx1L0I/V1hWK1NubtlFnr6ZqdiOpV72TKudZUNQjZNsyDBay72qFEhEvb+bcwcA==}
@@ -12043,9 +12031,6 @@ packages:
   aria-query@5.1.3:
     resolution: {integrity: sha512-R5iJ5lkuHybztUfuOAznmboyjWq8O6sqNqtK7CLOqdydi54VNbORp49mb14KbWgG1QD3JFO9hJdZ+y4KutfdOQ==}
 
-  arktype@2.1.20:
-    resolution: {integrity: sha512-IZCEEXaJ8g+Ijd59WtSYwtjnqXiwM8sWQ5EjGamcto7+HVN9eK0C4p0zDlCuAwWhpqr6fIBkxPuYDl4/Mcj/+Q==}
-
   arr-union@3.1.0:
     resolution: {integrity: sha512-sKpyeERZ02v1FeCZT8lrfJq5u6goHCtpTAzPwJYe7c8SPFOboNjNg1vz2L4VTn9T4PQxEx13TbXLmYUcS6Ug7Q==}
     engines: {node: '>=0.10.0'}
@@ -12535,9 +12520,6 @@ packages:
   call-bound@1.0.4:
     resolution: {integrity: sha512-+ys997U96po4Kx/ABpBCqhA9EuxJaQWDQg7295H4hBphv3IZg0boBKuwYpt4YXp6MZ5AmZQnU/tyMTlRpaSejg==}
     engines: {node: '>= 0.4'}
-
-  call-me-maybe@1.0.2:
-    resolution: {integrity: sha512-HpX65o1Hnr9HH25ojC1YGs7HCQLq0GCOibSaWER0eNpgJ/Z1MZv2mTc7+xh6WOPxbRVcmgbv4hGU+uSQ/2xFZQ==}
 
   callsites@3.1.0:
     resolution: {integrity: sha512-P8BjAsXvZS+VIDUI11hHCQEv74YT67YUi5JJFNWIqL235sBmjX4+qx9Muvls5ivyNENctx46xQLQ3aTuE7ssaQ==}
@@ -17814,10 +17796,6 @@ packages:
     resolution: {integrity: sha512-RSn9F68PjH9HqtltsSnqYC1XXoWe9Bju5+213R98cNGttag9q9yAOTzdbsqvIa7aNm5WffBZFpWYr2aWrklWAw==}
     engines: {node: '>= 6'}
 
-  object-inspect@1.13.3:
-    resolution: {integrity: sha512-kDCGIbxkDSXE3euJZZXzc6to7fCrKHNI/hSRQnRuQ+BWjFNzZwiFF8fj/6o2t2G9/jTj8PSIYTfCLelLZEeRpA==}
-    engines: {node: '>= 0.4'}
-
   object-inspect@1.13.4:
     resolution: {integrity: sha512-W67iLl4J2EXEGTbfeHCffrjDfitvLANg0UlX3wFUUSTx92KXRFegMHUVgSqE+wvhAbi4WqjGg9czysTV2Epbew==}
     engines: {node: '>= 0.4'}
@@ -17904,12 +17882,6 @@ packages:
         optional: true
       zod:
         optional: true
-
-  openapi-types@12.1.3:
-    resolution: {integrity: sha512-N4YtSYJqghVu4iek2ZUvcN/0aqH1kRDuNqzcycDxhOUpg7GdvLa2F3DgS6yBNhInhv2r/6I0Flkn7CqL8+nIcw==}
-
-  openapi3-ts@4.5.0:
-    resolution: {integrity: sha512-jaL+HgTq2Gj5jRcfdutgRGLosCy/hT8sQf6VOy+P+g36cZOjI1iukdPnijC+4CmeRzg/jEllJUboEic2FhxhtQ==}
 
   optionator@0.9.3:
     resolution: {integrity: sha512-JjCoypp+jKn1ttEFExxhetCKeJt9zhAgAve5FXHixTvFDW/5aEktX9bufBKLRRMdU7bNtpLfcGu94B3cdEJgjg==}
@@ -18113,18 +18085,6 @@ packages:
 
   pascal-case@3.1.2:
     resolution: {integrity: sha512-uWlGT3YSnK9x3BQJaOdcZwrnV6hPpd8jFH1/ucpiLRPh/2zCVJKS19E4GvYHvaCcACn3foXZ0cLB9Wrx1KGe5g==}
-
-  pastable@2.2.1:
-    resolution: {integrity: sha512-K4ClMxRKpgN4sXj6VIPPrvor/TMp2yPNCGtfhvV106C73SwefQ3FuegURsH7AQHpqu0WwbvKXRl1HQxF6qax9w==}
-    engines: {node: '>=14.x'}
-    peerDependencies:
-      react: 18.3.1
-      xstate: '>=4.32.1'
-    peerDependenciesMeta:
-      react:
-        optional: true
-      xstate:
-        optional: true
 
   path-browserify@1.0.1:
     resolution: {integrity: sha512-b7uo2UCUOYZcnF/3ID0lulOJi/bafxa1xPe7ZPsammBSpjSWQkjNxlt635YGS2MiR9GjvuXCtz2emr3jbsz98g==}
@@ -18827,11 +18787,6 @@ packages:
   prettier@2.8.8:
     resolution: {integrity: sha512-tdN8qQGvNjw4CHbY+XXk0JgCXn9QiF21a55rBe5LJAU+kDyC4WQn4+awm2Xfk2lQMk5fKup9XgzTZtGkjBdP9Q==}
     engines: {node: '>=10.13.0'}
-    hasBin: true
-
-  prettier@3.5.3:
-    resolution: {integrity: sha512-QQtaxnoDJeAkDvDKWCLiwIXkTgRhwYDEQCghU9Z6q03iyek/rxRh/2lC3HB7P8sWT2xC/y5JDctPLBIGzHKbhw==}
-    engines: {node: '>=14'}
     hasBin: true
 
   prettier@3.6.2:
@@ -21155,9 +21110,6 @@ packages:
   ts-pattern@4.3.0:
     resolution: {integrity: sha512-pefrkcd4lmIVR0LA49Imjf9DYLK8vtWhqBPA3Ya1ir8xCW0O2yjL9dsCVvI7pCodLC5q7smNpEtDR2yVulQxOg==}
 
-  ts-pattern@5.8.0:
-    resolution: {integrity: sha512-kIjN2qmWiHnhgr5DAkAafF9fwb0T5OhMVSWrm8XEdTFnX6+wfXwYOFjeF86UZ54vduqiR7BfqScFmXSzSaH8oA==}
-
   ts-toolbelt@9.6.0:
     resolution: {integrity: sha512-nsZd8ZeNUzukXPlJmTBwUAuABDe/9qtVDelJeT/qW0ow3ZS3BsQJtNkan1802aM9Uf68/Y8ljw86Hu0h5IUW3w==}
 
@@ -21318,10 +21270,6 @@ packages:
   typed-array-length@1.0.7:
     resolution: {integrity: sha512-3KS2b+kL7fsuk/eJZ7EQdnEmQoaho/r6KUef7hxvltNA5DR8NAUM+8wJMbJyZ4G9/7i3v5zPBIMN5aybAh2/Jg==}
     engines: {node: '>= 0.4'}
-
-  typed-openapi@2.2.2:
-    resolution: {integrity: sha512-ONZDYZ2NvL4f2RXwvpf83pfaSiHpffIvQZurw0KyCUZ5EqZmCEjwoU5K7moRqnwKeQD9adWRHTRrVUMLOXajSA==}
-    hasBin: true
 
   typedarray-to-buffer@3.1.5:
     resolution: {integrity: sha512-zdu8XMNEDepKKR+XYOXAVPtWui0ly0NtohUscw+UmaHiAWT8hrV1rr//H6V+0DvJ3OQ19S979M0laLfX8rm82Q==}
@@ -22459,27 +22407,6 @@ snapshots:
       '@jsdevtools/ono': 7.1.3
       '@types/json-schema': 7.0.15
       js-yaml: 4.1.1
-
-  '@apidevtools/openapi-schemas@2.1.0': {}
-
-  '@apidevtools/swagger-methods@3.0.2': {}
-
-  '@apidevtools/swagger-parser@10.1.1(openapi-types@12.1.3)':
-    dependencies:
-      '@apidevtools/json-schema-ref-parser': 11.7.2
-      '@apidevtools/openapi-schemas': 2.1.0
-      '@apidevtools/swagger-methods': 3.0.2
-      '@jsdevtools/ono': 7.1.3
-      ajv: 8.17.1
-      ajv-draft-04: 1.0.0(ajv@8.17.1)
-      call-me-maybe: 1.0.2
-      openapi-types: 12.1.3
-
-  '@ark/schema@0.46.0':
-    dependencies:
-      '@ark/util': 0.46.0
-
-  '@ark/util@0.46.0': {}
 
   '@aw-web-design/x-default-browser@1.4.126':
     dependencies:
@@ -30964,17 +30891,9 @@ snapshots:
 
   '@simplewebauthn/browser@13.2.2': {}
 
-  '@sinclair/typebox-codegen@0.11.1':
-    dependencies:
-      '@sinclair/typebox': 0.33.22
-      prettier: 2.8.8
-      typescript: 5.5.4
-
   '@sinclair/typebox@0.24.51': {}
 
   '@sinclair/typebox@0.27.8': {}
-
-  '@sinclair/typebox@0.33.22': {}
 
   '@sinclair/typebox@0.34.38': {}
 
@@ -34528,11 +34447,6 @@ snapshots:
     dependencies:
       deep-equal: 2.1.0
 
-  arktype@2.1.20:
-    dependencies:
-      '@ark/schema': 0.46.0
-      '@ark/util': 0.46.0
-
   arr-union@3.1.0: {}
 
   array-buffer-byte-length@1.0.0:
@@ -35276,8 +35190,6 @@ snapshots:
     dependencies:
       call-bind-apply-helpers: 1.0.2
       get-intrinsic: 1.3.0
-
-  call-me-maybe@1.0.2: {}
 
   callsites@3.1.0: {}
 
@@ -36792,7 +36704,7 @@ snapshots:
       is-string: 1.1.1
       is-typed-array: 1.1.15
       is-weakref: 1.0.2
-      object-inspect: 1.13.3
+      object-inspect: 1.13.4
       object-keys: 1.1.1
       object.assign: 4.1.7
       regexp.prototype.flags: 1.5.4
@@ -42050,8 +41962,6 @@ snapshots:
 
   object-hash@3.0.0: {}
 
-  object-inspect@1.13.3: {}
-
   object-inspect@1.13.4: {}
 
   object-is@1.1.5:
@@ -42159,12 +42069,6 @@ snapshots:
     transitivePeerDependencies:
       - encoding
       - supports-color
-
-  openapi-types@12.1.3: {}
-
-  openapi3-ts@4.5.0:
-    dependencies:
-      yaml: 2.8.2
 
   optionator@0.9.3:
     dependencies:
@@ -42505,16 +42409,6 @@ snapshots:
     dependencies:
       no-case: 3.0.4
       tslib: 2.8.1
-
-  pastable@2.2.1(react@18.3.1):
-    dependencies:
-      '@babel/core': 7.28.0
-      ts-toolbelt: 9.6.0
-      type-fest: 3.5.3
-    optionalDependencies:
-      react: 18.3.1
-    transitivePeerDependencies:
-      - supports-color
 
   path-browserify@1.0.1: {}
 
@@ -43446,8 +43340,6 @@ snapshots:
   prelude-ls@1.2.1: {}
 
   prettier@2.8.8: {}
-
-  prettier@3.5.3: {}
 
   prettier@3.6.2: {}
 
@@ -45207,27 +45099,27 @@ snapshots:
   side-channel-list@1.0.0:
     dependencies:
       es-errors: 1.3.0
-      object-inspect: 1.13.3
+      object-inspect: 1.13.4
 
   side-channel-map@1.0.1:
     dependencies:
       call-bound: 1.0.4
       es-errors: 1.3.0
       get-intrinsic: 1.3.0
-      object-inspect: 1.13.3
+      object-inspect: 1.13.4
 
   side-channel-weakmap@1.0.2:
     dependencies:
       call-bound: 1.0.4
       es-errors: 1.3.0
       get-intrinsic: 1.3.0
-      object-inspect: 1.13.3
+      object-inspect: 1.13.4
       side-channel-map: 1.0.1
 
   side-channel@1.1.0:
     dependencies:
       es-errors: 1.3.0
-      object-inspect: 1.13.3
+      object-inspect: 1.13.4
       side-channel-list: 1.0.0
       side-channel-map: 1.0.1
       side-channel-weakmap: 1.0.2
@@ -46232,8 +46124,6 @@ snapshots:
 
   ts-pattern@4.3.0: {}
 
-  ts-pattern@5.8.0: {}
-
   ts-toolbelt@9.6.0: {}
 
   tsc-alias@1.8.16:
@@ -46398,23 +46288,6 @@ snapshots:
       is-typed-array: 1.1.15
       possible-typed-array-names: 1.0.0
       reflect.getprototypeof: 1.0.10
-
-  typed-openapi@2.2.2(openapi-types@12.1.3)(react@18.3.1):
-    dependencies:
-      '@apidevtools/swagger-parser': 10.1.1(openapi-types@12.1.3)
-      '@sinclair/typebox-codegen': 0.11.1
-      arktype: 2.1.20
-      cac: 6.7.14
-      openapi3-ts: 4.5.0
-      pastable: 2.2.1(react@18.3.1)
-      pathe: 2.0.3
-      prettier: 3.5.3
-      ts-pattern: 5.8.0
-    transitivePeerDependencies:
-      - openapi-types
-      - react
-      - supports-color
-      - xstate
 
   typedarray-to-buffer@3.1.5:
     dependencies:
