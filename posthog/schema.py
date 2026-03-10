@@ -16097,7 +16097,7 @@ class HogQLQuery(BaseModel):
     )
     connectionId: str | None = Field(
         default=None,
-        description=("Optional external data source id for running against a specific source"),
+        description=("Optional direct external data source id for running against a specific source"),
     )
     explain: bool | None = None
     filters: HogQLFilters | None = None
@@ -18590,7 +18590,7 @@ class DatabaseSchemaQuery(BaseModel):
     )
     connectionId: str | None = Field(
         default=None,
-        description="Optional external data source id for schema introspection",
+        description="Optional direct external data source id for schema introspection",
     )
     kind: Literal["DatabaseSchemaQuery"] = "DatabaseSchemaQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -19111,7 +19111,7 @@ class HogQLAutocomplete(BaseModel):
     )
     connectionId: str | None = Field(
         default=None,
-        description=("Optional external data source id for running against a specific source"),
+        description=("Optional direct external data source id for running against a specific source"),
     )
     endPosition: int = Field(..., description="End position of the editor word")
     filters: HogQLFilters | None = Field(default=None, description="Table to validate the expression against")
@@ -19188,7 +19188,7 @@ class HogQLMetadata(BaseModel):
     )
     connectionId: str | None = Field(
         default=None,
-        description=("Optional external data source id for running against a specific source"),
+        description=("Optional direct external data source id for running against a specific source"),
     )
     debug: bool | None = Field(
         default=None,

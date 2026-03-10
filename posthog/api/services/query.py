@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Optional
 
 import structlog
@@ -44,7 +45,7 @@ from posthog.models import Team, User
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.data_warehouse.backend.models import DataWarehouseJoin, ExternalDataSource
-from products.data_warehouse.backend.models.external_data_source import get_external_data_source_for_connection
+from products.data_warehouse.backend.models.external_data_source import get_direct_external_data_source_for_connection
 
 from common.hogvm.python.debugger import color_bytecode
 
@@ -52,7 +53,7 @@ logger = structlog.get_logger(__name__)
 
 
 def _validated_source_for_connection(team: Team, connection_id: str | None) -> ExternalDataSource | None:
-    source = get_external_data_source_for_connection(team_id=team.pk, connection_id=connection_id)
+    source = get_direct_external_data_source_for_connection(team_id=team.pk, connection_id=connection_id)
     if connection_id and source is None:
         raise ValidationError("Invalid connectionId for this team")
     return source
@@ -63,9 +64,7 @@ def _database_for_connection_source(team: Team, user: User | None, source: Exter
         team=team,
         modifiers=create_default_modifiers_for_team(team),
         user=user,
-        direct_query_source_id=str(source.id)
-        if source and source.access_method == ExternalDataSource.AccessMethod.DIRECT
-        else None,
+        direct_query_source_id=str(source.id) if source else None,
     )
 
 
@@ -82,7 +81,7 @@ def _connection_context(
     return source, source_ids, database
 
 
-def _inline_join_field(tables: dict[str, object], join: object) -> None:
+def _inline_join_field(tables: Mapping[str, object], join: object) -> None:
     source_table_name = getattr(join, "source_table_name", None)
     joining_table_name = getattr(join, "joining_table_name", None)
     field_name = getattr(join, "field_name", None)
@@ -122,7 +121,7 @@ def _inline_join_field(tables: dict[str, object], join: object) -> None:
     )
 
 
-def _streamline_join_fields(tables: dict[str, object]) -> None:
+def _streamline_join_fields(tables: Mapping[str, object]) -> None:
     for table in tables.values():
         fields = getattr(table, "fields", None)
         if not isinstance(fields, dict):
@@ -228,8 +227,9 @@ def process_query_model(
         assert database is not None
         serialized_tables = database.serialize(HogQLContext(team_id=team.pk, team=team, database=database, user=user))
         filtered_tables = filter_schema_tables_for_connection(serialized_tables, source_ids)
-        if set(filtered_tables.keys()) != set(serialized_tables.keys()):
-            prune_database_for_connection(database, set(filtered_tables.keys()))
+        allowed_table_names = set(filtered_tables.keys())
+        if source_ids or allowed_table_names != set(serialized_tables.keys()):
+            prune_database_for_connection(database, allowed_table_names)
         return get_hogql_autocomplete(query=query, team=team, database_arg=database, user=user)
 
     if isinstance(query, HogQLMetadata):

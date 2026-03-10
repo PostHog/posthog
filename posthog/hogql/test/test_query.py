@@ -41,8 +41,6 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.data_warehouse.backend.models import ExternalDataSource
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.table import DataWarehouseTable
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
@@ -238,7 +236,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results[0][2], "bla")
             self.assertEqual(response.results[0][3], UUID("00000000-0000-4000-8000-000000000000"))
 
-    def test_execute_hogql_query_scopes_selected_warehouse_connection(self):
+    def test_execute_hogql_query_rejects_non_direct_connection_id(self):
         selected_source = ExternalDataSource.objects.create(
             source_id="selected-upstream-source",
             connection_id="selected-connection",
@@ -249,45 +247,17 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
             prefix="stripe",
         )
-        other_source = ExternalDataSource.objects.create(
-            source_id="other-upstream-source",
-            connection_id="other-connection",
-            destination_id="destination-2",
-            team=self.team,
-            status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.HUBSPOT,
-            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
-            prefix="hubspot",
-        )
-
-        DataWarehouseTable.objects.create(
-            name="stripe_customers",
-            format="Parquet",
-            team=self.team,
-            external_data_source=selected_source,
-            url_pattern="s3://test/stripe_customers",
-            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
-        )
-        DataWarehouseTable.objects.create(
-            name="hubspot_deals",
-            format="Parquet",
-            team=self.team,
-            external_data_source=other_source,
-            url_pattern="s3://test/hubspot_deals",
-            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
-        )
-
         with self.assertRaises(ExposedHogQLError) as error:
             execute_hogql_query(
-                "select * from hubspot.deals limit 1",
+                "select 1",
                 team=self.team,
                 connection_id=str(selected_source.id),
             )
 
-        self.assertEqual(str(error.exception), "Unknown table `hubspot.deals`.")
+        self.assertEqual(str(error.exception), "Invalid connectionId for this team")
 
     @patch("posthog.hogql.query.sync_execute")
-    def test_execute_hogql_query_uses_clickhouse_for_selected_warehouse_connection(self, mock_sync_execute):
+    def test_execute_hogql_query_rejects_non_direct_connection_before_clickhouse(self, mock_sync_execute):
         selected_source = ExternalDataSource.objects.create(
             source_id="selected-upstream-source",
             connection_id="selected-connection",
@@ -298,32 +268,15 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
         )
 
-        table = DataWarehouseTable.objects.create(
-            name="stripe_customers",
-            format="Parquet",
-            team=self.team,
-            external_data_source=selected_source,
-            url_pattern="s3://test/stripe_customers",
-            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
-        )
-        ExternalDataSchema.objects.create(
-            team=self.team,
-            name="customers",
-            source=selected_source,
-            table=table,
-            should_sync=True,
-        )
-        mock_sync_execute.return_value = ([(1,)], [("id", "Int64")])
+        with self.assertRaises(ExposedHogQLError) as error:
+            execute_hogql_query(
+                "select 1",
+                team=self.team,
+                connection_id=str(selected_source.id),
+            )
 
-        response = execute_hogql_query(
-            "select * from stripe.customers limit 1",
-            team=self.team,
-            connection_id=str(selected_source.id),
-        )
-
-        self.assertEqual(response.results, [(1,)])
-        self.assertIn("s3(", response.clickhouse or "")
-        self.assertEqual(mock_sync_execute.call_count, 1)
+        self.assertEqual(str(error.exception), "Invalid connectionId for this team")
+        mock_sync_execute.assert_not_called()
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_pdi_persons(self):
