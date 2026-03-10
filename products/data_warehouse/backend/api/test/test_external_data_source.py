@@ -2187,7 +2187,7 @@ class TestExternalDataSource(APIBaseTest):
         "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
         return_value=(False, "should not be called"),
     )
-    def test_update_with_non_credential_changes_does_not_revalidate(self, mock_validate_credentials):
+    def test_update_with_host_change_does_not_revalidate_credentials(self, mock_validate_credentials):
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),

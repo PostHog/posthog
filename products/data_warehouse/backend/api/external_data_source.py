@@ -139,14 +139,15 @@ def credentials_touched(data: dict[str, Any], fields: list[FieldType]) -> bool:
     return False
 
 
-def validate_updated_host_configuration(
+def validate_connection_policy_changes(
     source: Any, source_config: Config, team_id: int, incoming_job_inputs: dict[str, Any]
 ) -> None:
     if not {"host", "ssh_tunnel"} & set(incoming_job_inputs.keys()):
         return
 
-    # These magic keys come from mixins on the source
-    # --> class PostgresSource(SimpleSource, SSHTunnelMixin, ValidateDatabaseHostMixin)
+    # Host and SSH tunnel edits need cheap policy validation even when credentials are unchanged.
+    # This avoids turning a PATCH into a live connectivity check unless the user actually changed
+    # a secret that requires re-authentication.
     if hasattr(source, "ssh_tunnel_is_valid"):
         ssh_valid, ssh_error = source.ssh_tunnel_is_valid(source_config, team_id)
         if not ssh_valid:
@@ -459,10 +460,12 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             raise ValidationError(f"Invalid source config: {', '.join(errors)}")
 
         source_config: Config = source.parse_config(new_job_inputs)
-        validate_updated_host_configuration(source, source_config, instance.team_id, incoming_job_inputs)
+        validate_connection_policy_changes(source, source_config, instance.team_id, incoming_job_inputs)
         validated_data["job_inputs"] = source_config.to_dict()
 
         if should_validate_credentials:
+            # Secret changes need a real source credential check. Host and SSH policy checks already
+            # ran above so this path stays focused on authentication and connectivity.
             credentials_valid, credentials_error = source.validate_credentials(source_config, instance.team_id)
             if not credentials_valid:
                 raise ValidationError(credentials_error or "Invalid credentials")
