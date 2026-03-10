@@ -50,6 +50,7 @@ Before scaffolding YAML, verify:
 
 If a generated tool has an empty or wrong schema, the fix is almost always on the Django side,
 not in the YAML config.
+For a full audit checklist and before/after examples, use the `improving-drf-endpoints` skill.
 
 ## When to add MCP tools
 
@@ -73,7 +74,7 @@ YAML files configure which operations are exposed as MCP tools.
 See existing definitions for patterns:
 
 - `products/<product>/mcp/*.yaml` — preferred, keeps config close to the code
-- `services/mcp/definitions/*.yaml` — shared location
+- `services/mcp/definitions/*.yaml` — fallback for functionality without a product folder
 
 The build pipeline discovers YAML files from both paths.
 

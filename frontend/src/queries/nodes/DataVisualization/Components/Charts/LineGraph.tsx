@@ -113,7 +113,7 @@ const getYAxisSettings = (
 
 export type LineGraphProps = {
     xData: AxisSeries<string> | null
-    yData: AxisSeries<number>[] | AxisBreakdownSeries<number>[]
+    yData: AxisSeries<number | null>[] | AxisBreakdownSeries<number>[]
     visualizationType: ChartDisplayType
     chartSettings: ChartSettings
     presetChartHeight?: boolean
@@ -430,10 +430,14 @@ export const LineGraph = ({
                                 const stackedSeriesTotalAtIndex =
                                     isStackedBarChart && chartSettings.stackBars100
                                         ? ySeriesData.reduce(
-                                              (acc, series) => acc + series.data[referenceDataPoint.dataIndex],
+                                              (acc, series) => acc + (series.data[referenceDataPoint.dataIndex] ?? 0),
                                               0
                                           )
                                         : null
+
+                                filteredSeriesData = filteredSeriesData.filter(
+                                    (series) => series.data[referenceDataPoint.dataIndex] !== null
+                                )
 
                                 const isTruncated = filteredSeriesData.length > TOOLTIP_ROW_CUTOFF
                                 if (isTruncated) {
@@ -459,8 +463,10 @@ export const LineGraph = ({
                                     }
                                 })
 
-                                const tooltipTotalData = filteredSeriesData.filter(
-                                    (n) => n.settings?.formatting?.style !== 'percent'
+                                const tooltipTotalData = ySeriesData.filter(
+                                    (n) =>
+                                        n.settings?.formatting?.style !== 'percent' &&
+                                        n.data[referenceDataPoint.dataIndex] !== null
                                 )
 
                                 // Don't show total row when highlighting a single bar
@@ -470,7 +476,7 @@ export const LineGraph = ({
                                     !isHighlightBarMode
                                 ) {
                                     const totalRawData = tooltipTotalData.reduce((acc, cur) => {
-                                        acc += cur.data[referenceDataPoint.dataIndex]
+                                        acc += cur.data[referenceDataPoint.dataIndex] ?? 0
                                         return acc
                                     }, 0)
 
@@ -536,8 +542,9 @@ export const LineGraph = ({
                                                                     </div>
                                                                 )
                                                             }
+                                                            const rawData = record.rawData ?? 0
                                                             const percentageLabel: number = parseFloat(
-                                                                ((record.rawData / total) * 100).toFixed(1)
+                                                                ((rawData / total) * 100).toFixed(1)
                                                             )
 
                                                             return (

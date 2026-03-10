@@ -10,14 +10,22 @@ import { IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { getFilterLabel } from '~/taxonomy/helpers'
-import { AnyPropertyFilter, FeatureFlagFilters, FeatureFlagGroupType, PropertyFilterType } from '~/types'
+import {
+    AnyPropertyFilter,
+    FeatureFlagEvaluationRuntime,
+    FeatureFlagFilters,
+    FeatureFlagGroupType,
+    PropertyFilterType,
+} from '~/types'
 
+import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { featureFlagReleaseConditionsLogic } from './featureFlagReleaseConditionsLogic'
 
 interface FeatureFlagReleaseConditionsReadonlyProps {
     id: string
     filters: FeatureFlagFilters
     isDisabled?: boolean
+    evaluationRuntime?: FeatureFlagEvaluationRuntime
 }
 
 function PropertyValueDisplay({ property }: { property: AnyPropertyFilter }): JSX.Element {
@@ -72,6 +80,7 @@ export function FeatureFlagReleaseConditionsReadonly({
     id,
     filters,
     isDisabled,
+    evaluationRuntime,
 }: FeatureFlagReleaseConditionsReadonlyProps): JSX.Element {
     // Use readOnly: true to prevent the logic from triggering blast radius API calls.
     // In readonly mode, we don't need live blast radius calculations - the display is static.
@@ -81,7 +90,7 @@ export function FeatureFlagReleaseConditionsReadonly({
         filters,
     })
 
-    const { filterGroups, aggregationTargetName } = useValues(releaseConditionsLogic)
+    const { filterGroups, aggregationTargetName, properties } = useValues(releaseConditionsLogic)
 
     return (
         <div className="flex flex-col gap-2">
@@ -97,6 +106,8 @@ export function FeatureFlagReleaseConditionsReadonly({
             <p className="text-xs text-muted mb-2">
                 Condition sets are evaluated top to bottom — the first match wins.
             </p>
+
+            <FeatureFlagConditionWarning properties={properties} evaluationRuntime={evaluationRuntime} />
 
             <div className={isDisabled ? 'opacity-60' : ''}>
                 {filterGroups.map((group, index) => (
