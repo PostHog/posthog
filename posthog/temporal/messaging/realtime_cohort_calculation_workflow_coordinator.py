@@ -352,7 +352,7 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: RealtimeCohortCalculationCoordinatorWorkflowInputs) -> None:
         """Run the coordinator workflow that spawns child workflows."""
-        coordinator_start_time = time.monotonic()
+        coordinator_start_time = temporalio.workflow.time()
         percentile_bucket = get_percentile_bucket_label(inputs.duration_percentile_min, inputs.duration_percentile_max)
 
         workflow_logger = temporalio.workflow.logger
