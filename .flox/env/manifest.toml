@@ -93,6 +93,13 @@ bash = '''
   fi
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   export PATH="$FLOX_ENV/bin:$PATH"
+  # Recreate venv if it was deleted (on-activate only runs on first activation)
+  if [ ! -f "$UV_PROJECT_ENVIRONMENT/bin/activate" ]; then
+    uv sync
+    ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
+  elif [ ! -L "$UV_PROJECT_ENVIRONMENT/bin/hogli" ]; then
+    ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
+  fi
   source $UV_PROJECT_ENVIRONMENT/bin/activate
   # Source hogli bash completions
   [ -f "$FLOX_ENV_CACHE/completions/hogli.bash" ] && source "$FLOX_ENV_CACHE/completions/hogli.bash"
@@ -105,6 +112,13 @@ zsh = '''
   fi
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   export PATH="$FLOX_ENV/bin:$PATH"
+  # Recreate venv if it was deleted (on-activate only runs on first activation)
+  if [[ ! -f "$UV_PROJECT_ENVIRONMENT/bin/activate" ]]; then
+    uv sync
+    ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
+  elif [[ ! -L "$UV_PROJECT_ENVIRONMENT/bin/hogli" ]]; then
+    ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
+  fi
   source $UV_PROJECT_ENVIRONMENT/bin/activate
   # Add hogli completions to zsh
   [[ -f "$FLOX_ENV_CACHE/completions/_hogli" ]] && fpath=("$FLOX_ENV_CACHE/completions" $fpath)
@@ -113,11 +127,25 @@ zsh = '''
 fish = '''
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   fish_add_path "$FLOX_ENV/bin"
+  # Recreate venv if it was deleted (on-activate only runs on first activation)
+  if not test -f "$UV_PROJECT_ENVIRONMENT/bin/activate.fish"
+    uv sync
+    ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
+  else if not test -L "$UV_PROJECT_ENVIRONMENT/bin/hogli"
+    ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
+  end
   source $UV_PROJECT_ENVIRONMENT/bin/activate.fish
 '''
 tcsh = '''
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   setenv PATH "$FLOX_ENV/bin:$PATH"
+  # Recreate venv if it was deleted (on-activate only runs on first activation)
+  if ( ! -f "$UV_PROJECT_ENVIRONMENT/bin/activate.csh" ) then
+    uv sync
+    ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
+  else if ( ! -l "$UV_PROJECT_ENVIRONMENT/bin/hogli" ) then
+    ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
+  endif
   source $UV_PROJECT_ENVIRONMENT/bin/activate.csh
 '''
 
