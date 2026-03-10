@@ -7142,6 +7142,11 @@ export namespace Schemas {
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /**
+       * Cursor for fetching the next page of results
+       * @nullable
+       */
+      nextCursor?: string | null;
       /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
@@ -8306,6 +8311,11 @@ export namespace Schemas {
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /**
+       * Cursor for fetching the next page of results
+       * @nullable
+       */
+      nextCursor?: string | null;
       /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
@@ -14135,6 +14145,9 @@ export namespace Schemas {
       readonly transpiled: unknown;
     }
 
+    /**
+     * Values for each input defined in inputs_schema.
+     */
     export type HogFunctionInputs = {[key: string]: InputsItem};
 
     /**
@@ -14229,13 +14242,19 @@ export namespace Schemas {
 
     export interface HogFunctionMasking {
       /**
+       * Time-to-live in seconds for the masking cache (60–86400).
        * @minimum 60
        * @maximum 86400
        */
       ttl: number;
-      /** @nullable */
+      /**
+       * Optional threshold count before masking applies.
+       * @nullable
+       */
       threshold?: number | null;
+      /** Hog expression used to compute the masking hash. */
       hash: string;
+      /** Compiled bytecode for the hash expression. Auto-generated. */
       bytecode?: unknown | null;
     }
 
@@ -14249,35 +14268,70 @@ export namespace Schemas {
     }
 
     export interface HogFunctionMappingTemplate {
+      /** Name of this mapping template. */
       name: string;
-      /** @nullable */
+      /**
+       * Whether this mapping is enabled by default.
+       * @nullable
+       */
       include_by_default?: boolean | null;
+      /** Event filters specific to this mapping. */
       filters?: unknown | null;
+      /** Input values specific to this mapping. */
       inputs?: unknown | null;
+      /** Additional input schema fields specific to this mapping. */
       inputs_schema?: unknown | null;
     }
 
     export interface HogFunctionTemplate {
+      /** Unique template identifier (e.g. 'template-slack'). */
       id: string;
-      /** @maxLength 400 */
+      /**
+       * Display name of the template.
+       * @maxLength 400
+       */
       name: string;
-      /** @nullable */
+      /**
+       * What this template does.
+       * @nullable
+       */
       description?: string | null;
+      /** Source code of the template. */
       code: string;
-      /** @maxLength 20 */
+      /**
+       * Programming language: 'hog' or 'javascript'.
+       * @maxLength 20
+       */
       code_language?: string;
+      /** Schema defining configurable inputs for functions created from this template. */
       inputs_schema: unknown;
-      /** @maxLength 50 */
+      /**
+       * Function type this template creates.
+       * @maxLength 50
+       */
       type: string;
-      /** @maxLength 20 */
+      /**
+       * Lifecycle status: alpha, beta, stable, deprecated, or hidden.
+       * @maxLength 20
+       */
       status?: string;
+      /** Category tags for organizing templates. */
       category?: unknown;
+      /** Whether available on free plans. */
       free?: boolean;
-      /** @nullable */
+      /**
+       * URL for the template's icon.
+       * @nullable
+       */
       icon_url?: string | null;
+      /** Default event filters. */
       filters?: unknown | null;
+      /** Default PII masking configuration. */
       masking?: unknown | null;
-      /** @nullable */
+      /**
+       * Pre-defined mapping configurations for destination templates.
+       * @nullable
+       */
       mapping_templates?: HogFunctionMappingTemplate[] | null;
     }
 
@@ -14308,38 +14362,64 @@ export namespace Schemas {
 
     export interface HogFunction {
       readonly id: string;
+      /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
+
+    * `destination` - Destination
+    * `site_destination` - Site Destination
+    * `internal_destination` - Internal Destination
+    * `source_webhook` - Source Webhook
+    * `warehouse_source_webhook` - Warehouse Source Webhook
+    * `site_app` - Site App
+    * `transformation` - Transformation */
       type?: HogFunctionTypeEnum | NullEnum | null;
       /**
+       * Display name for the function.
        * @maxLength 400
        * @nullable
        */
       name?: string | null;
+      /** Human-readable description of what this function does. */
       description?: string;
       readonly created_at: string;
       readonly created_by: UserBasic;
       readonly updated_at: string;
+      /** Whether the function is active and processing events. */
       enabled?: boolean;
+      /** Soft-delete flag. Set to true to archive the function. */
       deleted?: boolean;
+      /** Source code. Hog language for most types; TypeScript for site_destination and site_app. */
       hog?: string;
       readonly bytecode: unknown | null;
       /** @nullable */
       readonly transpiled: string | null;
+      /** Schema defining the configurable input parameters for this function. */
       inputs_schema?: InputsSchemaItem[];
+      /** Values for each input defined in inputs_schema. */
       inputs?: HogFunctionInputs;
+      /** Event filters that control which events trigger this function. */
       filters?: HogFunctionFilters;
+      /** PII masking configuration with TTL, threshold, and hash expression. */
       masking?: HogFunctionMasking | null;
-      /** @nullable */
+      /**
+       * Event-to-destination field mappings. Only for destination and site_destination types.
+       * @nullable
+       */
       mappings?: Mappings[] | null;
-      /** @nullable */
+      /**
+       * URL for the function's icon displayed in the UI.
+       * @nullable
+       */
       icon_url?: string | null;
       readonly template: HogFunctionTemplate;
       /**
+       * ID of the template to create this function from.
        * @maxLength 400
        * @nullable
        */
       template_id?: string | null;
       readonly status: HogFunctionStatus | null;
       /**
+       * Execution priority for transformations. Lower values run first.
        * @minimum 0
        * @maximum 32767
        * @nullable
@@ -16302,6 +16382,8 @@ export namespace Schemas {
       /** @maxLength 2048 */
       name: string;
       type?: NodeTypeEnum;
+      /** @maxLength 1024 */
+      description?: string;
       /** @maxLength 256 */
       dag_id_text?: string;
       /** @nullable */
@@ -16323,7 +16405,7 @@ export namespace Schemas {
 
     export interface Notebook {
       readonly id: string;
-      short_id?: string;
+      readonly short_id: string;
       /**
        * @maxLength 256
        * @nullable
@@ -17182,6 +17264,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: HogFunctionMinimal[];
+    }
+
+    export interface PaginatedHogFunctionTemplateList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: HogFunctionTemplate[];
     }
 
     export interface PaginatedInsightList {
@@ -20245,42 +20336,71 @@ export namespace Schemas {
       variables?: PatchedHogFlowTemplateVariablesItem[];
     }
 
+    /**
+     * Values for each input defined in inputs_schema.
+     */
     export type PatchedHogFunctionInputs = {[key: string]: InputsItem};
 
     export interface PatchedHogFunction {
       readonly id?: string;
+      /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
+
+    * `destination` - Destination
+    * `site_destination` - Site Destination
+    * `internal_destination` - Internal Destination
+    * `source_webhook` - Source Webhook
+    * `warehouse_source_webhook` - Warehouse Source Webhook
+    * `site_app` - Site App
+    * `transformation` - Transformation */
       type?: HogFunctionTypeEnum | NullEnum | null;
       /**
+       * Display name for the function.
        * @maxLength 400
        * @nullable
        */
       name?: string | null;
+      /** Human-readable description of what this function does. */
       description?: string;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
       readonly updated_at?: string;
+      /** Whether the function is active and processing events. */
       enabled?: boolean;
+      /** Soft-delete flag. Set to true to archive the function. */
       deleted?: boolean;
+      /** Source code. Hog language for most types; TypeScript for site_destination and site_app. */
       hog?: string;
       readonly bytecode?: unknown | null;
       /** @nullable */
       readonly transpiled?: string | null;
+      /** Schema defining the configurable input parameters for this function. */
       inputs_schema?: InputsSchemaItem[];
+      /** Values for each input defined in inputs_schema. */
       inputs?: PatchedHogFunctionInputs;
+      /** Event filters that control which events trigger this function. */
       filters?: HogFunctionFilters;
+      /** PII masking configuration with TTL, threshold, and hash expression. */
       masking?: HogFunctionMasking | null;
-      /** @nullable */
+      /**
+       * Event-to-destination field mappings. Only for destination and site_destination types.
+       * @nullable
+       */
       mappings?: Mappings[] | null;
-      /** @nullable */
+      /**
+       * URL for the function's icon displayed in the UI.
+       * @nullable
+       */
       icon_url?: string | null;
       readonly template?: HogFunctionTemplate;
       /**
+       * ID of the template to create this function from.
        * @maxLength 400
        * @nullable
        */
       template_id?: string | null;
       readonly status?: HogFunctionStatus | null;
       /**
+       * Execution priority for transformations. Lower values run first.
        * @minimum 0
        * @maximum 32767
        * @nullable
@@ -20513,6 +20633,8 @@ export namespace Schemas {
       /** @maxLength 2048 */
       name?: string;
       type?: NodeTypeEnum;
+      /** @maxLength 1024 */
+      description?: string;
       /** @maxLength 256 */
       dag_id_text?: string;
       /** @nullable */
@@ -20534,7 +20656,7 @@ export namespace Schemas {
 
     export interface PatchedNotebook {
       readonly id?: string;
-      short_id?: string;
+      readonly short_id?: string;
       /**
        * @maxLength 256
        * @nullable
@@ -22645,6 +22767,41 @@ export namespace Schemas {
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /**
+       * Cursor for fetching the next page of results
+       * @nullable
+       */
+      nextCursor?: string | null;
+      /** @nullable */
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown[][];
+      /**
+       * Measured timings for different parts of the query generation process
+       * @nullable
+       */
+      timings?: QueryTiming[] | null;
+      types: string[];
+    }
+
+    export interface QueryResponseAlternative2 {
+      columns: unknown[];
+      /**
+       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+       * @nullable
+       */
+      error?: string | null;
+      /** @nullable */
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql: string;
+      /** @nullable */
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
       /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
@@ -23596,6 +23753,11 @@ export namespace Schemas {
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /**
+       * Cursor for fetching the next page of results
+       * @nullable
+       */
+      nextCursor?: string | null;
       /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
@@ -24934,7 +25096,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | unknown | QueryResponseAlternative38 | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative56 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative61 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative66 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative71 | QueryResponseAlternative72 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative84 | QueryResponseAlternative85 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative88;
+    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | unknown | QueryResponseAlternative38 | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative56 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative61 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative66 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative71 | QueryResponseAlternative72 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative84 | QueryResponseAlternative85 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative88;
 
     export interface QueryStatusResponse {
       query_status: QueryStatus;
@@ -28678,6 +28840,29 @@ export namespace Schemas {
     updated_at?: string;
     };
 
+    export type HogFunctionTemplatesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter to a specific template by its template_id. Deprecated templates are excluded from list results; use the retrieve endpoint to look up a template by ID regardless of status.
+     */
+    template_id?: string;
+    /**
+     * Filter by template type (e.g. destination, email, sms_provider, broadcast). Defaults to destination if neither type nor types is provided.
+     */
+    type?: string;
+    /**
+     * Comma-separated list of template types to include (e.g. destination,email,sms_provider).
+     */
+    types?: string;
+    };
+
     export type HogFunctionsListParams = {
     created_at?: string;
     created_by?: number;
@@ -30047,6 +30232,29 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type PublicHogFunctionTemplatesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter to a specific template by its template_id. Deprecated templates are excluded from list results; use the retrieve endpoint to look up a template by ID regardless of status.
+     */
+    template_id?: string;
+    /**
+     * Filter by template type (e.g. destination, email, sms_provider, broadcast). Defaults to destination if neither type nor types is provided.
+     */
+    type?: string;
+    /**
+     * Comma-separated list of template types to include (e.g. destination,email,sms_provider).
+     */
+    types?: string;
     };
 
     export type UsersListParams = {

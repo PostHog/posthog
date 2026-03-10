@@ -493,6 +493,19 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                 # Includes: query execution + Kafka message production + message flushing
                 cohort_end_time = time.monotonic()
                 duration_ms = int((cohort_end_time - cohort_start_time) * 1000)
+                duration_seconds = duration_ms / 1000
+
+                # Log slow cohorts for investigation
+                if duration_seconds > 10:
+                    logger.warning(
+                        f"Slow cohort detected: cohort {cohort.pk} took {duration_seconds:.1f}s to process",
+                        cohort_id=cohort.pk,
+                        duration_seconds=duration_seconds,
+                        duration_ms=duration_ms,
+                        team_id=cohort.team_id,
+                        cohort_name=cohort.name,
+                        is_slow_cohort=True,
+                    )
 
                 # Record total cohort calculation duration
                 COHORT_CALCULATION_TOTAL_DURATION_HISTOGRAM.labels(percentile_bucket=percentile_bucket).observe(
@@ -506,6 +519,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                     f"Cohort {cohort.pk} processing completed",
                     cohort_id=cohort.pk,
                     duration_ms=duration_ms,
+                    duration_seconds=duration_seconds,
                 )
 
                 get_cohort_calculation_success_metric().add(1)

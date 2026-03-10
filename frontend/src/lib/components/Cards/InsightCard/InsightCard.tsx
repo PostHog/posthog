@@ -42,6 +42,7 @@ import {
 } from '~/types'
 
 import { ResizeHandle1D, ResizeHandle2D } from '../handles'
+import { EditModeEdgeOverlay } from './EditModeEdgeOverlay'
 import { InsightMeta } from './InsightMeta'
 
 const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
@@ -100,6 +101,10 @@ export interface InsightCardProps extends Resizeable {
     tile?: DashboardTile<QueryBasedInsightModel>
     /** survey opportunity for this insight */
     surveyOpportunity?: boolean
+    /** Whether hovering near the card edge should hint that edit mode is available. */
+    canEnterEditModeFromEdge?: boolean
+    /** Called when the user clicks an edge hint to enter edit mode. */
+    onEnterEditModeFromEdge?: () => void
 }
 
 function InsightCardInternal(
@@ -139,6 +144,8 @@ function InsightCardInternal(
         breakdownColorOverride: _breakdownColorOverride,
         dataColorThemeId: _dataColorThemeId,
         surveyOpportunity,
+        canEnterEditModeFromEdge,
+        onEnterEditModeFromEdge,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -297,6 +304,9 @@ function InsightCardInternal(
                         <ResizeHandle1D orientation="horizontal" />
                         {canResizeWidth ? <ResizeHandle2D /> : null}
                     </>
+                )}
+                {canEnterEditModeFromEdge && !showResizeHandles && onEnterEditModeFromEdge && (
+                    <EditModeEdgeOverlay onEnterEditMode={onEnterEditModeFromEdge} />
                 )}
                 {children /* Extras, specifically resize handles injected by ReactGridLayout */}
             </ErrorBoundary>

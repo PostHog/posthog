@@ -383,10 +383,6 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     // This ensures we have the full experiment data including feature_flag, etc.
                     actions.setExperiment(response)
 
-                    actions.reportExperimentCreated(response, {
-                        creation_source: 'wizard',
-                        has_linked_flag: !!response.feature_flag?.id,
-                    })
                     actions.addProductIntent({
                         product_type: ProductKey.EXPERIMENTS,
                         intent_context: ProductIntentContext.EXPERIMENT_CREATED,

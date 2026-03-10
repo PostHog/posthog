@@ -38,7 +38,13 @@ import getInsight from './insights/get'
 import getAllInsights from './insights/getAll'
 import queryInsight from './insights/query'
 import updateInsight from './insights/update'
-// LLM Observability
+// LLM Analytics
+import evaluationCreate from './llmAnalytics/evaluations/create'
+import evaluationDelete from './llmAnalytics/evaluations/delete'
+import evaluationGet from './llmAnalytics/evaluations/get'
+import evaluationsGet from './llmAnalytics/evaluations/getAll'
+import evaluationRun from './llmAnalytics/evaluations/run'
+import evaluationUpdate from './llmAnalytics/evaluations/update'
 import getLLMCosts from './llmAnalytics/getLLMCosts'
 import logsListAttributes from './logs/listAttributes'
 import logsListAttributeValues from './logs/listAttributeValues'
@@ -145,8 +151,14 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'dashboard-reorder-tiles': reorderDashboardTiles,
     'add-insight-to-dashboard': addInsightToDashboard,
 
-    // LLM Observability
+    // LLM Analytics
     'get-llm-total-costs-for-project': getLLMCosts,
+    'evaluations-get': evaluationsGet,
+    'evaluation-get': evaluationGet,
+    'evaluation-create': evaluationCreate,
+    'evaluation-update': evaluationUpdate,
+    'evaluation-delete': evaluationDelete,
+    'evaluation-run': evaluationRun,
 
     // Surveys
     'surveys-get-all': getAllSurveys,

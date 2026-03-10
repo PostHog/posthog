@@ -1,4 +1,4 @@
-// AUTO-GENERATED from services/mcp/definitions/actions.yaml + OpenAPI — do not edit
+// AUTO-GENERATED from products/actions/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
@@ -36,6 +36,11 @@ const actionsGetAll = (): ToolBase<typeof ActionsGetAllSchema, unknown> => ({
             })),
             _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/data-management/actions`,
         }
+    },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/action-list.html',
+        },
     },
 })
 
@@ -78,6 +83,11 @@ const actionCreate = (): ToolBase<typeof ActionCreateSchema, Schemas.Action & { 
             _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/data-management/actions/${(result as any).id}`,
         }
     },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/action.html',
+        },
+    },
 })
 
 const ActionGetSchema = ActionsRetrieveParams.omit({ project_id: true })
@@ -95,6 +105,11 @@ const actionGet = (): ToolBase<typeof ActionGetSchema, Schemas.Action & { _posth
             ...(result as any),
             _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/data-management/actions/${(result as any).id}`,
         }
+    },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/action.html',
+        },
     },
 })
 
@@ -138,6 +153,11 @@ const actionUpdate = (): ToolBase<typeof ActionUpdateSchema, Schemas.Action & { 
             ...(result as any),
             _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/data-management/actions/${(result as any).id}`,
         }
+    },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/action.html',
+        },
     },
 })
 
