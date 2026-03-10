@@ -21,6 +21,7 @@ import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
+import { discoverDefinitions } from './lib/definitions.mjs'
 import {
     type CategoryConfig,
     CategoryConfigSchema,
@@ -732,67 +733,6 @@ function generateDefinitionsJson(
 }
 
 // ------------------------------------------------------------------
-// Definition discovery — scan services/mcp/definitions/ + products/*/mcp/
-// ------------------------------------------------------------------
-
-interface DefinitionSource {
-    /** Module name used for the generated .ts file (e.g. "actions", "error_tracking") */
-    moduleName: string
-    /** Absolute path to the YAML file */
-    filePath: string
-    /** Relative label for the generated comment header */
-    label: string
-}
-
-function discoverDefinitions(): DefinitionSource[] {
-    const sources: DefinitionSource[] = []
-
-    // Core definitions: services/mcp/definitions/*.yaml
-    if (fs.existsSync(DEFINITIONS_DIR)) {
-        for (const file of fs.readdirSync(DEFINITIONS_DIR)) {
-            if (!file.endsWith('.yaml') && !file.endsWith('.yml')) {
-                continue
-            }
-            sources.push({
-                moduleName: file.replace(/\.ya?ml$/, ''),
-                filePath: path.join(DEFINITIONS_DIR, file),
-                label: `definitions/${file}`,
-            })
-        }
-    }
-
-    // Product definitions: products/*/mcp/tools.yaml (or any .yaml in mcp/)
-    if (fs.existsSync(PRODUCTS_DIR)) {
-        for (const product of fs.readdirSync(PRODUCTS_DIR, {
-            withFileTypes: true,
-        })) {
-            if (!product.isDirectory() || product.name.startsWith('_')) {
-                continue
-            }
-            const mcpDir = path.join(PRODUCTS_DIR, product.name, 'mcp')
-            if (!fs.existsSync(mcpDir)) {
-                continue
-            }
-            for (const file of fs.readdirSync(mcpDir)) {
-                if (!file.endsWith('.yaml') && !file.endsWith('.yml')) {
-                    continue
-                }
-                // Use product name as module name (tools.yaml → error_tracking)
-                const moduleName =
-                    file === 'tools.yaml' || file === 'tools.yml' ? product.name : file.replace(/\.ya?ml$/, '')
-                sources.push({
-                    moduleName,
-                    filePath: path.join(mcpDir, file),
-                    label: `products/${product.name}/mcp/${file}`,
-                })
-            }
-        }
-    }
-
-    return sources
-}
-
-// ------------------------------------------------------------------
 // Main
 // ------------------------------------------------------------------
 
@@ -800,7 +740,7 @@ function main(): void {
     const spec = loadOpenApi()
     const knownTypes = loadKnownSchemaTypes(spec)
 
-    const definitionSources = discoverDefinitions()
+    const definitionSources = discoverDefinitions({ definitionsDir: DEFINITIONS_DIR, productsDir: PRODUCTS_DIR })
 
     if (definitionSources.length === 0) {
         console.error('No YAML definitions found in definitions/ or products/*/mcp/')
@@ -828,7 +768,8 @@ function main(): void {
         }
         const config = result.data
 
-        const { code, enabledTools } = generateCategoryFile(config, def.label, def.moduleName, spec, knownTypes)
+        const label = path.relative(REPO_ROOT, def.filePath)
+        const { code, enabledTools } = generateCategoryFile(config, label, def.moduleName, spec, knownTypes)
 
         if (enabledTools.length > 0) {
             generatedModules.push(def.moduleName)

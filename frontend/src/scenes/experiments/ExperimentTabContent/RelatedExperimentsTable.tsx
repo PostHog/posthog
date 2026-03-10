@@ -11,9 +11,14 @@ import stringWithWBR from 'lib/utils/stringWithWBR'
 import { urls } from 'scenes/urls'
 
 import type { Experiment, FeatureFlagType } from '~/types'
-import { ExperimentProgressStatus } from '~/types'
+import { ExperimentStatus } from '~/types'
 
-import { getExperimentStatus, getShippedVariantKey, isSingleVariantShipped } from '../experimentsLogic'
+import {
+    getExperimentStatus,
+    getShippedVariantKey,
+    isExperimentPaused,
+    isSingleVariantShipped,
+} from '../experimentsLogic'
 import { StatusTag } from '../ExperimentView/components'
 import { isLegacyExperiment } from '../utils'
 import { featureFlagRelatedExperimentsLogic } from './featureFlagRelatedExperimentsLogic'
@@ -176,18 +181,22 @@ export const RelatedExperimentsTable = ({
                         title: 'Status',
                         key: 'status',
                         render: function Render(_, experiment: Experiment) {
-                            return <StatusTag status={getExperimentStatus(experiment)} />
+                            return (
+                                <StatusTag
+                                    status={getExperimentStatus(experiment)}
+                                    isPaused={isExperimentPaused(experiment)}
+                                />
+                            )
                         },
                         align: 'center',
                         sorter: (a, b) => {
                             const statusA = getExperimentStatus(a)
                             const statusB = getExperimentStatus(b)
 
-                            const score: Record<ExperimentProgressStatus, number> = {
-                                [ExperimentProgressStatus.Draft]: 1,
-                                [ExperimentProgressStatus.Running]: 2,
-                                [ExperimentProgressStatus.Paused]: 2,
-                                [ExperimentProgressStatus.Complete]: 3,
+                            const score: Record<ExperimentStatus, number> = {
+                                [ExperimentStatus.Draft]: 1,
+                                [ExperimentStatus.Running]: 2,
+                                [ExperimentStatus.Stopped]: 3,
                             }
                             return score[statusA] > score[statusB] ? 1 : -1
                         },

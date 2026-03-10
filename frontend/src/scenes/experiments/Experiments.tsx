@@ -39,7 +39,7 @@ import {
     AccessControlResourceType,
     ActivityScope,
     Experiment,
-    ExperimentProgressStatus,
+    ExperimentStatus,
     ExperimentsTabs,
 } from '~/types'
 
@@ -49,6 +49,7 @@ import {
     ExperimentsFilters,
     experimentsLogic,
     getExperimentStatus,
+    isExperimentPaused,
     getShippedVariantKey,
     isSingleVariantShipped,
 } from './experimentsLogic'
@@ -131,15 +132,15 @@ const ExperimentsTableFilters = ({
                                 const { status: _, ...restFilters } = filters
                                 onFiltersChange({ ...restFilters, page: 1 }, true)
                             } else {
-                                onFiltersChange({ status: status as ExperimentProgressStatus, page: 1 })
+                                onFiltersChange({ status: status as ExperimentStatus, page: 1 })
                             }
                         }}
                         options={
                             [
                                 { label: 'All', value: 'all' },
-                                { label: 'Draft', value: ExperimentProgressStatus.Draft },
-                                { label: 'Running / Paused', value: ExperimentProgressStatus.Running },
-                                { label: 'Complete', value: ExperimentProgressStatus.Complete },
+                                { label: 'Draft', value: ExperimentStatus.Draft },
+                                { label: 'Running / Paused', value: ExperimentStatus.Running },
+                                { label: 'Complete', value: ExperimentStatus.Stopped },
                             ] as { label: string; value: string }[]
                         }
                         value={filters.status ?? 'all'}
@@ -311,18 +312,17 @@ const ExperimentsTable = ({
             title: 'Status',
             key: 'status',
             render: function Render(_, experiment: Experiment) {
-                return <StatusTag status={getExperimentStatus(experiment)} />
+                return <StatusTag status={getExperimentStatus(experiment)} isPaused={isExperimentPaused(experiment)} />
             },
             align: 'center',
             sorter: (a, b) => {
                 const statusA = getExperimentStatus(a)
                 const statusB = getExperimentStatus(b)
 
-                const score = {
-                    draft: 1,
-                    paused: 2,
-                    running: 3,
-                    complete: 4,
+                const score: Record<ExperimentStatus, number> = {
+                    [ExperimentStatus.Draft]: 1,
+                    [ExperimentStatus.Running]: 2,
+                    [ExperimentStatus.Stopped]: 3,
                 }
                 return score[statusA] > score[statusB] ? 1 : -1
             },
@@ -352,7 +352,7 @@ const ExperimentsTable = ({
                                     }}
                                 />
                                 {!experiment.archived &&
-                                    getExperimentStatus(experiment) === ExperimentProgressStatus.Complete && (
+                                    getExperimentStatus(experiment) === ExperimentStatus.Stopped && (
                                         <AccessControlAction
                                             resourceType={AccessControlResourceType.Experiment}
                                             minAccessLevel={AccessControlLevel.Editor}
