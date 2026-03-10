@@ -58,7 +58,7 @@ export function useRepositories(integrationId: number): { options: LemonInputSel
         loadRepositories()
     }, [loadRepositories])
 
-    const options = useMemo(() => repositories.map((r) => ({ key: r, label: r })), [repositories])
+    const options = useMemo(() => repositories.map((r) => ({ key: r.full_name, label: r.full_name })), [repositories])
 
     return { options, loading: repositoriesLoading }
 }
