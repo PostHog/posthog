@@ -161,10 +161,14 @@ jobs:
                         - 'frontend/src/generated/**/*'
                         - 'products/*/frontend/generated/**/*'
                         - 'services/mcp/src/generated/**/*'
+                        - 'services/mcp/src/api/generated.ts'
                         # Generation tooling - changes here could affect output
+                        - 'tools/openapi-codegen/**/*'
+                        - 'services/mcp/scripts/lib/**'
                         - 'frontend/bin/generate-openapi-types.mjs'
                         - 'frontend/src/lib/api-orval-mutator.ts'
                         - 'services/mcp/scripts/generate-orval-schemas.mjs'
+                        - 'services/mcp/scripts/generate-mcp-types.mjs'
                         - 'services/mcp/scripts/generate-tools.ts'
                         - 'services/mcp/definitions/**/*.yaml'
                         - 'products/*/mcp/**/*.yaml'
@@ -840,6 +844,7 @@ jobs:
                   git add products/*/frontend/generated/ 2>/dev/null || true
                   git add products/*/mcp/*.yaml 2>/dev/null || true
                   git add services/mcp/definitions/*.yaml 2>/dev/null || true
+                  git add services/mcp/src/api/generated.ts 2>/dev/null || true
                   git commit -m "chore: update OpenAPI generated types"
                   git push origin "$BRANCH"
                   echo "::notice::Pushed updated OpenAPI types to $BRANCH"
