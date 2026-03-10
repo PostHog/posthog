@@ -5657,6 +5657,7 @@ class GroupPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    group_key_names: dict[str, str] | None = None
     group_type_index: int | None = None
     key: str
     label: str | None = None

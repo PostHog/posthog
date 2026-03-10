@@ -1006,6 +1006,7 @@ export interface GroupPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Group
     group_type_index?: integer | null
     operator: PropertyOperator
+    group_key_names?: Record<string, string>
 }
 
 export type LogPropertyFilterType =
