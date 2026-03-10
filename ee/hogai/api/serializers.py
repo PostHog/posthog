@@ -62,6 +62,9 @@ class ConversationSerializer(ConversationMinimalSerializer):
     pending_approvals = serializers.SerializerMethodField()
 
     def get_messages(self, conversation: Conversation) -> list[dict[str, Any]]:
+        if conversation.messages_json is not None:
+            return conversation.messages_json
+
         state, _, _ = self._get_cached_state(conversation)
         if state is None:
             return []
@@ -84,6 +87,9 @@ class ConversationSerializer(ConversationMinimalSerializer):
         return has_unsupported_content
 
     def get_agent_mode(self, conversation: Conversation) -> str | None:
+        if conversation.sandbox_task_id is not None:
+            return "sandbox"
+
         state, _, _ = self._get_cached_state(conversation)
         if state:
             return state.agent_mode_or_default

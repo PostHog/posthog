@@ -28,7 +28,7 @@ def _verify_authorization(request):
     # If no token is configured, check if we're in DEBUG mode
     if not expected_token:
         if settings.DEBUG:
-            logger.warning(
+            logger.debug(
                 "TEMPORAL_CODEC_AUTH_TOKEN not set, allowing access in DEBUG mode, consider setting it for PRODUCTION!"
             )
             return True
