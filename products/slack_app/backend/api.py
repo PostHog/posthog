@@ -408,6 +408,14 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
     try:
         slack = SlackIntegration(integration)
 
+        # Post disclaimer for new threads so users know messages will be synced
+        if not existing_conversation:
+            slack.client.chat_postMessage(
+                channel=channel,
+                thread_ts=thread_ts,
+                text="Messages in this thread will be visible in PostHog.",
+            )
+
         # Check if conversation is already in progress
         if existing_conversation and existing_conversation.status in [
             Conversation.Status.IN_PROGRESS,
