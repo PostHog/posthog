@@ -602,18 +602,19 @@ describe('LogsRateLimiterService', () => {
                 const result1 = await rateLimiter.filterMessages(messages1)
                 expect(result1.allowed).toHaveLength(1)
 
-                // Now a backfill batch arrives spanning 10 seconds.
+                // Second batch arrives 10 seconds later.
                 // Bucket is empty, refill rate is 1KB/s, so 10 seconds of refill = 10KB.
-                // With max timestamp (t0+10s), the token bucket refills 10KB, allowing the batch.
+                // filterMessages uses the oldest timestamp per team, so all messages
+                // need to be at t10 for the refill to kick in.
                 const t10 = new Date('2024-01-01T00:00:10Z').toISOString()
                 const messages2 = [
-                    createMessageWithHeaders(1, 5120, [{ created_at: t0 }]), // 5KB at t0
+                    createMessageWithHeaders(1, 5120, [{ created_at: t10 }]), // 5KB at t0+10s
                     createMessageWithHeaders(1, 3072, [{ created_at: t10 }]), // 3KB at t0+10s
                 ]
 
                 const result2 = await rateLimiter.filterMessages(messages2)
 
-                // Max timestamp t10 gives 10KB refill, enough for 5+3=8KB
+                // Oldest timestamp t10 gives 10KB refill from t0, enough for 5+3=8KB
                 expect(result2.allowed).toHaveLength(2)
                 expect(result2.dropped).toHaveLength(0)
             })
