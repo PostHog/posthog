@@ -54,11 +54,12 @@ async def temporal_schedule_every_5_minutes(temporal_client, ateam):
 async def assert_backfill_completed(
     batch_export_id: str | uuid.UUID,
     expected_status: str = "Completed",
-) -> None:
+) -> BatchExportBackfill:
     """Assert that a backfill was created and completed with the expected status."""
     backfill = await fetch_backfill(batch_export_id)
     assert backfill.status == expected_status
     assert backfill.finished_at is not None
+    return backfill
 
 
 async def fetch_backfill(batch_export_id: str | uuid.UUID) -> BatchExportBackfill:
@@ -76,7 +77,9 @@ async def run_backfill_workflow(
     batch_export_id: str | uuid.UUID,
     start_at: dt.datetime | None = None,
     end_at: dt.datetime | None = None,
-) -> BatchExportBackfill:
+    start_delay: float = 0.1,
+    expect_completion: bool = True,
+) -> temporalio.client.WorkflowHandle[BackfillBatchExportWorkflow, None]:
     """Run a backfill workflow and return the resulting backfill model."""
     batch_export_id_str = str(batch_export_id)
     inputs = BackfillBatchExportInputs(
@@ -84,22 +87,22 @@ async def run_backfill_workflow(
         batch_export_id=batch_export_id_str,
         start_at=start_at.isoformat() if start_at else None,
         end_at=end_at.isoformat() if end_at else None,
-        start_delay=0.1,
+        start_delay=start_delay,
     )
 
+    workflow_id = f"{batch_export_id_str}-Backfill-{start_at.astimezone(dt.UTC).isoformat() if start_at else 'START'}-{end_at.astimezone(dt.UTC).isoformat() if end_at else 'END'}"
     handle = await temporal_client.start_workflow(
         BackfillBatchExportWorkflow.run,
         inputs,
-        id=str(uuid.uuid4()),
+        id=workflow_id,
         task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
         execution_timeout=dt.timedelta(minutes=1),
         retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
     )
-    await handle.result()
 
-    backfills = await afetch_batch_export_backfills(batch_export_id=uuid.UUID(batch_export_id_str))
-    assert len(backfills) == 1
-    return backfills[0]
+    if expect_completion:
+        await handle.result()
+    return handle
 
 
 @pytest.fixture
@@ -334,38 +337,25 @@ async def test_backfill_batch_export_workflow(
         count=100,
     )
 
-    workflow_id = (
-        f"{batch_export.id}-Backfill-{start_at.astimezone(dt.UTC).isoformat()}-{end_at.astimezone(dt.UTC).isoformat()}"
-    )
-    inputs = BackfillBatchExportInputs(
+    await run_backfill_workflow(
+        temporal_client,
         team_id=ateam.pk,
-        batch_export_id=str(batch_export.id),
-        start_at=start_at.isoformat(),
-        end_at=end_at.isoformat(),
+        batch_export_id=batch_export.id,
+        start_at=start_at,
+        end_at=end_at,
         start_delay=0.1,
+        expect_completion=True,
     )
-
-    handle = temporal_client.get_schedule_handle(str(batch_export.id))
-    desc = await handle.describe()
-    handle = await temporal_client.start_workflow(
-        BackfillBatchExportWorkflow.run,
-        inputs,
-        id=workflow_id,
-        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-        execution_timeout=dt.timedelta(minutes=1),
-        retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
-    )
-    await handle.result()
-
     backfill = await fetch_backfill(batch_export.id)
+
     if backfill.status == BatchExportBackfill.Status.COMPLETED and backfill.total_records_count == 0:
         raise AssertionError("Backfill completed early with no records")
 
-    workflows = await wait_for_workflows(temporal_client, desc.id, expected_num_workflows, timeout=50)
+    workflows = await wait_for_workflows(temporal_client, batch_export.id, expected_num_workflows, timeout=50)
 
     # Check that the individual workflow IDs and TemporalScheduledStartTime search attributes are set correctly.
     for index, workflow in enumerate(workflows, start=1):
-        run_end_time = dt.datetime.strptime(workflow.id, f"{desc.id}-%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.UTC)
+        run_end_time = dt.datetime.strptime(workflow.id, f"{batch_export.id}-%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.UTC)
         expected_run_end_time = start_at + batch_export.interval_time_delta * index
         assert run_end_time == expected_run_end_time
 
@@ -373,10 +363,7 @@ async def test_backfill_batch_export_workflow(
         assert isinstance(temporal_scheduled_start_time, dt.datetime)
         assert temporal_scheduled_start_time == expected_run_end_time
 
-    await assert_backfill_completed(desc.id)
-
-    backfills = await afetch_batch_export_backfills(batch_export_id=desc.id)
-    backfill = backfills.pop()
+    backfill = await assert_backfill_completed(batch_export.id)
 
     await assert_backfill_details_in_workflow_events(
         temporal_client,
@@ -404,27 +391,17 @@ async def test_backfill_batch_export_workflow_no_end_at(
     # Generate events within the backfill time range to ensure there's data to backfill
     await generate_events(start_time=start_at, end_time=start_at + dt.timedelta(minutes=15))
 
-    workflow_id = str(uuid.uuid4())
-    inputs = BackfillBatchExportInputs(
-        team_id=ateam.pk,
-        batch_export_id=desc.id,
-        start_at=start_at.isoformat(),
-        end_at=end_at,
-        start_delay=0.1,
-    )
-
     batch_export = await afetch_batch_export(desc.id)
     assert batch_export.paused is True
 
-    handle = await temporal_client.start_workflow(
-        BackfillBatchExportWorkflow.run,
-        inputs,
-        id=workflow_id,
-        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-        execution_timeout=dt.timedelta(minutes=1),
-        retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+    await run_backfill_workflow(
+        temporal_client,
+        team_id=ateam.pk,
+        batch_export_id=desc.id,
+        start_at=start_at,
+        end_at=end_at,
+        start_delay=0.1,
     )
-    await handle.result()
 
     workflows = await wait_for_workflows(temporal_client, desc.id, expected_count=2)
 
@@ -436,15 +413,12 @@ async def test_backfill_batch_export_workflow_no_end_at(
         expected_is_earliest_backfill=False,
     )
 
-    await assert_backfill_completed(desc.id)
-
-    backfills = await afetch_batch_export_backfills(batch_export_id=desc.id)
-    backfill = backfills.pop()
+    backfill = await assert_backfill_completed(desc.id)
 
     for backfill_id in event_backfill_ids:
         assert backfill_id == str(backfill.id)
-
     batch_export = await afetch_batch_export(desc.id)
+
     assert batch_export.paused is False
 
 
@@ -461,23 +435,16 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted(
     # Generate events within the backfill time range to ensure there's data to backfill
     await generate_events(start_time=start_at, end_time=end_at)
 
-    workflow_id = str(uuid.uuid4())
-    inputs = BackfillBatchExportInputs(
+    handle = await run_backfill_workflow(
+        temporal_client,
         team_id=ateam.pk,
         batch_export_id=desc.id,
-        start_at=start_at.isoformat(),
-        end_at=end_at.isoformat(),
+        start_at=start_at,
+        end_at=end_at,
         start_delay=2.0,
+        expect_completion=False,
     )
 
-    handle = await temporal_client.start_workflow(
-        BackfillBatchExportWorkflow.run,
-        inputs,
-        id=workflow_id,
-        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-        execution_timeout=dt.timedelta(seconds=20),
-        retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
-    )
     await temporal_schedule_every_5_minutes.delete()
 
     with pytest.raises(temporalio.client.WorkflowFailureError) as exc_info:
@@ -487,6 +454,11 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted(
     assert isinstance(err.__cause__, temporalio.exceptions.ActivityError)
     assert isinstance(err.__cause__.__cause__, temporalio.exceptions.ApplicationError)
     assert err.__cause__.__cause__.type == "TemporalScheduleNotFoundError"
+
+    backfill = await fetch_backfill(desc.id)
+
+    assert backfill.status == BatchExportBackfill.Status.FAILED
+    assert backfill.finished_at is not None
 
 
 @pytest.mark.flaky(reruns=2)
@@ -506,22 +478,14 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted_after_
     # Generate events within the backfill time range to ensure there's data to backfill
     await generate_events(start_time=start_at, end_time=end_at)
 
-    workflow_id = str(uuid.uuid4())
-    inputs = BackfillBatchExportInputs(
+    handle = await run_backfill_workflow(
+        temporal_client,
         team_id=ateam.pk,
         batch_export_id=desc.id,
-        start_at=start_at.isoformat(),
-        end_at=end_at.isoformat(),
+        start_at=start_at,
+        end_at=end_at,
         start_delay=2.0,
-    )
-
-    handle = await temporal_client.start_workflow(
-        BackfillBatchExportWorkflow.run,
-        inputs,
-        id=workflow_id,
-        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-        execution_timeout=dt.timedelta(seconds=20),
-        retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+        expect_completion=False,
     )
 
     # Wait for at least one workflow to start running before deleting the schedule
@@ -536,6 +500,11 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted_after_
     assert isinstance(err.__cause__, temporalio.exceptions.ActivityError)
     assert isinstance(err.__cause__.__cause__, temporalio.exceptions.ApplicationError)
     assert err.__cause__.__cause__.type == "TemporalScheduleNotFoundError"
+
+    backfill = await fetch_backfill(desc.id)
+
+    assert backfill.status == BatchExportBackfill.Status.FAILED
+    assert backfill.finished_at is not None
 
 
 async def test_backfill_batch_export_workflow_is_cancelled_on_repeated_failures(
@@ -639,14 +608,14 @@ async def test_backfill_workflow_adjusts_start_at_when_before_earliest_data(
     await generate_events(start_time=event_timestamp)
 
     requested_start_at = dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
-    backfill = await run_backfill_workflow(
+    await run_backfill_workflow(
         temporal_client,
         team_id=events_batch_export.team_id,
         batch_export_id=events_batch_export.id,
         start_at=requested_start_at,
         end_at=dt.datetime(2021, 1, 3, 0, 0, 0, tzinfo=dt.UTC),
     )
-
+    backfill = await fetch_backfill(events_batch_export.id)
     # Original start_at should be preserved
     assert backfill.start_at == requested_start_at
     # adjusted_start_at should be set to earliest data boundary
@@ -663,14 +632,14 @@ async def test_backfill_workflow_completes_early_when_end_at_before_earliest_dat
     event_timestamp = dt.datetime(2021, 1, 3, 0, 10, 0, tzinfo=dt.UTC)
     await generate_events(start_time=event_timestamp)
 
-    backfill = await run_backfill_workflow(
+    await run_backfill_workflow(
         temporal_client,
         team_id=events_batch_export.team_id,
         batch_export_id=events_batch_export.id,
         start_at=dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
         end_at=dt.datetime(2021, 1, 2, 0, 0, 0, tzinfo=dt.UTC),
     )
-
+    backfill = await fetch_backfill(events_batch_export.id)
     assert backfill.status == BatchExportBackfill.Status.COMPLETED
     assert backfill.total_records_count == 0
 
@@ -679,14 +648,14 @@ async def test_backfill_workflow_completes_early_when_no_data_exists(
     temporal_worker, temporal_client, ateam, events_batch_export
 ):
     """Test that backfill workflow completes early with count=0 when no data exists."""
-    backfill = await run_backfill_workflow(
+    await run_backfill_workflow(
         temporal_client,
         team_id=events_batch_export.team_id,
         batch_export_id=events_batch_export.id,
         start_at=dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
         end_at=dt.datetime(2021, 1, 2, 0, 0, 0, tzinfo=dt.UTC),
     )
-
+    backfill = await fetch_backfill(events_batch_export.id)
     assert backfill.status == BatchExportBackfill.Status.COMPLETED
     assert backfill.total_records_count == 0
 
@@ -700,13 +669,13 @@ async def test_backfill_workflow_populates_estimated_record_count(
 
     await generate_events(start_time=start_at, count=50, end_time=end_at)
 
-    backfill = await run_backfill_workflow(
+    await run_backfill_workflow(
         temporal_client,
         team_id=events_batch_export.team_id,
         batch_export_id=events_batch_export.id,
         start_at=start_at,
         end_at=end_at,
     )
-
+    backfill = await fetch_backfill(events_batch_export.id)
     assert backfill.status == BatchExportBackfill.Status.COMPLETED
     assert backfill.total_records_count == 50
