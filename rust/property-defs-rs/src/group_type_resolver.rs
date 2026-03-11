@@ -96,14 +96,6 @@ impl GroupTypeResolver {
 
         // Batch resolve all uncached group types
         if !to_resolve.is_empty() {
-            let tag_value = if self.read_groups_from_persons_db {
-                "persons"
-            } else {
-                "cloud"
-            };
-            metrics::counter!(GROUP_TYPE_READS, &[("src_db", tag_value)])
-                .increment(to_resolve.len() as u64);
-
             let resolved_map = if self.should_use_personhog() {
                 metrics::counter!(GROUP_TYPE_RESOLVE_SOURCE, &[("source", "personhog")])
                     .increment(1);
@@ -168,6 +160,14 @@ impl GroupTypeResolver {
         persons_pool: Option<&PgPool>,
     ) -> Result<HashMap<(String, i32), i32>, sqlx::Error> {
         let start = std::time::Instant::now();
+
+        let tag_value = if self.read_groups_from_persons_db {
+            "persons"
+        } else {
+            "cloud"
+        };
+        metrics::counter!(GROUP_TYPE_READS, &[("src_db", tag_value)])
+            .increment(to_resolve.len() as u64);
 
         let (group_names, team_ids): (Vec<String>, Vec<i32>) = to_resolve
             .iter()

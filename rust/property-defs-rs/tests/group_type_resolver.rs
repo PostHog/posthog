@@ -185,9 +185,12 @@ async fn start_mock_server(service: MockPersonHogService) -> SocketAddr {
 }
 
 fn make_config(addr: &str, rollout: u32) -> property_defs_rs::config::Config {
-    // Set minimal env vars so Config::init_from_env doesn't fail on required fields
-    std::env::set_var("KAFKA__BOOTSTRAP_SERVERS", "localhost:9092");
-    std::env::set_var("KAFKA__TOPIC", "test_topic");
+    // Set env vars exactly once to avoid data races across concurrent #[sqlx::test] cases.
+    static INIT_ENV: std::sync::Once = std::sync::Once::new();
+    INIT_ENV.call_once(|| {
+        std::env::set_var("KAFKA__BOOTSTRAP_SERVERS", "localhost:9092");
+        std::env::set_var("KAFKA__TOPIC", "test_topic");
+    });
     let mut config = property_defs_rs::config::Config::init_with_defaults().unwrap();
     config.personhog_addr = addr.to_string();
     config.personhog_rollout_percentage = rollout;
