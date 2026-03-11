@@ -1,0 +1,36 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "data": {
+            "description": "The event definition data to update",
+            "properties": {
+                "description": {
+                    "description": "Description explaining when the event is triggered",
+                    "type": "string"
+                },
+                "hidden": {
+                    "description": "Mark event as no longer used/captured. Hides it from UI while preserving historical data",
+                    "type": "boolean"
+                },
+                "tags": {
+                    "description": "Tags to organize events by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\")",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "verified": {
+                    "description": "Mark as verified to indicate the event is properly instrumented and tracking correctly",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
+        "eventName": {
+            "description": "The name of the event to update (e.g. \"$pageview\", \"user_signed_up\")",
+            "type": "string"
+        }
+    },
+    "required": ["eventName", "data"],
+    "type": "object"
+}

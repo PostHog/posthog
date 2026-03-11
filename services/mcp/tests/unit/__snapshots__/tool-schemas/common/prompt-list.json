@@ -1,0 +1,10 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "search": {
+            "description": "Optional substring filter applied to prompt names and prompt content.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

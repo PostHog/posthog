@@ -1,0 +1,136 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "query": {
+            "description": "The data schema query to execute.",
+            "oneOf": [
+                {
+                    "properties": {
+                        "kind": {
+                            "const": "events",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "default": 500,
+                            "description": "Number of events to return per page.",
+                            "maximum": 500,
+                            "minimum": 1,
+                            "type": "integer"
+                        },
+                        "offset": {
+                            "default": 0,
+                            "description": "Number of events to skip for pagination.",
+                            "maximum": 9007199254740991,
+                            "minimum": 0,
+                            "type": "integer"
+                        }
+                    },
+                    "required": ["kind"],
+                    "type": "object"
+                },
+                {
+                    "properties": {
+                        "event_name": {
+                            "description": "The name of the event that you want to retrieve properties for.",
+                            "type": "string"
+                        },
+                        "kind": {
+                            "const": "event_properties",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["kind", "event_name"],
+                    "type": "object"
+                },
+                {
+                    "properties": {
+                        "entity": {
+                            "description": "The type of the entity that you want to retrieve properties for.",
+                            "type": "string"
+                        },
+                        "kind": {
+                            "const": "entity_properties",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["kind", "entity"],
+                    "type": "object"
+                },
+                {
+                    "properties": {
+                        "action_id": {
+                            "description": "The ID of the action that you want to retrieve properties for.",
+                            "maximum": 9007199254740991,
+                            "minimum": -9007199254740991,
+                            "type": "integer"
+                        },
+                        "kind": {
+                            "const": "action_properties",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["kind", "action_id"],
+                    "type": "object"
+                },
+                {
+                    "properties": {
+                        "entity": {
+                            "description": "The type of the entity that you want to retrieve properties for.",
+                            "type": "string"
+                        },
+                        "kind": {
+                            "const": "entity_property_values",
+                            "type": "string"
+                        },
+                        "property_name": {
+                            "description": "Verified property name of an entity.",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["kind", "entity", "property_name"],
+                    "type": "object"
+                },
+                {
+                    "properties": {
+                        "event_name": {
+                            "description": "Verified event name",
+                            "type": "string"
+                        },
+                        "kind": {
+                            "const": "event_property_values",
+                            "type": "string"
+                        },
+                        "property_name": {
+                            "description": "Verified property name of an event.",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["kind", "event_name", "property_name"],
+                    "type": "object"
+                },
+                {
+                    "properties": {
+                        "action_id": {
+                            "description": "Verified action ID",
+                            "maximum": 9007199254740991,
+                            "minimum": -9007199254740991,
+                            "type": "integer"
+                        },
+                        "kind": {
+                            "const": "action_property_values",
+                            "type": "string"
+                        },
+                        "property_name": {
+                            "description": "Verified property name of an action.",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["kind", "action_id", "property_name"],
+                    "type": "object"
+                }
+            ]
+        }
+    },
+    "required": ["query"],
+    "type": "object"
+}

@@ -1,0 +1,14 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "enabled": {
+            "description": "Filter by enabled status.",
+            "type": "boolean"
+        },
+        "search": {
+            "description": "Search evaluations by name or description.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

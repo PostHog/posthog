@@ -1,0 +1,20 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "limit": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+        },
+        "offset": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+        },
+        "q": {
+            "description": "Search query to filter event names. Only use if there are lots of events.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

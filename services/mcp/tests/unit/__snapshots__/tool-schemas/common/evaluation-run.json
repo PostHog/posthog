@@ -1,0 +1,29 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "distinct_id": {
+            "description": "Distinct ID of the event (optional, improves lookup performance).",
+            "type": "string"
+        },
+        "evaluationId": {
+            "description": "The UUID of the evaluation to run.",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "type": "string"
+        },
+        "event": {
+            "description": "Event name. Defaults to \"$ai_generation\".",
+            "type": "string"
+        },
+        "target_event_id": {
+            "description": "The UUID of the $ai_generation event to evaluate.",
+            "type": "string"
+        },
+        "timestamp": {
+            "description": "ISO 8601 timestamp of the target event (needed for efficient lookup).",
+            "type": "string"
+        }
+    },
+    "required": ["evaluationId", "target_event_id", "timestamp"],
+    "type": "object"
+}

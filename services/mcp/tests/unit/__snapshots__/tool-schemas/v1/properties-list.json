@@ -1,0 +1,30 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "eventName": {
+            "description": "Event name to filter properties by, required for event type",
+            "type": "string"
+        },
+        "includePredefinedProperties": {
+            "description": "Whether to include predefined properties",
+            "type": "boolean"
+        },
+        "limit": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+        },
+        "offset": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+        },
+        "type": {
+            "description": "Type of properties to get",
+            "enum": ["event", "person"],
+            "type": "string"
+        }
+    },
+    "required": ["type"],
+    "type": "object"
+}

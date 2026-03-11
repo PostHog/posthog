@@ -1,0 +1,10 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "dashboardId": {
+            "type": "number"
+        }
+    },
+    "required": ["dashboardId"],
+    "type": "object"
+}

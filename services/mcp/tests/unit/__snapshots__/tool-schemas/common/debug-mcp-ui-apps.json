@@ -1,0 +1,10 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "message": {
+            "description": "Optional message to include in the debug data",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}
