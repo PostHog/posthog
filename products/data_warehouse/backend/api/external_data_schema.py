@@ -17,6 +17,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.temporal.data_imports.sources import SourceRegistry
+
 from products.data_warehouse.backend.data_load.service import (
     cancel_external_data_workflow,
     external_data_workflow_exists,
