@@ -81,7 +81,7 @@ The build pipeline discovers YAML files from both paths.
 
 ```yaml
 category: Human readable name
-feature: snake_case_name # must match the product folder name
+feature: snake_case_name # should match the product folder name (used for runtime filtering)
 url_prefix: /path # frontend app route, used for enrich_url links
 tools:
   your-tool-name: # kebab-case

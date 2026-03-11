@@ -2,8 +2,8 @@
 /**
  * Scaffolds YAML tool definitions from the OpenAPI schema.
  *
- * Discovers operations by matching URL paths containing /{product}/,
- * same approach as frontend/bin/generate-openapi-types.mjs.
+ * Discovers operations using x-explicit-tags (priority 1) and URL path
+ * substring matching (fallback), same approach as generate-openapi-types.mjs.
  *
  * Idempotent: re-running on an existing file only adds newly discovered
  * operations and removes stale ones. All hand-authored config is preserved.
@@ -427,8 +427,8 @@ function main(): void {
         console.error('       scaffold-yaml --path <prefix> [--output <file>]')
         console.error('       scaffold-yaml --sync-all')
         console.error('')
-        console.error('--product is a substring match: selects endpoints whose path contains /<name>/')
-        console.error('(hyphens normalized to underscores). Can be a product name or any path segment.')
+        console.error('--product discovers endpoints by x-explicit-tags first, then URL path fallback.')
+        console.error('Uses the product folder name (underscores), e.g. error_tracking, workflows.')
         process.exit(1)
     }
 
