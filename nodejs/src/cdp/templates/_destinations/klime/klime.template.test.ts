@@ -17,7 +17,7 @@ describe('klime template', () => {
         action: 'automatic',
         userId: 'user-123',
         groupId: 'group-123',
-        include_all_properties: true,
+        include_all_properties: false,
         properties: {},
     }
 
@@ -27,14 +27,17 @@ describe('klime template', () => {
     }
 
     it('sends a track event with correct shape', async () => {
-        const response = await tester.invoke(defaultInputs, {
-            event: {
-                uuid: 'event-uuid-001',
-                event: 'Button Clicked',
-                properties: { $current_url: 'https://example.com', button: 'signup' },
-                timestamp: '2024-01-01T00:00:00Z',
-            },
-        })
+        const response = await tester.invoke(
+            { ...defaultInputs, include_all_properties: true },
+            {
+                event: {
+                    uuid: 'event-uuid-001',
+                    event: 'Button Clicked',
+                    properties: { $current_url: 'https://example.com', button: 'signup' },
+                    timestamp: '2024-01-01T00:00:00Z',
+                },
+            }
+        )
 
         expect(response.error).toBeUndefined()
         expect(response.finished).toBe(false)
@@ -67,17 +70,14 @@ describe('klime template', () => {
         ['custom_event', 'track'],
         ['$pageview', 'track'],
     ])('automatic action maps %s to %s', async (eventName, expectedType) => {
-        const response = await tester.invoke(
-            defaultInputs,
-            {
-                event: {
-                    uuid: 'uuid-1',
-                    event: eventName,
-                    properties: {},
-                    timestamp: '2024-01-01T00:00:00Z',
-                },
-            }
-        )
+        const response = await tester.invoke(defaultInputs, {
+            event: {
+                uuid: 'uuid-1',
+                event: eventName,
+                properties: {},
+                timestamp: '2024-01-01T00:00:00Z',
+            },
+        })
 
         expect(response.error).toBeUndefined()
         expect(parseBatchEvent(response).type).toBe(expectedType)
@@ -122,7 +122,7 @@ describe('klime template', () => {
 
     it('includes non-$ person properties for identify', async () => {
         const response = await tester.invoke(
-            { ...defaultInputs, action: 'identify' },
+            { ...defaultInputs, action: 'identify', include_all_properties: true },
             {
                 event: {
                     uuid: 'uuid-1',
@@ -142,7 +142,7 @@ describe('klime template', () => {
 
     it('includes non-$ group_set properties for group', async () => {
         const response = await tester.invoke(
-            { ...defaultInputs, action: 'group', groupId: 'org-456' },
+            { ...defaultInputs, action: 'group', groupId: 'org-456', include_all_properties: true },
             {
                 event: {
                     uuid: 'uuid-1',
@@ -163,7 +163,7 @@ describe('klime template', () => {
 
     it('uses $group_key over inputs.groupId for $groupidentify events', async () => {
         const response = await tester.invoke(
-            { ...defaultInputs, action: 'automatic', groupId: 'wrong-group' },
+            { ...defaultInputs, action: 'automatic', groupId: 'wrong-group', include_all_properties: true },
             {
                 event: {
                     uuid: 'uuid-1',
@@ -187,7 +187,6 @@ describe('klime template', () => {
     it('sends custom property mapping as properties on track events', async () => {
         const response = await tester.invoke({
             ...defaultInputs,
-            include_all_properties: false,
             properties: { plan: 'enterprise', source: 'posthog' },
         })
 

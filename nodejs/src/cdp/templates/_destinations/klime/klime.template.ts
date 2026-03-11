@@ -179,7 +179,7 @@ if (res.status >= 400) {
             label: 'Include all properties',
             description:
                 'If set, all event properties (for track), person properties (for identify), or group properties (for group) will be included. Individual properties can be overridden below.',
-            default: true,
+            default: false,
             secret: false,
             required: true,
         },
