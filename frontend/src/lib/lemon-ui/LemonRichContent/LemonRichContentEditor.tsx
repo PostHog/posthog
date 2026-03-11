@@ -2,6 +2,9 @@ import './LemonRichContentEditor.scss'
 
 import { JSONContent, TextSerializer } from '@tiptap/core'
 import ExtensionDocument from '@tiptap/extension-document'
+import { Image } from '@tiptap/extension-image'
+import { Link } from '@tiptap/extension-link'
+import { Underline } from '@tiptap/extension-underline'
 import { Placeholder } from '@tiptap/extensions'
 import { EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
@@ -53,25 +56,15 @@ export const DEFAULT_EXTENSIONS = [
     MentionsExtension,
     RichContentNodeMention,
     ExtensionDocument,
+    Image,
+    Link,
+    Underline,
+    // Keep most StarterKit extensions enabled so we can parse rich content that may contain them.
+    // Only disable extensions that conflict with our custom extensions or aren't needed for parsing.
     StarterKit.configure({
-        document: false,
-        link: false,
-        heading: false,
-        blockquote: false,
-        bold: false,
-        bulletList: false,
-        code: false,
-        codeBlock: false,
-        hardBreak: false,
+        document: false, // Using ExtensionDocument instead
         dropcursor: false,
         gapcursor: false,
-        horizontalRule: false,
-        italic: false,
-        listItem: false,
-        listKeymap: false,
-        orderedList: false,
-        strike: false,
-        underline: false,
     }),
 ]
 
