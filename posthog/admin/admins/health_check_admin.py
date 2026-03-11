@@ -7,10 +7,11 @@ from django.conf import settings
 from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect, render
+from django.utils.html import format_html
 
 import structlog
 
-from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.client import async_connect
 from posthog.temporal.health_checks.models import HealthCheckWorkflowInputs
 from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded
 
@@ -86,16 +87,18 @@ def health_check_trigger_view(request, kind: str):
             )
 
             try:
-                temporal = sync_connect()
                 workflow_id = f"health-check-{config.name}-manual-{uuid4()}"
-                asyncio.run(
-                    temporal.start_workflow(
+
+                async def _start_workflow():
+                    client = await async_connect()
+                    await client.start_workflow(
                         "health-check-workflow",
                         dataclasses.asdict(workflow_inputs),
                         id=workflow_id,
                         task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
                     )
-                )
+
+                asyncio.run(_start_workflow())
                 logger.info(
                     "Health check workflow triggered manually",
                     kind=kind,
@@ -103,7 +106,17 @@ def health_check_trigger_view(request, kind: str):
                     triggered_by=request.user.email,
                     dry_run=form.cleaned_data["dry_run"],
                 )
-                messages.success(request, f"Workflow triggered: {workflow_id}")
+                temporal_url = (
+                    f"{settings.TEMPORAL_UI_HOST}/namespaces/{settings.TEMPORAL_NAMESPACE}/workflows/{workflow_id}"
+                )
+                messages.success(
+                    request,
+                    format_html(
+                        'Workflow triggered: {} &mdash; <a href="{}" target="_blank">view in Temporal UI</a>',
+                        workflow_id,
+                        temporal_url,
+                    ),
+                )
             except Exception as e:
                 logger.exception("Failed to trigger health check workflow", kind=kind, error=str(e))
                 messages.error(request, f"Failed to trigger workflow: {e}")
@@ -119,13 +132,16 @@ def health_check_trigger_view(request, kind: str):
             }
         )
 
-    workflows = _get_recent_runs(config.name)
+    workflows, fetch_error = _get_recent_runs(config.name)
+    if fetch_error:
+        messages.warning(request, f"Could not load recent runs: {fetch_error}")
 
     context = {
         **admin.site.each_context(request),
         "config": config,
         "form": form,
         "workflows": workflows,
+        "fetch_error": fetch_error,
         "title": f"Health check: {config.name}",
         "temporal_ui_host": settings.TEMPORAL_UI_HOST,
         "temporal_namespace": settings.TEMPORAL_NAMESPACE,
@@ -143,24 +159,25 @@ def health_check_runs_fragment_view(request, kind: str):
     if config is None:
         return render(request, "admin/health_checks/_run_history.html", {"workflows": []})
 
-    workflows = _get_recent_runs(config.name)
+    workflows, fetch_error = _get_recent_runs(config.name)
     context = {
         "workflows": workflows,
+        "fetch_error": fetch_error,
         "temporal_ui_host": settings.TEMPORAL_UI_HOST,
         "temporal_namespace": settings.TEMPORAL_NAMESPACE,
     }
     return render(request, "admin/health_checks/_run_history.html", context)
 
 
-def _get_recent_runs(config_name: str, limit: int = 20) -> list[dict]:
+def _get_recent_runs(config_name: str, limit: int = 20) -> tuple[list[dict], str | None]:
     try:
-        temporal = sync_connect()
         prefix = f"health-check-{config_name}"
         query = f'WorkflowId >= "{prefix}" AND WorkflowId < "{prefix}~" ORDER BY StartTime DESC'
 
         async def fetch_workflows():
+            client = await async_connect()
             workflows = []
-            async for wf in temporal.list_workflows(query=query):
+            async for wf in client.list_workflows(query=query):
                 workflows.append(
                     {
                         "id": wf.id,
@@ -175,7 +192,7 @@ def _get_recent_runs(config_name: str, limit: int = 20) -> list[dict]:
                     break
             return workflows
 
-        return asyncio.run(fetch_workflows())
+        return asyncio.run(fetch_workflows()), None
     except Exception as e:
         logger.warning("Failed to fetch health check workflows", config_name=config_name, error=str(e))
-        return []
+        return [], str(e)

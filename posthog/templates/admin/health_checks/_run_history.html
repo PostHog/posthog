@@ -1,3 +1,8 @@
+{% if fetch_error %}
+<div style="padding: 10px 14px; margin: 0 0 12px; border-radius: 6px; font-size: 13px; background: #fef3c7; border: 1px solid #fcd34d; color: #92400e;">
+    Failed to load workflows: {{ fetch_error }}
+</div>
+{% endif %}
 {% if workflows %}
 <table class="workflow-table">
     <thead>
