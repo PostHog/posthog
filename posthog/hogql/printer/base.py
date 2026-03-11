@@ -212,7 +212,7 @@ class HogQLPrinter(Visitor[str]):
                 group_by = [
                     "(" + ", ".join(self.visit(e) for e in gs.exprs) + ")" if gs.exprs else "()"
                     for gs in node.group_by
-                    if isinstance(gs, ast.Tuple)
+                    if isinstance(gs, ast.GroupingSet)
                 ]
             else:
                 group_by = [self.visit(column) for column in node.group_by]
