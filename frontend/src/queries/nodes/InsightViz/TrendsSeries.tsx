@@ -12,7 +12,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { groupsModel } from '~/models/groupsModel'
-import { FunnelsQuery, LifecycleQuery, StickinessQuery, TrendsQuery } from '~/queries/schema/schema-general'
+import { FunnelsQuery, LifecycleQuery, NodeKind, StickinessQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { isInsightQueryNode } from '~/queries/utils'
 import { ChartDisplayType, FilterType } from '~/types'
 
@@ -78,11 +78,14 @@ export function TrendsSeries(): JSX.Element | null {
             <ActionFilter
                 filters={filters}
                 setFilters={(payload: Partial<FilterType>): void => {
-                    updateQuerySource({ series: actionsAndEventsToSeries(payload as any, true, mathAvailability) } as
-                        | TrendsQuery
-                        | FunnelsQuery
-                        | StickinessQuery
-                        | LifecycleQuery)
+                    updateQuerySource({
+                        series: actionsAndEventsToSeries(
+                            payload as any,
+                            true,
+                            mathAvailability,
+                            isLifecycle ? NodeKind.LifecycleDataWarehouseNode : NodeKind.DataWarehouseNode
+                        ),
+                    } as TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery)
                 }}
                 typeKey={keyForInsightLogicProps('new')(insightProps)}
                 buttonCopy={`Add graph ${hasFormula ? 'variable' : 'series'}`}
