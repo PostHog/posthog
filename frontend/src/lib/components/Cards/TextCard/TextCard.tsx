@@ -4,9 +4,9 @@ import clsx from 'clsx'
 import React from 'react'
 
 import { Resizeable } from 'lib/components/Cards/CardMeta'
+import { DashboardResizeHandles } from 'lib/components/Cards/handles'
 import { EditModeEdgeOverlay } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { DashboardResizeHandles } from 'lib/components/Cards/handles'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import { DashboardPlacement, DashboardTile, QueryBasedInsightModel } from '~/types'

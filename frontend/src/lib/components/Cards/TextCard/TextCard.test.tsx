@@ -72,11 +72,7 @@ describe('TextCard', () => {
     describe('resize handles', () => {
         it('shows three handles when showResizeHandles and canResizeWidth are true', () => {
             const { container } = render(
-                <TextCard
-                    textTile={makeTextTile()}
-                    placement={DashboardPlacement.Dashboard}
-                    showResizeHandles={true}
-                />
+                <TextCard textTile={makeTextTile()} placement={DashboardPlacement.Dashboard} showResizeHandles={true} />
             )
 
             const handles = container.querySelectorAll('.handle')
@@ -85,11 +81,7 @@ describe('TextCard', () => {
 
         it('shows one handle when showResizeHandles is true but canResizeWidth is false', () => {
             const { container } = render(
-                <TextCard
-                    textTile={makeTextTile()}
-                    placement={DashboardPlacement.Dashboard}
-                    showResizeHandles={true}
-                />
+                <TextCard textTile={makeTextTile()} placement={DashboardPlacement.Dashboard} showResizeHandles={true} />
             )
 
             const handles = container.querySelectorAll('.handle')
@@ -99,7 +91,9 @@ describe('TextCard', () => {
         it('renders eight handles when showResizeHandles=true', () => {
             const { container } = render(
                 <TextCard
-                    textTile={makeTextTile({ text: { body: 'handles everywhere', last_modified_at: '2022-04-01T12:24:36' } })}
+                    textTile={makeTextTile({
+                        text: { body: 'handles everywhere', last_modified_at: '2022-04-01T12:24:36' },
+                    })}
                     placement={DashboardPlacement.Dashboard}
                     showResizeHandles={true}
                 />
@@ -115,7 +109,6 @@ describe('TextCard', () => {
             expect(horizontalHandles.length).toBe(2)
             expect(verticalHandles.length).toBe(2)
             expect(cornerHandles.length).toBe(4)
-        });
+        })
     })
-
 })
