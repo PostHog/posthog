@@ -32,6 +32,8 @@ export type EmailTemplate = {
     text: string
     from: string
     to: string
+    replyTo?: string
+    preheader?: string
 }
 
 export interface EmailTemplaterLogicProps {
