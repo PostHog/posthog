@@ -14,7 +14,7 @@ use crate::{
     metrics_utils::{
         RequestLabels, DROPPED_REQUESTS, EMBEDDINGS_GENERATED, EMBEDDING_FAILED,
         EMBEDDING_REQUEST_TIME, EMBEDDING_TOTAL_TIME, EMBEDDING_TOTAL_TOKENS, MESSAGES_RECEIVED,
-        MESSAGE_TRUNCATED,
+        MESSAGE_TRUNCATED, REQUESTS_SENT, RESPONSES_RECEIVED,
     },
     organization::apply_ai_opt_in,
 };
@@ -110,7 +110,13 @@ pub async fn generate_embedding(
     context.respect_rate_limits(model, token_count).await;
 
     let request_time = common_metrics::timing_guard(EMBEDDING_REQUEST_TIME, labels.render());
+    counter!(REQUESTS_SENT, labels.render()).increment(1);
     let response = context.client.execute(api_req).await?; // Unhandled - network errors etc
+
+    let response_labels = labels
+        .clone()
+        .and([("status_code", response.status().as_u16().to_string())]);
+    counter!(RESPONSES_RECEIVED, response_labels.render()).increment(1);
 
     // TODO - implement 429 backoff and retry
     if !response.status().is_success() {
