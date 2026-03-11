@@ -86,9 +86,9 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
     props({} as CreateExperimentLogicProps),
     key((props) => `${props.tabId ?? 'global'}-create-experiment`),
     path((key) => ['scenes', 'experiments', 'create', 'createExperimentLogic', key]),
-    connect(() => ({
+    connect((props: CreateExperimentLogicProps) => ({
         values: [
-            variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false }),
+            variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false, tabId: props.tabId }),
             ['featureFlagKeyValidation', 'featureFlagKeyValidationLoading'],
             featureFlagLogic,
             ['featureFlags'],
@@ -190,7 +190,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             },
         ],
     })),
-    selectors(() => ({
+    selectors(({ props }) => ({
         canSubmitExperiment: [
             (s) => [s.experiment, s.featureFlagKeyValidation, s.mode, s.experimentErrors],
             (
@@ -228,7 +228,8 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
         mode: [
             (s) => [s.experiment],
             (): 'create' | 'link' => {
-                return variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false }).values.mode
+                return variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false, tabId: props.tabId })
+                    .values.mode
             },
         ],
     })),
