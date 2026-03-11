@@ -142,21 +142,20 @@ export function PersonsModal({
                         <MissingPersonsAlert actorLabel={actorLabel} missingActorsCount={missingActorsCount} />
                     )}
 
-                    {/* TODO: Support search for sessions */}
-                    {!hasSessions && (
-                        <LemonInput
-                            type="search"
-                            placeholder={
-                                hasGroups
-                                    ? 'Search for groups by name or ID'
-                                    : 'Search for persons by email, name, or ID'
-                            }
-                            fullWidth
-                            value={searchTerm}
-                            onChange={setSearchTerm}
-                            className="my-2"
-                        />
-                    )}
+                    <LemonInput
+                        type="search"
+                        placeholder={
+                            hasGroups
+                                ? 'Search for groups by name or ID'
+                                : hasSessions
+                                  ? 'Search for sessions by person email or name'
+                                  : 'Search for persons by email, name, or ID'
+                        }
+                        fullWidth
+                        value={searchTerm}
+                        onChange={setSearchTerm}
+                        className="my-2"
+                    />
 
                     {urls ? (
                         <LemonSelect
