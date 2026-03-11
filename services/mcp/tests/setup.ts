@@ -5,6 +5,11 @@ import { vi } from 'vitest'
 // Load .env.test file
 config({ path: resolve(process.cwd(), '.env.test') })
 
+// Mock mcpcat module to not do anything in tests
+vi.mock('mcpcat', () => ({
+    track: vi.fn(),
+}))
+
 // Mock cloudflare:workers module for Node.js test environment
 vi.mock('cloudflare:workers', () => ({
     env: {

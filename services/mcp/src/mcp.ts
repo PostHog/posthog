@@ -16,6 +16,7 @@ import {
 } from '@/lib/constants'
 import { handleToolError } from '@/lib/errors'
 import { buildInstructionsV2 } from '@/lib/instructions'
+import { initMcpCatObservability } from '@/lib/mcpcat'
 import { formatResponse } from '@/lib/response'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
@@ -475,6 +476,22 @@ export class MCP extends McpAgent<Env> {
             const typedTool = tool as Tool<z.ZodObject>
             this.registerTool(typedTool, async (params) => typedTool.handler(context, params))
         }
+
+        initMcpCatObservability(this.server, {
+            getDistinctId: () => this.getDistinctId(),
+            getSessionUuid: async () =>
+                this.requestProperties.sessionId
+                    ? this.sessionManager.getSessionUuid(this.requestProperties.sessionId)
+                    : undefined,
+            getMcpClientName: () => this._mcpClientName,
+            getMcpClientVersion: () => this._mcpClientVersion,
+            getMcpProtocolVersion: () => this._mcpProtocolVersion,
+            getRegion: () => this.requestProperties.region,
+            getOrganizationId: () => this.requestProperties.organizationId,
+            getProjectId: () => this.requestProperties.projectId,
+            getClientUserAgent: () => this.requestProperties.clientUserAgent,
+            getVersion: () => this.requestProperties.version,
+        })
 
         const initDurationMs = this.requestProperties.requestStartTime
             ? Date.now() - this.requestProperties.requestStartTime
