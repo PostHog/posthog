@@ -319,6 +319,31 @@ export interface ClusteringRunRequestApi {
     clustering_job_id?: string | null
 }
 
+export interface EvaluationResultApi {
+    readonly uuid: string
+    readonly timestamp: string
+    readonly evaluation_id: string
+    readonly evaluation_name: string
+    readonly generation_id: string
+    /** @nullable */
+    readonly trace_id: string | null
+    /** @nullable */
+    readonly result: boolean | null
+    /** @nullable */
+    readonly reasoning: string | null
+    /** @nullable */
+    readonly applicable: boolean | null
+}
+
+export interface PaginatedEvaluationResultListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: EvaluationResultApi[]
+}
+
 /**
  * * `all` - all
  * `pass` - pass
@@ -787,6 +812,17 @@ export type EvaluationsListParams = {
 }
 
 export type LlmAnalyticsClusteringJobsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type LlmAnalyticsEvaluationResultsListParams = {
     /**
      * Number of results to return per page.
      */
