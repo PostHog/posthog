@@ -642,6 +642,9 @@ importers:
       '@posthog/products-tasks':
         specifier: workspace:*
         version: link:../products/tasks
+      '@posthog/products-tracing':
+        specifier: workspace:*
+        version: link:../products/tracing
       '@posthog/products-user-interviews':
         specifier: workspace:*
         version: link:../products/user_interviews
@@ -2785,6 +2788,30 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
 
   products/toolbar: {}
+
+  products/tracing:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.36.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      clsx:
+        specifier: '*'
+        version: 2.1.1
+      kea:
+        specifier: 'catalog:'
+        version: 4.0.0-pre.5(react@18.3.1)
+      kea-loaders:
+        specifier: 'catalog:'
+        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+      kea-router:
+        specifier: 'catalog:'
+        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
 
   products/user_interviews:
     dependencies:
