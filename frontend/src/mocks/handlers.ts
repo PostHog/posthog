@@ -209,6 +209,11 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/dashboard_templates/json_schema/': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/:organization_id/domains/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/default_evaluation_tags/': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/default_evaluation_contexts/': {
+            default_evaluation_contexts: [],
+            available_contexts: [],
+            enabled: false,
+        },
         '/api/environments/:team_id/file_system/unfiled/': { count: 0 },
         '/api/environments/:team_id/file_system/log_view': {},
         '/api/environments/:team_id/file_system': EMPTY_PAGINATED_RESPONSE,
