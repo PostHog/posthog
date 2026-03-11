@@ -4,16 +4,14 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("data_modeling", "0012_add_description_to_node"),
+        ("data_modeling", "0013_edge_dag_fk_node_dag_fk"),
     ]
 
     operations = [
-        # Add the FK column without Django's auto-generated index.
-        # Index is added concurrently in migration 0014.
         migrations.SeparateDatabaseAndState(
             state_operations=[
                 migrations.AddField(
-                    model_name="edge",
+                    model_name="node",
                     name="dag_fk",
                     field=models.ForeignKey(
                         blank=True,
@@ -26,12 +24,12 @@ class Migration(migrations.Migration):
             database_operations=[
                 migrations.RunSQL(
                     sql=(
-                        'ALTER TABLE "posthog_datamodelingedge" '
+                        'ALTER TABLE "posthog_datamodelingnode" '
                         'ADD COLUMN "dag_fk_id" uuid NULL '
-                        'CONSTRAINT "posthog_datamodeling_dag_fk_id_af85451c_fk_posthog_d" '
+                        'CONSTRAINT "posthog_datamodeling_dag_fk_id_a152d589_fk_posthog_d" '
                         'REFERENCES "posthog_datamodelingdag"("id") DEFERRABLE INITIALLY DEFERRED;'
                     ),
-                    reverse_sql='ALTER TABLE "posthog_datamodelingedge" DROP COLUMN "dag_fk_id";',
+                    reverse_sql='ALTER TABLE "posthog_datamodelingnode" DROP COLUMN "dag_fk_id";',
                 ),
             ],
         ),

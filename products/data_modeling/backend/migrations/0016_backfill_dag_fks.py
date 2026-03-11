@@ -40,7 +40,7 @@ def backfill_edge_dag_fks(apps, _schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("data_modeling", "0013_edge_dag_fk_node_dag_fk"),
+        ("data_modeling", "0015_add_dag_fk_indexes"),
     ]
 
     operations = [
