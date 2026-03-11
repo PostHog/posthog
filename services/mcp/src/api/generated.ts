@@ -4251,7 +4251,7 @@ export namespace Schemas {
       name?: string | null;
       /** @nullable */
       response?: ExperimentFunnelMetricResponse;
-      series: (EventsNode | ActionsNode)[];
+      series: (EventsNode | ActionsNode | ExperimentDataWarehouseNode)[];
       /** @nullable */
       sharedMetricId?: number | null;
       /** @nullable */
