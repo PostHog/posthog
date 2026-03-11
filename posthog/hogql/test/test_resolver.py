@@ -82,6 +82,17 @@ class TestResolver(BaseTest):
         expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(expr) == self.snapshot
 
+    def test_resolve_table_column_aliases_dialect_guard(self):
+        expr = self._select("SELECT 1 FROM events AS e (event_alias)")
+
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect="clickhouse")
+        self.assertEqual(str(context.exception), "Table column aliases are not allowed in clickhouse dialect")
+
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(resolved.select_from, ast.JoinExpr)
+        assert resolved.select_from.column_aliases == ["event_alias"]
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_events_table_column_alias_inside_subquery(self):
         expr = self._select("SELECT b FROM (select event as b, timestamp as c from events) e WHERE e.b = 'test'")

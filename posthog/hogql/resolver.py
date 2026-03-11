@@ -479,6 +479,9 @@ class Resolver(CloningVisitor):
         if len(self.scopes) == 0:
             raise ImpossibleASTError("Unexpected JoinExpr outside a SELECT query")
 
+        if node.column_aliases and self.dialect != "postgres":
+            raise QueryError(f"Table column aliases are not allowed in {self.dialect} dialect")
+
         scope = self._get_scope()
 
         if isinstance(node.table, ast.HogQLXTag):

@@ -171,6 +171,12 @@ class TestPrinter(BaseTest):
             repsponse, f"SELECT\n    plus(1, 2),\n    3\nFROM\n    events\nLIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
+    def test_column_aliases_non_postgres_error(self):
+        self._assert_query_error(
+            "select 1 from events as e (event_alias, ts_alias)",
+            "Table column aliases are not allowed in clickhouse dialect",
+        )
+
     def test_union_distinct(self):
         expr = parse_select("""select 1 as id union distinct select 2 as id""")
         response = to_printed_hogql(expr, self.team)
@@ -4371,6 +4377,10 @@ class TestPostgresPrinter(BaseTest):
             self._select("SELECT id FROM accounts"),
             "SELECT accounts.id FROM public.accounts AS accounts LIMIT 50000",
         )
+
+    def test_column_aliases_postgres_dialect(self):
+        printed = self._select("SELECT 1 FROM events AS e (event_alias, ts_alias)")
+        self.assertIn("AS e (event_alias, ts_alias)", printed)
 
     def test_boolean_and_null_literals(self):
         self.assertEqual(self._expr("true"), "true")

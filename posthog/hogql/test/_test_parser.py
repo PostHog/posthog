@@ -971,6 +971,17 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
             self.assertEqual(
+                self._select("select 1 from events as e (event_alias, ts_alias)"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(
+                        table=ast.Field(chain=["events"]),
+                        alias="e",
+                        column_aliases=["event_alias", "ts_alias"],
+                    ),
+                ),
+            )
+            self.assertEqual(
                 self._select("select 1 from events e"),
                 ast.SelectQuery(
                     select=[ast.Constant(value=1)],

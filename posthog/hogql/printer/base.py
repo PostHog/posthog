@@ -340,7 +340,6 @@ class HogQLPrinter(Visitor[str]):
         team_id_for_on_clause: ast.Expr | None = None
 
         join_strings = []
-
         if node.join_type is not None:
             join_strings.append(node.join_type)
 
@@ -428,6 +427,8 @@ class HogQLPrinter(Visitor[str]):
             )
 
         if node.column_aliases:
+            if self.dialect != "postgres":
+                raise QueryError(f"Table column aliases are not allowed in {self.dialect} dialect")
             col_aliases = ", ".join(self._print_identifier(ca) for ca in node.column_aliases)
             join_strings.append(f"({col_aliases})")
 
