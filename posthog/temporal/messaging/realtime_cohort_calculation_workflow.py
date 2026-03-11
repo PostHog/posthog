@@ -223,16 +223,37 @@ async def flush_kafka_batch(
 
 @database_sync_to_async
 def _batch_update_cohort_durations(cohort_durations: dict[int, int]) -> None:
-    """Batch update cohort durations and last calculation timestamps."""
+    """Batch update cohort durations and last calculation timestamps.
+
+    Only updates durations that changed by more than 25% from the previous value.
+    """
     if not cohort_durations:
         return
 
     now = dt.datetime.now(dt.UTC)
-    cohorts_to_update = list(Cohort.objects.filter(id__in=cohort_durations.keys()))
-    for cohort in cohorts_to_update:
-        cohort.last_calculation_duration_ms = cohort_durations[cohort.pk]
-        cohort.last_calculation = now
-    Cohort.objects.bulk_update(cohorts_to_update, ["last_calculation_duration_ms", "last_calculation"])
+    cohorts_to_update = []
+
+    all_cohorts = list(Cohort.objects.filter(id__in=cohort_durations.keys()))
+
+    for cohort in all_cohorts:
+        new_duration = cohort_durations[cohort.pk]
+        previous_duration = cohort.last_calculation_duration_ms or 0
+
+        # Calculate percentage change
+        if previous_duration > 0:
+            percentage_change = abs(new_duration - previous_duration) / previous_duration
+            should_update = percentage_change > 0.25  # 25% threshold
+        else:
+            # First calculation or previous was 0, always update
+            should_update = True
+
+        if should_update:
+            cohort.last_calculation_duration_ms = new_duration
+            cohort.last_calculation = now
+            cohorts_to_update.append(cohort)
+
+    if cohorts_to_update:
+        Cohort.objects.bulk_update(cohorts_to_update, ["last_calculation_duration_ms", "last_calculation"])
 
 
 @temporalio.activity.defn
@@ -537,8 +558,8 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
             COHORT_DURATION_UPDATE_HISTOGRAM.labels(percentile_bucket=percentile_bucket).observe(batch_update_duration)
 
             logger.info(
-                f"Batch updated {len(cohort_durations)} cohort durations",
-                count=len(cohort_durations),
+                f"Batch duration update completed: {len(cohort_durations)} cohorts processed",
+                cohorts_processed=len(cohort_durations),
                 batch_update_duration_ms=int(batch_update_duration * 1000),
             )
 
