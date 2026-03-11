@@ -1,0 +1,103 @@
+export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
+export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
+
+export type IngestionLane = 'main' | 'overflow' | 'historical' | 'async'
+
+export type IngestionConsumerConfig = {
+    INGESTION_LANE: IngestionLane | null
+
+    // Kafka consumer config
+    INGESTION_CONSUMER_GROUP_ID: string
+    INGESTION_CONSUMER_CONSUME_TOPIC: string
+    INGESTION_CONSUMER_DLQ_TOPIC: string
+    INGESTION_CONSUMER_OVERFLOW_TOPIC: string
+
+    // Ingestion pipeline config
+    INGESTION_CONCURRENCY: number
+    INGESTION_BATCH_SIZE: number
+    INGESTION_OVERFLOW_ENABLED: boolean
+    INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: string
+    INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: boolean
+
+    // Person batch writing config
+    PERSON_BATCH_WRITING_DB_WRITE_MODE: PersonBatchWritingDbWriteMode
+    PERSON_BATCH_WRITING_USE_BATCH_UPDATES: boolean
+    PERSON_BATCH_WRITING_OPTIMISTIC_UPDATES_ENABLED: boolean
+    PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
+    PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number
+    PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number
+    PERSONS_PREFETCH_ENABLED: boolean
+
+    // Person properties config
+    PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE: number
+    PERSON_PROPERTIES_DB_CONSTRAINT_LIMIT_BYTES: number
+    PERSON_PROPERTIES_TRIM_TARGET_BYTES: number
+    PERSON_PROPERTIES_UPDATE_ALL: boolean
+    PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
+
+    // Person merge config
+    PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: number
+    PERSON_MERGE_ASYNC_TOPIC: string
+    PERSON_MERGE_ASYNC_ENABLED: boolean
+    PERSON_MERGE_SYNC_BATCH_SIZE: number
+
+    // Group batch writing config
+    GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
+    GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number
+    GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number
+
+    // Event overflow config
+    EVENT_OVERFLOW_BUCKET_CAPACITY: number
+    EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
+
+    // Stateful overflow config
+    INGESTION_STATEFUL_OVERFLOW_ENABLED: boolean
+    INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: number
+    INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: number
+
+    // Per-token/distinct_id restrictions
+    DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
+    SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: string
+    MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
+
+    // Pipeline step config
+    SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
+    EVENT_SCHEMA_ENFORCEMENT_ENABLED: boolean
+    KAFKA_BATCH_START_LOGGING_ENABLED: boolean
+
+    // AI event splitting config
+    INGESTION_AI_EVENT_SPLITTING_ENABLED: boolean
+    /** '*' for all teams, or comma-separated team IDs */
+    INGESTION_AI_EVENT_SPLITTING_TEAMS: string
+
+    // Clickhouse topics
+    CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
+    CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC: string
+    CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
+
+    // Cookieless server hash mode config
+    COOKIELESS_DISABLED: boolean
+    COOKIELESS_FORCE_STATELESS_MODE: boolean
+    COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: number
+    COOKIELESS_SESSION_TTL_SECONDS: number
+    COOKIELESS_SALT_TTL_SECONDS: number
+    COOKIELESS_SESSION_INACTIVITY_MS: number
+    COOKIELESS_IDENTIFIES_TTL_SECONDS: number
+    COOKIELESS_REDIS_HOST: string
+    COOKIELESS_REDIS_PORT: number
+
+    // Property definitions
+    PROPERTY_DEFS_CONSUMER_GROUP_ID: string
+    PROPERTY_DEFS_CONSUMER_CONSUME_TOPIC: string
+    PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS: string
+    PROPERTY_DEFS_WRITE_DISABLED: boolean
+
+    // Ingestion caching
+    DISTINCT_ID_LRU_SIZE: number
+    EVENT_PROPERTY_LRU_SIZE: number
+    PERSON_INFO_CACHE_TTL: number
+
+    // Ingestion pipeline
+    INGESTION_PIPELINE: string | null
+    PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: string | null
+}

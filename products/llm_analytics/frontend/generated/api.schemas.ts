@@ -440,7 +440,7 @@ export interface PatchedLLMProviderKeyApi {
 export interface SentimentRequestApi {
     /**
      * @minItems 1
-     * @maxItems 20
+     * @maxItems 5
      */
     ids: string[]
     analysis_level?: AnalysisLevelEnumApi

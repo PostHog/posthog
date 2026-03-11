@@ -12,7 +12,7 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
@@ -44,6 +44,7 @@ export function DashboardItems(): JSX.Element {
         effectiveDashboardVariableOverrides,
         temporaryBreakdownColors,
         dataColorThemeId,
+        canEditDashboard,
     } = useValues(dashboardLogic)
     const {
         updateLayouts,
@@ -55,6 +56,7 @@ export function DashboardItems(): JSX.Element {
         refreshDashboardItem,
         moveToDashboard,
         setTileOverride,
+        setDashboardMode,
     } = useActions(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
     const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
@@ -91,6 +93,14 @@ export function DashboardItems(): JSX.Element {
     const { width: gridWrapperWidth, ref: gridWrapperRef } = useResizeObserver()
     const canResizeWidth = !gridWrapperWidth || gridWrapperWidth > BREAKPOINTS['sm']
     const isMobileView = gridWrapperWidth && gridWrapperWidth <= BREAKPOINTS['sm']
+    const isEditablePlacement = [
+        DashboardPlacement.Dashboard,
+        DashboardPlacement.ProjectHomepage,
+        DashboardPlacement.Builtin,
+    ].includes(placement)
+
+    const canEnterEditModeFromEdge =
+        !!dashboard && canEditDashboard && dashboardMode !== DashboardMode.Edit && !isMobileView && isEditablePlacement
 
     return (
         <div className="dashboard-items-wrapper" ref={gridWrapperRef}>
@@ -207,11 +217,11 @@ export function DashboardItems(): JSX.Element {
                             dashboardId: dashboard?.id,
                             showResizeHandles: dashboardMode === DashboardMode.Edit && !isMobileView,
                             canResizeWidth: canResizeWidth,
-                            showEditingControls: [
-                                DashboardPlacement.Dashboard,
-                                DashboardPlacement.ProjectHomepage,
-                                DashboardPlacement.Builtin,
-                            ].includes(placement),
+                            canEnterEditModeFromEdge,
+                            onEnterEditModeFromEdge: canEnterEditModeFromEdge
+                                ? () => setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardEdgeHover)
+                                : undefined,
+                            showEditingControls: isEditablePlacement,
                             moveToDashboard: ({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
                                 if (!dashboard) {
                                     throw new Error('must be on a dashboard to move this tile')

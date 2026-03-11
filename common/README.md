@@ -1,9 +1,8 @@
-# Common Libraries
+# Common
 
-This folder contains projects, tools and utilities, which are `common/` and shared amongst all the `products/`.
+Shared libraries, tools, and utilities used across the monorepo.
+
+**Transitional bucket** — new code should prefer `platform/`, `tools/`, `products/`, or `services/` depending on what it is. Items here will migrate to more specific locations over time.
 
 - Internal RFC: https://github.com/PostHog/product-internal/pull/703
-
-## Dev guidelines
-
-- Try to keep the folder names `under_score` cased, as dashes make it hard to import files in some languages (e.g. Python, Ruby, ...)
+- Keep folder names `under_score` cased — dashes break Python imports

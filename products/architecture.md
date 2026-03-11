@@ -52,7 +52,7 @@ We will begin by wiring up **one product** to:
 
 Focus:
 
-- One product = one Turbo package with `backend:test` and `backend:contract-check` tasks
+- One product = one Turbo package with `backend:test`; isolated products also declare `backend:contract-check`
 - Facade (`facade/api.py`) will define the **public interface**
 - Internal files will be private implementation details
 - Presentation layer (DRF) will sit above the facade but remain outside the contract surface initially
