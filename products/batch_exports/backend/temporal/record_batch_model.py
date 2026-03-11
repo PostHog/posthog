@@ -201,6 +201,7 @@ INSERT INTO FUNCTION {s3_function}
                     left=ast.Field(chain=["sessions", "team_id"]),
                     right=ast.Constant(value=self.team_id),
                 ),
+                # filter out sessions before 2000-01-01 in case we have any incorrect timestamps
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Gt,
                     left=ast.Field(chain=["$end_timestamp"]),
