@@ -29,9 +29,7 @@ const lifecycleDataWarehousePopoverFields: DataWarehousePopoverField[] = [
 export function TrendsSeries(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { querySource, isTrends, isLifecycle, isStickiness, display, hasFormula, series, hasDataWarehouseSeries } =
-        useValues(
-        insightVizDataLogic(insightProps)
-    )
+        useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
 

@@ -28,9 +28,12 @@ describe('getLifecycleTooltip', () => {
             undefined,
             'Persons who are not active in the current interval, but were active in the previous interval, e.g. did not send a message today, but sent one yesterday.',
         ],
-    ])('formats %s tooltip using the aggregation target', (lifecycle, aggregationTargetLabel, groupTypeIndex, expected) => {
-        expect(getLifecycleTooltip(lifecycle as LifecycleToggle, aggregationTargetLabel, groupTypeIndex)).toEqual(
-            expected
-        )
-    })
+    ])(
+        'formats %s tooltip using the aggregation target',
+        (lifecycle, aggregationTargetLabel, groupTypeIndex, expected) => {
+            expect(getLifecycleTooltip(lifecycle as LifecycleToggle, aggregationTargetLabel, groupTypeIndex)).toEqual(
+                expected
+            )
+        }
+    )
 })

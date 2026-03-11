@@ -64,7 +64,9 @@ export function LifecycleToggles({ insightProps }: EditorFilterProps): JSX.Eleme
     const { aggregationLabel } = useValues(groupsModel)
 
     const toggledLifecycles = (insightFilter as LifecycleFilter)?.toggledLifecycles || DEFAULT_LIFECYCLE_TOGGLES
-    const aggregationGroupTypeIndex = isLifecycleQuery(querySource) ? querySource.aggregation_group_type_index : undefined
+    const aggregationGroupTypeIndex = isLifecycleQuery(querySource)
+        ? querySource.aggregation_group_type_index
+        : undefined
     const aggregationTargetLabel = aggregationLabel(aggregationGroupTypeIndex)
 
     const toggleLifecycle = (name: LifecycleToggle): void => {
