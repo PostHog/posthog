@@ -90,7 +90,7 @@ func (m Model) dbg(format string, args ...any) {
 	}
 }
 
-// Note: Processes are started externally before p.Run().
+// Note: Processes are started externally before p.Run()
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(tea.RequestBackgroundColor, m.spinner.Tick)
 }
@@ -139,7 +139,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Copy mode consumes all keys except quit. First press 'c' to enter,
 		// navigate with ↑/↓, press 'c' again to set the selection anchor, then
-		// navigate to extend the selection, then 'c' to yank.
+		// navigate to extend the selection, then 'c' to yank
 		if m.copyMode {
 			switch {
 			case key.Matches(msg, m.keys.Quit):
@@ -208,7 +208,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Help):
 			m.showHelp = !m.showHelp
 			m.dbg("help toggled: showHelp=%v", m.showHelp)
-			// Recompute sizes since footer height may change.
+			// Recompute sizes since footer height may change
 			m = m.applySize()
 
 		case key.Matches(msg, m.keys.SwapFocus):
@@ -379,7 +379,7 @@ func (m Model) activeProc() *process.Process {
 }
 
 // Recalculates viewport/sidebar dimensions whenever the terminal resizes
-// or the footer height changes.
+// or the footer height changes
 func (m Model) applySize() Model {
 	fh := footerHeightShort
 	if m.showHelp {
@@ -391,14 +391,15 @@ func (m Model) applySize() Model {
 	}
 	// In copy mode the sidebar is hidden, so the viewport fills the full width.
 	// The PTY width is always the sidebar-adjusted value so processes don't
-	// receive a spurious resize when the user enters or exits copy mode.
+	// receive a spurious resize when the user enters or exits copy mode
 	ptyW := m.width - sidebarWidth
 	if ptyW < 1 {
 		ptyW = 1
 	}
-	vpW := ptyW
+	// Reduce the viewport width by 3 chars to account for the borders
+	vpW := ptyW - 3
 	if m.copyMode {
-		vpW = m.width
+		vpW = m.width - 3
 	}
 
 	if !m.ready {
@@ -415,7 +416,7 @@ func (m Model) applySize() Model {
 
 	// Keep every pty window size in sync with the sidebar-adjusted width so
 	// programs that detect terminal width (webpack, Django dev-server) reflow
-	// correctly, and are not affected by copy mode toggling.
+	// correctly, and are not affected by copy mode toggling
 	for _, p := range m.procs {
 		p.Resize(uint16(ptyW), uint16(contentH))
 	}
@@ -423,8 +424,8 @@ func (m Model) applySize() Model {
 	return m
 }
 
-// loadActiveProc reloads the viewport with the selected process's output.
-// Switching processes always exits copy mode.
+// Reloads the viewport with the selected process's output
+// Note that switching processes always exits copy mode
 func (m Model) loadActiveProc() Model {
 	if !m.ready {
 		return m
@@ -438,7 +439,7 @@ func (m Model) loadActiveProc() Model {
 	return m
 }
 
-// buildContent joins the active process's output lines into a viewport content string.
+// Joins the active process's output lines into a viewport content string
 func (m Model) buildContent() string {
 	p := m.activeProc()
 	if p == nil {
@@ -447,7 +448,7 @@ func (m Model) buildContent() string {
 	return strings.Join(p.Lines(), "\n")
 }
 
-// applyCopyStyleFunc updates the viewport's StyleLineFunc to highlight the
+// Updates the viewport's StyleLineFunc to highlight the
 // current copy selection. Must be called after any change to copyMode,
 // copyAnchor, or copyCursor.
 func (m *Model) applyCopyStyleFunc() {
@@ -456,22 +457,24 @@ func (m *Model) applyCopyStyleFunc() {
 		return
 	}
 	cursor := m.copyCursor
+
 	// When no anchor is set, only the cursor line is highlighted so the user
 	// can navigate to the desired start position before committing.
 	if m.copyAnchor < 0 {
 		m.viewport.StyleLineFunc = func(idx int) lipgloss.Style {
 			if idx == cursor {
-				return lipgloss.NewStyle().Background(colorBlue).Foreground(colorWhite)
+				return copyModeStyle
 			}
 			return lipgloss.NewStyle()
 		}
 		return
 	}
+
 	lo := min(m.copyAnchor, cursor)
 	hi := max(m.copyAnchor, cursor)
 	m.viewport.StyleLineFunc = func(idx int) lipgloss.Style {
 		if idx == cursor {
-			return lipgloss.NewStyle().Background(colorBlue).Foreground(colorWhite)
+			return copyModeStyle
 		}
 		if idx >= lo && idx <= hi {
 			return lipgloss.NewStyle().Background(colorDarkGrey)
@@ -480,7 +483,7 @@ func (m *Model) applyCopyStyleFunc() {
 	}
 }
 
-// ensureCopyCursorVisible scrolls the viewport so copyCursor is visible.
+// Scrolls the viewport so copyCursor is visible.
 func (m *Model) ensureCopyCursorVisible() {
 	h := m.viewport.Height()
 	if m.copyCursor < m.viewport.YOffset() {
@@ -490,7 +493,7 @@ func (m *Model) ensureCopyCursorVisible() {
 	}
 }
 
-// copySelectedText returns the plain text of the selected line range, with
+// Returns the plain text of the selected line range, with
 // ANSI escape codes stripped so the clipboard gets clean text.
 func (m Model) copySelectedText() string {
 	p := m.activeProc()
@@ -525,20 +528,11 @@ func (m Model) renderHeader() string {
 	}
 	meta := headerMetaStyle.Render(fmt.Sprintf("%d running  ", running))
 
-	blueBg := lipgloss.NewStyle().Background(colorBlue).Render(" ")
-	yellowBg := lipgloss.NewStyle().Background(colorYellow).Render(" ")
-	redBg := lipgloss.NewStyle().Background(colorRed).Render(" ")
-	blackBg := lipgloss.NewStyle().Background(colorBlack).Render(" ")
-
 	if m.copyMode {
 		if p := m.activeProc(); p != nil {
-			label := lipgloss.NewStyle().
-				Foreground(colorWhite).
-				Bold(true).
-				Render(p.Name)
+			label := labelStyle.Render(p.Name)
 
-			stripes := lipgloss.NewStyle().PaddingLeft(1).Render(blueBg + yellowBg + redBg + blackBg)
-			stripesW := lipgloss.Width(stripes)
+			stripesW := lipgloss.Width(stripesStyle)
 
 			labelW := lipgloss.Width(label)
 			innerW := m.width - stripesW - lipgloss.Width(brand) - lipgloss.Width(meta)
@@ -554,17 +548,16 @@ func (m Model) renderHeader() string {
 			left := lipgloss.NewStyle().Width(leftGap).Render("")
 			right := lipgloss.NewStyle().Width(rightGap).Render("")
 
-			return lipgloss.JoinHorizontal(lipgloss.Top, stripes, brand, left, label, right, meta)
+			return lipgloss.JoinHorizontal(lipgloss.Top, stripesStyle, brand, left, label, right, meta)
 		}
 	}
 
-	stripes := lipgloss.NewStyle().PaddingLeft(1).Render(blueBg + yellowBg + redBg + blackBg)
-	spacerW := m.width - lipgloss.Width(stripes) - lipgloss.Width(brand) - lipgloss.Width(meta)
+	spacerW := m.width - lipgloss.Width(stripesStyle) - lipgloss.Width(brand) - lipgloss.Width(meta)
 	if spacerW < 0 {
 		spacerW = 0
 	}
 	spacer := lipgloss.NewStyle().Width(spacerW).Render("")
-	return lipgloss.JoinHorizontal(lipgloss.Top, stripes, brand, spacer, meta)
+	return lipgloss.JoinHorizontal(lipgloss.Top, stripesStyle, brand, spacer, meta)
 }
 
 func (m Model) renderSidebar() string {
@@ -573,7 +566,7 @@ func (m Model) renderSidebar() string {
 		h = 1
 	}
 
-	// innerW is the usable column width inside the border.
+	// Usable column width inside the border
 	innerW := sidebarWidth - 1
 
 	start := m.sidebarOffset
@@ -597,11 +590,11 @@ func (m Model) renderSidebar() string {
 		}
 		iconColor := statusIconColor(p.Status())
 
-		// Reserve 3 visible chars for left-padding (1) + icon (1) + space (1).
+		// Reserve 3 visible chars for left-padding (1) + icon (1) + space (1)
 		name := truncate(p.Name, innerW-3)
 
 		// Render icon and name as *separate* lipgloss segments that share the
-		// same background colour.  This avoids embedding pre-rendered ANSI
+		// same background colour. This avoids embedding pre-rendered ANSI
 		// strings (which carry their own \033[m reset) inside an outer style,
 		// which would silently terminate the background highlight after the icon
 		// and make the active-row cursor invisible.
@@ -609,7 +602,7 @@ func (m Model) renderSidebar() string {
 			base := lipgloss.NewStyle().Background(colorDarkGrey).Bold(true)
 			iconSeg := base.PaddingLeft(1).Foreground(iconColor).Render(iconChar)
 			// Width covers the remaining columns: innerW minus the 2 chars
-			// already consumed by PaddingLeft + icon.
+			// already consumed by PaddingLeft + icon
 			nameSeg := base.Foreground(colorWhite).Width(innerW - 2).Render(" " + name)
 			rows = append(rows, iconSeg+nameSeg)
 		} else {
@@ -619,12 +612,18 @@ func (m Model) renderSidebar() string {
 		}
 	}
 
-	// Pad remaining rows so the sidebar border extends the full height.
+	// Pad remaining rows so the sidebar border extends the full height
 	for i := end - start; i < h; i++ {
 		rows = append(rows, procInactiveStyle.Width(innerW).Render(""))
 	}
 
-	return sidebarBorderStyle.Height(h).Render(strings.Join(rows, "\n"))
+	var style lipgloss.Style
+	if m.focusedPane == focusSidebar {
+		style = borderFocusedStyle
+	} else {
+		style = borderStyle
+	}
+	return style.Height(h).Render(strings.Join(rows, "\n"))
 }
 
 func (m Model) sidebarHeight() int {
@@ -639,8 +638,8 @@ func (m Model) sidebarHeight() int {
 	return h
 }
 
-// ensureSidebarCursorVisible keeps the selected process row within the visible
-// sidebar window by adjusting sidebarOffset.
+// Keep selected process row within the visible
+// sidebar window by adjusting sidebarOffset
 func (m *Model) ensureSidebarCursorVisible() {
 	h := m.sidebarHeight()
 	if len(m.procs) <= h {
@@ -672,7 +671,13 @@ func (m *Model) ensureSidebarCursorVisible() {
 }
 
 func (m Model) renderOutput() string {
-	return outputBorderStyle.Render(m.viewport.View())
+	var style lipgloss.Style
+	if m.focusedPane == focusOutput {
+		style = borderFocusedStyle
+	} else {
+		style = borderStyle
+	}
+	return style.Render(m.viewport.View())
 }
 
 func (m Model) renderFooter() string {

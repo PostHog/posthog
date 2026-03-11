@@ -41,30 +41,42 @@ var (
 			Foreground(colorGrey).
 			Padding(0, 1)
 
-	// Sidebar
-	sidebarBorderStyle = lipgloss.NewStyle().
-				BorderRight(true).
-				BorderTop(true).
-				BorderBottom(true).
-				BorderLeft(true).
-				BorderStyle(lipgloss.NormalBorder()).
-				BorderForeground(colorDarkGrey)
+	stripesStyle = lipgloss.NewStyle().
+			Render(
+			lipgloss.NewStyle().Background(colorBlue).Render(" ") +
+				lipgloss.NewStyle().Background(colorYellow).Render(" ") +
+				lipgloss.NewStyle().Background(colorRed).Render(" ") +
+				lipgloss.NewStyle().Background(colorBlack).Render(" "),
+		)
 
+	labelStyle = lipgloss.NewStyle().
+			Foreground(colorWhite).
+			Bold(true)
+
+	// Borders
+	borderStyle = lipgloss.NewStyle().
+			BorderRight(true).
+			BorderTop(true).
+			BorderBottom(true).
+			BorderLeft(true).
+			BorderStyle(lipgloss.NormalBorder()).
+			BorderForeground(colorDarkGrey)
+
+	borderFocusedStyle = borderStyle.
+				BorderStyle(lipgloss.ThickBorder())
+
+	// Sidebar
 	procInactiveStyle = lipgloss.NewStyle().
 				PaddingLeft(1).
 				Foreground(colorGrey)
-
-	// Output
-	outputBorderStyle = lipgloss.NewStyle().
-				BorderRight(true).
-				BorderTop(true).
-				BorderBottom(true).
-				BorderLeft(true).
-				BorderStyle(lipgloss.NormalBorder()).
-				BorderForeground(colorDarkGrey)
 
 	// Footer
 	footerStyle = lipgloss.NewStyle().
 			Foreground(colorGrey).
 			PaddingLeft(1)
+
+	// Copy mode
+	copyModeStyle = lipgloss.NewStyle().
+			Background(colorBlue).
+			Foreground(colorWhite)
 )
