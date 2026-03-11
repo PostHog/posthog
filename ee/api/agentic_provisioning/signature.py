@@ -64,11 +64,11 @@ def verify_stripe_signature(request: Request) -> Response | None:
         return Response(
             {
                 "error": {
-                    "code": "server_error",
+                    "code": "body_not_readable",
                     "message": "Unable to read request body for signature verification",
                 }
             },
-            status=500,
+            status=400,
         )
 
     expected_hex = _compute_hmac(secret, timestamp_str, body)
@@ -94,17 +94,7 @@ def _compute_hmac(secret: str, timestamp_str: str, body: bytes) -> str:
 
 
 def _get_raw_body(request: Request) -> bytes | None:
-    """Get raw request body, resilient to DRF stream consumption.
-
-    DRF's default throttle classes can access request.data (via
-    PersonalAPIKeyAuthentication.find_key_with_source) during
-    check_throttles(), which consumes the WSGI input stream. After that,
-    HttpRequest.body raises RawPostDataException because _read_started is
-    True but _body was never cached.
-
-    This helper tries the underlying Django request's cached _body first,
-    falls back to .body, and handles the exception gracefully.
-    """
+    """Get raw request body, returning None if the stream was already consumed."""
     django_request = getattr(request, "_request", request)
     if hasattr(django_request, "_body"):
         return django_request._body

@@ -83,7 +83,7 @@ class TestVerifySignatureAfterDRFParsing(TestCase):
 
         return drf_request
 
-    def test_returns_500_when_stream_consumed(self):
+    def test_returns_400_when_stream_consumed(self):
         body = b'{"email":"test@example.com"}'
         ts = int(time.time())
         sig = compute_signature(HMAC_SECRET, ts, body)
@@ -93,8 +93,8 @@ class TestVerifySignatureAfterDRFParsing(TestCase):
 
         result = verify_stripe_signature(drf_request)
         assert result is not None, "Body was consumed so signature can't be verified"
-        assert result.status_code == 500
-        assert result.data["error"]["code"] == "server_error"
+        assert result.status_code == 400
+        assert result.data["error"]["code"] == "body_not_readable"
 
     def test_succeeds_when_stream_not_consumed(self):
         body = b'{"email":"test@example.com"}'
