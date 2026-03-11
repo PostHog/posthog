@@ -3363,6 +3363,7 @@ export namespace Schemas {
       ScreenName: 'ScreenName',
       InitialChannelType: 'InitialChannelType',
       InitialReferringDomain: 'InitialReferringDomain',
+      InitialReferringURL: 'InitialReferringURL',
       InitialUTMSource: 'InitialUTMSource',
       InitialUTMCampaign: 'InitialUTMCampaign',
       InitialUTMMedium: 'InitialUTMMedium',
