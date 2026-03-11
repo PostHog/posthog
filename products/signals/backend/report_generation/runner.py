@@ -1,12 +1,16 @@
 import json
 import asyncio
 import logging
+from collections.abc import Callable
 
 from django.conf import settings
 
 from asgiref.sync import sync_to_async
 
 logger = logging.getLogger(__name__)
+
+# Type for an optional output callback (e.g. management command's self.stdout.write)
+OutputFn = Callable[[str], object] | None
 
 ORIGIN_PRODUCT = "user_created"
 
@@ -52,11 +56,17 @@ def _get_defaults() -> tuple[int, int, int, str]:
     return _CLOUD_TEAM_ID, _CLOUD_USER_ID, _CLOUD_GITHUB_INTEGRATION_ID, _CLOUD_REPOSITORY
 
 
-async def run_prompt(prompt: str, branch: str = "master", step_name: str = "") -> tuple[str, str]:
+async def run_prompt(
+    prompt: str,
+    branch: str = "master",
+    step_name: str = "",
+    verbose: bool = False,
+    output_fn: OutputFn = None,
+) -> tuple[str, str]:
     """Spawn a sandbox agent with the given prompt and return its last response and full logs"""
     task, task_run = await _create_task_and_trigger(prompt, branch, step_name)
     logger.info("sandbox_custom_prompt: started task=%s run=%s step=%s", task.id, task_run.id, step_name or "unknown")
-    final_status, last_message, full_log = await _poll_until_done(task_run)
+    final_status, last_message, full_log = await _poll_until_done(task_run, verbose=verbose, output_fn=output_fn)
     logger.info("sandbox_custom_prompt: finished run=%s status=%s", task_run.id, final_status)
     if not last_message:
         last_message = f"[sandbox_custom_prompt] Run completed with status={final_status} but no agent message found."
@@ -91,7 +101,9 @@ async def _create_task_and_trigger(description: str, branch: str = "master", ste
     return task, task_run
 
 
-async def _poll_until_done(task_run) -> tuple[str, str | None, str | None]:
+async def _poll_until_done(
+    task_run, *, verbose: bool = False, output_fn: OutputFn = None
+) -> tuple[str, str | None, str | None]:
     """Poll logs for agent completion, fall back to TaskRun status."""
     from products.tasks.backend.models import TaskRun
 
@@ -101,7 +113,7 @@ async def _poll_until_done(task_run) -> tuple[str, str | None, str | None]:
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
         elapsed += POLL_INTERVAL_SECONDS
         finished, last_message, full_log = await sync_to_async(_check_logs)(task_run)
-        printed_lines = _stream_new_lines(full_log, printed_lines)
+        printed_lines = _stream_new_lines(full_log, printed_lines, verbose=verbose, output_fn=output_fn)
         if finished:
             return "completed", last_message, full_log
         refreshed = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
@@ -111,19 +123,25 @@ async def _poll_until_done(task_run) -> tuple[str, str | None, str | None]:
             TaskRun.Status.CANCELLED,
         }:
             _, last_message, full_log = await sync_to_async(_check_logs)(task_run)
-            printed_lines = _stream_new_lines(full_log, printed_lines)
+            printed_lines = _stream_new_lines(full_log, printed_lines, verbose=verbose, output_fn=output_fn)
             return refreshed.status, last_message, full_log
     return "timeout", None, None
 
 
-def _stream_new_lines(full_log: str | None, printed_lines: int) -> int:
-    """Print new agent message lines from logs, return updated line count."""
+def _stream_new_lines(
+    full_log: str | None, printed_lines: int, *, verbose: bool = False, output_fn: OutputFn = None
+) -> int:
+    """Print new log lines. In verbose mode, prints every raw line; otherwise only agent messages."""
     if not full_log:
         return printed_lines
+    _write = output_fn or logger.info
     lines = full_log.strip().split("\n")
     for line in lines[printed_lines:]:
         line = line.strip()
         if not line:
+            continue
+        if verbose:
+            _write(line)
             continue
         try:
             entry = json.loads(line)
@@ -138,7 +156,7 @@ def _stream_new_lines(full_log: str | None, printed_lines: int) -> int:
             continue
         text = _extract_text(update)
         if text:
-            logger.info(text)
+            _write(text)
     return len(lines)
 
 

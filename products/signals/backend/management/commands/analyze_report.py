@@ -83,7 +83,19 @@ TEST_SUMMARY = (
 class Command(BaseCommand):
     help = "Test the report research agent via sandbox against simulated funnel enhancement signals."
 
+    def _flushing_write(self, msg: str) -> None:
+        self.stdout.write(msg)
+        self.stdout.flush()
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--verbose",
+            action="store_true",
+            help="Stream full raw S3 log lines instead of only agent messages",
+        )
+
     def handle(self, *args, **options):
+        verbose = options["verbose"]
         prompt = build_research_prompt(
             title=TEST_TITLE,
             summary=TEST_SUMMARY,
@@ -100,6 +112,8 @@ class Command(BaseCommand):
                 branch="master",
                 model_to_validate=ReportResearchOutput,
                 step_name="report_research",
+                verbose=verbose,
+                output_fn=self._flushing_write,
             )
         )
 
