@@ -330,6 +330,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "mcp_client_name": ANY,
                 "mcp_client_version": ANY,
                 "mcp_protocol_version": ANY,
+                "mcp_oauth_client_name": ANY,
                 "partial_filter_chosen_my_filter": "something",
             },
             groups=ANY,
