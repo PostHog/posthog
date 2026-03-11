@@ -13,7 +13,6 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
-from products.signals.backend.temporal.grouping import TeamSignalGroupingWorkflow
 from products.signals.backend.temporal.types import EmitSignalInputs, TeamSignalGroupingInput
 
 EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536
@@ -114,6 +113,8 @@ async def emit_signal(
             extra={"html_url": "https://github.com/posthog/posthog/issues/12345", "number": 12345, ...},
         )
     """
+    from products.signals.backend.temporal.grouping import TeamSignalGroupingWorkflow  # Preventing circular import
+
     # Raise if signal doesn't match any known schema
     SignalInput.model_validate(
         {

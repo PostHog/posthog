@@ -108,10 +108,10 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         if instance.source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER and instance.enabled:
-            self._trigger_initial_clustering(instance)
+            self._trigger_initial_analysis(instance)
 
-    def _trigger_initial_clustering(self, config: SignalSourceConfig) -> None:
-        """Fire-and-forget the clustering workflow."""
+    def _trigger_initial_analysis(self, config: SignalSourceConfig) -> None:
+        """Fire-and-forget the session analysis workflow."""
         try:
             client = sync_connect()
             async_to_sync(client.start_workflow)(  # type: ignore
@@ -123,9 +123,9 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
-            logger.info(f"Started initial clustering workflow for team {self.team_id}")
+            logger.info(f"Started initial session analysis workflow for team {self.team_id}")
         except Exception:
-            logger.exception(f"Failed to start initial clustering workflow for team {self.team_id}")
+            logger.exception(f"Failed to start initial session analysis workflow for team {self.team_id}")
 
     def perform_update(self, serializer):
         try:

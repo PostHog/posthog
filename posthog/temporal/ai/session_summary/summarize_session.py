@@ -32,6 +32,7 @@ from posthog.temporal.ai.session_summary.activities import (
     cleanup_gemini_file_activity,
     consolidate_video_segments_activity,
     embed_and_store_segments_activity,
+    emit_session_problem_signals_activity,
     prep_session_video_asset_activity,
     store_video_session_summary_activity,
     upload_video_to_gemini_activity,
@@ -712,14 +713,22 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
             retry_policy=retry_policy,
         )
 
-        # Activity 6: Store video-based summary in database
-        # This activity retrieves the cached event data from Redis (from fetch_session_data_activity)
-        # and uses it to map video segments to real events
-        await temporalio.workflow.execute_activity(
-            store_video_session_summary_activity,
-            args=(video_inputs, consolidated_analysis),
-            start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=retry_policy,
+        # Activities 6a + 6b run in parallel:
+        # - 6a: Emit signals for issue-indicating segments
+        # - 6b: Store video-based summary in database
+        await asyncio.gather(
+            temporalio.workflow.execute_activity(
+                emit_session_problem_signals_activity,
+                args=(video_inputs, consolidated_analysis),
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=retry_policy,
+            ),
+            temporalio.workflow.execute_activity(
+                store_video_session_summary_activity,
+                args=(video_inputs, consolidated_analysis),
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=retry_policy,
+            ),
         )
     finally:
         # Activity 7: Delete uploaded video from Gemini to free storage quota
