@@ -17,6 +17,7 @@ from posthog.kafka_client.client import _AsyncKafkaProducer, get_async_warpstrea
 from posthog.kafka_client.topics import KAFKA_DWH_CDP_RAW_TABLE
 from posthog.models.hog_functions import HogFunction
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.data_imports.pipelines.helpers import build_table_name
 
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.data_warehouse.backend.s3 import aget_s3_client, ensure_bucket_exists
@@ -85,14 +86,10 @@ class CDPProducer:
 
         @database_sync_to_async_pool
         def _check():
-            schema = ExternalDataSchema.objects.select_related("source", "table").get(
-                id=self.schema_id, team_id=self.team_id
-            )
+            schema = ExternalDataSchema.objects.get(id=self.schema_id, team_id=self.team_id)
 
-            if not schema.table:
-                return False
-
-            dot_notated_table_name = get_data_warehouse_table_name(schema.source, schema.table.name)
+            raw_table_name = build_table_name(schema.source, schema.name)
+            dot_notated_table_name = get_data_warehouse_table_name(schema.source, raw_table_name)
 
             self.logger.debug(f"Checking if table {dot_notated_table_name} is used in any HogQL functions")
             self.logger.debug(f"Using table_name = {dot_notated_table_name}, source = data-warehouse-table")
