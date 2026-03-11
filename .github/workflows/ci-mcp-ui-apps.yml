@@ -57,7 +57,9 @@ jobs:
                   cache: 'pnpm'
 
             - name: Install dependencies
-              run: pnpm install --frozen-lockfile
+              # MCP imports from products/*/frontend/mcp-apps via tsconfig path aliases (not npm deps),
+              # so products must be included alongside MCP's declared workspace deps.
+              run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
 
             - name: Build UI Apps
               run: cd services/mcp && pnpm run build:ui-apps
