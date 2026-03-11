@@ -101,17 +101,22 @@ def fetch_generations_by_uuid(
             "date_from": ast.Constant(value=date_from),
             "date_to": ast.Constant(value=date_to),
             "uuids": ast.Tuple(exprs=[ast.Constant(value=uid) for uid in generation_ids]),
-            "max_input_chars": ast.Constant(value=MAX_INPUT_CHARS_GENERATION),
         },
         team=team,
         limit_context=LimitContext.QUERY_ASYNC,
     )
 
+    # Size guard applied post-fetch instead of in SQL — the SQL length()
+    # filter forced JSONExtractRaw on every scanned row, 2.4x slower on
+    # high-volume teams. Here we just skip before json.loads to avoid
+    # wasting time parsing huge payloads we'll mostly discard anyway.
     rows: list[tuple[str, object]] = []
     total_input_bytes = 0
     for row in result.results or []:
         raw_ai_input = row[1]
         if isinstance(raw_ai_input, str):
+            if len(raw_ai_input) > MAX_INPUT_CHARS_GENERATION:
+                continue
             total_input_bytes += len(raw_ai_input.encode("utf-8"))
             try:
                 ai_input = json.loads(raw_ai_input)
