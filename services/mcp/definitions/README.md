@@ -71,14 +71,6 @@ Run the full pipeline: `hogli build:openapi`
    hogli build:openapi
    ```
 
-### Subset files
-
-Files named something other than `tools.yaml` in a product's `mcp/` folder (e.g., `prompts.yaml`) are treated as **subset files**:
-
-- The product name is derived from the directory (e.g., `products/llm_analytics/mcp/prompts.yaml` uses `llm_analytics`)
-- Existing tools are validated against OpenAPI operations, but no new operations are added
-- Useful for organizing tools into logical groups within a single product
-
 ## Keeping definitions in sync
 
 When backend API endpoints are added or removed, YAML definitions need updating.
