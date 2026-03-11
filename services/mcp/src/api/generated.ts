@@ -26657,11 +26657,22 @@ export namespace Schemas {
        * @nullable
        */
       branch?: string | null;
+      /** ID of a previous run to resume from. Must belong to the same task. */
+      resume_from_run_id?: string;
+      /** Follow-up user message to include in the resumed run's prompt. */
+      pending_user_message?: string;
     }
 
     export interface TaskRunRelayMessageRequest {
       /** @maxLength 10000 */
       text: string;
+    }
+
+    export interface TaskRunRelayMessageResponse {
+      /** Relay status: 'accepted' or 'skipped' */
+      status: string;
+      /** Relay workflow ID when accepted */
+      relay_id?: string;
     }
 
     export type TeamDefaultModifiers = {[key: string]: unknown};
