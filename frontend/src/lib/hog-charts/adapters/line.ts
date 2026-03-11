@@ -1,7 +1,8 @@
 import type { ChartConfiguration, ChartDataset } from 'chart.js'
 
+import { createXAxisTickCallback } from 'lib/charts/utils/dates'
+
 import type { AreaProps, LineProps } from '../types'
-import { createXAxisTickCallback } from '../utils/dates'
 import { mergeTheme } from '../utils/theme'
 import {
     baseOptions,
@@ -119,7 +120,7 @@ export function buildLineConfig(props: LineProps): ChartConfiguration<'line'> {
         (props.dates?.length
             ? createXAxisTickCallback({
                   interval: props.interval ?? 'day',
-                  dates: props.dates,
+                  allDays: props.dates,
                   timezone: props.timezone ?? 'UTC',
               })
             : undefined)

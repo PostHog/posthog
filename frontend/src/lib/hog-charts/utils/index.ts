@@ -1,4 +1,3 @@
-export { hexToRgb, hexToRGBA, interpolateColor, lerpColor } from './color'
-export { createXAxisTickCallback, looksLikeDateLabels } from './dates'
-export { computeDelta, formatValue } from './format'
-export { defaultTheme, hogColors, lifecycleColors, mergeTheme, seriesColor } from './theme'
+export { createXAxisTickCallback } from 'lib/charts/utils/dates'
+export { formatValue } from 'lib/charts/utils/format'
+export { mergeTheme, seriesColor } from './theme'

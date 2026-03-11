@@ -1,20 +1,11 @@
 export { Line } from './components/Line'
 
-export { DefaultTooltip } from './components/Tooltip'
+export { DefaultTooltip } from './components/tooltip'
 
-export { defaultTheme, hogColors, lifecycleColors, mergeTheme, seriesColor } from './utils/theme'
+export { mergeTheme, seriesColor } from './utils/theme'
 
-export { computeDelta, formatValue } from './utils/format'
-export { createXAxisTickCallback } from './utils/dates'
-
-export { buildGoalLines, buildLineSeries, buildYAxis } from './builders'
-export type {
-    BuildLineSeriesOptions,
-    BuildLineSeriesResult,
-    DataSeries,
-    GoalLineInput,
-    StatisticalOverlays,
-} from './builders'
+export { formatValue } from 'lib/charts/utils/format'
+export { createXAxisTickCallback } from 'lib/charts/utils/dates'
 
 export type {
     Annotation,

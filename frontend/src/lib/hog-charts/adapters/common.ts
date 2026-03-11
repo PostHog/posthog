@@ -1,5 +1,8 @@
 import type { ChartOptions } from 'chart.js'
 
+import { formatValue } from 'lib/charts/utils/format'
+import { seriesColor } from 'lib/charts/utils/theme'
+
 import type {
     AxisConfig,
     BaseChartProps,
@@ -10,8 +13,6 @@ import type {
     TooltipContext,
     TooltipPoint,
 } from '../types'
-import { formatValue } from '../utils/format'
-import { seriesColor } from '../utils/theme'
 
 export interface TooltipCallbacks {
     onShow: (context: TooltipContext) => void

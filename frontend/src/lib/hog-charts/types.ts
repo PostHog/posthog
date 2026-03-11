@@ -1,5 +1,7 @@
 import type React from 'react'
 
+import type { AxisFormat, ChartTheme } from 'lib/charts/types'
+
 export interface Series {
     label: string
     data: number[]
@@ -23,7 +25,7 @@ export interface ComparisonSeries extends Series {
 
 export type ChartInterval = 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month'
 
-export type AxisFormat = 'number' | 'compact' | 'percent' | 'duration' | 'duration_ms' | 'date' | 'datetime' | 'none'
+export type { AxisFormat } from 'lib/charts/types'
 
 export type AxisScale = 'linear' | 'logarithmic'
 
@@ -84,16 +86,11 @@ export interface TooltipConfig {
     onHide?: () => void
 }
 
-export interface HogChartTheme {
-    colors: string[]
+export interface HogChartTheme extends ChartTheme {
     fontFamily?: string
     fontSize?: number
     backgroundColor?: string
-    axisColor?: string
-    gridColor?: string
     goalLineColor?: string
-    tooltipBackground?: string
-    tooltipColor?: string
     tooltipBorderRadius?: number
 }
 

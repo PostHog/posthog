@@ -1,9 +1,8 @@
 import type { ChartConfiguration, ChartType } from 'chart.js'
-import type React from 'react'
 
 import { useHogChart } from '../hooks'
 import type { BaseChartProps } from '../types'
-import { TooltipPortal, useTooltipState } from './Tooltip'
+import { TooltipPortal, useTooltipState } from './tooltip'
 
 export function ChartCanvas<TType extends ChartType = ChartType>({
     config,
@@ -21,14 +20,15 @@ export function ChartCanvas<TType extends ChartType = ChartType>({
 
     const { canvasRef, containerRef } = useHogChart(config, chartProps, tooltipCallbacks)
 
-    const style: React.CSSProperties = {
-        width: typeof width === 'number' ? `${width}px` : width,
-        height: typeof height === 'number' ? `${height}px` : height,
-        position: 'relative',
-    }
-
     return (
-        <div ref={containerRef} className={className} style={style}>
+        <div
+            ref={containerRef}
+            className={`relative ${className ?? ''}`}
+            style={{
+                width: typeof width === 'number' ? `${width}px` : width,
+                height: typeof height === 'number' ? `${height}px` : height,
+            }}
+        >
             <canvas ref={canvasRef} role="img" aria-label={ariaLabel ?? 'Chart'} />
             {chartProps.tooltip?.render && (
                 <TooltipPortal
