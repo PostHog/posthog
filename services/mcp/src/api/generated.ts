@@ -3985,6 +3985,11 @@ export namespace Schemas {
     export type HogQLQueryVariables = {[key: string]: HogQLVariable} | null | null;
 
     export interface HogQLQuery {
+      /**
+       * Optional direct external data source id for running against a specific source
+       * @nullable
+       */
+      connectionId?: string | null;
       /** @nullable */
       explain?: boolean | null;
       filters?: HogQLFilters | null;
