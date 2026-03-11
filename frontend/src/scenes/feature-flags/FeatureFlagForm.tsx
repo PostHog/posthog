@@ -51,7 +51,7 @@ import { tagsModel } from '~/models/tagsModel'
 import { FeatureFlagBucketingIdentifier, FeatureFlagEvaluationRuntime } from '~/types'
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
-import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
+import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { FeatureFlagLogicProps, featureFlagLogic, slugifyFeatureFlagKey } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
 
@@ -329,9 +329,9 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                         value: formEvalContexts,
                                                                         onChange: onChangeEvalContexts,
                                                                     }) => (
-                                                                        <FeatureFlagEvaluationTags
+                                                                        <FeatureFlagEvaluationContexts
                                                                             tags={formTags}
-                                                                            evaluationTags={formEvalContexts || []}
+                                                                            evaluationContexts={formEvalContexts || []}
                                                                             context="form"
                                                                             onChange={(
                                                                                 updatedTags,

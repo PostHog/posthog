@@ -98,7 +98,7 @@ import {
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
-import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
+import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { ExperimentsTab } from './FeatureFlagExperimentsTab'
 import { FeedbackTab } from './FeatureFlagFeedbackTab'
 import { FeatureFlagForm } from './FeatureFlagForm'
@@ -617,9 +617,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
                                                 <LemonField name="evaluation_contexts">
                                                     {({ value: formEvalContexts, onChange: onChangeEvalContexts }) => (
-                                                        <FeatureFlagEvaluationTags
+                                                        <FeatureFlagEvaluationContexts
                                                             tags={formTags}
-                                                            evaluationTags={formEvalContexts || []}
+                                                            evaluationContexts={formEvalContexts || []}
                                                             onChange={(updatedTags, updatedEvaluationContexts) => {
                                                                 onChangeTags(updatedTags)
                                                                 onChangeEvalContexts(updatedEvaluationContexts)
@@ -713,9 +713,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         <ScenePanel>
                             <ScenePanelInfoSection>
                                 {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
-                                    <FeatureFlagEvaluationTags
+                                    <FeatureFlagEvaluationContexts
                                         tags={featureFlag.tags}
-                                        evaluationTags={featureFlag.evaluation_contexts || []}
+                                        evaluationContexts={featureFlag.evaluation_contexts || []}
                                         onSave={(updatedTags, updatedEvaluationContexts) => {
                                             const updatedFlag = {
                                                 ...featureFlag,
@@ -1666,9 +1666,9 @@ function FeatureFlagRollout({
                             <SceneDivider />
                             <SceneSection title="Tags">
                                 {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
-                                    <FeatureFlagEvaluationTags
+                                    <FeatureFlagEvaluationContexts
                                         tags={featureFlag.tags}
-                                        evaluationTags={featureFlag.evaluation_contexts || []}
+                                        evaluationContexts={featureFlag.evaluation_contexts || []}
                                         flagId={featureFlag.id}
                                         context="static"
                                     />

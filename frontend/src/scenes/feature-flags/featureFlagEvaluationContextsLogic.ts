@@ -1,26 +1,26 @@
 import { actions, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
 
-import type { featureFlagEvaluationTagsLogicType } from './featureFlagEvaluationTagsLogicType'
+import type { featureFlagEvaluationContextsLogicType } from './featureFlagEvaluationContextsLogicType'
 import { featureFlagLogic } from './featureFlagLogic'
 
-export interface FeatureFlagEvaluationTagsLogicProps {
+export interface FeatureFlagEvaluationContextsLogicProps {
     flagId?: number | string | null
     /** Differentiates multiple instances for the same flag (e.g., 'sidebar' vs 'form') */
     context: 'sidebar' | 'form' | 'static'
     tags: string[]
-    evaluationTags: string[]
+    evaluationContexts: string[]
 }
 
-export const featureFlagEvaluationTagsLogic = kea<featureFlagEvaluationTagsLogicType>([
-    path(['scenes', 'feature-flags', 'featureFlagEvaluationTagsLogic']),
-    props({} as FeatureFlagEvaluationTagsLogicProps),
+export const featureFlagEvaluationContextsLogic = kea<featureFlagEvaluationContextsLogicType>([
+    path(['scenes', 'feature-flags', 'featureFlagEvaluationContextsLogic']),
+    props({} as FeatureFlagEvaluationContextsLogicProps),
     key((props) => `${props.flagId ?? 'new'}-${props.context}`),
 
     actions({
         setIsEditingTags: (isEditing: boolean) => ({ isEditing }),
         setIsEditingContexts: (isEditing: boolean) => ({ isEditing }),
         setLocalTags: (tags: string[]) => ({ tags }),
-        setLocalEvaluationTags: (evaluationTags: string[]) => ({ evaluationTags }),
+        setLocalEvaluationContexts: (evaluationContexts: string[]) => ({ evaluationContexts }),
         saveTags: true,
         saveContexts: true,
         cancelEditingTags: true,
@@ -51,11 +51,11 @@ export const featureFlagEvaluationTagsLogic = kea<featureFlagEvaluationTagsLogic
                 cancelEditingTags: () => props.tags ?? [],
             },
         ],
-        localEvaluationTags: [
-            props.evaluationTags ?? ([] as string[]),
+        localEvaluationContexts: [
+            props.evaluationContexts ?? ([] as string[]),
             {
-                setLocalEvaluationTags: (_, { evaluationTags }) => evaluationTags,
-                cancelEditingContexts: () => props.evaluationTags ?? [],
+                setLocalEvaluationContexts: (_, { evaluationContexts }) => evaluationContexts,
+                cancelEditingContexts: () => props.evaluationContexts ?? [],
             },
         ],
     })),
@@ -64,8 +64,8 @@ export const featureFlagEvaluationTagsLogic = kea<featureFlagEvaluationTagsLogic
         if (!values.isEditingTags && props.tags !== oldProps.tags) {
             actions.setLocalTags(props.tags)
         }
-        if (!values.isEditingContexts && props.evaluationTags !== oldProps.evaluationTags) {
-            actions.setLocalEvaluationTags(props.evaluationTags)
+        if (!values.isEditingContexts && props.evaluationContexts !== oldProps.evaluationContexts) {
+            actions.setLocalEvaluationContexts(props.evaluationContexts)
         }
     }),
 
@@ -82,7 +82,7 @@ export const featureFlagEvaluationTagsLogic = kea<featureFlagEvaluationTagsLogic
             const { flagId } = props
             if (typeof flagId === 'number') {
                 featureFlagLogic({ id: flagId }).actions.saveFeatureFlag({
-                    evaluation_contexts: values.localEvaluationTags,
+                    evaluation_contexts: values.localEvaluationContexts,
                 })
             }
         },

@@ -12,41 +12,41 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { colorForString } from 'lib/utils'
 
 import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic'
-import { featureFlagEvaluationTagsLogic } from './featureFlagEvaluationTagsLogic'
+import { featureFlagEvaluationContextsLogic } from './featureFlagEvaluationContextsLogic'
 import { featureFlagLogic } from './featureFlagLogic'
 
-interface FeatureFlagEvaluationTagsProps {
+interface FeatureFlagEvaluationContextsProps {
     tags: string[]
-    evaluationTags: string[]
+    evaluationContexts: string[]
     tagsAvailable?: string[]
     className?: string
     flagId?: number | string | null
     /** Differentiates multiple instances for the same flag (e.g., 'sidebar' vs 'form') */
     context: 'sidebar' | 'form' | 'static'
     /** Form mode: parent handles persistence. Mutually exclusive with onSave. */
-    onChange?: (tags: string[], evaluationTags: string[]) => void
+    onChange?: (tags: string[], evaluationContexts: string[]) => void
     /** Sidebar mode: component handles persistence. Mutually exclusive with onChange. */
-    onSave?: (tags: string[], evaluationTags: string[]) => void
+    onSave?: (tags: string[], evaluationContexts: string[]) => void
 }
 
-export function FeatureFlagEvaluationTags({
+export function FeatureFlagEvaluationContexts({
     tags,
-    evaluationTags,
+    evaluationContexts,
     tagsAvailable,
     className,
     flagId,
     context,
     onChange,
     onSave,
-}: FeatureFlagEvaluationTagsProps): JSX.Element {
+}: FeatureFlagEvaluationContextsProps): JSX.Element {
     const staticOnly = context === 'static'
-    const logic = featureFlagEvaluationTagsLogic({ flagId, context, tags, evaluationTags })
-    const { isEditingTags, isEditingContexts, localTags, localEvaluationTags } = useValues(logic)
+    const logic = featureFlagEvaluationContextsLogic({ flagId, context, tags, evaluationContexts })
+    const { isEditingTags, isEditingContexts, localTags, localEvaluationContexts } = useValues(logic)
     const {
         setIsEditingTags,
         setIsEditingContexts,
         setLocalTags,
-        setLocalEvaluationTags,
+        setLocalEvaluationContexts,
         saveTags,
         saveContexts,
         cancelEditingTags,
@@ -58,7 +58,7 @@ export function FeatureFlagEvaluationTags({
 
     const handleSaveTags = (): void => {
         if (onSave) {
-            onSave(localTags, evaluationTags)
+            onSave(localTags, evaluationContexts)
             setIsEditingTags(false)
         } else {
             saveTags()
@@ -67,7 +67,7 @@ export function FeatureFlagEvaluationTags({
 
     const handleSaveContexts = (): void => {
         if (onSave) {
-            onSave(tags, localEvaluationTags)
+            onSave(tags, localEvaluationContexts)
             setIsEditingContexts(false)
         } else {
             saveContexts()
@@ -80,25 +80,25 @@ export function FeatureFlagEvaluationTags({
     }
 
     const handleCancelContexts = (): void => {
-        setLocalEvaluationTags(evaluationTags)
+        setLocalEvaluationContexts(evaluationContexts)
         cancelEditingContexts()
     }
 
     const handleTagsChange = (newTags: string[]): void => {
         setLocalTags(newTags)
         if (onChange) {
-            onChange(newTags, localEvaluationTags)
+            onChange(newTags, localEvaluationContexts)
         }
     }
 
     const handleEvaluationContextsChange = (newContexts: string[]): void => {
-        setLocalEvaluationTags(newContexts)
+        setLocalEvaluationContexts(newContexts)
         if (onChange) {
             onChange(localTags, newContexts)
         }
     }
 
-    const contextOptions = [...new Set([...availableContexts, ...localEvaluationTags])]
+    const contextOptions = [...new Set([...availableContexts, ...localEvaluationContexts])]
         .sort()
         .map((c: string) => ({ key: c, label: c }))
 
@@ -205,7 +205,7 @@ export function FeatureFlagEvaluationTags({
                         <LemonInputSelect
                             mode="multiple"
                             allowCustomValues
-                            value={localEvaluationTags}
+                            value={localEvaluationContexts}
                             options={contextOptions}
                             onChange={handleEvaluationContextsChange}
                             loading={featureFlagLoading}
@@ -239,8 +239,8 @@ export function FeatureFlagEvaluationTags({
                     </>
                 ) : (
                     <div className="inline-flex flex-wrap gap-1 items-center">
-                        {evaluationTags.length > 0 ? (
-                            evaluationTags.map((ctx) => (
+                        {evaluationContexts.length > 0 ? (
+                            evaluationContexts.map((ctx) => (
                                 <div
                                     key={`ctx-${ctx}`}
                                     className="inline-flex items-center rounded px-2 py-1 bg-bg-light border border-border"
@@ -256,11 +256,11 @@ export function FeatureFlagEvaluationTags({
                                 type="none"
                                 onClick={() => setIsEditingContexts(true)}
                                 data-attr="button-edit-evaluation-contexts"
-                                icon={evaluationTags.length > 0 ? <IconPencil /> : <IconPlus />}
+                                icon={evaluationContexts.length > 0 ? <IconPencil /> : <IconPlus />}
                                 className="border border-dashed cursor-pointer"
                                 size="medium"
                             >
-                                {evaluationTags.length > 0 ? 'Edit' : 'Add'}
+                                {evaluationContexts.length > 0 ? 'Edit' : 'Add'}
                             </LemonTag>
                         )}
                     </div>
