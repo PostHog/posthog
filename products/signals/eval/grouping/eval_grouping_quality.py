@@ -62,7 +62,7 @@ async def run_grouping_pipeline(signals_data: list[dict]):
             source_id=s.get("source_id", ""),
             weight=s.get("weight", 0.5),
             timestamp=s.get("timestamp", ""),
-            extra=s.get("extra"),
+            extra=s.get("extra") or {},
             original_report_id=s.get("original_report_id", ""),
         )
         for s in signals_data

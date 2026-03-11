@@ -40,14 +40,6 @@ def limit(request):
 def posthog_client():
     api_key = os.environ.get("POSTHOG_PROJECT_API_KEY", "")
     host = os.environ.get("POSTHOG_HOST", "http://localhost:8010")
-    logger = logging.getLogger(__name__)
-    logger.warning(
-        "PostHog client: host=%s api_key_status=%s",
-        host,
-        "set" if api_key else "empty",
-    )
-    if not api_key:
-        logger.warning("POSTHOG_PROJECT_API_KEY is not set — eval events will not be captured")
     client = Posthog(api_key, host=host, disabled=False, debug=bool(os.environ.get("POSTHOG_DEBUG")))
     yield client
     client.shutdown()
