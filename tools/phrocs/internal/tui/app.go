@@ -136,15 +136,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		m.dbg("key: %q", msg.String())
 
-		// Copy mode consumes all keys except quit. First press 'c' to enter,
+		// Copy mode consumes most keys. First press 'c' to enter,
 		// navigate with ↑/↓, press 'c' again to set the selection anchor, then
-		// navigate to extend the selection, then 'c' to yank
+		// navigate to extend the selection, then 'c' to yank. Press 'q' or 'esc' to exit.
 		if m.copyMode {
 			switch {
 			case key.Matches(msg, m.keys.Quit):
-				m.mgr.StopAll()
-				return m, tea.Quit
-
 			case key.Matches(msg, m.keys.CopyEsc):
 				m.dbg("copy mode: exit")
 				m.copyMode = false
@@ -274,6 +271,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				go p.Restart(send)
 			}
 
+		case key.Matches(msg, m.keys.Stop):
+			if p := m.activeProc(); p != nil {
+				m.dbg("stop: proc=%s", p.Name)
+				p.Stop()
+			}
+
 		case key.Matches(msg, m.keys.Docker):
 			m.dbg("docker: launching lazydocker")
 			return m, tea.ExecProcess(exec.Command("lazydocker"), nil)
@@ -306,7 +309,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.X < sidebarWidth && msg.Y >= headerHeight {
 				m.focusedPane = focusSidebar
 				m.dbg("focus: mouse click → sidebar")
-				row := msg.Y - headerHeight
+				row := msg.Y - headerHeight - 1
 				idx := m.sidebarOffset + row
 				if idx >= 0 && idx < len(m.procs) {
 					prev := m.cursor

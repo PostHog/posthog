@@ -11,6 +11,7 @@ type keyMap struct {
 	GotoBottom key.Binding
 	SwapFocus  key.Binding
 	Restart    key.Binding
+	Stop       key.Binding
 	Docker     key.Binding
 	CopyMode   key.Binding
 	CopyEsc    key.Binding
@@ -52,6 +53,10 @@ func defaultKeyMap() keyMap {
 			key.WithKeys("r"),
 			key.WithHelp("r:", "restart"),
 		),
+		Stop: key.NewBinding(
+			key.WithKeys("s"),
+			key.WithHelp("s:", "stop"),
+		),
 		Docker: key.NewBinding(
 			key.WithKeys("d"),
 			key.WithHelp("d:", "lazydocker"),
@@ -77,7 +82,7 @@ func defaultKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.NextProc, k.PrevProc, k.SwapFocus, k.CopyMode, k.Restart, k.Quit, k.Help}
+	return []key.Binding{k.NextProc, k.PrevProc, k.SwapFocus, k.CopyMode, k.Restart, k.Stop, k.Quit, k.Help}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
@@ -85,7 +90,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.NextProc, k.PrevProc},
 		{k.ScrollUp, k.ScrollDown},
 		{k.GotoTop, k.GotoBottom},
-		{k.Restart, k.SwapFocus, k.Docker},
+		{k.Restart, k.Stop, k.SwapFocus, k.Docker},
 		{k.CopyMode, k.CopyEsc},
 		{k.Quit, k.Help},
 	}
