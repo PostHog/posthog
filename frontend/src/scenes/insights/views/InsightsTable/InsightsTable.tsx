@@ -215,7 +215,7 @@ export function InsightsTable({
         },
     })
 
-    if (isValidBreakdown(breakdownFilter)) {
+    if (isValidBreakdown(breakdownFilter) && breakdownFilter.breakdown) {
         if (!isSingleSeriesWithBreakdown) {
             columns.push({
                 title: (
