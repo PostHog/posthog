@@ -24,6 +24,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.messaging.constants import get_percentile_bucket_label
 
 if TYPE_CHECKING:
     from posthog.kafka_client.client import _KafkaProducer
@@ -84,6 +85,14 @@ ROW_PROCESSING_RATE_HISTOGRAM = Histogram(
     buckets=(1, 10, 50, 100, 500, 1000, 5000, 10000, 50000, float("inf")),
 )
 
+# Child workflow total duration metrics
+CHILD_WORKFLOW_TOTAL_DURATION_HISTOGRAM = Histogram(
+    "realtime_cohort_child_total_duration_seconds",
+    "Total duration of child workflow activity execution in seconds",
+    ["percentile_bucket"],
+    buckets=(1, 10, 30, 60, 120, 300, 600, 1800, 3600, float("inf")),
+)
+
 LOGGER = get_logger(__name__)
 
 # Sampling rate for Kafka produce duration metrics to reduce overhead
@@ -104,11 +113,11 @@ def get_cohort_calculation_failure_metric():
     )
 
 
-def get_membership_changed_metric(status: str):
-    """Counter for cohort membership changes by status (entered/left)."""
+def get_membership_changed_metric(status: str, percentile_bucket: str):
+    """Counter for cohort membership changes by status (entered/left) and percentile bucket."""
     return (
         temporalio.activity.metric_meter()
-        .with_additional_attributes({"status": status})
+        .with_additional_attributes({"status": status, "percentile_bucket": percentile_bucket})
         .create_counter(
             "realtime_cohort_membership_changed",
             "Number of cohort membership changes (people entering or leaving cohorts)",
@@ -212,21 +221,6 @@ async def flush_kafka_batch(
     return batch_size
 
 
-def _get_percentile_bucket_label(inputs: RealtimeCohortCalculationWorkflowInputs) -> str:
-    """Generate percentile bucket label for metrics."""
-    min_p = inputs.duration_percentile_min
-    max_p = inputs.duration_percentile_max
-
-    if min_p is None and max_p is None:
-        return "manual"
-    elif min_p is None:
-        return f"p0-p{int(max_p)}" if max_p is not None else "p0-p100"
-    elif max_p is None:
-        return f"p{int(min_p)}-p100" if min_p is not None else "p0-p100"
-    else:
-        return f"p{int(min_p)}-p{int(max_p)}"
-
-
 @database_sync_to_async
 def _batch_update_cohort_durations(cohort_durations: dict[int, int]) -> None:
     """Batch update cohort durations and last calculation timestamps."""
@@ -259,7 +253,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
     async with Heartbeater(details=(f"Starting to process {num_cohorts_desc}",)) as heartbeater:
         start_time = time.monotonic()
         cohort_durations = {}
-        percentile_bucket = _get_percentile_bucket_label(inputs)
+        percentile_bucket = get_percentile_bucket_label(inputs.duration_percentile_min, inputs.duration_percentile_max)
 
         @database_sync_to_async
         def get_cohorts():
@@ -485,9 +479,9 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                     )
 
                     if status_counts["entered"] > 0:
-                        get_membership_changed_metric("entered").add(status_counts["entered"])
+                        get_membership_changed_metric("entered", percentile_bucket).add(status_counts["entered"])
                     if status_counts["left"] > 0:
-                        get_membership_changed_metric("left").add(status_counts["left"])
+                        get_membership_changed_metric("left", percentile_bucket).add(status_counts["left"])
 
                 # Calculate full cohort processing duration (not just query time)
                 # Includes: query execution + Kafka message production + message flushing
@@ -553,6 +547,9 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
         duration_minutes = duration_seconds / 60
 
         heartbeater.details = (f"Completed: processed {cohorts_count} cohorts in {duration_minutes:.1f} minutes",)
+
+        # Record total child workflow duration
+        CHILD_WORKFLOW_TOTAL_DURATION_HISTOGRAM.labels(percentile_bucket=percentile_bucket).observe(duration_seconds)
 
         logger.info(
             f"Completed processing: processed {cohorts_count} cohorts in {duration_minutes:.1f} minutes ({duration_seconds:.1f} seconds)",
