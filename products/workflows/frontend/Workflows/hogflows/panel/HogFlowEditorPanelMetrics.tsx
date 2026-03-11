@@ -43,8 +43,8 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
 
     const logic = appMetricsLogic({
         logicKey,
-        loadOnChanges: true,
-        loadOnMount: true,
+        loadOnChanges: shouldShowActionLevelMetrics,
+        loadOnMount: shouldShowActionLevelMetrics,
         forceParams: {
             appSource: 'hog_flow',
             appSourceId: workflow.id,
@@ -57,6 +57,9 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
     const { appMetricsTrendsLoading, appMetricsTrends, params, currentTeam, getDateRangeAbsolute } = useValues(logic)
 
     useEffect(() => {
+        if (!shouldShowActionLevelMetrics) {
+            return
+        }
         // Bit hacky - we load the values here from the logic as connecting the logics together was weirdly tricky
         loadActionMetricsById(
             {
@@ -68,6 +71,7 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
             currentTeam?.timezone ?? 'UTC'
         )
     }, [
+        shouldShowActionLevelMetrics,
         params.appSource,
         params.appSourceId,
         params.dateFrom,
