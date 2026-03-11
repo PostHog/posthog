@@ -262,7 +262,7 @@ function mergeWithExisting(
     tag: string,
     validOperationIds: Set<string>,
     subset = false
-): { content: string; added: number; removed: number; matched: number; unmatchedTools: string[] } {
+): { content: string; added: number; removed: number; updated: number; matched: number; unmatchedTools: string[] } {
     const parsed = parseYaml(fs.readFileSync(existingPath, 'utf-8'))
     const result = CategoryConfigSchema.safeParse(parsed)
     if (!result.success) {
@@ -279,6 +279,7 @@ function mergeWithExisting(
     const mergedTools: Record<string, unknown> = {}
     let added = 0
     let removed = 0
+    let updated = 0
     let matched = 0
     const unmatchedTools: string[] = []
 
@@ -293,6 +294,9 @@ function mergeWithExisting(
             // operationId when their variant was renumbered or removed.
             const operation = validOperationIds.has(config.operation) ? config.operation : op.operationId
             mergedTools[name] = { ...config, operation }
+            if (operation !== config.operation) {
+                updated++
+            }
             matched++
         } else if (subset) {
             // Subset files: keep unmatched tools (they may reference ops from a
@@ -300,6 +304,7 @@ function mergeWithExisting(
             mergedTools[name] = { ...config }
             unmatchedTools.push(`${name} (${config.operation})`)
         } else {
+            unmatchedTools.push(`${name} (${config.operation})`)
             removed++
         }
     }
@@ -330,6 +335,7 @@ function mergeWithExisting(
         content: YAML_HEADER + stringifyYaml(merged, { indent: 4, lineWidth: 120 }),
         added,
         removed,
+        updated,
         matched,
         unmatchedTools,
     }
@@ -408,27 +414,32 @@ function syncAll(spec: OpenApiSpec): void {
         }
         const label = path.relative(REPO_ROOT, filePath)
         const validIds = new Set(rawOps.map((op) => op.operationId))
-        const { content, added, removed, matched, unmatchedTools } = mergeWithExisting(
+        const { content, added, removed, updated, matched, unmatchedTools } = mergeWithExisting(
             filePath,
             ops,
             product,
             validIds,
             subset
         )
-        // Only write when there are actual changes (avoids formatting-only rewrites)
-        if (added > 0 || removed > 0) {
+        // Only write when there are semantic changes (avoids formatting-only rewrites)
+        if (added > 0 || removed > 0 || updated > 0) {
             fs.writeFileSync(filePath, content)
             writtenFiles.push(filePath)
         }
         const total = matched + unmatchedTools.length
-        const parts = [subset ? `${matched}/${total} tool(s) matched` : `${ops.length} operation(s)`]
+        const parts = [
+            subset ? (total === 0 ? '0 tool(s)' : `${matched}/${total} tool(s) matched`) : `${ops.length} operation(s)`,
+        ]
         if (added > 0) {
             parts.push(`${added} new`)
         }
         if (removed > 0) {
             parts.push(`${removed} removed`)
         }
-        if (added === 0 && removed === 0 && unmatchedTools.length === 0) {
+        if (updated > 0) {
+            parts.push(`${updated} operation ID(s) updated`)
+        }
+        if (added === 0 && removed === 0 && updated === 0 && unmatchedTools.length === 0) {
             parts.push('no changes')
         }
         process.stdout.write(`${label}: ${parts.join(', ')}\n`)
