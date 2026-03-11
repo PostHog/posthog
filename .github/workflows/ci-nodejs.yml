@@ -46,6 +46,7 @@ jobs:
                   filters: |
                       nodejs:
                         - .github/workflows/ci-nodejs.yml
+                        - .github/actions/pnpm-cache/**
                         - 'nodejs/**'
                         - 'posthog/clickhouse/**'
                         - 'ee/migrations/**'
@@ -76,6 +77,12 @@ jobs:
               with:
                   node-version: 24.13.0
                   cache: pnpm
+                  cache-dependency-path: pnpm-lock.yaml
+
+            - name: Cache pnpm store
+              uses: ./.github/actions/pnpm-cache
+              with:
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install package.json dependencies with pnpm
               env:
@@ -113,6 +120,12 @@ jobs:
               with:
                   node-version: 24.13.0
                   cache: pnpm
+                  cache-dependency-path: pnpm-lock.yaml
+
+            - name: Cache pnpm store
+              uses: ./.github/actions/pnpm-cache
+              with:
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install package.json dependencies with pnpm
               env:
@@ -228,6 +241,11 @@ jobs:
                   node-version: 24.13.0
                   cache: pnpm
                   cache-dependency-path: pnpm-lock.yaml
+
+            - name: Cache pnpm store
+              uses: ./.github/actions/pnpm-cache
+              with:
+                  save-cache: ${{ github.ref == 'refs/heads/master' && matrix.shard == 1 }}
 
             - name: Download MaxMind Database
               run: |

@@ -1,0 +1,33 @@
+name: pnpm store cache
+description: |
+    Restores and optionally saves the pnpm content-addressable store.
+    Uses actions/cache with split restore/save so that saves only happen
+    on the default branch.
+
+inputs:
+    save-cache:
+        description: 'Whether to save the cache (typically only on master)'
+        required: false
+        default: 'false'
+
+runs:
+    using: composite
+    steps:
+        - name: Get pnpm store directory
+          shell: bash
+          run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+        - name: Restore pnpm store cache
+          uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+          with:
+              path: ${{ env.STORE_PATH }}
+              key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+              restore-keys: |
+                  ${{ runner.os }}-pnpm-store-
+
+        - name: Save pnpm store cache
+          if: inputs.save-cache == 'true'
+          uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+          with:
+              path: ${{ env.STORE_PATH }}
+              key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
