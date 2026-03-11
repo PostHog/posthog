@@ -21,11 +21,10 @@ function fromBase64UrlSafe(b64url: string) {
 export const parseEmailTrackingCode = (
     encodedTrackingCode: string
 ): { functionId: string; invocationId: string; teamId: string } | null => {
-    // customId  is like ph_fn_id=function-1&ph_inv_id=invocation-1
     const decodedTrackingCode = fromBase64UrlSafe(encodedTrackingCode)
     try {
         const [functionId, invocationId, teamId] = decodedTrackingCode.split(':')
-        if (!functionId || !invocationId || !teamId) {
+        if (!functionId || !invocationId) {
             return null
         }
         return { functionId, invocationId, teamId }

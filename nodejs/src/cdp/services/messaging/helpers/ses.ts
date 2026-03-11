@@ -385,7 +385,7 @@ export class SesWebhookHandler {
             metrics.push({ functionId, invocationId, metricName })
 
             // Opt out recipients on permanent bounces
-            if (rec.eventType === 'Bounce' && rec.bounce.bounceType === 'Permanent') {
+            if (teamId && rec.eventType === 'Bounce' && rec.bounce.bounceType === 'Permanent') {
                 const emails = rec.bounce.bouncedRecipients.map((r) => r.emailAddress)
                 optOutRecipients.push({ teamId, emailAddresses: emails })
             }
