@@ -1,3 +1,7 @@
+export { Line } from './components/Line'
+
+export { DefaultTooltip } from './components/tooltip'
+
 export { mergeTheme, seriesColor } from './utils/theme'
 
 export { formatValue } from 'lib/charts/utils/format'
