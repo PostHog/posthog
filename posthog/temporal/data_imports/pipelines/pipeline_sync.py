@@ -176,6 +176,7 @@ async def validate_schema_and_update_table(
                 raw_db_columns: dict[str, dict[str, str]] = table_created.get_columns()
                 db_columns = {key: column.get("clickhouse", "") for key, column in raw_db_columns.items()}
 
+                existing_columns: dict[str, dict[str, str]] = table_created.columns or {}
                 columns = {}
                 for column_name, db_column_type in db_columns.items():
                     hogql_type = table_schema_dict.get(column_name)
@@ -183,6 +184,11 @@ async def validate_schema_and_update_table(
                     if hogql_type is None:
                         capture_exception(Exception(f"HogQL type not found for column: {column_name}"))
                         continue
+
+                    # don't downgrade StringJSONDatabaseField to StringDatabaseField.
+                    existing_hogql_type = existing_columns.get(column_name, {}).get("hogql")
+                    if existing_hogql_type == "StringJSONDatabaseField" and hogql_type == "StringDatabaseField":
+                        hogql_type = "StringJSONDatabaseField"
 
                     columns[column_name] = {
                         "clickhouse": db_column_type,
