@@ -3429,28 +3429,17 @@ export interface WebOverviewQueryApi {
     version?: number | null
 }
 
-export type DataWarehouseSyncIntervalApi =
-    (typeof DataWarehouseSyncIntervalApi)[keyof typeof DataWarehouseSyncIntervalApi]
-
-export const DataWarehouseSyncIntervalApi = {
-    '5min': '5min',
-    '30min': '30min',
-    '1hour': '1hour',
-    '6hour': '6hour',
-    '12hour': '12hour',
-    '24hour': '24hour',
-    '7day': '7day',
-    '30day': '30day',
-} as const
-
 export interface EndpointRequestApi {
     /**
      * Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month).
      * @nullable
      */
     bucket_overrides?: EndpointRequestApiBucketOverrides
-    /** @nullable */
-    cache_age_seconds?: number | null
+    /**
+     * How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency.
+     * @nullable
+     */
+    data_freshness_seconds?: number | null
     /** @nullable */
     derived_from_insight?: string | null
     /** @nullable */
@@ -3475,8 +3464,6 @@ export interface EndpointRequestApi {
         | WebStatsTableQueryApi
         | WebOverviewQueryApi
         | null
-    /** How frequently should the underlying materialized view be updated */
-    sync_frequency?: DataWarehouseSyncIntervalApi | null
     /**
      * Target a specific version for updates (optional, defaults to current version)
      * @nullable
