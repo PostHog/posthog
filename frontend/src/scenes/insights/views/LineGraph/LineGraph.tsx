@@ -241,6 +241,7 @@ export interface LineGraphProps {
     showTrendLines?: boolean
     ignoreActionsInSeriesLabels?: boolean
     datalabelFormatter?: (value: number, datasetIndex: number) => string
+    onDateRangeZoom?: (dateFrom: string, dateTo: string) => void
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -288,6 +289,7 @@ export function LineGraph_({
     showTrendLines = false,
     ignoreActionsInSeriesLabels = false,
     datalabelFormatter,
+    onDateRangeZoom,
 }: LineGraphProps): JSX.Element {
     const originalDatasets = _datasets
     let datasets = _datasets
@@ -320,6 +322,8 @@ export function LineGraph_({
     const showAnnotations = ((isTrends && !isHorizontal) || isFunnels) && !hideAnnotations
     const isLog10 = yAxisScaleType === 'log10' // Currently log10 is the only logarithmic scale supported
     const isHighlightBarMode = isBar && isStacked && isShiftPressed
+    const effectiveZoomCallback = !isBar && !isHorizontal ? onDateRangeZoom : undefined
+    const isResettingZoomRef = useRef(false)
 
     useEffect(() => {
         if (!isShiftPressed) {
@@ -618,6 +622,55 @@ export function LineGraph_({
                 itemSort: (a, b) => a.label.localeCompare(b.label),
             }
 
+            const resetZoom = (chart: Chart): void => {
+                isResettingZoomRef.current = true
+                queueMicrotask(() => {
+                    chart.resetZoom()
+                    isResettingZoomRef.current = false
+                })
+            }
+
+            const getZoomDateRange = (chart: Chart): [string, string] | null => {
+                const days = datasets[0]?.days
+                if (!days?.length) {
+                    return null
+                }
+
+                const xScale = chart.scales.x
+                const minIndex = Math.max(0, Math.round(xScale.min))
+                const maxIndex = Math.min(days.length - 1, Math.round(xScale.max))
+                const dateFrom = days[minIndex]
+                const dateTo = days[maxIndex]
+
+                return dateFrom && dateTo ? [dateFrom, dateTo] : null
+            }
+
+            const zoomPluginOptions = effectiveZoomCallback
+                ? {
+                      zoom: {
+                          drag: {
+                              enabled: true,
+                              backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                              borderColor: 'rgba(59, 130, 246, 0.5)',
+                              borderWidth: 1,
+                          },
+                          mode: 'x',
+                          onZoomComplete: ({ chart }: { chart: Chart }) => {
+                              if (isResettingZoomRef.current) {
+                                  return
+                              }
+
+                              const zoomDateRange = getZoomDateRange(chart)
+                              if (zoomDateRange) {
+                                  effectiveZoomCallback(...zoomDateRange)
+                              }
+
+                              resetZoom(chart)
+                          },
+                      },
+                  }
+                : undefined
+
             const options: ChartOptions = {
                 responsive: true,
                 maintainAspectRatio: false,
@@ -719,6 +772,11 @@ export function LineGraph_({
                         external({ chart, tooltip }: { chart: Chart; tooltip: TooltipModel<ChartType> }) {
                             const canvas = chart.canvas
                             if (!canvas) {
+                                return
+                            }
+
+                            if (effectiveZoomCallback && chart.isZoomingOrPanning?.()) {
+                                hideTooltip()
                                 return
                             }
 
@@ -884,6 +942,7 @@ export function LineGraph_({
                         : {
                               crosshair: false,
                           }),
+                    ...(zoomPluginOptions ? { zoom: zoomPluginOptions } : {}),
                 },
                 hover: {
                     mode: isBar ? 'point' : 'nearest',
@@ -892,6 +951,13 @@ export function LineGraph_({
                 },
                 onHover(event: ChartEvent, elements: ActiveElement[], chart: Chart) {
                     onChartHover(event, chart, onClick)
+
+                    if (effectiveZoomCallback) {
+                        const target = event.native?.target as HTMLElement | undefined
+                        if (target && target.style.cursor !== 'pointer') {
+                            target.style.cursor = 'crosshair'
+                        }
+                    }
 
                     // For stacked bar charts when shift is pressed, track hovered dataset to highlight only that bar
                     if (isHighlightBarMode) {
@@ -1116,6 +1182,7 @@ export function LineGraph_({
             isHighlightBarMode,
             interval,
             timezone,
+            effectiveZoomCallback,
         ],
     })
 

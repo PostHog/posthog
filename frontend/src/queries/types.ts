@@ -64,6 +64,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     baseCurrency?: CurrencyCode
     /** Limit context sent to the /query endpoint */
     limitContext?: 'posthog_ai'
+    /** Callback for drag-to-zoom on time series charts. Enables x-axis drag selection when set. */
+    onDateRangeZoom?: (dateFrom: string, dateTo: string) => void
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

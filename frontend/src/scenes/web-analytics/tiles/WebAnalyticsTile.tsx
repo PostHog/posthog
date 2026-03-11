@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
-import { IconChevronDown, IconExternal, IconTrending, IconWarning } from '@posthog/icons'
+import { IconChevronDown, IconExternal, IconTrending, IconUndo, IconWarning } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
@@ -601,10 +601,11 @@ export const WebStatsTrendTile = ({
     insightProps,
     attachTo,
 }: QueryWithInsightProps<InsightVizNode> & { showIntervalTile?: boolean }): JSX.Element => {
-    const { togglePropertyFilter, setDateInterval } = useActions(webAnalyticsLogic)
+    const { togglePropertyFilter, setDateInterval, zoomIntoPeriod, resetZoom } = useActions(webAnalyticsLogic)
     const {
         hasCountryFilter,
         dateFilter: { interval },
+        preZoomDateFilter,
     } = useValues(webAnalyticsLogic)
     const worldMapPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)?.key
     const regionPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Region)?.key
@@ -644,6 +645,7 @@ export const WebStatsTrendTile = ({
                 query,
             },
             compareFilter: 'compareFilter' in query.source ? query.source.compareFilter : undefined,
+            onDateRangeZoom: zoomIntoPeriod,
         }
 
         // World maps need custom click handler for country filtering, trend lines use default persons modal
@@ -683,15 +685,24 @@ export const WebStatsTrendTile = ({
         }
 
         return baseContext
-    }, [onWorldMapClick, onRegionMapClick, insightProps, query])
+    }, [onWorldMapClick, onRegionMapClick, zoomIntoPeriod, insightProps, query])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
-            {showIntervalTile && (
+            {(showIntervalTile || preZoomDateFilter) && (
                 <div className="flex flex-row items-center justify-end m-2 mr-4">
-                    <div className="flex flex-row items-center">
-                        <span className="mr-2">Group by</span>
-                        <IntervalFilterStandalone interval={interval} onIntervalChange={setDateInterval} />
+                    <div className="flex flex-row items-center gap-2">
+                        {showIntervalTile && (
+                            <>
+                                <span>Group by</span>
+                                <IntervalFilterStandalone interval={interval} onIntervalChange={setDateInterval} />
+                            </>
+                        )}
+                        {preZoomDateFilter && (
+                            <LemonButton type="secondary" size="small" icon={<IconUndo />} onClick={resetZoom}>
+                                Reset zoom
+                            </LemonButton>
+                        )}
                     </div>
                 </div>
             )}

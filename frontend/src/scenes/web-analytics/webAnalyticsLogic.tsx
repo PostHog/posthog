@@ -218,6 +218,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setTileVisualization: (tileId: TileId, visualization: TileVisualizationOption) => ({ tileId, visualization }),
         setTileVisibility: (tileId: TileId, visible: boolean) => ({ tileId, visible }),
         resetTileVisibility: () => true,
+        zoomIntoPeriod: (dateFrom: string, dateTo: string) => ({ dateFrom, dateTo }),
+        resetZoom: true,
+        setPreZoomDateFilter: (
+            filter: { dateFrom: string | null; dateTo: string | null; interval: IntervalType } | null
+        ) => ({ filter }),
         clearFilters: true,
     }),
     loaders(({ values }) => ({
@@ -396,6 +401,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     interval: INITIAL_INTERVAL,
                     isIntervalManuallySet: false,
                 }),
+            },
+        ],
+        preZoomDateFilter: [
+            null as { dateFrom: string | null; dateTo: string | null; interval: IntervalType } | null,
+            {
+                setPreZoomDateFilter: (_, { filter }) => filter,
+                setDates: () => null,
+                setDateInterval: () => null,
+                clearFilters: () => null,
             },
         ],
         shouldFilterTestAccounts: [
@@ -2440,6 +2454,23 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     interval,
                 })
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.FilterWebAnalytics)
+            },
+            zoomIntoPeriod: ({ dateFrom, dateTo }) => {
+                if (values.preZoomDateFilter === null) {
+                    actions.setPreZoomDateFilter({
+                        dateFrom: values.dateFilter.dateFrom,
+                        dateTo: values.dateFilter.dateTo,
+                        interval: values.dateFilter.interval,
+                    })
+                }
+                actions.setDatesAndInterval(dateFrom, dateTo, getDefaultInterval(dateFrom, dateTo))
+            },
+            resetZoom: () => {
+                const preZoom = values.preZoomDateFilter
+                if (preZoom) {
+                    actions.setPreZoomDateFilter(null)
+                    actions.setDatesAndInterval(preZoom.dateFrom, preZoom.dateTo, preZoom.interval)
+                }
             },
             setWebAnalyticsFilters: () => {
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.FilterWebAnalytics)
