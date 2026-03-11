@@ -774,6 +774,11 @@ export function DataTable({
         sourceFeatures.has(QueryFeature.linkDataButton) && hasCustomerAnalyticsEnabled ? (
             <ViewLinkButton key="view-link-button" tableName="groups" />
         ) : null,
+        ...(context?.customActions
+            ? Array.isArray(context.customActions)
+                ? context.customActions
+                : [context.customActions]
+            : []),
         (showColumnConfigurator || showPersistentColumnConfigurator) &&
         sourceFeatures.has(QueryFeature.columnConfigurator) ? (
             <ColumnConfigurator key="column-configurator" query={queryWithDefaults} setQuery={setQuery} />

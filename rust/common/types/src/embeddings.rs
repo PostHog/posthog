@@ -116,6 +116,14 @@ impl EmbeddingModel {
         }
     }
 
+    pub fn provider(&self) -> &'static str {
+        match self {
+            EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
+                "openai"
+            }
+        }
+    }
+
     pub fn api_limits(&self) -> ApiLimits {
         // TODO - these are VERY conservative, but keep in mind each pod will max out at this.
         match self {

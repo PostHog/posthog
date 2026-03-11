@@ -73,6 +73,7 @@ ExtractErrors = {
     "S3 exception: `NoSuchBucket`, message: 'The specified bucket does not exist.'": "The provided bucket doesn't exist",
     "Either the file is corrupted or this is not a parquet file": "The provided file is not in Parquet format",
     "Rows have different amount of values": "The provided file has rows with different amount of values",
+    "The operation is not valid for the object's storage class": "Some files in the bucket are archived (e.g. Glacier or S3 Intelligent-Tiering archive). Restore them to Standard storage or narrow the URL pattern to exclude archived files.",
 }
 
 type DataWarehouseTableColumns = dict[str, dict[str, str | bool]] | dict[str, str]

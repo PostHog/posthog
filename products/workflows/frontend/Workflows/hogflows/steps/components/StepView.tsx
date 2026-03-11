@@ -25,6 +25,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
         selectedNodeCanBeDeleted,
         selectedNodeCanBeCopiedOrMoved,
         animatingEdgePair,
+        workflow,
     } = useValues(hogFlowEditorLogic)
     const { setSelectedNodeId, startCopyingNode, startMovingNode } = useActions(hogFlowEditorLogic)
     const { actionValidationErrorsById, logicProps } = useValues(workflowLogic)
@@ -48,7 +49,8 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
         cancelEditingDescription,
     } = useActions(stepViewLogic(stepViewLogicProps))
 
-    const height = mode === 'metrics' ? NODE_HEIGHT + 10 : NODE_HEIGHT
+    const shouldShowMetricsSummary = mode === 'metrics' && workflow.trigger?.type !== 'batch'
+    const height = shouldShowMetricsSummary ? NODE_HEIGHT + 10 : NODE_HEIGHT
 
     const Step = useHogFlowStep(action)
     const { selectedColor, colorLight, color, icon } = useMemo(() => {
@@ -225,7 +227,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                     <LemonBadge status="warning" size="small" content="!" position="top-right" />
                 </div>
             ) : null}
-            {mode === 'metrics' && (
+            {shouldShowMetricsSummary && (
                 <div
                     style={{
                         borderTopColor: colorLight,
