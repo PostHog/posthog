@@ -43,7 +43,10 @@ class MetricSourceInfo:
 
     @classmethod
     def from_source(
-        cls, source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode], team: Team
+        cls,
+        source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode],
+        team: Team,
+        entity_key: str | None = None,
     ) -> "MetricSourceInfo":
         """
         Factory method to create MetricSourceInfo from any source type.
@@ -54,19 +57,26 @@ class MetricSourceInfo:
         Args:
             source: The metric source (EventsNode, ActionsNode, or ExperimentDataWarehouseNode)
             team: Team context for entity resolution
+            entity_key: Entity key from experiment context (e.g., "person_id" or "$group_0").
+                       Required for events/actions sources to support group aggregation.
+                       Ignored for datawarehouse sources (uses data_warehouse_join_key instead).
 
         Returns:
             MetricSourceInfo with appropriate metadata for the source type
 
+        Raises:
+            ValueError: If entity_key is not provided for events/actions sources
+
         Example:
             >>> source = EventsNode(event="purchase")
-            >>> info = MetricSourceInfo.from_source(source, team)
+            >>> info = MetricSourceInfo.from_source(source, team, entity_key="person_id")
             >>> info.kind
             'events'
             >>> info.has_uuid
             True
         """
         if isinstance(source, ExperimentDataWarehouseNode):
+            # Datawarehouse sources always use their own join key, ignore entity_key parameter
             return cls(
                 kind="datawarehouse",
                 table_name=source.table_name,
@@ -76,19 +86,25 @@ class MetricSourceInfo:
                 has_session_id=False,
             )
         elif isinstance(source, ActionsNode):
+            # Events/actions sources require entity_key for group aggregation support
+            if entity_key is None:
+                raise ValueError("entity_key is required for ActionsNode sources to support group aggregation")
             return cls(
                 kind="actions",
                 table_name="events",
-                entity_key=parse_expr("person_id"),  # TODO: Support group aggregation
+                entity_key=parse_expr(entity_key),
                 timestamp_field="timestamp",
                 has_uuid=True,
                 has_session_id=True,
             )
         else:  # EventsNode
+            # Events/actions sources require entity_key for group aggregation support
+            if entity_key is None:
+                raise ValueError("entity_key is required for EventsNode sources to support group aggregation")
             return cls(
                 kind="events",
                 table_name="events",
-                entity_key=parse_expr("person_id"),  # TODO: Support group aggregation
+                entity_key=parse_expr(entity_key),
                 timestamp_field="timestamp",
                 has_uuid=True,
                 has_session_id=True,

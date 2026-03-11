@@ -392,7 +392,7 @@ class ExperimentQueryBuilder:
             return self._get_session_property_ctes()
 
         # Use MetricSourceInfo abstraction for source metadata
-        source_info = MetricSourceInfo.from_source(self.metric.source, self.team)
+        source_info = MetricSourceInfo.from_source(self.metric.source, self.team, entity_key=self.entity_key)
 
         # Determine join condition based on source type
         if source_info.kind == "datawarehouse":
@@ -445,7 +445,7 @@ class ExperimentQueryBuilder:
             return self._get_session_property_placeholders()
 
         # Use MetricSourceInfo abstraction for source metadata
-        source_info = MetricSourceInfo.from_source(self.metric.source, self.team)
+        source_info = MetricSourceInfo.from_source(self.metric.source, self.team, entity_key=self.entity_key)
 
         # Build exposure query with exposure_identifier for data warehouse
         exposure_query = self._get_exposure_query()
@@ -638,8 +638,8 @@ class ExperimentQueryBuilder:
         assert isinstance(self.metric, ExperimentRatioMetric)
 
         # Use MetricSourceInfo abstraction for both numerator and denominator
-        num_source_info = MetricSourceInfo.from_source(self.metric.numerator, self.team)
-        denom_source_info = MetricSourceInfo.from_source(self.metric.denominator, self.team)
+        num_source_info = MetricSourceInfo.from_source(self.metric.numerator, self.team, entity_key=self.entity_key)
+        denom_source_info = MetricSourceInfo.from_source(self.metric.denominator, self.team, entity_key=self.entity_key)
 
         # Extract field names for numerator
         num_table = num_source_info.table_name
