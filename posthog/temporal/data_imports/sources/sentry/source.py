@@ -18,16 +18,14 @@ from posthog.temporal.data_imports.sources.sentry.sentry import (
     sentry_source,
     validate_credentials as validate_sentry_credentials,
 )
-from posthog.temporal.data_imports.sources.sentry.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from posthog.temporal.data_imports.sources.sentry.settings import (
+    ALLOWED_SENTRY_API_BASE_URLS,
+    DEFAULT_SENTRY_API_BASE_URL,
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+)
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
-
-DEFAULT_SENTRY_API_BASE_URL = "https://sentry.io"
-ALLOWED_SENTRY_API_BASE_URLS = (
-    DEFAULT_SENTRY_API_BASE_URL,
-    "https://us.sentry.io",
-    "https://de.sentry.io",
-)
 
 
 @SourceRegistry.register

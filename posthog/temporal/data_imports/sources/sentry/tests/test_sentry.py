@@ -197,6 +197,32 @@ class TestSentryTransport:
 
         assert result == expected
 
+    def test_validate_credentials_rejects_unknown_api_base_url(self) -> None:
+        result = validate_credentials(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://example.sentry.invalid",
+        )
+
+        assert result == (
+            False,
+            "API base URL must be one of https://sentry.io, https://us.sentry.io, or https://de.sentry.io.",
+        )
+
+    def test_sentry_source_rejects_unknown_api_base_url_at_runtime(self) -> None:
+        with pytest.raises(
+            ValueError,
+            match="API base URL must be one of https://sentry.io, https://us.sentry.io, or https://de.sentry.io.",
+        ):
+            sentry_source(
+                auth_token="token",
+                organization_slug="acme",
+                api_base_url="https://example.sentry.invalid",
+                endpoint="issues",
+                team_id=123,
+                job_id="job-id",
+            )
+
 
 class TestSentrySourceValidation:
     @patch("posthog.temporal.data_imports.sources.sentry.source.validate_sentry_credentials")
@@ -281,7 +307,7 @@ class TestSentrySourceValidation:
             job_id="job-id",
         )
 
-        rows = list(resp.items())
+        rows = list(cast(Any, resp.items()))
         assert len(rows) == 1
         row = rows[0]
         assert row["project_id"] == "1"
@@ -313,7 +339,7 @@ class TestSentrySourceValidation:
             job_id="job-id",
         )
 
-        rows = list(resp.items())
+        rows = list(cast(Any, resp.items()))
         assert len(rows) == 1
         row = rows[0]
         assert row["issue_id"] == "100"
@@ -348,7 +374,7 @@ class TestSentrySourceValidation:
             job_id="job-id",
         )
 
-        rows = list(resp.items())
+        rows = list(cast(Any, resp.items()))
         assert len(rows) == 1
         row = rows[0]
         assert row["issue_id"] == "100"
@@ -391,7 +417,7 @@ class TestSentrySourceValidation:
             incremental_field="lastSeen",
         )
 
-        rows = list(resp.items())
+        rows = list(cast(Any, resp.items()))
         assert rows == [
             {"value": "Chrome", "lastSeen": "2026-03-05T12:00:00Z", "issue_id": "100", "tag_key": "browser"}
         ]

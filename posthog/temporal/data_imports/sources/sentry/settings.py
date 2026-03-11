@@ -5,6 +5,13 @@ from posthog.temporal.data_imports.sources.common.rest_source.fanout import Depe
 
 from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
+DEFAULT_SENTRY_API_BASE_URL = "https://sentry.io"
+ALLOWED_SENTRY_API_BASE_URLS = (
+    DEFAULT_SENTRY_API_BASE_URL,
+    "https://us.sentry.io",
+    "https://de.sentry.io",
+)
+
 LAST_SEEN_INCREMENTAL: IncrementalField = {
     "label": "lastSeen",
     "type": IncrementalFieldType.DateTime,

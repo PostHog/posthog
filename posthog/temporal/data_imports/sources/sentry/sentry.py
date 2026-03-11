@@ -1,7 +1,7 @@
 import re
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from urllib.parse import quote, urljoin
 
 import requests
@@ -21,7 +21,12 @@ from posthog.temporal.data_imports.sources.common.rest_source.typing import (
     EndpointResource,
     IncrementalConfig,
 )
-from posthog.temporal.data_imports.sources.sentry.settings import SENTRY_ENDPOINTS, SentryEndpointConfig
+from posthog.temporal.data_imports.sources.sentry.settings import (
+    ALLOWED_SENTRY_API_BASE_URLS,
+    DEFAULT_SENTRY_API_BASE_URL,
+    SENTRY_ENDPOINTS,
+    SentryEndpointConfig,
+)
 
 _MAX_PAGES_PER_PARENT = 100
 _REQUEST_TIMEOUT = 30
@@ -31,7 +36,16 @@ logger = structlog.get_logger(__name__)
 
 
 def _normalize_api_base_url(api_base_url: str | None) -> str:
-    return (api_base_url or "https://sentry.io").rstrip("/")
+    return (api_base_url or DEFAULT_SENTRY_API_BASE_URL).rstrip("/")
+
+
+def _validated_api_base_url(api_base_url: str | None) -> str:
+    normalized_url = _normalize_api_base_url(api_base_url)
+    if normalized_url not in ALLOWED_SENTRY_API_BASE_URLS:
+        raise ValueError(
+            "API base URL must be one of https://sentry.io, https://us.sentry.io, or https://de.sentry.io."
+        )
+    return normalized_url
 
 
 def _auth_headers(auth_token: str) -> dict[str, str]:
@@ -316,7 +330,11 @@ def validate_credentials(
     organization_slug: str,
     api_base_url: str | None = None,
 ) -> tuple[bool, str | None]:
-    base_url = _normalize_api_base_url(api_base_url)
+    try:
+        base_url = _validated_api_base_url(api_base_url)
+    except ValueError as exc:
+        return False, str(exc)
+
     url = f"{base_url}/api/0/organizations/{organization_slug}/projects/"
     headers = _auth_headers(auth_token)
 
@@ -422,7 +440,8 @@ def sentry_source(
     incremental_field: str | None = None,
 ) -> SourceResponse:
     endpoint_config = SENTRY_ENDPOINTS[endpoint]
-    base_api_url = f"{_normalize_api_base_url(api_base_url)}/api/0"
+    normalized_base_url = _validated_api_base_url(api_base_url)
+    base_api_url = f"{normalized_base_url}/api/0"
 
     # issue_tag_values needs two-level fan-out (issues → tags → values)
     # which can't be expressed as a single parent→child dependency.
@@ -440,18 +459,21 @@ def sentry_source(
 
     # --- Generic parent->child fan-out ---
     if endpoint_config.fanout:
-        dependent_resource = build_dependent_resource(
-            endpoint_configs=SENTRY_ENDPOINTS,
-            child_endpoint=endpoint,
-            fanout=endpoint_config.fanout,
-            client_config=_rest_api_client_config(base_api_url, auth_token),
-            path_format_values={"organization_slug": organization_slug},
-            team_id=team_id,
-            job_id=job_id,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            should_use_incremental_field=should_use_incremental_field,
-            incremental_field=incremental_field,
-            incremental_config_factory=_sentry_incremental_window,
+        dependent_resource = cast(
+            Iterable[Any],
+            build_dependent_resource(
+                endpoint_configs=SENTRY_ENDPOINTS,
+                child_endpoint=endpoint,
+                fanout=endpoint_config.fanout,
+                client_config=_rest_api_client_config(base_api_url, auth_token),
+                path_format_values={"organization_slug": organization_slug},
+                team_id=team_id,
+                job_id=job_id,
+                db_incremental_field_last_value=db_incremental_field_last_value,
+                should_use_incremental_field=should_use_incremental_field,
+                incremental_field=incremental_field,
+                incremental_config_factory=_sentry_incremental_window,
+            ),
         )
         return _make_source_response(endpoint_config, lambda: dependent_resource)
 
