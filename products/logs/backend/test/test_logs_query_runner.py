@@ -742,7 +742,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2025-12-19T00:00:00Z")
     def test_time_bucket_single_day_no_boundary(self):
         """Query entirely within Dec 15 — should only return Dec 15 logs."""
-        bodies = self._boundary_bodies(self._boundary_query("2025-12-15 00:00:00Z", "2025-12-15 23:59:59.999999Z"))
+        bodies = self._boundary_bodies(self._boundary_query("2025-12-15 00:00:00Z", "2025-12-16 00:00:00Z"))
         self.assertIn("boundary-log-dec15-morning", bodies)
         self.assertIn("boundary-log-dec15-2359", bodies)
         self.assertIn("boundary-log-dec15-2359-last-micro", bodies)
@@ -753,7 +753,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2025-12-19T00:00:00Z")
     def test_time_bucket_cross_midnight_dec15_to_dec16(self):
         """Query spanning 23:59 Dec 15 → 00:01 Dec 16 crosses the day boundary."""
-        bodies = self._boundary_bodies(self._boundary_query("2025-12-15 23:59:00Z", "2025-12-16 00:00:01Z"))
+        bodies = self._boundary_bodies(self._boundary_query("2025-12-15 23:59:00Z", "2025-12-16 00:00:012Z"))
         # Late Dec 15 logs
         self.assertIn("boundary-log-dec15-2359", bodies)
         self.assertIn("boundary-log-dec15-2359-last-micro", bodies)
@@ -767,7 +767,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2025-12-19T00:00:00Z")
     def test_time_bucket_exactly_midnight_from(self):
         """date_from exactly at midnight — toStartOfDay still equals that day."""
-        bodies = self._boundary_bodies(self._boundary_query("2025-12-16 00:00:00Z", "2025-12-16 00:00:01Z"))
+        bodies = self._boundary_bodies(self._boundary_query("2025-12-16 00:00:00Z", "2025-12-16 00:00:012Z"))
         self.assertIn("boundary-log-dec16-midnight-exact", bodies)
         self.assertIn("boundary-log-dec16-midnight-plus1us", bodies)
         self.assertIn("boundary-log-dec16-midnight-plus1s", bodies)
@@ -777,7 +777,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2025-12-19T00:00:00Z")
     def test_time_bucket_exactly_midnight_to(self):
         """date_to exactly at midnight Dec 17 — toStartOfDay(date_to) = Dec 17, so Dec 17 time_bucket included."""
-        bodies = self._boundary_bodies(self._boundary_query("2025-12-17 00:00:00Z", "2025-12-17 00:00:00.000001Z"))
+        bodies = self._boundary_bodies(self._boundary_query("2025-12-17 00:00:00Z", "2025-12-17 00:00:00.000002Z"))
         self.assertIn("boundary-log-dec17-midnight-exact", bodies)
         self.assertIn("boundary-log-dec17-midnight-plus1us", bodies)
         # Dec 16 logs should NOT appear
@@ -786,7 +786,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2025-12-19T00:00:00Z")
     def test_time_bucket_multi_day_span(self):
         """Query spanning Dec 14 noon → Dec 18 early should include all boundary logs."""
-        bodies = self._boundary_bodies(self._boundary_query("2025-12-14 00:00:00Z", "2025-12-18 23:59:59Z"))
+        bodies = self._boundary_bodies(self._boundary_query("2025-12-14 00:00:00Z", "2025-12-19 00:00:00Z"))
         expected = {
             "boundary-log-dec14-noon",
             "boundary-log-dec15-morning",
@@ -807,7 +807,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         """Very narrow window: last microsecond of Dec 15 → first microsecond of Dec 16.
         Both days' time_buckets must be scanned."""
         bodies = self._boundary_bodies(
-            self._boundary_query("2025-12-15 23:59:59.999999Z", "2025-12-16 00:00:00.000001Z")
+            self._boundary_query("2025-12-15 23:59:59.999999Z", "2025-12-16 00:00:00.000002Z")
         )
         self.assertIn("boundary-log-dec15-2359-last-micro", bodies)
         self.assertIn("boundary-log-dec16-midnight-exact", bodies)
@@ -816,7 +816,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2025-12-19T00:00:00Z")
     def test_time_bucket_excludes_outside_days(self):
         """Query for Dec 15 only — Dec 14 and Dec 16+ must not appear."""
-        bodies = self._boundary_bodies(self._boundary_query("2025-12-15 00:00:00Z", "2025-12-15 23:59:59.999999Z"))
+        bodies = self._boundary_bodies(self._boundary_query("2025-12-15 00:00:00Z", "2025-12-16 00:00:00Z"))
         self.assertNotIn("boundary-log-dec14-noon", bodies)
         self.assertNotIn("boundary-log-dec16-midnight-exact", bodies)
         self.assertNotIn("boundary-log-dec17-midnight-exact", bodies)

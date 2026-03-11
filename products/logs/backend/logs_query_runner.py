@@ -247,6 +247,7 @@ class LogsQueryRunnerMixin(QueryRunner):
             interval_count=int(interval_count),
             now=dt.datetime.now(),
             timezone_info=ZoneInfo("UTC"),
+            exact_timerange=True,
         )
 
     def where(self) -> ast.Expr:
