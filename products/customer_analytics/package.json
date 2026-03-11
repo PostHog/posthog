@@ -1,8 +1,7 @@
 {
     "name": "@posthog/products-customer-analytics",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short",
-        "backend:contract-check": "echo 'Contract files unchanged'"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
     },
     "dependencies": {
         "kea": "catalog:",
@@ -13,6 +12,7 @@
     },
     "peerDependencies": {
         "@posthog/icons": "*",
+        "@storybook/react": "*",
         "@types/react": "*",
         "clsx": "*",
         "fuse.js": "*",

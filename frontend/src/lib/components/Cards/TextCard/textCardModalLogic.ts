@@ -1,5 +1,6 @@
 import { connect, kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -37,9 +38,16 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
             actions.resetTextTile()
             props?.onClose?.()
         },
-        submitTextTileSuccess: () => {
+        submitTextTileSuccess: ({ textTile }: { textTile: TextTileForm }) => {
             actions.resetTextTile()
             props?.onClose?.()
+
+            posthog.capture('dashboard text tile saved', {
+                dashboard_id: props.dashboard.id,
+                text_tile_id: props.textTileId === 'new' ? null : props.textTileId,
+                is_new: props.textTileId === 'new',
+                body_length: textTile.body.length,
+            })
         },
     })),
     forms(({ props, actions }) => ({

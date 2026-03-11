@@ -2,12 +2,17 @@ import dataclasses
 from collections.abc import Callable
 from typing import Any, Optional, Union
 
+import orjson
+import pyarrow as pa
+from asgiref.sync import async_to_sync
 from stripe import ListObject, StripeClient
 from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from posthog.temporal.data_imports.sources.stripe.constants import (
     ACCOUNT_RESOURCE_NAME,
     BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -201,6 +206,12 @@ def get_rows(
             yield obj
 
 
+def _webhook_table_transformer(table: pa.Table) -> pa.Table:
+    data_col = table.column("data").to_pylist()
+    rows = [orjson.loads(data_str)["object"] for data_str in data_col if data_str is not None]
+    return table_from_py_list(rows)
+
+
 def stripe_source(
     api_key: str,
     account_id: Optional[str],
@@ -209,6 +220,7 @@ def stripe_source(
     db_incremental_field_earliest_value: Optional[Any],
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
+    webhook_source_manager: WebhookSourceManager,
     should_use_incremental_field: bool = False,
 ):
     column_mapping = get_dlt_mapping_for_external_table(f"stripe_{endpoint.lower()}")
@@ -218,8 +230,13 @@ def stripe_source(
     incremental_field_config = INCREMENTAL_FIELDS.get(endpoint, [])
     incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else "created"
 
-    return SourceResponse(
-        items=lambda: get_rows(
+    webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)()
+
+    def items():
+        if webhook_enabled:
+            return webhook_source_manager.get_items(table_transformer=_webhook_table_transformer)
+
+        return get_rows(
             api_key=api_key,
             account_id=account_id,
             endpoint=endpoint,
@@ -228,7 +245,10 @@ def stripe_source(
             logger=logger,
             should_use_incremental_field=should_use_incremental_field,
             resumable_source_manager=resumable_source_manager,
-        ),
+        )
+
+    return SourceResponse(
+        items=items,
         primary_keys=["id"],
         name=endpoint,
         column_hints=column_hints,

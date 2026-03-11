@@ -69,12 +69,14 @@ export const InstallCustomAuthTypeEnumApi = {
 /**
  * * `posthog` - posthog
  * `twig` - twig
+ * `posthog-code` - posthog-code
  */
 export type InstallSourceEnumApi = (typeof InstallSourceEnumApi)[keyof typeof InstallSourceEnumApi]
 
 export const InstallSourceEnumApi = {
     Posthog: 'posthog',
     Twig: 'twig',
+    PosthogCode: 'posthog-code',
 } as const
 
 export interface InstallCustomApi {
@@ -140,6 +142,7 @@ export type McpServerInstallationsAuthorizeRetrieveParams = {
     /**
      * * `posthog` - posthog
      * `twig` - twig
+     * `posthog-code` - posthog-code
      * @minLength 1
      */
     install_source?: McpServerInstallationsAuthorizeRetrieveInstallSource
@@ -153,6 +156,7 @@ export type McpServerInstallationsAuthorizeRetrieveInstallSource =
 export const McpServerInstallationsAuthorizeRetrieveInstallSource = {
     Posthog: 'posthog',
     Twig: 'twig',
+    PosthogCode: 'posthog-code',
 } as const
 
 export type McpServersListParams = {
