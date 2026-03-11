@@ -154,7 +154,7 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                         type: 'destination',
                         name: humanizeBatchExportName(service),
                         icon_url: BATCH_EXPORT_ICON_MAP[service],
-                        status: service === 'Databricks' ? 'beta' : service === 'AzureBlob' ? 'beta' : 'stable',
+                        status: 'stable',
                         code: '',
                         code_language: 'hog',
                         inputs_schema: [],

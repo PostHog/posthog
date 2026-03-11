@@ -33,7 +33,7 @@ const build_inputs = (): HogFunctionInputSchemaType[] => {
 
 export const template: HogFunctionTemplate = {
     free: false,
-    status: 'alpha',
+    status: 'stable',
     type: 'destination',
     id: 'template-reddit-conversions-api',
     name: 'Reddit Conversions API',

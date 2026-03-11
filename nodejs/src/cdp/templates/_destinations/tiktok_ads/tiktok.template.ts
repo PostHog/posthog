@@ -66,7 +66,7 @@ const build_inputs = (multiProductEvent = false): HogFunctionInputSchemaType[] =
 
 export const template: HogFunctionTemplate = {
     free: false,
-    status: 'alpha',
+    status: 'stable',
     type: 'destination',
     id: 'template-tiktok-ads',
     name: 'TikTok Ads Conversions',

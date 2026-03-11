@@ -22,7 +22,7 @@ common_inputs = {
 }
 
 template_create: HogFunctionTemplateDC = HogFunctionTemplateDC(
-    status="beta",
+    status="stable",
     free=False,
     type="destination",
     id="template-salesforce-create",
@@ -113,7 +113,7 @@ if (res.status >= 400) {
 )
 
 template_update: HogFunctionTemplateDC = HogFunctionTemplateDC(
-    status="beta",
+    status="stable",
     free=False,
     type="destination",
     id="template-salesforce-update",

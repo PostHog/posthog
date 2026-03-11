@@ -2,7 +2,7 @@ import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
     free: false,
-    status: 'alpha',
+    status: 'stable',
     type: 'destination',
     id: 'template-linkedin-ads',
     name: 'LinkedIn Ads Conversions',

@@ -4,7 +4,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 
 template_mailgun_send_email: HogFunctionTemplateDC = HogFunctionTemplateDC(
-    status="beta",
+    status="stable",
     free=False,
     type="destination",
     id="template-mailgun-send-email",

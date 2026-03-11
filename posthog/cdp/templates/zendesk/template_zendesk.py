@@ -3,7 +3,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 # Bsed off of https://developer.zendesk.com/api-reference/ticketing/users/users/#create-or-update-user
 
 template: HogFunctionTemplateDC = HogFunctionTemplateDC(
-    status="beta",
+    status="stable",
     free=False,
     type="destination",
     id="template-zendesk",

@@ -186,7 +186,7 @@ describe('HogTransformer', () => {
         it('should execute multiple transformations and produce messages', async () => {
             const testTemplate: HogFunctionTemplate = {
                 free: true,
-                status: 'beta',
+                status: 'stable',
                 type: 'transformation',
                 id: 'template-test',
                 name: 'Test Template',
@@ -281,7 +281,7 @@ describe('HogTransformer', () => {
         it('should delete a property from previous transformation', async () => {
             const addingTemplate: HogFunctionTemplate = {
                 free: true,
-                status: 'alpha',
+                status: 'stable',
                 type: 'transformation',
                 id: 'template-test',
                 name: 'Test Template',
@@ -298,7 +298,7 @@ describe('HogTransformer', () => {
 
             const deletingTemplate: HogFunctionTemplate = {
                 free: true,
-                status: 'alpha',
+                status: 'stable',
                 type: 'transformation',
                 id: 'template-test',
                 name: 'Test Template',
@@ -367,7 +367,7 @@ describe('HogTransformer', () => {
         it('should allow second transformation to read property added by first transformation', async () => {
             const firstTemplate: HogFunctionTemplate = {
                 free: true,
-                status: 'alpha',
+                status: 'stable',
                 type: 'transformation',
                 id: 'template-first',
                 name: 'First Template',
@@ -385,7 +385,7 @@ describe('HogTransformer', () => {
 
             const secondTemplate: HogFunctionTemplate = {
                 free: true,
-                status: 'alpha',
+                status: 'stable',
                 type: 'transformation',
                 id: 'template-second',
                 name: 'Second Template',
@@ -453,7 +453,7 @@ describe('HogTransformer', () => {
         it('should execute tranformation without execution_order last', async () => {
             const firstTemplate: HogFunctionTemplate = {
                 free: true,
-                status: 'alpha',
+                status: 'stable',
                 type: 'transformation',
                 id: 'template-test',
                 name: 'Test Template',
@@ -468,7 +468,7 @@ describe('HogTransformer', () => {
 
             const secondTemplate: HogFunctionTemplate = {
                 free: true,
-                status: 'alpha',
+                status: 'stable',
                 type: 'transformation',
                 id: 'template-test',
                 name: 'Test Template',
@@ -483,7 +483,7 @@ describe('HogTransformer', () => {
 
             const thirdTemplate: HogFunctionTemplate = {
                 free: true,
-                status: 'alpha',
+                status: 'stable',
                 type: 'transformation',
                 id: 'template-test',
                 name: 'Test Template',
@@ -561,7 +561,7 @@ describe('HogTransformer', () => {
             // Create a successful transformation
             const successTemplate: HogFunctionTemplate = {
                 free: true,
-                status: 'beta',
+                status: 'stable',
                 type: 'transformation',
                 id: 'template-success',
                 name: 'Success Template',
@@ -579,7 +579,7 @@ describe('HogTransformer', () => {
             // Create a failing transformation
             const failingTemplate: HogFunctionTemplate = {
                 free: true,
-                status: 'beta',
+                status: 'stable',
                 type: 'transformation',
                 id: 'template-fail',
                 name: 'Failing Template',
@@ -643,7 +643,7 @@ describe('HogTransformer', () => {
             // Create a successful transformation
             const inputSetter: HogFunctionTemplate = {
                 free: true,
-                status: 'beta',
+                status: 'stable',
                 type: 'transformation',
                 id: 'template-input-setter',
                 name: 'Input Setter',
@@ -737,7 +737,7 @@ describe('HogTransformer', () => {
         it('should ignore existing transformation results when adding new ones', async () => {
             const successTemplate: HogFunctionTemplate = {
                 free: true,
-                status: 'beta',
+                status: 'stable',
                 type: 'transformation',
                 id: 'template-success',
                 name: 'Success Template',
@@ -789,7 +789,7 @@ describe('HogTransformer', () => {
         it('should track skipped transformations when filter does not match', async () => {
             const filterTemplate = {
                 free: true,
-                status: 'beta',
+                status: 'stable',
                 type: 'transformation',
                 id: 'template-test',
                 name: 'Filter Template',
@@ -845,7 +845,7 @@ describe('HogTransformer', () => {
         it('should track both successful and skipped transformations in sequence', async () => {
             const successTemplate = {
                 free: true,
-                status: 'beta',
+                status: 'stable',
                 type: 'transformation',
                 id: 'template-success',
                 name: 'Success Template',
@@ -861,7 +861,7 @@ describe('HogTransformer', () => {
 
             const skippedTemplate = {
                 free: true,
-                status: 'beta',
+                status: 'stable',
                 type: 'transformation',
                 id: 'template-skipped',
                 name: 'Skipped Template',
@@ -1096,7 +1096,7 @@ describe('HogTransformer', () => {
         it('should skip transformation when filter does not match', async () => {
             const filterTemplate = {
                 free: true,
-                status: 'beta',
+                status: 'stable',
                 type: 'transformation',
                 id: 'template-test',
                 name: 'Filter Template',
@@ -1142,7 +1142,7 @@ describe('HogTransformer', () => {
         it('should apply transformation when filter matches', async () => {
             const filterMatchingTemplate = {
                 free: true,
-                status: 'beta',
+                status: 'stable',
                 type: 'transformation',
                 id: 'template-test',
                 name: 'Test Template',
@@ -1200,7 +1200,7 @@ describe('HogTransformer', () => {
         it('should apply transformation when no filters are defined', async () => {
             const noFilterTemplate = {
                 free: true,
-                status: 'beta',
+                status: 'stable',
                 type: 'transformation',
                 id: 'template-test',
                 name: 'No Filter Template',
@@ -1239,7 +1239,7 @@ describe('HogTransformer', () => {
         it('should skip transformation when filter errors and not continue processing', async () => {
             const errorFilterTemplate = {
                 free: true,
-                status: 'beta',
+                status: 'stable',
                 type: 'transformation',
                 id: 'template-test',
                 name: 'Error Filter Template',
@@ -1255,7 +1255,7 @@ describe('HogTransformer', () => {
 
             const workingTemplate = {
                 free: true,
-                status: 'beta',
+                status: 'stable',
                 type: 'transformation',
                 id: 'template-working',
                 name: 'Working Template',
@@ -1339,7 +1339,7 @@ describe('HogTransformer', () => {
         it('should skip transformation when none of multiple filters match', async () => {
             const multiFilterTemplate = {
                 free: true,
-                status: 'beta',
+                status: 'stable',
                 type: 'transformation',
                 id: 'template-test',
                 name: 'Multi Filter Template',
@@ -1393,7 +1393,7 @@ describe('HogTransformer', () => {
         it('should apply transformation when at least one of multiple filters match', async () => {
             const multiFilterTemplate = {
                 free: true,
-                status: 'beta',
+                status: 'stable',
                 type: 'transformation',
                 id: 'template-test',
                 name: 'Multi Filter Template',
@@ -1449,7 +1449,7 @@ describe('HogTransformer', () => {
 
             const testTemplate: HogFunctionTemplate = {
                 free: true,
-                status: 'beta',
+                status: 'stable',
                 type: 'transformation',
                 id: 'template-test',
                 name: 'Test Template',
@@ -1492,7 +1492,7 @@ describe('HogTransformer', () => {
 
             const testTemplate: HogFunctionTemplate = {
                 free: true,
-                status: 'beta',
+                status: 'stable',
                 type: 'transformation',
                 id: 'template-test',
                 name: 'Test Template',
@@ -1608,7 +1608,7 @@ describe('HogTransformer', () => {
             // Create test transformation function
             const testTemplate: HogFunctionTemplate = {
                 free: true,
-                status: 'beta',
+                status: 'stable',
                 type: 'transformation',
                 id: 'template-test',
                 name: 'Disabled Test Template',
@@ -1666,7 +1666,7 @@ describe('HogTransformer', () => {
             // Create test transformation function
             const testTemplate: HogFunctionTemplate = {
                 free: true,
-                status: 'beta',
+                status: 'stable',
                 type: 'transformation',
                 id: 'template-test',
                 name: 'Healthy Test Template',
@@ -1725,7 +1725,7 @@ describe('HogTransformer', () => {
             // Create test transformation function
             const testTemplate: HogFunctionTemplate = {
                 free: true,
-                status: 'beta',
+                status: 'stable',
                 type: 'transformation',
                 id: 'template-test',
                 name: 'Test Template',
@@ -1781,7 +1781,7 @@ describe('HogTransformer', () => {
             // Create a transformation function that captures an event
             const captureTemplate: HogFunctionTemplate = {
                 free: true,
-                status: 'beta',
+                status: 'stable',
                 type: 'transformation',
                 id: 'template-capture',
                 name: 'Capture Template',

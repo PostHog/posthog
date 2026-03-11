@@ -2,7 +2,7 @@ import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
     free: false,
-    status: 'alpha',
+    status: 'stable',
     type: 'source_webhook',
     id: 'template-source-stripe-webhook',
     name: 'Stripe webhook',
