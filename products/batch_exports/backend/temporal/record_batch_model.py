@@ -1,4 +1,5 @@
 import abc
+import time
 import uuid
 import typing
 import datetime as dt
@@ -15,9 +16,12 @@ from posthog.clickhouse.query_tagging import Product
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.common.logger import get_write_only_logger
 
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal import sql
+
+LOGGER = get_write_only_logger()
 
 Query = str
 QueryParameters = dict[str, typing.Any]
@@ -262,8 +266,16 @@ INSERT INTO FUNCTION {s3_function}
             stack=[],
         )
 
+        query_id = str(uuid.uuid4())
+        logger = LOGGER.bind(query_id=query_id)
+        logger.info("Executing backfill info query for sessions")
+        start_time = time.monotonic()
+
         async with get_client(team_id=self.team_id) as client:
-            result = await client.read_query_as_jsonl(printed, query_parameters=context.values)
+            result = await client.read_query_as_jsonl(printed, query_parameters=context.values, query_id=query_id)
+
+        execution_time = time.monotonic() - start_time
+        logger.info("Backfill info query for sessions completed", query_duration_seconds=execution_time)
 
         min_timestamp_str = result[0]["min_timestamp"]
         record_count = int(result[0]["record_count"])
