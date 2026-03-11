@@ -282,10 +282,10 @@ async def _get_backfill_info_for_events(
     extra_query_parameters: dict[str, typing.Any],
     log_comment: str = "{}",
 ) -> tuple[dt.datetime | None, int | None]:
-    """Get adjusted start time and estimated record count for events model.
+    """Get earliest timestamp and estimated record count for events model.
 
     Returns:
-        A tuple of (adjusted_start_at, estimated_records_count).
+        A tuple of (min_timestamp, estimated_records_count).
         If no data exists, returns (None, 0).
     """
     team_id = batch_export.team_id
@@ -347,10 +347,7 @@ async def _get_backfill_info_for_events(
     if min_timestamp.year == 1970:
         return None, 0
 
-    # Align to interval boundary considering the batch export's offset and timezone
-    earliest_start = _align_timestamp_to_interval(min_timestamp, batch_export)
-
-    return earliest_start, record_count
+    return min_timestamp, record_count
 
 
 async def _get_backfill_info_for_persons(
@@ -359,15 +356,15 @@ async def _get_backfill_info_for_persons(
     end_at: dt.datetime | None,
     log_comment: str = "{}",
 ) -> tuple[dt.datetime | None, int | None]:
-    """Get adjusted start time and estimated record count for persons model.
+    """Get earliest timestamp and estimated record count for persons model.
 
     Queries both `person` and `person_distinct_id2` tables. The count uses
     `uniq()` for an approximate count to reduce memory usage on large teams.
 
     Returns:
-        A tuple of (adjusted_start_at, estimated_records_count).
+        A tuple of (min_timestamp, estimated_records_count).
         If no data exists, returns (None, 0).
-        For limited export teams, returns (adjusted_start_at, None) since
+        For limited export teams, returns (min_timestamp, None) since
         the count would not reflect the actual export behavior.
     """
     team_id = batch_export.team_id
@@ -440,10 +437,8 @@ async def _get_backfill_info_for_persons(
     if earliest_timestamp is None:
         return None, 0
 
-    earliest_start = _align_timestamp_to_interval(earliest_timestamp, batch_export)
-
     if is_limited_export:
-        return earliest_start, None
+        return earliest_timestamp, None
 
     count_query = f"""
         WITH new_persons AS (
@@ -496,7 +491,7 @@ async def _get_backfill_info_for_persons(
 
     record_count = int(count_results[0]["record_count"])
 
-    return earliest_start, record_count
+    return earliest_timestamp, record_count
 
 
 async def _get_backfill_info_for_sessions(
@@ -505,13 +500,13 @@ async def _get_backfill_info_for_sessions(
     end_at: dt.datetime | None,
     log_comment: str | None = None,
 ) -> tuple[dt.datetime | None, int | None]:
-    """Get adjusted start time and estimated record count for sessions model.
+    """Get earliest timestamp and estimated record count for sessions model.
 
     Queries the sessions table via HogQL, filtering by $end_timestamp
     (this logic is the same as the actual export query, which aliases `$end_timestamp` as `_inserted_at`).
 
     Returns:
-        A tuple of (adjusted_start_at, estimated_records_count).
+        A tuple of (min_timestamp, estimated_records_count).
         If no data exists, returns (None, 0).
     """
 
@@ -521,8 +516,7 @@ async def _get_backfill_info_for_sessions(
     if min_timestamp is None:
         return None, 0
 
-    earliest_start = _align_timestamp_to_interval(min_timestamp, batch_export)
-    return earliest_start, record_count
+    return min_timestamp, record_count
 
 
 @temporalio.activity.defn
@@ -574,7 +568,7 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
     interval_seconds = batch_export.interval_time_delta.total_seconds()
 
     if model == "events":
-        adjusted_start_at, record_count = await _get_backfill_info_for_events(
+        min_timestamp, record_count = await _get_backfill_info_for_events(
             batch_export=batch_export,
             start_at=start_at,
             end_at=end_at,
@@ -585,14 +579,14 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
             log_comment=log_comment,
         )
     elif model == "persons":
-        adjusted_start_at, record_count = await _get_backfill_info_for_persons(
+        min_timestamp, record_count = await _get_backfill_info_for_persons(
             batch_export=batch_export,
             start_at=start_at,
             end_at=end_at,
             log_comment=log_comment,
         )
     elif model == "sessions":
-        adjusted_start_at, record_count = await _get_backfill_info_for_sessions(
+        min_timestamp, record_count = await _get_backfill_info_for_sessions(
             batch_export=batch_export,
             start_at=start_at,
             end_at=end_at,
@@ -609,7 +603,7 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
             interval_seconds=interval_seconds,
         )
 
-    if adjusted_start_at is None:
+    if min_timestamp is None:
         logger.info(
             "No data exists for backfill",
             team_id=inputs.team_id,
@@ -621,6 +615,8 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
             total_records_count=0,
             interval_seconds=interval_seconds,
         )
+
+    adjusted_start_at = _align_timestamp_to_interval(min_timestamp, batch_export)
 
     adjusted_start_at_str = inputs.start_at
     if start_at is not None and adjusted_start_at != start_at:
