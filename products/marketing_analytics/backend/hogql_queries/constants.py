@@ -1,7 +1,7 @@
 # Marketing Analytics Constants and Configuration
 
 import math
-from typing import Optional, Union
+from typing import Optional, TypedDict, Union
 
 from pydantic import BaseModel
 
@@ -245,8 +245,14 @@ BASE_COLUMN_MAPPING = {
 
 BASE_COLUMNS = [BASE_COLUMN_MAPPING[column] for column in MarketingAnalyticsBaseColumns]
 
+
+class DrillDownLevelConfig(TypedDict):
+    column_alias: str
+    excluded_base_columns: frozenset[MarketingAnalyticsBaseColumns]
+
+
 # Centralized drill-down level configuration
-DRILL_DOWN_LEVEL_CONFIG: dict[str, dict] = {
+DRILL_DOWN_LEVEL_CONFIG: dict[str, DrillDownLevelConfig] = {
     MarketingAnalyticsDrillDownLevel.CHANNEL: {
         "column_alias": "Channel",
         "excluded_base_columns": frozenset(
