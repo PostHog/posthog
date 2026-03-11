@@ -1,96 +1,26 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import {
-    IconArrowRight,
-    IconBolt,
-    IconBuilding,
-    IconChevronDown,
-    IconClock,
-    IconCursor,
-    IconDatabase,
-    IconDecisionTree,
-    IconDownload,
-    IconGear,
-    IconGraph,
-    IconLlmAnalytics,
-    IconLogomark,
-    IconMessage,
-    IconNotification,
-    IconPassword,
-    IconPeople,
-    IconPieChart,
-    IconPlaylist,
-    IconRevert,
-    IconRewindPlay,
-    IconSampling,
-    IconSparkles,
-    IconStack,
-    IconTerminal,
-    IconTestTube,
-    IconToggle,
-    IconUnlock,
-    IconWarning,
-} from '@posthog/icons'
+import { IconArrowRight, IconChevronDown, IconCursor, IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonLabel, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand/Logomark'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { UseCaseDefinition } from '../productRecommendations'
-import { availableOnboardingProducts } from '../utils'
+import { availableOnboardingProducts, getProductIcon } from '../utils'
 import { productSelectionLogic } from './productSelectionLogic'
 import { SimplifiedProductSelection } from './SimplifiedProductSelection'
-
-const ICON_MAP: Record<string, React.ComponentType<{ className?: string; color?: string }>> = {
-    IconBolt,
-    IconBuilding,
-    IconClock,
-    IconCursor,
-    IconDatabase,
-    IconDecisionTree,
-    IconDownload,
-    IconGear,
-    IconGraph,
-    IconLlmAnalytics,
-    IconLogomark,
-    IconMessage,
-    IconNotification,
-    IconPassword,
-    IconPeople,
-    IconPieChart,
-    IconPlaylist,
-    IconRevert,
-    IconRewindPlay,
-    IconSampling,
-    IconStack,
-    IconTerminal,
-    IconTestTube,
-    IconToggle,
-    IconUnlock,
-    IconWarning,
-}
 
 type AvailableOnboardingProductKey = keyof typeof availableOnboardingProducts
 
 const isAvailableOnboardingProductKey = (key: string | ProductKey): key is AvailableOnboardingProductKey =>
     key in availableOnboardingProducts
-
-export function getProductIcon(
-    iconKey?: string | null,
-    { iconColor, className }: { iconColor?: string; className?: string } = {}
-): JSX.Element {
-    const IconComponent = iconKey ? ICON_MAP[iconKey] : undefined
-    if (IconComponent) {
-        return <IconComponent className={className} color={iconColor} />
-    }
-
-    return <IconLogomark className={className} />
-}
 
 function BrowsingHistoryBanner(): JSX.Element | null {
     const { hasBrowsingHistory, browsingHistoryLabels } = useValues(productSelectionLogic)
@@ -244,22 +174,6 @@ function ChoosePathStep(): JSX.Element {
             </div>
         </div>
     )
-}
-
-export function toSentenceCase(name: string): string {
-    return name
-        .split(' ')
-        .map((word, i) => {
-            if (i === 0) {
-                return word
-            }
-            // Preserve acronyms (e.g. "LLM")
-            if (word === word.toUpperCase() && word.length <= 4) {
-                return word
-            }
-            return word.toLowerCase()
-        })
-        .join(' ')
 }
 
 function ProductCard({
@@ -430,10 +344,12 @@ function ProductSelectionStep(): JSX.Element {
 }
 
 export function ProductSelection(): JSX.Element {
-    const simplified = useFeatureFlag('ONBOARDING_SIMPLIFIED_PRODUCT_SELECTION')
+    const { featureFlags } = useValues(featureFlagLogic)
     const { currentStep } = useValues(productSelectionLogic)
 
-    if (simplified) {
+    const isSimplifiedOnboarding = featureFlags[FEATURE_FLAGS.ONBOARDING_SIMPLIFIED_PRODUCT_SELECTION]
+
+    if (isSimplifiedOnboarding === 'test') {
         return <SimplifiedProductSelection />
     }
 

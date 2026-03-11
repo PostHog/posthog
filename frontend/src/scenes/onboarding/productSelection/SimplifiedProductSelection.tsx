@@ -26,8 +26,7 @@ import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { availableOnboardingProducts } from '../utils'
-import { getProductIcon, toSentenceCase } from './ProductSelection'
+import { availableOnboardingProducts, getProductIcon, toSentenceCase } from '../utils'
 import { productSelectionLogic } from './productSelectionLogic'
 
 type AvailableOnboardingProductKey = keyof typeof availableOnboardingProducts

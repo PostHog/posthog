@@ -1,8 +1,93 @@
+import {
+    IconBolt,
+    IconBuilding,
+    IconClock,
+    IconCursor,
+    IconDatabase,
+    IconDecisionTree,
+    IconDownload,
+    IconGear,
+    IconGraph,
+    IconLlmAnalytics,
+    IconLogomark,
+    IconMessage,
+    IconNotification,
+    IconPassword,
+    IconPeople,
+    IconPieChart,
+    IconPlaylist,
+    IconRevert,
+    IconRewindPlay,
+    IconSampling,
+    IconStack,
+    IconTerminal,
+    IconTestTube,
+    IconToggle,
+    IconUnlock,
+    IconWarning,
+} from '@posthog/icons'
+
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { type AvailableOnboardingProducts } from '~/types'
+
+const ICON_MAP: Record<string, React.ComponentType<{ className?: string; color?: string }>> = {
+    IconBolt,
+    IconBuilding,
+    IconClock,
+    IconCursor,
+    IconDatabase,
+    IconDecisionTree,
+    IconDownload,
+    IconGear,
+    IconGraph,
+    IconLlmAnalytics,
+    IconLogomark,
+    IconMessage,
+    IconNotification,
+    IconPassword,
+    IconPeople,
+    IconPieChart,
+    IconPlaylist,
+    IconRevert,
+    IconRewindPlay,
+    IconSampling,
+    IconStack,
+    IconTerminal,
+    IconTestTube,
+    IconToggle,
+    IconUnlock,
+    IconWarning,
+}
+
+export function getProductIcon(
+    iconKey?: string | null,
+    { iconColor, className }: { iconColor?: string; className?: string } = {}
+): JSX.Element {
+    const IconComponent = iconKey ? ICON_MAP[iconKey] : undefined
+    if (IconComponent) {
+        return <IconComponent className={className} color={iconColor} />
+    }
+
+    return <IconLogomark className={className} />
+}
+
+export function toSentenceCase(name: string): string {
+    return name
+        .split(' ')
+        .map((word, i) => {
+            if (i === 0) {
+                return word
+            }
+            if (word === word.toUpperCase() && word.length <= 4) {
+                return word
+            }
+            return word.toLowerCase()
+        })
+        .join(' ')
+}
 
 // This is the order we'll use to display the products in the onboarding
 export const availableOnboardingProducts: AvailableOnboardingProducts = {
