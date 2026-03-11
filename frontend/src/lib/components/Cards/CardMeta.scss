@@ -2,7 +2,7 @@
 .InsightCard {
     .handle {
         position: absolute;
-        z-index: 5; // Below RGL resize handles (z=10) but above card content
+        z-index: var(--z-raised);
         display: flex;
         align-items: flex-end;
         justify-content: center;
@@ -48,6 +48,7 @@
 
         &.corner {
             align-items: flex-end;
+
             // default bottom-right positioning
             justify-content: flex-end;
 
