@@ -12,6 +12,7 @@ from django.conf import settings
 
 import grpc.aio
 import dns.resolver
+import dns.asyncresolver
 import temporalio.common
 from structlog import get_logger
 from temporalio import activity, workflow
@@ -119,7 +120,7 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
         raise RecordDeletedException("proxy record was deleted while waiting for DNS records")
 
     try:
-        cnames = dns.resolver.query(inputs.domain, "CNAME")
+        cnames = await dns.asyncresolver.resolve(inputs.domain, "CNAME")
         value = cnames[0].target.canonicalize().to_text()
 
         if cnames[0].target == dns.name.from_text(inputs.target_cname):
@@ -137,7 +138,7 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
         # It means there is a record set, but it's not a CNAME record
         # A likely reason for this is that they have set Cloudflare proxying on.
         # Check for this explicitly to create a nice message for the user.
-        arecords = dns.resolver.query(inputs.domain, "A")
+        arecords = await dns.asyncresolver.resolve(inputs.domain, "A")
         if len(arecords) == 0:
             raise
         ip = arecords[0].to_text()
@@ -152,7 +153,7 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
             # off (grey cloud). If the IPs match our target, the setup is
             # correct — the CNAME is just being flattened.
             try:
-                target_arecords = dns.resolver.query(inputs.target_cname, "A")
+                target_arecords = await dns.asyncresolver.resolve(inputs.target_cname, "A")
                 target_ips = {r.to_text() for r in target_arecords}
                 customer_ips = {r.to_text() for r in arecords}
                 if customer_ips == target_ips:
@@ -162,8 +163,12 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
                         inputs.target_cname,
                     )
                     return
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "Failed to resolve A records for target CNAME %s: %s",
+                    inputs.target_cname,
+                    exc,
+                )
             # IPs don't match our target — customer likely has Cloudflare
             # proxying enabled on their own zone
             await update_record(
