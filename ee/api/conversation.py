@@ -1,9 +1,7 @@
-import json
 import time
 import uuid
-import asyncio
 from collections.abc import AsyncGenerator
-from typing import Any, cast
+from typing import cast
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -12,7 +10,6 @@ from django.http import StreamingHttpResponse
 import pydantic
 import structlog
 from asgiref.sync import async_to_sync as asgi_async_to_sync
-from django_redis import get_redis_connection
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from prometheus_client import Histogram
@@ -24,7 +21,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
-from posthog.schema import AgentMode, AssistantEventType, AssistantMessage, HumanMessage, MaxBillingContext
+from posthog.schema import AgentMode, AssistantMessage, HumanMessage, MaxBillingContext
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict, QuotaLimitExceeded
@@ -49,22 +46,15 @@ from posthog.temporal.ai.research_agent import (
     ResearchAgentWorkflow,
     ResearchAgentWorkflowInputs,
 )
-from posthog.temporal.common.client import sync_connect
-
-from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.stream.redis_stream import TaskRunRedisStream, TaskRunStreamError, get_task_run_stream_key
-from products.tasks.backend.temporal.client import execute_task_processing_workflow
-from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
-from ee.hogai.api.serializers import ConversationMinimalSerializer, ConversationSerializer
+from ee.hogai.api.serializers import ConversationSerializer
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.queue import ConversationQueueMessage, ConversationQueueStore, QueueFullError, build_queue_message
-from ee.hogai.sandbox.mapping import get_sandbox_mapping, set_sandbox_mapping
+from ee.hogai.sandbox.executor import handle_sandbox_message
 from ee.hogai.stream.redis_stream import get_conversation_stream_key
 from ee.hogai.utils.aio import async_to_sync
-from ee.hogai.utils.feature_flags import has_sandbox_mode_feature_flag
 from ee.hogai.utils.sse import AssistantSSESerializer
 from ee.hogai.utils.types import PartialAssistantState
 from ee.models.assistant import Conversation
@@ -382,155 +372,13 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         is_impersonated = is_impersonated_session(request)
 
         if is_sandbox and has_message:
-            if not settings.DEBUG and not has_sandbox_mode_feature_flag(self.team, cast(User, request.user)):
-                raise exceptions.PermissionDenied("Sandbox mode is not enabled for this user.")
-
-            content = serializer.validated_data["content"]
-
-            if is_new_conversation:
-                conversation.title = content[:80]
-                conversation.save(update_fields=["title"])
-
-            mapping = get_sandbox_mapping(str(conversation_id))
-
-            # Reconstruct mapping from conversation fields if Redis expired
-            if not mapping and conversation.sandbox_task_id and conversation.sandbox_run_id:
-                mapping = {
-                    "task_id": str(conversation.sandbox_task_id),
-                    "run_id": str(conversation.sandbox_run_id),
-                }
-
-            start_id = "0"
-
-            if mapping:
-                run_id = mapping["run_id"]
-                start_id = _get_latest_stream_id(run_id)
-
-                try:
-                    task_run = TaskRun.objects.select_related("task").get(id=run_id, team=self.team)
-                except TaskRun.DoesNotExist:
-                    raise exceptions.ValidationError("Sandbox session no longer exists.")
-
-                if task_run.is_terminal:
-                    snapshot_ext_id = (task_run.state or {}).get("snapshot_external_id")
-                    if not snapshot_ext_id:
-                        raise exceptions.ValidationError("Sandbox session has ended and no snapshot is available.")
-
-                    task = task_run.task
-                    new_run = task.create_run(
-                        mode="interactive",
-                        extra_state={
-                            "snapshot_external_id": snapshot_ext_id,
-                            "resume_from_run_id": str(task_run.id),
-                            "pending_user_message": content,
-                        },
-                    )
-                    run_id = str(new_run.id)
-
-                    conversation.sandbox_run_id = new_run.id
-                    conversation.save(update_fields=["sandbox_run_id"])
-
-                    set_sandbox_mapping(str(conversation_id), str(task.id), run_id)
-
-                    execute_task_processing_workflow(
-                        task_id=str(task.id),
-                        run_id=run_id,
-                        team_id=task.team_id,
-                        user_id=cast(User, request.user).pk,
-                        create_pr=False,
-                    )
-
-                    _seed_sandbox_stream(run_id)
-                    start_id = "0"
-
-                    conv_data = json.dumps(ConversationMinimalSerializer(conversation).data)
-                    logger.info(
-                        "sandbox_view_returning_resume_stream",
-                        run_id=run_id,
-                        conversation_id=str(conversation_id),
-                    )
-                    return StreamingHttpResponse(
-                        (
-                            _sandbox_stream(
-                                conv_data, run_id, start_id, str(conversation_id), content, team_id=self.team.id
-                            )
-                            if settings.SERVER_GATEWAY_INTERFACE == "ASGI"
-                            else async_to_sync(
-                                lambda: _sandbox_stream(
-                                    conv_data, run_id, start_id, str(conversation_id), content, team_id=self.team.id
-                                )
-                            )
-                        ),
-                        content_type="text/event-stream",
-                    )
-
-                # Signal the Temporal workflow to send the follow-up message
-                try:
-                    client = sync_connect()
-                    handle = client.get_workflow_handle(task_run.workflow_id)
-
-                    async def _send_signal():
-                        await handle.signal(ProcessTaskWorkflow.send_followup_message, content)
-
-                    asgi_async_to_sync(_send_signal)()
-                except Exception as e:
-                    logger.warning(
-                        "sandbox_followup_signal_failed",
-                        run_id=run_id,
-                        error=str(e),
-                    )
-            else:
-                # First message: create task + run
-                # TODO(@tatoalo): hardcoding repo for now, already built repo selection wiring
-                try:
-                    task = Task.create_and_run(
-                        team=self.team,
-                        title=content[:80],
-                        description=content,
-                        origin_product=Task.OriginProduct.USER_CREATED,
-                        user_id=cast(User, request.user).pk,
-                        repository="posthog/posthog",
-                        create_pr=False,
-                        mode="interactive",
-                        start_workflow=True,
-                    )
-                except ValueError:
-                    raise exceptions.ValidationError("Failed to create sandbox task.")
-
-                task_run_or_none = task.latest_run
-                if not task_run_or_none:
-                    raise exceptions.ValidationError("Failed to create sandbox task run.")
-                task_run = task_run_or_none
-
-                run_id = str(task_run.id)
-                set_sandbox_mapping(str(conversation_id), str(task.id), run_id)
-
-                conversation.sandbox_task_id = task.id
-                conversation.sandbox_run_id = task_run.id
-                conversation.save(update_fields=["sandbox_task_id", "sandbox_run_id"])
-
-                _seed_sandbox_stream(run_id)
-
-            conv_data = json.dumps(ConversationMinimalSerializer(conversation).data)
-
-            logger.info(
-                "sandbox_view_returning_stream",
-                run_id=run_id,
+            return handle_sandbox_message(
+                conversation=conversation,
                 conversation_id=str(conversation_id),
-                start_id=start_id,
-                gateway=settings.SERVER_GATEWAY_INTERFACE,
-            )
-            return StreamingHttpResponse(
-                (
-                    _sandbox_stream(conv_data, run_id, start_id, str(conversation_id), content, team_id=self.team.id)
-                    if settings.SERVER_GATEWAY_INTERFACE == "ASGI"
-                    else async_to_sync(
-                        lambda: _sandbox_stream(
-                            conv_data, run_id, start_id, str(conversation_id), content, team_id=self.team.id
-                        )
-                    )
-                ),
-                content_type="text/event-stream",
+                content=serializer.validated_data["content"],
+                user=cast(User, request.user),
+                team=self.team,
+                is_new_conversation=is_new_conversation,
             )
 
         workflow_inputs: ChatAgentWorkflowInputs | ResearchAgentWorkflowInputs
@@ -721,215 +569,3 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             return Response({"error": "Failed to append message"}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         return Response({"id": message.id}, status=status.HTTP_201_CREATED)
-
-
-def _get_latest_stream_id(run_id: str) -> str:
-    """Return the latest entry ID in the task-run Redis stream.
-
-    Used for follow-up messages so we only read events generated AFTER
-    the current position (avoiding replay of previous turns).
-    """
-    stream_key = get_task_run_stream_key(run_id)
-    conn = get_redis_connection("default")
-    try:
-        entries = conn.xrevrange(stream_key, count=1)
-        if entries:
-            return entries[0][0].decode()
-    except Exception:
-        logger.warning("_get_latest_stream_id_failed", run_id=run_id, exc_info=True)
-    return "0"
-
-
-def _seed_sandbox_stream(run_id: str) -> None:
-    """Write a seed event to the Redis stream so it exists before the relay starts.
-
-    Uses the sync Redis connection (safe in WSGI context).  The seed event has
-    type=STREAM_STATUS with a non-terminal status, so ``read_stream`` silently
-    skips it.
-    """
-    stream_key = get_task_run_stream_key(run_id)
-    conn = get_redis_connection("default")
-    conn.xadd(
-        stream_key,
-        {"data": json.dumps({"type": "STREAM_STATUS", "status": "initializing"})},
-        maxlen=2000,
-    )
-    conn.expire(stream_key, 3600)
-
-
-SANDBOX_TURN_IDLE_TIMEOUT = 60  # seconds of silence before ending the per-turn stream (safety fallback)
-
-_TURN_COMPLETE_METHOD = "_posthog/turn_complete"
-
-
-def _is_turn_complete(event: dict) -> bool:
-    if event.get("type") != "notification":
-        return False
-    notification = event.get("notification", {})
-    return notification.get("method") == _TURN_COMPLETE_METHOD
-
-
-async def _sandbox_stream(
-    conv_data: str,
-    run_id: str,
-    start_id: str = "0",
-    conversation_id: str | None = None,
-    user_content: str | None = None,
-    team_id: int | None = None,
-) -> AsyncGenerator[bytes, None]:
-    """Stream sandbox events from Redis to the browser as SSE.
-
-    Reads events in a background task and funnels them through an
-    :class:`asyncio.Queue`.  An idle timeout on the *queue* (not on the
-    async-generator) detects when the agent's turn is complete without
-    corrupting the underlying Redis reader.
-
-    Args:
-        conv_data: Pre-serialized conversation JSON (serialized in sync context).
-        run_id: The TaskRun ID whose Redis stream to read from.
-        start_id: Redis stream ID to start reading from.
-            ``"0"`` replays from the beginning (first message).
-            A specific ID resumes from that position (follow-up messages).
-        conversation_id: If provided, persist messages on the Conversation after the turn.
-        user_content: The user message content to persist alongside the agent response.
-    """
-    logger.info("sandbox_stream_started", run_id=run_id, start_id=start_id)
-
-    # Emit conversation event so the frontend gets the conversation ID
-    yield f"event: {AssistantEventType.CONVERSATION}\ndata: {conv_data}\n\n".encode()
-
-    stream_key = get_task_run_stream_key(run_id)
-    redis_stream = TaskRunRedisStream(stream_key)
-
-    if not await redis_stream.wait_for_stream():
-        logger.warning("sandbox_stream_wait_timeout", stream_key=stream_key, run_id=run_id)
-        error_data = json.dumps({"type": "generation_error"})
-        yield f"event: {AssistantEventType.STATUS}\ndata: {error_data}\n\n".encode()
-        return
-
-    logger.info("sandbox_stream_connected", stream_key=stream_key)
-
-    # Use a queue to decouple the idle-timeout from the async generator.
-    # asyncio.wait_for on __anext__() would cancel and close the generator,
-    # so we run the reader in a background task instead.
-    _SENTINEL: dict = {}  # identity sentinel for stream end
-    event_queue: asyncio.Queue[dict] = asyncio.Queue()
-
-    async def _reader() -> None:
-        try:
-            async for ev in redis_stream.read_stream(start_id=start_id):
-                await event_queue.put(ev)
-        except TaskRunStreamError as exc:
-            await event_queue.put({"_error": str(exc)})
-        finally:
-            await event_queue.put(_SENTINEL)
-
-    reader_task = asyncio.create_task(_reader())
-    agent_text_chunks: list[str] = []
-
-    try:
-        event_count = 0
-        saw_data = False
-        while True:
-            try:
-                event = await asyncio.wait_for(
-                    event_queue.get(),
-                    timeout=SANDBOX_TURN_IDLE_TIMEOUT,
-                )
-            except TimeoutError:
-                if saw_data:
-                    logger.info("sandbox_stream_turn_idle", run_id=run_id, total_events=event_count)
-                    break
-                # Haven't seen any data yet; keep waiting (sandbox still booting)
-                continue
-
-            if event is _SENTINEL:
-                logger.info("sandbox_stream_completed", run_id=run_id, total_events=event_count)
-                break
-
-            if "_error" in event:
-                logger.warning("sandbox_stream_error", run_id=run_id, error=event["_error"])
-                error_data = json.dumps({"type": "generation_error"})
-                yield f"event: {AssistantEventType.STATUS}\ndata: {error_data}\n\n".encode()
-                break
-
-            event_count += 1
-            saw_data = True
-
-            # Accumulate agent text for message persistence
-            _accumulate_agent_text(event, agent_text_chunks)
-
-            if event_count <= 3:
-                logger.info(
-                    "sandbox_stream_event",
-                    run_id=run_id,
-                    event_count=event_count,
-                    event_type=event.get("type"),
-                    notification_method=(
-                        event.get("notification", {}).get("method") if event.get("type") == "notification" else None
-                    ),
-                )
-            event_data = json.dumps(event)
-            yield f"event: {AssistantEventType.SANDBOX}\ndata: {event_data}\n\n".encode()
-
-            if _is_turn_complete(event):
-                logger.info("sandbox_stream_turn_complete", run_id=run_id, total_events=event_count)
-                break
-    finally:
-        reader_task.cancel()
-        try:
-            await reader_task
-        except asyncio.CancelledError:
-            pass
-
-        # Persist messages after the turn completes
-        if conversation_id:
-            agent_text = "".join(agent_text_chunks)
-            await _persist_sandbox_turn(conversation_id, user_content, agent_text, team_id=team_id)
-
-
-async def _sandbox_error_stream(conv_data: str, error_message: str) -> AsyncGenerator[bytes, None]:
-    """Emit a conversation event followed by an error, for when the sandbox command fails."""
-    yield f"event: {AssistantEventType.CONVERSATION}\ndata: {conv_data}\n\n".encode()
-    error_data = json.dumps({"type": "generation_error", "message": error_message})
-    yield f"event: {AssistantEventType.STATUS}\ndata: {error_data}\n\n".encode()
-
-
-def _accumulate_agent_text(event: dict, chunks: list[str]) -> None:
-    """Extract agent message text from session/update notifications."""
-    if event.get("type") != "notification":
-        return
-    notification = event.get("notification", {})
-    if notification.get("method") != "session/update":
-        return
-    params = notification.get("params", {})
-    update = params.get("update", {}) if isinstance(params, dict) else {}
-    if not isinstance(update, dict):
-        return
-    if update.get("sessionUpdate") != "agent_message_chunk":
-        return
-    content = update.get("content")
-    if isinstance(content, dict) and content.get("type") == "text":
-        text = content.get("text", "")
-        if text:
-            chunks.append(text)
-
-
-async def _persist_sandbox_turn(
-    conversation_id: str, user_content: str | None, agent_text: str, team_id: int | None = None
-) -> None:
-    """Persist user and agent messages on the Conversation after a sandbox turn."""
-    try:
-        lookup: dict[str, Any] = {"id": conversation_id}
-        if team_id is not None:
-            lookup["team_id"] = team_id
-        conversation = await Conversation.objects.aget(**lookup)
-        messages: list[dict[str, Any]] = conversation.messages_json or []
-        if user_content:
-            messages.append({"type": "human", "content": user_content, "id": str(uuid.uuid4())})
-        if agent_text:
-            messages.append({"type": "ai", "content": agent_text, "id": f"sandbox-{uuid.uuid4()}"})
-        conversation.messages_json = messages
-        await conversation.asave(update_fields=["messages_json"])
-    except Exception as e:
-        logger.warning("persist_sandbox_turn_failed", conversation_id=conversation_id, error=str(e))
