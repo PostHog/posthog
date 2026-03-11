@@ -532,7 +532,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         source_schemas = source.get_schemas(source_config, self.team_id)
         schema_names = [schema.name for schema in source_schemas]
         schema_label_by_name = {s.name: s.label for s in source_schemas}
-        schema_metadata_by_name = {s.name: s.metadata for s in source_schemas}
 
         payload_schemas = payload.get("schemas", None)
         if not payload_schemas or not isinstance(payload_schemas, list):
@@ -584,7 +583,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             if requires_incremental_fields:
                 sync_type_config["incremental_field"] = incremental_field
                 sync_type_config["incremental_field_type"] = incremental_field_type
-            sync_type_config.update(schema_metadata_by_name.get(schema_name, {}))
 
             if source_type_model == ExternalDataSourceType.POSTGRES:
                 sync_type_config["schema_metadata"] = postgres_schema_metadata(
