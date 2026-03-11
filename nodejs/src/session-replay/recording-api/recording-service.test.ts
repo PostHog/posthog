@@ -395,6 +395,7 @@ describe('RecordingService', () => {
                 expect.objectContaining({
                     query_params: { team_id: 1, session_id: 'sess-1' },
                     format: 'JSONEachRow',
+                    clickhouse_settings: { date_time_output_format: 'iso' },
                 })
             )
         })

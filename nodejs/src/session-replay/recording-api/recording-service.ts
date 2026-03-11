@@ -194,6 +194,9 @@ export class RecordingService {
                     session_id: sessionId,
                 },
                 format: 'JSONEachRow',
+                clickhouse_settings: {
+                    date_time_output_format: 'iso',
+                },
             })
 
             const rows = await result.json<BlockListingRow>()
