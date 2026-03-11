@@ -13,7 +13,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tags_context
-from posthog.dags.common import JobOwners, skip_if_running
+from posthog.dags.common import JobOwners, skip_iteration_if_already_running
 from posthog.dags.common.ops import get_all_team_ids_op
 from posthog.dags.common.resources import redis
 from posthog.exceptions_capture import capture_exception
@@ -221,7 +221,7 @@ def cache_all_team_sdk_versions_job():
     aggregate_results_op(results.collect())
 
 
-@skip_if_running(
+@skip_iteration_if_already_running(
     cron_schedule="0 0 * * *",  # Every day at midnight
     job=cache_all_team_sdk_versions_job,
     execution_timezone="UTC",
