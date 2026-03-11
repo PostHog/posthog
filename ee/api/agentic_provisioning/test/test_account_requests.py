@@ -15,7 +15,7 @@ from ee.api.agentic_provisioning import PENDING_AUTH_CACHE_PREFIX
 from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
 
 
-@override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
+@override_settings(STRIPE_APP_SIGNING_SECRET=HMAC_SECRET)
 class TestAccountRequests(StripeProvisioningTestBase):
     def _account_request_payload(self, **overrides):
         payload = {

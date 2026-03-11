@@ -9,7 +9,7 @@ from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisionin
 from ee.api.agentic_provisioning.views import AUTH_CODE_CACHE_PREFIX
 
 
-@override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
+@override_settings(STRIPE_APP_SIGNING_SECRET=HMAC_SECRET)
 class TestDeepLinks(StripeProvisioningTestBase):
     def _get_bearer_token(self) -> str:
         code = "dl_test_code"

@@ -24,7 +24,7 @@ class TestParseSignatureHeader(TestCase):
         assert _parse_signature_header(header) == expected
 
 
-@override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
+@override_settings(STRIPE_APP_SIGNING_SECRET=HMAC_SECRET)
 class TestComputeSignature(TestCase):
     @parameterized.expand(
         [

@@ -40,7 +40,7 @@ Key files:
 - `posthog/models/integration.py` — `StripeIntegration` class: writes and clears secrets in Stripe
 - `posthog/api/integration.py` — triggers `write_posthog_secrets()` after Stripe OAuth callback
 - `posthog/settings/integrations.py` — env vars (`STRIPE_APP_CLIENT_ID`, `STRIPE_APP_SECRET_KEY`,
-  `STRIPE_POSTHOG_OAUTH_CLIENT_ID`, `STRIPE_APP_OVERRIDE_AUTHORIZE_URL`)
+  `STRIPE_APP_SIGNING_SECRET`, `STRIPE_POSTHOG_OAUTH_CLIENT_ID`, `STRIPE_APP_OVERRIDE_AUTHORIZE_URL`)
 
 ### Stripe App (this directory)
 
@@ -168,9 +168,10 @@ This creates a `package-lock.json` (required by Stripe) and uploads the app.
 
 ## Environment variables
 
-| Variable                            | Description                                                               |
-| ----------------------------------- | ------------------------------------------------------------------------- |
-| `STRIPE_APP_CLIENT_ID`              | Stripe App OAuth client ID (from Stripe Apps dashboard)                   |
-| `STRIPE_APP_SECRET_KEY`             | Stripe API secret key for token exchange                                  |
-| `STRIPE_POSTHOG_OAUTH_CLIENT_ID`    | Client ID of the PostHog OAuthApplication used by the Stripe App          |
-| `STRIPE_APP_OVERRIDE_AUTHORIZE_URL` | Channel link authorize URL (required for non-published app installations) |
+| Variable                            | Description                                                                                            |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `STRIPE_APP_CLIENT_ID`              | Stripe App OAuth client ID (from Stripe Apps dashboard)                                                |
+| `STRIPE_APP_SECRET_KEY`             | Stripe API secret key (`sk_live_*` / `sk_test_*`) used for HTTP Basic auth during OAuth token exchange |
+| `STRIPE_APP_SIGNING_SECRET`         | App Signing Secret (`absec_*`) from the Stripe dashboard, used to verify Stripe-Signature HMAC headers |
+| `STRIPE_POSTHOG_OAUTH_CLIENT_ID`    | Client ID of the PostHog OAuthApplication used by the Stripe App                                       |
+| `STRIPE_APP_OVERRIDE_AUTHORIZE_URL` | Channel link authorize URL (required for non-published app installations)                              |

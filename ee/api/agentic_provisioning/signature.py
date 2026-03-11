@@ -33,7 +33,7 @@ def verify_stripe_signature(request: Request) -> Response | None:
             status=400,
         )
 
-    secret = settings.STRIPE_APP_SECRET_KEY
+    secret = settings.STRIPE_APP_SIGNING_SECRET
     if not secret:
         return Response({"error": {"code": "server_error", "message": "Signing secret not configured"}}, status=500)
 

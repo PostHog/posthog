@@ -103,7 +103,7 @@ def _mock_cache_empty():
     return mock
 
 
-@override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
+@override_settings(STRIPE_APP_SIGNING_SECRET=HMAC_SECRET)
 class TestProvisioningServices(StripeProvisioningTestBase):
     @patch("ee.api.agentic_provisioning.views.external_requests.get", return_value=_mock_billing_response())
     @patch("ee.api.agentic_provisioning.views.cache", new_callable=_mock_cache_empty)
