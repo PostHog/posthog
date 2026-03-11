@@ -316,7 +316,12 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
                         defaultActiveKeys={['active']}
                         panels={[
                             {
-                                header: `Active workflows (${activeWorkflows.length})`,
+                                header: (
+                                    <span className="flex items-center gap-2">
+                                        Active workflows ({activeWorkflows.length})
+                                        <LemonTag type="success">Active</LemonTag>
+                                    </span>
+                                ),
                                 key: 'active',
                                 className: 'p-1',
                                 content: (
@@ -332,7 +337,12 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
                                 ),
                             },
                             {
-                                header: `Draft workflows (${draftWorkflows.length})`,
+                                header: (
+                                    <span className="flex items-center gap-2">
+                                        Draft workflows ({draftWorkflows.length})
+                                        <LemonTag type="default">Draft</LemonTag>
+                                    </span>
+                                ),
                                 key: 'draft',
                                 className: 'p-1',
                                 content: (
@@ -349,7 +359,12 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
                             },
                             archivedWorkflows.length > 0
                                 ? {
-                                      header: `Archived workflows (${archivedWorkflows.length})`,
+                                      header: (
+                                          <span className="flex items-center gap-2">
+                                              Archived workflows ({archivedWorkflows.length})
+                                              <LemonTag type="completion">Archived</LemonTag>
+                                          </span>
+                                      ),
                                       key: 'archived',
                                       className: 'p-1',
                                       content: (
