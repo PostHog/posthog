@@ -4,10 +4,7 @@ use crate::{
         errors::{ClientFacingError, FlagError},
     },
     flags::{
-        flag_analytics::{
-            increment_request_count, PRODUCT_TOUR_TARGETING_FLAG_PREFIX,
-            SURVEY_TARGETING_FLAG_PREFIX,
-        },
+        flag_analytics::{increment_request_count, is_billable_flag_key},
         flag_request::FlagRequestType,
         flag_service::FlagService,
     },
@@ -390,8 +387,7 @@ fn has_billable_flags(response: &Value) -> bool {
 
     flags.iter().any(|flag| {
         let key = flag.get("key").and_then(|k| k.as_str()).unwrap_or("");
-        !key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)
-            && !key.starts_with(PRODUCT_TOUR_TARGETING_FLAG_PREFIX)
+        is_billable_flag_key(key)
     })
 }
 
