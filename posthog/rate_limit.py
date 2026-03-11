@@ -163,7 +163,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         if not is_rate_limit_enabled(round(time.time() / 60)):
             return True
 
-        personal_api_key = PersonalAPIKeyAuthentication.find_key_with_source(request)
+        personal_api_key = PersonalAPIKeyAuthentication.find_key_with_source(request, request_data={})
         if personal_api_key_only and request.user.is_authenticated and personal_api_key is None:
             return True
 
@@ -228,7 +228,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         """
         ident = None
         if request.user.is_authenticated:
-            api_key = PersonalAPIKeyAuthentication.find_key_with_source(request)
+            api_key = PersonalAPIKeyAuthentication.find_key_with_source(request, request_data={})
             if api_key is not None:
                 ident = hash_key_value(api_key[0])
             else:

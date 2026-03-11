@@ -8,12 +8,14 @@ from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.direct_connection import get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_and_print_ast
-from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
@@ -27,8 +29,8 @@ def get_hogql_metadata(
     team: Team,
     user: Optional[User] = None,
     hogql_ast: Optional[Union[ast.SelectQuery, ast.SelectSetQuery]] = None,
-    clickhouse_prepared_ast: Optional[ast.AST] = None,
-    clickhouse_sql: Optional[str] = None,
+    prepared_ast: Optional[ast.AST] = None,  # precached
+    printed_sql: Optional[str] = None,  # precached
 ) -> HogQLMetadataResponse:
     response = HogQLMetadataResponse(
         isValid=True,
@@ -40,11 +42,26 @@ def get_hogql_metadata(
     )
 
     query_modifiers = create_default_modifiers_for_team(team, query.modifiers)
+    source = get_direct_connection_source(team, query.connectionId)
+    if query.connectionId and source is None:
+        response.isValid = False
+        response.errors = [HogQLNotice(message="Invalid connectionId for this team")]
+        return response
+
+    database = None
+    if source:
+        database = Database.create_for(
+            team=team,
+            user=user,
+            modifiers=query_modifiers,
+            connection_id=str(source.id),
+        )
 
     try:
         context = HogQLContext(
             team_id=team.pk,
             user=user,
+            database=database,
             modifiers=query_modifiers,
             enable_select_queries=True,
             debug=query.debug or False,
@@ -78,16 +95,15 @@ def get_hogql_metadata(
             hogql_table_names = get_table_names(hogql_ast)
             response.table_names = hogql_table_names
 
-            if not clickhouse_sql or not clickhouse_prepared_ast:
-                clickhouse_sql, clickhouse_prepared_ast = prepare_and_print_ast(
+            if not printed_sql or not prepared_ast:
+                printed_sql, prepared_ast = prepare_and_print_ast(
                     clone_expr(hogql_ast),
                     context=context,
-                    dialect="clickhouse",
+                    dialect="postgres" if source else "clickhouse",
                 )
 
-            if clickhouse_prepared_ast:
-                ch_table_names = get_table_names(clickhouse_prepared_ast)
-                response.ch_table_names = ch_table_names
+            if prepared_ast:
+                response.ch_table_names = get_table_names(prepared_ast)
         else:
             raise ValueError(f"Unsupported language: {query.language}")
         response.warnings = context.warnings

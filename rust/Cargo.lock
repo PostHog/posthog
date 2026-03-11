@@ -2965,6 +2965,7 @@ dependencies = [
  "metrics",
  "moka",
  "posthog-rs 0.3.7",
+ "rand 0.8.5",
  "reqwest 0.12.28",
  "serde",
  "sqlx",
