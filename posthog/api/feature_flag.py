@@ -468,8 +468,9 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
                 for ec in obj.flag_evaluation_contexts.select_related("evaluation_context").all()
             ]
 
+        # TODO(#50712): Remove evaluation_tags field after deprecated models are dropped.
         # Deprecated: evaluation_tags is kept for backward compatibility.
-        # Use evaluation_contexts instead. Will be removed in a future release.
+        # Use evaluation_contexts instead.
         ret["evaluation_tags"] = context_names
         ret["evaluation_contexts"] = context_names
 
