@@ -350,7 +350,7 @@ exports[`segment templates template segment-actions-absmartly matches expected r
     },
   ],
   "name": "ABsmartly",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -644,7 +644,7 @@ Last-Modified: 02.01.2024 10.30.43
     },
   ],
   "name": "Acoustic",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -862,7 +862,7 @@ exports[`segment templates template segment-actions-airship matches expected res
     },
   ],
   "name": "Airship",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -1594,7 +1594,7 @@ exports[`segment templates template segment-actions-algolia-insights matches exp
     },
   ],
   "name": "Algolia Insights",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -7118,7 +7118,7 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
     },
   ],
   "name": "Angler AI",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -7237,7 +7237,7 @@ exports[`segment templates template segment-actions-attentive matches expected r
     },
   ],
   "name": "Attentive",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -7355,7 +7355,7 @@ exports[`segment templates template segment-actions-blend-ai matches expected re
     },
   ],
   "name": "Blend Ai",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -8144,7 +8144,7 @@ exports[`segment templates template segment-actions-canvas matches expected resu
     },
   ],
   "name": "Canvas",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -8323,7 +8323,7 @@ exports[`segment templates template segment-actions-clevertap matches expected r
     },
   ],
   "name": "CleverTap",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -8480,7 +8480,7 @@ exports[`segment templates template segment-actions-cloud-gwen matches expected 
     },
   ],
   "name": "GWEN",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -9505,7 +9505,7 @@ exports[`segment templates template segment-actions-gameball matches expected re
     },
   ],
   "name": "Gameball",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -9931,7 +9931,7 @@ exports[`segment templates template segment-actions-hilo matches expected result
     },
   ],
   "name": "Hilo",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -10668,7 +10668,7 @@ exports[`segment templates template segment-actions-hyperengage matches expected
     },
   ],
   "name": "Hyperengage",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -10934,7 +10934,7 @@ exports[`segment templates template segment-actions-insider-cloud matches expect
     },
   ],
   "name": "Insider Cloud Mode",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -11345,7 +11345,7 @@ exports[`segment templates template segment-actions-iterable matches expected re
     },
   ],
   "name": "Iterable",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -11828,7 +11828,7 @@ exports[`segment templates template segment-actions-kameleoon matches expected r
     },
   ],
   "name": "Kameleoon",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -12835,7 +12835,7 @@ exports[`segment templates template segment-actions-launchpad matches expected r
     },
   ],
   "name": "Launchpad",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -13200,7 +13200,7 @@ exports[`segment templates template segment-actions-livelike-cloud matches expec
     },
   ],
   "name": "LiveLike",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -13403,7 +13403,7 @@ exports[`segment templates template segment-actions-m3ter matches expected resul
     },
   ],
   "name": "m3ter",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -17353,7 +17353,7 @@ exports[`segment templates template segment-actions-moloco-rmp matches expected 
     },
   ],
   "name": "Moloco MCM",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -18293,7 +18293,7 @@ exports[`segment templates template segment-actions-optimizely-data-platform mat
     },
   ],
   "name": "Optimizely Data Platform",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -20553,7 +20553,7 @@ exports[`segment templates template segment-actions-pinterest-conversions-api ma
     },
   ],
   "name": "Pinterest Conversions API",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -21121,7 +21121,7 @@ exports[`segment templates template segment-actions-playerzero-cloud matches exp
     },
   ],
   "name": "PlayerZero Cloud",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -21529,7 +21529,7 @@ exports[`segment templates template segment-actions-podscribe matches expected r
     },
   ],
   "name": "Podscribe",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -21933,7 +21933,7 @@ exports[`segment templates template segment-actions-prodeology matches expected 
     },
   ],
   "name": "Prodeology",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -23461,7 +23461,7 @@ exports[`segment templates template segment-actions-recombee matches expected re
     },
   ],
   "name": "Recombee",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -23762,7 +23762,7 @@ exports[`segment templates template segment-actions-revx matches expected result
     },
   ],
   "name": "RevX Cloud",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -24242,7 +24242,7 @@ exports[`segment templates template segment-actions-ripe-cloud matches expected 
     },
   ],
   "name": "Ripe Cloud Mode",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -24758,7 +24758,7 @@ exports[`segment templates template segment-actions-saleswings matches expected 
     },
   ],
   "name": "Saleswings",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -25177,7 +25177,7 @@ exports[`segment templates template segment-actions-sprig matches expected resul
     },
   ],
   "name": "Sprig Cloud",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -25388,7 +25388,7 @@ exports[`segment templates template segment-actions-stackadapt-cloud matches exp
     },
   ],
   "name": "StackAdapt",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -25812,7 +25812,7 @@ exports[`segment templates template segment-actions-topsort matches expected res
     },
   ],
   "name": "Topsort",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -26754,7 +26754,7 @@ exports[`segment templates template segment-actions-usermaven matches expected r
     },
   ],
   "name": "Usermaven",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -27243,7 +27243,7 @@ exports[`segment templates template segment-actions-userpilot-cloud matches expe
     },
   ],
   "name": "Userpilot Cloud",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -27464,7 +27464,7 @@ exports[`segment templates template segment-actions-voyage matches expected resu
     },
   ],
   "name": "Voyage",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -27880,7 +27880,7 @@ exports[`segment templates template segment-actions-vwo-cloud matches expected r
     },
   ],
   "name": "VWO Cloud Mode",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -28103,7 +28103,7 @@ exports[`segment templates template segment-actions-xtremepush matches expected 
     },
   ],
   "name": "Xtremepush",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -28621,7 +28621,7 @@ exports[`segment templates template segment-calliper-cloud-actions matches expec
     },
   ],
   "name": "Calliper Cloud",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -29349,7 +29349,7 @@ exports[`segment templates template segment-encharge-cloud-actions matches expec
     },
   ],
   "name": "Encharge",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -30143,7 +30143,7 @@ exports[`segment templates template segment-metronome-actions matches expected r
     },
   ],
   "name": "Metronome",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -30514,7 +30514,7 @@ exports[`segment templates template segment-outfunnel matches expected result 1`
     },
   ],
   "name": "Outfunnel",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -31072,7 +31072,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
     },
   ],
   "name": "Voucherify",
-  "status": "stable",
+  "status": "alpha",
   "type": "destination",
 }
 `;
