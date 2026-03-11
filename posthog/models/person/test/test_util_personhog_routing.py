@@ -1,10 +1,16 @@
+from types import SimpleNamespace
+
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.models.person.util import get_persons_by_distinct_ids, get_persons_by_uuids
+from posthog.models.person.util import (
+    _fetch_persons_by_distinct_ids_via_personhog,
+    get_persons_by_distinct_ids,
+    get_persons_by_uuids,
+)
 
 
 class TestGetPersonsByUuidsRouting(SimpleTestCase):
@@ -152,3 +158,43 @@ class TestGetPersonsByDistinctIdsRouting(SimpleTestCase):
 
         if grpc_exception is not None and gate_on:
             mock_errors_counter.labels.assert_called_once()
+
+
+class TestFetchPersonsByDistinctIdsFiltering(SimpleTestCase):
+    @patch("posthog.personhog_client.client.get_personhog_client")
+    def test_missing_persons_are_excluded(self, mock_get_client):
+        real_person = SimpleNamespace(
+            id=42,
+            uuid="550e8400-e29b-41d4-a716-446655440000",
+            team_id=1,
+            properties=b'{"email": "real@example.com"}',
+            is_identified=True,
+            created_at=1700000000000,
+            last_seen_at=0,
+        )
+        # Entry with person=None (unresolved distinct_id)
+        missing_entry = SimpleNamespace(distinct_id="ghost", person=None)
+        # Entry with a default/empty person (id=0)
+        empty_entry = SimpleNamespace(distinct_id="empty", person=SimpleNamespace(id=0))
+        # Entry with a real person
+        valid_entry = SimpleNamespace(distinct_id="real_did", person=real_person)
+
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_client.get_persons_by_distinct_ids_in_team.return_value = SimpleNamespace(
+            results=[missing_entry, empty_entry, valid_entry]
+        )
+        mock_client.get_distinct_ids_for_persons.return_value = SimpleNamespace(
+            person_distinct_ids=[SimpleNamespace(person_id=42, distinct_ids=[SimpleNamespace(distinct_id="real_did")])]
+        )
+
+        result = _fetch_persons_by_distinct_ids_via_personhog(team_id=1, distinct_ids=["ghost", "empty", "real_did"])
+
+        assert len(result) == 1
+        assert result[0].id == 42
+        assert result[0].properties == {"email": "real@example.com"}
+        assert result[0].distinct_ids == ["real_did"]
+
+        # Verify only the valid person_id was sent to get_distinct_ids_for_persons
+        call_args = mock_client.get_distinct_ids_for_persons.call_args
+        assert call_args[0][0].person_ids == [42]

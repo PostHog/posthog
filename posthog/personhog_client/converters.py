@@ -22,7 +22,7 @@ def proto_group_type_mapping_to_dict(mapping: group_pb2.GroupTypeMapping) -> dic
 
     created_at: datetime | None = None
     if mapping.created_at:
-        created_at = datetime.fromtimestamp(mapping.created_at, tz=UTC)
+        created_at = datetime.fromtimestamp(mapping.created_at / 1000, tz=UTC)
 
     return {
         "group_type": mapping.group_type or None,
@@ -67,7 +67,7 @@ def proto_person_to_model(
         team_id=person.team_id,
         properties=json.loads(person.properties) if person.properties else {},
         is_identified=person.is_identified,
-        created_at=datetime.fromtimestamp(person.created_at, tz=UTC) if person.created_at else datetime.now(UTC),
+        created_at=datetime.fromtimestamp(person.created_at / 1000, tz=UTC) if person.created_at else datetime.now(UTC),
         last_seen_at=datetime.fromtimestamp(person.last_seen_at / 1000, tz=UTC) if person.last_seen_at else None,
     )
     if distinct_ids is not None:

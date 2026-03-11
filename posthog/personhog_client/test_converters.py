@@ -47,7 +47,7 @@ class TestProtoGroupTypeMappingToDict:
                     "name_plural": "Organizations",
                     "default_columns": json.dumps(["name", "industry"]).encode(),
                     "detail_dashboard_id": 42,
-                    "created_at": 1700000000,
+                    "created_at": 1700000000000,
                 },
                 {
                     "group_type": "organization",
@@ -163,7 +163,7 @@ class TestProtoPersonToModel:
                     "uuid": "550e8400-e29b-41d4-a716-446655440000",
                     "team_id": 10,
                     "properties": json.dumps({"email": "test@example.com", "name": "Test"}).encode(),
-                    "created_at": 1700000000,
+                    "created_at": 1700000000000,
                     "is_identified": True,
                     "last_seen_at": 1700000000000,
                 },
@@ -181,7 +181,7 @@ class TestProtoPersonToModel:
                     "uuid": "550e8400-e29b-41d4-a716-446655440002",
                     "team_id": 3,
                     "properties": json.dumps({"foo": "bar"}).encode(),
-                    "created_at": 1700000000,
+                    "created_at": 1700000000000,
                 },
                 ["did1", "did2"],
             ),
@@ -201,7 +201,7 @@ class TestProtoPersonToModel:
         assert person.properties == expected_props
 
         if proto_kwargs.get("created_at"):
-            assert person.created_at == datetime.fromtimestamp(proto_kwargs["created_at"], tz=UTC)
+            assert person.created_at == datetime.fromtimestamp(proto_kwargs["created_at"] / 1000, tz=UTC)
         else:
             # When proto has no created_at, we fall back to now() since the Django field is non-nullable
             assert isinstance(person.created_at, datetime)

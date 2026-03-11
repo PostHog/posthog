@@ -131,7 +131,7 @@ class TestLoadPersonPersonhogIntegration(TestCase):
                 properties={"email": "test@example.com"},
                 distinct_ids=["test_user"],
                 is_identified=person.is_identified,
-                created_at=int(person.created_at.timestamp()) if person.created_at else 0,
+                created_at=int(person.created_at.timestamp() * 1000) if person.created_at else 0,
             )
 
             recording = SessionRecording(team=team, session_id="test_session", distinct_id="test_user")

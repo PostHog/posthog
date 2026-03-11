@@ -23,7 +23,7 @@ class TestBatchByDistinctIdsPersonhog(ClickhouseTestMixin, APIBaseTest):
             properties=properties or {},
             distinct_ids=distinct_ids,
             is_identified=person.is_identified,
-            created_at=int(person.created_at.timestamp()) if person.created_at else 0,
+            created_at=int(person.created_at.timestamp() * 1000) if person.created_at else 0,
         )
         return str(person.uuid)
 

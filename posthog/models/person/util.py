@@ -218,7 +218,9 @@ def _fetch_persons_by_distinct_ids_via_personhog(team_id: int, distinct_ids: lis
         GetPersonsByDistinctIdsInTeamRequest(team_id=team_id, distinct_ids=distinct_ids)
     )
 
-    person_ids = [r.person.id for r in resp.results]
+    valid_results = [r for r in resp.results if r.person and r.person.id]
+
+    person_ids = [r.person.id for r in valid_results]
     distinct_ids_resp = client.get_distinct_ids_for_persons(
         GetDistinctIdsForPersonsRequest(team_id=team_id, person_ids=person_ids)
     )
@@ -228,7 +230,7 @@ def _fetch_persons_by_distinct_ids_via_personhog(team_id: int, distinct_ids: lis
         distinct_ids_by_person[pd.person_id] = [d.distinct_id for d in pd.distinct_ids]
 
     return [
-        proto_person_to_model(r.person, distinct_ids=distinct_ids_by_person.get(r.person.id, [])) for r in resp.results
+        proto_person_to_model(r.person, distinct_ids=distinct_ids_by_person.get(r.person.id, [])) for r in valid_results
     ]
 
 
