@@ -37,7 +37,7 @@ class TestHogQLAggregationUtils(BaseTest):
         """Test extracting aggregation function and inner expression."""
 
         # Test sum with arithmetic operation
-        aggregation, inner_expr, params = extract_aggregation_and_inner_expr(
+        aggregation, inner_expr, params, _ = extract_aggregation_and_inner_expr(
             "sum(properties.revenue - properties.expense)"
         )
         self.assertEqual(aggregation, "sum")
@@ -45,26 +45,26 @@ class TestHogQLAggregationUtils(BaseTest):
         self.assertIsNone(params)  # Non-parametric aggregation
 
         # Test avg with field
-        aggregation, inner_expr, params = extract_aggregation_and_inner_expr("avg(properties.price)")
+        aggregation, inner_expr, params, _ = extract_aggregation_and_inner_expr("avg(properties.price)")
         self.assertEqual(aggregation, "avg")
         self.assertIsInstance(inner_expr, ast.Field)
         self.assertIsNone(params)
 
         # Test count with no arguments
-        aggregation, inner_expr, params = extract_aggregation_and_inner_expr("count()")
+        aggregation, inner_expr, params, _ = extract_aggregation_and_inner_expr("count()")
         self.assertEqual(aggregation, "count")
         self.assertIsInstance(inner_expr, ast.Constant)
         self.assertEqual(inner_expr.value, 1)  # type: ignore[attr-defined]
         self.assertIsNone(params)
 
         # Test min with field
-        aggregation, inner_expr, params = extract_aggregation_and_inner_expr("min(properties.score)")
+        aggregation, inner_expr, params, _ = extract_aggregation_and_inner_expr("min(properties.score)")
         self.assertEqual(aggregation, "min")
         self.assertIsInstance(inner_expr, ast.Field)
         self.assertIsNone(params)
 
         # Test max with field
-        aggregation, inner_expr, params = extract_aggregation_and_inner_expr("max(properties.value)")
+        aggregation, inner_expr, params, _ = extract_aggregation_and_inner_expr("max(properties.value)")
         self.assertEqual(aggregation, "max")
         self.assertIsInstance(inner_expr, ast.Field)
         self.assertIsNone(params)
@@ -73,19 +73,19 @@ class TestHogQLAggregationUtils(BaseTest):
         """Test extracting from non-aggregation expressions."""
 
         # Test simple field
-        aggregation, inner_expr, params = extract_aggregation_and_inner_expr("properties.revenue")
+        aggregation, inner_expr, params, _ = extract_aggregation_and_inner_expr("properties.revenue")
         self.assertIsNone(aggregation)
         self.assertIsInstance(inner_expr, ast.Field)
         self.assertIsNone(params)
 
         # Test arithmetic operation
-        aggregation, inner_expr, params = extract_aggregation_and_inner_expr("1 + 2")
+        aggregation, inner_expr, params, _ = extract_aggregation_and_inner_expr("1 + 2")
         self.assertIsNone(aggregation)
         self.assertIsInstance(inner_expr, ast.ArithmeticOperation)
         self.assertIsNone(params)
 
         # Test function call that's not an aggregation
-        aggregation, inner_expr, params = extract_aggregation_and_inner_expr("toFloat(properties.value)")
+        aggregation, inner_expr, params, _ = extract_aggregation_and_inner_expr("toFloat(properties.value)")
         self.assertIsNone(aggregation)
         self.assertIsInstance(inner_expr, ast.Call)
         self.assertIsNone(params)
@@ -97,7 +97,7 @@ class TestHogQLAggregationUtils(BaseTest):
         expr = parse_expr("sum(properties.revenue)")
 
         # Extract from AST
-        aggregation, inner_expr, params = extract_aggregation_and_inner_expr(expr)
+        aggregation, inner_expr, params, _ = extract_aggregation_and_inner_expr(expr)
         self.assertEqual(aggregation, "sum")
         self.assertIsInstance(inner_expr, ast.Field)
         self.assertIsNone(params)
@@ -124,7 +124,7 @@ class TestHogQLAggregationUtils(BaseTest):
         """Test that parametric aggregations preserve their parameters."""
 
         # Test quantile with single parameter
-        agg, inner, params = extract_aggregation_and_inner_expr("quantile(0.90)(properties.margin)")
+        agg, inner, params, _ = extract_aggregation_and_inner_expr("quantile(0.90)(properties.margin)")
         self.assertEqual(agg, "quantile")
         self.assertIsInstance(inner, ast.Field)
         self.assertIsNotNone(params)
@@ -135,7 +135,7 @@ class TestHogQLAggregationUtils(BaseTest):
         self.assertEqual(params[0].value, 0.90)
 
         # Test quantile with different level
-        agg, inner, params = extract_aggregation_and_inner_expr("quantile(0.50)(properties.value)")
+        agg, inner, params, _ = extract_aggregation_and_inner_expr("quantile(0.50)(properties.value)")
         self.assertEqual(agg, "quantile")
         self.assertIsNotNone(params)
         assert params is not None  # for mypy
@@ -143,7 +143,7 @@ class TestHogQLAggregationUtils(BaseTest):
         self.assertEqual(params[0].value, 0.50)
 
         # Test non-parametric aggregation returns None for params
-        agg, inner, params = extract_aggregation_and_inner_expr("sum(properties.revenue)")
+        agg, inner, params, _ = extract_aggregation_and_inner_expr("sum(properties.revenue)")
         self.assertEqual(agg, "sum")
         self.assertIsNone(params)
 

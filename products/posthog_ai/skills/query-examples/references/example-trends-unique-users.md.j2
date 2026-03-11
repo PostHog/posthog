@@ -1,0 +1,5 @@
+# Trends (unique users, for specific 90 days)
+
+```sql
+{{ render_hogql_example({"kind": "TrendsQuery", "filterTestAccounts": false, "series": [{"kind": "EventsNode", "event": "chat with ai", "math": "dau"}], "dateRange": {"date_from": "-30d"}, "interval": "day"}) }}
+```

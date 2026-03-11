@@ -3,8 +3,9 @@ from typing import Optional
 
 from django.conf import settings
 
-import requests
 import structlog
+
+from posthog.security.outbound_proxy import external_requests
 
 logger = structlog.get_logger(__name__)
 
@@ -34,7 +35,7 @@ def is_site_url_reachable() -> bool:
         _site_reachable_checked_at = datetime.now()
 
         try:
-            response = requests.get(settings.SITE_URL, timeout=5)
+            response = external_requests.get(settings.SITE_URL, timeout=5)
             _site_reachable = response.status_code < 400
             _site_reachable_exception = (
                 None if _site_reachable else Exception(f"HTTP status code: {response.status_code}")

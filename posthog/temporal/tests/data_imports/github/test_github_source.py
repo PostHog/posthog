@@ -362,7 +362,7 @@ class TestIsIssueNotPr:
 
 class TestValidateCredentials:
     def test_valid_credentials(self):
-        with mock.patch("posthog.temporal.data_imports.sources.github.github.requests.get") as mock_get:
+        with mock.patch("posthog.temporal.data_imports.sources.github.github.external_requests.get") as mock_get:
             mock_get.return_value = mock.MagicMock(status_code=200)
             valid, error = validate_credentials("token", "owner/repo")
 
@@ -376,7 +376,7 @@ class TestValidateCredentials:
         ]
     )
     def test_error_status_codes(self, _name, status_code, expected_message):
-        with mock.patch("posthog.temporal.data_imports.sources.github.github.requests.get") as mock_get:
+        with mock.patch("posthog.temporal.data_imports.sources.github.github.external_requests.get") as mock_get:
             mock_get.return_value = mock.MagicMock(status_code=status_code)
             valid, error = validate_credentials("token", "owner/repo")
 
@@ -384,7 +384,7 @@ class TestValidateCredentials:
         assert error == expected_message
 
     def test_json_error_response(self):
-        with mock.patch("posthog.temporal.data_imports.sources.github.github.requests.get") as mock_get:
+        with mock.patch("posthog.temporal.data_imports.sources.github.github.external_requests.get") as mock_get:
             mock_response = mock.MagicMock(status_code=403)
             mock_response.json.return_value = {"message": "API rate limit exceeded"}
             mock_get.return_value = mock_response
@@ -394,7 +394,7 @@ class TestValidateCredentials:
         assert error == "API rate limit exceeded"
 
     def test_request_exception(self):
-        with mock.patch("posthog.temporal.data_imports.sources.github.github.requests.get") as mock_get:
+        with mock.patch("posthog.temporal.data_imports.sources.github.github.external_requests.get") as mock_get:
             mock_get.side_effect = requests.exceptions.ConnectionError("Connection refused")
             valid, error = validate_credentials("token", "owner/repo")
 
@@ -403,7 +403,7 @@ class TestValidateCredentials:
         assert "Connection refused" in error
 
     def test_sends_correct_headers(self):
-        with mock.patch("posthog.temporal.data_imports.sources.github.github.requests.get") as mock_get:
+        with mock.patch("posthog.temporal.data_imports.sources.github.github.external_requests.get") as mock_get:
             mock_get.return_value = mock.MagicMock(status_code=200)
             validate_credentials("my-token", "owner/repo")
 

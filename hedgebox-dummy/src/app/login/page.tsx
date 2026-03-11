@@ -1,12 +1,11 @@
 'use client'
 
-import Header from '@/components/Header'
-import { useAuth } from '@/lib/auth'
-
-
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
+
+import Header from '@/components/Header'
+import { useAuth } from '@/lib/auth'
 
 export default function LoginPage(): JSX.Element {
     const [formData, setFormData] = useState({

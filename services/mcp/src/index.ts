@@ -1,8 +1,8 @@
 import { MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED, getAuthorizationServerUrl } from '@/lib/constants'
 import { ErrorCode } from '@/lib/errors'
 import { RequestLogger, withLogging } from '@/lib/logging'
-import { matchAuthServerRedirect } from '@/lib/routing'
-import { hash } from '@/lib/utils'
+import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
+import { hash, sanitizeHeaderValue } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
 
 import { MCP, RequestProperties } from './mcp'
@@ -65,15 +65,30 @@ function getRegionFromRequest(request: Request): CloudRegion | null {
 }
 
 // Detect error codes and return appropriate responses
-const errorHandler = async (response: Response): Promise<Response> => {
+const onThenErrorHandler = async (response: Response): Promise<Response> => {
     if (!response.ok) {
         const body = await response.clone().text()
-        if (body.includes(ErrorCode.INACTIVE_OAUTH_TOKEN)) {
-            return new Response('OAuth token is inactive', { status: 401 })
+        const errorResponse = generateErrorResponse(body)
+        if (errorResponse) {
+            return errorResponse
         }
     }
 
     return response
+}
+
+const onCatchErrorHandler = async (error: Error): Promise<Response> => {
+    return generateErrorResponse(error.message) || new Response('Internal server error', { status: 500 })
+}
+
+const generateErrorResponse = (message: string): Response | null => {
+    if (message.includes(ErrorCode.INACTIVE_OAUTH_TOKEN)) {
+        return new Response('OAuth token is inactive', { status: 401 })
+    } else if (message.includes(ErrorCode.INVALID_API_KEY)) {
+        return new Response('Invalid API key', { status: 401 })
+    }
+
+    return null
 }
 
 const handleRequest = async (
@@ -91,6 +106,13 @@ const handleRequest = async (
         })
     }
 
+    // OpenAI ChatGPT App Directory domain verification
+    if (url.pathname === '/.well-known/openai-apps-challenge') {
+        return new Response('pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU', {
+            headers: { 'content-type': 'text/plain' },
+        })
+    }
+
     // Detect region from hostname (mcp-eu.posthog.com) or query param (?region=eu)
     // Hostname takes precedence as it's the workaround for Claude Code's OAuth bug
     const effectiveRegion = getRegionFromRequest(request)
@@ -104,8 +126,8 @@ const handleRequest = async (
     // See: https://github.com/anthropics/claude-code/issues/2267
     const redirect = matchAuthServerRedirect(url.pathname)
     if (redirect) {
-        const authServer = getAuthorizationServerUrl(effectiveRegion)
-        const redirectTo = `${authServer}${url.pathname}${url.search}`
+        const authServer = getAuthorizationServerUrl()
+        const redirectTo = buildRedirectUrl(authServer, url.pathname, url.search, redirect)
 
         log.extend({ redirectTo })
         return Response.redirect(redirectTo, redirect.status)
@@ -134,9 +156,9 @@ const handleRequest = async (
         resourceUrl.pathname = resourcePath
         resourceUrl.search = ''
 
-        // Determine authorization server based on hostname or region param.
-        // POSTHOG_API_BASE_URL takes precedence for self-hosted, otherwise routes to US/EU.
-        const authorizationServer = getAuthorizationServerUrl(effectiveRegion)
+        // Determine authorization server for OAuth.
+        // POSTHOG_API_BASE_URL takes precedence for self-hosted, otherwise routes to oauth.posthog.com.
+        const authorizationServer = getAuthorizationServerUrl()
 
         return new Response(
             JSON.stringify({
@@ -189,10 +211,22 @@ const handleRequest = async (
         )
     }
 
+    // Organization and project IDs can be provided via headers or query params.
+    // When set, they pin the MCP session to a specific org/project and remove the switch tools.
+    const organizationId =
+        request.headers.get('x-posthog-organization-id') || url.searchParams.get('organization_id') || undefined
+    const projectId = request.headers.get('x-posthog-project-id') || url.searchParams.get('project_id') || undefined
+
+    const rawUserAgent = request.headers.get('User-Agent') || undefined
+    const clientUserAgent = sanitizeHeaderValue(rawUserAgent)
+
     Object.assign(ctx.props, {
         apiToken: token,
         userHash: hash(token),
         sessionId: sessionId || undefined,
+        organizationId,
+        projectId,
+        clientUserAgent,
     })
 
     // Search params are used to build up the list of available tools. If no features are provided, all tools are available.
@@ -208,15 +242,22 @@ const handleRequest = async (
 
     const version = Number(request.headers.get('x-posthog-mcp-version') || url.searchParams.get('v')) || 1
 
-    Object.assign(ctx.props, { features, region: regionParam, version })
-    log.extend({ features, version })
+    const readOnlyRaw = request.headers.get('x-posthog-readonly') || url.searchParams.get('readonly')
+    const readOnly = readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined
 
+    const extraContextProps = { features, region: regionParam, version, readOnly }
+    Object.assign(ctx.props, extraContextProps)
+    log.extend(extraContextProps)
+
+    let server: Promise<Response> | null = null
     if (url.pathname.startsWith('/mcp')) {
-        return MCP.serve('/mcp').fetch(request, env, ctx).then(errorHandler)
+        server = MCP.serve('/mcp').fetch(request, env, ctx)
+    } else if (url.pathname.startsWith('/sse')) {
+        server = MCP.serveSSE('/sse').fetch(request, env, ctx)
     }
 
-    if (url.pathname.startsWith('/sse')) {
-        return MCP.serveSSE('/sse').fetch(request, env, ctx).then(errorHandler)
+    if (server !== null) {
+        return server.then(onThenErrorHandler).catch(onCatchErrorHandler)
     }
 
     log.extend({ error: 'route_not_found' })

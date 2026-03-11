@@ -10,12 +10,13 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { PlayerInspectorListItem } from './components/PlayerInspectorListItem'
-import { InspectorListItem, playerInspectorLogic } from './playerInspectorLogic'
+import { DisplayGroup, InspectorListItem, playerInspectorLogic } from './playerInspectorLogic'
 
 export const DEFAULT_INSPECTOR_ROW_HEIGHT = 40
 
 interface InspectorRowProps {
     items: InspectorListItem[]
+    displayGroups: DisplayGroup[]
     dynamicRowHeight: ReturnType<typeof useDynamicRowHeight>
 }
 
@@ -23,6 +24,7 @@ function InspectorRow({
     index,
     style,
     items,
+    displayGroups,
     dynamicRowHeight,
 }: {
     ariaAttributes: Record<string, unknown>
@@ -37,9 +39,20 @@ function InspectorRow({
         }
     }, [dynamicRowHeight])
 
+    const group = displayGroups[index]
+    const item = items[group.indices[0]]
+    const groupCount = group.indices.length > 1 ? group.indices.length : undefined
+    const groupedItems = group.indices.length > 1 ? group.indices.map((i) => items[i]) : undefined
+
     return (
         <div ref={rowRef} style={style} data-index={index}>
-            <PlayerInspectorListItem key={index} item={items[index]} index={index} />
+            <PlayerInspectorListItem
+                key={index}
+                item={item}
+                index={index}
+                groupCount={groupCount}
+                groupedItems={groupedItems}
+            />
         </div>
     )
 }
@@ -48,8 +61,15 @@ export function PlayerInspectorList(): JSX.Element {
     const { logicProps, snapshotsLoaded } = useValues(sessionRecordingPlayerLogic)
     const inspectorLogic = playerInspectorLogic(logicProps)
 
-    const { items, isLoading, isReady, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScrollPaused } =
-        useValues(inspectorLogic)
+    const {
+        displayGroups,
+        items,
+        isLoading,
+        isReady,
+        playbackIndicatorIndex,
+        playbackIndicatorIndexStop,
+        syncScrollPaused,
+    } = useValues(inspectorLogic)
     const { setSyncScrollPaused } = useActions(inspectorLogic)
 
     const dynamicRowHeight = useDynamicRowHeight({ defaultRowHeight: DEFAULT_INSPECTOR_ROW_HEIGHT })
@@ -88,7 +108,7 @@ export function PlayerInspectorList(): JSX.Element {
         <div className="flex flex-col bg-primary flex-1 overflow-hidden relative">
             {!snapshotsLoaded ? (
                 <div className="p-16 text-center text-secondary">Data will be shown once playback starts</div>
-            ) : items.length ? (
+            ) : displayGroups.length ? (
                 <div
                     className="absolute inset-0"
                     onMouseEnter={() => (mouseHoverRef.current = true)}
@@ -100,10 +120,10 @@ export function PlayerInspectorList(): JSX.Element {
                                 <List<InspectorRowProps>
                                     style={{ height, width }}
                                     overscanCount={20}
-                                    rowCount={items.length}
+                                    rowCount={displayGroups.length}
                                     rowHeight={dynamicRowHeight}
                                     rowComponent={InspectorRow}
-                                    rowProps={{ items, dynamicRowHeight }}
+                                    rowProps={{ items, displayGroups, dynamicRowHeight }}
                                     listRef={listRef}
                                     id="PlayerInspectorList"
                                     onScroll={handleScroll}

@@ -42,7 +42,23 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
 
         suppression_rule.save()
 
+        posthoganalytics.capture(
+            "error_tracking_suppression_rule_edited",
+            groups=groups(self.team.organization, self.team),
+        )
+
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
+
+    @override
+    def destroy(self, request, *args, **kwargs) -> Response:
+        response = super().destroy(request, *args, **kwargs)
+
+        posthoganalytics.capture(
+            "error_tracking_suppression_rule_deleted",
+            groups=groups(self.team.organization, self.team),
+        )
+
+        return response
 
     @override
     def create(self, request, *args, **kwargs) -> Response:

@@ -48,6 +48,11 @@ function moveConditionSet<T>(groups: T[], index: number, newIndex: number): T[] 
 export interface FeatureFlagReleaseConditionsLogicProps {
     filters: FeatureFlagFilters
     id?: string
+    /**
+     * When true, prevents blast radius API calls from being made.
+     * Use this for readonly displays where live calculations aren't needed.
+     * @see calculateBlastRadius listener which checks this prop
+     */
     readOnly?: boolean
     onChange?: (filters: FeatureFlagFilters, errors: any) => void
     nonEmptyFeatureFlagVariants?: MultivariateFlagVariant[]
@@ -62,7 +67,7 @@ function ensureSortKeys(
 ): FeatureFlagFilters & { groups: FeatureFlagGroupTypeWithSortKey[] } {
     return {
         ...filters,
-        groups: filters.groups.map((group: FeatureFlagGroupType) => ({
+        groups: (filters.groups ?? []).map((group: FeatureFlagGroupType) => ({
             ...group,
             sort_key: group.sort_key ?? uuidv4(),
         })),
@@ -116,7 +121,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         filters: {
             setFilters: (state, { filters }) => {
                 // Preserve sort_keys from previous state when possible
-                const groupsWithKeys = filters.groups.map(
+                const groupsWithKeys = (filters.groups ?? []).map(
                     (group: FeatureFlagGroupType, index: number): FeatureFlagGroupTypeWithSortKey => {
                         if (group.sort_key) {
                             return group as FeatureFlagGroupTypeWithSortKey
@@ -605,7 +610,11 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         ],
     }),
     propsChanged(({ props, values, actions }) => {
-        if (!objectsEqual(props.filters, values.filters)) {
+        // Compare only the fields that affect release conditions and blast radius,
+        // excluding payloads which don't affect targeting
+        const { payloads: _newPayloads, ...newRelevant } = props.filters
+        const { payloads: _oldPayloads, ...oldRelevant } = values.filters
+        if (!objectsEqual(newRelevant, oldRelevant)) {
             actions.setFilters(props.filters)
         }
     }),

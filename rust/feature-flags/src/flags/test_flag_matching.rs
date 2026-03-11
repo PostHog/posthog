@@ -203,6 +203,7 @@ mod tests {
 
         let flags = FeatureFlagList {
             flags: vec![flag.clone()],
+            ..Default::default()
         };
         let result = matcher
             .evaluate_all_feature_flags(
@@ -214,11 +215,211 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await
+            .unwrap();
         assert!(!result.errors_while_computing_flags);
         assert_eq!(
             result.flags.get("test_flag").unwrap().to_value(),
             FlagValue::Boolean(true)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_person_only_flags_succeed_without_group_type_mappings() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            None,
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "email".to_string(),
+                        value: Some(json!("test@example.com")),
+                        operator: None,
+                        prop_type: PropertyType::Person,
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        // No group type mappings initialized — this should not cause an error
+        // for person-only flags
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache,
+            None,
+            None,
+        );
+
+        let flags = FeatureFlagList {
+            flags: vec![flag.clone()],
+            ..Default::default()
+        };
+        let result = matcher
+            .evaluate_all_feature_flags(
+                flags,
+                Some(HashMap::from([(
+                    "email".to_string(),
+                    json!("test@example.com"),
+                )])),
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+        assert!(
+            !result.errors_while_computing_flags,
+            "Person-only flag evaluation should not error when group type mappings are uninitialized"
+        );
+        assert_eq!(
+            result.flags.get("test_flag").unwrap().to_value(),
+            FlagValue::Boolean(true)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_mixed_person_and_group_flags_succeed_without_group_type_mappings() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let person_flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            Some("person_flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "email".to_string(),
+                        value: Some(json!("test@example.com")),
+                        operator: None,
+                        prop_type: PropertyType::Person,
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let group_flag = create_test_flag(
+            Some(2),
+            Some(team.id),
+            None,
+            Some("group_flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "name".to_string(),
+                        value: Some(json!("Acme")),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: PropertyType::Group,
+                        group_type_index: Some(0),
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: Some(0),
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        // No group type mappings initialized — person flags in a mixed batch
+        // should still evaluate successfully
+        let groups = HashMap::from([("project".to_string(), json!("proj-1"))]);
+
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache,
+            None,
+            Some(groups),
+        );
+
+        let flags = FeatureFlagList {
+            flags: vec![person_flag.clone(), group_flag.clone()],
+            ..Default::default()
+        };
+        let result = matcher
+            .evaluate_all_feature_flags(
+                flags,
+                Some(HashMap::from([(
+                    "email".to_string(),
+                    json!("test@example.com"),
+                )])),
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+
+        assert!(
+            !result.errors_while_computing_flags,
+            "Missing group type mappings should not cause errors for person flags in a mixed batch"
+        );
+        assert_eq!(
+            result.flags.get("person_flag").unwrap().to_value(),
+            FlagValue::Boolean(true),
+        );
+        // Group flag evaluates with empty group properties, so it won't match
+        assert_eq!(
+            result.flags.get("group_flag").unwrap().to_value(),
+            FlagValue::Boolean(false),
         );
     }
 
@@ -293,6 +494,7 @@ mod tests {
 
         let flags = FeatureFlagList {
             flags: vec![flag.clone()],
+            ..Default::default()
         };
         let result = matcher
             .evaluate_all_feature_flags(
@@ -304,7 +506,8 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await
+            .unwrap();
 
         let legacy_response = LegacyFlagsResponse::from_response(result);
         assert!(!legacy_response.errors_while_computing_flags);
@@ -381,6 +584,7 @@ mod tests {
                 leaf_flag.clone(),
                 parent_flag.clone(),
             ],
+            ..Default::default()
         };
 
         {
@@ -395,7 +599,8 @@ mod tests {
                     None,
                     false,
                 )
-                .await;
+                .await
+                .unwrap();
             assert!(!result.errors_while_computing_flags);
             assert_eq!(
                 result.flags.get("independent_flag").unwrap().to_value(),
@@ -426,7 +631,8 @@ mod tests {
                     None,
                     false,
                 )
-                .await;
+                .await
+                .unwrap();
             assert!(!result.errors_while_computing_flags);
             assert_eq!(
                 result.flags.get("independent_flag").unwrap().to_value(),
@@ -543,6 +749,7 @@ mod tests {
         );
         let flags = FeatureFlagList {
             flags: vec![leaf_flag.clone(), parent_flag.clone()],
+            ..Default::default()
         };
 
         {
@@ -557,7 +764,8 @@ mod tests {
                     None,
                     false,
                 )
-                .await;
+                .await
+                .unwrap();
             assert!(!result.errors_while_computing_flags);
             assert_eq!(
                 result.flags.get("leaf_flag").unwrap().to_value(),
@@ -580,7 +788,8 @@ mod tests {
                     None,
                     false,
                 )
-                .await;
+                .await
+                .unwrap();
             assert!(!result.errors_while_computing_flags);
             assert_eq!(
                 result.flags.get("leaf_flag").unwrap().to_value(),
@@ -603,7 +812,8 @@ mod tests {
                     None,
                     false,
                 )
-                .await;
+                .await
+                .unwrap();
             assert!(!result.errors_while_computing_flags);
             assert_eq!(
                 result.flags.get("leaf_flag").unwrap().to_value(),
@@ -708,6 +918,7 @@ mod tests {
                 intermediate_flag.clone(),
                 parent_flag.clone(),
             ],
+            ..Default::default()
         };
 
         reset_fetch_calls_count();
@@ -722,7 +933,8 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await
+            .unwrap();
         // Add this assertion to check the call count
         let fetch_calls = get_fetch_calls_count();
         assert_eq!(fetch_calls, 1, "Expected fetch_and_locally_cache_all_relevant_properties to be called exactly 1 time, but it was called {fetch_calls} times");
@@ -843,6 +1055,7 @@ mod tests {
                 parent_flag.clone(),
                 missing_dependency_flag.clone(),
             ],
+            ..Default::default()
         };
 
         {
@@ -858,7 +1071,8 @@ mod tests {
                     None,
                     false,
                 )
-                .await;
+                .await
+                .unwrap();
             // Cycle errors still cause errors_while_computing_flags to be true
             assert!(result.errors_while_computing_flags);
             assert_eq!(
@@ -894,7 +1108,8 @@ mod tests {
                     None,
                     false,
                 )
-                .await;
+                .await
+                .unwrap();
             // Cycle errors still cause errors_while_computing_flags to be true
             assert!(result.errors_while_computing_flags);
             assert_eq!(
@@ -1006,6 +1221,7 @@ mod tests {
         );
         let flags = FeatureFlagList {
             flags: vec![leaf_flag.clone(), parent_flag.clone()],
+            ..Default::default()
         };
 
         {
@@ -1021,7 +1237,8 @@ mod tests {
                     None,
                     false,
                 )
-                .await;
+                .await
+                .unwrap();
             assert!(!result.errors_while_computing_flags);
             assert_eq!(
                 result.flags.get("leaf_flag").unwrap().to_value(),
@@ -1045,7 +1262,8 @@ mod tests {
                     None,
                     false,
                 )
-                .await;
+                .await
+                .unwrap();
             assert!(!result.errors_while_computing_flags);
             assert_eq!(
                 result.flags.get("leaf_flag").unwrap().to_value(),
@@ -1068,7 +1286,8 @@ mod tests {
                     None,
                     false,
                 )
-                .await;
+                .await
+                .unwrap();
             assert!(!result.errors_while_computing_flags);
             assert_eq!(
                 result.flags.get("leaf_flag").unwrap().to_value(),
@@ -1366,6 +1585,7 @@ mod tests {
             .evaluate_all_feature_flags(
                 FeatureFlagList {
                     flags: vec![flag.clone()],
+                    ..Default::default()
                 },
                 Some(person_property_overrides),
                 None,
@@ -1374,7 +1594,8 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await
+            .unwrap();
 
         let fetch_calls = get_fetch_calls_count();
         assert_eq!(
@@ -3540,6 +3761,7 @@ mod tests {
 
         let flags = FeatureFlagList {
             flags: vec![flag.clone()],
+            ..Default::default()
         };
 
         let router = context.create_postgres_router();
@@ -3561,7 +3783,8 @@ mod tests {
             None,
             false,
         )
-        .await;
+        .await
+        .unwrap();
 
         let legacy_response = LegacyFlagsResponse::from_response(result);
         assert!(
@@ -3633,6 +3856,7 @@ mod tests {
 
         let flags = FeatureFlagList {
             flags: vec![flag.clone()],
+            ..Default::default()
         };
 
         let router = context.create_postgres_router();
@@ -3646,7 +3870,8 @@ mod tests {
             None,
         )
         .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4(), None, false)
-        .await;
+        .await
+        .unwrap();
 
         assert!(result.flags.get("flag_continuity_missing").unwrap().enabled);
 
@@ -3761,6 +3986,7 @@ mod tests {
 
         let flags = FeatureFlagList {
             flags: vec![flag_continuity.clone(), flag_no_continuity.clone()],
+            ..Default::default()
         };
 
         let router = context.create_postgres_router();
@@ -3782,7 +4008,8 @@ mod tests {
             None,
             false,
         )
-        .await;
+        .await
+        .unwrap();
 
         let legacy_response = LegacyFlagsResponse::from_response(result);
         assert!(
@@ -4463,6 +4690,7 @@ mod tests {
             .evaluate_all_feature_flags(
                 FeatureFlagList {
                     flags: vec![flag.clone()],
+                    ..Default::default()
                 },
                 Some(person_property_overrides),
                 None,
@@ -4471,7 +4699,8 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await
+            .unwrap();
 
         // Should succeed because we have overrides
         assert!(!result.errors_while_computing_flags);
@@ -4983,7 +5212,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_device_id_bucketing_falls_back_to_distinct_id_when_missing_device() {
+    async fn test_device_id_bucketing_returns_false_when_missing_device() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
             context.non_persons_reader.clone(),
@@ -4993,8 +5222,7 @@ mod tests {
         let team = context.insert_new_team(None).await.unwrap();
         let flag = build_device_bucketing_flag(team.id);
 
-        // Without a device_id, the matcher should fall back to the distinct_id hash.
-        // distinct-foo hashes to ~0.32 (< 0.5) so it should match.
+        // Without a device_id, the flag should evaluate to false (no distinct_id fallback).
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "distinct-foo".to_string(),
@@ -5009,17 +5237,17 @@ mod tests {
             .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
-        let match_from_distinct = matcher.get_match(&flag, None, None, &None).unwrap();
+        let match_without_device = matcher.get_match(&flag, None, None, &None).unwrap();
         assert!(
-            match_from_distinct.matches,
-            "fallback distinct hash should fall inside rollout"
+            !match_without_device.matches,
+            "missing device_id should always evaluate to false for device_id bucketing"
         );
 
-        // distinct-high hashes to ~0.94 (> 0.5) so it should not match.
+        // Empty string device_id should also evaluate to false.
         let router = context.create_postgres_router();
         let mut matcher_high = FeatureFlagMatcher::new(
             "distinct-high".to_string(),
-            None,
+            Some(String::new()),
             team.id,
             router,
             cohort_cache,
@@ -5033,7 +5261,7 @@ mod tests {
         let high_distinct_result = matcher_high.get_match(&flag, None, None, &None).unwrap();
         assert!(
             !high_distinct_result.matches,
-            "fallback distinct hash should fall outside rollout"
+            "empty device_id should evaluate to false for device_id bucketing"
         );
     }
 
@@ -5205,6 +5433,7 @@ mod tests {
 
         let flags = FeatureFlagList {
             flags: vec![flag.clone()],
+            ..Default::default()
         };
         reset_fetch_calls_count();
 
@@ -5218,7 +5447,8 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await
+            .unwrap();
 
         let fetch_calls = get_fetch_calls_count();
         assert_eq!(
@@ -5259,7 +5489,8 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await
+            .unwrap();
 
         assert!(!result2.errors_while_computing_flags);
         let flag_result2 = result2.flags.get(&flag.key).unwrap();
@@ -5294,7 +5525,8 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await
+            .unwrap();
 
         assert!(!result3.errors_while_computing_flags);
         let flag_result3 = result3.flags.get(&flag.key).unwrap();
@@ -5331,7 +5563,8 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await
+            .unwrap();
 
         assert!(!result4.errors_while_computing_flags);
         let flag_result4 = result4.flags.get(&flag.key).unwrap();
@@ -5477,6 +5710,7 @@ mod tests {
 
         let flags = FeatureFlagList {
             flags: vec![flag.clone()],
+            ..Default::default()
         };
 
         let result = matcher
@@ -5489,7 +5723,8 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await
+            .unwrap();
 
         assert!(!result.errors_while_computing_flags);
         // The flag should evaluate using DB properties for condition 1 (which has feature_access="full")
@@ -5530,7 +5765,8 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await
+            .unwrap();
 
         assert!(!result2.errors_while_computing_flags);
         let flag_result2 = result2.flags.get(&flag.key).unwrap();
@@ -5571,7 +5807,8 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await
+            .unwrap();
 
         assert!(!result3.errors_while_computing_flags);
         let flag_result3 = result3.flags.get(&flag.key).unwrap();
@@ -5608,7 +5845,8 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await
+            .unwrap();
 
         assert!(!result4.errors_while_computing_flags);
         let flag_result4 = result4.flags.get(&flag.key).unwrap();
@@ -5649,7 +5887,8 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await
+            .unwrap();
 
         assert!(!result5.errors_while_computing_flags);
         let flag_result5 = result5.flags.get(&flag.key).unwrap();
@@ -5844,6 +6083,7 @@ mod tests {
 
         let flags = FeatureFlagList {
             flags: vec![flag_with_continuity, flag_without_continuity],
+            ..Default::default()
         };
 
         // Build dependency graph for the flags
@@ -5867,7 +6107,8 @@ mod tests {
                 graph_result.graph,
                 graph_result.flags_with_missing_deps,
             )
-            .await;
+            .await
+            .unwrap();
 
         // Should have errors_while_computing_flags set to true
         assert!(
@@ -5901,8 +6142,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_disabled_flag_evaluates_to_false() {
+    async fn test_filtered_out_flag_with_experience_continuity_excluded_from_hash_key_error_response(
+    ) {
         let context = TestContext::new(None).await;
+        let router = context.create_postgres_router();
         let cohort_cache = Arc::new(CohortCacheManager::new(
             context.non_persons_reader.clone(),
             None,
@@ -5914,50 +6157,80 @@ mod tests {
             .await
             .expect("Failed to insert team in pg");
 
-        let flag: FeatureFlag = serde_json::from_value(json!(
-            {
-                "id": 1,
-                "team_id": team.id,
-                "name": "disabled_flag",
-                "key": "disabled_flag",
-                "active": false,
-                "filters": {
-                    "groups": [
-                        {
-                            "properties": [],
-                            "rollout_percentage": 100
-                        }
-                    ]
-                }
-            }
-        ))
-        .unwrap();
+        let distinct_id = "user_distinct_id".to_string();
+        let mut matcher =
+            FeatureFlagMatcher::new(distinct_id, None, team.id, router, cohort_cache, None, None);
 
-        let router = context.create_postgres_router();
-        let matcher = FeatureFlagMatcher::new(
-            "test_user".to_string(),
+        // A filtered-out flag with experience continuity should not trigger
+        // hash-key-override error handling or appear in the response.
+        let filtered_continuity_flag = create_test_flag(
+            Some(1),
+            Some(team.id),
+            Some("Filtered Continuity".to_string()),
+            Some("filtered-continuity".to_string()),
             None,
-            team.id,
-            router,
-            cohort_cache,
-            None,
-            None,
+            Some(false),
+            Some(true),
+            Some(true), // ensure_experience_continuity
         );
 
-        let match_result = matcher.get_match(&flag, None, None, &None).unwrap();
-        assert!(!match_result.matches, "Disabled flag should not match");
-        assert_eq!(
-            match_result.reason,
-            FeatureFlagMatchReason::FlagDisabled,
-            "Reason should be FlagDisabled"
+        let active_normal_flag = create_test_flag(
+            Some(2),
+            Some(team.id),
+            Some("Active Normal".to_string()),
+            Some("active-normal".to_string()),
+            None,
+            Some(false),
+            Some(true),
+            Some(false),
         );
-        assert_eq!(
-            match_result.variant, None,
-            "Disabled flag should have no variant"
+
+        // Flag 1 is filtered out by runtime/tag filtering
+        let filtered_out = std::collections::HashSet::from([1]);
+
+        let flags = FeatureFlagList {
+            flags: vec![filtered_continuity_flag, active_normal_flag],
+            filtered_out_flag_ids: filtered_out.clone(),
+        };
+
+        let graph_result =
+            build_dependency_graph(&flags, team.id).expect("Should build dependency graph");
+
+        // Simulate a hash-key-override read failure
+        let overrides = crate::flags::flag_matching::FlagEvaluationOverrides {
+            person_property_overrides: None,
+            group_property_overrides: None,
+            hash_key_overrides: None,
+            hash_key_override_error: true,
+            request_hash_key_override: None,
+        };
+
+        matcher.filtered_out_flag_ids = filtered_out;
+
+        let response = matcher
+            .evaluate_flags_with_overrides(
+                overrides,
+                Uuid::new_v4(),
+                graph_result.graph,
+                graph_result.flags_with_missing_deps,
+            )
+            .await
+            .unwrap();
+
+        // The filtered-out continuity flag must not appear with a hash_key_override_error
+        assert!(
+            !response.flags.contains_key("filtered-continuity"),
+            "Filtered-out flag should not appear in the response at all"
         );
-        assert_eq!(
-            match_result.condition_index, None,
-            "Disabled flag should have no condition index"
+
+        // The active non-continuity flag should be evaluated normally
+        let active_response = response
+            .flags
+            .get("active-normal")
+            .expect("Active flag should be present");
+        assert_ne!(
+            active_response.reason.code, "hash_key_override_error",
+            "Active flag without continuity should not have hash override error"
         );
     }
 
@@ -6008,6 +6281,7 @@ mod tests {
 
         let flags = FeatureFlagList {
             flags: vec![base_flag, dependent_flag],
+            ..Default::default()
         };
 
         // Build dependency graph for the flags
@@ -6025,6 +6299,9 @@ mod tests {
             None,
         );
 
+        // The base flag is user-disabled (active=false in DB), so it's in the filter set
+        matcher.filtered_out_flag_ids = std::collections::HashSet::from([1]);
+
         let result = matcher
             .evaluate_flags_with_overrides(
                 Default::default(),
@@ -6032,9 +6309,10 @@ mod tests {
                 graph_result.graph,
                 graph_result.flags_with_missing_deps,
             )
-            .await;
+            .await
+            .unwrap();
 
-        // Disabled base flag should NOT be in the response (only active flags are returned)
+        // Disabled base flag should NOT be in the response (filtered out)
         assert!(
             !result.flags.contains_key("base_flag"),
             "Disabled flags should not be included in the response"
@@ -6051,6 +6329,198 @@ mod tests {
         assert_ne!(
             dependent_result.reason.code, "flag_disabled",
             "Dependent flag should not have flag_disabled reason (it's not disabled, its dependency is)"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_filtered_out_flag_satisfies_evaluates_to_false_dependency() {
+        use crate::utils::test_utils::create_test_flag_that_depends_on_flag;
+
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team in pg");
+
+        // Flag A: active in DB, but will be filtered out by runtime/tags
+        let flag_a: FeatureFlag = serde_json::from_value(json!(
+            {
+                "id": 1,
+                "team_id": team.id,
+                "name": "flag_a",
+                "key": "flag_a",
+                "active": true,
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [],
+                            "rollout_percentage": 100
+                        }
+                    ]
+                }
+            }
+        ))
+        .unwrap();
+
+        // Flag B depends on flag A with flag_evaluates_to=false.
+        // Since A is filtered out (conceptually false), B's dependency should be satisfied.
+        let flag_b = create_test_flag_that_depends_on_flag(
+            2,
+            team.id,
+            "flag_b",
+            1, // depends on flag id 1
+            FlagValue::Boolean(false),
+        );
+
+        // Flag A is filtered out by runtime/tag filtering
+        let filtered_out = std::collections::HashSet::from([1]);
+
+        let flags = FeatureFlagList {
+            flags: vec![flag_a, flag_b],
+            filtered_out_flag_ids: filtered_out.clone(),
+        };
+
+        let graph_result =
+            build_dependency_graph(&flags, team.id).expect("Should build dependency graph");
+
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache,
+            None,
+            None,
+        );
+        matcher.filtered_out_flag_ids = filtered_out;
+
+        let result = matcher
+            .evaluate_flags_with_overrides(
+                Default::default(),
+                Uuid::new_v4(),
+                graph_result.graph,
+                graph_result.flags_with_missing_deps,
+            )
+            .await
+            .unwrap();
+
+        // Filtered-out flag A should not appear in the response
+        assert!(
+            !result.flags.contains_key("flag_a"),
+            "Filtered-out flag should not appear in the response"
+        );
+
+        // Flag B should be enabled because its dependency (A evaluates to false) is satisfied
+        let flag_b_result = result
+            .flags
+            .get("flag_b")
+            .expect("Flag B should be in the response");
+        assert!(
+            flag_b_result.enabled,
+            "Flag B should be enabled because filtered-out flag A is treated as false"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_filtered_out_flag_fails_evaluates_to_true_dependency() {
+        use crate::utils::test_utils::create_test_flag_that_depends_on_flag;
+
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team in pg");
+
+        // Flag A: active in DB, but will be filtered out by runtime/tags
+        let flag_a: FeatureFlag = serde_json::from_value(json!(
+            {
+                "id": 1,
+                "team_id": team.id,
+                "name": "flag_a",
+                "key": "flag_a",
+                "active": true,
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [],
+                            "rollout_percentage": 100
+                        }
+                    ]
+                }
+            }
+        ))
+        .unwrap();
+
+        // Flag B depends on flag A with flag_evaluates_to=true.
+        // Since A is filtered out (pre-seeded as false), B's dependency should NOT be satisfied.
+        let flag_b = create_test_flag_that_depends_on_flag(
+            2,
+            team.id,
+            "flag_b",
+            1, // depends on flag id 1
+            FlagValue::Boolean(true),
+        );
+
+        // Flag A is filtered out by runtime/tag filtering
+        let filtered_out = std::collections::HashSet::from([1]);
+
+        let flags = FeatureFlagList {
+            flags: vec![flag_a, flag_b],
+            filtered_out_flag_ids: filtered_out.clone(),
+        };
+
+        let graph_result =
+            build_dependency_graph(&flags, team.id).expect("Should build dependency graph");
+
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache,
+            None,
+            None,
+        );
+        matcher.filtered_out_flag_ids = filtered_out;
+
+        let result = matcher
+            .evaluate_flags_with_overrides(
+                Default::default(),
+                Uuid::new_v4(),
+                graph_result.graph,
+                graph_result.flags_with_missing_deps,
+            )
+            .await
+            .unwrap();
+
+        // Filtered-out flag A should not appear in the response
+        assert!(
+            !result.flags.contains_key("flag_a"),
+            "Filtered-out flag should not appear in the response"
+        );
+
+        // Flag B should be disabled because its dependency (A evaluates to true) is NOT satisfied
+        let flag_b_result = result
+            .flags
+            .get("flag_b")
+            .expect("Flag B should be in the response");
+        assert!(
+            !flag_b_result.enabled,
+            "Flag B should be disabled because filtered-out flag A is treated as false, not true"
         );
     }
 
@@ -6110,6 +6580,7 @@ mod tests {
 
         let flags = FeatureFlagList {
             flags: vec![disabled_standalone, active_flag],
+            ..Default::default()
         };
 
         let graph_result =
@@ -6126,6 +6597,9 @@ mod tests {
             None,
         );
 
+        // The standalone flag is user-disabled (active=false in DB), so it's in the filter set
+        matcher.filtered_out_flag_ids = std::collections::HashSet::from([1]);
+
         let result = matcher
             .evaluate_flags_with_overrides(
                 Default::default(),
@@ -6133,7 +6607,8 @@ mod tests {
                 graph_result.graph,
                 graph_result.flags_with_missing_deps,
             )
-            .await;
+            .await
+            .unwrap();
 
         // Disabled standalone flag should NOT be in the response
         assert!(
@@ -6144,6 +6619,104 @@ mod tests {
         // Active flag should be in the response
         let active_result = result.flags.get("active_flag").unwrap();
         assert!(active_result.enabled, "Active flag should be enabled");
+    }
+
+    #[tokio::test]
+    async fn test_multi_level_dependency_with_filtered_out_intermediate() {
+        use crate::utils::test_utils::create_test_flag_that_depends_on_flag;
+
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team in pg");
+
+        // Three flags: C depends on B, B depends on A, and B is filtered out.
+        // A is active and evaluates to true. B is filtered out (pre-seeded as false).
+        // C depends on B with evaluates_to=false, so C should be enabled.
+        let flag_a: FeatureFlag = serde_json::from_value(json!({
+            "id": 1,
+            "team_id": team.id,
+            "name": "flag_a",
+            "key": "flag_a",
+            "active": true,
+            "filters": {
+                "groups": [{"properties": [], "rollout_percentage": 100}]
+            }
+        }))
+        .unwrap();
+
+        let flag_b = create_test_flag_that_depends_on_flag(
+            2,
+            team.id,
+            "flag_b",
+            1, // depends on A
+            FlagValue::Boolean(true),
+        );
+
+        let flag_c = create_test_flag_that_depends_on_flag(
+            3,
+            team.id,
+            "flag_c",
+            2,                         // depends on B
+            FlagValue::Boolean(false), // expects B to be false
+        );
+
+        // B is filtered out by runtime filtering
+        let filtered_out = std::collections::HashSet::from([2]);
+
+        let flags = FeatureFlagList {
+            flags: vec![flag_a, flag_b, flag_c],
+            filtered_out_flag_ids: filtered_out.clone(),
+        };
+
+        let graph_result =
+            build_dependency_graph(&flags, team.id).expect("Should build dependency graph");
+
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache,
+            None,
+            None,
+        );
+        matcher.filtered_out_flag_ids = filtered_out;
+
+        let result = matcher
+            .evaluate_flags_with_overrides(
+                Default::default(),
+                Uuid::new_v4(),
+                graph_result.graph,
+                graph_result.flags_with_missing_deps,
+            )
+            .await
+            .unwrap();
+
+        // A should be evaluated normally
+        let flag_a_result = result.flags.get("flag_a").unwrap();
+        assert!(flag_a_result.enabled, "Flag A should be enabled");
+
+        // B is filtered out, should not appear
+        assert!(
+            !result.flags.contains_key("flag_b"),
+            "Filtered-out flag B should not appear in the response"
+        );
+
+        // C depends on B (evaluates_to=false). B is pre-seeded as false, so C's dependency is satisfied.
+        let flag_c_result = result.flags.get("flag_c").unwrap();
+        assert!(
+            flag_c_result.enabled,
+            "Flag C should be enabled because filtered-out B is treated as false"
+        );
     }
 
     // ======== Integration tests for experience continuity optimization ========
@@ -6194,6 +6767,7 @@ mod tests {
 
         let flags = FeatureFlagList {
             flags: vec![flag.clone()],
+            ..Default::default()
         };
 
         // Reset counter before the test
@@ -6218,7 +6792,8 @@ mod tests {
             None,
             true, // optimization enabled
         )
-        .await;
+        .await
+        .unwrap();
 
         // Verify the optimization actually skipped the hash key override lookup
         let lookup_count = get_hash_key_override_lookup_count();
@@ -6284,6 +6859,7 @@ mod tests {
 
         let flags = FeatureFlagList {
             flags: vec![flag.clone()],
+            ..Default::default()
         };
 
         // Reset counter before the test
@@ -6308,7 +6884,8 @@ mod tests {
             None,
             true, // optimization enabled
         )
-        .await;
+        .await
+        .unwrap();
 
         // Verify the lookup DID happen for partial rollout (optimization doesn't skip it)
         let lookup_count = get_hash_key_override_lookup_count();
@@ -6387,6 +6964,7 @@ mod tests {
 
         let flags = FeatureFlagList {
             flags: vec![flag.clone()],
+            ..Default::default()
         };
 
         // Reset counter before the test
@@ -6411,7 +6989,8 @@ mod tests {
             None,
             true, // optimization enabled
         )
-        .await;
+        .await
+        .unwrap();
 
         // Verify the lookup DID happen for multivariate (optimization doesn't skip it)
         let lookup_count = get_hash_key_override_lookup_count();
@@ -6495,6 +7074,7 @@ mod tests {
 
         let flags = FeatureFlagList {
             flags: vec![flag.clone()],
+            ..Default::default()
         };
 
         // Reset counter before the test
@@ -6519,7 +7099,8 @@ mod tests {
             None,
             true, // optimization enabled
         )
-        .await;
+        .await
+        .unwrap();
 
         // Verify the optimization skipped the lookup (100% variant = no hashing needed)
         let lookup_count = get_hash_key_override_lookup_count();
@@ -6590,6 +7171,7 @@ mod tests {
 
         let flags = FeatureFlagList {
             flags: vec![flag.clone()],
+            ..Default::default()
         };
 
         let router = context.create_postgres_router();
@@ -6611,7 +7193,8 @@ mod tests {
             None,
             false, // optimization disabled (legacy behavior)
         )
-        .await;
+        .await
+        .unwrap();
 
         // Flag should still evaluate correctly in legacy mode
         assert!(
@@ -6719,6 +7302,7 @@ mod tests {
                 flag_needs_lookup.clone(),
                 flag_no_continuity.clone(),
             ],
+            ..Default::default()
         };
 
         // Reset counter before the test
@@ -6743,7 +7327,8 @@ mod tests {
             None,
             true, // optimization enabled
         )
-        .await;
+        .await
+        .unwrap();
 
         // Verify the lookup DID happen because flag_needs_lookup requires it.
         // Even though flag_optimizable could be optimized, the presence of
@@ -6855,6 +7440,7 @@ mod tests {
 
         let flags = FeatureFlagList {
             flags: vec![flag_optimizable.clone(), flag_needs_lookup.clone()],
+            ..Default::default()
         };
 
         // Reset counter before the test
@@ -6879,7 +7465,8 @@ mod tests {
             Some(vec!["flag_optimizable".to_string()]), // Only request the optimizable flag
             true,                                       // optimization enabled
         )
-        .await;
+        .await
+        .unwrap();
 
         // Verify the lookup was SKIPPED because we only requested flag_optimizable,
         // which is 100% rollout and doesn't need the hash key override lookup.
@@ -6997,6 +7584,7 @@ mod tests {
 
         let flags = FeatureFlagList {
             flags: vec![flag_needs_lookup.clone(), flag_depends_on_b.clone()],
+            ..Default::default()
         };
 
         // Reset counter before the test
@@ -7021,7 +7609,8 @@ mod tests {
             Some(vec!["flag_depends_on_b".to_string()]), // Only request the dependent flag
             true,                                        // optimization enabled
         )
-        .await;
+        .await
+        .unwrap();
 
         // The lookup SHOULD happen because flag_needs_lookup (a dependency) requires it,
         // even though flag_depends_on_b itself wouldn't need it (100% rollout).
@@ -7098,6 +7687,7 @@ mod tests {
             HashMap::from([("$feature_enrollment/my-flag".to_string(), json!("true"))]);
         let flags = FeatureFlagList {
             flags: vec![flag.clone()],
+            ..Default::default()
         };
 
         reset_fetch_calls_count();
@@ -7121,7 +7711,8 @@ mod tests {
             None,
             false,
         )
-        .await;
+        .await
+        .unwrap();
 
         // Verify no DB fetch was needed since all required properties are in overrides
         let fetch_calls = get_fetch_calls_count();
@@ -7210,6 +7801,7 @@ mod tests {
 
         let flags = FeatureFlagList {
             flags: vec![flag.clone()],
+            ..Default::default()
         };
         let router = context.create_postgres_router();
         let result = FeatureFlagMatcher::new(
@@ -7230,7 +7822,8 @@ mod tests {
             None,
             false,
         )
-        .await;
+        .await
+        .unwrap();
 
         assert!(
             !result.errors_while_computing_flags,
@@ -7311,6 +7904,7 @@ mod tests {
 
         let flags = FeatureFlagList {
             flags: vec![flag.clone()],
+            ..Default::default()
         };
 
         let router = context.create_postgres_router();
@@ -7332,7 +7926,8 @@ mod tests {
             None,
             false,
         )
-        .await;
+        .await
+        .unwrap();
 
         assert!(
             !result.errors_while_computing_flags,
@@ -7349,5 +7944,157 @@ mod tests {
             FeatureFlagMatchReason::SuperConditionValue.to_string(),
             "Match reason should be SuperConditionValue"
         );
+    }
+
+    #[tokio::test]
+    async fn test_paired_group_identifiers_avoid_cartesian_product() {
+        use crate::utils::test_utils::create_group_in_pg;
+
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        // Flag targeting "project" (group type index 0)
+        let project_flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            None,
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "name".to_string(),
+                        value: Some(json!("Acme")),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: PropertyType::Group,
+                        group_type_index: Some(0),
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: Some(0),
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        // Flag targeting "organization" (group type index 1)
+        let org_flag = create_test_flag(
+            Some(2),
+            Some(team.id),
+            Some("org_flag".to_string()),
+            None,
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "tier".to_string(),
+                        value: Some(json!("enterprise")),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: PropertyType::Group,
+                        group_type_index: Some(1),
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: Some(1),
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        // Insert correct group rows
+        create_group_in_pg(
+            context.persons_reader.clone(),
+            team.id,
+            "project",
+            "proj-456",
+            json!({"name": "Acme"}),
+        )
+        .await
+        .unwrap();
+
+        create_group_in_pg(
+            context.persons_reader.clone(),
+            team.id,
+            "organization",
+            "org-123",
+            json!({"tier": "enterprise"}),
+        )
+        .await
+        .unwrap();
+
+        // Insert a decoy row: project type (index 0) with org's key ("org-123").
+        // With the old cartesian-product query this row would be fetched and its
+        // properties would overwrite the correct project properties.
+        create_group_in_pg(
+            context.persons_reader.clone(),
+            team.id,
+            "project",
+            "org-123",
+            json!({"name": "DECOY"}),
+        )
+        .await
+        .unwrap();
+
+        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.id);
+        group_type_mapping_cache
+            .init(context.persons_reader.clone())
+            .await
+            .unwrap();
+
+        let groups = HashMap::from([
+            ("project".to_string(), json!("proj-456")),
+            ("organization".to_string(), json!("org-123")),
+        ]);
+
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            Some(group_type_mapping_cache),
+            Some(groups),
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&project_flag, &org_flag])
+            .await
+            .unwrap();
+
+        let group_props = matcher.flag_evaluation_state.get_group_properties();
+
+        // Project (index 0) should have properties from (0, "proj-456"), not the decoy (0, "org-123")
+        let project_props = group_props
+            .get(&0)
+            .expect("project group properties should be loaded");
+        assert_eq!(
+            project_props.get("name"),
+            Some(&json!("Acme")),
+            "Project properties should come from the correct (type_index, key) pair, not the cartesian-product decoy"
+        );
+
+        // Organization (index 1) should have its own properties
+        let org_props = group_props
+            .get(&1)
+            .expect("organization group properties should be loaded");
+        assert_eq!(org_props.get("tier"), Some(&json!("enterprise")));
     }
 }

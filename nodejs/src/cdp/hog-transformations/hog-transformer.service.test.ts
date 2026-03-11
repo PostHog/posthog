@@ -2,7 +2,7 @@ import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { DateTime } from 'luxon'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { posthogFilterOutPlugin } from '../../../src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { template as defaultTemplate } from '../../../src/cdp/templates/_transformations/default/default.template'
@@ -17,7 +17,7 @@ import { posthogPluginGeoip } from '../legacy-plugins/_transformations/posthog-p
 import { propertyFilterPlugin } from '../legacy-plugins/_transformations/property-filter-plugin/template'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { HogFunctionTemplate } from '../types'
-import { HogTransformerService } from './hog-transformer.service'
+import { HogTransformerService, createHogTransformerService } from './hog-transformer.service'
 
 const createPluginEvent = (event: Partial<PluginEvent> = {}, teamId: number = 1): PluginEvent => {
     return {
@@ -50,7 +50,7 @@ describe('HogTransformer', () => {
         const team = await getFirstTeam(hub)
         teamId = team.id
 
-        hogTransformer = new HogTransformerService(hub)
+        hogTransformer = createHogTransformerService(hub, hub)
     })
 
     afterEach(async () => {
@@ -90,7 +90,7 @@ describe('HogTransformer', () => {
                   "$geoip_country_name": "United States",
                   "$geoip_latitude": 41.5,
                   "$geoip_longitude": -81.6938,
-                  "$geoip_postal_code": "44192",
+                  "$geoip_postal_code": "44199",
                   "$geoip_subdivision_1_code": "OH",
                   "$geoip_subdivision_1_name": "Ohio",
                   "$geoip_time_zone": "America/New_York",
@@ -105,7 +105,7 @@ describe('HogTransformer', () => {
                     "$geoip_country_name": "United States",
                     "$geoip_latitude": 41.5,
                     "$geoip_longitude": -81.6938,
-                    "$geoip_postal_code": "44192",
+                    "$geoip_postal_code": "44199",
                     "$geoip_subdivision_1_code": "OH",
                     "$geoip_subdivision_1_name": "Ohio",
                     "$geoip_subdivision_2_code": null,
@@ -122,7 +122,7 @@ describe('HogTransformer', () => {
                     "$initial_geoip_country_name": "United States",
                     "$initial_geoip_latitude": 41.5,
                     "$initial_geoip_longitude": -81.6938,
-                    "$initial_geoip_postal_code": "44192",
+                    "$initial_geoip_postal_code": "44199",
                     "$initial_geoip_subdivision_1_code": "OH",
                     "$initial_geoip_subdivision_1_name": "Ohio",
                     "$initial_geoip_subdivision_2_code": null,
@@ -1040,7 +1040,7 @@ describe('HogTransformer', () => {
                     "$geoip_continent_code": "NA",
                     "$geoip_continent_name": "North America",
                     "$geoip_country_name": "United States",
-                    "$geoip_postal_code": "44192",
+                    "$geoip_postal_code": "44199",
                     "$geoip_subdivision_1_code": "OH",
                     "$geoip_subdivision_1_name": "Ohio",
                     "$geoip_time_zone": "America/New_York",
@@ -1054,7 +1054,7 @@ describe('HogTransformer', () => {
                       "$geoip_country_name": "United States",
                       "$geoip_latitude": 41.5,
                       "$geoip_longitude": -81.6938,
-                      "$geoip_postal_code": "44192",
+                      "$geoip_postal_code": "44199",
                       "$geoip_subdivision_1_code": "OH",
                       "$geoip_subdivision_1_name": "Ohio",
                       "$geoip_subdivision_2_code": null,
@@ -1071,7 +1071,7 @@ describe('HogTransformer', () => {
                       "$initial_geoip_country_name": "United States",
                       "$initial_geoip_latitude": 41.5,
                       "$initial_geoip_longitude": -81.6938,
-                      "$initial_geoip_postal_code": "44192",
+                      "$initial_geoip_postal_code": "44199",
                       "$initial_geoip_subdivision_1_code": "OH",
                       "$initial_geoip_subdivision_1_name": "Ohio",
                       "$initial_geoip_subdivision_2_code": null,
@@ -1441,11 +1441,11 @@ describe('HogTransformer', () => {
 
     describe('HogWatcher integration', () => {
         beforeEach(() => {
-            hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
+            hogTransformer['config'].hogWatcherSampleRate = 1
         })
 
         it('should skip HogWatcher operations when sample rate is 0', async () => {
-            hub.CDP_HOG_WATCHER_SAMPLE_RATE = 0
+            hogTransformer['config'].hogWatcherSampleRate = 0
 
             const testTemplate: HogFunctionTemplate = {
                 free: true,
@@ -1488,7 +1488,7 @@ describe('HogTransformer', () => {
         })
 
         it('should add watcher promise when sample rate is 1', async () => {
-            hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
+            hogTransformer['config'].hogWatcherSampleRate = 1
 
             const testTemplate: HogFunctionTemplate = {
                 free: true,
@@ -1603,7 +1603,7 @@ describe('HogTransformer', () => {
 
         it('should skip transformation execution but continue when hogwatcher is enabled and function is disabled', async () => {
             // Set sample rate to 100% to ensure hogwatcher logic runs
-            hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
+            hogTransformer['config'].hogWatcherSampleRate = 1
 
             // Create test transformation function
             const testTemplate: HogFunctionTemplate = {
@@ -1661,7 +1661,7 @@ describe('HogTransformer', () => {
 
         it('should execute transformation when hogwatcher is enabled but function is in healthy state', async () => {
             // Set sample rate to 100% to ensure hogwatcher logic runs
-            hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
+            hogTransformer['config'].hogWatcherSampleRate = 1
 
             // Create test transformation function
             const testTemplate: HogFunctionTemplate = {
@@ -1720,7 +1720,7 @@ describe('HogTransformer', () => {
 
         it('should apply transformation when hogwatcher is disabled even if function state is disabled', async () => {
             // Set sample rate to 0% to ensure hogwatcher logic is skipped
-            hub.CDP_HOG_WATCHER_SAMPLE_RATE = 0
+            hogTransformer['config'].hogWatcherSampleRate = 0
 
             // Create test transformation function
             const testTemplate: HogFunctionTemplate = {

@@ -90,7 +90,7 @@ export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
                 let url = result.url ?? null
 
                 if (url && lineNumber) {
-                    url = `${url}#L${lineNumber + 1}`
+                    url = `${url}#L${lineNumber}`
                 }
 
                 batchData[rawId] = {

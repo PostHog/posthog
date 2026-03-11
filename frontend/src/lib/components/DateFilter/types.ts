@@ -8,6 +8,7 @@ export enum DateFilterView {
     FixedRange = 'FixedRange',
     FixedRangeWithTime = 'FixedRangeWithTime',
     FixedDate = 'FixedDate',
+    JumpToTimestamp = 'JumpToTimestamp',
 }
 
 export type DateFilterLogicProps = {

@@ -13,6 +13,7 @@ import { sceneLogic } from '~/scenes/sceneLogic'
 import { urls } from '~/scenes/urls'
 import { Dataset } from '~/types'
 
+import { cleanPagedSearchOrderParams } from '../utils'
 import type { llmAnalyticsDatasetsLogicType } from './llmAnalyticsDatasetsLogicType'
 
 export const DATASETS_PER_PAGE = 30
@@ -182,10 +183,10 @@ export const llmAnalyticsDatasetsLogic = kea<llmAnalyticsDatasetsLogicType>([
                   },
               ]
             | void => {
-            const nextValues = cleanFilters(values.filters)
+            const nextValues = cleanPagedSearchOrderParams(values.filters)
             const urlValues = cleanFilters(router.values.searchParams)
-            if (!objectsEqual(nextValues, urlValues)) {
-                return [urls.llmAnalyticsDatasets(), nextValues, {}, { replace: false }]
+            if (!objectsEqual(values.filters, urlValues)) {
+                return [urls.llmAnalyticsDatasets(), nextValues, {}, { replace: true }]
             }
         }
         return {
@@ -194,10 +195,12 @@ export const llmAnalyticsDatasetsLogic = kea<llmAnalyticsDatasetsLogicType>([
     }),
 
     tabAwareUrlToAction(({ actions, values }) => ({
-        [urls.llmAnalyticsDatasets()]: (_, searchParams) => {
+        [urls.llmAnalyticsDatasets()]: (_, searchParams, __, { method }) => {
             const newFilters = cleanFilters(searchParams)
-            if (values.rawFilters === null || !objectsEqual(values.filters, newFilters)) {
+            if (!objectsEqual(values.filters, newFilters)) {
                 actions.setFilters(newFilters, false)
+            } else if (method !== 'REPLACE') {
+                actions.loadDatasets(false)
             }
         },
     })),

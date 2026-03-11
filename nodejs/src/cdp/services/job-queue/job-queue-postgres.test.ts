@@ -16,9 +16,7 @@ describe('CyclotronJobQueue - postgres', () => {
             CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 1000,
             CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: false,
         }
-        const queue = new CyclotronJobQueuePostgres(config, 'hog' as any, () =>
-            Promise.resolve({ backgroundTask: Promise.resolve() })
-        )
+        const queue = new CyclotronJobQueuePostgres(config)
 
         const bulkCreateJobs = jest.fn().mockResolvedValue(undefined)
         // Inject a fake manager so queueInvocations can run without connecting
@@ -96,7 +94,7 @@ describe('CyclotronJobQueuePostgresShadow', () => {
             CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 1000,
             CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: false,
         }
-        const queue = new CyclotronJobQueuePostgresShadow(config, 'hog' as any)
+        const queue = new CyclotronJobQueuePostgresShadow(config)
 
         const bulkCreateJobs = jest.fn().mockResolvedValue(undefined)
         // Inject a fake manager so queueInvocations can run without connecting
@@ -149,7 +147,7 @@ describe('CyclotronJobQueuePostgresShadow', () => {
             CYCLOTRON_DATABASE_URL: 'postgres://shadow-test',
             CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 1000,
         }
-        const queue = new CyclotronJobQueuePostgresShadow(config, 'hog' as any)
+        const queue = new CyclotronJobQueuePostgresShadow(config)
         // Don't inject the manager
 
         const invocation: any = {

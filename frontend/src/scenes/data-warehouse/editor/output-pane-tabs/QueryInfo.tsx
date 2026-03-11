@@ -16,8 +16,8 @@ import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dat
 
 import { DataModelingJob, DataWarehouseSyncInterval, LineageNode, OrNever } from '~/types'
 
-import { multitabEditorLogic } from '../multitabEditorLogic'
 import { UpstreamGraph } from '../sidebar/graph/UpstreamGraph'
+import { sqlEditorLogic } from '../sqlEditorLogic'
 import { infoTabLogic } from './infoTabLogic'
 
 interface QueryInfoProps {
@@ -115,27 +115,24 @@ function getMaterializationDisabledReasons(
 
 export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
     const { sourceTableItems } = useValues(infoTabLogic({ tabId }))
-    const { editingView, upstream, upstreamViewMode } = useValues(multitabEditorLogic)
-    const { runDataWarehouseSavedQuery, saveAsView, setUpstreamViewMode } = useActions(multitabEditorLogic)
+    const { editingView, upstream, upstreamViewMode } = useValues(sqlEditorLogic)
+    const { runDataWarehouseSavedQuery, saveAsView, setUpstreamViewMode } = useActions(sqlEditorLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const isLineageDependencyViewEnabled = featureFlags[FEATURE_FLAGS.LINEAGE_DEPENDENCY_VIEW]
 
-    const {
-        dataWarehouseSavedQueryMapById,
-        updatingDataWarehouseSavedQuery,
-        initialDataWarehouseSavedQueryLoading,
-        dataModelingJobs,
-        hasMoreJobsToLoad,
-        startingMaterialization,
-    } = useValues(dataWarehouseViewsLogic)
+    const { dataModelingJobs, dataModelingJobsLoading, hasMoreJobsToLoad, startingMaterialization } = useValues(
+        infoTabLogic({ tabId })
+    )
+    const { loadOlderDataModelingJobs, setStartingMaterialization } = useActions(infoTabLogic({ tabId }))
+
+    const { dataWarehouseSavedQueryMapById, updatingDataWarehouseSavedQuery, initialDataWarehouseSavedQueryLoading } =
+        useValues(dataWarehouseViewsLogic)
     const {
         updateDataWarehouseSavedQuery,
-        loadOlderDataModelingJobs,
         cancelDataWarehouseSavedQuery,
         materializeDataWarehouseSavedQuery,
         revertMaterialization,
-        setStartingMaterialization,
     } = useActions(dataWarehouseViewsLogic)
 
     // note: editingView is stale, but dataWarehouseSavedQueryMapById gets updated
@@ -160,7 +157,7 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
                         <h3 className="mb-0">Materialization</h3>
                         <LemonTag type="warning">BETA</LemonTag>
                         {savedQuery?.latest_error && savedQuery.status === 'Failed' && (
-                            <Tooltip title={savedQuery.latest_error}>
+                            <Tooltip title={savedQuery.latest_error} interactive>
                                 <LemonTag type="danger">Error</LemonTag>
                             </Tooltip>
                         )}
@@ -292,7 +289,7 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
                         </div>
                         <LemonTable
                             size="small"
-                            loading={initialDataWarehouseSavedQueryLoading}
+                            loading={dataModelingJobsLoading && !dataModelingJobs?.results?.length}
                             dataSource={dataModelingJobs?.results || []}
                             columns={[
                                 {
@@ -332,7 +329,7 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
                                         }
 
                                         return error && status !== 'Completed' ? (
-                                            <Tooltip title={error}>
+                                            <Tooltip title={error} interactive>
                                                 <LemonTag type={type}>{status}</LemonTag>
                                             </Tooltip>
                                         ) : (
@@ -381,7 +378,7 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
                                             center
                                             fullWidth
                                             onClick={() => loadOlderDataModelingJobs()}
-                                            loading={initialDataWarehouseSavedQueryLoading}
+                                            loading={dataModelingJobsLoading}
                                         >
                                             Load older runs
                                         </LemonButton>

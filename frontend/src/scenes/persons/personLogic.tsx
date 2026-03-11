@@ -3,8 +3,8 @@ import { lazyLoaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
@@ -13,7 +13,7 @@ import { Breadcrumb, PersonType } from '~/types'
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
 import { revenueAnalyticsLogic } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
 
-import { getHogqlQueryStringForPersonId } from './person-utils'
+import { getHogqlQueryStringForPersonId, parsePersonFromHogQLRow } from './person-utils'
 import type { personLogicType } from './personLogicType'
 
 export interface PersonLogicProps {
@@ -24,7 +24,6 @@ export interface PersonLogicProps {
 export interface Info {
     sessionCount: number
     eventCount: number
-    lastSeen: string | null
 }
 
 export const personLogic = kea<personLogicType>([
@@ -82,15 +81,7 @@ export const personLogic = kea<personLogicType>([
                     if (row == null) {
                         return null
                     }
-                    const queryPerson: PersonType = {
-                        id: row[0],
-                        uuid: row[0],
-                        distinct_ids: row[1],
-                        properties: JSON.parse(row[2] || '{}'),
-                        is_identified: !!row[3],
-                        created_at: row[4],
-                    }
-                    return queryPerson
+                    return parsePersonFromHogQLRow(row)
                 },
             },
         ],
@@ -105,11 +96,11 @@ export const personLogic = kea<personLogicType>([
                     const infoQuery = hogql`
                     SELECT
                         count(DISTINCT $session_id) as session_count,
-                        count(*) as event_count,
-                        max(timestamp) as last_seen
+                        count(*) as event_count
                     FROM events
-                    WHERE person_id = ${props.id}
-                    AND timestamp >= now() - interval 30 day
+                    WHERE
+                      person_id = ${props.id}
+                      AND timestamp >= now() - interval 30 day
                     `
                     try {
                         const response = await api.queryHogQL(infoQuery, CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS)
@@ -118,18 +109,16 @@ export const personLogic = kea<personLogicType>([
                             return {
                                 sessionCount: 0,
                                 eventCount: 0,
-                                lastSeen: null,
                             }
                         }
 
-                        const [sessionCount, eventCount, lastSeen] = row
-                        return { sessionCount, eventCount, lastSeen }
+                        const [sessionCount, eventCount] = row
+                        return { sessionCount, eventCount }
                     } catch (error: any) {
                         posthog.captureException(error)
                         return {
                             sessionCount: 0,
                             eventCount: 0,
-                            lastSeen: null,
                         }
                     }
                 },

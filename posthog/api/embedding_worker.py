@@ -4,6 +4,7 @@ from typing import Optional
 
 from django.utils.timezone import now
 
+import httpx
 import requests
 import structlog
 from kafka.producer.kafka import FutureRecordMetadata
@@ -33,34 +34,50 @@ class EmbeddingResponse:
     did_truncate: bool
 
 
-def generate_embedding(
-    team: Team, content: str, model: str | None = None, no_truncate: bool = True
-) -> EmbeddingResponse:
-    logger.info(f"Generating ad-hoc embedding for team {team.pk}")
+_EMBEDDING_URL = EMBEDDING_API_URL + "/generate/ad_hoc"
 
-    # Validate model - it must be provided and must be in our configured tables
+
+def _build_embedding_payload(team: Team, content: str, model: str | None, no_truncate: bool) -> dict:
     if not model or model not in {table.model_name for table in EMBEDDING_TABLES}:
         valid_models = sorted({table.model_name for table in EMBEDDING_TABLES})
         raise ValueError(f"Invalid model name: {model}. Valid models are: {', '.join(valid_models)}")
 
-    payload = {
+    return {
         "team_id": team.pk,
         "content": content,
         "no_truncate": no_truncate,
+        "model": model,
     }
-    payload["model"] = model
 
-    response = requests.post(
-        EMBEDDING_API_URL + f"/generate/ad_hoc",
-        json=payload,
-    )
-    response.raise_for_status()
-    data = response.json()
+
+def _parse_embedding_response(data: dict) -> EmbeddingResponse:
     return EmbeddingResponse(
         embedding=data["embedding"],
         tokens_used=data["tokens_used"],
         did_truncate=data["did_truncate"],
     )
+
+
+def generate_embedding(
+    team: Team, content: str, model: str | None = None, no_truncate: bool = True
+) -> EmbeddingResponse:
+    logger.info(f"Generating ad-hoc embedding for team {team.pk}")
+    payload = _build_embedding_payload(team, content, model, no_truncate)
+    response = requests.post(_EMBEDDING_URL, json=payload)
+    response.raise_for_status()
+    return _parse_embedding_response(response.json())
+
+
+async def async_generate_embedding(
+    team: Team, content: str, model: str | None = None, no_truncate: bool = True
+) -> EmbeddingResponse:
+    """Async equivalent of generate_embedding — uses httpx instead of requests to avoid blocking a thread."""
+    logger.info(f"Generating ad-hoc embedding (async) for team {team.pk}")
+    payload = _build_embedding_payload(team, content, model, no_truncate)
+    async with httpx.AsyncClient() as client:
+        response = await client.post(_EMBEDDING_URL, json=payload)
+        response.raise_for_status()
+        return _parse_embedding_response(response.json())
 
 
 def emit_embedding_request(

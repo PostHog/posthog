@@ -210,11 +210,11 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         isPersonalApiKeyIdDisabled: [
             (s) => [s.allOrganizations, s.allTeams, s.keys, s.getRestrictedOrganizationsForKey],
             (
-                    allOrganizations: OrganizationBasicType[],
-                    allTeams: TeamBasicType[] | null,
-                    keys: PersonalAPIKeyType[],
-                    getRestrictedOrganizationsForKey: (keyId: PersonalAPIKeyType['id']) => OrganizationBasicType[]
-                ) =>
+                allOrganizations: OrganizationBasicType[],
+                allTeams: TeamBasicType[] | null,
+                keys: PersonalAPIKeyType[],
+                getRestrictedOrganizationsForKey: (keyId: PersonalAPIKeyType['id']) => OrganizationBasicType[]
+            ) =>
                 (keyId: PersonalAPIKeyType['id']): boolean => {
                     const key = keys.find((k) => k.id === keyId)
                     if (!key) {
@@ -252,10 +252,10 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         getRestrictedOrganizationsForKey: [
             (s) => [s.allOrganizations, s.keys, s.getRestrictedTeamsForKey],
             (
-                    allOrganizations: OrganizationBasicType[],
-                    keys: PersonalAPIKeyType[],
-                    getRestrictedTeamsForKey: (keyId: PersonalAPIKeyType['id']) => TeamBasicType[]
-                ) =>
+                allOrganizations: OrganizationBasicType[],
+                keys: PersonalAPIKeyType[],
+                getRestrictedTeamsForKey: (keyId: PersonalAPIKeyType['id']) => TeamBasicType[]
+            ) =>
                 (keyId: PersonalAPIKeyType['id']): OrganizationBasicType[] => {
                     let restrictedOrgs: OrganizationBasicType[] = []
                     const key = keys.find((k) => k.id === keyId)

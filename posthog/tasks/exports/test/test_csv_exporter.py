@@ -53,7 +53,7 @@ regression_11204 = "api/projects/6642/insights/trend/?events=%5B%7B%22id%22%3A%2
 class TestCSVExporter(APIBaseTest):
     @pytest.fixture(autouse=True)
     def patched_request(self):
-        with patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request:
+        with patch("posthog.tasks.exports.csv_exporter.external_requests.request") as patched_request:
             mock_response = Mock()
             mock_response.status_code = 200
             # API responses copied from https://github.com/PostHog/posthog/runs/7221634689?check_suite_focus=true
@@ -285,7 +285,7 @@ class TestCSVExporter(APIBaseTest):
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
 
-            created_date = exported_asset.created_at.strftime("%Y-%m-%d")
+            created_date = exported_asset.created_at.strftime("%Y-%m-%d-%H%M%S")
             assert exported_asset.filename == f"export-{created_date}.xlsx"
             assert exported_asset.content_location is None
 
@@ -301,7 +301,7 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("posthog.models.exported_asset.UUIDT")
     @patch("posthog.models.exported_asset.object_storage.write")
-    @patch("requests.request")
+    @patch("posthog.tasks.exports.csv_exporter.external_requests.request")
     def test_csv_exporter_limits_breakdown_insights_correctly(
         self, mocked_request, mocked_object_storage_write, mocked_uuidt
     ) -> None:
@@ -324,7 +324,7 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("posthog.tasks.exports.csv_exporter.logger")
     def test_failing_export_api_is_reported(self, _mock_logger: MagicMock) -> None:
-        with patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request:
+        with patch("posthog.tasks.exports.csv_exporter.external_requests.request") as patched_request:
             exported_asset = self._create_asset()
             mock_response = MagicMock()
             mock_response.status_code = 403
@@ -953,9 +953,9 @@ class TestCSVExporter(APIBaseTest):
             self.assertEqual(
                 lines,
                 [
-                    "actor.id,actor.is_identified,actor.created_at,actor.distinct_ids.0,event_count,event_distinct_ids.0",
-                    "4beb316f-23aa-2584-66d3-4a1b8ab458f2,False,2022-06-01 12:00:00+00:00,user_1,2,user_1",
-                    "d0780d6b-ccd0-44fa-a227-47efe4f3f30d,,,user_2,1,user_2",
+                    "actor.id,actor.is_identified,actor.created_at,actor.last_seen_at,actor.distinct_ids.0,event_count,event_distinct_ids.0",
+                    "4beb316f-23aa-2584-66d3-4a1b8ab458f2,False,2022-06-01 12:00:00+00:00,,user_1,2,user_1",
+                    "d0780d6b-ccd0-44fa-a227-47efe4f3f30d,,,,user_2,1,user_2",
                 ],
             )
 
@@ -1539,7 +1539,7 @@ class TestCSVExporter(APIBaseTest):
         self, mocked_object_storage_write_from_file: Any, mocked_uuidt: Any
     ) -> None:
         """Test that Excel export handles data with illegal XML characters without crashing."""
-        with patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request:
+        with patch("posthog.tasks.exports.csv_exporter.external_requests.request") as patched_request:
             mock_response = Mock()
             mock_response.status_code = 200
             # Data containing control characters that would normally crash openpyxl

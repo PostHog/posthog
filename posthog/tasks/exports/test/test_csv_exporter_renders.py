@@ -23,7 +23,7 @@ for file in os.listdir(directory):
 @pytest.mark.parametrize("filename", fixtures)
 @pytest.mark.parametrize("mode", ("legacy", "hogql"))
 @pytest.mark.django_db
-@patch("posthog.tasks.exports.csv_exporter.requests.request")
+@patch("posthog.tasks.exports.csv_exporter.external_requests.request")
 @patch("posthog.tasks.exports.csv_exporter.process_query_dict")
 @patch("posthog.models.exported_asset.settings")
 def test_csv_rendering(mock_settings, mock_process_query_dict, mock_request, filename, mode):

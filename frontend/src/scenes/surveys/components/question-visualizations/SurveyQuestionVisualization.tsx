@@ -1,20 +1,21 @@
 import { useValues } from 'kea'
 
-import { IconInfo } from '@posthog/icons'
-import { LemonDivider, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
+import { humanFriendlyNumber, pluralize } from 'lib/utils'
 import { StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
-import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 import { AnalyzeResponsesButton } from 'scenes/surveys/components/AnalyzeResponsesButton'
 import { MultipleChoiceQuestionViz } from 'scenes/surveys/components/question-visualizations/MultipleChoiceQuestionViz'
 import { OpenQuestionViz } from 'scenes/surveys/components/question-visualizations/OpenQuestionViz'
 import { SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
+import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { QuestionProcessedResponses, SurveyQuestion, SurveyQuestionType } from '~/types'
 
 import { SCALE_LABELS } from '../../constants'
+import { isThumbQuestion } from '../../utils'
 import { NPSBreakdownSkeleton, RatingQuestionViz } from './RatingQuestionViz'
 
 interface Props {
@@ -27,40 +28,56 @@ function QuestionTitle({
     question,
     questionIndex,
     totalResponses = 0,
-}: Props & { totalResponses?: number }): JSX.Element {
-    // only show analzye button if there's text to analyze
+    noResponseCount = 0,
+    displayedResponsesCount,
+}: Props & { totalResponses?: number; noResponseCount?: number; displayedResponsesCount?: number }): JSX.Element {
     const shouldShowAnalyzeButton =
         question.type === SurveyQuestionType.Open ||
         (question.type === SurveyQuestionType.SingleChoice && question.hasOpenChoice) ||
         (question.type === SurveyQuestionType.MultipleChoice && question.hasOpenChoice)
 
+    const metaParts: { text: string; className?: string }[] = []
+    const questionLabel = isThumbQuestion(question)
+        ? 'Thumbs up/down'
+        : question.type === SurveyQuestionType.Rating
+          ? `${SurveyQuestionLabel[question.type]} ${SCALE_LABELS[question.scale] || `1 - ${question.scale}`}`
+          : SurveyQuestionLabel[question.type]
+
+    metaParts.push({ text: questionLabel, className: 'font-semibold uppercase tracking-wide text-text-tertiary' })
+    if (totalResponses > 0) {
+        metaParts.push({
+            text: `${humanFriendlyNumber(totalResponses)} ${pluralize(totalResponses, 'response', 'responses', false)}`,
+            className: 'text-text-secondary',
+        })
+    }
+    if (noResponseCount > 0) {
+        metaParts.push({
+            text: `${humanFriendlyNumber(noResponseCount)} skipped`,
+            className: 'text-muted',
+        })
+    }
+    if (question.type === SurveyQuestionType.Open && displayedResponsesCount !== undefined && totalResponses > 0) {
+        metaParts.push({
+            text:
+                displayedResponsesCount >= totalResponses
+                    ? 'All responses'
+                    : `Showing ${humanFriendlyNumber(displayedResponsesCount)} of ${humanFriendlyNumber(totalResponses)}`,
+            className: 'text-muted',
+        })
+    }
+
     return (
-        <div className="flex flex-col">
-            <div className="inline-flex gap-1 max-w-fit font-semibold text-secondary items-center">
-                <span>
-                    {SurveyQuestionLabel[question.type]}&nbsp;
-                    {question.type === SurveyQuestionType.Rating && (
-                        <span>{SCALE_LABELS[question.scale] || `1 - ${question.scale}`}</span>
-                    )}
-                </span>
-                {totalResponses > 0 && (
-                    <>
-                        <LemonDivider vertical className="my-1 mx-1" />
-                        <span>{totalResponses} responses</span>
-                        {question.type === SurveyQuestionType.Open && (
-                            <>
-                                <LemonDivider vertical className="my-1 mx-1" />
-                                <Tooltip title="See all Open Text responses in the Events table at the bottom.">
-                                    <span>random selection</span>
-                                    <IconInfo className="text-lg text-secondary shrink-0 ml-0.5 mt-0.5" />
-                                </Tooltip>
-                            </>
-                        )}
-                    </>
-                )}
+        <div className="flex flex-col gap-1">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+                {metaParts.map((part, index) => (
+                    <span key={`${part.text}-${index}`} className="flex items-center gap-2">
+                        {index > 0 && <span className="text-border-dark">•</span>}
+                        <span className={part.className}>{part.text}</span>
+                    </span>
+                ))}
             </div>
-            <div className="flex flex-row justify-between items-center">
-                <h3 className="text-xl font-bold mb-0">
+            <div className="flex flex-row justify-between items-center gap-3">
+                <h3 className="text-xl font-semibold mb-0 leading-tight">
                     Question {questionIndex + 1}: {question.question}
                 </h3>
 
@@ -158,7 +175,7 @@ function QuestionLoadingSkeleton({ question }: { question: SurveyQuestion }): JS
 }
 
 export function SurveyQuestionVisualization({ question, questionIndex, demoData }: Props): JSX.Element | null {
-    const { consolidatedSurveyResults, consolidatedSurveyResultsLoading, surveyBaseStatsLoading } =
+    const { enrichedConsolidatedSurveyResults, consolidatedSurveyResultsLoading, surveyBaseStatsLoading } =
         useValues(surveyLogic)
 
     if (demoData) {
@@ -168,7 +185,11 @@ export function SurveyQuestionVisualization({ question, questionIndex, demoData 
                     question={question}
                     questionIndex={questionIndex}
                     totalResponses={demoData.totalResponses}
+                    displayedResponsesCount={
+                        demoData.type === SurveyQuestionType.Open ? demoData.data.length : undefined
+                    }
                 />
+
                 <div className="flex flex-col gap-4">
                     {question.type === SurveyQuestionType.Rating && demoData.type === SurveyQuestionType.Rating && (
                         <RatingQuestionViz question={question} questionIndex={questionIndex} processedData={demoData} />
@@ -202,12 +223,13 @@ export function SurveyQuestionVisualization({ question, questionIndex, demoData 
     }
 
     const processedData: QuestionProcessedResponses | undefined =
-        consolidatedSurveyResults?.responsesByQuestion[question.id]
+        enrichedConsolidatedSurveyResults?.responsesByQuestion[question.id]
 
     if (consolidatedSurveyResultsLoading || surveyBaseStatsLoading || !processedData) {
         return (
             <div className="flex flex-col gap-2">
                 <QuestionTitle question={question} questionIndex={questionIndex} />
+
                 <div className="flex flex-col gap-4">
                     <QuestionLoadingSkeleton question={question} />
                 </div>
@@ -216,9 +238,11 @@ export function SurveyQuestionVisualization({ question, questionIndex, demoData 
     }
 
     if (processedData.totalResponses === 0 || processedData.data.length === 0) {
+        const skipCount = 'noResponseCount' in processedData ? processedData.noResponseCount : 0
         return (
             <div className="flex flex-col gap-2">
-                <QuestionTitle question={question} questionIndex={questionIndex} />
+                <QuestionTitle question={question} questionIndex={questionIndex} noResponseCount={skipCount} />
+
                 <SurveyNoResponsesBanner type="question" />
             </div>
         )
@@ -230,6 +254,10 @@ export function SurveyQuestionVisualization({ question, questionIndex, demoData 
                 question={question}
                 questionIndex={questionIndex}
                 totalResponses={processedData.totalResponses}
+                noResponseCount={'noResponseCount' in processedData ? processedData.noResponseCount : 0}
+                displayedResponsesCount={
+                    processedData.type === SurveyQuestionType.Open ? processedData.data.length : undefined
+                }
             />
             <div className="flex flex-col gap-4">
                 <ErrorBoundary className="m-0">

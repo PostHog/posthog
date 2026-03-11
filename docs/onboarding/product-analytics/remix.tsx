@@ -112,7 +112,7 @@ export const getRemixSteps = (ctx: OnboardingComponentsContext): StepDefinition[
                                       const [hydrated, setHydrated] = useState(false);
 
                                       useEffect(() => {
-                                        posthog.init("<ph_project_api_key>", {
+                                        posthog.init("<ph_project_token>", {
                                           api_host: "<ph_client_api_host>",
                                           defaults: "2026-01-30"
                                         });

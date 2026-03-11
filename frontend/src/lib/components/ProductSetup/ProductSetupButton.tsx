@@ -9,9 +9,9 @@ import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { ProductSetupPopover } from './ProductSetupPopover'
 import { globalSetupLogic } from './globalSetupLogic'
 import { productSetupLogic } from './productSetupLogic'
+import { ProductSetupPopover } from './ProductSetupPopover'
 
 /**
  * ProductSetupButton - A button that appears in the scene title section
@@ -130,7 +130,7 @@ const ExpandedButton = forwardRef<HTMLButtonElement, ExpandedButtonProps>(functi
             data-attr="global-product-setup-button"
             sideIcon={
                 showBadge && remainingCount > 0 ? (
-                    <LemonBadge.Number count={remainingCount} status="warning" size="medium" />
+                    <LemonBadge.Number count={remainingCount} status="warning" size="small" />
                 ) : undefined
             }
         >

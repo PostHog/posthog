@@ -1,8 +1,11 @@
 use std::future::Future;
 
-use crate::types::{
-    operator::Operator,
-    stage::{Stage, StageResult},
+use crate::{
+    error::UnhandledError,
+    types::{
+        operator::Operator,
+        stage::{Stage, StageResult},
+    },
 };
 
 pub struct Batch<T>(Vec<T>);
@@ -31,6 +34,43 @@ impl<T> From<Batch<T>> for Vec<T> {
 impl<T> Batch<T> {
     pub fn inner_ref(&self) -> &Vec<T> {
         &self.0
+    }
+
+    pub fn map<O, C>(self, func: impl Fn(T, &mut C) -> O, ctx: &mut C) -> Batch<O> {
+        Batch::from(
+            self.0
+                .into_iter()
+                .map(|item| func(item, ctx))
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn filter_map<O>(self, func: impl FnMut(T) -> Option<O>) -> Batch<O> {
+        Batch::from(self.0.into_iter().filter_map(func).collect::<Vec<_>>())
+    }
+
+    pub fn try_filter_map<O, E, C>(
+        self,
+        mut func: impl FnMut(T, &mut C) -> Result<Option<O>, E>,
+        ctx: &mut C,
+    ) -> Result<Batch<O>, E> {
+        let mut result = Vec::with_capacity(self.0.len());
+        for item in self.0 {
+            match func(item, ctx) {
+                Ok(Some(o)) => result.push(o),
+                Ok(None) => continue,
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(Batch(result))
     }
 
     pub fn apply_func<Ctx, O, F, Fu, E>(
@@ -94,7 +134,13 @@ impl<T> Batch<T> {
     {
         async {
             let time = common_metrics::timing_guard(stage.name(), &[]);
+            let before_len = self.len();
+            let stage_name = stage.name();
             let res = stage.process(self).await?;
+            let after_len = res.len();
+            if before_len != after_len {
+                return Err(UnhandledError::Other(format!("Batch length mismatch while applying stage {stage_name}. before_len: {before_len}, after_len: {after_len}")));
+            }
             time.label("outcome", "success");
             Ok(res)
         }

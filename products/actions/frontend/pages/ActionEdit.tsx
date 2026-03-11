@@ -3,7 +3,7 @@ import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
+import { IconPlus, IconTrash } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
@@ -15,26 +15,25 @@ import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
     ScenePanelActionsSection,
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
-import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
-import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { Query } from '~/queries/Query/Query'
 import { NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ActionStepType, FilterLogicalOperator } from '~/types'
 
@@ -82,7 +81,6 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
         type: 'action',
         ref: actionId,
         enabled: Boolean(actionId && !actionLoading),
-        deps: [actionId, actionLoading],
     })
 
     // Handle 404 when loading is done and action is missing
@@ -238,9 +236,6 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                     description={
                         <>
                             Your action will be triggered whenever <b>any of your match groups</b> are received.
-                            <Link to="https://posthog.com/docs/data/actions" target="_blank">
-                                <IconInfo className="ml-1 text-secondary text-xl" />
-                            </Link>
                         </>
                     }
                 >

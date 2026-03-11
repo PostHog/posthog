@@ -94,12 +94,17 @@ impl CheckpointImporter {
     /// Import checkpoint files directly into the store directory for a topic/partition.
     ///
     /// This method will:
-    /// 1. Fetch checkpoint metadata.json files from the most recent N checkpoints for the topic+partition
-    /// 2. For each metadata file (newest to oldest), attempt to download all tracked files to a
-    ///    timestamped store directory: `<store_base_path>/<topic>_<partition>/<timestamp_millis>/`
-    /// 3. If a checkpoint import fails, fall back to the next most recent (up to import_attempt_depth)
+    /// 1. List recent checkpoint metadata.json keys from remote storage for the topic+partition
+    /// 2. For each key (newest to oldest, up to import_attempt_depth), lazily download the
+    ///    metadata.json and attempt to download all tracked files to a timestamped store
+    ///    directory: `<store_base_path>/<topic>_<partition>/<timestamp_millis>/`
+    /// 3. If a checkpoint import fails, fall back to the next most recent
     /// 4. If successful, write metadata.json and a `.imported_<timestamp>` marker to that directory,
     ///    then return the store path
+    ///
+    /// Metadata files are downloaded lazily (one at a time, only when needed) rather than
+    /// eagerly in bulk, to reduce S3 pressure during rebalances when many partitions import
+    /// simultaneously.
     pub async fn import_checkpoint_for_topic_partition(
         &self,
         topic: &str,
@@ -149,6 +154,9 @@ impl CheckpointImporter {
     }
 
     /// Inner implementation of checkpoint import, called with a timeout wrapper.
+    ///
+    /// Downloads metadata.json files lazily (one at a time) to avoid wasting S3 bandwidth
+    /// on metadata we may never need. In the happy path only the newest metadata is fetched.
     async fn import_checkpoint_inner(
         &self,
         topic: &str,
@@ -156,33 +164,40 @@ impl CheckpointImporter {
         cancel_token: Option<&CancellationToken>,
         start_time: Instant,
     ) -> Result<PathBuf> {
-        let mut checkpoint_metadata = match self
-            .fetch_checkpoint_metadata(topic, partition_number)
+        let metadata_keys = match self
+            .downloader
+            .list_recent_checkpoints(topic, partition_number)
             .await
         {
-            Ok(metadata) => metadata,
+            Ok(keys) => keys,
             Err(e) => {
                 metrics::histogram!(CHECKPOINT_IMPORT_DURATION_HISTOGRAM, "result" => "failed")
                     .record(start_time.elapsed().as_secs_f64());
-                return Err(e);
+                return Err(e).context("listing checkpoint metadata");
             }
         };
 
+        if metadata_keys.is_empty() {
+            metrics::histogram!(CHECKPOINT_IMPORT_DURATION_HISTOGRAM, "result" => "failed")
+                .record(start_time.elapsed().as_secs_f64());
+            return Err(anyhow::anyhow!(
+                "No checkpoint metadata files found for topic:{topic} partition:{partition_number}"
+            ));
+        }
+
+        // Truncate to import_attempt_depth BEFORE downloading any content
+        let metadata_keys: Vec<_> = metadata_keys
+            .into_iter()
+            .take(self.import_attempt_depth)
+            .collect();
+
         info!(
-            "Found {} checkpoint attempts for topic:{} partition:{}",
-            checkpoint_metadata.len(),
-            topic,
-            partition_number
+            "Found checkpoint metadata keys for topic:{topic} partition:{partition_number}, \
+             will attempt up to {} (newest first)",
+            metadata_keys.len(),
         );
 
-        // Slice to at most the most-recent N checkpoints
-        // we'll attempt to import according to import_limit
-        checkpoint_metadata.truncate(self.import_attempt_depth);
-        info!("Attempting recovery from the most recent {} checkpoints for topic:{topic} partition:{partition_number}",
-            checkpoint_metadata.len());
-
-        // checkpoints iterated in order of recency; we keep the first good one we fetch
-        for mut attempt in checkpoint_metadata {
+        for remote_key in &metadata_keys {
             // Check cancellation before each attempt
             if let Some(token) = cancel_token {
                 if token.is_cancelled() {
@@ -201,6 +216,23 @@ impl CheckpointImporter {
             }
 
             let attempt_start = Instant::now();
+
+            // Lazy download: only fetch this metadata.json when we actually need it,
+            // avoiding unnecessary S3 GETs during rebalances
+            let mut attempt = match self.downloader.download_file(remote_key).await {
+                Ok(content) => match CheckpointMetadata::from_json_bytes(&content) {
+                    Ok(metadata) => metadata,
+                    Err(e) => {
+                        error!("Failed to parse metadata: {remote_key}: {e:#}");
+                        continue;
+                    }
+                },
+                Err(e) => {
+                    error!("Failed to download metadata: {remote_key}: {e:#}");
+                    continue;
+                }
+            };
+
             let import_timestamp = Utc::now();
             let local_attempt_path =
                 attempt.get_store_path(&self.store_base_path, import_timestamp);
@@ -314,41 +346,6 @@ impl CheckpointImporter {
         metrics::histogram!(CHECKPOINT_IMPORT_DURATION_HISTOGRAM, "result" => "failed")
             .record(start_time.elapsed().as_secs_f64());
         Err(anyhow::anyhow!(err_msg))
-    }
-
-    pub async fn fetch_checkpoint_metadata(
-        &self,
-        topic: &str,
-        partition_number: i32,
-    ) -> Result<Vec<CheckpointMetadata>> {
-        let remote_metadata_files = self
-            .downloader
-            .list_recent_checkpoints(topic, partition_number)
-            .await
-            .context("In fetch_checkpoint_metadata")?;
-
-        let mut fetched_metadata_files = Vec::new();
-        for remote_key in remote_metadata_files {
-            match self.downloader.download_file(&remote_key).await {
-                Ok(content) => match CheckpointMetadata::from_json_bytes(&content) {
-                    Ok(metadata) => {
-                        fetched_metadata_files.push(metadata);
-                    }
-                    Err(e) => {
-                        error!("Failed to parse metadata from file bytes: {remote_key}: {e:#}");
-                    }
-                },
-                Err(e) => {
-                    error!("Failed to download metadata file: {remote_key}: {e:#}");
-                }
-            }
-        }
-
-        if fetched_metadata_files.is_empty() {
-            return Err(anyhow::anyhow!("No checkpoint metadata files downloaded successfully for topic:{topic} partition:{partition_number}"));
-        }
-
-        Ok(fetched_metadata_files)
     }
 
     pub async fn fetch_checkpoint_files(
@@ -899,6 +896,156 @@ mod tests {
         assert!(
             !test_path.exists(),
             "Directory should be removed after guard drops"
+        );
+    }
+
+    /// Parameterized mock downloader that tracks call counts and optionally
+    /// injects file-download failures to exercise fallback logic.
+    #[derive(Debug)]
+    struct TrackingDownloader {
+        checkpoints: Vec<CheckpointMetadata>,
+        metadata_download_count: Arc<AtomicUsize>,
+        /// Number of initial file-download attempts that should fail (0 = all succeed)
+        file_download_fail_count: usize,
+        file_download_attempts: Arc<AtomicUsize>,
+    }
+
+    impl TrackingDownloader {
+        fn new(checkpoints: Vec<CheckpointMetadata>, file_download_fail_count: usize) -> Self {
+            Self {
+                checkpoints,
+                metadata_download_count: Arc::new(AtomicUsize::new(0)),
+                file_download_fail_count,
+                file_download_attempts: Arc::new(AtomicUsize::new(0)),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl CheckpointDownloader for TrackingDownloader {
+        async fn list_recent_checkpoints(
+            &self,
+            _topic: &str,
+            _partition_number: i32,
+        ) -> Result<Vec<String>> {
+            Ok(self
+                .checkpoints
+                .iter()
+                .map(|m| m.get_metadata_filepath())
+                .collect())
+        }
+
+        async fn download_file(&self, remote_key: &str) -> Result<Vec<u8>> {
+            self.metadata_download_count.fetch_add(1, Ordering::SeqCst);
+            for checkpoint in &self.checkpoints {
+                if checkpoint.get_metadata_filepath() == remote_key {
+                    return Ok(checkpoint.to_json()?.into_bytes());
+                }
+            }
+            Err(anyhow::anyhow!("Metadata not found: {remote_key}"))
+        }
+
+        async fn download_and_store_file_cancellable(
+            &self,
+            _remote_key: &str,
+            local_filepath: &Path,
+            _cancel_token: Option<&CancellationToken>,
+        ) -> Result<()> {
+            tokio::fs::write(local_filepath, b"mock file content").await?;
+            Ok(())
+        }
+
+        async fn download_files_cancellable(
+            &self,
+            remote_keys: &[String],
+            local_base_path: &Path,
+            cancel_token: Option<&CancellationToken>,
+        ) -> Result<()> {
+            let attempt = self.file_download_attempts.fetch_add(1, Ordering::SeqCst);
+            if attempt < self.file_download_fail_count {
+                return Err(anyhow::anyhow!("Simulated file download failure"));
+            }
+            for key in remote_keys {
+                let filename = key.rsplit('/').next().unwrap_or(key);
+                let local_path = local_base_path.join(filename);
+                self.download_and_store_file_cancellable(key, &local_path, cancel_token)
+                    .await?;
+            }
+            Ok(())
+        }
+
+        async fn is_available(&self) -> bool {
+            true
+        }
+    }
+
+    #[tokio::test]
+    async fn test_lazy_metadata_download_only_fetches_needed() {
+        let tmp_dir = TempDir::new().unwrap();
+
+        // 3 checkpoints available, newest first (hours 14, 13, 12)
+        let checkpoints = vec![
+            create_test_metadata("test-topic", 0, 14),
+            create_test_metadata("test-topic", 0, 13),
+            create_test_metadata("test-topic", 0, 12),
+        ];
+
+        let tracker = TrackingDownloader::new(checkpoints, 0);
+        let download_count = Arc::clone(&tracker.metadata_download_count);
+
+        let importer = CheckpointImporter::new(
+            Box::new(tracker),
+            tmp_dir.path().to_path_buf(),
+            3,
+            Duration::from_secs(60),
+        );
+
+        let result = importer
+            .import_checkpoint_for_topic_partition("test-topic", 0)
+            .await;
+
+        assert!(result.is_ok(), "Import should succeed: {:?}", result.err());
+        assert_eq!(
+            download_count.load(Ordering::SeqCst),
+            1,
+            "Only the newest metadata.json should be downloaded when first attempt succeeds"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_lazy_metadata_download_fallback_downloads_incrementally() {
+        let tmp_dir = TempDir::new().unwrap();
+
+        // 3 checkpoints, first 2 will fail file download, 3rd succeeds
+        let checkpoints = vec![
+            create_test_metadata("test-topic", 0, 14),
+            create_test_metadata("test-topic", 0, 13),
+            create_test_metadata("test-topic", 0, 12),
+        ];
+
+        let tracker = TrackingDownloader::new(checkpoints, 2);
+        let metadata_count = Arc::clone(&tracker.metadata_download_count);
+
+        let importer = CheckpointImporter::new(
+            Box::new(tracker),
+            tmp_dir.path().to_path_buf(),
+            3,
+            Duration::from_secs(60),
+        );
+
+        let result = importer
+            .import_checkpoint_for_topic_partition("test-topic", 0)
+            .await;
+
+        assert!(
+            result.is_ok(),
+            "Import should succeed on 3rd attempt: {:?}",
+            result.err()
+        );
+        assert_eq!(
+            metadata_count.load(Ordering::SeqCst),
+            3,
+            "Should download exactly 3 metadata files (2 failed attempts + 1 success)"
         );
     }
 }

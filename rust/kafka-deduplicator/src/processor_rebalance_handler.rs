@@ -24,6 +24,7 @@ use crate::metrics_const::{
 };
 use crate::rebalance_tracker::RebalanceTracker;
 use crate::store_manager::StoreManager;
+use crate::utils::async_helpers::unwrap_blocking_task;
 
 /// Type alias for the shared task handle. The closure maps JoinHandle's Result to ()
 /// so it can be Clone (required by Shared).
@@ -232,6 +233,7 @@ where
                 metrics::counter!(
                     PARTITION_STORE_SETUP_SKIPPED,
                     "reason" => if cancel_token.is_cancelled() { "cancelled" } else { "not_owned" },
+                    "assignment_mode" => "consumer_group",
                 )
                 .increment(1);
                 fallback_reasons.insert(partition.clone(), "import_cancelled");
@@ -247,6 +249,7 @@ where
                     REBALANCE_CHECKPOINT_IMPORT_COUNTER,
                     "result" => "skipped",
                     "reason" => "store_exists",
+                    "assignment_mode" => "consumer_group",
                 )
                 .increment(1);
                 return;
@@ -279,6 +282,7 @@ where
                             metrics::counter!(
                                 PARTITION_STORE_SETUP_SKIPPED,
                                 "reason" => reason,
+                                "assignment_mode" => "consumer_group",
                             )
                             .increment(1);
                             fallback_reasons.insert(partition.clone(), "import_cancelled");
@@ -287,11 +291,12 @@ where
                             // With unique Utc::now() timestamps, each import attempt creates a new path,
                             // so there's no collision risk with a new task - it will create its own directory.
                             if path.exists() {
-                                match std::fs::remove_dir_all(&path) {
+                                match tokio::fs::remove_dir_all(&path).await {
                                     Ok(_) => {
                                         metrics::counter!(
                                             CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER,
                                             "result" => "success",
+                                            "assignment_mode" => "consumer_group",
                                         )
                                         .increment(1);
                                         info!(
@@ -306,6 +311,7 @@ where
                                         metrics::counter!(
                                             CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER,
                                             "result" => "failed",
+                                            "assignment_mode" => "consumer_group",
                                         )
                                         .increment(1);
                                         warn!(
@@ -321,16 +327,28 @@ where
                             return;
                         }
 
-                        // Register imported store
-                        match store_manager.restore_imported_store(
-                            partition.topic(),
-                            partition.partition_number(),
-                            &path,
-                        ) {
+                        // Register imported store (sync RocksDB open; run on blocking pool)
+                        let store_manager = store_manager.clone();
+                        let topic = partition.topic().to_string();
+                        let partition_number = partition.partition_number();
+                        let import_path = path.clone();
+                        match unwrap_blocking_task(
+                            tokio::task::spawn_blocking(move || {
+                                store_manager.restore_imported_store(
+                                    &topic,
+                                    partition_number,
+                                    &import_path,
+                                )
+                            }),
+                            "restore_imported_store task panicked",
+                        )
+                        .await
+                        {
                             Ok(_) => {
                                 metrics::counter!(
                                     REBALANCE_CHECKPOINT_IMPORT_COUNTER,
                                     "result" => "success",
+                                    "assignment_mode" => "consumer_group",
                                 )
                                 .increment(1);
                                 info!(
@@ -345,12 +363,13 @@ where
                                     REBALANCE_CHECKPOINT_IMPORT_COUNTER,
                                     "result" => "failed",
                                     "reason" => "restore",
+                                    "assignment_mode" => "consumer_group",
                                 )
                                 .increment(1);
                                 error!(
                                     topic = partition.topic(),
                                     partition = partition.partition_number(),
-                                    error = ?e,
+                                    error = %e,
                                     "Failed to restore checkpoint"
                                 );
                                 fallback_reasons.insert(partition.clone(), "import_failed");
@@ -364,6 +383,7 @@ where
                                 REBALANCE_CHECKPOINT_IMPORT_COUNTER,
                                 "result" => "failed",
                                 "reason" => "import",
+                                "assignment_mode" => "consumer_group",
                             )
                             .increment(1);
                             warn!(
@@ -383,6 +403,7 @@ where
                     REBALANCE_CHECKPOINT_IMPORT_COUNTER,
                     "result" => "skipped",
                     "reason" => "disabled",
+                    "assignment_mode" => "consumer_group",
                 )
                 .increment(1);
                 fallback_reasons.insert(partition.clone(), "no_importer");
@@ -450,7 +471,7 @@ where
                     .await
                 {
                     Ok(_) => {
-                        metrics::counter!(PARTITION_STORE_FALLBACK_EMPTY, "reason" => reason)
+                        metrics::counter!(PARTITION_STORE_FALLBACK_EMPTY, "reason" => reason, "assignment_mode" => "consumer_group")
                             .increment(1);
                         warn!(
                             topic = partition.topic(),
@@ -537,6 +558,7 @@ where
                 "topic" => partition.topic().to_string(),
                 "partition" => partition.partition_number().to_string(),
                 "op" => "assign",
+                "assignment_mode" => "consumer_group",
             )
             .increment(1);
         }
@@ -585,6 +607,7 @@ where
                 "topic" => partition.topic().to_string(),
                 "partition" => partition.partition_number().to_string(),
                 "op" => "revoke",
+                "assignment_mode" => "consumer_group",
             )
             .increment(1);
         }
@@ -652,9 +675,17 @@ where
         // stays true during finalize. That prevents orphan/capacity cleanup from deleting dirs we're setting up.
         let is_last = self.rebalance_tracker.rebalancing_count() == 1;
         if is_last {
-            self.finalize_rebalance_cycle(consumer_command_tx, true)
-                .await?;
+            // IMPORTANT: Always call finish_rebalancing even if finalize errors, otherwise the
+            // counter leaks and is_rebalancing() returns true permanently — blocking all
+            // checkpoint exports and offset commits.
+            let result = self
+                .finalize_rebalance_cycle(consumer_command_tx, true)
+                .await;
             self.rebalance_tracker.finish_rebalancing();
+            if let Err(e) = result {
+                error!("Finalize failed after decrementing rebalance counter: {e:#}");
+                return Err(e);
+            }
         } else {
             self.rebalance_tracker.finish_rebalancing();
             if !self.rebalance_tracker.is_rebalancing() {
@@ -1437,6 +1468,46 @@ mod tests {
         assert!(
             rx.try_recv().is_err(),
             "Should NOT have received a Resume command when no partitions are owned"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_counter_not_leaked_on_finalize_error() {
+        let temp_dir = TempDir::new().unwrap();
+        let store_config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1000,
+        };
+        let coordinator = create_test_tracker();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
+        let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
+
+        let handler: ProcessorRebalanceHandler<String, TestProcessor> =
+            ProcessorRebalanceHandler::new(
+                store_manager,
+                coordinator.clone(),
+                offset_tracker,
+                None,
+                16,
+            );
+
+        let mut partitions = rdkafka::TopicPartitionList::new();
+        partitions
+            .add_partition_offset("test-topic", 0, Offset::Beginning)
+            .unwrap();
+        handler.setup_assigned_partitions(&partitions);
+        assert_eq!(coordinator.rebalancing_count(), 1);
+
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        drop(rx);
+
+        let result = handler.async_setup_assigned_partitions(&tx).await;
+        assert!(result.is_err());
+
+        assert_eq!(
+            coordinator.rebalancing_count(),
+            0,
+            "Counter must be decremented even when finalize fails (channel broken)"
         );
     }
 

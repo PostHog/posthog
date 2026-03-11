@@ -1,5 +1,10 @@
 from abc import ABC, abstractmethod
-from typing import Generic, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Generic, Optional, TypeVar, Union
+
+from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
+
+if TYPE_CHECKING:
+    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 from posthog.schema import (
     SourceConfig,
@@ -64,7 +69,9 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         return {}
 
-    def get_schemas(self, config: ConfigType, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: ConfigType, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
         raise NotImplementedError()
 
     @property
@@ -77,6 +84,10 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
     def validate_config(self, job_inputs: dict) -> tuple[bool, list[str]]:
         return self._config_class.validate_dict(job_inputs)
+
+    @property
+    def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:
+        return None
 
     def validate_credentials(
         self, config: ConfigType, team_id: int, schema_name: Optional[str] = None
@@ -105,4 +116,17 @@ class ResumableSource(_BaseSource[ConfigType], Generic[ConfigType, ResumableData
         raise NotImplementedError()
 
 
-AnySource = SimpleSource[ConfigType] | ResumableSource[ConfigType, ResumableData]
+class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
+    """Base class for sources that support webhook based imports."""
+
+    @property
+    @abstractmethod
+    def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:
+        raise NotImplementedError()
+
+    @abstractmethod
+    def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
+        raise NotImplementedError()
+
+
+AnySource = SimpleSource[ConfigType] | ResumableSource[ConfigType, ResumableData] | WebhookSource[ConfigType]

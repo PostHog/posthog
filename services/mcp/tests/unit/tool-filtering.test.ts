@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
+import { OAUTH_SCOPES_SUPPORTED } from '@/lib/constants'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
-import { getToolsForFeatures } from '@/tools/toolDefinitions'
+import { getToolDefinitions, getToolsForFeatures, type ToolDefinition } from '@/tools/toolDefinitions'
 import type { Context } from '@/tools/types'
 
 describe('Tool Filtering - Features', () => {
@@ -53,7 +54,7 @@ describe('Tool Filtering - Features', () => {
         {
             features: ['error-tracking'],
             description: 'error tracking tools',
-            expectedTools: ['list-errors', 'error-details'],
+            expectedTools: ['list-errors', 'error-details', 'update-issue-status'],
         },
         {
             features: ['experiments'],
@@ -98,6 +99,8 @@ const createMockContext = (scopes: string[]): Context => ({
     cache: {} as any,
     env: {
         INKEEP_API_KEY: undefined,
+        POSTHOG_ANALYTICS_API_KEY: undefined,
+        POSTHOG_ANALYTICS_HOST: undefined,
         POSTHOG_API_BASE_URL: undefined,
         POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
         POSTHOG_UI_APPS_TOKEN: undefined,
@@ -177,8 +180,8 @@ describe('Tool Filtering - API Scopes', () => {
         const tools = await getToolsFromContext(context)
         const toolNames = tools.map((t) => t.name)
 
-        // Only demo tool should be available since it has no required scopes
-        expect(toolNames).toContain('demo-mcp-ui-apps')
+        // Only debug tool should be available since it has no required scopes
+        expect(toolNames).toContain('debug-mcp-ui-apps')
         expect(tools).toHaveLength(1)
     })
 
@@ -187,8 +190,147 @@ describe('Tool Filtering - API Scopes', () => {
         const tools = await getToolsFromContext(context)
         const toolNames = tools.map((t) => t.name)
 
-        // Only demo tool should be available since it has no required scopes
-        expect(toolNames).toContain('demo-mcp-ui-apps')
+        // Only debug tool should be available since it has no required scopes
+        expect(toolNames).toContain('debug-mcp-ui-apps')
         expect(tools).toHaveLength(1)
+    })
+})
+
+describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
+    it('should include every scope referenced in tool definitions', () => {
+        const supportedScopes = new Set<string>(OAUTH_SCOPES_SUPPORTED)
+
+        const allDefinitions = {
+            ...getToolDefinitions(1),
+            ...getToolDefinitions(2),
+        }
+
+        const scopesFromTools = new Set<string>()
+        for (const def of Object.values(allDefinitions)) {
+            for (const scope of def.required_scopes) {
+                scopesFromTools.add(scope)
+            }
+        }
+
+        const missing = [...scopesFromTools].filter((s) => !supportedScopes.has(s)).sort()
+
+        expect(
+            missing,
+            `OAUTH_SCOPES_SUPPORTED is missing scopes used by tool definitions: ${missing.join(', ')}`
+        ).toEqual([])
+    })
+})
+
+describe('Tool Filtering - excludeTools', () => {
+    const excludeTests = [
+        {
+            excludeTools: ['switch-organization', 'switch-project'],
+            description: 'excludes both switch tools when project ID is provided',
+            expectedExcluded: ['switch-organization', 'switch-project'],
+            expectedIncluded: ['organizations-get', 'projects-get'],
+        },
+        {
+            excludeTools: ['switch-organization'],
+            description: 'excludes only switch-organization when org ID is provided',
+            expectedExcluded: ['switch-organization'],
+            expectedIncluded: ['switch-project', 'organizations-get', 'projects-get'],
+        },
+        {
+            excludeTools: [],
+            description: 'excludes nothing when empty array',
+            expectedExcluded: [],
+            expectedIncluded: ['switch-organization', 'switch-project'],
+        },
+        {
+            excludeTools: undefined,
+            description: 'excludes nothing when undefined',
+            expectedExcluded: [],
+            expectedIncluded: ['switch-organization', 'switch-project'],
+        },
+    ]
+
+    it.each(excludeTests)('should $description', async ({ excludeTools, expectedExcluded, expectedIncluded }) => {
+        const context = createMockContext(['*'])
+        const tools = await getToolsFromContext(context, { excludeTools })
+        const toolNames = tools.map((t) => t.name)
+
+        for (const tool of expectedExcluded) {
+            expect(toolNames).not.toContain(tool)
+        }
+        for (const tool of expectedIncluded) {
+            expect(toolNames).toContain(tool)
+        }
+    })
+
+    it('should combine excludeTools with feature filtering', async () => {
+        const context = createMockContext(['*'])
+        const tools = await getToolsFromContext(context, {
+            features: ['workspace'],
+            excludeTools: ['switch-organization', 'switch-project'],
+        })
+        const toolNames = tools.map((t) => t.name)
+
+        expect(toolNames).toContain('organizations-get')
+        expect(toolNames).toContain('projects-get')
+        expect(toolNames).not.toContain('switch-organization')
+        expect(toolNames).not.toContain('switch-project')
+        expect(toolNames).not.toContain('dashboard-create')
+    })
+})
+
+describe('Tool Filtering - Read-Only Mode', () => {
+    it('should only return read-only tools when readOnly is true', () => {
+        const tools = getToolsForFeatures({ readOnly: true })
+        const definitions = getToolDefinitions()
+
+        for (const toolName of tools) {
+            const def = definitions[toolName] as ToolDefinition
+            expect(def.annotations.readOnlyHint, `${toolName} should be readOnly`).toBe(true)
+        }
+
+        expect(tools).toContain('dashboard-get')
+        expect(tools).toContain('dashboards-get-all')
+        expect(tools).toContain('insights-get-all')
+        expect(tools).not.toContain('dashboard-create')
+        expect(tools).not.toContain('dashboard-delete')
+        expect(tools).not.toContain('insight-create-from-query')
+    })
+
+    it('should return all tools when readOnly is false', () => {
+        const allTools = getToolsForFeatures({})
+        const readOnlyFalseTools = getToolsForFeatures({ readOnly: false })
+
+        expect(readOnlyFalseTools).toEqual(allTools)
+    })
+
+    it('should return all tools when readOnly is undefined', () => {
+        const allTools = getToolsForFeatures({})
+        const readOnlyUndefinedTools = getToolsForFeatures({ readOnly: undefined })
+
+        expect(readOnlyUndefinedTools).toEqual(allTools)
+    })
+
+    it('should combine readOnly with feature filtering', () => {
+        const tools = getToolsForFeatures({ features: ['dashboards'], readOnly: true })
+
+        expect(tools).toContain('dashboard-get')
+        expect(tools).toContain('dashboards-get-all')
+        expect(tools).not.toContain('dashboard-create')
+        expect(tools).not.toContain('dashboard-delete')
+        expect(tools).not.toContain('dashboard-update')
+        expect(tools).not.toContain('feature-flag-get-all')
+    })
+
+    it('should combine readOnly with excludeTools via getToolsFromContext', async () => {
+        const context = createMockContext(['*'])
+        const tools = await getToolsFromContext(context, {
+            readOnly: true,
+            excludeTools: ['dashboard-get'],
+        })
+        const toolNames = tools.map((t) => t.name)
+
+        expect(toolNames).not.toContain('dashboard-get')
+        expect(toolNames).not.toContain('dashboard-create')
+        expect(toolNames).toContain('dashboards-get-all')
     })
 })

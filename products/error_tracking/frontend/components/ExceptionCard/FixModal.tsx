@@ -72,7 +72,7 @@ PostHog issue: ${issueUrl}
 
     const handleCopy = (): void => {
         void copyToClipboard(generatePrompt(), 'LLM prompt')
-        posthog.capture('error_tracking_prompt_copied', { mode })
+        posthog.capture('error_tracking_prompt_copied', { issue_id: issueId, mode })
         onClose()
     }
 

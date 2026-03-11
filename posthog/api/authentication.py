@@ -108,10 +108,6 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
 
 @csrf_protect
 def logout(request):
-    if request.user.is_authenticated:
-        request.user.temporary_token = None
-        request.user.save()
-
     clear_two_factor_session_flags(request)
 
     request.session.pop("reauth", None)
@@ -231,8 +227,6 @@ class LoginSerializer(serializers.Serializer):
 
         request = self.context["request"]
 
-        # Evaluate signin attempt with WorkOS Radar (log-only mode, does not block)
-        # Get user_id if user exists, for better tracking in the event
         existing_user = User.objects.filter(email__iexact=validated_data["email"]).first()
         evaluate_auth_attempt(
             request=request._request,
@@ -243,7 +237,11 @@ class LoginSerializer(serializers.Serializer):
         )
 
         axes_request = getattr(request, "_request", request)
-        was_authenticated_before_login_attempt = bool(getattr(request, "user", None) and request.user.is_authenticated)
+        was_authenticated_before_login_attempt = bool(
+            getattr(request, "user", None)
+            and request.user.is_authenticated
+            and request.user.email.lower() == validated_data["email"].lower()
+        )
 
         # Initialize axes handler via proxy so request metadata is populated consistently
         from axes.exceptions import AxesBackendPermissionDenied
@@ -823,9 +821,12 @@ class PasswordResetSerializer(serializers.Serializer):
             )
 
         try:
-            user = User.objects.filter(is_active=True).get(email=email)
+            user = User.objects.filter(is_active=True).get(email__iexact=email)
         except User.DoesNotExist:
             user = None
+        except User.MultipleObjectsReturned:
+            # If multiple users share the same email (different casing), use the exact match
+            user = User.objects.filter(is_active=True, email=email).first()
 
         if user:
             user.requested_password_reset_at = datetime.datetime.now(datetime.UTC)
@@ -944,7 +945,7 @@ class PasswordResetTokenGenerator(DefaultPasswordResetTokenGenerator):
         # Due to type differences between the user model and the token generator, we need to
         # re-fetch the user from the database to get the correct type.
         usable_user: User = User.objects.get(pk=user.pk)
-        return f"{user.pk}{user.email}{usable_user.requested_password_reset_at}{timestamp}"
+        return f"{user.pk}{user.email}{usable_user.requested_password_reset_at}{timestamp}{usable_user.password}"
 
 
 password_reset_token_generator = PasswordResetTokenGenerator()

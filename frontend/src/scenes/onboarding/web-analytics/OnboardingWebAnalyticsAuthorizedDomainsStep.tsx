@@ -5,8 +5,8 @@ import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/Au
 
 import { OnboardingStepKey } from '~/types'
 
-import { OnboardingStep } from '../OnboardingStep'
 import { OnboardingStepComponentType } from '../onboardingLogic'
+import { OnboardingStep } from '../OnboardingStep'
 
 export const OnboardingWebAnalyticsAuthorizedDomainsStep: OnboardingStepComponentType = () => {
     const { authorizedUrls } = useValues(

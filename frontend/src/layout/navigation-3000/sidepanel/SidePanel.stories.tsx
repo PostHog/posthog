@@ -7,6 +7,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
+import { INCIDENT_IO_STATUS_PAGE_BASE } from '~/layout/navigation-3000/incident/incidentStatus'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import * as incidentIoStatusPageCritical from '~/mocks/fixtures/_incident_io_status_page_critical.json'
 import * as incidentIoStatusPageWarning from '~/mocks/fixtures/_incident_io_status_page_warning.json'
@@ -14,7 +15,6 @@ import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@cu
 import { SidePanelTab } from '~/types'
 
 import { sidePanelDocsLogic } from './panels/sidePanelDocsLogic'
-import { INCIDENT_IO_STATUS_PAGE_BASE } from './panels/sidePanelStatusIncidentIoLogic'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 const meta: Meta = {
@@ -25,7 +25,6 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2025-10-10', // To stabilize relative dates
         pageUrl: urls.dashboards(),
-        featureFlags: [FEATURE_FLAGS.INCIDENT_IO_STATUS_PAGE],
         testOptions: {
             includeNavigationInSnapshot: true,
         },
@@ -96,11 +95,7 @@ export const SidePanelActivity: StoryFn = () => {
 }
 SidePanelActivity.parameters = {
     pageUrl: urls.dashboard('1'),
-    featureFlags: [
-        FEATURE_FLAGS.INCIDENT_IO_STATUS_PAGE,
-        FEATURE_FLAGS.CDP_ACTIVITY_LOG_NOTIFICATIONS,
-        FEATURE_FLAGS.AUDIT_LOGS_ACCESS,
-    ],
+    featureFlags: [FEATURE_FLAGS.CDP_ACTIVITY_LOG_NOTIFICATIONS, FEATURE_FLAGS.AUDIT_LOGS_ACCESS],
 }
 
 export const SidePanelSupportNoEmail: StoryFn = () => {

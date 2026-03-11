@@ -1,13 +1,17 @@
 import type { z } from 'zod'
 
+import type { Schemas } from '@/api/generated'
+import { FEATURE_FLAG_RESOURCE_URI } from '@/resources/ui-apps-constants'
 import { FeatureFlagUpdateSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
+
+type TResult = Schemas.FeatureFlag & { __posthogUrl: string }
 
 const schema = FeatureFlagUpdateSchema
 
 type Params = z.infer<typeof schema>
 
-export const updateHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+export const updateHandler: ToolBase<typeof schema, TResult>['handler'] = async (context: Context, params: Params) => {
     const { flagKey, data } = params
     const projectId = await context.stateManager.getProjectId()
 
@@ -20,18 +24,21 @@ export const updateHandler: ToolBase<typeof schema>['handler'] = async (context:
         throw new Error(`Failed to update feature flag: ${flagResult.error.message}`)
     }
 
-    const featureFlagWithUrl = {
+    return {
         ...flagResult.data,
-        url: `${context.api.getProjectBaseUrl(projectId)}/feature_flags/${flagResult.data.id}`,
+        _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/feature_flags/${flagResult.data.id}`,
     }
-
-    return featureFlagWithUrl
 }
 
-const tool = (): ToolBase<typeof schema> => ({
+const tool = (): ToolBase<typeof schema, TResult> => ({
     name: 'update-feature-flag',
     schema,
     handler: updateHandler,
+    _meta: {
+        ui: {
+            resourceUri: FEATURE_FLAG_RESOURCE_URI,
+        },
+    },
 })
 
 export default tool

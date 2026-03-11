@@ -21,9 +21,9 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { API_KEY_SCOPE_PRESETS, MAX_API_KEYS_PER_USER } from 'lib/scopes'
 import { detailedTime, humanFriendlyDetailedTime } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -160,6 +160,12 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                                                         const disabledDueToProjectScope =
                                                             disabledWhenProjectScoped &&
                                                             editingKey.access_type === 'teams'
+                                                        const selectedScopeAction = formScopeRadioValues[key]
+                                                        const warningScopeAction =
+                                                            selectedScopeAction === 'read' ||
+                                                            selectedScopeAction === 'write'
+                                                                ? selectedScopeAction
+                                                                : null
                                                         return (
                                                             <Fragment key={key}>
                                                                 <div className="flex items-center justify-between gap-2 min-h-8 group">
@@ -210,14 +216,13 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                                                                         size="xsmall"
                                                                     />
                                                                 </div>
-                                                                {warnings?.[formScopeRadioValues[key]] && (
-                                                                    <div className="flex items-start gap-2 text-xs italic pb-2">
-                                                                        <IconWarning className="text-base text-secondary mt-0.5" />
-                                                                        <span>
-                                                                            {warnings[formScopeRadioValues[key]]}
-                                                                        </span>
-                                                                    </div>
-                                                                )}
+                                                                {warningScopeAction &&
+                                                                    warnings?.[warningScopeAction] && (
+                                                                        <div className="flex items-start gap-2 text-xs italic pb-2">
+                                                                            <IconWarning className="text-base text-secondary mt-0.5" />
+                                                                            <span>{warnings[warningScopeAction]}</span>
+                                                                        </div>
+                                                                    )}
                                                             </Fragment>
                                                         )
                                                     }
@@ -590,18 +595,6 @@ export function PersonalAPIKeys(): JSX.Element {
 
     return (
         <>
-            <p>
-                These keys allow full access to your personal account through the API, as if you were logged in. You can
-                also use them in integrations, such as{' '}
-                <Link to="https://zapier.com/apps/posthog/">our premium Zapier one</Link>.
-                <br />
-                Try not to keep disused keys around. If you have any suspicion that one of these may be compromised,
-                delete it and use a new one.
-                <br />
-                <Link to="https://posthog.com/docs/api/overview#authentication">
-                    More about API authentication in PostHog Docs.
-                </Link>
-            </p>
             <LemonButton
                 type="primary"
                 icon={<IconPlus />}

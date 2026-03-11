@@ -1,4 +1,5 @@
 import { isTextSelection } from '@tiptap/core'
+import { useEditorState } from '@tiptap/react'
 import { BubbleMenu } from '@tiptap/react/menus'
 import { useValues } from 'kea'
 import { useRef } from 'react'
@@ -19,8 +20,19 @@ export const InlineMenu = ({
     extra: (editor: RichContentEditorType) => JSX.Element | null
 }): JSX.Element => {
     const { ttEditor, richContentEditor } = useValues(richContentEditorLogic)
-    const { href, target } = ttEditor.getAttributes('link')
     const menuRef = useRef<HTMLDivElement>(null)
+
+    const { isLinkActive, href, target } = useEditorState({
+        editor: ttEditor,
+        selector: ({ editor }) => {
+            const attrs = editor?.getAttributes('link') ?? {}
+            return {
+                isLinkActive: editor?.isActive('link') ?? false,
+                href: attrs.href as string | undefined,
+                target: attrs.target as string | undefined,
+            }
+        },
+    })
 
     const setLink = (href: string): void => {
         ttEditor.commands.setMark('link', { href: href })
@@ -36,11 +48,21 @@ export const InlineMenu = ({
         <BubbleMenu
             editor={ttEditor}
             shouldShow={({ editor: { isEditable }, view, state, from, to }) => {
+                if (!isEditable) {
+                    return false
+                }
+
                 const isChildOfMenu = menuRef.current?.contains(document.activeElement)
-                const focused = view.hasFocus() || isChildOfMenu
+
+                // Keep menu visible while interacting with it (e.g. typing in URL input)
+                if (isChildOfMenu) {
+                    return true
+                }
+
+                const focused = view.hasFocus()
                 const isTextBlock = isTextSelection(state.selection)
 
-                if (!focused || !isEditable || !isTextBlock) {
+                if (!focused || !isTextBlock) {
                     return false
                 }
 
@@ -52,7 +74,7 @@ export const InlineMenu = ({
                 ref={menuRef}
                 className="NotebookInlineMenu flex bg-surface-primary rounded border items-center text-secondary p-1 gap-x-0.5"
             >
-                {ttEditor.isActive('link') ? (
+                {isLinkActive ? (
                     <>
                         <LemonInput
                             size="small"
@@ -109,6 +131,7 @@ export const InlineMenu = ({
                             size="small"
                         />
                         <LemonButton
+                            onMouseDown={(e: React.MouseEvent) => e.preventDefault()}
                             onClick={() => ttEditor.chain().focus().setMark('link').run()}
                             icon={<IconLink />}
                             size="small"

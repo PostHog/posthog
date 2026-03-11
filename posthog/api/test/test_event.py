@@ -23,8 +23,6 @@ from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
-
 from posthog.models import Action, Element, Organization, Person, PropertyDefinition, User
 from posthog.models.cohort import Cohort
 from posthog.models.event.query_event_list import insight_query_with_columns
@@ -272,23 +270,25 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         # distinct_id
         response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=distinct_id&is_column=true").json()
-        assert sorted(x["name"] for x in response) == sorted(["bla", "ble", "blu"])
+        assert sorted(x["name"] for x in response["results"]) == sorted(["bla", "ble", "blu"])
 
         # event
         response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=event&is_column=true").json()
-        assert sorted(x["name"] for x in response) == sorted(
+        assert sorted(x["name"] for x in response["results"]) == sorted(
             ["another random event", "random event 1", "random event 2"]
         )
 
         # person_id
         response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=person_id&is_column=true").json()
-        assert sorted(x["name"] for x in response) == sorted([str(person3.uuid), str(person2.uuid), str(person1.uuid)])
+        assert sorted(x["name"] for x in response["results"]) == sorted(
+            [str(person3.uuid), str(person2.uuid), str(person1.uuid)]
+        )
 
         # Search
         response = self.client.get(
             f"/api/projects/{self.team.id}/events/values/?key=event&is_column=true&value=another"
         ).json()
-        assert response == [{"name": "another random event"}]
+        assert response["results"] == [{"name": "another random event"}]
 
     def test_custom_event_values(self):
         events = ["test", "new event", "another event"]
@@ -303,7 +303,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                 },
             )
         response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=custom_event").json()
-        assert sorted(events) == sorted(event["name"] for event in response)
+        assert sorted(events) == sorted(event["name"] for event in response["results"])
 
     @also_test_with_materialized_columns(["random_prop"])
     @snapshot_clickhouse_queries
@@ -390,7 +390,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             )
             response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=random_prop").json()
 
-            keys = [resp["name"].replace(" ", "") for resp in response]
+            keys = [resp["name"].replace(" ", "") for resp in response["results"]]
             assert set(keys) == {
                 "asdf",
                 "qwerty",
@@ -402,31 +402,61 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                 "item2",
                 "item3",
             }
-            assert len(response) == 9
+            assert len(response["results"]) == 9
 
             response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=random_prop&value=qw").json()
-            assert response[0]["name"] == "qwerty"
+            assert response["results"][0]["name"] == "qwerty"
 
             response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=random_prop&value=QW").json()
-            assert response[0]["name"] == "qwerty"
+            assert response["results"][0]["name"] == "qwerty"
 
             response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=random_prop&value=6").json()
-            assert response[0]["name"] == "565"
+            assert response["results"][0]["name"] == "565"
 
             response = self.client.get(
                 f"/api/projects/{self.team.id}/events/values/?key=random_prop&value=6&event_name=random event"
             ).json()
-            assert response[0]["name"] == "565"
+            assert response["results"][0]["name"] == "565"
 
             response = self.client.get(
                 f"/api/projects/{self.team.id}/events/values/?key=random_prop&value=6&event_name=foo&event_name=random event"
             ).json()
-            assert response[0]["name"] == "565"
+            assert response["results"][0]["name"] == "565"
 
             response = self.client.get(
                 f"/api/projects/{self.team.id}/events/values/?key=random_prop&value=qw&event_name=404_i_dont_exist"
             ).json()
-            assert response == []
+            assert response["results"] == []
+
+    @parameterized.expand(
+        [
+            ("default", "", "RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS"),
+            (
+                "force_refresh_false",
+                "force_refresh=false",
+                "RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS",
+            ),
+            ("force_refresh_true", "force_refresh=true", "CALCULATE_BLOCKING_ALWAYS"),
+        ]
+    )
+    @freeze_time("2020-01-10")
+    def test_event_property_values_force_refresh(self, _name, param, expected_mode_name):
+        from posthog.hogql_queries.property_values_query_runner import PropertyValuesQueryResponse
+        from posthog.hogql_queries.query_runner import ExecutionMode
+
+        _create_event(distinct_id="u1", event="pageview", team=self.team, properties={"browser": "Chrome"})
+        flush_persons_and_events()
+
+        url = f"/api/projects/{self.team.id}/events/values/?key=browser"
+        if param:
+            url += f"&{param}"
+
+        with patch(
+            "posthog.hogql_queries.property_values_query_runner.PropertyValuesQueryRunner.run",
+            return_value=PropertyValuesQueryResponse(results=[]),
+        ) as mock_run:
+            self.client.get(url)
+            mock_run.assert_called_once_with(ExecutionMode[expected_mode_name])
 
     @also_test_with_materialized_columns(["test_prop"])
     @freeze_time("2020-01-20 20:00:00")
@@ -455,11 +485,11 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=test_prop").json()
 
         # When property is not hidden, all values should be returned
-        keys = [resp["name"] for resp in response]
+        keys = [resp["name"] for resp in response["results"]]
         assert "visible_value" in keys
         assert "hidden_value" in keys
         assert "another_visible" in keys
-        assert len(response) == 3
+        assert len(response["results"]) == 3
 
     @also_test_with_materialized_columns(["hidden_prop", "visible_prop"])
     @freeze_time("2020-01-20 20:00:00")
@@ -478,6 +508,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             properties={"hidden_prop": "also_hidden", "visible_prop": "also_visible"},
         )
+        flush_persons_and_events()
 
         # Try to import enterprise model, skip test if not available
         try:
@@ -492,12 +523,12 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         # Test hidden property returns no values
         hidden_response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=hidden_prop").json()
-        assert len(hidden_response) == 0
+        assert len(hidden_response["results"]) == 0
 
         # Test visible property still returns values
         visible_response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=visible_prop").json()
-        assert len(visible_response) == 2
-        visible_keys = [resp["name"] for resp in visible_response]
+        assert len(visible_response["results"]) == 2
+        visible_keys = [resp["name"] for resp in visible_response["results"]]
         assert "should_appear" in visible_keys
         assert "also_visible" in visible_keys
 
@@ -526,13 +557,13 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(
                 f"/api/projects/{self.team.id}/events/values/?key=random_prop&properties_filter_prop=value1"
             ).json()
-            assert {r["name"] for r in response} == {"asdf", "qwerty"}
+            assert {r["name"] for r in response["results"]} == {"asdf", "qwerty"}
 
             # Test array property filter
             response = self.client.get(
                 f"/api/projects/{self.team.id}/events/values/?key=random_prop&properties_filter_prop={json.dumps(['value1', 'value2'])}"
             ).json()
-            assert {r["name"] for r in response} == {"asdf", "qwerty", "no match"}
+            assert {r["name"] for r in response["results"]} == {"asdf", "qwerty", "no match"}
 
             # Test multiple property filters
             _create_event(
@@ -544,8 +575,8 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(
                 f"/api/projects/{self.team.id}/events/values/?key=random_prop&properties_filter_prop=value1&properties_another_filter=other1"
             ).json()
-            assert len(response) == 1
-            assert response[0]["name"] == "both filters"
+            assert len(response["results"]) == 1
+            assert response["results"][0]["name"] == "both filters"
 
     def test_property_values_with_property_filters_error_handling(self):
         with freeze_time("2020-01-20 20:00:00"):
@@ -566,25 +597,25 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(
                 f"/api/projects/{self.team.id}/events/values/?key=random_prop&properties_filter_prop=[value1,value2"
             ).json()
-            assert len(response) == 0  # No matches because "[value1,value2" is treated as a literal string
+            assert len(response["results"]) == 0  # No matches because "[value1,value2" is treated as a literal string
 
             # Empty value
             response = self.client.get(
                 f"/api/projects/{self.team.id}/events/values/?key=random_prop&properties_filter_prop="
             ).json()
-            assert len(response) == 0
+            assert len(response["results"]) == 0
 
             # Invalid JSON object - should be treated as a single value
             response = self.client.get(
                 f"/api/projects/{self.team.id}/events/values/?key=random_prop&properties_filter_prop={{invalid:json}}"
             ).json()
-            assert len(response) == 0
+            assert len(response["results"]) == 0
 
             # Array with mixed types - should convert all values to strings for comparison
             response = self.client.get(
                 f"/api/projects/{self.team.id}/events/values/?key=random_prop&properties_filter_prop={json.dumps(['123', 'true', 'value1'])}"
             ).json()
-            assert {r["name"] for r in response} == {"asdf", "qwerty"}
+            assert {r["name"] for r in response["results"]} == {"asdf", "qwerty"}
 
             # Test with non-string property values
             _create_event(
@@ -596,8 +627,8 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(
                 f"/api/projects/{self.team.id}/events/values/?key=random_prop&properties_filter_prop={json.dumps(['TRUE'])}"
             ).json()
-            assert len(response) == 1  # Should match because "TRUE".lower() == "true"
-            assert response[0]["name"] == "123"  # The value should be preserved as a string
+            assert len(response["results"]) == 1  # Should match because "TRUE".lower() == "true"
+            assert response["results"][0]["name"] == "123"  # The value should be preserved as a string
 
     def test_before_and_after(self):
         user = self._create_user("tim")
@@ -660,12 +691,16 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                     distinct_id="1",
                     timestamp=timezone.now() - relativedelta(months=11) + relativedelta(days=idx, seconds=idx),
                 )
-            response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=1&limit=100").json()
+            response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=1").json()
             assert len(response["results"]) == 100
-            assert f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1" in unquote(response["next"])
-            response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=1&limit=100").json()
+            assert f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1&before=" in unquote(
+                response["next"]
+            )
+            response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=1").json()
             assert len(response["results"]) == 100
-            assert f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1" in unquote(response["next"])
+            assert f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1&before=" in unquote(
+                response["next"]
+            )
 
             page2 = self.client.get(response["next"]).json()
 
@@ -682,7 +717,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             assert len(page2["results"]) == 100
             assert (
                 unquote(page2["next"])
-                == f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1&limit=100&before=2020-12-30T12:03:53.829294+00:00"
+                == f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1&before=2020-12-30T12:03:53.829294+00:00"
             )
 
             page3 = self.client.get(page2["next"]).json()
@@ -942,9 +977,8 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         # Progressive time window optimization: tries increasingly larger windows
         # until finding one with >= half_limit results, then falls back to full range
         # Windows: [60, 300, 900, 3600, 21600, 86400] seconds
-        # Using explicit limit=100 so half_limit=50
 
-        # With only 1 result (< half of limit 100), tries all 6 windows + fallback = 7 calls
+        # With only 1 result (< half of default limit 100), tries all 6 windows + fallback = 7 calls
         patch_query_with_columns.return_value = [
             {
                 "uuid": "event",
@@ -956,7 +990,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                 "elements_chain": "d",
             }
         ]
-        response = self.client.get(f"/api/projects/{self.team.id}/events/?limit=100").json()
+        response = self.client.get(f"/api/projects/{self.team.id}/events/").json()
         assert len(response["results"]) == 1
         assert patch_query_with_columns.call_count == 7  # 6 windows + 1 fallback
 
@@ -974,7 +1008,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             }
             for _ in range(0, 50)
         ]
-        response = self.client.get(f"/api/projects/{self.team.id}/events/?limit=100").json()
+        response = self.client.get(f"/api/projects/{self.team.id}/events/").json()
         assert patch_query_with_columns.call_count == 1
 
     @patch("posthog.models.event.query_event_list.insight_query_with_columns", wraps=insight_query_with_columns)
@@ -1205,7 +1239,7 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
     def test_caches_successful_window_with_result_count(self, patch_query_with_columns, mock_cache):
         mock_cache.get.return_value = None  # No cached window
 
-        # Return enough results (>= half of limit=100) to succeed on first window
+        # Return enough results (>= half of limit) to succeed on first window
         patch_query_with_columns.return_value = [
             {
                 "uuid": "event",
@@ -1219,7 +1253,7 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
             for _ in range(50)
         ]
 
-        self.client.get(f"/api/projects/{self.team.id}/events/?limit=100")
+        self.client.get(f"/api/projects/{self.team.id}/events/")
 
         # Should cache the successful window AND result count
         mock_cache.set.assert_called_once()
@@ -1234,7 +1268,6 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
         # Cached window with result_count >= half_limit (60 >= 50 for limit=100)
         mock_cache.get.return_value = {"window": 3600, "result_count": 60}
 
-        # Return enough results on first try (>= half of limit=100)
         patch_query_with_columns.return_value = [
             {
                 "uuid": "event",
@@ -1248,7 +1281,7 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
             for _ in range(60)
         ]
 
-        self.client.get(f"/api/projects/{self.team.id}/events/?limit=100")
+        self.client.get(f"/api/projects/{self.team.id}/events/")
 
         # Should only call once since cached window returned enough results
         assert patch_query_with_columns.call_count == 1
@@ -1320,7 +1353,7 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
                     "distinct_id": "1",
                     "elements_chain": "",
                 }
-                for _ in range(DEFAULT_RETURNED_ROWS // 2)
+                for _ in range(50)
             ],
             3600,  # applied_window
         )
@@ -1334,7 +1367,7 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
         # Should update cache to new format
         mock_cache.set.assert_called_once()
         cached_data = mock_cache.set.call_args[0][1]
-        assert cached_data == {"window": 3600, "result_count": DEFAULT_RETURNED_ROWS // 2}
+        assert cached_data == {"window": 3600, "result_count": 50}
 
     @patch("posthog.api.event.cache")
     @patch("posthog.models.event.query_event_list.insight_query_with_columns")
@@ -1420,20 +1453,20 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
             for _ in range(50)
         ]
 
-        # Request without filters (explicit limit so 50 >= half_limit)
-        self.client.get(f"/api/projects/{self.team.id}/events/?limit=100")
+        # Request without filters
+        self.client.get(f"/api/projects/{self.team.id}/events/")
         first_cache_key = mock_cache.set.call_args[0][0]
 
         mock_cache.reset_mock()
 
         # Request with event filter
-        self.client.get(f"/api/projects/{self.team.id}/events/?event=test&limit=100")
+        self.client.get(f"/api/projects/{self.team.id}/events/?event=test")
         second_cache_key = mock_cache.set.call_args[0][0]
 
         mock_cache.reset_mock()
 
         # Request with distinct_id
-        self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=1&limit=100")
+        self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=1")
         third_cache_key = mock_cache.set.call_args[0][0]
 
         # All cache keys should be different

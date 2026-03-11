@@ -12,6 +12,7 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { experimentLogic } from '../experimentLogic'
+import { isLaunched } from '../experimentsLogic'
 
 /**
  * Minimal context sent to the backend for experiment summarization.
@@ -52,9 +53,9 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
 
     const shouldShowMaxSummaryTool = useMemo(() => {
         const hasResults = orderedPrimaryMetricsWithResults.length > 0
-        const hasStarted = !!experiment.start_date
+        const hasStarted = isLaunched(experiment)
         return hasResults && hasStarted
-    }, [orderedPrimaryMetricsWithResults, experiment.start_date])
+    }, [orderedPrimaryMetricsWithResults, experiment.status, experiment.start_date, experiment.end_date])
 
     const maxToolResult = useMaxTool({
         identifier: 'experiment_results_summary',
@@ -87,7 +88,7 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
     return maxToolResult
 }
 
-export function SummarizeExperimentButton(): JSX.Element | null {
+export function SummarizeExperimentButton({ disabledReason }: { disabledReason?: string }): JSX.Element | null {
     const { openMax } = useExperimentSummaryMaxTool()
     const { experiment } = useValues(experimentLogic)
     const { reportExperimentAiSummaryRequested } = useActions(experimentLogic)
@@ -104,8 +105,9 @@ export function SummarizeExperimentButton(): JSX.Element | null {
             }}
             type="secondary"
             icon={<IconAI />}
+            disabledReason={disabledReason}
         >
-            Summarize
+            Summarize results
         </LemonButton>
     )
 }

@@ -80,32 +80,42 @@ export DUCKLAKE_BUCKET_REGION=${DUCKLAKE_BUCKET_REGION:-us-east-1}
 export DUCKLAKE_S3_ACCESS_KEY=${DUCKLAKE_S3_ACCESS_KEY:-object_storage_root_user}
 export DUCKLAKE_S3_SECRET_KEY=${DUCKLAKE_S3_SECRET_KEY:-object_storage_root_password}
 
-if ! python3 - <<'PY' >/dev/null 2>&1
-import duckdb  # noqa: F401
-PY
-then
-    echo "DuckLake requires the duckdb Python package."
-    echo "Run 'uv sync --active' (or activate Flox) before executing hogli start."
-    exit 1
-fi
+# Duckgres
+export DUCKGRES_PORT=${DUCKGRES_PORT:-15432}
 
 # Geo files
 ./bin/download-mmdb
 
-if ! command -v mprocs &>/dev/null; then
-    if command -v brew &>/dev/null; then
-        echo "🔁 Installing mprocs via Homebrew..."
-        brew install mprocs
-    else
-        echo "👉 To run bin/start, install mprocs: https://github.com/pvolok/mprocs#installation"
-        exit 1
+PROCESS_MANAGER="mprocs"
+
+# Only use phrocs when --phrocs is explicitly passed
+if [[ " $* " == *" --phrocs "* ]]; then
+    PROCESS_MANAGER="$REPOSITORY_ROOT/bin/phrocs"
+
+    # Build phrocs on first run if binary doesn't exist
+    if [[ ! -x "$PROCESS_MANAGER" ]]; then
+        echo "🔨 Building phrocs from source (first run)..."
+        if ! hogli phrocs:build 2>&1; then
+            echo "⚠️ phrocs build failed; falling back to mprocs"
+            PROCESS_MANAGER="mprocs"
+        else
+            echo "✅ phrocs built successfully"
+        fi
     fi
 fi
 
-# Advertise intent-based dev environment
-echo ""
-echo "💡 New: 'hogli dev:setup' lets you configure which services to start"
-echo ""
+if [[ "$PROCESS_MANAGER" == "mprocs" ]]; then
+    # Ensure mprocs is available
+    if ! command -v mprocs &>/dev/null; then
+        if command -v brew &>/dev/null; then
+            echo "🔁 Installing mprocs via Homebrew..."
+            brew install mprocs
+        else
+            echo "👉 To run bin/start, install mprocs: https://github.com/pvolok/mprocs#installation"
+            exit 1
+        fi
+    fi
+fi
 
 # Use custom config, if provided (e.g. bin/start --custom bin/mprocs-custom.yaml)
 # Ensure to provide config path after --custom flag
@@ -126,7 +136,7 @@ if [[ "$*" == *"--custom"* ]]; then
         echo "Error: --custom requires a config path"
         exit 1
     fi
-    exec mprocs --config "$config_path"
+    exec "$PROCESS_MANAGER" --config "$config_path"
 else
     GENERATED_CONFIG="$REPOSITORY_ROOT/.posthog/.generated/mprocs.yaml"
 
@@ -136,9 +146,9 @@ else
     fi
 
     if [[ -f "$GENERATED_CONFIG" ]]; then
-        exec mprocs --config "$GENERATED_CONFIG"
+        exec "$PROCESS_MANAGER" --config "$GENERATED_CONFIG"
     else
         # Fallback if hogli not available
-        exec mprocs --config bin/mprocs.yaml
+        exec "$PROCESS_MANAGER" --config "$REPOSITORY_ROOT/bin/mprocs.yaml"
     fi
 fi

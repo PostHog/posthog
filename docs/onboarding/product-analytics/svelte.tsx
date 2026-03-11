@@ -62,7 +62,7 @@ export const getSvelteClientSteps = (ctx: OnboardingComponentsContext): StepDefi
                                     export const load = async () => {
                                       if (browser) {
                                         posthog.init(
-                                          '<ph_project_api_key>',
+                                          '<ph_project_token>',
                                           {
                                             api_host: '<ph_client_api_host>',
                                             defaults: '2026-01-30'
@@ -143,7 +143,7 @@ export const getSvelteServerSteps = (ctx: OnboardingComponentsContext): StepDefi
                                     import { PostHog } from 'posthog-node';
 
                                     export async function load() {
-                                      const posthog = new PostHog('<ph_project_api_key>', { host: '<ph_client_api_host>' });
+                                      const posthog = new PostHog('<ph_project_token>', { host: '<ph_client_api_host>' });
 
                                       posthog.capture({
                                         distinctId: 'distinct_id_of_the_user',

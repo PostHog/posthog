@@ -7,12 +7,44 @@ import { uuid } from 'lib/utils'
 import {
     PRODUCT_TOUR_STEP_WIDTHS,
     ProductTourStep,
+    ProductTourStepTranslation,
     ProductTourStepType,
     ProductTourStepWidth,
     ProductTourSurveyQuestion,
     ProductTourSurveyQuestionType,
+    StepOrderVersion,
     SurveyPosition,
 } from '~/types'
+
+export function resolveStepTranslation(step: ProductTourStep, lang: string | null): ProductTourStep {
+    if (!lang) {
+        return step
+    }
+
+    const t: ProductTourStepTranslation | undefined = step.translations?.[lang]
+    if (!t) {
+        return step
+    }
+
+    const resolved = { ...step }
+
+    if (t.content !== undefined) {
+        resolved.content = t.content
+    }
+
+    if (t.buttons && resolved.buttons) {
+        resolved.buttons = {
+            primary: resolved.buttons.primary && { ...resolved.buttons.primary, ...t.buttons.primary },
+            secondary: resolved.buttons.secondary && { ...resolved.buttons.secondary, ...t.buttons.secondary },
+        }
+    }
+
+    if (t.survey && resolved.survey) {
+        resolved.survey = { ...resolved.survey, ...t.survey }
+    }
+
+    return resolved
+}
 
 export const DEFAULT_RATING_QUESTION = 'How helpful was this tour?'
 export const DEFAULT_OPEN_QUESTION = 'Any feedback on this tour?'
@@ -48,9 +80,88 @@ export function getDefaultStepContent(): JSONContent {
     }
 }
 
+export function getExplainerStepContent(): JSONContent {
+    return {
+        type: 'doc',
+        content: [
+            {
+                type: 'heading',
+                attrs: { level: 2 },
+                content: [{ type: 'text', text: 'Welcome to Product Tours!' }],
+            },
+            {
+                type: 'paragraph',
+                content: [{ type: 'text', text: 'Here are some tips to get you going 🦔' }],
+            },
+            {
+                type: 'bulletList',
+                content: [
+                    {
+                        type: 'listItem',
+                        content: [
+                            {
+                                type: 'paragraph',
+                                content: [
+                                    {
+                                        type: 'text',
+                                        text: 'Add an element to display this step as a tooltip',
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        type: 'listItem',
+                        content: [
+                            {
+                                type: 'paragraph',
+                                content: [
+                                    {
+                                        type: 'text',
+                                        text: 'Configure when & where to show the tour',
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        type: 'listItem',
+                        content: [
+                            {
+                                type: 'paragraph',
+                                content: [
+                                    {
+                                        type: 'text',
+                                        text: "Customize your tour's theme",
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        type: 'listItem',
+                        content: [
+                            {
+                                type: 'paragraph',
+                                content: [{ type: 'text', text: 'Add custom buttons' }],
+                            },
+                        ],
+                    },
+                ],
+            },
+        ],
+    }
+}
+
 export function getDefaultSurveyContent(type: ProductTourSurveyQuestionType): ProductTourSurveyQuestion {
+    const defaults: Partial<ProductTourSurveyQuestion> = {
+        backButtonText: 'Back',
+        submitButtonText: 'Submit',
+    }
+
     if (type === 'rating') {
         return {
+            ...defaults,
             type: 'rating',
             questionText: DEFAULT_RATING_QUESTION,
             display: 'emoji',
@@ -60,6 +171,7 @@ export function getDefaultSurveyContent(type: ProductTourSurveyQuestionType): Pr
         }
     }
     return {
+        ...defaults,
         type: 'open',
         questionText: DEFAULT_OPEN_QUESTION,
     }
@@ -122,4 +234,32 @@ export function createDefaultStep(type: ProductTourStepType): ProductTourStep {
     }
 
     return baseStep
+}
+
+function hasStepsChanged(currentSteps: ProductTourStep[], history: StepOrderVersion[] | undefined): boolean {
+    if (!history || history.length === 0) {
+        return true
+    }
+    const latestVersion = history[history.length - 1]
+    if (currentSteps.length !== latestVersion.steps.length) {
+        return true
+    }
+    return currentSteps.some((step, index) => step.id !== latestVersion.steps[index].id)
+}
+
+export function getUpdatedStepOrderHistory(
+    currentSteps: ProductTourStep[],
+    existingHistory: StepOrderVersion[] | undefined
+): StepOrderVersion[] {
+    const history = existingHistory ? [...existingHistory] : []
+
+    if (hasStepsChanged(currentSteps, history)) {
+        history.push({
+            id: uuid(),
+            steps: currentSteps,
+            created_at: new Date().toISOString(),
+        })
+    }
+
+    return history
 }

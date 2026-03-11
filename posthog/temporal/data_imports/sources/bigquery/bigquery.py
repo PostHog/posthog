@@ -26,8 +26,9 @@ from products.data_warehouse.backend.types import IncrementalFieldType, Partitio
 def get_schemas(
     config: BigQuerySourceConfig,
     logger: FilteringBoundLogger | None = None,
-) -> dict[str, list[tuple[str, str]]]:
-    schema_list = collections.defaultdict(list)
+    names: list[str] | None = None,
+) -> dict[str, list[tuple[str, str, bool]]]:
+    schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
 
     region: str | None = None
     if (
@@ -47,7 +48,7 @@ def get_schemas(
         config.key_file.token_uri,
     ) as bq:
         query = bq.query(
-            f"SELECT table_name, column_name, data_type FROM `{config.dataset_id}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
+            f"SELECT table_name, column_name, data_type, is_nullable FROM `{config.dataset_id}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
             project=config.dataset_project.dataset_project_id
             if config.dataset_project and config.dataset_project.enabled
             else config.key_file.project_id,
@@ -63,7 +64,11 @@ def get_schemas(
             return {}
 
         for row in rows:
-            schema_list[row.table_name].append((row.column_name, row.data_type))
+            schema_list[row.table_name].append((row.column_name, row.data_type, row.is_nullable == "YES"))
+
+    if names is not None:
+        names_set = set(names)
+        schema_list = {k: v for k, v in schema_list.items() if k in names_set}
 
     return schema_list
 
@@ -137,16 +142,16 @@ def delete_all_temp_destination_tables(
             capture_exception(e)
 
 
-def filter_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
-    results: list[tuple[str, IncrementalFieldType]] = []
-    for column_name, type in columns:
+def filter_incremental_fields(columns: list[tuple[str, str, bool]]) -> list[tuple[str, IncrementalFieldType, bool]]:
+    results: list[tuple[str, IncrementalFieldType, bool]] = []
+    for column_name, type, nullable in columns:
         type = type.upper()
         if type.startswith("TIMESTAMP"):
-            results.append((column_name, IncrementalFieldType.Timestamp))
-        elif type.startswith("DATE"):
-            results.append((column_name, IncrementalFieldType.Date))
+            results.append((column_name, IncrementalFieldType.Timestamp, nullable))
         elif type.startswith("DATETIME"):
-            results.append((column_name, IncrementalFieldType.DateTime))
+            results.append((column_name, IncrementalFieldType.DateTime, nullable))
+        elif type.startswith("DATE"):
+            results.append((column_name, IncrementalFieldType.Date, nullable))
         elif (
             type.startswith("INT64")
             or type.startswith("NUMERIC")
@@ -158,7 +163,7 @@ def filter_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str,
             or type.startswith("TINYINT")
             or type.startswith("BYTEINT")
         ):
-            results.append((column_name, IncrementalFieldType.Integer))
+            results.append((column_name, IncrementalFieldType.Integer, nullable))
 
     return results
 

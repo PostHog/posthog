@@ -34,6 +34,7 @@ class HogFlowTemplate(UUIDTModel):
         """Visibility of the workflow template"""
 
         ONLY_TEAM = "team", "Only team"
+        ORGANIZATION = "organization", "Organization"
         GLOBAL = "global", "Global"
 
     name = models.CharField(max_length=400)

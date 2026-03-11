@@ -4,7 +4,11 @@ import pytest
 
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.config import get_settings
-from llm_gateway.rate_limiting.cost_throttles import ProductCostThrottle, UserCostThrottle
+from llm_gateway.rate_limiting.cost_throttles import (
+    ProductCostThrottle,
+    UserCostBurstThrottle,
+    UserCostSustainedThrottle,
+)
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import (
     Throttle,
@@ -135,9 +139,10 @@ class TestThrottleRunner:
     @pytest.mark.asyncio
     async def test_composite_cost_throttle_order(self) -> None:
         product_throttle = ProductCostThrottle(redis=None)
-        user_throttle = UserCostThrottle(redis=None)
+        burst_throttle = UserCostBurstThrottle(redis=None)
+        sustained_throttle = UserCostSustainedThrottle(redis=None)
 
-        runner = ThrottleRunner(throttles=[product_throttle, user_throttle])
+        runner = ThrottleRunner(throttles=[product_throttle, burst_throttle, sustained_throttle])
 
         user = make_user(auth_method="personal_api_key")
         context = make_context(user=user, product="llm_gateway")

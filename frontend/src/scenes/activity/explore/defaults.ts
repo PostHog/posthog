@@ -25,6 +25,7 @@ export const getDefaultSessionsSceneQuery = (properties?: AnyPropertyFilter[]): 
         select: defaultDataTableColumns(NodeKind.SessionsQuery),
         orderBy: ['$end_timestamp DESC NULLS FIRST'],
         after: '-24h',
+        limit: 100,
         ...(properties ? { properties } : {}),
     },
     propertiesViaUrl: true,

@@ -14,6 +14,7 @@ import {
     LogEntryLevel,
     MinimalAppMetric,
     MinimalLogEntry,
+    WarehouseWebhookPayload,
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
@@ -154,6 +155,7 @@ export class HogFlowExecutorService {
         const metrics: MinimalAppMetric[] = []
         const logs: MinimalLogEntry[] = []
         const capturedPostHogEvents: HogFunctionCapturedEvent[] = []
+        const warehouseWebhookPayloads: WarehouseWebhookPayload[] = []
 
         const earlyExitResult = await this.shouldExitEarly(invocation)
         if (earlyExitResult) {
@@ -170,7 +172,7 @@ export class HogFlowExecutorService {
 
             if (result.finished) {
                 if (result.error) {
-                    this.log(result, 'error', `Workflow encountered an error: ${result.error}`)
+                    this.log(result, 'error', this.logExecutionErrorInfo(result, result.error))
                 } else {
                     this.log(result, 'info', `Workflow completed`)
                 }
@@ -181,6 +183,7 @@ export class HogFlowExecutorService {
             logs.push(...result.logs)
             metrics.push(...result.metrics)
             capturedPostHogEvents.push(...result.capturedPostHogEvents)
+            warehouseWebhookPayloads.push(...result.warehouseWebhookPayloads)
 
             if (this.shouldEndHogFlowExecution(result, logs)) {
                 break
@@ -190,6 +193,7 @@ export class HogFlowExecutorService {
         result.logs = logs
         result.metrics = metrics
         result.capturedPostHogEvents = capturedPostHogEvents
+        result.warehouseWebhookPayloads = warehouseWebhookPayloads
 
         return result
     }
@@ -251,26 +255,36 @@ export class HogFlowExecutorService {
             })
             triggerMatch = filterResult.match
         }
-        if (hogFlow.conversion?.filters && person) {
-            const filterResult = await filterFunctionInstrumented({
-                fn: hogFlow,
-                filters: hogFlow.conversion.filters,
-                filterGlobals: invocation.filterGlobals,
-            })
-            conversionMatch = filterResult.match
+        if (hogFlow.conversion?.filters?.length && person) {
+            if (hogFlow.conversion.bytecode?.length) {
+                const filterResult = await filterFunctionInstrumented({
+                    fn: hogFlow,
+                    filters: {
+                        bytecode: hogFlow.conversion.bytecode || [],
+                        properties: hogFlow.conversion.filters || [],
+                    },
+                    filterGlobals: invocation.filterGlobals,
+                })
+                conversionMatch = filterResult.match
+            } else {
+                logger.error(
+                    'HogFlowExecutorService: Conversion filters are set but no bytecode is provided. This means we cannot evaluate the conversion filters to determine if we should exit the flow.',
+                    { hogFlowId: hogFlow.id }
+                )
+            }
         }
 
         switch (hogFlow.exit_condition) {
             case 'exit_on_trigger_not_matched':
                 if (triggerMatch === false) {
                     shouldExit = true
-                    exitReason = 'Person no longer matches trigger filters'
+                    exitReason = `[Person:${invocation.person?.id ?? 'unknown'}|${invocation.person?.name ?? 'unknown'}] no longer matches trigger filters`
                 }
                 break
             case 'exit_on_conversion':
                 if (conversionMatch === true) {
                     shouldExit = true
-                    exitReason = 'Person matches conversion filters'
+                    exitReason = `[Person:${invocation.person?.id ?? 'unknown'}|${invocation.person?.name ?? 'unknown'}] matches conversion filters`
                 }
                 break
             case 'exit_on_trigger_not_matched_or_conversion':
@@ -278,8 +292,8 @@ export class HogFlowExecutorService {
                     shouldExit = true
                     exitReason =
                         triggerMatch === false
-                            ? 'Person no longer matches trigger filters'
-                            : 'Person matches conversion filters'
+                            ? `[Person:${invocation.person?.id ?? 'unknown'}|${invocation.person?.name ?? 'unknown'}] no longer matches trigger filters`
+                            : `[Person:${invocation.person?.id ?? 'unknown'}|${invocation.person?.name ?? 'unknown'}] matches conversion filters`
                 }
                 break
         }
@@ -294,7 +308,7 @@ export class HogFlowExecutorService {
             })
             earlyExitResult.metrics.push({
                 team_id: hogFlow.team_id,
-                app_source_id: hogFlow.id,
+                app_source_id: invocation.parentRunId ?? hogFlow.id,
                 instance_id: invocation.state?.currentAction?.id || 'exit_condition',
                 metric_kind: 'other',
                 metric_name: 'early_exit',
@@ -353,6 +367,7 @@ export class HogFlowExecutorService {
 
                 if (handlerResult.result) {
                     this.trackActionResult(result, currentAction, handlerResult.result)
+                    result.execResult = handlerResult.result
                 }
 
                 if (handlerResult.finished) {
@@ -497,7 +512,7 @@ export class HogFlowExecutorService {
     ): void {
         result.metrics.push({
             team_id: result.invocation.hogFlow.team_id,
-            app_source_id: result.invocation.hogFlow.id,
+            app_source_id: result.invocation.parentRunId ?? result.invocation.hogFlow.id,
             instance_id: action.id,
             metric_kind: metricName === 'failed' ? 'failure' : metricName === 'succeeded' ? 'success' : 'other',
             metric_name: metricName,
@@ -510,68 +525,80 @@ export class HogFlowExecutorService {
         action: HogFlowAction,
         actionResult: unknown
     ): void {
-        if (action.output_variable?.key) {
-            if (!actionResult) {
-                this.log(
-                    result,
-                    'warn',
-                    `An output variable was specified for [Action:${action.id}], but no output was returned.`
-                )
-                return
+        // Normalize output_variable to an array for uniform handling
+        const outputVars = Array.isArray(action.output_variable)
+            ? action.output_variable
+            : action.output_variable
+              ? [action.output_variable]
+              : []
+
+        if (outputVars.length === 0) {
+            return
+        }
+
+        if (!actionResult) {
+            this.log(
+                result,
+                'warn',
+                `An output variable was specified for [Action:${action.id}], but no output was returned.`
+            )
+            return
+        }
+
+        if (!result.invocation.state.variables) {
+            result.invocation.state.variables = {}
+        }
+
+        const allStoredKeys: string[] = []
+
+        for (const outputVar of outputVars) {
+            if (!outputVar.key) {
+                continue
             }
 
-            if (!result.invocation.state.variables) {
-                result.invocation.state.variables = {}
-            }
-
-            const resolvedResult = action.output_variable?.result_path
-                ? get(actionResult, action.output_variable.result_path)
-                : actionResult
+            const resolvedResult = outputVar.result_path ? get(actionResult, outputVar.result_path) : actionResult
 
             // When spread is true, store each property of the result as a separate variable
             if (
-                action.output_variable.spread &&
+                outputVar.spread &&
                 typeof resolvedResult === 'object' &&
                 resolvedResult !== null &&
                 !Array.isArray(resolvedResult)
             ) {
-                const prefix = action.output_variable.key
+                const prefix = outputVar.key
                 for (const [prop, value] of Object.entries(resolvedResult)) {
-                    result.invocation.state.variables[`${prefix}_${prop}`] = value
+                    const spreadKey = `${prefix}_${prop}`
+                    result.invocation.state.variables[spreadKey] = value
+                    allStoredKeys.push(spreadKey)
                 }
             } else {
-                result.invocation.state.variables[action.output_variable.key] = resolvedResult
+                result.invocation.state.variables[outputVar.key] = resolvedResult
+                allStoredKeys.push(outputVar.key)
             }
-
-            // Check that result to be stored is below 1kb
-            const resultSize = Buffer.byteLength(JSON.stringify(result.invocation.state.variables), 'utf8')
-            if (resultSize > 1024) {
-                this.log(
-                    result,
-                    'warn',
-                    `Total variable size after updating '${action.output_variable.key}' is larger than 1KB, this result will not be stored and won't be available in subsequent actions.`
-                )
-                // Clean up all spread variables
-                if (action.output_variable.spread) {
-                    for (const key of Object.keys(result.invocation.state.variables)) {
-                        if (key.startsWith(`${action.output_variable.key}_`)) {
-                            delete result.invocation.state.variables[key]
-                        }
-                    }
-                } else {
-                    delete result.invocation.state.variables[action.output_variable.key]
-                }
-                return
-            }
-
-            const storedKeys = action.output_variable.spread
-                ? Object.keys(result.invocation.state.variables)
-                      .filter((k) => k.startsWith(`${action.output_variable!.key}_`))
-                      .join(', ')
-                : action.output_variable.key
-
-            this.log(result, 'debug', `Stored action result in variable(s) '${storedKeys}'`)
         }
+
+        // Check that total variables are below 5KB
+        const resultSize = Buffer.byteLength(JSON.stringify(result.invocation.state.variables), 'utf8')
+        if (resultSize > 5120) {
+            const keyNames = allStoredKeys.join(', ')
+            this.log(
+                result,
+                'error',
+                `Total variable size after updating '${keyNames}' exceeds 5KB limit. Use result_path to store only the fields you need.`
+            )
+            // Clean up all variables we just set
+            for (const key of allStoredKeys) {
+                delete result.invocation.state.variables[key]
+            }
+            throw new Error(
+                `Total variable size after updating '${keyNames}' exceeds 5KB limit. Use result_path to store only the fields you need.`
+            )
+        }
+
+        const storedSummary = allStoredKeys
+            .map((key) => `${key} = ${JSON.stringify(result.invocation.state.variables![key])}`)
+            .join(', ')
+        this.log(result, 'debug', `Stored action result in variable(s): ${storedSummary}`)
     }
 
     private logExecutionTriggerInfo(invocation: CyclotronJobInvocationHogFlow): MinimalLogEntry {
@@ -586,10 +613,10 @@ export class HogFlowExecutorService {
         let triggeredForActor = ''
         if (!hasCurrentAction) {
             triggeredForActor = isWebhookTriggered
-                ? ` at request of [Actor:${invocation.state.event?.distinct_id || 'unknown'}]`
+                ? ` at request of [Actor:${invocation.state.event?.distinct_id ?? 'unknown'}]`
                 : ''
             triggeredForActor += hasAssociatedPerson
-                ? ` for [Person:${invocation.person?.id}|${invocation.person?.name}]`
+                ? ` for [Person:${invocation.person?.id}|${invocation.person?.name ?? 'unknown'}]`
                 : ''
         }
 
@@ -598,9 +625,25 @@ export class HogFlowExecutorService {
             : ''
 
         return {
-            level: 'debug',
+            level: 'info',
             message: `${hasCurrentAction ? 'Resuming' : 'Starting'} ${isBatchWorkflow ? 'batch ' : ''}workflow execution at ${currentAction}${triggeredForActor}${triggeredByEvent}`,
             timestamp: DateTime.now(),
         }
+    }
+
+    private logExecutionErrorInfo(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+        error: Error
+    ): string {
+        const invocation = result.invocation
+        const currentActionId = invocation.state.currentAction?.id
+        const currentAction = currentActionId ? invocation.hogFlow.actions.find((a) => a.id === currentActionId) : null
+
+        const hasAssociatedEvent = Boolean(invocation.state.event)
+        const triggeredByEvent = hasAssociatedEvent
+            ? `. This workflow was triggered by [Event:${invocation.state.event?.uuid}|${invocation.state.event?.event?.replaceAll('|', '')}|${invocation.state.event?.timestamp}]`
+            : ''
+
+        return `Workflow encountered an error: ${error.message} at ${currentAction ? actionIdForLogging(currentAction) : 'unknown action'}${triggeredByEvent}`
     }
 }

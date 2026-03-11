@@ -47,11 +47,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -137,11 +136,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -238,11 +236,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -339,11 +336,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -440,11 +436,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -531,11 +526,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -622,11 +616,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -713,11 +706,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -804,11 +796,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -895,11 +886,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -947,11 +937,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -1022,11 +1011,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -1073,11 +1061,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -1132,11 +1119,10 @@
            `context.columns.total_conversions` DESC,
            `context.columns.visitors` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -1189,11 +1175,10 @@
            `context.columns.total_conversions` DESC,
            `context.columns.visitors` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -1246,11 +1231,10 @@
            `context.columns.total_conversions` DESC,
            `context.columns.visitors` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -1303,11 +1287,10 @@
            `context.columns.total_conversions` DESC,
            `context.columns.visitors` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -1362,11 +1345,10 @@
            `context.columns.total_conversions` DESC,
            `context.columns.visitors` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -1421,11 +1403,10 @@
            `context.columns.total_conversions` DESC,
            `context.columns.visitors` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -1480,11 +1461,10 @@
            `context.columns.total_conversions` DESC,
            `context.columns.visitors` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -1531,11 +1511,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -1595,11 +1574,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -1659,11 +1637,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -1723,11 +1700,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -1787,11 +1763,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -1848,11 +1823,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -1899,11 +1873,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -1950,11 +1923,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -2013,11 +1985,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -2086,11 +2057,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -2152,7 +2122,6 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -2214,7 +2183,6 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -2261,11 +2229,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -2324,11 +2291,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -2387,11 +2353,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -2449,11 +2414,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -2512,11 +2476,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -2613,11 +2576,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -2675,11 +2637,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -2737,11 +2698,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -2800,11 +2760,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -2863,11 +2822,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -2926,11 +2884,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -2988,11 +2945,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -3050,11 +3006,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -3113,11 +3068,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -3175,11 +3129,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -3266,11 +3219,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -3384,11 +3336,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -3502,11 +3453,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -3620,11 +3570,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -3738,11 +3687,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -3856,11 +3804,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -3948,11 +3895,10 @@
            `context.columns.visitors` ASC,
            `context.columns.views` ASC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -4040,11 +3986,10 @@
            `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -4100,11 +4045,10 @@
            `context.columns.total_conversions` ASC,
            `context.columns.visitors` ASC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -4160,11 +4104,10 @@
            `context.columns.total_conversions` DESC,
            `context.columns.visitors` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -4279,11 +4222,10 @@
            `context.columns.visitors` ASC,
            `context.columns.views` ASC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -4398,11 +4340,10 @@
            `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -4457,11 +4398,10 @@
            `context.columns.unique_conversions` ASC,
            `context.columns.visitors` ASC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -4516,11 +4456,10 @@
            `context.columns.unique_conversions` DESC,
            `context.columns.visitors` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -4578,11 +4517,10 @@
   ORDER BY `context.columns.views` ASC,
            `context.columns.visitors` ASC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -4640,11 +4578,10 @@
   ORDER BY `context.columns.views` DESC,
            `context.columns.visitors` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -4702,11 +4639,10 @@
   ORDER BY `context.columns.visitors` ASC,
            `context.columns.views` ASC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -4764,11 +4700,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -4798,7 +4733,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            concatWithSeparator(' / ', coalesce(events__session.`$entry_utm_source`, events__session.`$entry_referring_domain`, '(none)'), coalesce(events__session.`$entry_utm_medium`, '(none)'), coalesce(events__session.`$entry_utm_campaign`, '(none)')) AS breakdown_value,
+            concatWithSeparator(' / ', if(isNotNull(events__session.`$entry_utm_source`), events__session.`$entry_utm_source`, if(isNotNull(events__session.`$entry_referring_domain`), concat('referrer:', ifNull(toString(events__session.`$entry_referring_domain`), '')), '(none)')), coalesce(events__session.`$entry_utm_medium`, '(none)'), coalesce(events__session.`$entry_utm_campaign`, '(none)')) AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -4830,11 +4765,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -4931,11 +4865,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -4982,11 +4915,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -5044,11 +4976,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -5106,11 +5037,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -5168,11 +5098,10 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,

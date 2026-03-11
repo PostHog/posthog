@@ -1,6 +1,6 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
@@ -34,6 +34,7 @@ const persistConfig = { persist: true, prefix: `${teamId}__` }
 
 export enum DisplayOption {
     ExpandAll = 'expand_all',
+    ExpandUserOnly = 'expand_user_only',
     CollapseExceptOutputAndLastInput = 'collapse_except_output_and_last_input',
     TextView = 'text_view',
 }
@@ -335,19 +336,19 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         ],
 
         breadcrumbs: [
-            (s) => [s.traceId],
-            (traceId): Breadcrumb[] => {
+            (s) => [s.traceId, router.selectors.searchParams],
+            (traceId: string, searchParams: Record<string, any>): Breadcrumb[] => {
                 return [
                     {
                         key: 'LLMAnalytics',
                         name: 'LLM analytics',
-                        path: urls.llmAnalyticsDashboard(),
+                        path: combineUrl(urls.llmAnalyticsDashboard(), searchParams).url,
                         iconType: 'llm_analytics',
                     },
                     {
                         key: 'LLMAnalyticsTraces',
                         name: 'Traces',
-                        path: urls.llmAnalyticsTraces(),
+                        path: combineUrl(urls.llmAnalyticsTraces(), searchParams).url,
                         iconType: 'llm_analytics',
                     },
                     {
@@ -482,7 +483,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
             if (!values.traceId) {
                 return undefined
             }
-            const params: Record<string, string> = {}
+            const params: Record<string, unknown> = { ...router.values.searchParams }
             if (values.eventId) {
                 params.event = values.eventId
             }

@@ -5,21 +5,32 @@ import { liveUserCountLogic } from 'lib/components/LiveUserCount/liveUserCountLo
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 
 import { BreakdownLiveCard } from './BreakdownLiveCard'
+import { getBrowserLogo } from './browserLogos'
 import { LiveChartCard } from './LiveChartCard'
 import { LiveStatCard, LiveStatDivider } from './LiveStatCard'
 import { LiveTopPathsTable } from './LiveTopPathsTable'
-import { BrowserBreakdownItem, DeviceBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
-import { getBrowserLogo } from './browserLogos'
 import { UsersPerMinuteChart } from './liveWebAnalyticsMetricsCharts'
 import { liveWebAnalyticsMetricsLogic } from './liveWebAnalyticsMetricsLogic'
+import { BrowserBreakdownItem, DeviceBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
+import { LiveWorldMap } from './LiveWorldMap'
 
 const STATS_POLL_INTERVAL_MS = 1000
+
+const renderBrowserIcon = (d: BrowserBreakdownItem): JSX.Element => {
+    const Logo = getBrowserLogo(d.browser)
+    return <Logo className="w-4 h-4 flex-shrink-0" />
+}
+const getBrowserKey = (d: BrowserBreakdownItem): string => d.browser
+const getBrowserLabel = (d: BrowserBreakdownItem): string => d.browser
+const getDeviceKey = (d: DeviceBreakdownItem): string => d.device
+const getDeviceLabel = (d: DeviceBreakdownItem): string => d.device
 
 export const LiveWebAnalyticsMetrics = (): JSX.Element => {
     const {
         chartData,
         deviceBreakdown,
         browserBreakdown,
+        countryBreakdown,
         topPaths,
         totalPageviews,
         totalUniqueVisitors,
@@ -73,8 +84,8 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                 <BreakdownLiveCard<DeviceBreakdownItem>
                     title="Devices"
                     data={deviceBreakdown}
-                    getKey={(d) => d.device}
-                    getLabel={(d) => d.device}
+                    getKey={getDeviceKey}
+                    getLabel={getDeviceLabel}
                     emptyMessage="No device data"
                     statLabel="unique devices"
                     isLoading={isLoading}
@@ -82,18 +93,22 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                 <BreakdownLiveCard<BrowserBreakdownItem>
                     title="Browsers"
                     data={browserBreakdown}
-                    getKey={(d) => d.browser}
-                    getLabel={(d) => d.browser}
-                    renderIcon={(d) => {
-                        const Logo = getBrowserLogo(d.browser)
-                        return <Logo className="w-4 h-4 flex-shrink-0" />
-                    }}
+                    getKey={getBrowserKey}
+                    getLabel={getBrowserLabel}
+                    renderIcon={renderBrowserIcon}
                     emptyMessage="No browser data"
                     statLabel="unique browsers"
                     totalCount={totalBrowsers}
                     isLoading={isLoading}
                 />
             </div>
+
+            <LiveChartCard title="Countries" isLoading={isLoading} contentClassName="">
+                <LiveWorldMap
+                    data={countryBreakdown}
+                    totalEvents={countryBreakdown.reduce((sum, c) => sum + c.count, 0)}
+                />
+            </LiveChartCard>
         </div>
     )
 }

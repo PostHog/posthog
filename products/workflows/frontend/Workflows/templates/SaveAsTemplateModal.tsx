@@ -81,13 +81,21 @@ export function SaveAsTemplateModal(props: WorkflowTemplateLogicProps = {}): JSX
                             />
                         </LemonField>
 
-                        {user?.is_staff && !(isEditMode && isGlobalTemplate) && (
+                        {!(isEditMode && isGlobalTemplate) && (
                             <LemonField name="scope" label="Scope">
                                 <LemonSelect
                                     value={templateForm.scope}
                                     options={[
-                                        { value: 'team', label: 'Team only' },
-                                        { value: 'global', label: 'Official (visible to everyone)' },
+                                        { value: 'team', label: 'This project only' },
+                                        { value: 'organization', label: 'All projects in organization' },
+                                        ...(user?.is_staff
+                                            ? [
+                                                  {
+                                                      value: 'global' as const,
+                                                      label: 'Official (visible to everyone)',
+                                                  },
+                                              ]
+                                            : []),
                                     ]}
                                 />
                             </LemonField>

@@ -27,6 +27,7 @@ from posthog.temporal.data_imports.row_tracking import (
 from products.data_warehouse.backend.models import ExternalDataSource
 
 
+@pytest.mark.timeout(600)
 @mock.patch("posthog.temporal.data_imports.row_tracking.database_sync_to_async_pool", database_sync_to_async)
 class TestRowTracking(BaseTest):
     def _logger(self) -> FilteringBoundLogger:
@@ -36,7 +37,7 @@ class TestRowTracking(BaseTest):
     def _setup_limits(self, limit: int):
         from ee.api.test.test_billing import create_billing_customer
 
-        with mock.patch("ee.api.billing.requests.get") as mock_billing_request:
+        with mock.patch("ee.api.billing.external_requests.get") as mock_billing_request:
             mock_res = create_billing_customer()
             usage_summary = mock_res.get("usage_summary") or {}
             mock_billing_request.return_value.status_code = 200

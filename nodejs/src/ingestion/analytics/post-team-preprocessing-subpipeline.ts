@@ -1,14 +1,15 @@
 import { Message } from 'node-rdkafka'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
-
+import { PluginEvent } from '~/plugin-scaffold'
 import { processPersonlessDistinctIdsBatchStep } from '~/worker/ingestion/event-pipeline/processPersonlessDistinctIdsBatchStep'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
-import { EventHeaders, Hub, Team } from '../../types'
+import { EventHeaders, Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import { prefetchPersonsStep } from '../../worker/ingestion/event-pipeline/prefetchPersonsStep'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { CookielessManager } from '../cookieless/cookieless-manager'
 import {
     createApplyCookielessProcessingStep,
     createApplyPersonProcessingRestrictionsStep,
@@ -16,7 +17,7 @@ import {
     createRateLimitToOverflowStep,
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
-    createValidateEventUuidStep,
+    createValidateEventSchemaStep,
 } from '../event-preprocessing'
 import { createDropOldEventsStep } from '../event-processing/drop-old-events-step'
 import { createPrefetchHogFunctionsStep } from '../event-processing/prefetch-hog-functions-step'
@@ -32,7 +33,9 @@ export interface PostTeamPreprocessingSubpipelineInput {
 
 export interface PostTeamPreprocessingSubpipelineConfig {
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
-    cookielessManager: Hub['cookielessManager']
+    eventSchemaEnforcementManager: EventSchemaEnforcementManager
+    eventSchemaEnforcementEnabled: boolean
+    cookielessManager: CookielessManager
     overflowTopic: string
     preservePartitionLocality: boolean
     overflowRedirectService?: OverflowRedirectService
@@ -49,6 +52,8 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
 ) {
     const {
         eventIngestionRestrictionManager,
+        eventSchemaEnforcementManager,
+        eventSchemaEnforcementEnabled,
         cookielessManager,
         overflowTopic,
         preservePartitionLocality,
@@ -63,14 +68,17 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
     return (
         builder
             // These validation steps are synchronous, so we can process events sequentially.
-            .sequentially((b) =>
-                b
-                    .pipe(createValidateEventMetadataStep())
-                    .pipe(createValidateEventPropertiesStep())
+            .sequentially((b) => {
+                const validated = b.pipe(createValidateEventMetadataStep()).pipe(createValidateEventPropertiesStep())
+
+                const schemaChecked = eventSchemaEnforcementEnabled
+                    ? validated.pipe(createValidateEventSchemaStep(eventSchemaEnforcementManager))
+                    : validated
+
+                return schemaChecked
                     .pipe(createApplyPersonProcessingRestrictionsStep(eventIngestionRestrictionManager))
-                    .pipe(createValidateEventUuidStep())
                     .pipe(createDropOldEventsStep())
-            )
+            })
             // We want to call cookieless with the whole batch at once.
             // IMPORTANT: Cookieless processing changes distinct IDs (cookieless events
             // are captured with $posthog_cookieless distinct ID and rewritten here).

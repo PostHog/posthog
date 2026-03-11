@@ -25,3 +25,6 @@ dist/
 
 # MCP UI Apps build files
 ui-apps-dist/
+
+# Copied instruction references (from products/posthog_ai)
+shared/

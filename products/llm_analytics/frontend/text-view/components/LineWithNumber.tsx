@@ -11,8 +11,8 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { ActivityScope, SidePanelTab } from '~/types'
 
-import { TranslatePopover } from '../../ConversationDisplay/TranslatePopover'
 import { messageActionsMenuLogic } from '../../ConversationDisplay/messageActionsMenuLogic'
+import { TranslatePopover } from '../../ConversationDisplay/TranslatePopover'
 
 interface LineWithNumberProps {
     lineNumber: number

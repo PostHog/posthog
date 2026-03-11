@@ -6,9 +6,9 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { colonDelimitedDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { playerSidebarLogic } from 'scenes/session-recordings/player/sidebar/playerSidebarLogic'
 

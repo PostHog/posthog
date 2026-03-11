@@ -1,4 +1,7 @@
+use std::time::Instant;
+
 use anyhow::{Context, Result};
+use serde_json::json;
 use tracing::info;
 
 use crate::{
@@ -82,7 +85,35 @@ pub fn upload(args: &Args) -> Result<()> {
         .collect::<Result<Vec<SymbolSetUpload>>>()
         .context("While preparing files for upload")?;
 
-    symbol_sets::upload_with_retry(uploads, args.batch_size, args.release.skip_release_on_fail)?;
+    let file_count = uploads.len();
+    let total_bytes: usize = uploads.iter().map(|u| u.data.len()).sum();
+    context().capture_event(
+        "error_tracking_cli_sourcemaps_upload_started",
+        vec![
+            ("type", json!("plain")),
+            ("file_count", json!(file_count)),
+            ("total_bytes", json!(total_bytes)),
+        ],
+    );
+
+    let started_at = Instant::now();
+    let upload_result =
+        symbol_sets::upload_with_retry(uploads, args.batch_size, args.release.skip_release_on_fail);
+    let duration_ms = started_at.elapsed().as_millis();
+
+    let mut props = vec![
+        ("type", json!("plain")),
+        ("file_count", json!(file_count)),
+        ("total_bytes", json!(total_bytes)),
+        ("duration_ms", json!(duration_ms)),
+        ("success", json!(upload_result.is_ok())),
+    ];
+    if let Err(ref e) = upload_result {
+        props.push(("error", json!(format!("{:#}", e))));
+    }
+    context().capture_event("error_tracking_cli_sourcemaps_upload_finished", props);
+
+    upload_result?;
 
     if args.delete_after {
         delete_files(sourcemap_paths).context("While deleting sourcemaps")?;

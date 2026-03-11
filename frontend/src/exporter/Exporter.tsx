@@ -1,5 +1,4 @@
 import '~/styles'
-
 import './Exporter.scss'
 
 import clsx from 'clsx'
@@ -10,6 +9,7 @@ import { Logo } from 'lib/brand/Logo'
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
@@ -37,6 +37,7 @@ function ExportHeatmap(): JSX.Element {
                 <iframe
                     id="heatmap-iframe"
                     ref={null}
+                    title="Heatmap export"
                     className="h-screen bg-white w-screen"
                     // eslint-disable-next-line react/forbid-dom-props
                     src={exportedData.heatmap_url ?? ''}
@@ -99,7 +100,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                                 <h1 className="mb-2" data-attr="dashboard-item-title">
                                     {dashboard.name}
                                 </h1>
-                                <span>{dashboard.description}</span>
+                                <LemonMarkdown lowKeyHeadings>{dashboard.description || ''}</LemonMarkdown>
                             </div>
                             <span className="SharedDashboard-header-team">{currentTeam?.name}</span>
                         </div>
@@ -113,7 +114,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                     ) : type === ExportType.Image ? (
                         <>
                             <h1 className="mb-2">{dashboard.name}</h1>
-                            <p>{dashboard.description}</p>
+                            <LemonMarkdown lowKeyHeadings>{dashboard.description || ''}</LemonMarkdown>
                         </>
                     ) : null
                 ) : null}

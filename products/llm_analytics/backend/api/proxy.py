@@ -8,47 +8,59 @@ Endpoints:
 
 import json
 import uuid
-import logging
-from collections.abc import Generator
-from typing import Any, cast
+from collections.abc import Callable, Generator
+from time import perf_counter
+from typing import Any
 
 from django.http import StreamingHttpResponse
 from django.utils import timezone
 
+import structlog
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.monitoring import monitor
 from posthog.auth import SessionAuthentication
 from posthog.event_usage import groups, report_user_action
-from posthog.models import User
-from posthog.rate_limit import LLMProxyBurstRateThrottle, LLMProxyDailyRateThrottle, LLMProxySustainedRateThrottle
+from posthog.rate_limit import (
+    LLMProxyBurstRateThrottle,
+    LLMProxyBYOKBurstRateThrottle,
+    LLMProxyBYOKDailyRateThrottle,
+    LLMProxyBYOKSustainedRateThrottle,
+    LLMProxyDailyRateThrottle,
+    LLMProxySustainedRateThrottle,
+)
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
+from products.llm_analytics.backend.api.metrics import LLMA_PROXY_BYOK_REQUESTS, llma_track_latency
 from products.llm_analytics.backend.llm import (
     SUPPORTED_MODELS_WITH_THINKING,
     Client,
     CompletionRequest,
+    ModelInfo,
     get_default_models,
 )
 from products.llm_analytics.backend.llm.errors import UnsupportedProviderError
-from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
+from products.llm_analytics.backend.models.provider_keys import LLMProvider, LLMProviderKey
 
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class LLMProxyCompletionSerializer(serializers.Serializer):
     system = serializers.CharField(allow_blank=True)
     messages = serializers.ListField(child=serializers.DictField())
     model = serializers.CharField()
-    provider = serializers.ChoiceField(choices=["openai", "anthropic", "gemini"])
+    provider = serializers.ChoiceField(choices=LLMProvider.choices)
     thinking = serializers.BooleanField(default=False, required=False)
     temperature = serializers.FloatField(required=False)
+    top_p = serializers.FloatField(required=False)
+    seed = serializers.IntegerField(required=False)
     max_tokens = serializers.IntegerField(required=False)
     tools = serializers.JSONField(required=False)
     reasoning_level = serializers.ChoiceField(
@@ -73,9 +85,30 @@ class LLMProxyViewSet(viewsets.ViewSet):
         if self.action == "models":
             return []
 
+        # BYOK requests should not count against shared playground trial limits.
+        # Check the provider key directly from request data to avoid running the
+        # full serializer just for throttle selection.
+        if self.action == "completion":
+            data = getattr(self.request, "data", {})
+            provider_key_id = data.get("provider_key_id")
+            if provider_key_id:
+                try:
+                    key = self._get_provider_key(str(provider_key_id), self.request.user, touch_last_used=False)
+                    if key:
+                        LLMA_PROXY_BYOK_REQUESTS.labels(provider=key.provider).inc()
+                        return [
+                            LLMProxyBYOKBurstRateThrottle(),
+                            LLMProxyBYOKSustainedRateThrottle(),
+                            LLMProxyBYOKDailyRateThrottle(),
+                        ]
+                except ValueError:
+                    pass
+
         return [LLMProxyBurstRateThrottle(), LLMProxySustainedRateThrottle(), LLMProxyDailyRateThrottle()]
 
-    def _get_provider_key(self, provider_key_id: str | None, user) -> LLMProviderKey | None:
+    def _get_provider_key(
+        self, provider_key_id: str | None, user, *, touch_last_used: bool = True
+    ) -> LLMProviderKey | None:
         """
         Fetch provider key by ID.
         Returns LLMProviderKey or None if no key ID provided.
@@ -97,8 +130,9 @@ class LLMProxyViewSet(viewsets.ViewSet):
         if not api_key:
             raise ValueError("No API key configured for this provider key")
 
-        key.last_used_at = timezone.now()
-        key.save(update_fields=["last_used_at"])
+        if touch_last_used:
+            key.last_used_at = timezone.now()
+            key.save(update_fields=["last_used_at"])
 
         return key
 
@@ -111,17 +145,33 @@ class LLMProxyViewSet(viewsets.ViewSet):
         return True
 
     def _create_stream_generator(
-        self, client: Client, request_obj: CompletionRequest, http_request
+        self,
+        client: Client,
+        request_obj: CompletionRequest,
+        http_request,
+        on_complete: Callable[[float], None] | None = None,
+        on_error: Callable[[Exception, float], None] | None = None,
     ) -> Generator[bytes, None, None]:
         """Creates a generator that handles client disconnects and encodes responses"""
+        started = perf_counter()
         try:
             for chunk in client.stream(request_obj):
                 if not http_request.META.get("SERVER_NAME"):  # Client disconnected
+                    if on_error:
+                        on_error(Exception("Client disconnected"), perf_counter() - started)
                     return
                 yield chunk.to_sse().encode()
         except Exception as e:
-            logger.exception(f"Error in LLM proxy stream: {e}")
+            if on_error:
+                on_error(e, perf_counter() - started)
+            logger.exception("llm_proxy_stream_error", error=str(e))
             yield f"data: {json.dumps({'error': 'An internal error occurred', 'status_code': 500})}\n\n".encode()
+        else:
+            if on_complete:
+                try:
+                    on_complete(perf_counter() - started)
+                except Exception:
+                    logger.exception("llm_proxy_on_complete_callback_error")
 
     def _create_streaming_response(self, stream: Generator[bytes, None, None]) -> StreamingHttpResponse:
         """Creates a properly configured SSE streaming response"""
@@ -147,11 +197,12 @@ class LLMProxyViewSet(viewsets.ViewSet):
                     status=402,
                 )
 
-            serializer = LLMProxyCompletionSerializer(data=request.data)
-            if not serializer.is_valid():
-                return Response({"error": serializer.errors}, status=400)
-
-            data = serializer.validated_data
+            data = getattr(self, "_completion_validated_data", None)
+            if data is None:
+                serializer = LLMProxyCompletionSerializer(data=request.data)
+                if not serializer.is_valid():
+                    return Response({"error": serializer.errors}, status=400)
+                data = serializer.validated_data
             model = data.get("model")
             thinking = data.get("thinking", False)
 
@@ -196,25 +247,51 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 provider=provider,
                 system=data.get("system"),
                 temperature=data.get("temperature"),
+                top_p=data.get("top_p"),
+                seed=data.get("seed"),
                 max_tokens=data.get("max_tokens"),
                 tools=data.get("tools"),
                 thinking=thinking,
                 reasoning_level=data.get("reasoning_level"),
             )
 
-            # Create stream
-            stream = self._create_stream_generator(client, completion_request, request)
-
             # Track playground completion started
             tracking_properties = self._extract_request_properties(data, model=model)
             tracking_properties["trace_id"] = trace_id
 
             report_user_action(
-                cast(User, request.user),
+                request.user,
                 "llma playground completion started",
                 tracking_properties,
-                getattr(request.user, "current_team", None),
+                team=getattr(request.user, "current_team", None),
+                request=request,
             )
+
+            def on_complete(duration_s: float) -> None:
+                report_user_action(
+                    request.user,
+                    "llma playground completion completed",
+                    {**tracking_properties, "duration_seconds": duration_s},
+                    team=getattr(request.user, "current_team", None),
+                    request=request,
+                )
+
+            def on_error(error: Exception, duration_s: float) -> None:
+                report_user_action(
+                    request.user,
+                    "llma playground completion stream failed",
+                    {
+                        **tracking_properties,
+                        "duration_seconds": duration_s,
+                        "error_type": type(error).__name__,
+                        "error_message": str(error),
+                    },
+                    team=getattr(request.user, "current_team", None),
+                    request=request,
+                )
+
+            # Create stream
+            stream = self._create_stream_generator(client, completion_request, request, on_complete, on_error)
 
             return self._create_streaming_response(stream)
 
@@ -222,7 +299,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
             return Response({"error": "Unsupported provider"}, status=400)
 
         except Exception as e:
-            logger.exception(f"Error in LLM proxy: {e}")
+            logger.exception("llm_proxy_error", error=str(e))
 
             # Track playground completion failed
             if request.user and request.user.is_authenticated:
@@ -243,10 +320,11 @@ class LLMProxyViewSet(viewsets.ViewSet):
                     pass
 
                 report_user_action(
-                    cast(User, request.user),
+                    request.user,
                     "llma playground completion failed",
                     error_properties,
-                    getattr(request.user, "current_team", None),
+                    team=getattr(request.user, "current_team", None),
+                    request=request,
                 )
 
             return Response({"error": "An internal error occurred"}, status=500)
@@ -259,6 +337,8 @@ class LLMProxyViewSet(viewsets.ViewSet):
             "thinking_enabled": validated_data.get("thinking", False),
             "has_tools": bool(validated_data.get("tools")),
             "has_temperature": validated_data.get("temperature") is not None,
+            "has_top_p": validated_data.get("top_p") is not None,
+            "has_seed": validated_data.get("seed") is not None,
             "has_max_tokens": validated_data.get("max_tokens") is not None,
             "has_reasoning_level": validated_data.get("reasoning_level") is not None,
             "has_system_prompt": bool(validated_data.get("system")),
@@ -280,6 +360,8 @@ class LLMProxyViewSet(viewsets.ViewSet):
         return properties
 
     @action(detail=False, methods=["GET"])
+    @llma_track_latency("llma_proxy_models")
+    @monitor(feature=None, endpoint="llma_proxy_models", method="GET")
     def models(self, request):
         """Return a list of available models across providers.
 
@@ -290,19 +372,33 @@ class LLMProxyViewSet(viewsets.ViewSet):
 
         if provider_key_id:
             try:
-                provider_key = self._get_provider_key(provider_key_id, request.user)
+                provider_key = self._get_provider_key(provider_key_id, request.user, touch_last_used=False)
             except ValueError:
                 return Response({"error": "Invalid provider key configuration"}, status=400)
 
             if provider_key:
                 api_key = provider_key.encrypted_config.get("api_key")
                 models = Client.list_models(provider_key.provider, api_key)
+                recommended = Client.recommended_models(provider_key.provider)
                 provider_display = provider_key.provider.title()
-                return Response([{"id": m, "name": m, "provider": provider_display, "description": ""} for m in models])
+                return Response(
+                    [
+                        ModelInfo(
+                            id=m,
+                            name=m,
+                            provider=provider_display,
+                            description="",
+                            is_recommended=m in recommended,
+                        )
+                        for m in models
+                    ]
+                )
 
         # Default: return static list of all supported models
         return Response(get_default_models())
 
     @action(detail=False, methods=["POST"])
+    @llma_track_latency("llma_proxy_completion")
+    @monitor(feature=None, endpoint="llma_proxy_completion", method="POST")
     def completion(self, request, *args, **kwargs):
         return self._handle_completion_request(request)

@@ -2,15 +2,21 @@ import { Message } from 'node-rdkafka'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { Hub, Team } from '../../types'
+import { Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
-import { EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
+import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { CookielessManager } from '../cookieless/cookieless-manager'
+import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
+import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
+import { AiEventOutput, EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
+import { SplitAiEventsStepConfig } from '../event-processing/split-ai-events-step'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
+import { TopHogRegistry, createTopHogWrapper } from '../pipelines/extensions/tophog'
 import { OkResultWithContext } from '../pipelines/filter-map-batch-pipeline'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { ok } from '../pipelines/results'
@@ -27,50 +33,47 @@ import {
 } from './post-team-preprocessing-subpipeline'
 import { createPreTeamPreprocessingSubpipeline } from './pre-team-preprocessing-subpipeline'
 
-export type PreprocessingHub = Pick<
-    Hub,
-    | 'teamManager'
-    | 'cookielessManager'
-    | 'INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY'
-    | 'PERSONS_PREFETCH_ENABLED'
-    | 'CDP_HOG_WATCHER_SAMPLE_RATE'
->
-
 export interface JoinedIngestionPipelineConfig {
-    hub: PreprocessingHub
-    kafkaProducer: KafkaProducerWrapper
-    personsStore: PersonsStore
-    hogTransformer: HogTransformerService
-    eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    eventSchemaEnforcementEnabled: boolean
     overflowEnabled: boolean
     overflowTopic: string
     dlqTopic: string
+    preservePartitionLocality: boolean
+    personsPrefetchEnabled: boolean
+    cdpHogWatcherSampleRate: number
+    groupId: string
+    outputs: IngestionOutputs<EventOutput | AiEventOutput>
+    splitAiEventsConfig: SplitAiEventsStepConfig
+    perDistinctIdOptions: EventPipelineRunnerOptions & {
+        CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
+    }
+}
+
+export interface JoinedIngestionPipelineDeps {
+    kafkaProducer: KafkaProducerWrapper
+    personsStore: PersonsStore
+    groupStore: BatchWritingGroupStore
+    hogTransformer: HogTransformerService
+    eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    eventSchemaEnforcementManager: EventSchemaEnforcementManager
     promiseScheduler: PromiseScheduler
     overflowRedirectService?: OverflowRedirectService
     overflowLaneTTLRefreshService?: OverflowRedirectService
-
-    // Per-distinct-id config
-    perDistinctIdOptions: EventPipelineRunnerOptions & {
-        CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
-        CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
-    }
     teamManager: TeamManager
+    cookielessManager: CookielessManager
     groupTypeManager: GroupTypeManager
-    groupId: string
+    topHog: TopHogRegistry
 }
 
 export interface JoinedIngestionPipelineInput {
     message: Message
-    groupStoreForBatch: GroupStoreForBatch
 }
 
 export interface JoinedIngestionPipelineContext {
     message: Message
 }
 
-type PreprocessingOutput = PostTeamPreprocessingSubpipelineInput & {
-    groupStoreForBatch: GroupStoreForBatch
-}
+type PreprocessingOutput = PostTeamPreprocessingSubpipelineInput
 
 function addTeamToContext<T extends { team: Team }, C>(
     element: OkResultWithContext<T, C>
@@ -100,7 +103,6 @@ function mapToPerEventInput<C>(
             event: input.event,
             team: input.team,
             headers: input.headers,
-            groupStoreForBatch: input.groupStoreForBatch,
         }),
         context: element.context,
     }
@@ -109,24 +111,42 @@ function mapToPerEventInput<C>(
 export function createJoinedIngestionPipeline<
     TInput extends JoinedIngestionPipelineInput,
     TContext extends JoinedIngestionPipelineContext,
->(builder: BatchPipelineBuilder<TInput, TInput, TContext, TContext>, config: JoinedIngestionPipelineConfig) {
+>(
+    builder: BatchPipelineBuilder<TInput, TInput, TContext, TContext>,
+    config: JoinedIngestionPipelineConfig,
+    deps: JoinedIngestionPipelineDeps
+) {
     const {
-        hub,
-        kafkaProducer,
-        personsStore,
-        hogTransformer,
-        eventIngestionRestrictionManager,
+        eventSchemaEnforcementEnabled,
         overflowEnabled,
         overflowTopic,
         dlqTopic,
+        preservePartitionLocality,
+        personsPrefetchEnabled,
+        cdpHogWatcherSampleRate,
+        groupId,
+        outputs,
+        splitAiEventsConfig,
+        perDistinctIdOptions,
+    } = config
+
+    const {
+        kafkaProducer,
+        personsStore,
+        groupStore,
+        hogTransformer,
+        eventIngestionRestrictionManager,
+        eventSchemaEnforcementManager,
         promiseScheduler,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
-        perDistinctIdOptions,
         teamManager,
+        cookielessManager,
         groupTypeManager,
-        groupId,
-    } = config
+        topHog,
+    } = deps
+
+    const topHogWrapper = createTopHogWrapper(topHog)
 
     const pipelineConfig: PipelineConfig = {
         kafkaProducer,
@@ -136,25 +156,31 @@ export function createJoinedIngestionPipeline<
 
     const postTeamConfig: PostTeamPreprocessingSubpipelineConfig = {
         eventIngestionRestrictionManager,
-        cookielessManager: hub.cookielessManager,
+        eventSchemaEnforcementManager,
+        eventSchemaEnforcementEnabled,
+        cookielessManager,
         overflowTopic,
-        preservePartitionLocality: hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
+        preservePartitionLocality,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
         personsStore,
-        personsPrefetchEnabled: hub.PERSONS_PREFETCH_ENABLED,
+        personsPrefetchEnabled,
         hogTransformer,
-        cdpHogWatcherSampleRate: hub.CDP_HOG_WATCHER_SAMPLE_RATE,
+        cdpHogWatcherSampleRate,
     }
 
     const perEventConfig: PerDistinctIdPipelineConfig = {
         options: perDistinctIdOptions,
+        outputs,
+        splitAiEventsConfig,
         teamManager,
         groupTypeManager,
         hogTransformer,
         personsStore,
+        groupStore,
         kafkaProducer,
         groupId,
+        topHog: topHogWrapper,
     }
 
     return builder
@@ -162,11 +188,11 @@ export function createJoinedIngestionPipeline<
             b
                 .sequentially((b) =>
                     createPreTeamPreprocessingSubpipeline(b, {
-                        teamManager: hub.teamManager,
+                        teamManager,
                         eventIngestionRestrictionManager,
                         overflowEnabled,
                         overflowTopic,
-                        preservePartitionLocality: hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
+                        preservePartitionLocality,
                     })
                 )
                 .filterMap(addTeamToContext, (b) =>
@@ -183,6 +209,15 @@ export function createJoinedIngestionPipeline<
                                                 createPerDistinctIdPipeline(event, perEventConfig)
                                             )
                                         )
+                                )
+                                .gather()
+                                // Flush person and group stores after all events processed
+                                .pipeBatch(
+                                    createFlushBatchStoresStep({
+                                        personsStore,
+                                        groupStore,
+                                        kafkaProducer,
+                                    })
                                 )
                         )
                         .handleIngestionWarnings(kafkaProducer)

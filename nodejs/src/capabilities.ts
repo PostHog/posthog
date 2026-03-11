@@ -1,4 +1,5 @@
 import { PluginServerCapabilities, PluginServerMode, PluginsServerConfig, stringToPluginServerMode } from './types'
+import { isDevEnv } from './utils/env-utils'
 
 // =============================================================================
 // Capability Groups for Local Development
@@ -11,7 +12,8 @@ export const CAPABILITIES_CDP: PluginServerCapabilities = {
     cdpPersonUpdates: true,
     cdpInternalEvents: true,
     cdpCyclotronWorker: true,
-    cdpCyclotronShadowWorker: true,
+    cdpCyclotronShadowWorker: isDevEnv(),
+    cdpCyclotronV2Janitor: isDevEnv(),
     cdpApi: true,
     appManagementSingleton: true,
     cdpDataWarehouseEvents: false, // Not yet fully developed - enable when ready
@@ -31,9 +33,10 @@ export const CAPABILITIES_REALTIME_COHORTS: PluginServerCapabilities = {
     cdpCohortMembership: true,
 }
 
-/** Session Replay - recording ingestion */
+/** Session Replay - recording ingestion + serving */
 export const CAPABILITIES_SESSION_REPLAY: PluginServerCapabilities = {
     sessionRecordingBlobIngestionV2: true,
+    recordingApi: true,
 }
 
 /** Session Replay Overflow - overflow recording ingestion */
@@ -210,9 +213,17 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 cdpCyclotronShadowWorker: true,
             }
+        case PluginServerMode.cdp_cyclotron_v2_janitor:
+            return {
+                cdpCyclotronV2Janitor: true,
+            }
         case PluginServerMode.recording_api:
             return {
                 recordingApi: true,
+            }
+        case PluginServerMode.ingestion_v2_testing:
+            return {
+                ingestionV2Testing: true,
             }
     }
 }

@@ -50,7 +50,7 @@ class EventDefinitionGenerator(ABC):
         schema_data = []
         for event_def in event_definitions:
             properties = schema_map.get(str(event_def.id), [])
-            prop_data = [(p.name, p.property_type, p.is_required) for p in properties]
+            prop_data = [(p.name, p.property_type, p.is_required, p.is_optional_in_types) for p in properties]
             # Sort properties by name for deterministic ordering
             schema_data.append((event_def.name, sorted(prop_data)))
 
@@ -65,7 +65,7 @@ class EventDefinitionGenerator(ABC):
 
         return hashlib.sha256(orjson.dumps(hash_input, option=orjson.OPT_SORT_KEYS)).hexdigest()[:32]
 
-    def record_report_generation(self, user, team_id: int, project_id: int) -> None:
+    def record_report_generation(self, user, team_id: int, project_id: int, request=None) -> None:
         """
         A convenience method to structurally report telemetry for code generation.
         """
@@ -78,6 +78,7 @@ class EventDefinitionGenerator(ABC):
                 "team_id": team_id,
                 "project_id": project_id,
             },
+            request=request,
         )
 
     def fetch_event_definitions_and_schemas(

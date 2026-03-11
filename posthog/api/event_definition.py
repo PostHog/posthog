@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from collections import defaultdict
 from typing import Any, Literal, Optional, cast
 
 from django.core.cache import cache
@@ -21,7 +24,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.constants import EventDefinitionType
 from posthog.event_usage import report_user_action
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
-from posthog.models import EventDefinition, Team
+from posthog.models import EventDefinition, ObjectMediaPreview, Team
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
@@ -100,6 +103,7 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
             "last_seen_at",
             "last_updated_at",
             "tags",
+            "enforcement_mode",
             # Action fields
             "is_action",
             "action_id",
@@ -152,9 +156,11 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
         # Report user action for analytics
         if request and request.user:
             report_user_action(
-                cast(User, request.user),
+                request.user,
                 "event definition created",
                 {"name": event_definition.name},
+                team=view.team,
+                request=request,
             )
 
         return event_definition
@@ -181,7 +187,7 @@ class EventDefinitionViewSet(
     queryset = EventDefinition.objects.all()
 
     search_fields = ["name"]
-    ordering_fields = ["name", "last_seen_at"]
+    ordering_fields = ["name", "last_seen_at", "created_at"]
 
     def dangerously_get_queryset(self):
         # `type` = 'all' | 'event' | 'action_event'
@@ -249,7 +255,13 @@ class EventDefinitionViewSet(
         orderings = self.request.GET.getlist("ordering")
 
         for ordering in orderings:
-            if ordering and ordering.replace("-", "") in ["name", "last_seen_at", "last_seen_at::date"]:
+            if ordering and ordering.replace("-", "") in [
+                "name",
+                "last_seen_at",
+                "last_seen_at::date",
+                "created_at",
+                "created_at::date",
+            ]:
                 order = ordering.replace("-", "")
                 if "-" in ordering:
                     order_direction = "DESC"
@@ -262,6 +274,31 @@ class EventDefinitionViewSet(
             results = [("last_seen_at::date", "DESC"), ("name", "ASC")]
 
         return results
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        objects = page if page is not None else list(queryset)
+
+        # Batch-fetch media preview URLs to avoid N+1 queries in the serializer
+        event_ids = [obj.id for obj in objects]
+        media_map: dict[str, list[str]] = defaultdict(list)
+        if event_ids:
+            previews = (
+                ObjectMediaPreview.objects.filter(event_definition_id__in=event_ids)
+                .select_related("uploaded_media", "exported_asset")
+                .order_by("-updated_at")
+            )
+            for p in previews:
+                if p.media_url:
+                    media_map[str(p.event_definition_id)].append(p.media_url)
+
+        serializer = self.get_serializer(objects, many=True)
+        serializer.context["media_preview_urls_map"] = media_map
+
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return response.Response(serializer.data)
 
     def dangerously_get_object(self):
         return self._get_event_definition(id=self.kwargs["id"], team__project_id=self.project_id)
@@ -360,11 +397,12 @@ class EventDefinitionViewSet(
         instance: EventDefinition = self.get_object()
         instance_id: str = str(instance.id)
         self.perform_destroy(instance)
-        # Casting, since an anonymous use CANNOT access this endpoint
         report_user_action(
-            cast(User, request.user),
+            request.user,
             "event definition deleted",
             {"name": instance.name},
+            team=self.team,
+            request=request,
         )
         user = cast(User, request.user)
         log_activity(
@@ -401,6 +439,7 @@ class EventDefinitionViewSet(
             self.request.user,
             self.team_id,
             self.project_id,
+            request=self.request,
         )
 
         return response.Response(

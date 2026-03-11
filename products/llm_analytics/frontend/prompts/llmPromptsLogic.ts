@@ -13,9 +13,11 @@ import { sceneLogic } from '~/scenes/sceneLogic'
 import { urls } from '~/scenes/urls'
 import { LLMPrompt } from '~/types'
 
+import { cleanPagedSearchOrderParams } from '../utils'
 import type { llmPromptsLogicType } from './llmPromptsLogicType'
 
 export const PROMPTS_PER_PAGE = 30
+export const LLM_PROMPTS_FORCE_RELOAD_PARAM = 'llm_prompts_force_reload'
 
 export interface PromptFilters {
     page: number
@@ -47,7 +49,7 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
             debounce,
         }),
         loadPrompts: (debounce: boolean = true) => ({ debounce }),
-        deletePrompt: (promptId: string) => ({ promptId }),
+        deletePrompt: (promptName: string) => ({ promptName }),
     }),
 
     reducers({
@@ -149,25 +151,24 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
             }
         },
 
-        deletePrompt: async ({ promptId }) => {
+        deletePrompt: async ({ promptName }) => {
             try {
-                const promptName = values.prompts.results.find((prompt) => prompt.id === promptId)?.name
-                await api.llmPrompts.update(promptId, { deleted: true })
-                lemonToast.info(`${promptName || 'Prompt'} has been deleted.`)
+                await api.llmPrompts.archiveByName(promptName)
+                lemonToast.info(`${promptName || 'Prompt'} has been archived.`)
                 await asyncActions.loadPrompts(false)
             } catch {
-                lemonToast.error('Failed to delete prompt')
+                lemonToast.error('Failed to archive prompt')
             }
         },
     })),
 
     tabAwareActionToUrl(({ values }) => {
         const changeUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] | void => {
-            const nextValues = cleanFilters(values.filters)
+            const nextValues = cleanPagedSearchOrderParams(values.filters)
             const urlValues = cleanFilters(router.values.searchParams)
 
-            if (!objectsEqual(nextValues, urlValues)) {
-                return [urls.llmAnalyticsPrompts(), nextValues, {}, { replace: false }]
+            if (!objectsEqual(values.filters, urlValues)) {
+                return [urls.llmAnalyticsPrompts(), nextValues, {}, { replace: true }]
             }
         }
 
@@ -175,11 +176,19 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
     }),
 
     tabAwareUrlToAction(({ actions, values }) => ({
-        [urls.llmAnalyticsPrompts()]: (_, searchParams) => {
+        [urls.llmAnalyticsPrompts()]: (_, searchParams, __, { method }) => {
             const newFilters = cleanFilters(searchParams)
-
-            if (values.rawFilters === null || !objectsEqual(values.filters, newFilters)) {
+            const forceReload = typeof searchParams?.[LLM_PROMPTS_FORCE_RELOAD_PARAM] === 'string'
+            if (!objectsEqual(values.filters, newFilters)) {
                 actions.setFilters(newFilters, false)
+            } else if (forceReload || method !== 'REPLACE') {
+                actions.loadPrompts(false)
+            }
+
+            if (forceReload) {
+                const nextSearchParams = { ...searchParams }
+                delete nextSearchParams[LLM_PROMPTS_FORCE_RELOAD_PARAM]
+                router.actions.replace(urls.llmAnalyticsPrompts(), nextSearchParams)
             }
         },
     })),

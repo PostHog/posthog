@@ -33,3 +33,20 @@ export function isDistinctIdKey(key: string): boolean {
 export function isSessionIdKey(key: string): boolean {
     return matchesKey(key, SESSION_ID_KEYS)
 }
+
+export function getSessionIdFromLogAttributes(
+    attributes: Record<string, unknown> | undefined,
+    resourceAttributes: Record<string, unknown> | undefined
+): string | null {
+    for (const [key, value] of Object.entries(attributes || {})) {
+        if (isSessionIdKey(key) && value) {
+            return String(value)
+        }
+    }
+    for (const [key, value] of Object.entries(resourceAttributes || {})) {
+        if (isSessionIdKey(key) && value) {
+            return String(value)
+        }
+    }
+    return null
+}

@@ -2,9 +2,13 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
-import { buildQuickFilterSuggestions, taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import {
+    isSkeletonItem,
+    redistributeTopMatches,
+    SKELETON_ROWS_PER_GROUP,
+    taxonomicFilterLogic,
+} from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -12,7 +16,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockSessionPropertyDefinitions } from '~/test/mocks'
-import { AppContext, EventDefinition, PropertyFilterType, PropertyOperator } from '~/types'
+import { AppContext, EventDefinition } from '~/types'
 
 import { infiniteListLogic } from './infiniteListLogic'
 
@@ -114,404 +118,96 @@ describe('taxonomicFilterLogic', () => {
     })
 
     it('setting search query filters events', async () => {
+        const eventsListLogic = infiniteListLogic({
+            ...logic.props,
+            listGroupType: TaxonomicFilterGroupType.Events,
+        })
+        const sessionPropsListLogic = infiniteListLogic({
+            ...logic.props,
+            listGroupType: TaxonomicFilterGroupType.SessionProperties,
+        })
+
+        const waitForRemoteResults = async (fn?: () => void): Promise<void> => {
+            await expectLogic(eventsListLogic, fn).toDispatchActions(['loadRemoteItemsSuccess'])
+            await expectLogic(sessionPropsListLogic).toDispatchActions(['loadRemoteItemsSuccess']).delay(1)
+        }
+
         // load the initial results
-        await expectLogic(logic).toDispatchActionsInAnyOrder([
-            'infiniteListResultsReceived',
-            'infiniteListResultsReceived',
-        ])
+        await waitForRemoteResults()
 
-        await expectLogic(logic, () => {
-            logic.actions.setSearchQuery('event')
+        await waitForRemoteResults(() => logic.actions.setSearchQuery('event'))
+        await expectLogic(logic).toMatchValues({
+            searchQuery: 'event',
+            activeTab: TaxonomicFilterGroupType.Events,
+            infiniteListCounts: {
+                [TaxonomicFilterGroupType.Events]: 4,
+                [TaxonomicFilterGroupType.Actions]: 0,
+                [TaxonomicFilterGroupType.Elements]: 0,
+                [TaxonomicFilterGroupType.SessionProperties]: 0,
+            },
         })
-            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived', 'infiniteListResultsReceived'])
-            .toMatchValues({
-                searchQuery: 'event',
-                activeTab: TaxonomicFilterGroupType.Events,
-                infiniteListCounts: {
-                    [TaxonomicFilterGroupType.Events]: 4,
-                    [TaxonomicFilterGroupType.Actions]: 0,
-                    [TaxonomicFilterGroupType.Elements]: 0,
-                    [TaxonomicFilterGroupType.SessionProperties]: 0,
-                },
-            })
 
-        await expectLogic(logic, () => {
-            logic.actions.setSearchQuery('selector')
+        await waitForRemoteResults(() => logic.actions.setSearchQuery('selector'))
+        await expectLogic(logic).toMatchValues({
+            searchQuery: 'selector',
+            activeTab: TaxonomicFilterGroupType.Elements,
+            infiniteListCounts: {
+                [TaxonomicFilterGroupType.Events]: 0,
+                [TaxonomicFilterGroupType.Actions]: 0,
+                [TaxonomicFilterGroupType.Elements]: 1,
+                [TaxonomicFilterGroupType.SessionProperties]: 0,
+            },
         })
-            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived', 'infiniteListResultsReceived'])
-            .delay(1)
-            .clearHistory()
-            .toMatchValues({
-                searchQuery: 'selector',
-                activeTab: TaxonomicFilterGroupType.Elements, // tab changed!
-                infiniteListCounts: {
-                    [TaxonomicFilterGroupType.Events]: 0,
-                    [TaxonomicFilterGroupType.Actions]: 0,
-                    [TaxonomicFilterGroupType.Elements]: 1,
-                    [TaxonomicFilterGroupType.SessionProperties]: 0,
-                },
-            })
 
-        await expectLogic(logic, () => {
-            logic.actions.setSearchQuery('this is not found')
+        await waitForRemoteResults(() => logic.actions.setSearchQuery('this is not found'))
+        await expectLogic(logic).toMatchValues({
+            searchQuery: 'this is not found',
+            activeTab: TaxonomicFilterGroupType.Elements,
+            infiniteListCounts: {
+                [TaxonomicFilterGroupType.Events]: 0,
+                [TaxonomicFilterGroupType.Actions]: 0,
+                [TaxonomicFilterGroupType.Elements]: 0,
+                [TaxonomicFilterGroupType.SessionProperties]: 0,
+            },
         })
-            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived', 'infiniteListResultsReceived'])
-            .delay(1)
-            .clearHistory()
-            .toMatchValues({
-                searchQuery: 'this is not found',
-                activeTab: TaxonomicFilterGroupType.Elements, // no change
-                infiniteListCounts: {
-                    [TaxonomicFilterGroupType.Events]: 0,
-                    [TaxonomicFilterGroupType.Actions]: 0,
-                    [TaxonomicFilterGroupType.Elements]: 0,
-                    [TaxonomicFilterGroupType.SessionProperties]: 0,
-                },
-            })
 
-        await expectLogic(logic, () => {
-            logic.actions.setSearchQuery('')
+        await waitForRemoteResults(() => logic.actions.setSearchQuery(''))
+        await expectLogic(logic).toMatchValues({
+            searchQuery: '',
+            activeTab: TaxonomicFilterGroupType.Elements,
+            infiniteListCounts: {
+                [TaxonomicFilterGroupType.Events]: 157,
+                [TaxonomicFilterGroupType.Actions]: 0,
+                [TaxonomicFilterGroupType.Elements]: 4,
+                [TaxonomicFilterGroupType.SessionProperties]: 2,
+            },
         })
-            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived', 'infiniteListResultsReceived'])
-            .delay(1)
-            .clearHistory()
-            .toMatchValues({
-                searchQuery: '',
-                activeTab: TaxonomicFilterGroupType.Elements, // no change
-                infiniteListCounts: {
-                    [TaxonomicFilterGroupType.Events]: 157,
-                    [TaxonomicFilterGroupType.Actions]: 0,
-                    [TaxonomicFilterGroupType.Elements]: 4,
-                    [TaxonomicFilterGroupType.SessionProperties]: 2,
-                },
-            })
+    })
 
-        // move right, skipping Actions
+    it('tabs skip groups with no results', async () => {
+        await expectLogic(logic).toDispatchActions(['infiniteListResultsReceived']).delay(1).clearHistory()
+
+        // move right from Events, skipping Actions (0 results)
+        await expectLogic(logic, () => logic.actions.tabRight()).toMatchValues({
+            activeTab: TaxonomicFilterGroupType.Elements,
+        })
         await expectLogic(logic, () => logic.actions.tabRight()).toMatchValues({
             activeTab: TaxonomicFilterGroupType.SessionProperties,
         })
         await expectLogic(logic, () => logic.actions.tabRight()).toMatchValues({
             activeTab: TaxonomicFilterGroupType.Events,
         })
-        await expectLogic(logic, () => logic.actions.tabRight()).toMatchValues({
-            activeTab: TaxonomicFilterGroupType.Elements,
-        })
 
-        // move left, skipping Actions
-        await expectLogic(logic, () => logic.actions.tabLeft()).toMatchValues({
-            activeTab: TaxonomicFilterGroupType.Events,
-        })
+        // move left from Events, skipping Actions
         await expectLogic(logic, () => logic.actions.tabLeft()).toMatchValues({
             activeTab: TaxonomicFilterGroupType.SessionProperties,
         })
         await expectLogic(logic, () => logic.actions.tabLeft()).toMatchValues({
             activeTab: TaxonomicFilterGroupType.Elements,
         })
-
-        // open remote items tab after loading
-        await expectLogic(logic, () => {
-            logic.actions.setSearchQuery('event')
-        })
-            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived'])
-            .delay(1)
-            .clearHistory()
-            .toMatchValues({
-                searchQuery: 'event',
-                activeTab: TaxonomicFilterGroupType.Events, // changed!
-                infiniteListCounts: {
-                    [TaxonomicFilterGroupType.Events]: 4,
-                    [TaxonomicFilterGroupType.Actions]: 0,
-                    [TaxonomicFilterGroupType.Elements]: 0,
-                    [TaxonomicFilterGroupType.SessionProperties]: 0,
-                },
-            })
     })
 
-    describe('buildQuickFilterSuggestions in property mode', () => {
-        const propertyModeGroupTypes = [TaxonomicFilterGroupType.QuickFilters, TaxonomicFilterGroupType.PageviewUrls]
-
-        it.each([
-            { query: '', expectedLength: 0, description: 'empty query returns empty array' },
-            {
-                query: 'blog',
-                expectedLength: 3,
-                description: 'plain text returns pageview, screen, and email suggestions',
-            },
-            {
-                query: 'user@example.com',
-                expectedLength: 3,
-                description: 'email returns exact email match first, then pageview, screen, no email contains',
-            },
-            {
-                query: 'https://example.com/page',
-                expectedLength: 4,
-                description: 'URL returns exact URL match, then contains suggestions plus email',
-            },
-        ])('$description', ({ query, expectedLength }) => {
-            expect(buildQuickFilterSuggestions(query, propertyModeGroupTypes)).toHaveLength(expectedLength)
-        })
-
-        it.each([
-            {
-                query: 'blog',
-                index: 0,
-                expected: {
-                    _type: 'quick_filter',
-                    name: 'Current URL containing "blog"',
-                    filterValue: 'blog',
-                    operator: PropertyOperator.IContains,
-                    propertyKey: '$current_url',
-                    propertyFilterType: PropertyFilterType.Event,
-                    eventName: '$pageview',
-                },
-                description: 'plain text[0] is URL contains without event prefix',
-            },
-            {
-                query: 'blog',
-                index: 1,
-                expected: {
-                    _type: 'quick_filter',
-                    name: 'Screen name containing "blog"',
-                    filterValue: 'blog',
-                    operator: PropertyOperator.IContains,
-                    propertyKey: '$screen_name',
-                    propertyFilterType: PropertyFilterType.Event,
-                    eventName: '$screen',
-                },
-                description: 'plain text[1] is screen name contains without event prefix',
-            },
-            {
-                query: 'blog',
-                index: 2,
-                expected: {
-                    _type: 'quick_filter',
-                    name: 'Email address containing "blog"',
-                    filterValue: 'blog',
-                    operator: PropertyOperator.IContains,
-                    propertyKey: 'email',
-                    propertyFilterType: PropertyFilterType.Person,
-                },
-                description: 'plain text[2] is email contains',
-            },
-            {
-                query: 'user@example.com',
-                index: 0,
-                expected: {
-                    _type: 'quick_filter',
-                    name: 'Email address = "user@example.com"',
-                    filterValue: 'user@example.com',
-                    operator: PropertyOperator.Exact,
-                    propertyKey: 'email',
-                    propertyFilterType: PropertyFilterType.Person,
-                },
-                description: 'email[0] is exact email match',
-            },
-            {
-                query: 'https://posthog.com/pricing',
-                index: 0,
-                expected: {
-                    _type: 'quick_filter',
-                    name: 'Current URL = "https://posthog.com/pricing"',
-                    filterValue: 'https://posthog.com/pricing',
-                    operator: PropertyOperator.Exact,
-                    propertyKey: '$current_url',
-                    propertyFilterType: PropertyFilterType.Event,
-                    eventName: '$pageview',
-                },
-                description: 'URL[0] is exact URL match without event prefix',
-            },
-        ])('$description', ({ query, index, expected }) => {
-            const results = buildQuickFilterSuggestions(query, propertyModeGroupTypes)
-            expect(results[index]).toEqual(expected)
-        })
-    })
-
-    describe('buildQuickFilterSuggestions in event mode', () => {
-        const eventModeGroupTypes = [
-            TaxonomicFilterGroupType.QuickFilters,
-            TaxonomicFilterGroupType.Events,
-            TaxonomicFilterGroupType.Actions,
-        ]
-
-        it.each([
-            {
-                query: 'blog',
-                index: 0,
-                expected: {
-                    _type: 'quick_filter',
-                    name: 'Pageview with Current URL containing "blog"',
-                    filterValue: 'blog',
-                    operator: PropertyOperator.IContains,
-                    propertyKey: '$current_url',
-                    propertyFilterType: PropertyFilterType.Event,
-                    eventName: '$pageview',
-                },
-                description: 'plain text[0] includes event prefix',
-            },
-            {
-                query: 'blog',
-                index: 1,
-                expected: {
-                    _type: 'quick_filter',
-                    name: 'Screen with Screen name containing "blog"',
-                    filterValue: 'blog',
-                    operator: PropertyOperator.IContains,
-                    propertyKey: '$screen_name',
-                    propertyFilterType: PropertyFilterType.Event,
-                    eventName: '$screen',
-                },
-                description: 'plain text[1] includes event prefix',
-            },
-            {
-                query: 'blog',
-                index: 2,
-                expected: {
-                    _type: 'quick_filter',
-                    name: 'Clicked an element with text "blog"',
-                    filterValue: 'blog',
-                    operator: PropertyOperator.IContains,
-                    propertyKey: '$el_text',
-                    propertyFilterType: PropertyFilterType.Event,
-                    eventName: '$autocapture',
-                    extraProperties: [
-                        {
-                            key: '$event_type',
-                            value: 'click',
-                            operator: PropertyOperator.Exact,
-                            type: PropertyFilterType.Event,
-                        },
-                    ],
-                },
-                description: 'plain text[2] autocapture click with element text',
-            },
-            {
-                query: 'blog',
-                index: 3,
-                expected: {
-                    _type: 'quick_filter',
-                    name: 'Pageview with Email address containing "blog"',
-                    filterValue: 'blog',
-                    operator: PropertyOperator.IContains,
-                    propertyKey: 'email',
-                    propertyFilterType: PropertyFilterType.Person,
-                    eventName: '$pageview',
-                },
-                description: 'plain text[3] email has pageview context',
-            },
-            {
-                query: 'blog',
-                index: 4,
-                expected: {
-                    _type: 'quick_filter',
-                    name: 'Screen with Email address containing "blog"',
-                    filterValue: 'blog',
-                    operator: PropertyOperator.IContains,
-                    propertyKey: 'email',
-                    propertyFilterType: PropertyFilterType.Person,
-                    eventName: '$screen',
-                },
-                description: 'plain text[4] email has screen context',
-            },
-            {
-                query: 'user@example.com',
-                index: 0,
-                expected: {
-                    _type: 'quick_filter',
-                    name: 'Pageview with Email address = "user@example.com"',
-                    filterValue: 'user@example.com',
-                    operator: PropertyOperator.Exact,
-                    propertyKey: 'email',
-                    propertyFilterType: PropertyFilterType.Person,
-                    eventName: '$pageview',
-                },
-                description: 'email exact match[0] has pageview context',
-            },
-            {
-                query: 'user@example.com',
-                index: 1,
-                expected: {
-                    _type: 'quick_filter',
-                    name: 'Screen with Email address = "user@example.com"',
-                    filterValue: 'user@example.com',
-                    operator: PropertyOperator.Exact,
-                    propertyKey: 'email',
-                    propertyFilterType: PropertyFilterType.Person,
-                    eventName: '$screen',
-                },
-                description: 'email exact match[1] has screen context',
-            },
-        ])('$description', ({ query, index, expected }) => {
-            const results = buildQuickFilterSuggestions(query, eventModeGroupTypes)
-            expect(results[index]).toEqual(expected)
-        })
-    })
-
-    describe('buildQuickFilterSuggestions filters by event existence', () => {
-        const propertyModeGroupTypes = [TaxonomicFilterGroupType.QuickFilters, TaxonomicFilterGroupType.PageviewUrls]
-        const eventModeGroupTypes = [
-            TaxonomicFilterGroupType.QuickFilters,
-            TaxonomicFilterGroupType.Events,
-            TaxonomicFilterGroupType.Actions,
-        ]
-
-        it.each([
-            {
-                eventExistence: { hasPageview: false, hasScreen: true },
-                groupTypes: propertyModeGroupTypes,
-                query: 'blog',
-                description: 'property mode: no pageview hides Current URL, keeps Screen name and email',
-                expectedNames: ['Screen name containing "blog"', 'Email address containing "blog"'],
-            },
-            {
-                eventExistence: { hasPageview: true, hasScreen: false },
-                groupTypes: propertyModeGroupTypes,
-                query: 'blog',
-                description: 'property mode: no screen hides Screen name, keeps Current URL and email',
-                expectedNames: ['Current URL containing "blog"', 'Email address containing "blog"'],
-            },
-            {
-                eventExistence: { hasPageview: false, hasScreen: false },
-                groupTypes: propertyModeGroupTypes,
-                query: 'blog',
-                description: 'property mode: no pageview or screen leaves only email',
-                expectedNames: ['Email address containing "blog"'],
-            },
-            {
-                eventExistence: { hasPageview: false, hasScreen: true },
-                groupTypes: eventModeGroupTypes,
-                query: 'blog',
-                description: 'event mode: no pageview hides pageview items, keeps screen + autocapture + email',
-                expectedNames: [
-                    'Screen with Screen name containing "blog"',
-                    'Clicked an element with text "blog"',
-                    'Screen with Email address containing "blog"',
-                ],
-            },
-            {
-                eventExistence: { hasPageview: true, hasScreen: false },
-                groupTypes: eventModeGroupTypes,
-                query: 'blog',
-                description: 'event mode: no screen hides screen items, keeps pageview + autocapture + email',
-                expectedNames: [
-                    'Pageview with Current URL containing "blog"',
-                    'Clicked an element with text "blog"',
-                    'Pageview with Email address containing "blog"',
-                ],
-            },
-            {
-                eventExistence: { hasPageview: false, hasScreen: false },
-                groupTypes: eventModeGroupTypes,
-                query: 'blog',
-                description: 'event mode: no pageview or screen leaves only autocapture',
-                expectedNames: ['Clicked an element with text "blog"'],
-            },
-        ])('$description', ({ eventExistence, groupTypes, query, expectedNames }) => {
-            const results = buildQuickFilterSuggestions(query, groupTypes, eventExistence)
-            expect(results.map((r) => r.name)).toEqual(expectedNames)
-        })
-    })
-
-    describe('QuickFilters shows exact matches from other groups', () => {
+    describe('Suggested filters shows top matches from other groups', () => {
         let quickLogic: ReturnType<typeof taxonomicFilterLogic.build>
         const eventsWithPageview: EventDefinition[] = [
             ...mockEventDefinitions,
@@ -525,8 +221,6 @@ describe('taxonomicFilterLogic', () => {
         ]
 
         beforeEach(() => {
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TAXONOMIC_QUICK_FILTERS]: 'test' })
-
             useMocks({
                 get: {
                     '/api/projects/:team/event_definitions': (res) => {
@@ -542,7 +236,7 @@ describe('taxonomicFilterLogic', () => {
             const logicProps: TaxonomicFilterLogicProps = {
                 taxonomicFilterLogicKey: 'testQuickMatch',
                 taxonomicGroupTypes: [
-                    TaxonomicFilterGroupType.QuickFilters,
+                    TaxonomicFilterGroupType.SuggestedFilters,
                     TaxonomicFilterGroupType.Events,
                     TaxonomicFilterGroupType.Actions,
                 ],
@@ -565,27 +259,21 @@ describe('taxonomicFilterLogic', () => {
                 description: 'exact name match promotes to QuickFilters',
             },
             {
-                query: '$autocapture',
-                expectedMatchName: '$autocapture',
-                description: 'another exact name match promotes to QuickFilters',
-            },
-            {
                 query: 'pageview',
                 expectedMatchName: '$pageview',
                 description: 'single result promotes even without exact name match',
             },
         ])('$description (query=$query)', async ({ query, expectedMatchName }) => {
-            expect(quickLogic.values.activeTab).toBe(TaxonomicFilterGroupType.QuickFilters)
+            expect(quickLogic.values.activeTab).toBe(TaxonomicFilterGroupType.SuggestedFilters)
 
             await expectLogic(quickLogic, () => {
                 quickLogic.actions.setSearchQuery(query)
             })
-                .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived'])
+                .toDispatchActions(['setSearchQuery', 'appendTopMatches'])
                 .delay(1)
-                .clearHistory()
                 .toMatchValues({
-                    activeTab: TaxonomicFilterGroupType.QuickFilters,
-                    exactMatchItems: [
+                    activeTab: TaxonomicFilterGroupType.SuggestedFilters,
+                    topMatchItems: [
                         expect.objectContaining({
                             name: expectedMatchName,
                             group: TaxonomicFilterGroupType.Events,
@@ -594,113 +282,181 @@ describe('taxonomicFilterLogic', () => {
                 })
         })
 
-        it('does not match when multiple results exist and none match exactly', async () => {
+        it('collects top matches and redistributes via redistributedTopMatchItems', async () => {
             await expectLogic(quickLogic, () => {
                 quickLogic.actions.setSearchQuery('event')
             })
-                .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived'])
+                .toDispatchActions(['setSearchQuery', 'appendTopMatches'])
                 .delay(1)
-                .clearHistory()
                 .toMatchValues({
-                    activeTab: TaxonomicFilterGroupType.QuickFilters,
-                    exactMatchItems: [],
-                })
-        })
-
-        it('promotes exact name match even when group returns multiple results', async () => {
-            useMocks({
-                get: {
-                    '/api/projects/:team/event_definitions': (res) => {
-                        const search = res.url.searchParams.get('search')
-                        const events = [
-                            ...eventsWithPageview,
-                            {
-                                id: 'uuid-pageview-complete',
-                                name: '$pageview_complete',
-                                description: 'Pageview complete event',
-                                tags: [],
-                                last_seen_at: '2022-01-24T21:32:38.359756Z',
-                            } as EventDefinition,
-                        ]
-                        const results = search
-                            ? events.filter((e) => e.name.toLowerCase().includes(search.toLowerCase()))
-                            : events
-                        return [200, { results, count: results.length }]
-                    },
-                },
-            })
-
-            await expectLogic(quickLogic, () => {
-                quickLogic.actions.setSearchQuery('$pageview')
-            })
-                .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived'])
-                .delay(1)
-                .clearHistory()
-                .toMatchValues({
-                    activeTab: TaxonomicFilterGroupType.QuickFilters,
-                    exactMatchItems: [
-                        expect.objectContaining({
-                            name: '$pageview',
-                            group: TaxonomicFilterGroupType.Events,
-                        }),
+                    activeTab: TaxonomicFilterGroupType.SuggestedFilters,
+                    topMatchItems: [
+                        expect.objectContaining({ name: 'event1', group: TaxonomicFilterGroupType.Events }),
+                        expect.objectContaining({ name: 'test event', group: TaxonomicFilterGroupType.Events }),
+                        expect.objectContaining({ name: 'other event', group: TaxonomicFilterGroupType.Events }),
+                    ],
+                    redistributedTopMatchItems: [
+                        expect.objectContaining({ name: 'event1', group: TaxonomicFilterGroupType.Events }),
+                        expect.objectContaining({ name: 'test event', group: TaxonomicFilterGroupType.Events }),
+                        expect.objectContaining({ name: 'other event', group: TaxonomicFilterGroupType.Events }),
                     ],
                 })
         })
 
-        it('clears exact match items on new search', async () => {
+        it('clears top match items on new search', async () => {
+            await expectLogic(quickLogic, () => {
+                quickLogic.actions.setSearchQuery('$pageview')
+            })
+                .toDispatchActions(['setSearchQuery', 'appendTopMatches'])
+                .delay(1)
+
+            expect(quickLogic.values.topMatchItems).toHaveLength(1)
+
+            await expectLogic(quickLogic, () => {
+                quickLogic.actions.setSearchQuery('blog')
+            }).toMatchValues({
+                topMatchItems: [],
+            })
+        })
+
+        it('promotes top match from groups without getValue', async () => {
+            const logicProps: TaxonomicFilterLogicProps = {
+                taxonomicFilterLogicKey: 'testNoGetValue',
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.InternalEventProperties,
+                ],
+            }
+            const noGetValueLogic = taxonomicFilterLogic(logicProps)
+            noGetValueLogic.mount()
+            for (const listGroupType of logicProps.taxonomicGroupTypes) {
+                infiniteListLogic({ ...logicProps, listGroupType }).mount()
+            }
+
+            expect(noGetValueLogic.values.activeTab).toBe(TaxonomicFilterGroupType.SuggestedFilters)
+
+            await expectLogic(noGetValueLogic, () => {
+                noGetValueLogic.actions.setSearchQuery('activity')
+            })
+                .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived'])
+                .delay(1)
+                .clearHistory()
+                .toMatchValues({
+                    activeTab: TaxonomicFilterGroupType.SuggestedFilters,
+                    topMatchItems: [
+                        expect.objectContaining({
+                            name: 'activity',
+                            group: TaxonomicFilterGroupType.InternalEventProperties,
+                        }),
+                    ],
+                })
+
+            noGetValueLogic.unmount()
+        })
+
+        it('selecting a top match dispatches selectItem with the correct group', async () => {
             await expectLogic(quickLogic, () => {
                 quickLogic.actions.setSearchQuery('$pageview')
             })
                 .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived'])
                 .delay(1)
 
-            expect(quickLogic.values.exactMatchItems).toHaveLength(1)
+            expect(quickLogic.values.topMatchItems).toHaveLength(1)
+
+            const quickListLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'testQuickMatch',
+                listGroupType: TaxonomicFilterGroupType.SuggestedFilters,
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                ],
+            })
+
+            const totalCount = quickListLogic.values.totalListCount
+            const lastItemIndex = totalCount - 1
+
+            quickListLogic.actions.setIndex(lastItemIndex)
+
+            await expectLogic(quickListLogic, () => {
+                quickListLogic.actions.selectSelected()
+            }).toDispatchActions([
+                quickListLogic.actionCreators.selectSelected(),
+                ({ type, payload }: { type: string; payload: any }) =>
+                    type === quickListLogic.actionTypes.selectItem &&
+                    payload.group.type === TaxonomicFilterGroupType.Events,
+            ])
+        })
+
+        it.each([
+            {
+                description: 'inserts skeleton placeholders for loading groups during search',
+                query: 'zzz-will-not-match',
+            },
+            {
+                description: 'inserts skeleton placeholders that are replaced by real results',
+                query: 'event',
+            },
+        ])('$description (query=$query)', async ({ query }) => {
+            const eventsListLogic = infiniteListLogic({
+                ...quickLogic.props,
+                listGroupType: TaxonomicFilterGroupType.Events,
+            })
+
+            await expectLogic(eventsListLogic).toDispatchActions(['loadRemoteItemsSuccess'])
+            await expectLogic(quickLogic).delay(1)
 
             await expectLogic(quickLogic, () => {
-                quickLogic.actions.setSearchQuery('blog')
-            }).toMatchValues({
-                exactMatchItems: [],
+                quickLogic.actions.setSearchQuery(query)
+            }).toDispatchActions(['setSearchQuery'])
+
+            const duringLoading = quickLogic.values.topMatchItemsWithSkeletons
+            const skeletons = duringLoading.filter(isSkeletonItem)
+            expect(skeletons).toHaveLength(SKELETON_ROWS_PER_GROUP)
+            expect(skeletons.every((s) => s.group === TaxonomicFilterGroupType.Events)).toBe(true)
+            expect(skeletons[0].groupName).toBe('Events')
+
+            await expectLogic(eventsListLogic).toDispatchActions(['loadRemoteItemsSuccess'])
+            await expectLogic(quickLogic).delay(1)
+
+            const afterLoading = quickLogic.values.topMatchItemsWithSkeletons
+            expect(afterLoading.filter(isSkeletonItem)).toHaveLength(0)
+        })
+
+        it('does not insert skeletons when search query is empty', async () => {
+            const eventsListLogic = infiniteListLogic({
+                ...quickLogic.props,
+                listGroupType: TaxonomicFilterGroupType.Events,
             })
+            await expectLogic(eventsListLogic).toDispatchActions(['loadRemoteItemsSuccess'])
+            await expectLogic(quickLogic).delay(1)
+
+            expect(quickLogic.values.searchQuery).toBe('')
+            expect(quickLogic.values.topMatchItemsWithSkeletons).toEqual([])
         })
     })
 
-    describe('QuickFilters opt-in', () => {
+    describe('SuggestedFilters presence', () => {
         it.each([
             {
-                groupTypes: [TaxonomicFilterGroupType.QuickFilters, TaxonomicFilterGroupType.Events],
-                flagValue: 'test',
+                groupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
                 expectQuickFilters: true,
-                description: 'includes QuickFilters when listed and flag enabled',
-            },
-            {
-                groupTypes: [TaxonomicFilterGroupType.QuickFilters, TaxonomicFilterGroupType.Events],
-                flagValue: 'control',
-                expectQuickFilters: false,
-                description: 'excludes QuickFilters when listed but flag disabled',
+                description: 'includes SuggestedFilters when listed in groupTypes',
             },
             {
                 groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
-                flagValue: 'test',
                 expectQuickFilters: false,
-                description: 'excludes QuickFilters when not listed even with flag enabled',
+                description: 'excludes SuggestedFilters when not listed in groupTypes',
             },
-            {
-                groupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties],
-                flagValue: 'control',
-                expectQuickFilters: false,
-                description: 'breakdown-like contexts without QuickFilters stay without it',
-            },
-        ])('$description', ({ groupTypes, flagValue, expectQuickFilters }) => {
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TAXONOMIC_QUICK_FILTERS]: flagValue })
-
+        ])('$description', ({ groupTypes, expectQuickFilters }) => {
             const testLogicProps: TaxonomicFilterLogicProps = {
-                taxonomicFilterLogicKey: `testOptIn-${flagValue}-${groupTypes.join('-')}`,
+                taxonomicFilterLogicKey: `testOptIn-${groupTypes.join('-')}`,
                 taxonomicGroupTypes: groupTypes,
             }
             const testLogic = taxonomicFilterLogic(testLogicProps)
             testLogic.mount()
 
-            expect(testLogic.values.taxonomicGroupTypes.includes(TaxonomicFilterGroupType.QuickFilters)).toBe(
+            expect(testLogic.values.taxonomicGroupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)).toBe(
                 expectQuickFilters
             )
 
@@ -748,5 +504,138 @@ describe('taxonomicFilterLogic', () => {
                 { id: 'context3', name: 'Another Context', value: 'context3', icon: expect.anything() },
             ])
         })
+    })
+})
+
+describe('redistributeTopMatches', () => {
+    const makeItem = (name: string, group: TaxonomicFilterGroupType): any => ({ name, group })
+
+    it.each([
+        {
+            description: 'returns empty output for empty input',
+            items: [],
+            activeGroupCount: 3,
+            expected: [],
+        },
+        {
+            description: 'no redistribution needed when all groups are within default slots',
+            items: [
+                ...Array.from({ length: 4 }, (_, i) => makeItem(`e${i + 1}`, TaxonomicFilterGroupType.Events)),
+                makeItem('a1', TaxonomicFilterGroupType.Actions),
+            ],
+            activeGroupCount: 3,
+            expected: [
+                ...['e1', 'e2', 'e3', 'e4'].map((n) => expect.objectContaining({ name: n })),
+                expect.objectContaining({ name: 'a1' }),
+            ],
+        },
+        {
+            description: 'empty groups give surplus slots to groups with extra items',
+            items: Array.from({ length: 8 }, (_, i) => makeItem(`e${i + 1}`, TaxonomicFilterGroupType.Events)),
+            activeGroupCount: 3,
+            expected: Array.from({ length: 8 }, (_, i) => expect.objectContaining({ name: `e${i + 1}` })),
+        },
+        {
+            description: '3+ groups with results caps each at DEFAULT_SLOTS_PER_GROUP without redistribution',
+            items: [
+                ...Array.from({ length: 8 }, (_, i) => makeItem(`ce${i + 1}`, TaxonomicFilterGroupType.CustomEvents)),
+                ...Array.from({ length: 8 }, (_, i) => makeItem(`pu${i + 1}`, TaxonomicFilterGroupType.PageviewUrls)),
+                ...Array.from({ length: 8 }, (_, i) => makeItem(`sc${i + 1}`, TaxonomicFilterGroupType.Screens)),
+            ],
+            activeGroupCount: 4,
+            expected: [
+                ...Array.from({ length: 5 }, (_, i) => expect.objectContaining({ name: `ce${i + 1}` })),
+                ...Array.from({ length: 5 }, (_, i) => expect.objectContaining({ name: `pu${i + 1}` })),
+                ...Array.from({ length: 5 }, (_, i) => expect.objectContaining({ name: `sc${i + 1}` })),
+            ],
+        },
+        {
+            description: 'fewer than 3 groups redistributes surplus with priority ordering',
+            items: [
+                ...Array.from({ length: 8 }, (_, i) => makeItem(`ce${i + 1}`, TaxonomicFilterGroupType.CustomEvents)),
+                ...Array.from({ length: 8 }, (_, i) => makeItem(`pu${i + 1}`, TaxonomicFilterGroupType.PageviewUrls)),
+            ],
+            activeGroupCount: 4,
+            expected: [
+                ...Array.from({ length: 8 }, (_, i) => expect.objectContaining({ name: `ce${i + 1}` })),
+                ...Array.from({ length: 8 }, (_, i) => expect.objectContaining({ name: `pu${i + 1}` })),
+            ],
+        },
+        {
+            description: 'surplus capped by available items in priority groups',
+            items: [
+                makeItem('ce1', TaxonomicFilterGroupType.CustomEvents),
+                ...Array.from({ length: 8 }, (_, i) => makeItem(`e${i + 1}`, TaxonomicFilterGroupType.Events)),
+            ],
+            activeGroupCount: 5,
+            expected: [
+                expect.objectContaining({ name: 'ce1' }),
+                ...Array.from({ length: 8 }, (_, i) => expect.objectContaining({ name: `e${i + 1}` })),
+            ],
+        },
+        {
+            description: 'without groupTypeOrder, preserves arrival order',
+            items: [makeItem('a1', TaxonomicFilterGroupType.Actions), makeItem('e1', TaxonomicFilterGroupType.Events)],
+            activeGroupCount: 2,
+            expected: [
+                expect.objectContaining({ name: 'a1', group: TaxonomicFilterGroupType.Actions }),
+                expect.objectContaining({ name: 'e1', group: TaxonomicFilterGroupType.Events }),
+            ],
+        },
+        {
+            description: 'with groupTypeOrder, sorts groups by category order regardless of arrival order',
+            items: [
+                makeItem('a1', TaxonomicFilterGroupType.Actions),
+                makeItem('dw1', TaxonomicFilterGroupType.DataWarehouse),
+                makeItem('e1', TaxonomicFilterGroupType.Events),
+            ],
+            activeGroupCount: 3,
+            groupTypeOrder: [
+                TaxonomicFilterGroupType.Events,
+                TaxonomicFilterGroupType.Actions,
+                TaxonomicFilterGroupType.DataWarehouse,
+            ],
+            expected: [
+                expect.objectContaining({ name: 'e1', group: TaxonomicFilterGroupType.Events }),
+                expect.objectContaining({ name: 'a1', group: TaxonomicFilterGroupType.Actions }),
+                expect.objectContaining({ name: 'dw1', group: TaxonomicFilterGroupType.DataWarehouse }),
+            ],
+        },
+        {
+            description: 'groupTypeOrder omits groups with no results',
+            items: [makeItem('e1', TaxonomicFilterGroupType.Events)],
+            activeGroupCount: 3,
+            groupTypeOrder: [TaxonomicFilterGroupType.Actions, TaxonomicFilterGroupType.Events],
+            expected: [expect.objectContaining({ name: 'e1', group: TaxonomicFilterGroupType.Events })],
+        },
+    ])('$description', ({ items, activeGroupCount, expected, groupTypeOrder }) => {
+        expect(redistributeTopMatches(items, activeGroupCount, groupTypeOrder)).toEqual(expected)
+    })
+})
+
+describe('isSkeletonItem', () => {
+    it.each([
+        {
+            description: 'returns true for skeleton items',
+            item: { _skeleton: true, group: TaxonomicFilterGroupType.Events, groupName: 'Events' },
+            expected: true,
+        },
+        {
+            description: 'returns false for regular items',
+            item: { name: 'event1', group: TaxonomicFilterGroupType.Events },
+            expected: false,
+        },
+        {
+            description: 'returns false for null',
+            item: null,
+            expected: false,
+        },
+        {
+            description: 'returns false for undefined',
+            item: undefined,
+            expected: false,
+        },
+    ])('$description', ({ item, expected }) => {
+        expect(isSkeletonItem(item)).toBe(expected)
     })
 })

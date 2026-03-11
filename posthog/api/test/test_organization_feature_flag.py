@@ -138,7 +138,6 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             created_by=self.user,
             key=self.feature_flag_key,
             filters={"groups": [{"rollout_percentage": self.rollout_percentage_to_copy}]},
-            rollout_percentage=self.rollout_percentage_to_copy,
         )
 
         super().setUp()
@@ -191,6 +190,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "last_called_at": None,
             "evaluation_runtime": "all",
             "bucketing_identifier": "distinct_id",
+            "is_used_in_replay_settings": False,
         }
 
         flag_response = response.json()["success"][0]
@@ -208,7 +208,6 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             key=self.feature_flag_key,
             name="Existing flag",
             filters={"groups": [{"rollout_percentage": rollout_percentage_existing}]},
-            rollout_percentage=rollout_percentage_existing,
             ensure_experience_continuity=False,
         )
 
@@ -276,6 +275,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "last_called_at": None,
             "evaluation_runtime": "all",
             "bucketing_identifier": "distinct_id",
+            "is_used_in_replay_settings": False,
         }
 
         flag_response = response.json()["success"][0]
@@ -298,8 +298,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             team=self.team_1,
             created_by=self.user,
             key="flag-to-copy-here",
-            filters={},
-            rollout_percentage=self.rollout_percentage_to_copy,
+            filters={"groups": [{"properties": [], "rollout_percentage": self.rollout_percentage_to_copy}]},
         )
 
         data = {
@@ -327,7 +326,6 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             key=self.feature_flag_key,
             name="Existing flag",
             filters={"groups": [{"rollout_percentage": rollout_percentage_existing}]},
-            rollout_percentage=rollout_percentage_existing,
             ensure_experience_continuity=False,
             deleted=True,
         )
@@ -337,7 +335,6 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             key=self.feature_flag_key,
             name="Existing flag",
             filters={"groups": [{"rollout_percentage": rollout_percentage_existing}]},
-            rollout_percentage=rollout_percentage_existing,
             ensure_experience_continuity=False,
             deleted=True,
         )
@@ -408,6 +405,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "last_called_at": None,
             "evaluation_runtime": "all",
             "bucketing_identifier": "distinct_id",
+            "is_used_in_replay_settings": False,
         }
         flag_response = response.json()["success"][0]
 
@@ -447,6 +445,24 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("error", response.json())
+
+    def test_copy_feature_flag_from_other_org_returns_not_found(self):
+        from posthog.models.organization import Organization
+
+        other_org = Organization.objects.create(name="other org")
+        other_team = Team.objects.create(organization=other_org)
+        FeatureFlag.objects.create(team=other_team, created_by=self.user, key="other-org-flag")
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": "other-org-flag",
+            "from_project": other_team.id,
+            "target_project_ids": [self.team_2.id],
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "Feature flag to copy does not exist.")
 
     def test_copy_feature_flag_to_nonexistent_target(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
@@ -751,7 +767,6 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             created_by=self.user,
             key="remote-config-flag",
             filters={"groups": [{"rollout_percentage": 100}], "payloads": {"true": '{"key": "value"}'}},
-            rollout_percentage=100,
             is_remote_configuration=True,
             has_encrypted_payloads=False,
         )
@@ -796,7 +811,6 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             created_by=self.user,
             key="encrypted-flag",
             filters=flag_data,
-            rollout_percentage=100,
             is_remote_configuration=True,
             has_encrypted_payloads=True,
         )
@@ -851,7 +865,6 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             created_by=self.user,
             key="encrypted-multi-flag",
             filters=flag_data,
-            rollout_percentage=100,
             is_remote_configuration=True,
             has_encrypted_payloads=True,
         )

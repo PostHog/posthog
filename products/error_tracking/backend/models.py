@@ -6,6 +6,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 
+import structlog
 from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
 
@@ -16,6 +17,8 @@ from posthog.models.utils import UUIDTModel
 from posthog.storage import object_storage
 
 from products.error_tracking.backend.sql import INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES
+
+logger = structlog.get_logger(__name__)
 
 
 class ErrorTrackingIssueManager(models.Manager):
@@ -52,20 +55,34 @@ class ErrorTrackingIssue(UUIDTModel):
             ErrorTrackingIssue.objects.filter(team=self.team, id__in=issue_ids).delete()
             update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
 
-    def split(self, fingerprints: list[str], exclusive: bool) -> None:
+    def split(self, fingerprints: list[dict]) -> list["ErrorTrackingIssue"]:
+        own_fingerprints = set(
+            ErrorTrackingIssueFingerprintV2.objects.filter(team_id=self.team.pk, issue_id=self.id).values_list(
+                "fingerprint", flat=True
+            )
+        )
+
         overrides: list[ErrorTrackingIssueFingerprintV2] = []
+        new_issues: list[ErrorTrackingIssue] = []
 
         with transaction.atomic():
-            common_issue = ErrorTrackingIssue.objects.create(team=self.team) if not exclusive else None
-            for fingerprint in fingerprints:
-                new_issue = common_issue if common_issue else ErrorTrackingIssue.objects.create(team=self.team)
+            for entry in fingerprints:
+                fp = entry["fingerprint"]
+                if fp not in own_fingerprints:
+                    continue
+                new_issue = ErrorTrackingIssue.objects.create(
+                    team=self.team,
+                    name=entry.get("name") or "Untitled issue",
+                    description=entry.get("description"),
+                )
+                new_issues.append(new_issue)
                 overrides.extend(
                     update_error_tracking_issue_fingerprints(
-                        team_id=self.team.pk, issue_id=new_issue.id, fingerprints=[fingerprint]
+                        team_id=self.team.pk, issue_id=new_issue.id, fingerprints=[fp]
                     )
                 )
-
-        update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
+            update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
+        return new_issues
 
 
 class ErrorTrackingExternalReference(UUIDTModel):
@@ -348,32 +365,6 @@ class ErrorTrackingAutoCaptureControls(UUIDTModel):
         ]
 
 
-def get_autocapture_controls(team_id: int, library: str = "web") -> dict | None:
-    """Get the autocapture controls for a team and library, formatted for API responses."""
-    result = ErrorTrackingAutoCaptureControls.objects.filter(team_id=team_id, library=library).values().first()
-    if result:
-        if result.get("sample_rate") is not None:
-            result["sample_rate"] = float(result["sample_rate"])
-        if result.get("id") is not None:
-            result["id"] = str(result["id"])
-    return result
-
-
-def get_autocapture_triggers(team_id: int) -> dict | None:
-    controls = ErrorTrackingAutoCaptureControls.objects.filter(team_id=team_id).values().first()
-    if not controls:
-        return None
-    return {
-        "library": controls.get("library"),
-        "matchType": controls.get("match_type"),
-        "sampleRate": float(controls["sample_rate"]) if controls.get("sample_rate") is not None else None,
-        "linkedFeatureFlag": controls.get("linked_feature_flag"),
-        "eventTriggers": controls.get("event_triggers"),
-        "urlTriggers": controls.get("url_triggers"),
-        "urlBlocklist": controls.get("url_blocklist"),
-    }
-
-
 class ErrorTrackingStackFrame(UUIDTModel):
     # Produced by a raw frame
     raw_id = models.TextField(null=False, blank=False)
@@ -504,3 +495,18 @@ def delete_symbol_set_contents(upload_path: str) -> None:
             code="object_storage_required",
             detail="Object storage must be available to delete source maps.",
         )
+
+
+class ErrorTrackingSpikeDetectionConfig(models.Model):
+    team = models.OneToOneField(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name="error_tracking_spike_detection_config",
+    )
+    snooze_duration_minutes = models.IntegerField(default=10)
+    multiplier = models.IntegerField(default=10)
+    threshold = models.IntegerField(default=500)
+
+    class Meta:
+        db_table = "posthog_errortrackingspikedetectionconfig"

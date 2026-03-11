@@ -65,12 +65,16 @@ rules:
                               |BatchExportBackfill
                               |BatchImport
                               |ChangeRequest
+                              |ClusteringConfig
+                              |ClusteringJob
                               |Cohort
                               |Comment
                               |Conversation
+                              |ConversationRestoreToken
                               |CoreMemory
                               |CustomerJourney
                               |CustomerProfileConfig
+                              |DAG
                               |Dashboard
                               |DashboardTemplate
                               |DataColorTheme
@@ -91,11 +95,11 @@ rules:
                               |EnterpriseEventDefinition
                               |EnterprisePropertyDefinition
                               |ErrorTrackingAssignmentRule
-                              |ErrorTrackingAutoCaptureControls
                               |ErrorTrackingGroupingRule
                               |ErrorTrackingIssue
                               |ErrorTrackingIssueFingerprintV2
                               |ErrorTrackingRelease
+                              |ErrorTrackingSpikeDetectionConfig
                               |ErrorTrackingStackFrame
                               |ErrorTrackingSuppressionRule
                               |ErrorTrackingSymbolSet
@@ -109,6 +113,7 @@ rules:
                               |ExternalDataSchema
                               |ExternalDataSource
                               |FeatureFlag
+                              |TeamFeatureFlagDefaultsConfig
                               |FileSystem
                               |HealthIssue
                               |HogFlow
@@ -121,6 +126,8 @@ rules:
                               |Integration
                               |Link
                               |LiveDebuggerBreakpoint
+                              |LogsAlertCheck
+                              |LogsAlertConfiguration
                               |LLMModelConfiguration
                               |LLMPrompt
                               |LLMProviderKey
@@ -131,12 +138,15 @@ rules:
                               |MessageTemplate
                               |Node
                               |Notebook
+                              |ObjectMediaPreview
                               |PluginConfig
                               |ProductTour
                               |ProjectSecretAPIKey
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
+                              |Repo
+                              |RepoRoutingRule
                               |SandboxEnvironment
                               |SavedHeatmap
                               |ScheduledChange
@@ -146,7 +156,9 @@ rules:
                               |SharingConfiguration
                               |SignalReport
                               |SignalReportArtefact
+                              |SignalSourceConfig
                               |SingleSessionSummary
+                              |SlackThreadTaskMapping
                               |Subscription
                               |Survey
                               |SurveyResponseArchive
@@ -158,6 +170,7 @@ rules:
                               |Ticket
                               |UploadedMedia
                               |UserInterview
+                              |UserRepoPreference
                               |WebAnalyticsFilterPreset
                           )$
                 - focus-metavariable: $SINK
@@ -221,12 +234,16 @@ rules:
                         |BatchExportBackfill
                         |BatchImport
                         |ChangeRequest
+                        |ClusteringConfig
+                        |ClusteringJob
                         |Cohort
                         |Comment
                         |Conversation
+                        |ConversationRestoreToken
                         |CoreMemory
                         |CustomerJourney
                         |CustomerProfileConfig
+                        |DAG
                         |Dashboard
                         |DashboardTemplate
                         |DataColorTheme
@@ -247,11 +264,11 @@ rules:
                         |EnterpriseEventDefinition
                         |EnterprisePropertyDefinition
                         |ErrorTrackingAssignmentRule
-                        |ErrorTrackingAutoCaptureControls
                         |ErrorTrackingGroupingRule
                         |ErrorTrackingIssue
                         |ErrorTrackingIssueFingerprintV2
                         |ErrorTrackingRelease
+                        |ErrorTrackingSpikeDetectionConfig
                         |ErrorTrackingStackFrame
                         |ErrorTrackingSuppressionRule
                         |ErrorTrackingSymbolSet
@@ -265,6 +282,7 @@ rules:
                         |ExternalDataSchema
                         |ExternalDataSource
                         |FeatureFlag
+                        |TeamFeatureFlagDefaultsConfig
                         |FileSystem
                         |HealthIssue
                         |HogFlow
@@ -287,12 +305,15 @@ rules:
                         |MessageTemplate
                         |Node
                         |Notebook
+                        |ObjectMediaPreview
                         |PluginConfig
                         |ProductTour
                         |ProjectSecretAPIKey
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext
+                        |Repo
+                        |RepoRoutingRule
                         |SandboxEnvironment
                         |SavedHeatmap
                         |ScheduledChange
@@ -302,7 +323,9 @@ rules:
                         |SharingConfiguration
                         |SignalReport
                         |SignalReportArtefact
+                        |SignalSourceConfig
                         |SingleSessionSummary
+                        |SlackThreadTaskMapping
                         |Subscription
                         |Survey
                         |SurveyResponseArchive
@@ -314,6 +337,7 @@ rules:
                         |Ticket
                         |UploadedMedia
                         |UserInterview
+                        |UserRepoPreference
                         |WebAnalyticsFilterPreset
                     )$
           # Exclude when team filter is present
@@ -689,6 +713,7 @@ rules:
                               |FileSystemViewLog
                               |InsightViewed
                               |KernelRuntime
+                              |MCPServerInstallation
                               |PersistedFolder
                               |SessionRecordingViewed
                               |UserHomeSettings

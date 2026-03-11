@@ -52,6 +52,9 @@ class TestTeamTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results.results[0].count, 2)
         self.assertEqual(results.results[1].event, "event2")
         self.assertEqual(results.results[1].count, 1)
+        self.assertFalse(results.hasMore)
+        self.assertEqual(results.limit, 500)
+        self.assertEqual(results.offset, 0)
 
     def test_caching(self):
         now = timezone.now()
@@ -127,6 +130,52 @@ class TestTeamTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert isinstance(response, CachedTeamTaxonomyQueryResponse)
         self.assertEqual(len(response.results), 500)
+        self.assertTrue(response.hasMore)
+
+    def test_pagination_with_limit_and_offset(self):
+        _create_person(
+            distinct_ids=["person1"],
+            properties={"email": "person1@example.com"},
+            team=self.team,
+        )
+
+        for i in range(10):
+            _create_event(
+                event=f"event{i}",
+                distinct_id="person1",
+                team=self.team,
+            )
+
+        flush_persons_and_events()
+
+        # First page
+        runner = TeamTaxonomyQueryRunner(team=self.team, query=TeamTaxonomyQuery(limit=5, offset=0))
+        response = runner.run()
+
+        assert isinstance(response, CachedTeamTaxonomyQueryResponse)
+        self.assertEqual(len(response.results), 5)
+        self.assertTrue(response.hasMore)
+        self.assertEqual(response.limit, 5)
+        self.assertEqual(response.offset, 0)
+
+        first_page_events = {r.event for r in response.results}
+
+        # Second page
+        runner = TeamTaxonomyQueryRunner(team=self.team, query=TeamTaxonomyQuery(limit=5, offset=5))
+        response = runner.run()
+
+        assert isinstance(response, CachedTeamTaxonomyQueryResponse)
+        self.assertEqual(len(response.results), 5)
+        self.assertFalse(response.hasMore)
+        self.assertEqual(response.limit, 5)
+        self.assertEqual(response.offset, 5)
+
+        second_page_events = {r.event for r in response.results}
+
+        # No overlap between pages
+        self.assertEqual(len(first_page_events & second_page_events), 0)
+        # All events covered
+        self.assertEqual(len(first_page_events | second_page_events), 10)
 
     def test_events_not_useful_for_llm_ignored(self):
         _create_person(

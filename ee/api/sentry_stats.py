@@ -3,11 +3,11 @@ from typing import Any, Optional, Union
 
 from django.http import HttpRequest, JsonResponse
 
-import requests
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.instance_setting import get_instance_settings
+from posthog.security.outbound_proxy import external_requests
 
 
 def get_sentry_stats(start_time: str, end_time: str) -> tuple[dict, int]:
@@ -24,7 +24,7 @@ def get_sentry_stats(start_time: str, end_time: str) -> tuple[dict, int]:
 
     params = {"start": start_time, "end": end_time, "sort": "freq", "utc": "true"}
 
-    response = requests.get(url=url, headers=headers, params=params).json()
+    response = external_requests.get(url=url, headers=headers, params=params).json()
 
     counts = {}
     total_count = 0
@@ -74,7 +74,7 @@ def get_tagged_issues_stats(
     for i in range(0, len(target_issues), pagination_chunk_size):
         groups = target_issues[i : i + pagination_chunk_size]
         params["groups"] = groups
-        response = requests.get(url=url, headers=headers, params=params).json()
+        response = external_requests.get(url=url, headers=headers, params=params).json()
 
         # TODO: Confirm sentry always sends this information
         for item in response:

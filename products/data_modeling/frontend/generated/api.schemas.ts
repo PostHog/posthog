@@ -11,7 +11,7 @@ export interface EdgeApi {
     readonly id: string
     readonly source_id: string
     readonly target_id: string
-    readonly dag_id: string
+    readonly dag_id_text: string
     properties?: unknown
     readonly created_at: string
     /** @nullable */
@@ -31,13 +31,15 @@ export interface PaginatedEdgeListApi {
  * * `table` - Table
  * `view` - View
  * `matview` - Mat View
+ * `endpoint` - Endpoint
  */
 export type NodeTypeEnumApi = (typeof NodeTypeEnumApi)[keyof typeof NodeTypeEnumApi]
 
 export const NodeTypeEnumApi = {
-    table: 'table',
-    view: 'view',
-    matview: 'matview',
+    Table: 'table',
+    View: 'view',
+    Matview: 'matview',
+    Endpoint: 'endpoint',
 } as const
 
 export interface NodeApi {
@@ -45,8 +47,10 @@ export interface NodeApi {
     /** @maxLength 2048 */
     name: string
     type?: NodeTypeEnumApi
+    /** @maxLength 1024 */
+    description?: string
     /** @maxLength 256 */
-    dag_id?: string
+    dag_id_text?: string
     /** @nullable */
     readonly saved_query_id: string | null
     readonly created_at: string

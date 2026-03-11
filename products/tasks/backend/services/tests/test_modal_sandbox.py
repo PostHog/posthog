@@ -35,7 +35,7 @@ class TestGetSandboxImageReference:
 
     def test_returns_digest_reference_on_success(self):
         with patch(
-            "products.tasks.backend.services.modal_sandbox.requests.get",
+            "products.tasks.backend.services.modal_sandbox.external_requests.get",
             side_effect=[_mock_token_response(), _mock_manifest_response(digest="sha256:abc123")],
         ):
             result = _get_sandbox_image_reference()
@@ -45,7 +45,7 @@ class TestGetSandboxImageReference:
     @pytest.mark.parametrize("status_code", [401, 403, 404, 500, 502, 503])
     def test_falls_back_to_master_on_token_request_failure(self, status_code: int):
         with patch(
-            "products.tasks.backend.services.modal_sandbox.requests.get",
+            "products.tasks.backend.services.modal_sandbox.external_requests.get",
             return_value=_mock_token_response(status_code=status_code),
         ):
             result = _get_sandbox_image_reference()
@@ -54,7 +54,7 @@ class TestGetSandboxImageReference:
 
     def test_falls_back_to_master_when_token_missing(self):
         with patch(
-            "products.tasks.backend.services.modal_sandbox.requests.get",
+            "products.tasks.backend.services.modal_sandbox.external_requests.get",
             return_value=_mock_token_response(token=None),
         ):
             result = _get_sandbox_image_reference()
@@ -64,7 +64,7 @@ class TestGetSandboxImageReference:
     @pytest.mark.parametrize("status_code", [401, 403, 404, 500, 502, 503])
     def test_falls_back_to_master_on_manifest_request_failure(self, status_code: int):
         with patch(
-            "products.tasks.backend.services.modal_sandbox.requests.get",
+            "products.tasks.backend.services.modal_sandbox.external_requests.get",
             side_effect=[_mock_token_response(), _mock_manifest_response(status_code=status_code)],
         ):
             result = _get_sandbox_image_reference()
@@ -73,7 +73,7 @@ class TestGetSandboxImageReference:
 
     def test_falls_back_to_master_when_digest_header_missing(self):
         with patch(
-            "products.tasks.backend.services.modal_sandbox.requests.get",
+            "products.tasks.backend.services.modal_sandbox.external_requests.get",
             side_effect=[_mock_token_response(), _mock_manifest_response(digest=None)],
         ):
             result = _get_sandbox_image_reference()
@@ -90,7 +90,7 @@ class TestGetSandboxImageReference:
     )
     def test_falls_back_to_master_on_request_exception(self, exception: Exception):
         with patch(
-            "products.tasks.backend.services.modal_sandbox.requests.get",
+            "products.tasks.backend.services.modal_sandbox.external_requests.get",
             side_effect=exception,
         ):
             result = _get_sandbox_image_reference()
@@ -99,7 +99,7 @@ class TestGetSandboxImageReference:
 
     def test_caches_result_across_calls(self):
         with patch(
-            "products.tasks.backend.services.modal_sandbox.requests.get",
+            "products.tasks.backend.services.modal_sandbox.external_requests.get",
             side_effect=[_mock_token_response(), _mock_manifest_response(digest="sha256:cached123")],
         ) as mock_get:
             result1 = _get_sandbox_image_reference()
@@ -114,6 +114,9 @@ class TestGetSandboxImageReferenceIntegration:
     def setup_method(self):
         _get_sandbox_image_reference.cache_clear()
 
+    @pytest.mark.xfail(
+        reason="Flaky: depends on GHCR availability. Remove this mark when we've figured out a less flaky approach"
+    )
     def test_resolves_digest_from_ghcr(self):
         result = _get_sandbox_image_reference()
 
@@ -172,11 +175,13 @@ class TestModalSandboxAgentServer:
 
         start_call = mock_sandbox.execute.call_args_list[0]
         command = start_call[0][0]
+        import shlex
+
         assert f"--port {AGENT_SERVER_PORT}" in command
-        assert "--repositoryPath /tmp/workspace/repos/posthog/posthog" in command
-        assert "--taskId task-123" in command
-        assert "--runId run-456" in command
-        assert "--mode background" in command
+        assert f"--repositoryPath {shlex.quote('/tmp/workspace/repos/posthog/posthog')}" in command
+        assert f"--taskId {shlex.quote('task-123')}" in command
+        assert f"--runId {shlex.quote('run-456')}" in command
+        assert f"--mode {shlex.quote('background')}" in command
 
     def test_start_agent_server_raises_when_not_running(self, mock_sandbox: Any):
         mock_sandbox._sandbox.poll.return_value = 0
@@ -232,3 +237,72 @@ class TestModalSandboxAgentServer:
         assert result is True
         assert mock_sandbox.execute.call_count == 3
         assert mock_sleep.call_count == 2
+
+
+class TestModalSandboxCommandEscaping:
+    @pytest.mark.parametrize(
+        "repository",
+        [
+            "PostHog/posthog",
+            "org/repo-name",
+            "org/repo; echo hacked",
+            "org/repo$(whoami)",
+            "org'/repo",
+            "org/repo`id`",
+        ],
+    )
+    def test_clone_repository_command_escaping(self, repository):
+        import shlex
+
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._sandbox = MagicMock()
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                sandbox.clone_repository(repository, github_token="test-token")
+                command = mock_execute.call_args[0][0]
+
+                org, repo = repository.lower().split("/")
+                target_path = f"/tmp/workspace/repos/{org}/{repo}"
+                org_path = f"/tmp/workspace/repos/{org}"
+
+                assert shlex.quote(target_path) in command
+                assert shlex.quote(org_path) in command
+                assert shlex.quote(repo) in command
+
+    @pytest.mark.parametrize(
+        "repository,task_id,run_id,mode",
+        [
+            ("PostHog/posthog", "task-123", "run-456", "background"),
+            ("org/repo; echo hacked", "task-123", "run-456", "background"),
+            ("PostHog/posthog", "task; echo hacked", "run-456", "background"),
+            ("PostHog/posthog", "task-123", "run$(whoami)", "background"),
+            ("PostHog/posthog", "task-123", "run-456", "mode`id`"),
+        ],
+    )
+    def test_start_agent_server_command_escaping(self, repository, task_id, run_id, mode):
+        import shlex
+
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._sandbox = MagicMock()
+        sandbox._sandbox_url = None
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                mock_execute.return_value = MagicMock(exit_code=0)
+                with patch.object(sandbox, "_wait_for_health_check", return_value=True):
+                    sandbox.start_agent_server(repository, task_id, run_id, mode)
+
+                command = mock_execute.call_args_list[0][0][0]
+
+                org, repo = repository.lower().split("/")
+                repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+
+                assert shlex.quote(repo_path) in command
+                assert shlex.quote(task_id) in command
+                assert shlex.quote(run_id) in command
+                assert shlex.quote(mode) in command

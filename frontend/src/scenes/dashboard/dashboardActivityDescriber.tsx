@@ -3,7 +3,6 @@ import { DashboardFilter, HogQLVariable } from 'src/queries/schema/schema-genera
 
 import { Link } from '@posthog/lemon-ui'
 
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
     ActivityChange,
     ActivityLogItem,
@@ -14,6 +13,7 @@ import {
     detectBoolean,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
     BreakdownSummary,
     DateRangeSummary,
@@ -21,7 +21,7 @@ import {
     VariablesSummary,
 } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { pluralize } from 'lib/utils'
+import { isKeyOf, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { DashboardType } from '~/types'
@@ -185,7 +185,7 @@ export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotificat
 
         try {
             for (const change of logItem.detail.changes || []) {
-                if (!change?.field || !dashboardActionsMapping[change.field]) {
+                if (!change?.field || !isKeyOf(change.field, dashboardActionsMapping)) {
                     continue // dashboard updates have to have a "field" to be described
                 }
 

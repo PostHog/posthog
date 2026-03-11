@@ -31,22 +31,10 @@ describe('settingsSceneLogic', () => {
     })
 
     it('redirects environment URLs to project', async () => {
-        router.actions.push('/settings/environment')
-        await expectLogic(logic).toMatchValues({
-            selectedLevel: 'project',
-            selectedSectionId: null,
-        })
-
         router.actions.push('/settings/environment-autocapture')
         await expectLogic(logic).toMatchValues({
             selectedLevel: 'project',
             selectedSectionId: 'project-autocapture',
-        })
-
-        router.actions.push('/settings/project')
-        await expectLogic(logic).toMatchValues({
-            selectedLevel: 'project',
-            selectedSectionId: null,
         })
 
         router.actions.push('/settings/project-autocapture')
@@ -68,5 +56,32 @@ describe('settingsSceneLogic', () => {
             selectedLevel: 'project',
             selectedSectionId: 'project-danger-zone',
         })
+    })
+
+    it('redirects level-only URLs to first section', async () => {
+        router.actions.push('/settings/environment')
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'project',
+        })
+        // Should redirect to first section (project-details)
+        expect(router.values.location.pathname).toContain('/settings/project-details')
+
+        router.actions.push('/settings/project')
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'project',
+        })
+        expect(router.values.location.pathname).toContain('/settings/project-details')
+
+        router.actions.push('/settings/organization')
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'organization',
+        })
+        expect(router.values.location.pathname).toContain('/settings/organization-details')
+
+        router.actions.push('/settings/user')
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'user',
+        })
+        expect(router.values.location.pathname).toContain('/settings/user-profile')
     })
 })

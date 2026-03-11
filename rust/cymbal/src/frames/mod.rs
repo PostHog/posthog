@@ -9,9 +9,16 @@ use crate::{
     error::UnhandledError,
     fingerprinting::{FingerprintBuilder, FingerprintComponent, FingerprintRecordPart},
     langs::{
-        apple::RawAppleFrame, custom::CustomFrame, dart::RawDartFrame, go::RawGoFrame,
-        hermes::RawHermesFrame, java::RawJavaFrame, js::RawJSFrame, node::RawNodeFrame,
-        python::RawPythonFrame, ruby::RawRubyFrame,
+        apple::{AppleDebugImage, RawAppleFrame},
+        custom::CustomFrame,
+        dart::RawDartFrame,
+        go::RawGoFrame,
+        hermes::RawHermesFrame,
+        java::RawJavaFrame,
+        js::RawJSFrame,
+        node::RawNodeFrame,
+        python::RawPythonFrame,
+        ruby::RawRubyFrame,
     },
     metric_consts::{LEGACY_JS_FRAME_RESOLVED, PER_FRAME_TIME},
     sanitize_string,
@@ -20,7 +27,6 @@ use crate::{
 
 pub mod records;
 pub mod releases;
-pub mod resolver;
 
 // We consume a huge variety of differently shaped stack frames, which we have special-case
 // transformation for, to produce a single, unified representation of a frame.
@@ -57,6 +63,7 @@ impl RawFrame {
         &self,
         team_id: i32,
         catalog: &Catalog,
+        debug_images: &[AppleDebugImage],
     ) -> Result<Vec<Frame>, UnhandledError> {
         let frame_resolve_time = common_metrics::timing_guard(PER_FRAME_TIME, &[]);
         let (res, lang_tag) = match self {
@@ -73,7 +80,10 @@ impl RawFrame {
             }
 
             RawFrame::Dart(frame) => (to_vec(Ok(frame.into())), "dart"),
-            RawFrame::Apple(frame) => (to_vec(Ok(frame.into())), "apple"),
+            RawFrame::Apple(frame) => (
+                to_vec(frame.resolve(team_id, catalog, debug_images).await),
+                "apple",
+            ),
             RawFrame::Python(frame) => (to_vec(Ok(frame.into())), "python"),
             RawFrame::Ruby(frame) => (to_vec(Ok(frame.into())), "ruby"),
             RawFrame::Custom(frame) => (to_vec(Ok(frame.into())), "custom"),

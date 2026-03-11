@@ -1,5 +1,5 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -54,7 +54,7 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
             surveysLogic,
             ['loadSurveys'],
             eventUsageLogic,
-            ['reportSurveyCreated', 'reportSurveyEdited'],
+            ['reportSurveyCreated', 'reportSurveyEdited', 'reportSurveyTemplateClicked'],
             teamLogic,
             ['addProductIntent'],
         ],
@@ -200,7 +200,12 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
                         reason: 'Transactional surveys can be more frequent',
                     }
                 }
-                if (templateType?.includes('Onboarding') || templateType?.includes('Attribution')) {
+                if (
+                    templateType?.includes('Onboarding') ||
+                    templateType?.includes('Attribution') ||
+                    templateType?.includes('Exit') ||
+                    templateType?.includes('Announcement')
+                ) {
                     return { value: 'once', label: 'Once ever', reason: 'One-time feedback collection' }
                 }
                 return { value: 'monthly', label: 'Every month', reason: 'General feedback cadence' }
@@ -255,6 +260,8 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
                 ...template.conditions,
                 seenSurveyWaitPeriodInDays: frequencyToDays[frequencyValue],
             })
+
+            actions.reportSurveyTemplateClicked(template.templateType, SURVEY_CREATED_SOURCE.SURVEY_WIZARD)
         },
         restoreDefaultQuestions: () => {
             const template = values.selectedTemplate
@@ -335,6 +342,19 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
             actions.loadSurveys()
             actions.reportSurveyEdited(survey)
             router.actions.push(urls.survey(survey.id))
+        },
+    })),
+
+    urlToAction(({ actions, props }) => ({
+        [urls.surveyWizard(props.id)]: (_, searchParams) => {
+            const templateParam = searchParams.template
+            if (templateParam && props.id === 'new') {
+                const matchedTemplate = defaultSurveyTemplates.find((t) => t.templateType === templateParam)
+                if (matchedTemplate) {
+                    actions.resetSurvey()
+                    actions.selectTemplate(matchedTemplate)
+                }
+            }
         },
     })),
 

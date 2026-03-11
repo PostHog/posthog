@@ -1,8 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { IconCode, IconCursorClick, IconDocument, IconTrash } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -10,18 +10,18 @@ import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { SurveyMatchTypeLabels } from 'scenes/surveys/constants'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
     ScenePanelActionsSection,
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { DateRange, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import {
@@ -40,17 +40,93 @@ import {
 } from '~/types'
 
 import { ProductTourStatsSummary } from './components/ProductTourStatsSummary'
-import { ProductToursToolbarButton } from './components/ProductToursToolbarButton'
-import { productTourLogic } from './productTourLogic'
+import { LaunchValidationIssue, LaunchValidationIssueType, productTourLogic } from './productTourLogic'
 import { getProductTourStatus, isAnnouncement, isProductTourRunning, productToursLogic } from './productToursLogic'
 
+const ISSUE_CONFIG: Record<
+    LaunchValidationIssueType,
+    { icon: JSX.Element; label: string; instruction: string; docsLink?: string }
+> = {
+    missing_element: {
+        icon: <IconCursorClick />,
+        label: 'Missing target element',
+        instruction:
+            'Click "Select element in Toolbar" to choose an element on your page, or "Remove element" to position the step as a simple pop-up.',
+        docsLink: 'https://posthog.com/docs/product-tours/element-selection#automatic-element-targeting',
+    },
+    missing_selector: {
+        icon: <IconCode />,
+        label: 'Missing CSS selector',
+        instruction:
+            'Enter a CSS selector in the step settings, or click "Remove element" to position the step as a simple pop-up.',
+        docsLink: 'https://posthog.com/docs/product-tours/element-selection#manual-element-targeting',
+    },
+}
+
+function formatStepList(stepNumbers: number[]): string {
+    if (stepNumbers.length === 1) {
+        return `Step ${stepNumbers[0]}`
+    }
+    return `Steps ${stepNumbers.slice(0, -1).join(', ')} and ${stepNumbers[stepNumbers.length - 1]}`
+}
+
+function LaunchValidationContent({ issues }: { issues: LaunchValidationIssue[] }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-2">
+            {issues.map((issue) => {
+                const config = ISSUE_CONFIG[issue.type]
+                return (
+                    <div
+                        key={issue.type}
+                        className="flex items-start gap-3 p-3 rounded-lg bg-warning-highlight border border-warning"
+                    >
+                        <span className="text-warning text-lg mt-0.5">{config.icon}</span>
+                        <div className="flex flex-col items-start gap-2">
+                            <div className="flex flex-col gap-0.5 text-sm">
+                                <span className="font-medium">
+                                    {formatStepList(issue.stepNumbers)}: {config.label}
+                                </span>
+                                <span className="text-muted">{config.instruction}</span>
+                            </div>
+                            {config.docsLink && (
+                                <LemonButton
+                                    size="small"
+                                    type="primary"
+                                    icon={<IconDocument />}
+                                    targetBlank
+                                    to={config.docsLink}
+                                >
+                                    Read the docs
+                                </LemonButton>
+                            )}
+                        </div>
+                    </div>
+                )
+            })}
+        </div>
+    )
+}
+
 export function ProductTourView({ id }: { id: string }): JSX.Element {
-    const { productTour, productTourLoading, tourStats, tourStatsLoading, dateRange, targetingFlagFilters } = useValues(
-        productTourLogic({ id })
-    )
-    const { editingProductTour, launchProductTour, stopProductTour, resumeProductTour, setDateRange } = useActions(
-        productTourLogic({ id })
-    )
+    const {
+        productTour,
+        productTourLoading,
+        tourStats,
+        tourStatsLoading,
+        dateRange,
+        targetingFlagFilters,
+        launchValidationIssues,
+        hasDraft,
+    } = useValues(productTourLogic({ id }))
+    const {
+        editingProductTour,
+        launchProductTour,
+        stopProductTour,
+        resumeProductTour,
+        discardDraft,
+        setDateRange,
+        openToolbarModal,
+    } = useActions(productTourLogic({ id }))
     const { deleteProductTour } = useActions(productToursLogic)
 
     const [tabKey, setTabKey] = useState('overview')
@@ -108,7 +184,9 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                 isLoading={productTourLoading}
                 actions={
                     <>
-                        <ProductToursToolbarButton tourId={id} mode="preview" />
+                        <LemonButton type="secondary" size="small" onClick={() => openToolbarModal('preview')}>
+                            Preview
+                        </LemonButton>
                         <LemonButton type="secondary" size="small" onClick={() => editingProductTour(true)}>
                             Edit
                         </LemonButton>
@@ -117,6 +195,25 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                                 type="primary"
                                 size="small"
                                 onClick={() => {
+                                    if (launchValidationIssues.length > 0) {
+                                        LemonDialog.open({
+                                            title: 'Tour not ready to launch',
+                                            content: <LaunchValidationContent issues={launchValidationIssues} />,
+                                            maxWidth: 600,
+                                            primaryButton: {
+                                                children: 'Edit tour',
+                                                type: 'secondary',
+                                                onClick: () => editingProductTour(true),
+                                                size: 'small',
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                                type: 'tertiary',
+                                                size: 'small',
+                                            },
+                                        })
+                                        return
+                                    }
                                     LemonDialog.open({
                                         title: 'Launch this product tour?',
                                         content: (
@@ -204,6 +301,22 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                     </>
                 }
             />
+
+            {hasDraft && (
+                <LemonBanner type="info" className="mb-4">
+                    <div className="flex items-center justify-between w-full">
+                        <span>You have unsaved changes</span>
+                        <div className="flex items-center gap-2">
+                            <LemonButton type="secondary" size="xsmall" onClick={discardDraft}>
+                                Discard
+                            </LemonButton>
+                            <LemonButton type="primary" size="xsmall" onClick={() => editingProductTour(true)}>
+                                Continue editing
+                            </LemonButton>
+                        </div>
+                    </div>
+                </LemonBanner>
+            )}
 
             <LemonTabs
                 activeKey={tabKey}

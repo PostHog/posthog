@@ -1,10 +1,4 @@
 // ==== Deduplication-specific metrics ====
-/// Counter for the number of duplicate events found
-pub const DUPLICATE_EVENTS_TOTAL_COUNTER: &str = "duplicate_events_total";
-
-/// Counter for the number of unique events processed
-pub const UNIQUE_EVENTS_TOTAL_COUNTER: &str = "unique_events_total";
-
 /// Counter for duplicate events published to Kafka (with status label: success/failure)
 pub const DUPLICATE_EVENTS_PUBLISHED_COUNTER: &str = "duplicate_events_published_total";
 
@@ -211,3 +205,7 @@ pub const KAFKA_PRODUCER_SEND_DURATION_MS: &str = "kafka_producer_send_duration_
 
 /// Histogram for event parsing duration using rayon (in milliseconds)
 pub const EVENT_PARSING_DURATION_MS: &str = "event_parsing_duration_ms";
+
+// ==== Fail-open mode metrics ====
+/// Counter for events passed through in fail-open mode (deduplication bypassed)
+pub const FAIL_OPEN_EVENTS_PASSED_THROUGH: &str = "fail_open_events_passed_through_total";

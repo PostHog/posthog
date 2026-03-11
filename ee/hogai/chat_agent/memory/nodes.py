@@ -48,7 +48,7 @@ from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage
 from ee.models.assistant import CoreMemory
 
-from .parsers import MemoryCollectionCompleted, compressed_memory_parser, raise_memory_updated
+from .parsers import check_memory_collection_completed, compressed_memory_parser
 from .prompts import (
     ENQUIRY_INITIAL_MESSAGE,
     INITIALIZE_CORE_MEMORY_SYSTEM_PROMPT,
@@ -411,17 +411,16 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
         prompt = ChatPromptTemplate.from_messages(
             [("system", MEMORY_COLLECTOR_PROMPT)], template_format="mustache"
         ) + await self._aconstruct_messages(state)
-        chain = prompt | self._model | raise_memory_updated
+        chain = prompt | self._model | check_memory_collection_completed
 
-        try:
-            response = await chain.ainvoke(
-                {
-                    "core_memory": await self._aget_core_memory_text(force_enabled=True),
-                    "date": timezone.now().strftime("%Y-%m-%d"),
-                },
-                config=config,
-            )
-        except MemoryCollectionCompleted:
+        response = await chain.ainvoke(
+            {
+                "core_memory": await self._aget_core_memory_text(force_enabled=True),
+                "date": timezone.now().strftime("%Y-%m-%d"),
+            },
+            config=config,
+        )
+        if response is None:
             return PartialAssistantState(memory_collection_messages=None)
         return PartialAssistantState(memory_collection_messages=[*node_messages, cast(LangchainAIMessage, response)])
 

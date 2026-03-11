@@ -4,10 +4,16 @@ import { HogTransformerService } from '../../cdp/hog-transformations/hog-transfo
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
-import { EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
+import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { AI_EVENT_TYPES } from '../ai'
+import { AiEventSubpipelineInput, createAiEventSubpipeline } from '../ai/pipelines/ai-event-subpipeline'
+import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
+import { AiEventOutput, EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
+import { SplitAiEventsStepConfig } from '../event-processing/split-ai-events-step'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
+import { TopHogWrapper } from '../pipelines/extensions/tophog'
 import {
     ClientIngestionWarningSubpipelineInput,
     createClientIngestionWarningSubpipeline,
@@ -17,19 +23,23 @@ import { HeatmapSubpipelineInput, createHeatmapSubpipeline } from './heatmap-sub
 
 export type PerDistinctIdPipelineInput = EventSubpipelineInput &
     HeatmapSubpipelineInput &
-    ClientIngestionWarningSubpipelineInput
+    ClientIngestionWarningSubpipelineInput &
+    AiEventSubpipelineInput
 
 export interface PerDistinctIdPipelineConfig {
     options: EventPipelineRunnerOptions & {
-        CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     }
+    outputs: IngestionOutputs<EventOutput | AiEventOutput>
+    splitAiEventsConfig: SplitAiEventsStepConfig
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
     personsStore: PersonsStore
+    groupStore: BatchWritingGroupStore
     kafkaProducer: KafkaProducerWrapper
     groupId: string
+    topHog: TopHogWrapper
 }
 
 export interface PerDistinctIdPipelineContext {
@@ -37,24 +47,35 @@ export interface PerDistinctIdPipelineContext {
     team: Team
 }
 
-type EventBranch = 'client_ingestion_warning' | 'heatmap' | 'event'
+type EventBranch = 'client_ingestion_warning' | 'heatmap' | 'ai' | 'event'
+
+const EVENT_BRANCH_MAP = new Map<string, EventBranch>([
+    ['$$client_ingestion_warning', 'client_ingestion_warning'],
+    ['$$heatmap', 'heatmap'],
+    ...[...AI_EVENT_TYPES].map((t): [string, EventBranch] => [t, 'ai']),
+])
 
 function classifyEvent(input: PerDistinctIdPipelineInput): EventBranch {
-    switch (input.event.event) {
-        case '$$client_ingestion_warning':
-            return 'client_ingestion_warning'
-        case '$$heatmap':
-            return 'heatmap'
-        default:
-            return 'event'
-    }
+    return EVENT_BRANCH_MAP.get(input.event.event) ?? 'event'
 }
 
 export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: PerDistinctIdPipelineConfig
 ): PipelineBuilder<TInput, void, TContext> {
-    const { options, teamManager, groupTypeManager, hogTransformer, personsStore, kafkaProducer, groupId } = config
+    const {
+        options,
+        outputs,
+        splitAiEventsConfig,
+        teamManager,
+        groupTypeManager,
+        hogTransformer,
+        personsStore,
+        groupStore,
+        kafkaProducer,
+        groupId,
+        topHog,
+    } = config
 
     return builder.retry(
         (e) =>
@@ -66,19 +87,37 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
                             options,
                             teamManager,
                             groupTypeManager,
-                            personsStore,
+                            groupStore,
                             kafkaProducer,
+                        })
+                    )
+                    .branch('ai', (b) =>
+                        createAiEventSubpipeline(b, {
+                            options,
+                            outputs,
+                            teamManager,
+                            groupTypeManager,
+                            hogTransformer,
+                            personsStore,
+                            groupStore,
+                            kafkaProducer,
+                            splitAiEventsConfig,
+                            groupId,
+                            topHog,
                         })
                     )
                     .branch('event', (b) =>
                         createEventSubpipeline(b, {
                             options,
+                            outputs,
                             teamManager,
                             groupTypeManager,
                             hogTransformer,
                             personsStore,
+                            groupStore,
                             kafkaProducer,
                             groupId,
+                            topHog,
                         })
                     )
             }),

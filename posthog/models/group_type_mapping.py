@@ -1,8 +1,23 @@
+from typing import Any
+
 from django.contrib.postgres.fields import ArrayField
-from django.db import models
+from django.db import DatabaseError, models
 from django.utils import timezone
 
+import structlog
+
 from posthog.models.utils import RootTeamMixin
+from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
+from posthog.rbac.decorators import field_access_control
+from posthog.utils import get_safe_cache, safe_cache_delete, safe_cache_set
+
+logger = structlog.get_logger(__name__)
+
+GROUP_TYPES_CACHE_TTL = 60 * 5  # 5 minutes
+GROUP_TYPES_STALE_CACHE_TTL = 60 * 60 * 24  # 24 hours — last-known-good fallback during outages
+GROUP_TYPES_NEGATIVE_CACHE_TTL = 30  # seconds — short so we detect DB recovery quickly
+GROUP_TYPES_CACHE_KEY_PREFIX = "group_types_for_project_"
+GROUP_TYPES_STALE_CACHE_KEY_PREFIX = "group_types_for_project_stale_"
 
 # Defined here for reuse between OS and EE
 GROUP_TYPE_MAPPING_SERIALIZER_FIELDS = [
@@ -27,14 +42,16 @@ class GroupTypeMapping(RootTeamMixin, models.Model):
     group_type = models.CharField(max_length=400, null=False, blank=False)
     group_type_index = models.IntegerField(null=False, blank=False)
     # Used to display in UI
-    name_singular = models.CharField(max_length=400, null=True, blank=True)
-    name_plural = models.CharField(max_length=400, null=True, blank=True)
+    name_singular = field_access_control(models.CharField(max_length=400, null=True, blank=True), "project", "admin")
+    name_plural = field_access_control(models.CharField(max_length=400, null=True, blank=True), "project", "admin")
 
-    default_columns = ArrayField(models.TextField(), null=True, blank=True)
+    default_columns = field_access_control(ArrayField(models.TextField(), null=True, blank=True), "project", "admin")
 
     # DO_NOTHING + db_constraint=False: Dashboard deletion handled manually, may be cross-database
-    detail_dashboard = models.ForeignKey(
-        "Dashboard", on_delete=models.DO_NOTHING, db_constraint=False, null=True, blank=True
+    detail_dashboard = field_access_control(
+        models.ForeignKey("Dashboard", on_delete=models.DO_NOTHING, db_constraint=False, null=True, blank=True),
+        "project",
+        "admin",
     )
     created_at = models.DateTimeField(null=True, blank=True)
 
@@ -74,3 +91,74 @@ class GroupTypeMapping(RootTeamMixin, models.Model):
         if self._state.adding and self.created_at is None:
             self.created_at = timezone.now()
         super().save(*args, **kwargs)
+
+
+def invalidate_group_types_cache(project_id: int) -> None:
+    safe_cache_delete(f"{GROUP_TYPES_CACHE_KEY_PREFIX}{project_id}")
+    safe_cache_delete(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{project_id}")
+
+
+def _fetch_group_types_via_personhog(project_id: int) -> list[dict[str, Any]]:
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.converters import proto_group_type_mapping_to_dict
+    from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    resp = client.get_group_type_mappings_by_project_id(GetGroupTypeMappingsByProjectIdRequest(project_id=project_id))
+    result = [proto_group_type_mapping_to_dict(m) for m in resp.mappings]
+    result.sort(key=lambda d: d["group_type_index"])
+    return result
+
+
+def get_group_types_for_project(project_id: int) -> list[dict[str, Any]]:
+    """Fetch group types from cache, falling back to personhog/ORM, then stale cache, then empty list."""
+    from posthog.personhog_client.gate import use_personhog
+
+    cache_key = f"{GROUP_TYPES_CACHE_KEY_PREFIX}{project_id}"
+    stale_cache_key = f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{project_id}"
+
+    cached = get_safe_cache(cache_key)
+    if cached is not None:
+        return cached
+
+    if use_personhog():
+        try:
+            result = _fetch_group_types_via_personhog(project_id)
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="get_group_types_for_project", source="personhog", client_name=get_client_name()
+            ).inc()
+            safe_cache_set(cache_key, result, GROUP_TYPES_CACHE_TTL)
+            safe_cache_set(stale_cache_key, result, GROUP_TYPES_STALE_CACHE_TTL)
+            return result
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation="get_group_types_for_project",
+                source="personhog",
+                error_type="grpc_error",
+                client_name=get_client_name(),
+            ).inc()
+            logger.warning("personhog_group_types_failure", project_id=project_id, exc_info=True)
+
+    try:
+        result = list(
+            GroupTypeMapping.objects.filter(project_id=project_id)
+            .order_by("group_type_index")
+            .values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
+        )
+        PERSONHOG_ROUTING_TOTAL.labels(
+            operation="get_group_types_for_project", source="django_orm", client_name=get_client_name()
+        ).inc()
+        safe_cache_set(cache_key, result, GROUP_TYPES_CACHE_TTL)
+        safe_cache_set(stale_cache_key, result, GROUP_TYPES_STALE_CACHE_TTL)
+        return result
+    except DatabaseError:
+        logger.warning("persons_db_group_types_failure", project_id=project_id, exc_info=True)
+        stale = get_safe_cache(stale_cache_key)
+        if stale is not None:
+            safe_cache_set(cache_key, stale, GROUP_TYPES_NEGATIVE_CACHE_TTL)
+            return stale
+        safe_cache_set(cache_key, [], GROUP_TYPES_NEGATIVE_CACHE_TTL)
+        return []

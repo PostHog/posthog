@@ -1,4 +1,3 @@
-import { PropertiesTable as PropertiesTableComponent } from '.'
 import { Meta, StoryFn } from '@storybook/react'
 import { useActions } from 'kea'
 
@@ -6,6 +5,8 @@ import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 
 import { PropertyDefinitionType } from '~/types'
+
+import { PropertiesTable as PropertiesTableComponent } from '.'
 
 const meta: Meta<typeof PropertiesTableComponent> = {
     title: 'Components/Properties Table',

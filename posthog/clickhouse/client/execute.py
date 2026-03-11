@@ -1,9 +1,11 @@
+import time
 import types
 import logging
 import threading
 import traceback
 from collections.abc import Sequence
 from contextlib import contextmanager
+from enum import StrEnum
 from functools import lru_cache
 from time import perf_counter
 from typing import Any, Optional, Union
@@ -11,6 +13,7 @@ from typing import Any, Optional, Union
 from django.conf import settings as app_settings
 
 import sqlparse
+import structlog
 from clickhouse_driver import Client as SyncClient
 from opentelemetry import trace
 from prometheus_client import Counter
@@ -74,6 +77,61 @@ CLICKHOUSE_SUPPORTED_JOIN_ALGORITHMS = [
 is_invalid_algorithm = lambda algo: algo not in CLICKHOUSE_SUPPORTED_JOIN_ALGORITHMS
 
 
+class KillSwitchLevel(StrEnum):
+    OFF = "off"
+    LIGHT = "light"
+    FULL = "full"
+
+
+_KILL_SWITCH_EXEMPT_USERS = frozenset(
+    {
+        ClickHouseUser.BATCH_EXPORT,
+        ClickHouseUser.MIGRATIONS,
+        ClickHouseUser.OPS,
+    }
+)
+
+_KILL_SWITCH_SETTINGS: dict[KillSwitchLevel, dict[str, int]] = {
+    KillSwitchLevel.LIGHT: {
+        "max_execution_time": 30,
+        "max_threads": 45,
+        "max_bytes_to_read": 5_000_000_000_000,  # 5TB
+    },
+    KillSwitchLevel.FULL: {
+        "max_execution_time": 15,
+        "max_memory_usage": 30_000_000_000,  # 30GB
+        "max_threads": 30,
+        "max_bytes_to_read": 1_000_000_000_000,  # 1TB
+    },
+}
+
+
+def get_kill_switch_level() -> KillSwitchLevel:
+    return _get_kill_switch_level(round(time.time() / 60))
+
+
+def get_hedged_app_queries_enabled() -> bool:
+    return _get_hedged_app_queries_enabled(round(time.time() / 60))
+
+
+@lru_cache(maxsize=1)
+def _get_hedged_app_queries_enabled(_ttl: int) -> bool:
+    from posthog.models.instance_setting import get_instance_setting
+
+    return get_instance_setting("CLICKHOUSE_HEDGED_APP_QUERIES")
+
+
+@lru_cache(maxsize=1)
+def _get_kill_switch_level(_ttl: int) -> KillSwitchLevel:
+    from posthog.models.instance_setting import get_instance_setting
+
+    value = get_instance_setting("CLICKHOUSE_KILL_SWITCH")
+    try:
+        return KillSwitchLevel(value)
+    except ValueError:
+        return KillSwitchLevel.OFF
+
+
 @lru_cache(maxsize=1)
 def default_settings() -> dict:
     # https://clickhouse.com/blog/clickhouse-fully-supports-joins-how-to-choose-the-right-algorithm-part5
@@ -109,7 +167,8 @@ def validated_client_query_id() -> Optional[str]:
     return f"{client_query_team_id}_{client_query_id}_{random_id}"
 
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
+logger.setLevel(logging.INFO)
 
 
 @patchable
@@ -172,7 +231,7 @@ def sync_execute(
     if not workload:
         workload = Workload.DEFAULT
         # TODO replace this by assert, sorry, no messing with ClickHouse should be possible
-        logging.warning(f"workload is None", traceback.format_stack())
+        logger.warning("workload is None", stacktrace=traceback.format_stack())
     if TEST and flush:
         try:
             from posthog.test.base import flush_persons_and_events
@@ -212,6 +271,13 @@ def sync_execute(
         **CLICKHOUSE_PER_TEAM_QUERY_SETTINGS.get(str(team_id), {}),
         **(settings or {}),
     }
+
+    kill_switch_level = KillSwitchLevel.OFF if TEST else get_kill_switch_level()
+    if kill_switch_level != KillSwitchLevel.OFF and ch_user not in _KILL_SWITCH_EXEMPT_USERS:
+        overrides = _KILL_SWITCH_SETTINGS[kill_switch_level]
+        core_settings.update({k: min(core_settings.get(k, v), v) for k, v in overrides.items()})
+        tags.kill_switch = kill_switch_level.value
+
     tags.query_settings = core_settings
     query_type = tags.query_type or "Other"
     if ch_user == ClickHouseUser.DEFAULT:
@@ -231,6 +297,27 @@ def sync_execute(
     elif tags.product == Product.ENDPOINTS:
         ch_user = ClickHouseUser.ENDPOINTS
 
+    if (
+        not TEST
+        and ch_user in (ClickHouseUser.APP, ClickHouseUser.DEFAULT)
+        and (tags.team_id is None or tags.product is None or tags.kind is None or tags.query_type is None)
+    ):
+        missing = []
+        if tags.team_id is None:
+            missing.append("team_id")
+        if tags.product is None:
+            missing.append("product")
+        if tags.kind is None:
+            missing.append("kind")
+        if tags.query_type is None:
+            missing.append("query_type")
+
+        logger.warning(
+            "sync_execute called with missing query tags",
+            tags=",".join(missing),
+            stacktrace="".join(traceback.format_stack()),
+        )
+
     settings = {
         **core_settings,
         "log_comment": tags.to_json(),
@@ -242,7 +329,10 @@ def sync_execute(
         # these disruptions
         settings["use_hedged_requests"] = "0"
     elif workload == Workload.ONLINE and ch_user == ClickHouseUser.APP:
-        settings["use_hedged_requests"] = "1"
+        if kill_switch_level != KillSwitchLevel.OFF:
+            settings["use_hedged_requests"] = "0"
+        else:
+            settings["use_hedged_requests"] = "1" if get_hedged_app_queries_enabled() else "0"
     start_time = perf_counter()
 
     try:

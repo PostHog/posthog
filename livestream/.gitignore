@@ -23,6 +23,8 @@ go.work.sum
 
 # binary / build
 livestream
+posthog-live
+posthog-live-*
 
 # tsnet 
 .tsnet-state/
