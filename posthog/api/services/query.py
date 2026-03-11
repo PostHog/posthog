@@ -5,6 +5,8 @@ import pydantic_core
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+
 if TYPE_CHECKING:
     from rest_framework.request import Request
 
@@ -135,6 +137,7 @@ def process_query_model(
             query.connectionId,
             user=user,
             error_factory=ValidationError,
+            modifiers=create_default_modifiers_for_team(team),
         )
         return get_hogql_autocomplete(query=query, team=team, database_arg=database, user=user)
 
@@ -148,6 +151,7 @@ def process_query_model(
             query.connectionId,
             user=user,
             error_factory=ValidationError,
+            modifiers=create_default_modifiers_for_team(team),
         )
         context = HogQLContext(team_id=team.pk, team=team, database=database, user=user)
         serialized_tables = database.serialize(context, include_hidden_posthog_tables=True)
