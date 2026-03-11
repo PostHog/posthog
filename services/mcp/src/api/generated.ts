@@ -4065,6 +4065,7 @@ export namespace Schemas {
     * `research` - research
     * `flags` - flags
     * `llm_analytics` - llm_analytics
+    * `sandbox` - sandbox
      */
     export type AgentModeEnum = typeof AgentModeEnum[keyof typeof AgentModeEnum];
 
@@ -4081,6 +4082,7 @@ export namespace Schemas {
       Research: 'research',
       Flags: 'flags',
       LlmAnalytics: 'llm_analytics',
+      Sandbox: 'sandbox',
     } as const;
 
     export interface InsightsThresholdBounds {
