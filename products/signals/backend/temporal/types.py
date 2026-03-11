@@ -180,6 +180,34 @@ class SignalData:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+def _render_extra_to_text(extra: dict) -> list[str]:
+    """Render signal extra data to text lines for LLM consumption.
+
+    Renders all extra fields, with special formatting for event_history.
+    """
+    lines: list[str] = []
+    for key, value in extra.items():
+        if key == "event_history" and isinstance(value, list):
+            if not value:
+                continue
+            lines.append("- Event history:")
+            for entry in value:
+                parts = [entry.get("timestamp", ""), entry.get("event", "")]
+                url = entry.get("current_url")
+                if url:
+                    parts.append(url)
+                event_type = entry.get("event_type")
+                if event_type:
+                    parts.append(f"[{event_type}]")
+                interaction = entry.get("interaction_text")
+                if interaction:
+                    parts.append(f'"{interaction}"')
+                lines.append(f"  - {' | '.join(parts)}")
+        else:
+            lines.append(f"- {key}: {value}")
+    return lines
+
+
 def render_signal_to_text(
     signal: SignalData,
     index: Optional[int] = None,
@@ -190,6 +218,8 @@ def render_signal_to_text(
     lines.append(f"- Weight: {signal.weight}")
     lines.append(f"- Timestamp: {signal.timestamp.isoformat()}")
     lines.append(f"- Description: {signal.content}")
+    if signal.extra:
+        lines.extend(_render_extra_to_text(signal.extra))
     return "\n".join(lines)
 
 

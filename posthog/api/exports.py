@@ -358,17 +358,27 @@ class ExportedAssetViewSet(
     serializer_class = ExportedAssetSerializer
 
     def safely_get_queryset(self, queryset):
-        queryset = queryset.filter(created_by=self.request.user)
-
         if self.action == "list":
             context_path_filter = self.request.query_params.get("context_path")
+            export_format_filter = self.request.query_params.get("export_format")
+            session_recording_id = self.request.query_params.get("session_recording_id")
+
+            # Session video exports are shared across the team (created by
+            # the summarization workflow, viewable by any team member)
+            if not session_recording_id:
+                queryset = queryset.filter(created_by=self.request.user)
+
+            if session_recording_id:
+                queryset = queryset.filter(export_context__session_recording_id=session_recording_id)
+
             if context_path_filter:
                 queryset = queryset.filter(export_context__path__icontains=context_path_filter)
 
-            # Add export format filter
-            export_format_filter = self.request.query_params.get("export_format")
             if export_format_filter and export_format_filter in ExportedAsset.get_supported_format_values():
                 queryset = queryset.filter(export_format=export_format_filter)
+
+        # Retrieve/content: team membership is sufficient (safely_get_object
+        # additionally checks access to the underlying recording/dashboard)
 
         return queryset
 

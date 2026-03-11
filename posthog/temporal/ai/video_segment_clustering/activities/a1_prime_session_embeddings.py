@@ -3,6 +3,8 @@ Activity 1 of the video segment clustering workflow:
 Identify sessions that need summarization (embedding priming).
 """
 
+from django.conf import settings
+
 import structlog
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -112,6 +114,7 @@ _BASELINE_HAVING_PREDICATES: list[RecordingPropertyFilter] = [
         operator=PropertyOperator.GTE,
         value=MIN_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S,
     ),
+<<<<<<< HEAD
     # Ignore sessions that are too long
     RecordingPropertyFilter(
         key="active_seconds",
@@ -124,7 +127,25 @@ _BASELINE_HAVING_PREDICATES: list[RecordingPropertyFilter] = [
         operator=PropertyOperator.EXACT,
         value=0,  # The bool is represented as 0/1 in ClickHouse
     ),
+||||||| parent of 3db6bfc4e52 (feat(signals): emit session problem signals from summarization workflow)
+    # Only include finished sessions
+    RecordingPropertyFilter(
+        key="ongoing",
+        operator=PropertyOperator.EXACT,
+        value=0,  # The bool is represented as 0/1 in ClickHouse
+    ),
+=======
+>>>>>>> 3db6bfc4e52 (feat(signals): emit session problem signals from summarization workflow)
 ]
+if not settings.DEBUG:
+    # In prod, only include finished sessions
+    _BASELINE_HAVING_PREDICATES.append(
+        RecordingPropertyFilter(
+            key="ongoing",
+            operator=PropertyOperator.EXACT,
+            value=0,  # The bool is represented as 0/1 in ClickHouse
+        ),
+    )
 
 _DEFAULT_FILTER_TEST_ACCOUNTS = False  # Summarize all sessions (it's also faster to skip this filter)
 

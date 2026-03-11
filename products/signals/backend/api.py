@@ -1,7 +1,9 @@
 from datetime import timedelta
+from typing import get_args
 
 from django.conf import settings
 
+import pydantic
 import tiktoken
 import temporalio
 
@@ -18,6 +20,22 @@ from products.signals.backend.temporal.types import BufferSignalsInput, EmitSign
 
 MAX_SIGNAL_DESCRIPTION_TOKENS = 8000
 _tiktoken_encoding = tiktoken.get_encoding("cl100k_base")
+
+# Build a lookup from (source_product, source_type) -> variant model class
+# so we can validate signals without needing the synthetic discriminator tag.
+_SIGNAL_VARIANT_LOOKUP: dict[tuple[str, str], type[pydantic.BaseModel]] = {}
+for _variant_type in get_args(SignalInput.model_fields["root"].annotation):
+    _sp_field = _variant_type.model_fields.get("source_product")
+    _st_field = _variant_type.model_fields.get("source_type")
+    if _sp_field is None or _st_field is None:
+        continue
+    # source_type may be a multi-value Literal (e.g. ErrorTrackingSignalInput)
+    _sp_values = get_args(_sp_field.annotation) or (_sp_field.default,)
+    _st_values = get_args(_st_field.annotation) or (_st_field.default,)
+    for _sp_val in _sp_values:
+        for _st_val in _st_values:
+            if _sp_val and _st_val:
+                _SIGNAL_VARIANT_LOOKUP[(_sp_val, _st_val)] = _variant_type
 
 
 async def emit_signal(
@@ -73,8 +91,22 @@ async def emit_signal(
             f"Truncate the description before calling emit_signal."
         )
 
-    # Raise if signal doesn't match any known schema
-    SignalInput.model_validate(
+    # Validate the signal against the matching schema variant
+    variant_model = _SIGNAL_VARIANT_LOOKUP.get((source_product, source_type))
+    if variant_model is None:
+        raise pydantic.ValidationError.from_exception_data(
+            title="SignalInput",
+            line_errors=[
+                {
+                    "type": "value_error",
+                    "loc": ("source_product", "source_type"),
+                    "msg": f"Unknown signal type: {source_product}/{source_type}",
+                    "input": {"source_product": source_product, "source_type": source_type},
+                    "ctx": {"error": ValueError(f"Unknown signal type: {source_product}/{source_type}")},
+                }
+            ],
+        )
+    variant_model.model_validate(
         {
             "source_product": source_product,
             "source_type": source_type,
