@@ -1,0 +1,6 @@
+from .spans import SPANS_DISTRIBUTED_TABLE_SQL, SPANS_TABLE_SQL
+
+__all__ = [
+    "SPANS_TABLE_SQL",
+    "SPANS_DISTRIBUTED_TABLE_SQL",
+]
