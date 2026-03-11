@@ -24,6 +24,8 @@ import {
     SURVEY_LIST_RESOURCE_URI,
     SURVEY_RESOURCE_URI,
     SURVEY_STATS_RESOURCE_URI,
+    WORKFLOW_LIST_RESOURCE_URI,
+    WORKFLOW_RESOURCE_URI,
 } from './ui-apps-constants'
 
 // Import bundled HTML at build time (wrangler Text rule)
@@ -47,6 +49,8 @@ import surveyGlobalStatsHtml from '../../ui-apps-dist/src/ui-apps/apps/survey-gl
 import surveyListHtml from '../../ui-apps-dist/src/ui-apps/apps/survey-list/index.html'
 import surveyStatsHtml from '../../ui-apps-dist/src/ui-apps/apps/survey-stats/index.html'
 import surveyHtml from '../../ui-apps-dist/src/ui-apps/apps/survey/index.html'
+import workflowListHtml from '../../ui-apps-dist/src/ui-apps/apps/workflow-list/index.html'
+import workflowHtml from '../../ui-apps-dist/src/ui-apps/apps/workflow/index.html'
 
 const UI_APPS: Array<{ name: string; uri: string; description: string; html: string }> = [
     // Core
@@ -140,6 +144,14 @@ const UI_APPS: Array<{ name: string; uri: string; description: string; html: str
         uri: SURVEY_GLOBAL_STATS_RESOURCE_URI,
         description: 'Survey global statistics view',
         html: surveyGlobalStatsHtml,
+    },
+    // Workflows
+    { name: 'Workflow', uri: WORKFLOW_RESOURCE_URI, description: 'Workflow detail view', html: workflowHtml },
+    {
+        name: 'Workflow list',
+        uri: WORKFLOW_LIST_RESOURCE_URI,
+        description: 'Workflow list view',
+        html: workflowListHtml,
     },
 ]
 

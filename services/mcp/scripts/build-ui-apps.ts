@@ -16,11 +16,12 @@ import { config as dotenvConfig } from 'dotenv'
 import { existsSync, readdirSync, rmSync, statSync } from 'fs'
 import { join, resolve } from 'path'
 
-const ROOT_DIR = resolve(__dirname, '..')
-const APPS_DIR = resolve(ROOT_DIR, 'src/ui-apps/apps')
+const MCP_ROOT_DIR = resolve(__dirname, '..')
+const ROOT_DIR = resolve(MCP_ROOT_DIR, '..', '..')
+const APPS_DIR = resolve(MCP_ROOT_DIR, 'src/ui-apps/apps')
 
 // Load environment variables from .dev.vars (Cloudflare convention)
-const devVarsPath = resolve(ROOT_DIR, '.dev.vars')
+const devVarsPath = resolve(MCP_ROOT_DIR, '.dev.vars')
 if (existsSync(devVarsPath)) {
     const output = dotenvConfig({ path: devVarsPath })
     const loadedKeys = Object.keys(output.parsed || {})
@@ -51,7 +52,7 @@ function buildAppAsync(appName: string): Promise<void> {
     return new Promise((resolve, reject) => {
         // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
         const child = exec('vite build --config vite.ui-apps.config.ts', {
-            cwd: ROOT_DIR,
+            cwd: MCP_ROOT_DIR,
             env: {
                 ...process.env,
                 UI_APP: appName,
@@ -84,7 +85,7 @@ function buildAppSync(appName: string): void {
 
     // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
     execSync(`UI_APP=${appName} vite build --config vite.ui-apps.config.ts`, {
-        cwd: ROOT_DIR,
+        cwd: MCP_ROOT_DIR,
         stdio: 'inherit',
         env: {
             ...process.env,
@@ -140,8 +141,9 @@ function watchApps(apps: string[]): void {
 
         const watcher = chokidar.watch(
             [
-                join(ROOT_DIR, 'src/ui-apps/**/*.{ts,tsx,css,html}'),
-                resolve(ROOT_DIR, '../../common/mosaic/src/**/*.{ts,tsx,css}'),
+                join(MCP_ROOT_DIR, 'src/ui-apps/**/*.{ts,tsx,css,html}'),
+                join(ROOT_DIR, 'products/**/mcp-apps/**/*.{ts,tsx,css}'),
+                join(ROOT_DIR, 'common/mosaic/src/**/*.{ts,tsx,css}'),
             ],
             {
                 ignoreInitial: true,

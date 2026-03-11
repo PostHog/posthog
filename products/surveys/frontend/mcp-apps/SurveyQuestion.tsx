@@ -2,7 +2,7 @@ import type { ReactElement } from 'react'
 
 import { Badge, Stack } from '@posthog/mosaic'
 
-import { TYPE_LABELS } from './utils'
+import { SURVEY_QUESTION_TYPE_LABELS } from './utils'
 
 export interface SurveyQuestionData {
     type: string
@@ -31,7 +31,7 @@ export function SurveyQuestion({ question, index }: SurveyQuestionProps): ReactE
             <div className="flex items-center gap-2">
                 <span className="text-xs text-text-secondary">Q{index + 1}</span>
                 <Badge variant="neutral" size="sm">
-                    {TYPE_LABELS[question.type] ?? question.type}
+                    {SURVEY_QUESTION_TYPE_LABELS[question.type] ?? question.type}
                 </Badge>
             </div>
             <span className="text-sm text-text-primary">{question.question}</span>

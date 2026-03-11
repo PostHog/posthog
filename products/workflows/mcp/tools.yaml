@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Workflows
 feature: hog_flows
-url_prefix: /workflows
+url_prefix: /pipeline/destinations
 tools:
     workflows-list:
         operation: hog_flows_list
@@ -24,6 +24,7 @@ tools:
             description, status (draft/active/archived), version, trigger configuration,
             and timestamps.
         mcp_version: 1
+        ui_resource_uri: 'ui://posthog/workflow-list.html'
     workflows-get:
         operation: hog_flows_retrieve
         enabled: true
@@ -33,8 +34,10 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: 'hog-{id}'
         title: Get workflow
         description: >
             Get a specific workflow by ID. Returns the full workflow definition
             including trigger, edges, actions, exit condition, and variables.
         mcp_version: 1
+        ui_resource_uri: 'ui://posthog/workflow.html'

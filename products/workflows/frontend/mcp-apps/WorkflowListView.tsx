@@ -2,43 +2,44 @@ import { type ReactElement, type ReactNode, useCallback, useState } from 'react'
 
 import { BackButton, Badge, DataTable, type DataTableColumn, formatDate, LoadingState, Stack } from '@posthog/mosaic'
 
-import { SurveyView, type SurveyData } from './SurveyView'
-import { STATUS_VARIANTS, SURVEY_TYPE_LABELS } from './utils'
+import { STATUS_VARIANTS } from './utils'
+import { WorkflowView, type WorkflowData } from './WorkflowView'
 
-export interface SurveyListData {
-    results: SurveyData[]
+export interface WorkflowListData {
+    count?: number
+    results: WorkflowData[]
     _posthogUrl?: string
 }
 
-export interface SurveyListViewProps {
-    data: SurveyListData
-    onSurveyClick?: (survey: SurveyData) => Promise<SurveyData | null>
+export interface WorkflowListViewProps {
+    data: WorkflowListData
+    onWorkflowClick?: (workflow: WorkflowData) => Promise<WorkflowData | null>
 }
 
-type ViewState = { view: 'list' } | { view: 'loading'; name: string } | { view: 'detail'; survey: SurveyData }
+type ViewState = { view: 'list' } | { view: 'loading'; name: string } | { view: 'detail'; workflow: WorkflowData }
 
-export function SurveyListView({ data, onSurveyClick }: SurveyListViewProps): ReactElement {
+export function WorkflowListView({ data, onWorkflowClick }: WorkflowListViewProps): ReactElement {
     const [viewState, setViewState] = useState<ViewState>({ view: 'list' })
 
     const handleClick = useCallback(
-        async (survey: SurveyData) => {
-            if (!onSurveyClick) {
+        async (workflow: WorkflowData) => {
+            if (!onWorkflowClick) {
                 return
             }
 
-            setViewState({ view: 'loading', name: survey.name })
-            const detail = await onSurveyClick(survey).catch((error) => {
-                console.error('Error loading survey detail:', error)
+            setViewState({ view: 'loading', name: workflow.name })
+            const detail = await onWorkflowClick(workflow).catch((error) => {
+                console.error('Error loading workflow detail:', error)
                 return null
             })
 
             if (detail) {
-                setViewState({ view: 'detail', survey: detail })
+                setViewState({ view: 'detail', workflow: detail })
             } else {
                 setViewState({ view: 'list' })
             }
         },
-        [onSurveyClick]
+        [onWorkflowClick]
     )
 
     const handleBack = useCallback(() => setViewState({ view: 'list' }), [])
@@ -47,7 +48,7 @@ export function SurveyListView({ data, onSurveyClick }: SurveyListViewProps): Re
         return (
             <div className="p-4">
                 <Stack gap="sm">
-                    <BackButton onClick={handleBack} label="All surveys" />
+                    <BackButton onClick={handleBack} label="All workflows" />
                     <LoadingState label={viewState.name} />
                 </Stack>
             </div>
@@ -58,20 +59,20 @@ export function SurveyListView({ data, onSurveyClick }: SurveyListViewProps): Re
         return (
             <div className="p-4">
                 <Stack gap="sm">
-                    <BackButton onClick={handleBack} label="All surveys" />
-                    <SurveyView survey={viewState.survey} />
+                    <BackButton onClick={handleBack} label="All workflows" />
+                    <WorkflowView workflow={viewState.workflow} />
                 </Stack>
             </div>
         )
     }
 
-    const columns: DataTableColumn<SurveyData>[] = [
+    const columns: DataTableColumn<WorkflowData>[] = [
         {
             key: 'name',
             header: 'Name',
             sortable: true,
             render: (row): ReactNode =>
-                onSurveyClick ? (
+                onWorkflowClick ? (
                     <button
                         onClick={() => handleClick(row)}
                         className="text-link underline decoration-border-primary hover:decoration-link cursor-pointer text-left transition-colors"
@@ -80,18 +81,6 @@ export function SurveyListView({ data, onSurveyClick }: SurveyListViewProps): Re
                     </button>
                 ) : (
                     row.name
-                ),
-        },
-        {
-            key: 'type',
-            header: 'Type',
-            render: (row): ReactNode =>
-                row.type ? (
-                    <Badge variant="neutral" size="sm">
-                        {SURVEY_TYPE_LABELS[row.type] ?? row.type}
-                    </Badge>
-                ) : (
-                    <span className="text-text-secondary">&mdash;</span>
                 ),
         },
         {
@@ -107,17 +96,20 @@ export function SurveyListView({ data, onSurveyClick }: SurveyListViewProps): Re
             },
         },
         {
-            key: 'questions' as keyof SurveyData,
-            header: 'Questions',
-            render: (row): ReactNode => <span className="text-text-secondary">{row.questions?.length ?? 0}</span>,
+            key: 'version',
+            header: 'Version',
+            align: 'right',
+            render: (row): ReactNode => (
+                <span className="text-text-secondary">{row.version != null ? `v${row.version}` : '\u2014'}</span>
+            ),
         },
         {
-            key: 'created_at',
-            header: 'Created',
+            key: 'updated_at',
+            header: 'Updated',
             sortable: true,
             render: (row): ReactNode =>
-                row.created_at ? (
-                    <span className="text-text-secondary">{formatDate(row.created_at)}</span>
+                row.updated_at ? (
+                    <span className="text-text-secondary">{formatDate(row.updated_at)}</span>
                 ) : (
                     <span className="text-text-secondary">&mdash;</span>
                 ),
@@ -129,15 +121,16 @@ export function SurveyListView({ data, onSurveyClick }: SurveyListViewProps): Re
             <Stack gap="sm">
                 <div className="flex items-center justify-between">
                     <span className="text-sm text-text-secondary">
-                        {data.results.length} survey{data.results.length === 1 ? '' : 's'}
+                        {data.count ?? data.results.length} workflow
+                        {(data.count ?? data.results.length) === 1 ? '' : 's'}
                     </span>
                 </div>
-                <DataTable<SurveyData>
+                <DataTable<WorkflowData>
                     columns={columns}
                     data={data.results}
                     pageSize={10}
                     defaultSort={{ key: 'name', direction: 'asc' }}
-                    emptyMessage="No surveys found"
+                    emptyMessage="No workflows found"
                 />
             </Stack>
         </div>
