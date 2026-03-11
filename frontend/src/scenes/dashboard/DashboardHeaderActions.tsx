@@ -13,7 +13,6 @@ import { MaxTool } from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AccessControlLevel, AccessControlResourceType, DashboardMode } from '~/types'
 
@@ -36,7 +35,7 @@ export function EditModeActions(): JSX.Element {
             </LemonButton>
             <AppShortcut
                 name="SaveDashboard"
-                keybind={[keyBinds.save]}
+                keybind={[keyBinds.edit]}
                 intent="Save dashboard"
                 interaction="click"
                 scope={Scene.Dashboard}
@@ -47,6 +46,8 @@ export function EditModeActions(): JSX.Element {
                     type="primary"
                     onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderSaveDashboard)}
                     size="small"
+                    tooltip="Save dashboard"
+                    tooltipPlacement="bottom"
                     disabledReason={
                         dashboardLoading
                             ? 'Wait for dashboard to finish loading'
@@ -56,11 +57,6 @@ export function EditModeActions(): JSX.Element {
                     }
                 >
                     Save
-                    {canEditDashboard && (
-                        <span className="hidden md:inline-flex ml-2">
-                            <KeyboardShortcut e />
-                        </span>
-                    )}
                 </LemonButton>
             </AppShortcut>
         </>
