@@ -387,7 +387,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 actions.setOpenConditions(newOpenConditions)
             }
         },
-        calculateBlastRadiusForCondition: async ({ sortKey, properties }) => {
+        calculateBlastRadiusForCondition: async ({ sortKey, properties }, breakpoint) => {
             actions.setAffectedUsers(sortKey, undefined)
 
             let response: UserBlastRadiusType
@@ -395,11 +395,20 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 // don't compute for incomplete conditions
                 response = { users_affected: -1, total_users: -1 }
             } else {
-                response = await api.create(`api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`, {
-                    condition: { properties },
-                    group_type_index: values.filters?.aggregation_group_type_index ?? null,
-                })
+                try {
+                    response = await api.create(
+                        `api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`,
+                        {
+                            condition: { properties },
+                            group_type_index: values.filters?.aggregation_group_type_index ?? null,
+                        }
+                    )
+                } catch {
+                    response = { users_affected: -1, total_users: -1 }
+                }
             }
+
+            breakpoint()
 
             actions.setAffectedUsers(sortKey, response.users_affected)
             if (response.total_users !== -1) {
