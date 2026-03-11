@@ -14,16 +14,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import (
-    ProductKey,
-    SourceFieldFileUploadConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldOauthConfig,
-    SourceFieldSelectConfig,
-    SourceFieldSSHTunnelConfig,
-    SourceFieldSwitchGroupConfig,
-)
+from posthog.schema import ProductKey, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSwitchGroupConfig
 
 from posthog.hogql.database.database import Database
 
@@ -71,7 +62,6 @@ from products.data_warehouse.backend.models.util import postgres_columns_to_dwh_
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
-CREDENTIAL_LIKE_FIELD_NAMES = {"connection_string"}
 
 
 def get_password_field_names(fields: list[FieldType]) -> set[str]:
@@ -83,60 +73,6 @@ def get_password_field_names(fields: list[FieldType]) -> set[str]:
         elif isinstance(field, SourceFieldSwitchGroupConfig):
             password_fields.update(get_password_field_names(field.fields))
     return password_fields
-
-
-def field_contains_credentials(field: FieldType) -> bool:
-    if isinstance(field, SourceFieldInputConfig):
-        return field.type == SourceFieldInputConfigType.PASSWORD or field.name in CREDENTIAL_LIKE_FIELD_NAMES
-
-    if isinstance(field, (SourceFieldFileUploadConfig, SourceFieldOauthConfig, SourceFieldSSHTunnelConfig)):
-        return True
-
-    if isinstance(field, SourceFieldSwitchGroupConfig):
-        return any(field_contains_credentials(nested_field) for nested_field in field.fields)
-
-    if isinstance(field, SourceFieldSelectConfig):
-        return any(
-            field_contains_credentials(nested_field)
-            for option in field.options
-            for nested_field in (option.fields or [])
-        )
-
-
-def credentials_touched(data: dict[str, Any], fields: list[FieldType]) -> bool:
-    for field in fields:
-        if field.name not in data:
-            continue
-
-        field_value = data[field.name]
-
-        if isinstance(field, SourceFieldInputConfig):
-            if field_contains_credentials(field):
-                return True
-            continue
-
-        if isinstance(field, SourceFieldSwitchGroupConfig) and isinstance(field_value, dict):
-            if credentials_touched(field_value, field.fields):
-                return True
-            continue
-
-        if isinstance(field, SourceFieldSelectConfig) and isinstance(field_value, dict):
-            for option in field.options:
-                if option.fields and credentials_touched(field_value, option.fields):
-                    return True
-            continue
-
-        if isinstance(field, (SourceFieldFileUploadConfig, SourceFieldOauthConfig)):
-            return True
-
-        if isinstance(field, SourceFieldSSHTunnelConfig) and isinstance(field_value, dict):
-            auth_data = field_value.get("auth") or field_value.get("auth_type") or {}
-            if not isinstance(auth_data, dict):
-                auth_data = {}
-            if {"password", "passphrase", "private_key"} & set(auth_data.keys()):
-                return True
-
-    return False
 
 
 class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
@@ -386,6 +322,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             validated_data["prefix"] = instance.prefix
 
         existing_job_inputs = instance.job_inputs or {}
+        job_inputs_were_submitted = "job_inputs" in validated_data
         incoming_job_inputs = validated_data.get("job_inputs", {})
 
         source_type_model = ExternalDataSourceType(instance.source_type)
@@ -434,11 +371,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         source_config: Config = source.parse_config(new_job_inputs)
         validated_data["job_inputs"] = source_config.to_dict()
 
-        # Host changes and secret changes both need a real auth/connectivity check
-        if incoming_job_inputs and (
-            incoming_job_inputs.get("host") != existing_job_inputs.get("host")
-            or credentials_touched(incoming_job_inputs, source.get_source_config.fields)
-        ):
+        if job_inputs_were_submitted:
             credentials_valid, credentials_error = source.validate_credentials(source_config, instance.team_id)
             if not credentials_valid:
                 raise ValidationError(credentials_error or "Invalid credentials")
