@@ -340,7 +340,7 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
                                 header: (
                                     <span className="flex items-center gap-2">
                                         Draft workflows ({draftWorkflows.length})
-                                        <LemonTag type="default">Draft</LemonTag>
+                                        <LemonTag type="highlight">Draft</LemonTag>
                                     </span>
                                 ),
                                 key: 'draft',
