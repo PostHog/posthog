@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import { SURVEY_STATS_RESOURCE_URI } from '@/resources/ui-apps-constants'
 import { SurveyStatsSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -19,13 +20,21 @@ export const statsHandler: ToolBase<typeof schema, unknown>['handler'] = async (
         throw new Error(`Failed to get survey stats: ${result.error.message}`)
     }
 
-    return result.data
+    return {
+        ...result.data,
+        _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/surveys/${params.survey_id}`,
+    }
 }
 
 const tool = (): ToolBase<typeof schema> => ({
     name: 'survey-stats',
     schema,
     handler: statsHandler,
+    _meta: {
+        ui: {
+            resourceUri: SURVEY_STATS_RESOURCE_URI,
+        },
+    },
 })
 
 export default tool

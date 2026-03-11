@@ -3877,10 +3877,17 @@ export type TeamTaxonomyResponse = TeamTaxonomyItem[]
 
 export interface TeamTaxonomyQuery extends DataNode<TeamTaxonomyQueryResponse> {
     kind: NodeKind.TeamTaxonomyQuery
+    /** Number of rows to return */
+    limit?: integer
+    /** Number of rows to skip before returning rows */
+    offset?: integer
 }
 
 export interface TeamTaxonomyQueryResponse extends AnalyticsQueryResponseBase {
     results: TeamTaxonomyResponse
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
 }
 
 export type CachedTeamTaxonomyQueryResponse = CachedQueryResponse<TeamTaxonomyQueryResponse>

@@ -1006,6 +1006,7 @@ export interface GroupPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Group
     group_type_index?: integer | null
     operator: PropertyOperator
+    group_key_names?: Record<string, string>
 }
 
 export type LogPropertyFilterType =
@@ -5711,7 +5712,7 @@ export type BatchExportService =
     | BatchExportServiceAzureBlob
     | BatchExportRealtimeDestinationBackfill
 
-export type BatchExportInterval = 'hour' | 'day' | 'week' | 'every 5 minutes'
+export type BatchExportInterval = 'hour' | 'day' | 'week' | 'every 5 minutes' | 'every 15 minutes'
 
 export type DataWarehouseSyncInterval = '5min' | '30min' | '1hour' | '6hour' | '12hour' | '24hour' | '7day' | '30day'
 export type OrNever = 'never'
@@ -5891,7 +5892,6 @@ export enum SDKKey {
     GROQ = 'groq',
     HELICONE = 'helicone',
     HUGGING_FACE = 'hugging_face',
-    HTML_SNIPPET = 'html',
     INSTRUCTOR = 'instructor',
     IOS = 'ios',
     JAVA = 'java',
@@ -6195,6 +6195,7 @@ export type HogFunctionConfigurationContextId =
     | 'activity-log'
     | 'discussion-mention'
     | 'insight-alerts'
+    | 'experiment-alerts'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -6205,6 +6206,7 @@ export type HogFunctionSubTemplateIdType =
     | 'error-tracking-issue-spiking'
     | 'discussion-mention'
     | 'insight-alert-firing'
+    | 'experiment-significant'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,

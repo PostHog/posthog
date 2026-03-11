@@ -511,7 +511,7 @@ describe('experimentWizardLogic', () => {
         it('existing feature flag key shows error when validation fails', async () => {
             // Directly set the validation result on the variantsPanelLogic instance
             // (the same instance createExperimentLogic connects to)
-            const vpLogic = variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false })
+            const vpLogic = variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false, tabId: TAB_ID })
             vpLogic.actions.validateFeatureFlagKeySuccess({
                 valid: false,
                 error: 'A feature flag with this key already exists.',
