@@ -337,9 +337,7 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
 
                     {visibleStatuses.includes('active') && (
                         <div className="mb-6">
-                            <h3 className="flex items-center gap-2 mb-2">
-                                Active <LemonTag type="success">Active</LemonTag>
-                            </h3>
+                            <h3 className="mb-2">Active</h3>
                             <LemonTable
                                 dataSource={activeWorkflows}
                                 loading={workflowsLoading}
@@ -355,9 +353,7 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
 
                     {visibleStatuses.includes('draft') && (
                         <div className="mb-6">
-                            <h3 className="flex items-center gap-2 mb-2">
-                                Draft <LemonTag type="highlight">Draft</LemonTag>
-                            </h3>
+                            <h3 className="mb-2">Draft</h3>
                             <LemonTable
                                 dataSource={draftWorkflows}
                                 loading={workflowsLoading}
@@ -374,9 +370,7 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
                     {visibleStatuses.includes('archived') && archivedWorkflows.length > 0 && (
                         <div className="mb-6">
                             <div className="flex items-center gap-2 mb-2 min-h-8">
-                                <h3 className="flex items-center gap-2 m-0">
-                                    Archived <LemonTag type="completion">Archived</LemonTag>
-                                </h3>
+                                <h3 className="m-0">Archived</h3>
                                 <div className="flex items-center gap-2 ml-4">
                                     <LemonCheckbox
                                         checked={
