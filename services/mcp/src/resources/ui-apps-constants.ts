@@ -82,3 +82,17 @@ export const EXPERIMENT_LIST_RESOURCE_URI = 'ui://posthog/experiment-list.html'
  * Used by: experiment-results-get
  */
 export const EXPERIMENT_RESULTS_RESOURCE_URI = 'ui://posthog/experiment-results.html'
+
+/**
+
+ * Feature flag detail visualization.
+ * Used by: feature-flag-get-definition, create-feature-flag, update-feature-flag
+ * Shows flag status, release conditions, variants, and property filters.
+ */
+export const FEATURE_FLAG_RESOURCE_URI = 'ui://posthog/feature-flag.html'
+/**
+ * Feature flag list visualization.
+ * Used by: feature-flag-get-all
+ * Shows a data table of all feature flags with status, tags, and dates.
+ */
+export const FEATURE_FLAG_LIST_RESOURCE_URI = 'ui://posthog/feature-flag-list.html'
