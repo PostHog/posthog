@@ -12,8 +12,6 @@ export const CAPABILITIES_CDP: PluginServerCapabilities = {
     cdpPersonUpdates: true,
     cdpInternalEvents: true,
     cdpCyclotronWorker: true,
-    cdpCyclotronShadowWorker: isDevEnv(),
-    cdpCyclotronV2Janitor: isDevEnv(),
     cdpApi: true,
     appManagementSingleton: true,
     cdpDataWarehouseEvents: false, // Not yet fully developed - enable when ready
@@ -208,14 +206,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.cdp_data_warehouse_events:
             return {
                 cdpDataWarehouseEvents: true,
-            }
-        case PluginServerMode.cdp_cyclotron_shadow_worker:
-            return {
-                cdpCyclotronShadowWorker: true,
-            }
-        case PluginServerMode.cdp_cyclotron_v2_janitor:
-            return {
-                cdpCyclotronV2Janitor: true,
             }
         case PluginServerMode.recording_api:
             return {

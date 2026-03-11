@@ -53,18 +53,3 @@ export type CyclotronV2WorkerConfig = {
     includeEmptyBatches?: boolean
 }
 
-export type CyclotronV2JanitorConfig = {
-    pool: CyclotronV2PoolConfig
-    cleanupBatchSize?: number
-    cleanupIntervalMs?: number
-    stallTimeoutMs?: number
-    maxTouchCount?: number
-    cleanupGraceMs?: number
-}
-
-export type CyclotronV2CleanupResult = {
-    deleted: number
-    stalled: number
-    poisoned: number
-    depths: Map<string, number>
-}

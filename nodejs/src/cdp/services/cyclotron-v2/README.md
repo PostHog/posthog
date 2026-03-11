@@ -29,18 +29,6 @@ Each dequeued job exposes an ack interface:
 - `cancel()` — mark canceled
 - `heartbeat()` — extend the lock to prevent the janitor from reclaiming the job
 
-### Janitor (standalone service)
-
-Runs on a timer interval as its own service (`PLUGIN_SERVER_MODE=cdp-cyclotron-v2-janitor`).
-All operations use `FOR UPDATE SKIP LOCKED` so multiple janitor instances are safe.
-
-Responsibilities:
-
-- **Cleanup** — bounded `DELETE` of terminal jobs older than a grace period
-- **Stalled job recovery** — reset jobs with stale heartbeats back to `available`
-- **Poison pill detection** — fail jobs that have been reset too many times (`janitor_touch_count`)
-- **Queue depth metrics** — Prometheus gauges per queue
-
 ## Integration
 
 The `CyclotronJobQueuePostgresV2` wrapper in `job-queue/` bridges this SDK with the existing
