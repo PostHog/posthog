@@ -1,0 +1,10 @@
+{
+    "name": "@posthog/openapi-codegen",
+    "version": "0.0.0",
+    "description": "Shared OpenAPI schema utilities for Orval-based code generation",
+    "license": "MIT",
+    "type": "module",
+    "exports": {
+        ".": "./index.mjs"
+    }
+}

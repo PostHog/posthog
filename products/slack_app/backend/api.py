@@ -514,7 +514,7 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
             {
                 "type": "section",
                 "text": {"type": "mrkdwn", "text": thinking_message},
-            },
+            }
         ]
         if conversation_id:
             conversation_url = f"{settings.SITE_URL}/project/{integration.team_id}/ai?chat={conversation_id}"
@@ -528,6 +528,14 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
                             "url": conversation_url,
                         }
                     ],
+                }
+            )
+        if not conversation_id:
+            # First mention in this thread: include disclaimer so users know messages will be visible in PostHog
+            initial_blocks.append(
+                {
+                    "type": "context",
+                    "elements": [{"type": "mrkdwn", "text": "_Messages in this thread will be visible in PostHog._"}],
                 }
             )
 
@@ -555,6 +563,7 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
             slack_thread_key=slack_thread_key,
             conversation_id=conversation_id,
             user_id=posthog_user.id,
+            is_new_conversation=not conversation_id,
         )
 
         # Deterministic workflow ID ensures only one workflow runs per Slack thread at a time

@@ -21,6 +21,7 @@ import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
+import { discoverDefinitions } from './lib/definitions.mjs'
 import {
     type CategoryConfig,
     CategoryConfigSchema,
@@ -34,6 +35,9 @@ const DEFINITIONS_DIR = path.resolve(MCP_ROOT, 'definitions')
 const PRODUCTS_DIR = path.resolve(REPO_ROOT, 'products')
 const GENERATED_DIR = path.resolve(MCP_ROOT, 'src/tools/generated')
 const DEFINITIONS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/generated-tool-definitions.json')
+const ALL_DEFINITIONS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions-all.json')
+const TOOL_DEFINITIONS_V1_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions.json')
+const TOOL_DEFINITIONS_V2_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions-v2.json')
 const OPENAPI_PATH = path.resolve(REPO_ROOT, 'frontend/tmp/openapi.json')
 
 interface OpenApiParam {
@@ -732,67 +736,6 @@ function generateDefinitionsJson(
 }
 
 // ------------------------------------------------------------------
-// Definition discovery — scan services/mcp/definitions/ + products/*/mcp/
-// ------------------------------------------------------------------
-
-interface DefinitionSource {
-    /** Module name used for the generated .ts file (e.g. "actions", "error_tracking") */
-    moduleName: string
-    /** Absolute path to the YAML file */
-    filePath: string
-    /** Relative label for the generated comment header */
-    label: string
-}
-
-function discoverDefinitions(): DefinitionSource[] {
-    const sources: DefinitionSource[] = []
-
-    // Core definitions: services/mcp/definitions/*.yaml
-    if (fs.existsSync(DEFINITIONS_DIR)) {
-        for (const file of fs.readdirSync(DEFINITIONS_DIR)) {
-            if (!file.endsWith('.yaml') && !file.endsWith('.yml')) {
-                continue
-            }
-            sources.push({
-                moduleName: file.replace(/\.ya?ml$/, ''),
-                filePath: path.join(DEFINITIONS_DIR, file),
-                label: `definitions/${file}`,
-            })
-        }
-    }
-
-    // Product definitions: products/*/mcp/tools.yaml (or any .yaml in mcp/)
-    if (fs.existsSync(PRODUCTS_DIR)) {
-        for (const product of fs.readdirSync(PRODUCTS_DIR, {
-            withFileTypes: true,
-        })) {
-            if (!product.isDirectory() || product.name.startsWith('_')) {
-                continue
-            }
-            const mcpDir = path.join(PRODUCTS_DIR, product.name, 'mcp')
-            if (!fs.existsSync(mcpDir)) {
-                continue
-            }
-            for (const file of fs.readdirSync(mcpDir)) {
-                if (!file.endsWith('.yaml') && !file.endsWith('.yml')) {
-                    continue
-                }
-                // Use product name as module name (tools.yaml → error_tracking)
-                const moduleName =
-                    file === 'tools.yaml' || file === 'tools.yml' ? product.name : file.replace(/\.ya?ml$/, '')
-                sources.push({
-                    moduleName,
-                    filePath: path.join(mcpDir, file),
-                    label: `products/${product.name}/mcp/${file}`,
-                })
-            }
-        }
-    }
-
-    return sources
-}
-
-// ------------------------------------------------------------------
 // Main
 // ------------------------------------------------------------------
 
@@ -800,7 +743,7 @@ function main(): void {
     const spec = loadOpenApi()
     const knownTypes = loadKnownSchemaTypes(spec)
 
-    const definitionSources = discoverDefinitions()
+    const definitionSources = discoverDefinitions({ definitionsDir: DEFINITIONS_DIR, productsDir: PRODUCTS_DIR })
 
     if (definitionSources.length === 0) {
         console.error('No YAML definitions found in definitions/ or products/*/mcp/')
@@ -828,7 +771,8 @@ function main(): void {
         }
         const config = result.data
 
-        const { code, enabledTools } = generateCategoryFile(config, def.label, def.moduleName, spec, knownTypes)
+        const label = path.relative(REPO_ROOT, def.filePath)
+        const { code, enabledTools } = generateCategoryFile(config, label, def.moduleName, spec, knownTypes)
 
         if (enabledTools.length > 0) {
             generatedModules.push(def.moduleName)
@@ -857,15 +801,23 @@ ${spreads}
     const definitions = generateDefinitionsJson(allCategories)
     fs.writeFileSync(DEFINITIONS_JSON_PATH, JSON.stringify(definitions, null, 4) + '\n')
 
+    // Combined tool definitions for external consumers (docs site)
+    const v1Definitions = JSON.parse(fs.readFileSync(TOOL_DEFINITIONS_V1_PATH, 'utf-8'))
+    const v2Definitions = JSON.parse(fs.readFileSync(TOOL_DEFINITIONS_V2_PATH, 'utf-8'))
+    const allDefinitions = { ...v1Definitions, ...v2Definitions, ...definitions }
+    fs.writeFileSync(ALL_DEFINITIONS_JSON_PATH, JSON.stringify(allDefinitions, null, 4) + '\n')
+
     const totalTools = allCategories.reduce((sum, c) => sum + c.enabledTools.length, 0)
+    const totalAllTools = Object.keys(allDefinitions).length
     process.stdout.write(`Generated ${totalTools} tool(s) from ${allCategories.length} category file(s)\n`)
+    process.stdout.write(`Combined ${totalAllTools} total tool(s) into tool-definitions-all.json\n`)
 
     const generatedTsFiles = [
         ...generatedModules.map((m) => path.join(GENERATED_DIR, `${m}.ts`)),
         path.join(GENERATED_DIR, 'index.ts'),
     ]
     spawnSync(path.join(REPO_ROOT, 'bin/hogli'), ['format:js', ...generatedTsFiles], { stdio: 'pipe', cwd: REPO_ROOT })
-    spawnSync(path.join(REPO_ROOT, 'bin/hogli'), ['format:yaml', DEFINITIONS_JSON_PATH], {
+    spawnSync(path.join(REPO_ROOT, 'bin/hogli'), ['format:yaml', DEFINITIONS_JSON_PATH, ALL_DEFINITIONS_JSON_PATH], {
         stdio: 'pipe',
         cwd: REPO_ROOT,
     })
