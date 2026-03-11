@@ -391,13 +391,13 @@ jobs:
                   retention-days: 2
 
             - name: Verify new snapshots for flakiness
-              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
+              if: ${{ always() && needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
               shell: bash
               run: |
                   .github/scripts/verify-new-snapshots.sh
 
             - name: Generate snapshot patch
-              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
+              if: ${{ always() && needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
               shell: bash
               run: |
                   mkdir -p /tmp/patches
@@ -410,7 +410,7 @@ jobs:
                   fi
 
             - name: Upload snapshot patch
-              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
+              if: ${{ always() && needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: snapshot-patch-Products-${{ strategy.job-index }}
