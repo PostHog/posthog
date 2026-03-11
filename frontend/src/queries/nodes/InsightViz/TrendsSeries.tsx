@@ -7,8 +7,6 @@ import { alphabet } from 'lib/utils'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
-import { getAggregationTargetPronoun } from 'scenes/insights/filters/aggregationTargetUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -20,6 +18,7 @@ import { ChartDisplayType, FilterType } from '~/types'
 
 import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
+import { LifecycleSeriesHeader } from './LifecycleSeriesHeader'
 
 const lifecycleDataWarehousePopoverFields: DataWarehousePopoverField[] = [
     { key: 'timestamp_field', label: 'Timestamp', allowHogQL: true },
@@ -29,12 +28,13 @@ const lifecycleDataWarehousePopoverFields: DataWarehousePopoverField[] = [
 
 export function TrendsSeries(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { querySource, isTrends, isLifecycle, isStickiness, display, hasFormula, series, aggregationGroupTypeIndex } =
-        useValues(insightVizDataLogic(insightProps))
+    const { querySource, isTrends, isLifecycle, isStickiness, display, hasFormula, series } = useValues(
+        insightVizDataLogic(insightProps)
+    )
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { showGroupsOptions, groupsTaxonomicTypes } = useValues(groupsModel)
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const supportsDwhLifecycle = featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DWH_LIFECYCLE_SUPPORT]
 
@@ -74,19 +74,7 @@ export function TrendsSeries(): JSX.Element | null {
 
     return (
         <>
-            {isLifecycle && (
-                <div className="leading-6">
-                    <div className="flex items-center">
-                        Showing
-                        {showGroupsOptions ? (
-                            <AggregationSelect className="mx-2" insightProps={insightProps} hogqlAvailable={false} />
-                        ) : (
-                            <b> Unique users </b>
-                        )}
-                        {getAggregationTargetPronoun(aggregationGroupTypeIndex)} did
-                    </div>
-                </div>
-            )}
+            {isLifecycle && <LifecycleSeriesHeader />}
             <ActionFilter
                 filters={filters}
                 setFilters={(payload: Partial<FilterType>): void => {
