@@ -57,8 +57,8 @@ class SlackCursorPaginator(BasePaginator):
         self._next_cursor = None
 
         if not res or not res.get("ok"):
-            self._has_next_page = False
-            return
+            error = (res or {}).get("error", "unknown_error")
+            raise Exception(f"Slack API error: {error}")
 
         next_cursor = res.get("response_metadata", {}).get("next_cursor", "")
 
