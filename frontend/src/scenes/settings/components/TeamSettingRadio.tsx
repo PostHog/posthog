@@ -39,6 +39,7 @@ export function TeamSettingRadio<T extends string>({
     options,
     defaultValue,
     onSave,
+    disabledReason,
 }: {
     /** Dot-path to team field (e.g. "modifiers.personsJoinMode") */
     field: string
@@ -46,6 +47,7 @@ export function TeamSettingRadio<T extends string>({
     defaultValue: T
     /** Optional callback after save */
     onSave?: (value: T) => void
+    disabledReason?: string | null
 }): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -84,7 +86,7 @@ export function TeamSettingRadio<T extends string>({
                 <LemonButton
                     type="primary"
                     onClick={handleSave}
-                    disabledReason={value === savedValue ? 'No changes to save' : undefined}
+                    disabledReason={value === savedValue ? 'No changes to save' : disabledReason}
                 >
                     Save
                 </LemonButton>

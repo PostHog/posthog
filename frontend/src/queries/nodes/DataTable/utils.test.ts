@@ -5,6 +5,7 @@ import {
     extractDisplayLabel,
     extractExpressionComment,
     getColumnsForQuery,
+    getDefaultDataTablePersonColumns,
     removeExpressionComment,
 } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -63,6 +64,18 @@ describe('DataTable utils', () => {
         expect(removeExpressionComment('asd -- bla')).toBe('asd')
         expect(removeExpressionComment('asd -- asd --   bla  ')).toBe('asd -- asd')
         expect(removeExpressionComment(' hoho trim  -- trim')).toBe('hoho trim')
+    })
+
+    it('defaultDataTablePersonColumns does not include last_seen_at', () => {
+        expect(defaultDataTablePersonColumns).not.toContain('last_seen_at')
+    })
+
+    it('getDefaultDataTablePersonColumns includes last_seen_at when enabled', () => {
+        expect(getDefaultDataTablePersonColumns(true)).toContain('last_seen_at')
+    })
+
+    it('getDefaultDataTablePersonColumns excludes last_seen_at when disabled', () => {
+        expect(getDefaultDataTablePersonColumns(false)).not.toContain('last_seen_at')
     })
 
     it('getColumnsForQuery', () => {

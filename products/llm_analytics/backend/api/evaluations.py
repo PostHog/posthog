@@ -1,5 +1,5 @@
 import json
-from typing import Any, cast
+from typing import Any
 
 from django.db.models import Q, QuerySet
 
@@ -17,7 +17,6 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models import User
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
@@ -221,7 +220,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
 
         # Track evaluation created
         report_user_action(
-            cast(User, self.request.user),
+            self.request.user,
             "llma evaluation created",
             {
                 "evaluation_id": str(instance.id),
@@ -291,7 +290,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         # Track appropriate event
         if is_deletion:
             report_user_action(
-                cast(User, self.request.user),
+                self.request.user,
                 "llma evaluation deleted",
                 {
                     "evaluation_id": str(instance.id),
@@ -317,7 +316,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 event_properties["config_content_changed"] = True
 
             report_user_action(
-                cast(User, self.request.user),
+                self.request.user,
                 "llma evaluation updated",
                 event_properties,
                 team=self.team,
@@ -426,6 +425,23 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         response = execute_hogql_query(query=query, team=team, limit_context=None)
 
         if not response.results:
+            report_user_action(
+                request.user,
+                "llma evaluation hog code tested",
+                {
+                    "sample_count": sample_count,
+                    "allows_na": allows_na,
+                    "condition_count": len(conditions),
+                    "result_count": 0,
+                    "pass_count": 0,
+                    "fail_count": 0,
+                    "error_count": 0,
+                    "na_count": 0,
+                    "no_events": True,
+                },
+                team=self.team,
+                request=self.request,
+            )
             return Response({"results": [], "message": "No recent AI events found in the last 7 days"})
 
         results = []
@@ -462,6 +478,23 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                     "error": result["error"],
                 }
             )
+
+        report_user_action(
+            request.user,
+            "llma evaluation hog code tested",
+            {
+                "sample_count": sample_count,
+                "allows_na": allows_na,
+                "condition_count": len(conditions),
+                "result_count": len(results),
+                "pass_count": sum(1 for r in results if r["result"] is True),
+                "fail_count": sum(1 for r in results if r["result"] is False),
+                "error_count": sum(1 for r in results if r["error"]),
+                "na_count": sum(1 for r in results if r["result"] is None and not r["error"]),
+            },
+            team=self.team,
+            request=self.request,
+        )
 
         return Response({"results": results})
 

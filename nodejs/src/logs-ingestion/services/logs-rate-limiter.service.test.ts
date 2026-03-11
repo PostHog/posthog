@@ -3,7 +3,7 @@ import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 
-import { BASE_REDIS_KEY, LogsRateLimiterService } from './logs-rate-limiter.service'
+import { BASE_REDIS_KEY, LogsRateLimiterService, logsMessageLagHistogram } from './logs-rate-limiter.service'
 
 const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
 
@@ -244,6 +244,9 @@ describe('LogsRateLimiterService', () => {
             hub.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND = 1
             hub.LOGS_LIMITER_TTL_SECONDS = 3600
             hub.LOGS_LIMITER_ENABLED_TEAMS = '*'
+            hub.LOGS_LIMITER_DISABLED_FOR_TEAMS = ''
+            hub.LOGS_LIMITER_TEAM_BUCKET_SIZE_KB = ''
+            hub.LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND = ''
 
             redis = createRedisV2PoolFromConfig({
                 connection: hub.LOGS_REDIS_HOST
@@ -516,20 +519,104 @@ describe('LogsRateLimiterService', () => {
                 expect(result.dropped).toHaveLength(0)
             })
 
-            it('should use first message timestamp for team when multiple messages in batch', async () => {
+            it('should observe lag histogram for teams without rate limiting enabled', async () => {
+                hub.LOGS_LIMITER_ENABLED_TEAMS = '999' // Only team 999 is rate-limited
+                rateLimiter = new LogsRateLimiterService(hub, redis)
+
+                const observeSpy = jest.spyOn(logsMessageLagHistogram, 'observe')
+
+                const pastTime = new Date('2024-01-01T00:00:00Z').toISOString()
+                const nowMs = new Date('2024-01-01T00:00:45Z').getTime()
+                mockNow.mockReturnValue(nowMs)
+
+                const messages = [createMessageWithHeaders(1, 1024, [{ created_at: pastTime }])]
+
+                await rateLimiter.filterMessages(messages)
+
+                expect(observeSpy).toHaveBeenCalledTimes(1)
+                expect(observeSpy).toHaveBeenCalledWith(45)
+
+                observeSpy.mockRestore()
+            })
+
+            it('should observe lag histogram with Date.now() fallback when no timestamp header', async () => {
+                const observeSpy = jest.spyOn(logsMessageLagHistogram, 'observe')
+
+                const nowMs = new Date('2024-01-01T00:01:00Z').getTime()
+                mockNow.mockReturnValue(nowMs)
+
+                const messages = [createMessageWithHeaders(1, 1024)] // no headers
+
+                await rateLimiter.filterMessages(messages)
+
+                // Lag should be ~0 since both message timestamp and nowSeconds use Date.now()
+                expect(observeSpy).toHaveBeenCalledTimes(1)
+                expect(observeSpy).toHaveBeenCalledWith(0)
+
+                observeSpy.mockRestore()
+            })
+
+            it('should observe lag histogram using oldest timestamp per team', async () => {
+                const observeSpy = jest.spyOn(logsMessageLagHistogram, 'observe')
+
+                const olderTime = new Date('2024-01-01T00:00:00Z').toISOString() // oldest
+                const newerTime = new Date('2024-01-01T00:00:30Z').toISOString() // 30s later
+
+                const nowMs = new Date('2024-01-01T00:01:00Z').getTime() // 60s after older, 30s after newer
+                mockNow.mockReturnValue(nowMs)
+
+                const messages = [
+                    createMessageWithHeaders(1, 1024, [{ created_at: newerTime }]),
+                    createMessageWithHeaders(1, 1024, [{ created_at: olderTime }]),
+                ]
+
+                await rateLimiter.filterMessages(messages)
+
+                // Should observe lag of 60s (using oldest timestamp), not 30s (first message)
+                expect(observeSpy).toHaveBeenCalledTimes(1)
+                expect(observeSpy).toHaveBeenCalledWith(60)
+
+                observeSpy.mockRestore()
+            })
+
+            it('should use max message timestamp for team when multiple messages in batch', async () => {
                 const time1 = new Date('2024-01-01T00:00:00Z').toISOString()
                 const time2 = new Date('2024-01-01T00:00:10Z').toISOString() // 10 seconds later
 
-                // Both messages for same team, first one's timestamp should be used
+                // Both messages for same team, max timestamp should be used for refill calculation
                 const messages = [
                     createMessageWithHeaders(1, 5120, [{ created_at: time1 }]), // 5KB
-                    createMessageWithHeaders(1, 3072, [{ created_at: time2 }]), // 3KB - should use time1's timestamp
+                    createMessageWithHeaders(1, 3072, [{ created_at: time2 }]), // 3KB
                 ]
 
                 const result = await rateLimiter.filterMessages(messages)
 
                 expect(result.allowed).toHaveLength(2)
                 expect(result.dropped).toHaveLength(0)
+            })
+
+            it('should allow more throughput when batch spans time (backfill scenario)', async () => {
+                // Simulate backfill: first batch drains the bucket
+                const t0 = new Date('2024-01-01T00:00:00Z').toISOString()
+                const messages1 = [createMessageWithHeaders(1, 10000, [{ created_at: t0 }])] // 10KB = full bucket
+                const result1 = await rateLimiter.filterMessages(messages1)
+                expect(result1.allowed).toHaveLength(1)
+
+                // Second batch arrives 10 seconds later.
+                // Bucket is empty, refill rate is 1KB/s, so 10 seconds of refill = 10KB.
+                // filterMessages uses the oldest timestamp per team, so all messages
+                // need to be at t10 for the refill to kick in.
+                const t10 = new Date('2024-01-01T00:00:10Z').toISOString()
+                const messages2 = [
+                    createMessageWithHeaders(1, 5120, [{ created_at: t10 }]), // 5KB at t0+10s
+                    createMessageWithHeaders(1, 3072, [{ created_at: t10 }]), // 3KB at t0+10s
+                ]
+
+                const result2 = await rateLimiter.filterMessages(messages2)
+
+                // Oldest timestamp t10 gives 10KB refill from t0, enough for 5+3=8KB
+                expect(result2.allowed).toHaveLength(2)
+                expect(result2.dropped).toHaveLength(0)
             })
 
             it('should handle empty headers array', async () => {

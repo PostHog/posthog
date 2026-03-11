@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { CSSProperties, useMemo } from 'react'
+import { ComponentProps, CSSProperties, useMemo } from 'react'
 
 import { IconPencil, IconPlus } from '@posthog/icons'
 import { LemonInputSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'
@@ -14,6 +14,7 @@ interface ObjectTagsPropsBase {
     style?: CSSProperties
     id?: string
     className?: string
+    actionButtonSize?: ComponentProps<typeof LemonTag>['size']
     'data-attr'?: string
 }
 
@@ -52,6 +53,7 @@ export function ObjectTags({
     style = {},
     staticOnly = false,
     className,
+    actionButtonSize = 'small',
     'data-attr': dataAttr,
 }: ObjectTagsProps): JSX.Element {
     const objectTagId = useMemo(() => uniqueMemoizedIndex++, [])
@@ -112,7 +114,7 @@ export function ObjectTags({
                                 data-attr="button-add-tag"
                                 icon={hasTags ? <IconPencil /> : <IconPlus />}
                                 className="border border-dashed"
-                                size="small"
+                                size={actionButtonSize}
                             >
                                 {hasTags ? 'Edit tags' : 'Add tag'}
                             </LemonTag>

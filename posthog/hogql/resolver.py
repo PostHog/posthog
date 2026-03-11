@@ -1,3 +1,4 @@
+import re
 import dataclasses
 from datetime import date, datetime
 from typing import Any, Optional, cast
@@ -445,9 +446,16 @@ class Resolver(CloningVisitor):
         if node.columns is not None:
             return list(node.columns)
 
-        import re
-
-        pattern = re.compile(node.regex or "")
+        regex = node.regex or ""
+        # Guard against ReDoS: Python's re module uses NFA backtracking which can hang
+        # on crafted patterns. ClickHouse uses re2 (linear-time) so this only affects
+        # the resolver, not query execution. Cap length as a simple mitigation.
+        if len(regex) > 1000:
+            raise ResolutionError("COLUMNS() regex pattern is too long")
+        try:
+            pattern = re.compile(regex)
+        except re.error as e:
+            raise ResolutionError(f"COLUMNS() has an invalid regex pattern: {e}")
         scope = self.scopes[-1]
         all_table_types: list[ast.TableOrSelectType] = list(scope.tables.values()) + list(scope.anonymous_tables)
         matched_fields: list[ast.Expr] = []

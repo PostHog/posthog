@@ -40,7 +40,10 @@ const validateInput = (input: CyclotronJobInputType, inputSchema: CyclotronJobIn
     } else if (inputSchema.type === 'number' && typeof value !== 'number') {
         return 'Value must be a number'
     } else if (inputSchema.type === 'boolean' && typeof value !== 'boolean') {
-        return 'Value must be a boolean'
+        // When templating is enabled (default), boolean fields can be template strings
+        if (inputSchema.templating === false || typeof value !== 'string') {
+            return 'Value must be a boolean'
+        }
     } else if (inputSchema.type === 'dictionary' && typeof value !== 'object') {
         return 'Value must be a dictionary'
     } else if (inputSchema.type === 'integration' && typeof value !== 'number') {

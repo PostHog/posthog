@@ -76,7 +76,7 @@ class FakePersonHogClient:
         created_at: int = 0,
         version: int = 0,
         is_identified: bool = False,
-        is_user_id: bool = False,
+        is_user_id: bool | None = None,
         distinct_ids: list[str] | None = None,
     ) -> person_pb2.Person:
         person = person_pb2.Person(
@@ -87,8 +87,9 @@ class FakePersonHogClient:
             created_at=created_at,
             version=version,
             is_identified=is_identified,
-            is_user_id=is_user_id,
         )
+        if is_user_id is not None:
+            person.is_user_id = is_user_id
         self._persons_by_id[(team_id, person_id)] = person
         if uuid:
             self._persons_by_uuid[(team_id, uuid)] = person
