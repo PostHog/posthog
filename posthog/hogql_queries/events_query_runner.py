@@ -413,11 +413,13 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 batch_size = 1000
                 for i in range(0, len(distinct_ids), batch_size):
                     batch_distinct_ids = distinct_ids[i : i + batch_size]
+                    requested_batch = set(batch_distinct_ids)
                     persons = get_persons_by_distinct_ids(self.team.pk, batch_distinct_ids)
                     for person in persons:
                         if person:
                             for person_distinct_id in person.distinct_ids:
-                                distinct_to_person[person_distinct_id] = person
+                                if person_distinct_id in requested_batch:
+                                    distinct_to_person[person_distinct_id] = person
 
                 # Loop over all columns in case there is more than one "person" column
                 for column_index in person_indices:
