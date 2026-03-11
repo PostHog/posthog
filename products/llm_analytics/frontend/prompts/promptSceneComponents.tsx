@@ -1,13 +1,15 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
+import { lazy, Suspense } from 'react'
 
-import { IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { IconGitBranch, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -17,9 +19,12 @@ import { LLMPrompt, LLMPromptVersionSummary } from '~/types'
 import { useTracesQueryContext } from '../LLMAnalyticsTracesScene'
 import { PROMPT_NAME_MAX_LENGTH, PromptAnalyticsScope, isPrompt, llmPromptLogic } from './llmPromptLogic'
 
+const MonacoDiffEditor = lazy(() => import('lib/components/MonacoDiffEditor'))
+
 export function PromptViewDetails(): JSX.Element {
-    const { prompt, isRenderingMarkdown } = useValues(llmPromptLogic)
-    const { toggleMarkdownRendering } = useActions(llmPromptLogic)
+    const { prompt, isRenderingMarkdown, isDiffVisible, canCompareVersions, compareVersionOptions } =
+        useValues(llmPromptLogic)
+    const { toggleMarkdownRendering, setCompareVersion } = useActions(llmPromptLogic)
 
     if (!prompt || !isPrompt(prompt)) {
         return <></>
@@ -32,7 +37,7 @@ export function PromptViewDetails(): JSX.Element {
         : []
 
     return (
-        <div className="max-w-3xl space-y-5">
+        <div className="space-y-5">
             <div className="flex flex-wrap items-center gap-2">
                 <LemonTag type="highlight" size="small">
                     v{prompt.version}
@@ -59,22 +64,47 @@ export function PromptViewDetails(): JSX.Element {
             <div>
                 <div className="flex items-center gap-2">
                     <label className="text-xs font-semibold uppercase text-secondary">Prompt</label>
-                    <LemonButton
-                        size="small"
-                        noPadding
-                        icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
-                        tooltip="Toggle markdown rendering"
-                        onClick={toggleMarkdownRendering}
-                    />
+                    {!isDiffVisible && (
+                        <LemonButton
+                            size="small"
+                            noPadding
+                            icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
+                            tooltip="Toggle markdown rendering"
+                            onClick={toggleMarkdownRendering}
+                        />
+                    )}
+                    {canCompareVersions && (
+                        <LemonButton
+                            size="xsmall"
+                            type={isDiffVisible ? 'primary' : 'secondary'}
+                            icon={<IconGitBranch />}
+                            onClick={() => {
+                                if (isDiffVisible) {
+                                    setCompareVersion(null)
+                                } else {
+                                    const defaultVersion = prompt.version > 1 ? prompt.version - 1 : null
+                                    const firstOption = compareVersionOptions[0]?.value
+                                    setCompareVersion(defaultVersion ?? firstOption ?? null)
+                                }
+                            }}
+                            data-attr="prompt-compare-versions-button"
+                        >
+                            Compare versions
+                        </LemonButton>
+                    )}
                 </div>
-                {isRenderingMarkdown ? (
+                {isDiffVisible ? (
+                    <PromptDiffView />
+                ) : isRenderingMarkdown ? (
                     <LemonMarkdown className="mt-1 rounded border bg-bg-light p-3">{prompt.prompt}</LemonMarkdown>
                 ) : (
-                    <pre className="mt-1 rounded border bg-bg-light p-3 whitespace-pre-wrap">{prompt.prompt}</pre>
+                    <pre className="mt-1 max-w-3xl rounded border bg-bg-light p-3 whitespace-pre-wrap">
+                        {prompt.prompt}
+                    </pre>
                 )}
             </div>
 
-            <div className="grid gap-3 text-sm text-secondary sm:grid-cols-2">
+            <div className="grid max-w-3xl gap-3 text-sm text-secondary sm:grid-cols-2">
                 <div>Published {dayjs(prompt.created_at).format('MMM D, YYYY h:mm A')}</div>
                 <div>First version created {dayjs(prompt.first_version_created_at).format('MMM D, YYYY h:mm A')}</div>
             </div>
@@ -87,6 +117,70 @@ export function PromptViewDetails(): JSX.Element {
                             {variable}
                         </LemonTag>
                     ))}
+                </div>
+            )}
+        </div>
+    )
+}
+
+function PromptDiffView(): JSX.Element {
+    const { prompt, comparePrompt, comparePromptLoading, compareVersion, compareVersionOptions } =
+        useValues(llmPromptLogic)
+    const { setCompareVersion } = useActions(llmPromptLogic)
+
+    if (!prompt || !isPrompt(prompt)) {
+        return <></>
+    }
+
+    const currentVersion = prompt.version
+    const original = comparePrompt?.prompt ?? ''
+    const modified = prompt.prompt
+
+    return (
+        <div className="mt-2 space-y-3" data-attr="prompt-diff-view">
+            <div className="flex items-center gap-2">
+                <span className="text-sm text-secondary">Comparing</span>
+                <LemonSelect
+                    size="small"
+                    value={compareVersion}
+                    options={compareVersionOptions}
+                    onChange={(value) => setCompareVersion(value)}
+                    data-attr="prompt-diff-version-select"
+                />
+                <span className="text-sm text-secondary">with v{currentVersion} (current)</span>
+            </div>
+            {comparePromptLoading ? (
+                <div className="space-y-2 rounded border p-4">
+                    <LemonSkeleton active className="h-4 w-full" />
+                    <LemonSkeleton active className="h-4 w-3/4" />
+                    <LemonSkeleton active className="h-4 w-1/2" />
+                </div>
+            ) : (
+                <div className="overflow-hidden rounded border">
+                    <Suspense
+                        fallback={
+                            <div className="space-y-2 p-4">
+                                <LemonSkeleton active className="h-4 w-full" />
+                                <LemonSkeleton active className="h-4 w-3/4" />
+                            </div>
+                        }
+                    >
+                        <MonacoDiffEditor
+                            original={original}
+                            modified={modified}
+                            language="markdown"
+                            options={{
+                                readOnly: true,
+                                renderSideBySide: true,
+                                minimap: { enabled: false },
+                                scrollBeyondLastLine: false,
+                                wordWrap: 'on',
+                                lineNumbers: 'off',
+                                folding: false,
+                                hideUnchangedRegions: { enabled: true },
+                            }}
+                        />
+                    </Suspense>
                 </div>
             )}
         </div>
@@ -291,6 +385,9 @@ export function PromptVersionSidebar({
     loadMoreVersions: () => void
     searchParams: Record<string, any>
 }): JSX.Element {
+    const { compareVersion } = useValues(llmPromptLogic)
+    const { setCompareVersion } = useActions(llmPromptLogic)
+
     return (
         <aside className="w-full shrink-0 xl:sticky xl:top-4 xl:mt-3 xl:w-80">
             <div className="rounded border bg-surface-primary p-4">
@@ -306,6 +403,8 @@ export function PromptVersionSidebar({
                 <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1">
                     {versions.map((versionPrompt) => {
                         const selected = prompt?.id === versionPrompt.id
+                        const isCompareTarget = compareVersion === versionPrompt.version
+                        const canCompare = prompt?.version !== versionPrompt.version
                         const versionUrl = buildPromptUrl(promptName, searchParams, versionPrompt.version)
 
                         return (
@@ -315,17 +414,44 @@ export function PromptVersionSidebar({
                                 className={`block rounded border p-3 no-underline ${
                                     selected
                                         ? 'border-primary bg-primary-highlight'
-                                        : 'border-primary/10 hover:bg-fill-secondary'
+                                        : isCompareTarget
+                                          ? 'border-warning bg-warning-highlight'
+                                          : 'border-primary/10 hover:bg-fill-secondary'
                                 }`}
                                 data-attr={`prompt-version-link-${versionPrompt.version}`}
                             >
-                                <div className="mb-1 flex items-center gap-2">
-                                    <span className="font-mono text-sm">v{versionPrompt.version}</span>
-                                    {versionPrompt.is_latest ? (
-                                        <LemonTag type="success" size="small">
-                                            Latest
-                                        </LemonTag>
-                                    ) : null}
+                                <div className="mb-1 flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-mono text-sm">v{versionPrompt.version}</span>
+                                        {versionPrompt.is_latest ? (
+                                            <LemonTag type="success" size="small">
+                                                Latest
+                                            </LemonTag>
+                                        ) : null}
+                                        {isCompareTarget ? (
+                                            <LemonTag type="warning" size="small">
+                                                Comparing
+                                            </LemonTag>
+                                        ) : null}
+                                    </div>
+                                    {canCompare && (
+                                        <LemonButton
+                                            size="xsmall"
+                                            noPadding
+                                            icon={<IconGitBranch />}
+                                            tooltip={
+                                                isCompareTarget
+                                                    ? 'Stop comparing'
+                                                    : `Compare with v${versionPrompt.version}`
+                                            }
+                                            onClick={(e) => {
+                                                e.preventDefault()
+                                                e.stopPropagation()
+                                                setCompareVersion(isCompareTarget ? null : versionPrompt.version)
+                                            }}
+                                            data-attr={`prompt-compare-version-${versionPrompt.version}`}
+                                        />
+                                    )}
                                 </div>
                                 <div className="text-xs text-secondary">
                                     {dayjs(versionPrompt.created_at).format('MMM D, YYYY h:mm A')}
