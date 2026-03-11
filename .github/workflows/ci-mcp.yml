@@ -255,11 +255,15 @@ jobs:
 
             - name: Start Docker services
               shell: bash
-              run: docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+              run: bin/ci-wait-for-docker launch
 
             - name: Wait for Docker services
               shell: bash
-              run: bin/wait-for-docker
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+              run: bin/ci-wait-for-docker wait
 
             - name: Run migrations
               run: |
