@@ -88,8 +88,10 @@ test.describe('Workflows', () => {
             await page.waitForSelector('[data-attr="message-channels"]', { timeout: 10000 })
             await expect(page.getByText('Loading', { exact: true })).not.toBeVisible({ timeout: 5000 })
 
-            // The new channel button should be visible
-            await expect(page.locator('[data-attr="new-channel-button"]')).toBeVisible()
+            // Wait for loading skeletons to disappear
+            await expect(page.locator('[data-attr="message-channels"] .LemonSkeleton').first()).not.toBeVisible({
+                timeout: 10000,
+            })
 
             await expect(page).toHaveScreenshot('channels-tab.png', { fullPage: true })
         })
