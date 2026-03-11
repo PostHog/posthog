@@ -128,15 +128,15 @@ export function IntegrationView({
                                     />
                                 </div>
                             ) : (
-                                <div className="flex items-center gap-2 mr-4">
+                                <div className="flex items-center gap-2 mr-4 min-h-5">
                                     <div className="text-xs text-muted">
                                         <IconBranch className="inline mr-1" />
                                         No repositories accessible
                                     </div>
                                     <LemonButton
-                                        size="xsmall"
+                                        size="xxsmall"
                                         type="secondary"
-                                        icon={<IconOpenInNew />}
+                                        icon={<IconGear />}
                                         onClick={() => {
                                             const installationId = integration.config?.installation_id
                                             if (installationId) {
