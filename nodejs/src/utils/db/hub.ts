@@ -115,7 +115,7 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
 
     const clickhouseGroupRepository = new ClickhouseGroupRepository(kafkaProducer)
     const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool)
-    const geoipService = new GeoIPService(serverConfig)
+    const geoipService = new GeoIPService(serverConfig.MMDB_FILE_LOCATION)
     await geoipService.get()
     const encryptedFields = new EncryptedFields(serverConfig.ENCRYPTION_SALT_KEYS)
     const integrationManager = new IntegrationManagerService(pubSub, postgres, encryptedFields)

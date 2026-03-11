@@ -553,7 +553,7 @@ export class PluginServer {
         integrationManager: IntegrationManagerService
         internalCaptureService: InternalCaptureService
     }> {
-        const geoipService = new GeoIPService(this.config)
+        const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
         await geoipService.get()
 
         const personRepository = new PostgresPersonRepository(this.postgres!, {

@@ -12,7 +12,7 @@ describe('GeoIp', () => {
 
     beforeEach(() => {
         config = { ...defaultConfig }
-        service = new GeoIPService(config)
+        service = new GeoIPService(config.MMDB_FILE_LOCATION)
     })
 
     afterEach(() => {
