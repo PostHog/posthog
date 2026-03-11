@@ -94,7 +94,7 @@ describe('SesWebhookHandler', () => {
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result.status).toBe(200)
         expect(result.metrics?.[0].metricName).toBe('email_bounced')
-        expect(result.optOutRecipients).toEqual([{ teamId: 'abc123', emailAddresses: ['to@example.com'] }])
+        expect(result.optOutRecipients).toEqual([{ teamId: 1, emailAddresses: ['to@example.com'] }])
     })
 
     it('does not return opt-out recipients for transient bounces', async () => {
