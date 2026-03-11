@@ -166,56 +166,6 @@ def render_query(request: HttpRequest) -> HttpResponse:
     return render_template("render_query.html", request, context={"render_query_payload": payload})
 
 
-PREFLIGHT_HEALTH_CACHE_KEY = "preflight_health_status"
-PREFLIGHT_HEALTH_CACHE_TTL = 30  # seconds
-
-
-def _get_cached_health_status() -> dict[str, bool]:
-    """Return cached infrastructure health checks, refreshing if stale.
-
-    On Cloud, all checks short-circuit to True so caching is unnecessary.
-    For self-hosted, each health check (ClickHouse, Redis, Kafka, etc.) can
-    block for seconds on timeout. Caching prevents every page load from
-    paying that cost, especially during outages.
-    """
-    from django.core.cache import cache
-
-    if is_cloud():
-        return {
-            "redis": True,
-            "plugins": True,
-            "celery": True,
-            "clickhouse": True,
-            "kafka": True,
-            "db": True,
-        }
-
-    cached = None
-    try:
-        cached = cache.get(PREFLIGHT_HEALTH_CACHE_KEY)
-    except Exception:
-        pass
-
-    if cached is not None:
-        return cached
-
-    health = {
-        "redis": is_redis_alive() or settings.TEST,
-        "plugins": is_plugin_server_alive() or settings.TEST,
-        "celery": is_celery_alive() or settings.TEST,
-        "clickhouse": is_clickhouse_connected() or settings.TEST,
-        "kafka": is_kafka_connected() or settings.TEST,
-        "db": is_postgres_alive(),
-    }
-
-    try:
-        cache.set(PREFLIGHT_HEALTH_CACHE_KEY, health, PREFLIGHT_HEALTH_CACHE_TTL)
-    except Exception:
-        pass
-
-    return health
-
-
 @never_cache
 def preflight_check(request: HttpRequest) -> JsonResponse:
     slack_client_id = SlackIntegration.slack_config().get("SLACK_APP_CLIENT_ID")
@@ -225,11 +175,14 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
     hubspot_client_id = settings.HUBSPOT_APP_CLIENT_ID
     salesforce_client_id = settings.SALESFORCE_CONSUMER_KEY
 
-    health = _get_cached_health_status()
-
     response = {
         "django": True,
-        **health,
+        "redis": is_cloud() or is_redis_alive() or settings.TEST,
+        "plugins": is_cloud() or is_plugin_server_alive() or settings.TEST,
+        "celery": is_cloud() or is_celery_alive() or settings.TEST,
+        "clickhouse": is_cloud() or is_clickhouse_connected() or settings.TEST,
+        "kafka": is_cloud() or is_kafka_connected() or settings.TEST,
+        "db": is_cloud() or is_postgres_alive(),
         "initiated": is_cloud() or Organization.objects.exists(),
         "cloud": is_cloud(),
         "demo": settings.DEMO,
