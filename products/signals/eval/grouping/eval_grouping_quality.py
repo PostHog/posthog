@@ -42,6 +42,16 @@ def load_grouping_signals() -> list[dict]:
         return json.load(f)
 
 
+def serialize_signal(sig: TestSignal) -> dict:
+    """Convert TestSignal into a JSON-safe structure for eval logging."""
+    return {
+        "signal_id": sig.signal_id,
+        "content": sig.content[:500],  # trim to keep payload reasonable
+        "source_product": sig.source_product,
+        "source_type": sig.source_type,
+    }
+
+
 async def run_grouping_pipeline(signals_data: list[dict]):
     signals = [
         TestSignal(
@@ -77,6 +87,7 @@ class TestGroupingQuality:
     @pytest.mark.django_db
     async def test_grouping_quality(self):
         signals_data = load_grouping_signals()
+
         if self.limit:
             signals_data = signals_data[: self.limit]
 
@@ -91,6 +102,7 @@ class TestGroupingQuality:
 
         group_assessments = evaluation.get("group_assessments", [])
         logger.warning("Judge returned %d group assessments", len(group_assessments))
+
         if not group_assessments:
             logger.warning("Raw judge response: %s", json.dumps(evaluation)[:500])
 
@@ -101,28 +113,26 @@ class TestGroupingQuality:
             misplaced = ga.get("misplaced_signal_count", 0)
             assessment = ga.get("assessment", "")
 
-            matching_group = None
-            for g in result.groups.values():
-                if g.report_id.startswith(group_id):
-                    matching_group = g
-                    break
+            matching_group = next(
+                (g for g in result.groups.values() if g.report_id.startswith(group_id)),
+                None,
+            )
 
             group_title = (matching_group.title or "(untitled)")[:80] if matching_group else "(unknown)"
-            item_id = deterministic_uuid(f"{EVAL_NAME}:{group_id}")
-            item_name = f"{group_title} ({signal_count} signals)"
 
-            input_lines = []
+            item_id = deterministic_uuid(f"{EVAL_NAME}:{group_id}")
+            item_name = f"{group_title} (group size: {signal_count})"
+
+            input_signals = []
             if matching_group:
-                for i, sid in enumerate(matching_group.signal_ids):
+                for sid in matching_group.signal_ids:
                     sig = signal_lookup.get(sid)
                     if sig:
-                        input_lines.append(
-                            f"--- Signal {i + 1} [{sig.source_product}/{sig.source_type}] ---\n{sig.content}"
-                        )
-            input_str = "\n\n".join(input_lines)
+                        input_signals.append(serialize_signal(sig))
 
             is_singleton = coherence is None
             status = "SINGLETON" if is_singleton else f"coherence={coherence}/5"
+
             logger.warning(
                 "  Group %s (%d signals) — %s | misplaced=%d | %s",
                 group_id,
@@ -146,15 +156,17 @@ class TestGroupingQuality:
                 "experiment_name": EVAL_NAME,
                 "item_id": item_id,
                 "item_name": item_name,
-                "input": input_str,
+                "input": input_signals,
                 "output": output_str,
                 "expected": None,
             }
 
             coherence_score = 1.0 if is_singleton else coherence / 5.0
+
             coherence_reasoning = (
                 "Singleton (coherent by definition)" if is_singleton else f"Coherence {coherence}/5: {assessment}"
             )
+
             capture_evaluation(
                 **common,
                 metric=EvalMetric(
@@ -204,11 +216,12 @@ class TestGroupingQuality:
                     score=0.0 if is_singleton else 1.0,
                     score_min=0,
                     score_max=1,
-                    reasoning="Singleton" if is_singleton else f"Group of {signal_count} signals",
+                    reasoning="Singleton" if is_singleton else f"Group of {signal_count}",
                 ),
             )
 
         undergrouping = evaluation.get("undergrouping", [])
+
         if undergrouping:
             logger.warning("\nUnder-grouping issues:")
             for ug in undergrouping:
@@ -221,6 +234,7 @@ class TestGroupingQuality:
 
         overall = evaluation.get("overall_score", "?")
         overall_assessment = evaluation.get("overall_assessment", "")
+
         logger.warning("\nOverall: %s/5 — %s", overall, overall_assessment)
 
         self.posthog_client.flush()
