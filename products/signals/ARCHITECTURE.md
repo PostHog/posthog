@@ -32,7 +32,7 @@ A long-running entity workflow that serializes all signal grouping for a single 
 4. **Semantic search** ClickHouse `document_embeddings` for nearest neighbors per query → `run_signal_semantic_search_activity` (uses `cosineDistance()`)
 5. **LLM match** — decides if signal belongs to an existing report or needs a new group → `match_signal_to_report_activity`
 6. **Assign** signal to a `SignalReport` in Postgres, increment weight/count, check promotion threshold, **and emit to ClickHouse** via Kafka (embedding worker) — all in a single atomic operation → `assign_and_emit_signal_activity`
-7. **Wait for ClickHouse** — poll ClickHouse until the emitted signal appears so subsequent signals can find it during semantic search → `wait_for_signal_in_clickhouse_activity`
+7. **Wait for ClickHouse** — poll ClickHouse until all emitted signals in the batch appear so subsequent batches can find them during semantic search → `wait_for_signal_in_clickhouse_activity`
 8. If promoted (weight ≥ `WEIGHT_THRESHOLD`, default `1.0`), **spawn child** `SignalReportSummaryWorkflow` (with `ALLOW_DUPLICATE_FAILED_ONLY` reuse policy, `ParentClosePolicy.ABANDON` so it survives `continue_as_new`, silently ignores `WorkflowAlreadyStartedError`)
 
 Step 1 runs two activities in parallel. Step 2 depends on step 1 (needs the type examples). Steps 3+4 fan out in parallel for each query/embedding.
@@ -77,7 +77,7 @@ Defined in `backend/temporal/reingestion.py`. Workflow ID: `signal-report-reinge
 
 1. **Fetch signals** for the report from ClickHouse → `fetch_signals_for_report_activity` (reused from summary workflow). If no signals found, skips to step 3 (delete-only).
 2. **Soft-delete signals** in ClickHouse → `soft_delete_report_signals_activity` — wraps the existing `soft_delete_report_signals()` helper from `api.py`, re-emitting each signal row with `metadata.deleted = true`.
-   2b. **Wait for ClickHouse** → `wait_for_signal_in_clickhouse_activity` (reused from grouping workflow) — polls until the last soft-deleted signal lands, so re-ingested signals don't find stale rows during semantic search.
+   2b. **Wait for ClickHouse** → `wait_for_signal_in_clickhouse_activity` (reused from grouping workflow) — polls until all soft-deleted signals land, so re-ingested signals don't find stale rows during semantic search.
 3. **Delete report** in Postgres → `delete_report_activity` — transitions the report to `deleted` status via `SignalReport.transition_to()`. Idempotent (no-ops if already deleted).
 4. **Re-ingest signals** → `reingest_signals_activity` — converts each `SignalData` to an `emit_signal()` call, which handles org guards and `signal_with_start` into the per-team `TeamSignalGroupingWorkflow`. Signals go through the full grouping pipeline (embed → search → LLM match → assign) and may end up in different reports.
 
@@ -93,7 +93,7 @@ Defined in `backend/temporal/deletion.py`. Workflow ID: `signal-report-deletion-
 
 1. **Fetch signals** for the report from ClickHouse → `fetch_signals_for_report_activity`. If no signals found, skips to step 3 (delete-only).
 2. **Soft-delete signals** in ClickHouse → `soft_delete_report_signals_activity`.
-   2b. **Wait for ClickHouse** → `wait_for_signal_in_clickhouse_activity` — polls until the last soft-deleted signal lands.
+   2b. **Wait for ClickHouse** → `wait_for_signal_in_clickhouse_activity` — polls until all soft-deleted signals land.
 3. **Delete report** in Postgres → `delete_report_activity`.
 
 Shares all activities with the reingestion workflow — the only difference is that it stops after deletion (no re-ingestion step).
@@ -225,7 +225,7 @@ Activities query via `execute_hogql_query()` using the HogQL alias `document_emb
 1. **Fetch signal type examples** (`fetch_signal_type_examples_activity`): Fetches one example signal per unique `(source_product, source_type)` pair from the last month, selecting the most recent example per type via `argMax(content, timestamp)`. Used to give the query generation LLM context about the heterogeneous signal landscape.
 2. **Semantic search** (`run_signal_semantic_search_activity`): Uses `cosineDistance(embedding, {embedding})` to find nearest neighbors that have a `report_id`, limited to the last 1 month.
 3. **Fetch for report** (`fetch_signals_for_report_activity`): Fetches all signals for a given `report_id`, ordered by timestamp ascending.
-4. **Wait for ClickHouse** (`wait_for_signal_in_clickhouse_activity`): Polls for a specific `document_id` by exact `toDate(timestamp)` match and `inserted_at >= (now - 1 minute)`, confirming that _this specific ingestion_ landed before processing the next signal. Does not filter on `deleted` — if a signal was emitted into a deleted report it will still be found.
+4. **Wait for ClickHouse** (`wait_for_signal_in_clickhouse_activity`): Accepts a list of signals and polls until all appear. Uses `count(DISTINCT document_id)` with `document_id IN {signal_ids}` and a timestamp range spanning `min(timestamp)` to `max(timestamp)`, plus `inserted_at >= (now - 1 minute)`, confirming that _this specific ingestion_ landed. Accepts a `max_wait_time_seconds` parameter (default 3600s / 1 hour) with a 10-second poll interval. Does not filter on `deleted` — if a signal was emitted into a deleted report it will still be found.
 
 ---
 
