@@ -7,7 +7,7 @@ import { LemonDivider, LemonTabs, LemonTag, LemonTagType, Link } from '@posthog/
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { humanFriendlyMilliseconds, isURL } from 'lib/utils'
+import { humanFriendlyMilliseconds, isURL, isKeyOf } from 'lib/utils'
 import { PerformanceEventSizeInfo, itemSizeInfo } from 'scenes/session-recordings/apm/performance-event-utils'
 import { NavigationItem } from 'scenes/session-recordings/player/inspector/components/NavigationItem'
 import { PerformanceEventLabel } from 'scenes/session-recordings/player/inspector/components/PerformanceEventLabel'
@@ -17,50 +17,50 @@ import { urls } from 'scenes/urls'
 
 import { Body, PerformanceEvent } from '~/types'
 
-const friendlyHttpStatus = {
-    '0': 'Request not sent',
-    '200': 'OK',
-    '201': 'Created',
-    '202': 'Accepted',
-    '203': 'Non-Authoritative Information',
-    '204': 'No Content',
-    '205': 'Reset Content',
-    '206': 'Partial Content',
-    '300': 'Multiple Choices',
-    '301': 'Moved Permanently',
-    '302': 'Found',
-    '303': 'See Other',
-    '304': 'Not Modified',
-    '305': 'Use Proxy',
-    '306': 'Unused',
-    '307': 'Temporary Redirect',
-    '400': 'Bad Request',
-    '401': 'Unauthorized',
-    '402': 'Payment Required',
-    '403': 'Forbidden',
-    '404': 'Not Found',
-    '405': 'Method Not Allowed',
-    '406': 'Not Acceptable',
-    '407': 'Proxy Authentication Required',
-    '408': 'Request Timeout',
-    '409': 'Conflict',
-    '410': 'Gone',
-    '411': 'Length Required',
-    '412': 'Precondition Required',
-    '413': 'Request Entry Too Large',
-    '414': 'Request-URI Too Long',
-    '415': 'Unsupported Media Type',
-    '416': 'Requested Range Not Satisfiable',
-    '417': 'Expectation Failed',
-    '418': "I'm a teapot",
-    '429': 'Too Many Requests',
-    '500': 'Internal Server Error',
-    '501': 'Not Implemented',
-    '502': 'Bad Gateway',
-    '503': 'Service Unavailable',
-    '504': 'Gateway Timeout',
-    '505': 'HTTP Version Not Supported',
-}
+const FriendlyHttpStatus = {
+    0: 'Request not sent',
+    200: 'OK',
+    201: 'Created',
+    202: 'Accepted',
+    203: 'Non-Authoritative Information',
+    204: 'No Content',
+    205: 'Reset Content',
+    206: 'Partial Content',
+    300: 'Multiple Choices',
+    301: 'Moved Permanently',
+    302: 'Found',
+    303: 'See Other',
+    304: 'Not Modified',
+    305: 'Use Proxy',
+    306: 'Unused',
+    307: 'Temporary Redirect',
+    400: 'Bad Request',
+    401: 'Unauthorized',
+    402: 'Payment Required',
+    403: 'Forbidden',
+    404: 'Not Found',
+    405: 'Method Not Allowed',
+    406: 'Not Acceptable',
+    407: 'Proxy Authentication Required',
+    408: 'Request Timeout',
+    409: 'Conflict',
+    410: 'Gone',
+    411: 'Length Required',
+    412: 'Precondition Required',
+    413: 'Request Entry Too Large',
+    414: 'Request-URI Too Long',
+    415: 'Unsupported Media Type',
+    416: 'Requested Range Not Satisfiable',
+    417: 'Expectation Failed',
+    418: "I'm a teapot",
+    429: 'Too Many Requests',
+    500: 'Internal Server Error',
+    501: 'Not Implemented',
+    502: 'Bad Gateway',
+    503: 'Service Unavailable',
+    504: 'Gateway Timeout',
+    505: 'HTTP Version Not Supported',
+} as const
 
 export interface ItemPerformanceEventProps {
     item: PerformanceEvent
@@ -449,21 +449,23 @@ export function HeadersDisplay({
 }
 
 export function StatusTag({ item, detailed }: { item: PerformanceEvent; detailed: boolean }): JSX.Element | null {
-    if (item.response_status === undefined) {
+    const { response_status: responseStatus, transfer_size: transferSize, response_body: responseBody } = item
+
+    if (responseStatus === undefined) {
         return null
     }
 
     let fromDiskCache = false
-    if (item.transfer_size === 0 && item.response_body && item.response_status && item.response_status < 400) {
+    if (transferSize === 0 && responseBody && responseStatus && responseStatus < 400) {
         fromDiskCache = true
     }
 
-    const statusDescription = `${item.response_status} ${friendlyHttpStatus[item.response_status] || ''}`
+    const statusDescription = `${responseStatus} ${isKeyOf(responseStatus, FriendlyHttpStatus) ? FriendlyHttpStatus[responseStatus] : ''}`
 
     let statusType: LemonTagType = 'success'
-    if (item.response_status >= 400 || item.response_status < 100) {
+    if (responseStatus >= 400 || responseStatus < 100) {
         statusType = 'warning'
-    } else if (item.response_status >= 500) {
+    } else if (responseStatus >= 500) {
         statusType = 'danger'
     }
 

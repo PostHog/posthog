@@ -37,12 +37,10 @@ describe('datasetItemModalLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        jest.clearAllMocks()
+        jest.resetAllMocks()
 
-        mockApi.datasetItems = {
-            create: jest.fn().mockResolvedValue(mockDatasetItem),
-            update: jest.fn().mockResolvedValue(mockDatasetItem),
-        } as any
+        jest.spyOn(mockApi.datasetItems, 'create').mockResolvedValue(mockDatasetItem)
+        jest.spyOn(mockApi.datasetItems, 'update').mockResolvedValue(mockDatasetItem)
     })
 
     it('save resets shouldCloseModal to true after creating item', async () => {
