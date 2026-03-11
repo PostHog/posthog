@@ -1,23 +1,43 @@
-/**
- * Product manifest for tracing.
- *
- * Defines scenes, routes, URLs, and navigation for this product.
- */
-import { ProductManifest } from '../../frontend/src/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { urls } from 'scenes/urls'
+
+import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
+import { FileSystemIconColor, ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
     name: 'Tracing',
     scenes: {
-        // Define scenes here
+        Tracing: {
+            name: 'Tracing',
+            import: () => import('./frontend/TracingScene'),
+            projectBased: true,
+            layout: 'app-container',
+            defaultDocsPath: '/docs/tracing',
+            activityScope: 'Tracing',
+            description: 'Monitor and analyze distributed traces to understand service performance and debug issues.',
+            iconType: 'tracing',
+        },
     },
     routes: {
-        // Define routes here
+        '/tracing': ['Tracing', 'tracing'],
     },
     redirects: {},
     urls: {
-        // Define URL helpers here
+        tracing: (): string => '/tracing',
     },
     fileSystemTypes: {},
     treeItemsNew: [],
-    treeItemsProducts: [],
+    treeItemsProducts: [
+        {
+            path: 'Tracing',
+            intents: [ProductKey.TRACING],
+            category: 'Unreleased',
+            iconType: 'tracing' as FileSystemIconType,
+            iconColor: ['var(--color-product-tracing-light)'] as FileSystemIconColor,
+            href: urls.tracing(),
+            flag: FEATURE_FLAGS.TRACING,
+            tags: ['alpha'],
+            sceneKey: 'Tracing',
+        },
+    ],
 }
