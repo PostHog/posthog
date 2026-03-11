@@ -9,17 +9,6 @@ const DEV_POSTHOG_HOST = env.POSTHOG_ANALYTICS_HOST ?? POSTHOG_HOST
 
 let _client: PostHog | undefined
 
-export enum AnalyticsEvent {
-    MCP_TOOL_CALL = 'mcp tool call',
-    MCP_TOOL_RESPONSE = 'mcp tool response',
-    AI_TRACE = '$ai_trace',
-    AI_SPAN = '$ai_span',
-}
-
-export function generateId(): string {
-    return crypto.randomUUID()
-}
-
 export const getPostHogClient = (devMode?: boolean): PostHog => {
     if (!_client) {
         const apiKey = devMode ? DEV_POSTHOG_API_KEY : POSTHOG_API_KEY
