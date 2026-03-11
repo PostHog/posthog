@@ -7,7 +7,7 @@ on:
     pull_request:
         paths:
             - '.github/workflows/ci-phrocs.yml'
-            - 'common/phrocs/**'
+            - 'tools/phrocs/**'
 
 permissions:
     contents: read
@@ -29,8 +29,8 @@ jobs:
               uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
               with:
                   version: latest
-                  working-directory: common/phrocs
+                  working-directory: tools/phrocs
                   args: --timeout=5m
 
             - name: Run tests
-              run: cd common/phrocs && go test -v ./...
+              run: cd tools/phrocs && go test -v ./...

@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"image/color"
 	"log"
 	"os/exec"
 	"strings"
@@ -149,7 +148,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case key.Matches(msg, m.keys.CopyEsc):
 				m.dbg("copy mode: exit")
 				m.copyMode = false
-				m.applyCopyStyleFunc()
+				m.applyCopyStyle()
 				m = m.applySize()
 
 			case key.Matches(msg, m.keys.CopyMode):
@@ -160,34 +159,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					text := m.copySelectedText()
 					m.dbg("copy mode: copied %d lines", strings.Count(text, "\n")+1)
 					m.copyMode = false
-					m.applyCopyStyleFunc()
+					m.applyCopyStyle()
 					m = m.applySize()
 					return m, tea.SetClipboard(text)
 				} else {
 					m.copyAnchor = -1
 					m.dbg("copy mode: anchor cleared")
 				}
-				m.applyCopyStyleFunc()
+				m.applyCopyStyle()
 
 			case key.Matches(msg, m.keys.NextProc):
 				total := m.viewport.TotalLineCount()
 				if m.copyCursor < total-1 {
 					m.copyCursor++
 					m.ensureCopyCursorVisible()
-					m.applyCopyStyleFunc()
+					m.applyCopyStyle()
 				}
 
 			case key.Matches(msg, m.keys.PrevProc):
 				if m.copyCursor > 0 {
 					m.copyCursor--
 					m.ensureCopyCursorVisible()
-					m.applyCopyStyleFunc()
+					m.applyCopyStyle()
 				}
 
 			case key.Matches(msg, m.keys.GotoTop):
 				m.copyCursor = 0
 				m.ensureCopyCursorVisible()
-				m.applyCopyStyleFunc()
+				m.applyCopyStyle()
 
 			case key.Matches(msg, m.keys.GotoBottom):
 				total := m.viewport.TotalLineCount()
@@ -195,7 +194,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.copyCursor = total - 1
 				}
 				m.ensureCopyCursorVisible()
-				m.applyCopyStyleFunc()
+				m.applyCopyStyle()
 			}
 			return m, tea.Batch(cmds...)
 		}
@@ -289,7 +288,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// the user presses 'c' again to mark the selection start
 			m.copyCursor = m.viewport.YOffset()
 			m.copyAnchor = -1
-			m.applyCopyStyleFunc()
+			m.applyCopyStyle()
 			m.dbg("copy mode: enter at line %d", m.copyCursor)
 
 		default:
@@ -451,7 +450,7 @@ func (m Model) buildContent() string {
 // Updates the viewport's StyleLineFunc to highlight the
 // current copy selection. Must be called after any change to copyMode,
 // copyAnchor, or copyCursor.
-func (m *Model) applyCopyStyleFunc() {
+func (m *Model) applyCopyStyle() {
 	if !m.copyMode {
 		m.viewport.StyleLineFunc = nil
 		return
@@ -526,7 +525,7 @@ func (m Model) renderHeader() string {
 			running++
 		}
 	}
-	meta := headerMetaStyle.Render(fmt.Sprintf("%d running  ", running))
+	meta := headerMetaStyle.Render(fmt.Sprintf("%d running", running))
 
 	if m.copyMode {
 		if p := m.activeProc(); p != nil {
@@ -661,13 +660,6 @@ func (m *Model) ensureSidebarCursorVisible() {
 	if m.cursor >= m.sidebarOffset+h {
 		m.sidebarOffset = m.cursor - h + 1
 	}
-
-	if m.sidebarOffset > maxOffset {
-		m.sidebarOffset = maxOffset
-	}
-	if m.sidebarOffset < 0 {
-		m.sidebarOffset = 0
-	}
 }
 
 func (m Model) renderOutput() string {
@@ -701,47 +693,4 @@ func (m Model) renderFooter() string {
 		content = m.help.ShortHelpView(m.keys.ShortHelp())
 	}
 	return footerStyle.Width(m.width - 2).Render(content)
-}
-
-func statusIconChar(s process.Status) string {
-	switch s {
-	case process.StatusRunning:
-		return iconCharRunning
-	case process.StatusPending:
-		return iconCharPending
-	case process.StatusStopped:
-		return iconCharStopped
-	case process.StatusDone:
-		return iconCharDone
-	case process.StatusCrashed:
-		return iconCharCrashed
-	default:
-		return iconCharStopped
-	}
-}
-
-func statusIconColor(s process.Status) color.Color {
-	switch s {
-	case process.StatusRunning:
-		return colorGreen
-	case process.StatusPending:
-		return colorYellow
-	case process.StatusStopped, process.StatusDone:
-		return colorGrey
-	case process.StatusCrashed:
-		return colorRed
-	default:
-		return colorYellow
-	}
-}
-
-func truncate(s string, maxLen int) string {
-	if maxLen <= 0 {
-		return ""
-	}
-	runes := []rune(s)
-	if len(runes) <= maxLen {
-		return s
-	}
-	return string(runes[:maxLen-1]) + "…"
 }

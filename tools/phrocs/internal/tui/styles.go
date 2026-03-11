@@ -1,6 +1,11 @@
 package tui
 
-import "charm.land/lipgloss/v2"
+import (
+	"image/color"
+
+	"charm.land/lipgloss/v2"
+	"github.com/posthog/posthog/phrocs/internal/process"
+)
 
 // Plain Unicode, no embedded ANSI so they can be safely composed
 // without resetting the enclosing background or foreground colour
@@ -42,6 +47,7 @@ var (
 			Padding(0, 1)
 
 	stripesStyle = lipgloss.NewStyle().
+			PaddingLeft(1).
 			Render(
 			lipgloss.NewStyle().Background(colorBlue).Render(" ") +
 				lipgloss.NewStyle().Background(colorYellow).Render(" ") +
@@ -80,3 +86,46 @@ var (
 			Background(colorBlue).
 			Foreground(colorWhite)
 )
+
+func statusIconChar(s process.Status) string {
+	switch s {
+	case process.StatusRunning:
+		return iconCharRunning
+	case process.StatusPending:
+		return iconCharPending
+	case process.StatusStopped:
+		return iconCharStopped
+	case process.StatusDone:
+		return iconCharDone
+	case process.StatusCrashed:
+		return iconCharCrashed
+	default:
+		return iconCharStopped
+	}
+}
+
+func statusIconColor(s process.Status) color.Color {
+	switch s {
+	case process.StatusRunning:
+		return colorGreen
+	case process.StatusPending:
+		return colorYellow
+	case process.StatusStopped, process.StatusDone:
+		return colorGrey
+	case process.StatusCrashed:
+		return colorRed
+	default:
+		return colorYellow
+	}
+}
+
+func truncate(s string, maxLen int) string {
+	if maxLen <= 0 {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) <= maxLen {
+		return s
+	}
+	return string(runes[:maxLen-1]) + "…"
+}
