@@ -281,18 +281,29 @@ function mergeWithExisting(
         byBaseOperationId.set(base, { name, config })
     }
 
-    const openApiBaseIds = new Set(ops.map((op) => op.operationId.replace(/_\d+$/, '')))
+    const openApiByBase = new Map(ops.map((op) => [op.operationId.replace(/_\d+$/, ''), op]))
     const mergedTools: Record<string, unknown> = {}
     let added = 0
+    let removed = 0
 
-    // Add operations in OpenAPI order
+    // Preserve existing tool order and hand-authored operation values
+    for (const [name, config] of Object.entries(existingTools)) {
+        const base = config.operation.replace(/_\d+$/, '')
+        const op = openApiByBase.get(base)
+        if (op) {
+            // Keep the author's chosen operation variant — they may have picked
+            // a specific _N suffix deliberately (e.g. _2 for /api/projects/ path)
+            mergedTools[name] = { ...config }
+        } else {
+            removed++
+        }
+    }
+
+    // Append new operations (not yet in YAML) at the end
+    const existingBaseIds = new Set(Object.values(existingTools).map((c) => c.operation.replace(/_\d+$/, '')))
     for (const op of ops) {
         const base = op.operationId.replace(/_\d+$/, '')
-        const existing = byBaseOperationId.get(base)
-        if (existing) {
-            // Preserve MCP-specific config, update operationId to the deduplicated one
-            mergedTools[existing.name] = { ...existing.config, operation: op.operationId }
-        } else {
+        if (!existingBaseIds.has(base)) {
             mergedTools[operationIdToToolName(op.operationId)] = {
                 operation: op.operationId,
                 enabled: false,
@@ -300,9 +311,6 @@ function mergeWithExisting(
             added++
         }
     }
-
-    // Count removed (in old YAML but not in OpenAPI anymore)
-    const removed = [...byBaseOperationId.keys()].filter((id) => !openApiBaseIds.has(id)).length
 
     const merged = {
         category: existing.category ?? tag.charAt(0).toUpperCase() + tag.slice(1),
