@@ -392,12 +392,6 @@ def sync_old_schemas_with_new_schemas(
 ) -> tuple[list[str], list[str]]:
     old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
 
-    # Rename schemas matched by stable identity before name-based diffing
-    _resolve_renames(old_schemas, new_schemas)
-
-    new_schema_names = new_schemas.keys()
-    old_schemas_names = {schema.name for schema in old_schemas}
-
     if descriptions:
         for old_schema in old_schemas:
             new_description = descriptions.get(old_schema.name)
@@ -405,9 +399,13 @@ def sync_old_schemas_with_new_schemas(
                 old_schema.description = new_description
                 old_schema.save(update_fields=["description", "updated_at"])
 
+    # Update display labels on existing schemas
+    _update_labels(old_schemas, new_schemas)
+
+    new_schema_names = list(new_schemas.keys())
     schemas_to_create = [name for name in new_schema_names if name not in old_schemas_names]
 
-    schemas_to_possibly_delete = [name for name in old_schemas_names if name not in new_schema_names]
+    schemas_to_possibly_delete = [schema for schema in old_schemas_names if schema not in new_schema_names]
     deleted_schemas: list[str] = []
     actually_created: list[str] = []
 
