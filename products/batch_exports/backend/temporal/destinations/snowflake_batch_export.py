@@ -815,8 +815,8 @@ class SnowflakeClient:
                     "Missing one or more fields from the table's primary key, "
                     f"which are required for mutable models: {', '.join(f"'{name}'" for name in missing_primary_key_fields)}. "
                     "Please review your batch export configuration: "
-                    "- Has the model been updated without updating the target table?"
-                    "- Have you configured the correct table for this model?"
+                    "\n\t- Has the model been updated without updating the target table?"
+                    "\n\t- Have you configured the correct table for this model?"
                 )
 
             missing_version_key_fields = set(table.version_key) - existing
@@ -825,8 +825,8 @@ class SnowflakeClient:
                     "Missing one or more fields from the table's version key, "
                     f"which are required for mutable models: {', '.join(f"'{name}'" for name in missing_version_key_fields)}. "
                     "Please review your batch export configuration: "
-                    "- Has the model been updated without updating the target table?"
-                    "- Have you configured the correct table for this model?"
+                    "\n\t- Has the model been updated without updating the target table?"
+                    "\n\t- Have you configured the correct table for this model?"
                 )
 
         record_batch_field_names = {field.name.lower() for field in table.fields}
