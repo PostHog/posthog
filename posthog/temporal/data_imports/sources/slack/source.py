@@ -89,7 +89,6 @@ class SlackSource(SimpleSource[SlackSourceConfig], OAuthMixin):
                     supports_incremental=len(msg_config.incremental_fields) > 0,
                     supports_append=len(msg_config.incremental_fields) > 0,
                     incremental_fields=msg_config.incremental_fields,
-                    metadata={"channel_id": ch["id"]},
                 )
             )
 
@@ -119,10 +118,8 @@ class SlackSource(SimpleSource[SlackSourceConfig], OAuthMixin):
         if not access_token:
             raise ValueError(f"Slack access token not found for job {inputs.job_id}")
 
-        # For channel schemas, name is the channel_id itself
-        channel_id = inputs.sync_type_config.get("channel_id") or (
-            inputs.schema_name if inputs.schema_name not in ENDPOINTS else None
-        )
+        # For channel schemas, the schema name is the channel ID itself
+        channel_id = inputs.schema_name if inputs.schema_name not in ENDPOINTS else None
 
         return slack_source(
             access_token=access_token,
