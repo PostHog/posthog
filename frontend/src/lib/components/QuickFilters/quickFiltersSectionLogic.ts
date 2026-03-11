@@ -202,8 +202,13 @@ export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
         }
     }),
 
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, cache }) => ({
         '*': () => {
+            const param = router.values.currentLocation.searchParams[QUICK_FILTERS_URL_PARAM] ?? ''
+            if (param === cache.lastQuickFiltersParam) {
+                return
+            }
+            cache.lastQuickFiltersParam = param
             actions.restoreFiltersFromUrl()
         },
     })),
