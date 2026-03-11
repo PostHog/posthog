@@ -121,6 +121,9 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub personhog_timeout_ms: u64,
 
+    #[envconfig(default = "5000")]
+    pub personhog_connect_timeout_ms: u64,
+
     #[envconfig(default = "0")]
     pub personhog_rollout_percentage: u32,
 }

@@ -33,12 +33,18 @@ impl GroupTypeResolver {
 
         let personhog_client = if !config.personhog_addr.is_empty() {
             let timeout = std::time::Duration::from_millis(config.personhog_timeout_ms);
+            let connect_timeout =
+                std::time::Duration::from_millis(config.personhog_connect_timeout_ms);
             match Channel::from_shared(config.personhog_addr.clone()) {
                 Ok(endpoint) => {
-                    let channel = endpoint.timeout(timeout).connect_lazy();
+                    let channel = endpoint
+                        .timeout(timeout)
+                        .connect_timeout(connect_timeout)
+                        .connect_lazy();
                     info!(
                         addr = %config.personhog_addr,
                         timeout_ms = config.personhog_timeout_ms,
+                        connect_timeout_ms = config.personhog_connect_timeout_ms,
                         rollout_pct = config.personhog_rollout_percentage,
                         "Created personhog gRPC client"
                     );
