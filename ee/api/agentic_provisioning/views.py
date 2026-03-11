@@ -839,12 +839,12 @@ def _region_to_host(region: str) -> str:
 def stripe_login(request: Any) -> HttpResponseBase:
     token = request.GET.get("token", "")
     if not token:
-        return HttpResponseRedirect(f"{settings.SITE_URL}/?error=missing_token")
+        return HttpResponseRedirect("/?error=missing_token")
 
     cache_key = f"{DEEP_LINK_CACHE_PREFIX}{token}"
     link_data = cache.get(cache_key)
     if link_data is None:
-        return HttpResponseRedirect(f"{settings.SITE_URL}/?error=expired_or_invalid_token")
+        return HttpResponseRedirect("/?error=expired_or_invalid_token")
 
     cache.delete(cache_key)
 
@@ -854,10 +854,10 @@ def stripe_login(request: Any) -> HttpResponseBase:
     try:
         user = User.objects.get(id=user_id)
     except User.DoesNotExist:
-        return HttpResponseRedirect(f"{settings.SITE_URL}/?error=user_not_found")
+        return HttpResponseRedirect("/?error=user_not_found")
 
     auth_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
     if team_id:
-        return HttpResponseRedirect(f"{settings.SITE_URL}/project/{team_id}")
-    return HttpResponseRedirect(settings.SITE_URL)
+        return HttpResponseRedirect(f"/project/{team_id}")
+    return HttpResponseRedirect("/")

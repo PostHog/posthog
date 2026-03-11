@@ -1,5 +1,5 @@
 import time
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode
 
 from django.core.cache import cache
 from django.test import override_settings
@@ -118,5 +118,4 @@ class TestStripeLogin(StripeProvisioningTestBase):
         )
         res = self.client.get(f"/login/stripe?token={token}")
         assert res.status_code == 302
-        parsed = urlparse(res.url)
-        assert parsed.path == "/" or parsed.path == ""
+        assert res.url == "/"
