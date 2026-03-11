@@ -23,12 +23,12 @@ export interface QuickFiltersSectionProps {
     filterIds?: string[] | null
 }
 
-// Display selected quick filters
-export function QuickFiltersSelectors({
+export function QuickFiltersSection({
     context,
     logicKey,
+    onNewFilterCreated,
     filterIds,
-}: Pick<QuickFiltersSectionProps, 'context' | 'logicKey' | 'filterIds'>): JSX.Element | null {
+}: QuickFiltersSectionProps): JSX.Element {
     const { quickFilters } = useValues(quickFiltersLogic({ context }))
     const { selectedQuickFilters } = useValues(quickFiltersSectionLogic({ context, logicKey }))
     const { setQuickFilterValue, clearQuickFilter } = useActions(quickFiltersSectionLogic({ context, logicKey }))
@@ -39,10 +39,6 @@ export function QuickFiltersSelectors({
         }
         return quickFilters.filter((filter: QuickFilter) => filterIds.includes(filter.id))
     }, [quickFilters, filterIds])
-
-    if (filtersToShow.length === 0) {
-        return null
-    }
 
     return (
         <>
@@ -65,21 +61,6 @@ export function QuickFiltersSelectors({
                     />
                 )
             })}
-        </>
-    )
-}
-
-export function QuickFiltersSection({
-    context,
-    logicKey,
-    onNewFilterCreated,
-    filterIds,
-}: QuickFiltersSectionProps): JSX.Element {
-    const { quickFilters } = useValues(quickFiltersLogic({ context }))
-
-    return (
-        <>
-            <QuickFiltersSelectors context={context} logicKey={logicKey} filterIds={filterIds} />
             <QuickFiltersConfigureButton
                 context={context}
                 onNewFilterCreated={onNewFilterCreated}

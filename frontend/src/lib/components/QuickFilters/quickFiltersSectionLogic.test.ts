@@ -42,6 +42,16 @@ const mockQuickFilters: QuickFilter[] = [
         created_at: '2024-01-01',
         updated_at: '2024-01-01',
     },
+    {
+        id: 'filter-3',
+        name: 'Region',
+        property_name: '$region',
+        type: 'manual-options',
+        options: [{ id: 'opt:with:colons', value: 'eu-west', label: 'EU West', operator: PropertyOperator.Exact }],
+        contexts: [QuickFilterContext.ErrorTrackingIssueFilters],
+        created_at: '2024-01-01',
+        updated_at: '2024-01-01',
+    },
 ]
 
 describe('quickFiltersSectionLogic', () => {
@@ -233,6 +243,22 @@ describe('quickFiltersSectionLogic', () => {
                         propertyName: '$browser',
                         optionId: 'opt-chrome',
                         value: 'Chrome',
+                        operator: PropertyOperator.Exact,
+                    },
+                },
+            })
+        })
+
+        it('restores option IDs containing colons from URL', async () => {
+            await mountWithUrl('filter-3:opt:with:colons')
+
+            expectLogic(logic).toMatchValues({
+                selectedQuickFilters: {
+                    'filter-3': {
+                        filterId: 'filter-3',
+                        propertyName: '$region',
+                        optionId: 'opt:with:colons',
+                        value: 'eu-west',
                         operator: PropertyOperator.Exact,
                     },
                 },
