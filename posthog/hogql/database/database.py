@@ -1484,11 +1484,13 @@ def _get_active_external_data_schemas(warehouse_table: DataWarehouseTable) -> li
 
 def _strip_external_source_prefix(source: ExternalDataSource, table_name: str) -> str:
     source_type = source.source_type.lower()
-    prefix = (source.prefix or "").strip("_").lower()
+    raw_prefix = (source.prefix or "").lower()
+    prefix = raw_prefix.strip("_")
 
     table_name_stripped = table_name
     known_prefixes = [
         f"{source_type}_{source.pk.hex}_",
+        f"{raw_prefix}{source_type}_" if raw_prefix else None,
         f"{prefix}_{source_type}_" if prefix else None,
         f"{prefix}{source_type}_" if prefix else None,
         f"{source_type}_",

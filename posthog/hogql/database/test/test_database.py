@@ -2040,6 +2040,14 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 "postgres.analytics_platform_preaggregationjob",
             ),
             (
+                "warehouse_source_with_leading_underscore_prefix",
+                ExternalDataSource.AccessMethod.WAREHOUSE,
+                "Postgres",
+                "_ph3",
+                "_ph3postgres_analytics_platform_preaggregationjob",
+                "postgres.ph3.analytics_platform_preaggregationjob",
+            ),
+            (
                 "direct_source_canonical_with_prefix",
                 ExternalDataSource.AccessMethod.DIRECT,
                 "Postgres",
