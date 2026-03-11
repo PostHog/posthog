@@ -21,6 +21,7 @@ impl From<storage::Person> for Person {
             version: person.version.unwrap_or(0),
             is_identified: person.is_identified,
             is_user_id: person.is_user_id,
+            last_seen_at: person.last_seen_at.map(|t| t.timestamp_millis()),
         }
     }
 }

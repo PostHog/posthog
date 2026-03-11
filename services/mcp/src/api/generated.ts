@@ -886,7 +886,14 @@ export namespace Schemas {
       Group: 'group',
     } as const;
 
+    /**
+     * @nullable
+     */
+    export type GroupPropertyFilterGroupKeyNames = {[key: string]: string} | null | null;
+
     export interface GroupPropertyFilter {
+      /** @nullable */
+      group_key_names?: GroupPropertyFilterGroupKeyNames;
       /** @nullable */
       group_type_index?: number | null;
       key: string;
@@ -5007,6 +5014,7 @@ export namespace Schemas {
     * `day` - day
     * `week` - week
     * `every 5 minutes` - every 5 minutes
+    * `every 15 minutes` - every 15 minutes
      */
     export type IntervalEnum = typeof IntervalEnum[keyof typeof IntervalEnum];
 
@@ -5016,6 +5024,7 @@ export namespace Schemas {
       Day: 'day',
       Week: 'week',
       Every5Minutes: 'every 5 minutes',
+      Every15Minutes: 'every 15 minutes',
     } as const;
 
     /**
@@ -15960,6 +15969,7 @@ export namespace Schemas {
     /**
      * * `posthog` - posthog
     * `twig` - twig
+    * `posthog-code` - posthog-code
      */
     export type InstallSourceEnum = typeof InstallSourceEnum[keyof typeof InstallSourceEnum];
 
@@ -15967,6 +15977,7 @@ export namespace Schemas {
     export const InstallSourceEnum = {
       Posthog: 'posthog',
       Twig: 'twig',
+      PosthogCode: 'posthog-code',
     } as const;
 
     export interface InstallCustom {
@@ -15999,8 +16010,12 @@ export namespace Schemas {
 
     export interface LLMPrompt {
       readonly id: string;
-      /** @maxLength 255 */
+      /**
+       * Unique prompt name using letters, numbers, hyphens, and underscores only.
+       * @maxLength 255
+       */
       name: string;
+      /** Prompt payload as JSON or string data. */
       prompt: unknown;
       readonly version: number;
       readonly created_by: UserBasic;
@@ -20618,8 +20633,12 @@ export namespace Schemas {
     }
 
     export interface PatchedLLMPromptPublish {
+      /** Prompt payload to publish as a new version. */
       prompt?: unknown;
-      /** @minimum 1 */
+      /**
+       * Latest version you are editing from. Used for optimistic concurrency checks.
+       * @minimum 1
+       */
       base_version?: number;
     }
 
@@ -22819,13 +22838,19 @@ export namespace Schemas {
        * @nullable
        */
       error?: string | null;
+      /** @nullable */
+      hasMore?: boolean | null;
       /**
        * Generated HogQL query.
        * @nullable
        */
       hogql?: string | null;
+      /** @nullable */
+      limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** @nullable */
+      offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
@@ -22840,8 +22865,18 @@ export namespace Schemas {
 
     export interface TeamTaxonomyQuery {
       kind?: TeamTaxonomyQueryKind;
+      /**
+       * Number of rows to return
+       * @nullable
+       */
+      limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /**
+       * Number of rows to skip before returning rows
+       * @nullable
+       */
+      offset?: number | null;
       response?: TeamTaxonomyQueryResponse | null;
       tags?: QueryLogTags | null;
       /**
@@ -24956,13 +24991,19 @@ export namespace Schemas {
        * @nullable
        */
       error?: string | null;
+      /** @nullable */
+      hasMore?: boolean | null;
       /**
        * Generated HogQL query.
        * @nullable
        */
       hogql?: string | null;
+      /** @nullable */
+      limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** @nullable */
+      offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
@@ -27768,10 +27809,15 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Optional substring filter applied to prompt names and prompt content.
+     */
+    search?: string;
     };
 
     export type LlmPromptsNameRetrieveParams = {
     /**
+     * Specific prompt version to fetch. If omitted, the latest version is returned.
      * @minimum 1
      */
     version?: number;
@@ -27779,22 +27825,29 @@ export namespace Schemas {
 
     export type LlmPromptsResolveNameRetrieveParams = {
     /**
+     * Return versions older than this version number. Mutually exclusive with offset.
      * @minimum 1
      */
     before_version?: number;
     /**
+     * Maximum number of versions to return per page (1-100).
      * @minimum 1
      * @maximum 100
      */
     limit?: number;
     /**
+     * Zero-based offset into version history for pagination. Mutually exclusive with before_version.
      * @minimum 0
      */
     offset?: number;
     /**
+     * Specific prompt version to fetch. If omitted, the latest version is returned.
      * @minimum 1
      */
     version?: number;
+    /**
+     * Exact prompt version UUID to resolve. Can be used together with version for extra safety.
+     */
     version_id?: string;
     };
 
@@ -27824,6 +27877,7 @@ export namespace Schemas {
     /**
      * * `posthog` - posthog
     * `twig` - twig
+    * `posthog-code` - posthog-code
      * @minLength 1
      */
     install_source?: McpServerInstallationsAuthorizeRetrieveInstallSource;
@@ -27837,6 +27891,7 @@ export namespace Schemas {
     export const McpServerInstallationsAuthorizeRetrieveInstallSource = {
       Posthog: 'posthog',
       Twig: 'twig',
+      PosthogCode: 'posthog-code',
     } as const;
 
     export type McpServersListParams = {
