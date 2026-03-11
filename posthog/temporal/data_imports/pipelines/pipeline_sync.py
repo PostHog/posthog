@@ -67,6 +67,17 @@ async def update_last_synced_at(job_id: str, schema_id: str, team_id: int) -> No
     await _update()
 
 
+async def set_initial_sync_complete(schema_id: str, team_id: int) -> None:
+    @database_sync_to_async_pool
+    def _update():
+        schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema_id, team_id=team_id)
+        if not schema.initial_sync_complete:
+            schema.initial_sync_complete = True
+            schema.save(update_fields=["initial_sync_complete"])
+
+    await _update()
+
+
 async def validate_schema_and_update_table(
     run_id: str,
     team_id: int,

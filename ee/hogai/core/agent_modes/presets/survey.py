@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 
 from posthog.schema import AgentMode
 
+from ee.hogai.chat_agent.executables import ChatAgentPlanExecutable, ChatAgentPlanToolsExecutable
 from ee.hogai.core.agent_modes.factory import AgentModeDefinition
 from ee.hogai.core.agent_modes.toolkit import AgentToolkit
 from ee.hogai.tools.todo_write import TodoWriteExample
@@ -114,7 +115,7 @@ survey_agent = AgentModeDefinition(
 )
 
 
-class SubagentSurveyAgentToolkit(AgentToolkit):
+class ReadOnlySurveyAgentToolkit(AgentToolkit):
     """Survey toolkit for subagents — only includes SurveyAnalysisTool (read-only)."""
 
     @property
@@ -124,8 +125,16 @@ class SubagentSurveyAgentToolkit(AgentToolkit):
         return [SurveyAnalysisTool]
 
 
-SUBAGENT_MODE_DESCRIPTION = "Specialized mode for analyzing surveys. Analyze survey responses to extract themes, sentiment, and actionable insights."
+READ_ONLY_SURVEY_MODE_DESCRIPTION = "Specialized mode for analyzing surveys. Analyze survey responses to extract themes, sentiment, and actionable insights."
 
 subagent_survey_agent = replace(
-    survey_agent, toolkit_class=SubagentSurveyAgentToolkit, mode_description=SUBAGENT_MODE_DESCRIPTION
+    survey_agent, toolkit_class=ReadOnlySurveyAgentToolkit, mode_description=READ_ONLY_SURVEY_MODE_DESCRIPTION
+)
+
+chat_agent_plan_survey_agent = AgentModeDefinition(
+    mode=AgentMode.FLAGS,
+    mode_description=READ_ONLY_SURVEY_MODE_DESCRIPTION,
+    toolkit_class=ReadOnlySurveyAgentToolkit,
+    node_class=ChatAgentPlanExecutable,
+    tools_node_class=ChatAgentPlanToolsExecutable,
 )

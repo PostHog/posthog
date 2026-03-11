@@ -1,6 +1,6 @@
-import { RecordingSegment } from '~/types'
+import { SnapshotStore } from '@posthog/replay-shared'
 
-import { SnapshotStore } from '../snapshot-store/SnapshotStore'
+import { RecordingSegment } from '~/types'
 
 export function convertSegmentKinds(
     segments: RecordingSegment[],
