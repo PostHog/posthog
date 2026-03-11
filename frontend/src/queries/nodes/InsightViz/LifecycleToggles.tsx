@@ -3,7 +3,10 @@ import { useActions, useValues } from 'kea'
 import { LemonCheckbox, LemonLabel } from '@posthog/lemon-ui'
 
 import { capitalizeFirstLetter } from 'lib/utils'
-import { getAggregationTargetPronoun } from 'scenes/insights/filters/aggregationTargetUtils'
+import {
+    AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE,
+    getAggregationTargetPronoun,
+} from 'scenes/insights/filters/aggregationTargetUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
@@ -57,13 +60,16 @@ export function getLifecycleTooltip(
 }
 
 export function LifecycleToggles({ insightProps }: EditorFilterProps): JSX.Element {
-    const { insightFilter, aggregationGroupTypeIndex } = useValues(insightVizDataLogic(insightProps))
+    const { insightFilter, aggregationGroupTypeIndex, querySource } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
     const { aggregationLabel } = useValues(groupsModel)
 
     const toggledLifecycles = (insightFilter as LifecycleFilter)?.toggledLifecycles || DEFAULT_LIFECYCLE_TOGGLES
-    const aggregationTargetLabel = aggregationLabel(aggregationGroupTypeIndex)
-    const aggregationTargetPronoun = getAggregationTargetPronoun(aggregationGroupTypeIndex)
+    const customAggregationTarget = querySource?.customAggregationTarget === true
+    const aggregationTargetLabel = customAggregationTarget
+        ? AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE
+        : aggregationLabel(aggregationGroupTypeIndex)
+    const aggregationTargetPronoun = getAggregationTargetPronoun(aggregationGroupTypeIndex, customAggregationTarget)
 
     const toggleLifecycle = (name: LifecycleToggle): void => {
         if (toggledLifecycles.includes(name)) {

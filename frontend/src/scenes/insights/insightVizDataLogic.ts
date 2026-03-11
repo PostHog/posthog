@@ -39,6 +39,7 @@ import {
     InsightFilter,
     InsightFilterProperty,
     InsightQueryNode,
+    LifecycleQuery,
     Node,
     NodeKind,
     ProductAnalyticsInsightQueryNode,
@@ -75,6 +76,7 @@ import {
     isFunnelsQuery,
     isInsightQueryNode,
     isInsightVizNode,
+    isLifecycleDataWarehouseNode,
     isLifecycleQuery,
     isNodeWithSource,
     isPathsQuery,
@@ -809,6 +811,15 @@ const handleQuerySourceUpdateSideEffects = (
             ...(insightFilter as FunnelsFilter),
             ...getClampedFunnelStepRange(insightFilter as FunnelsFilter, funnelSeries),
         }
+    }
+
+    if (
+        maybeChangedSeries &&
+        isLifecycleQuery(currentState) &&
+        currentState.customAggregationTarget &&
+        !maybeChangedSeries.some((series) => isLifecycleDataWarehouseNode(series))
+    ) {
+        ;(mergedUpdate as LifecycleQuery).customAggregationTarget = undefined
     }
 
     /*

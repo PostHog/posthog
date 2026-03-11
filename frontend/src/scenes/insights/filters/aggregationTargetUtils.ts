@@ -1,3 +1,13 @@
-export function getAggregationTargetPronoun(aggregation_group_type_index: number | null | undefined): 'who' | 'that' {
-    return aggregation_group_type_index != null ? 'that' : 'who'
+import { Noun } from '~/models/groupsModel'
+
+export const AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE: Noun = {
+    singular: 'entity',
+    plural: 'entities',
+}
+
+export function getAggregationTargetPronoun(
+    aggregationGroupTypeIndex: number | null | undefined,
+    customAggregationTarget: boolean = false
+): 'who' | 'that' {
+    return customAggregationTarget || aggregationGroupTypeIndex != null ? 'that' : 'who'
 }
