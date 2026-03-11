@@ -1,5 +1,6 @@
 import { actions, connect, defaults, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -101,7 +102,7 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
             },
         },
     })),
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, props }) => ({
         loadRecordingFromFile: ({ recording }: { recording: ExportedSessionRecordingFileV2['data'] }) => {
             const { id, snapshots, person } = recording
             actions.setSnapshots(snapshots)
@@ -123,6 +124,13 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
             if (!values.sessionPlayerMetaDataLoading) {
                 actions.loadRecordingMeta()
             }
+        },
+
+        loadRecordingMetaFailure: () => {
+            posthog.capture('recording not found', {
+                recording_id: props.sessionRecordingId,
+                current_url: window.location.href,
+            })
         },
     })),
 ])
