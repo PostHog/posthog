@@ -608,6 +608,8 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_field_type": None,
                     "last_synced_at": schema.last_synced_at,
                     "name": schema.name,
+                    "label": schema.label,
+                    "display_name": schema.display_name,
                     "latest_error": schema.latest_error,
                     "should_sync": schema.should_sync,
                     "status": schema.status,
@@ -817,7 +819,7 @@ class TestExternalDataSource(APIBaseTest):
 
         restored_schema = ExternalDataSchema.objects.get(pk=deleted_schema.pk)
         self.assertFalse(restored_schema.deleted)
-        self.assertFalse(restored_schema.should_sync)
+        self.assertTrue(restored_schema.should_sync)
         self.assertEqual(restored_schema.sync_type_config.get("legacy_key"), "keep")
 
     def test_refresh_schemas_returns_400_when_no_job_inputs(self):
@@ -1546,6 +1548,7 @@ class TestExternalDataSource(APIBaseTest):
             assert response.json() == [
                 {
                     "table": "table_1",
+                    "name": "table_1",
                     "should_sync": False,
                     "rows": 42,
                     "incremental_fields": [
@@ -1595,6 +1598,7 @@ class TestExternalDataSource(APIBaseTest):
             assert response.json() == [
                 {
                     "table": "table_1",
+                    "name": "table_1",
                     "should_sync": False,
                     "rows": 42,
                     "incremental_fields": [
