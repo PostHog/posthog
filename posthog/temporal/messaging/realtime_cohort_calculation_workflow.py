@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 
 # Configuration
 FLUSH_BATCH_SIZE = int(os.environ.get("COHORT_KAFKA_FLUSH_BATCH_SIZE", "1000"))
+DURATION_UPDATE_RELATIVE_THRESHOLD = 0.25  # Only update duration when change exceeds 25%
 
 # Cohort calculation timing histograms
 COHORT_CALCULATION_TOTAL_DURATION_HISTOGRAM = Histogram(
@@ -222,38 +223,44 @@ async def flush_kafka_batch(
 
 
 @database_sync_to_async
-def _batch_update_cohort_durations(cohort_durations: dict[int, int]) -> None:
+def _batch_update_cohort_durations(cohort_durations: dict[int, int]) -> int:
     """Batch update cohort durations and last calculation timestamps.
 
-    Only updates durations that changed by more than 25% from the previous value.
+    Only updates duration_ms when it changed by more than DURATION_UPDATE_RELATIVE_THRESHOLD from the previous value.
+    Always updates last_calculation timestamp.
+
+    Returns count of cohorts that had their duration updated.
     """
     if not cohort_durations:
-        return
+        return 0
 
     now = dt.datetime.now(dt.UTC)
-    cohorts_to_update = []
-
     all_cohorts = list(Cohort.objects.filter(id__in=cohort_durations.keys()))
+    duration_updates_count = 0
 
     for cohort in all_cohorts:
         new_duration = cohort_durations[cohort.pk]
         previous_duration = cohort.last_calculation_duration_ms or 0
 
-        # Calculate percentage change
+        # Always update last_calculation timestamp
+        cohort.last_calculation = now
+
+        # Only update duration_ms if it changed significantly
         if previous_duration > 0:
             percentage_change = abs(new_duration - previous_duration) / previous_duration
-            should_update = percentage_change > 0.25  # 25% threshold
+            should_update_duration = percentage_change > DURATION_UPDATE_RELATIVE_THRESHOLD
         else:
-            # First calculation or previous was 0, always update
-            should_update = True
+            # First calculation or previous was 0, always update duration
+            should_update_duration = True
 
-        if should_update:
+        if should_update_duration:
             cohort.last_calculation_duration_ms = new_duration
-            cohort.last_calculation = now
-            cohorts_to_update.append(cohort)
+            duration_updates_count += 1
 
-    if cohorts_to_update:
-        Cohort.objects.bulk_update(cohorts_to_update, ["last_calculation_duration_ms", "last_calculation"])
+    # Update all cohorts (some with duration change, all with timestamp)
+    Cohort.objects.bulk_update(all_cohorts, ["last_calculation_duration_ms", "last_calculation"])
+
+    return duration_updates_count
 
 
 @temporalio.activity.defn
@@ -551,15 +558,16 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
         # Batch update all cohort durations at once
         if cohort_durations:
             batch_update_start = time.monotonic()
-            await _batch_update_cohort_durations(cohort_durations)
+            duration_updates_count = await _batch_update_cohort_durations(cohort_durations)
             batch_update_duration = time.monotonic() - batch_update_start
 
             # Record batch update timing
             COHORT_DURATION_UPDATE_HISTOGRAM.labels(percentile_bucket=percentile_bucket).observe(batch_update_duration)
 
             logger.info(
-                f"Batch duration update completed: {len(cohort_durations)} cohorts processed",
+                f"Batch duration update completed: {duration_updates_count}/{len(cohort_durations)} cohorts had duration updated",
                 cohorts_processed=len(cohort_durations),
+                duration_updates=duration_updates_count,
                 batch_update_duration_ms=int(batch_update_duration * 1000),
             )
 
