@@ -13,26 +13,22 @@ const (
 )
 
 var (
-	colorOrange   = lipgloss.Color("#F54E00")
+	colorYellow   = lipgloss.Color("#F7A501")
 	colorBlue     = lipgloss.Color("#1D4AFF")
 	colorGrey     = lipgloss.Color("#9BA1B2")
 	colorDarkGrey = lipgloss.Color("#3D3F43")
 	colorGreen    = lipgloss.Color("#2DCC5D")
 	colorRed      = lipgloss.Color("#F04438")
-	colorYellow   = lipgloss.Color("#F9A825")
 	colorWhite    = lipgloss.Color("#FFFFFF")
+	colorBlack    = lipgloss.Color("#151515")
 )
 
 // Outer width of the process list column (including border)
 const sidebarWidth = 24
 
-// PostHog brand gradient colors for the header bar
-var (
-	colorHeaderBlue   = lipgloss.Color("#1D4AFF")
-	colorHeaderYellow = lipgloss.Color("#F7A501")
-	colorHeaderRed    = lipgloss.Color("#F54E00")
-	colorHeaderBlack  = lipgloss.Color("#151515")
-)
+const headerHeight = 1
+const footerHeightShort = 3
+const footerHeightFull = 5
 
 var (
 	// Header
@@ -48,6 +44,9 @@ var (
 	// Sidebar
 	sidebarBorderStyle = lipgloss.NewStyle().
 				BorderRight(true).
+				BorderTop(true).
+				BorderBottom(true).
+				BorderLeft(true).
 				BorderStyle(lipgloss.NormalBorder()).
 				BorderForeground(colorDarkGrey)
 
@@ -55,11 +54,17 @@ var (
 				PaddingLeft(1).
 				Foreground(colorGrey)
 
+	// Output
+	outputBorderStyle = lipgloss.NewStyle().
+				BorderRight(true).
+				BorderTop(true).
+				BorderBottom(true).
+				BorderLeft(true).
+				BorderStyle(lipgloss.NormalBorder()).
+				BorderForeground(colorDarkGrey)
+
 	// Footer
 	footerStyle = lipgloss.NewStyle().
-			BorderTop(true).
-			BorderStyle(lipgloss.NormalBorder()).
-			BorderForeground(colorDarkGrey).
 			Foreground(colorGrey).
 			PaddingLeft(1)
 )

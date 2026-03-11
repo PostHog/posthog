@@ -17,9 +17,6 @@ import (
 	"github.com/posthog/posthog/phrocs/internal/process"
 )
 
-const headerHeight = 1
-const footerHeight = 3
-
 type focusPane int
 
 const (
@@ -384,9 +381,9 @@ func (m Model) activeProc() *process.Process {
 // Recalculates viewport/sidebar dimensions whenever the terminal resizes
 // or the footer height changes.
 func (m Model) applySize() Model {
-	fh := footerHeight
+	fh := footerHeightShort
 	if m.showHelp {
-		fh = 7
+		fh = footerHeightFull
 	}
 	contentH := m.height - headerHeight - fh
 	if contentH < 1 {
@@ -518,7 +515,7 @@ func (m Model) copySelectedText() string {
 }
 
 func (m Model) renderHeader() string {
-	brand := headerBrandStyle.Render("  phrocs")
+	brand := headerBrandStyle.Render("phrocs")
 
 	running := 0
 	for _, p := range m.procs {
@@ -528,21 +525,24 @@ func (m Model) renderHeader() string {
 	}
 	meta := headerMetaStyle.Render(fmt.Sprintf("%d running  ", running))
 
+	blueBg := lipgloss.NewStyle().Background(colorBlue).Render(" ")
+	yellowBg := lipgloss.NewStyle().Background(colorYellow).Render(" ")
+	redBg := lipgloss.NewStyle().Background(colorRed).Render(" ")
+	blackBg := lipgloss.NewStyle().Background(colorBlack).Render(" ")
+
 	if m.copyMode {
 		if p := m.activeProc(); p != nil {
 			label := lipgloss.NewStyle().
 				Foreground(colorWhite).
 				Bold(true).
 				Render(p.Name)
-			blue := lipgloss.NewStyle().Background(colorHeaderBlue).Render(" ")
-			yellow := lipgloss.NewStyle().Background(colorHeaderYellow).Render(" ")
-			red := lipgloss.NewStyle().Background(colorHeaderRed).Render(" ")
-			black := lipgloss.NewStyle().Background(colorHeaderBlack).Render(" ")
-			stripes := blue + yellow + red + black
+
+			stripes := lipgloss.NewStyle().PaddingLeft(1).Render(blueBg + yellowBg + redBg + blackBg)
 			stripesW := lipgloss.Width(stripes)
 
 			labelW := lipgloss.Width(label)
 			innerW := m.width - stripesW - lipgloss.Width(brand) - lipgloss.Width(meta)
+
 			leftGap := (innerW - labelW) / 2
 			if leftGap < 0 {
 				leftGap = 0
@@ -553,17 +553,12 @@ func (m Model) renderHeader() string {
 			}
 			left := lipgloss.NewStyle().Width(leftGap).Render("")
 			right := lipgloss.NewStyle().Width(rightGap).Render("")
+
 			return lipgloss.JoinHorizontal(lipgloss.Top, stripes, brand, left, label, right, meta)
 		}
 	}
 
-	// Slim PostHog brand stripes + text with no background
-	blue := lipgloss.NewStyle().Background(colorHeaderBlue).Render(" ")
-	yellow := lipgloss.NewStyle().Background(colorHeaderYellow).Render(" ")
-	red := lipgloss.NewStyle().Background(colorHeaderRed).Render(" ")
-	black := lipgloss.NewStyle().Background(colorHeaderBlack).Render(" ")
-	stripes := blue + yellow + red + black
-
+	stripes := lipgloss.NewStyle().PaddingLeft(1).Render(blueBg + yellowBg + redBg + blackBg)
 	spacerW := m.width - lipgloss.Width(stripes) - lipgloss.Width(brand) - lipgloss.Width(meta)
 	if spacerW < 0 {
 		spacerW = 0
@@ -590,7 +585,7 @@ func (m Model) renderSidebar() string {
 	}
 	end := min(len(m.procs), start+h)
 
-	var sb strings.Builder
+	var rows []string
 	for i := start; i < end; i++ {
 		p := m.procs[i]
 		iconChar := statusIconChar(p.Status())
@@ -611,37 +606,31 @@ func (m Model) renderSidebar() string {
 		// which would silently terminate the background highlight after the icon
 		// and make the active-row cursor invisible.
 		if i == m.cursor {
-			selectedBg := colorDarkGrey
-			if m.focusedPane == focusSidebar {
-				selectedBg = colorBlue
-			}
-			base := lipgloss.NewStyle().Background(selectedBg).Bold(true)
+			base := lipgloss.NewStyle().Background(colorDarkGrey).Bold(true)
 			iconSeg := base.PaddingLeft(1).Foreground(iconColor).Render(iconChar)
 			// Width covers the remaining columns: innerW minus the 2 chars
 			// already consumed by PaddingLeft + icon.
 			nameSeg := base.Foreground(colorWhite).Width(innerW - 2).Render(" " + name)
-			sb.WriteString(iconSeg + nameSeg)
+			rows = append(rows, iconSeg+nameSeg)
 		} else {
 			iconSeg := lipgloss.NewStyle().PaddingLeft(1).Foreground(iconColor).Render(iconChar)
 			nameSeg := lipgloss.NewStyle().Foreground(colorGrey).Width(innerW - 2).Render(" " + name)
-			sb.WriteString(iconSeg + nameSeg)
+			rows = append(rows, iconSeg+nameSeg)
 		}
-		sb.WriteByte('\n')
 	}
 
 	// Pad remaining rows so the sidebar border extends the full height.
 	for i := end - start; i < h; i++ {
-		sb.WriteString(procInactiveStyle.Width(innerW).Render(""))
-		sb.WriteByte('\n')
+		rows = append(rows, procInactiveStyle.Width(innerW).Render(""))
 	}
 
-	return sidebarBorderStyle.Height(h).Render(sb.String())
+	return sidebarBorderStyle.Height(h).Render(strings.Join(rows, "\n"))
 }
 
 func (m Model) sidebarHeight() int {
-	fh := footerHeight
+	fh := footerHeightShort
 	if m.showHelp {
-		fh = 7
+		fh = footerHeightFull
 	}
 	h := m.height - headerHeight - fh
 	if h < 1 {
@@ -683,7 +672,7 @@ func (m *Model) ensureSidebarCursorVisible() {
 }
 
 func (m Model) renderOutput() string {
-	return m.viewport.View()
+	return outputBorderStyle.Render(m.viewport.View())
 }
 
 func (m Model) renderFooter() string {
