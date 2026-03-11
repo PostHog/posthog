@@ -4141,6 +4141,11 @@ export namespace Schemas {
       readonly calculated_value: number | null;
       readonly state: State66aEnum;
       readonly targets_notified: boolean;
+      readonly anomaly_scores: unknown | null;
+      readonly triggered_points: unknown | null;
+      readonly triggered_dates: unknown | null;
+      /** @nullable */
+      readonly interval: string | null;
     }
 
     export type TrendsAlertConfigType = typeof TrendsAlertConfigType[keyof typeof TrendsAlertConfigType];
@@ -4156,6 +4161,121 @@ export namespace Schemas {
       series_index: number;
       type?: TrendsAlertConfigType;
     }
+
+    export interface PreprocessingConfig {
+      /**
+       * Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)
+       * @nullable
+       */
+      diffs_n?: number | null;
+      /**
+       * Number of lag features. 0 = none, >0 = include n lagged values (default: 0)
+       * @nullable
+       */
+      lags_n?: number | null;
+      /**
+       * Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)
+       * @nullable
+       */
+      smooth_n?: number | null;
+    }
+
+    export type ZScoreDetectorConfigType = typeof ZScoreDetectorConfigType[keyof typeof ZScoreDetectorConfigType];
+
+
+    export const ZScoreDetectorConfigType = {
+      Zscore: 'zscore',
+    } as const;
+
+    export interface ZScoreDetectorConfig {
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /**
+       * Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)
+       * @nullable
+       */
+      threshold?: number | null;
+      type?: ZScoreDetectorConfigType;
+      /**
+       * Rolling window size for calculating mean/std (default: 30)
+       * @nullable
+       */
+      window?: number | null;
+    }
+
+    export type MADDetectorConfigType = typeof MADDetectorConfigType[keyof typeof MADDetectorConfigType];
+
+
+    export const MADDetectorConfigType = {
+      Mad: 'mad',
+    } as const;
+
+    export interface MADDetectorConfig {
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /**
+       * Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)
+       * @nullable
+       */
+      threshold?: number | null;
+      type?: MADDetectorConfigType;
+      /**
+       * Rolling window size for calculating median/MAD (default: 30)
+       * @nullable
+       */
+      window?: number | null;
+    }
+
+    export type ThresholdDetectorConfigType = typeof ThresholdDetectorConfigType[keyof typeof ThresholdDetectorConfigType];
+
+
+    export const ThresholdDetectorConfigType = {
+      Threshold: 'threshold',
+    } as const;
+
+    export interface ThresholdDetectorConfig {
+      /**
+       * Lower bound - values below this are anomalies
+       * @nullable
+       */
+      lower_bound?: number | null;
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      type?: ThresholdDetectorConfigType;
+      /**
+       * Upper bound - values above this are anomalies
+       * @nullable
+       */
+      upper_bound?: number | null;
+    }
+
+    export type EnsembleOperator = typeof EnsembleOperator[keyof typeof EnsembleOperator];
+
+
+    export const EnsembleOperator = {
+      And: 'and',
+      Or: 'or',
+    } as const;
+
+    export type EnsembleDetectorConfigType = typeof EnsembleDetectorConfigType[keyof typeof EnsembleDetectorConfigType];
+
+
+    export const EnsembleDetectorConfigType = {
+      Ensemble: 'ensemble',
+    } as const;
+
+    export interface EnsembleDetectorConfig {
+      /** Sub-detector configurations (minimum 2) */
+      detectors: (ZScoreDetectorConfig | MADDetectorConfig | ThresholdDetectorConfig)[];
+      /** How to combine sub-detector results */
+      operator: EnsembleOperator;
+      type?: EnsembleDetectorConfigType;
+    }
+
+    /**
+     * Detector configuration types
+     */
+    export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | ThresholdDetectorConfig;
 
     /**
      * * `hourly` - hourly
@@ -4195,6 +4315,7 @@ export namespace Schemas {
       readonly next_check_at: string | null;
       readonly checks: readonly AlertCheck[];
       config?: TrendsAlertConfig | null;
+      detector_config?: DetectorConfig | null;
       calculation_interval?: CalculationIntervalEnum | BlankEnum | NullEnum | null;
       /** @nullable */
       snoozed_until?: string | null;
@@ -19178,6 +19299,7 @@ export namespace Schemas {
       readonly next_check_at?: string | null;
       readonly checks?: readonly AlertCheck[];
       config?: TrendsAlertConfig | null;
+      detector_config?: DetectorConfig | null;
       calculation_interval?: CalculationIntervalEnum | BlankEnum | NullEnum | null;
       /** @nullable */
       snoozed_until?: string | null;

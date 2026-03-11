@@ -1159,6 +1159,12 @@ class DefaultChannelTypes(StrEnum):
     UNKNOWN = "Unknown"
 
 
+class DetectorType(StrEnum):
+    ZSCORE = "zscore"
+    MAD = "mad"
+    THRESHOLD = "threshold"
+
+
 class DistanceFunc(StrEnum):
     L1_DISTANCE = "L1Distance"
     L2_DISTANCE = "L2Distance"
@@ -1297,6 +1303,11 @@ class Metric(StrEnum):
     REQUESTS = "requests"
     QUERY_DURATION = "query_duration"
     ERROR_RATE = "error_rate"
+
+
+class EnsembleOperator(StrEnum):
+    AND_ = "and"
+    OR_ = "or"
 
 
 class EntityType(StrEnum):
@@ -6069,6 +6080,24 @@ class PlanningStep(BaseModel):
     status: PlanningStepStatus
 
 
+class PreprocessingConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    diffs_n: int | None = Field(
+        default=None,
+        description=("Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"),
+    )
+    lags_n: int | None = Field(
+        default=None,
+        description=("Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"),
+    )
+    smooth_n: int | None = Field(
+        default=None,
+        description=("Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"),
+    )
+
+
 class ProductItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7080,6 +7109,18 @@ class TestCachedBasicQueryResponse(BaseModel):
     )
 
 
+class ThresholdDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    lower_bound: float | None = Field(default=None, description="Lower bound - values below this are anomalies")
+    preprocessing: PreprocessingConfig | None = Field(
+        default=None, description="Preprocessing transforms applied before detection"
+    )
+    type: Literal["threshold"] = "threshold"
+    upper_bound: float | None = Field(default=None, description="Upper bound - values above this are anomalies")
+
+
 class TraceQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7483,6 +7524,24 @@ class WebVitalsPathBreakdownResult(BaseModel):
     good: list[WebVitalsPathBreakdownResultItem]
     needs_improvements: list[WebVitalsPathBreakdownResultItem]
     poor: list[WebVitalsPathBreakdownResultItem]
+
+
+class ZScoreDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    preprocessing: PreprocessingConfig | None = Field(
+        default=None, description="Preprocessing transforms applied before detection"
+    )
+    threshold: float | None = Field(
+        default=None,
+        description=("Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)"),
+    )
+    type: Literal["zscore"] = "zscore"
+    window: int | None = Field(
+        default=None,
+        description="Rolling window size for calculating mean/std (default: 30)",
+    )
 
 
 class ActorsPropertyTaxonomyQueryResponse(BaseModel):
@@ -12165,6 +12224,24 @@ class LogsQueryResponse(BaseModel):
     )
 
 
+class MADDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    preprocessing: PreprocessingConfig | None = Field(
+        default=None, description="Preprocessing transforms applied before detection"
+    )
+    threshold: float | None = Field(
+        default=None,
+        description=("Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)"),
+    )
+    type: Literal["mad"] = "mad"
+    window: int | None = Field(
+        default=None,
+        description="Rolling window size for calculating median/MAD (default: 30)",
+    )
+
+
 class MarketingAnalyticsAggregatedQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -15822,6 +15899,17 @@ class EndpointsUsageTrendsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class EnsembleDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    detectors: list[ZScoreDetectorConfig | MADDetectorConfig | ThresholdDetectorConfig] = Field(
+        ..., description="Sub-detector configurations (minimum 2)"
+    )
+    operator: EnsembleOperator = Field(..., description="How to combine sub-detector results")
+    type: Literal["ensemble"] = "ensemble"
+
+
 class ErrorTrackingBreakdownsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -17070,6 +17158,14 @@ class DatabaseSchemaViewTable(BaseModel):
     query: HogQLQuery
     row_count: float | None = None
     type: Literal["view"] = "view"
+
+
+class DetectorConfig(
+    RootModel[EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | ThresholdDetectorConfig]
+):
+    root: EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | ThresholdDetectorConfig = Field(
+        ..., description="Detector configuration types"
+    )
 
 
 class ErrorTrackingIssueCorrelationQuery(BaseModel):
