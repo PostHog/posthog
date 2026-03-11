@@ -76,7 +76,7 @@ import {
     WebVitalsPathBreakdownQuery,
     WebVitalsQuery,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, IntervalType } from '~/types'
+import { BaseMathType, ChartDisplayType, GroupTypeIndex, IntervalType } from '~/types'
 
 import { LATEST_VERSIONS } from './latest-versions'
 
@@ -503,9 +503,9 @@ export const getCompareFilter = (query: InsightQueryNode): CompareFilter | undef
     return undefined
 }
 
-export const getAggregationGroupTypeIndex = (query: InsightQueryNode): number | null | undefined => {
+export const getAggregationGroupTypeIndex = (query: InsightQueryNode): GroupTypeIndex | null | undefined => {
     if (!isStickinessQuery(query)) {
-        return query.aggregation_group_type_index
+        return query.aggregation_group_type_index as GroupTypeIndex | null | undefined
     }
     return undefined
 }

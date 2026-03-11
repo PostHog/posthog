@@ -6,6 +6,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { groupsModel } from '~/models/groupsModel'
+import { LifecycleQuery } from '~/queries/schema/schema-general'
 
 export function LifecycleSeriesHeader(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -14,7 +15,7 @@ export function LifecycleSeriesHeader(): JSX.Element {
     )
     const { showGroupsOptions } = useValues(groupsModel)
     const showAggregationSelect = showGroupsOptions || hasDataWarehouseSeries
-    const customAggregationTarget = querySource?.customAggregationTarget === true
+    const customAggregationTarget = (querySource as LifecycleQuery | null)?.customAggregationTarget === true
 
     return (
         <div className="leading-6">

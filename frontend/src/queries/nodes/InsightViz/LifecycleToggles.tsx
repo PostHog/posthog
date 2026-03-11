@@ -10,7 +10,7 @@ import {
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
-import { LifecycleFilter } from '~/queries/schema/schema-general'
+import { LifecycleFilter, LifecycleQuery } from '~/queries/schema/schema-general'
 import { EditorFilterProps, LifecycleToggle } from '~/types'
 
 const lifecycles: { name: LifecycleToggle; color: string }[] = [
@@ -65,7 +65,7 @@ export function LifecycleToggles({ insightProps }: EditorFilterProps): JSX.Eleme
     const { aggregationLabel } = useValues(groupsModel)
 
     const toggledLifecycles = (insightFilter as LifecycleFilter)?.toggledLifecycles || DEFAULT_LIFECYCLE_TOGGLES
-    const customAggregationTarget = querySource?.customAggregationTarget === true
+    const customAggregationTarget = (querySource as LifecycleQuery | null)?.customAggregationTarget === true
     const aggregationTargetLabel = customAggregationTarget
         ? AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE
         : aggregationLabel(aggregationGroupTypeIndex)

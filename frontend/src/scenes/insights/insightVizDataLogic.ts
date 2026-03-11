@@ -89,7 +89,14 @@ import {
     nodeKindToFilterProperty,
     supportsPercentStackView,
 } from '~/queries/utils'
-import { BaseMathType, ChartDisplayType, FilterType, InsightLogicProps, SlowQueryPossibilities } from '~/types'
+import {
+    BaseMathType,
+    ChartDisplayType,
+    FilterType,
+    InsightLogicProps,
+    LabelGroupType,
+    SlowQueryPossibilities,
+} from '~/types'
 
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
 
@@ -263,7 +270,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         aggregationGroupTypeIndex: [(s) => [s.querySource], (q) => (q ? getAggregationGroupTypeIndex(q) : null)],
         labelGroupType: [
             (s) => [s.aggregationGroupTypeIndex],
-            (aggregationGroupTypeIndex) => aggregationGroupTypeIndex ?? 'people',
+            (aggregationGroupTypeIndex): LabelGroupType => aggregationGroupTypeIndex ?? 'people',
         ],
         goalLines: [
             (s) => [s.querySource],

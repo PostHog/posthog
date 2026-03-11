@@ -4260,6 +4260,8 @@ export interface PersonProperty {
 
 export type GroupTypeIndex = 0 | 1 | 2 | 3 | 4
 
+export type LabelGroupType = GroupTypeIndex | 'people'
+
 export interface GroupType {
     group_type: string
     group_type_index: GroupTypeIndex
