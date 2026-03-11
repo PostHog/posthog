@@ -17,6 +17,7 @@ from posthog.schema import AssistantEventType, FailureMessage
 from posthog.temporal.ai.base import AgentBaseWorkflow
 from posthog.temporal.common.client import async_connect
 
+from ee.hogai.queue import ConversationQueueStore
 from ee.hogai.stream.redis_stream import (
     CONVERSATION_STREAM_MAX_LENGTH,
     CONVERSATION_STREAM_TIMEOUT,
@@ -240,29 +241,46 @@ class AgentExecutor:
     async def cancel_workflow(self) -> None:
         """Cancel the current conversation and clean up resources.
 
-        This cancels both the main conversation workflow and any running subagent workflows.
+        This cancels the main conversation workflow, any running subagent workflows,
+        any queued message workflows, and clears the cache queue.
 
-        Raises:
-            Exception: If cancellation fails
+        The main workflow cancel is non-fatal because the main workflow may have already
+        completed after spawning a queued workflow. In that case, we still need to cancel
+        the queued workflows and clear the cache queue.
         """
         self._conversation.status = Conversation.Status.CANCELING
         await self._conversation.asave(update_fields=["status", "updated_at"])
 
-        client = await async_connect()
+        try:
+            client = await async_connect()
 
-        # Cancel the main conversation workflow
-        handle = client.get_workflow_handle(workflow_id=self._workflow_id)
-        await handle.cancel()
+            # Cancel the main conversation workflow.
+            # This may fail if the workflow already completed (e.g. after spawning a queued workflow),
+            # but we must continue to cancel queued workflows and clean up.
+            try:
+                handle = client.get_workflow_handle(workflow_id=self._workflow_id)
+                await handle.cancel()
+            except Exception as e:
+                logger.warning(
+                    "Failed to cancel main workflow (may have already completed)",
+                    workflow_id=self._workflow_id,
+                    conversation_id=str(self._conversation.id),
+                    error=str(e),
+                )
 
-        # Cancel any running subagent workflows for this conversation
-        await self._cancel_subagent_workflows(client)
-        # Cancel any queued message workflows for this conversation
-        await self._cancel_queue_workflows(client)
+            # Cancel any running subagent workflows for this conversation
+            await self._cancel_subagent_workflows(client)
+            # Cancel any running queued message workflows for this conversation
+            await self._cancel_queue_workflows(client)
 
-        await self._redis_stream.delete_stream()
+            # Clear the cache queue so no new queued workflows are spawned
+            queue_store = ConversationQueueStore(str(self._conversation.id))
+            await queue_store.clear_async()
 
-        self._conversation.status = Conversation.Status.IDLE
-        await self._conversation.asave(update_fields=["status", "updated_at"])
+            await self._redis_stream.delete_stream()
+        finally:
+            self._conversation.status = Conversation.Status.IDLE
+            await self._conversation.asave(update_fields=["status", "updated_at"])
 
     async def _cancel_subagent_workflows(self, client) -> None:
         """Cancel all running subagent workflows for this conversation.
