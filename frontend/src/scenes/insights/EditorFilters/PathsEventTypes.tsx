@@ -66,6 +66,7 @@ export function PathsEventsTypes({ insightProps }: EditorFilterProps): JSX.Eleme
                 overlay: options.map((option) => (
                     <LemonButton
                         key={option.type}
+                        data-attr={`path-type-${option.type}`}
                         onClick={() => onClickPathtype(option.type)}
                         disabledReason={
                             option.selected && includeEventTypes?.length === 1
@@ -73,7 +74,6 @@ export function PathsEventsTypes({ insightProps }: EditorFilterProps): JSX.Eleme
                                 : undefined
                         }
                         fullWidth
-                        data-attr={option['data-attr']}
                     >
                         <span className="pointer-events-none mr-2">
                             <LemonCheckbox checked={option.selected} />

@@ -1,19 +1,11 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    flush_persons_and_events,
-    snapshot_clickhouse_queries,
-)
+from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 
 from django.forms.models import model_to_dict
 from django.test import override_settings
-from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -21,81 +13,31 @@ from posthog.schema import ActionsNode, ExperimentEventExposureConfig, Experimen
 
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.experiments.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
+from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 from posthog.hogql_queries.experiments.test.experiment_query_runner.utils import create_standard_group_test_events
 from posthog.models.action.action import Action
-from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
 from posthog.test.test_journeys import journeys_for
 
 
 @override_settings(IN_UNIT_TESTING=True)
-class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
-    def create_feature_flag(self, key="test-experiment"):
-        return FeatureFlag.objects.create(
-            name=f"Test experiment flag: {key}",
-            key=key,
-            team=self.team,
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": None}],
-                "multivariate": {
-                    "variants": [
-                        {
-                            "key": "control",
-                            "name": "Control",
-                            "rollout_percentage": 50,
-                        },
-                        {
-                            "key": "test",
-                            "name": "Test",
-                            "rollout_percentage": 50,
-                        },
-                    ]
-                },
-            },
-            created_by=self.user,
-        )
-
-    def create_experiment(
-        self,
-        name="test-experiment",
-        feature_flag=None,
-        start_date=None,
-        end_date=None,
-    ):
-        if feature_flag is None:
-            feature_flag = self.create_feature_flag(name)
-        if start_date is None:
-            start_date = timezone.now()
-        if end_date is None:
-            end_date = timezone.now() + timedelta(days=14)
-
-        # Only make timezone aware if not already aware
-        if timezone.is_naive(start_date):
-            start_date = timezone.make_aware(start_date)
-        if timezone.is_naive(end_date):
-            end_date = timezone.make_aware(end_date)
-
-        return Experiment.objects.create(
-            name=name,
-            team=self.team,
-            feature_flag=feature_flag,
-            start_date=start_date,
-            end_date=end_date,
-            exposure_criteria=None,
-        )
+class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
+    snapshot_replace_all_numbers = True
 
     def setUp(self):
         super().setUp()
         self.feature_flag = self.create_feature_flag()
         self.experiment = self.create_experiment(
             feature_flag=self.feature_flag,
-            start_date=datetime(2024, 1, 1).replace(tzinfo=ZoneInfo("UTC")),
-            end_date=datetime(2024, 1, 7).replace(tzinfo=ZoneInfo("UTC")),
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 7),
         )
 
+    @parameterized.expand([("direct", False), ("precomputed", True)])
     @freeze_time("2024-01-07T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_exposure_query_returns_correct_timeseries(self):
+    def test_exposure_query_returns_correct_timeseries(self, _name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
         ff_property = f"$feature/{self.feature_flag.key}"
 
         # Create test data using journeys
@@ -206,6 +148,8 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
+        self._save_experiment_with_precomputation(self.experiment, use_precomputation)
+
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
@@ -248,9 +192,11 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.total_exposures["control"], 4)
         self.assertEqual(response.total_exposures["test"], 5)
 
+    @parameterized.expand([("direct", False), ("precomputed", True)])
     @freeze_time("2024-01-07T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_exposure_query_counts_users_only_on_first_exposure(self):
+    def test_exposure_query_counts_users_only_on_first_exposure(self, _name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
         ff_property = f"$feature/{self.feature_flag.key}"
 
         journeys_for(
@@ -326,6 +272,8 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
+        self._save_experiment_with_precomputation(self.experiment, use_precomputation)
+
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
@@ -363,9 +311,11 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.total_exposures["control"], 1)
         self.assertEqual(response.total_exposures["test"], 2)
 
+    @parameterized.expand([("direct", False), ("precomputed", True)])
     @freeze_time("2024-01-07T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_exposure_query_filters_test_accounts(self):
+    def test_exposure_query_filters_test_accounts(self, _name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
         ff_property = f"$feature/{self.feature_flag.key}"
 
         _create_person(
@@ -498,6 +448,8 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         self.experiment.exposure_criteria = {"filterTestAccounts": True}
+        if use_precomputation:
+            self.experiment.exposure_preaggregation_enabled = True
         self.experiment.save()
 
         self.team.test_account_filters = [
@@ -533,6 +485,9 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # Run again with filterTestAccounts set to False
         self.experiment.exposure_criteria = {"filterTestAccounts": False}
+        if use_precomputation:
+            self._clean_preaggregation_data()
+            self.experiment.exposure_preaggregation_enabled = True
         self.experiment.save()
 
         query = ExperimentExposureQuery(
@@ -557,13 +512,16 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            "$pageview",
-            "$feature_flag_called",
+            ("pageview_direct", "$pageview", False),
+            ("pageview_precomputed", "$pageview", True),
+            ("feature_flag_called_direct", "$feature_flag_called", False),
+            ("feature_flag_called_precomputed", "$feature_flag_called", True),
         ]
     )
     @freeze_time("2024-01-07T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_exposure_query_with_custom_exposure(self, exposure_event):
+    def test_exposure_query_with_custom_exposure(self, _name, exposure_event, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
         if exposure_event == "$feature_flag_called":
             ff_property = f"$feature_flag_response"
             add_feature_flag_property = True
@@ -658,6 +616,8 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.experiment.exposure_criteria = {
             "exposure_config": exposure_config.model_dump(mode="json"),
         }
+        if use_precomputation:
+            self.experiment.exposure_preaggregation_enabled = True
         self.experiment.save()
 
         query = ExperimentExposureQuery(
@@ -681,9 +641,11 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.total_exposures["control"], 4)
         self.assertEqual(response.total_exposures["test"], 5)
 
+    @parameterized.expand([("direct", False), ("precomputed", True)])
     @freeze_time("2024-01-07T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_exposure_query_without_feature_flag_property(self):
+    def test_exposure_query_without_feature_flag_property(self, _name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
         ff_property = f"$feature/{self.feature_flag.key}"
 
         # Create test data using journeys
@@ -794,6 +756,8 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
+        self._save_experiment_with_precomputation(self.experiment, use_precomputation)
+
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
@@ -815,9 +779,11 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.total_exposures["control"], 4)
         self.assertEqual(response.total_exposures["test"], 5)
 
+    @parameterized.expand([("direct", False), ("precomputed", True)])
     @freeze_time("2024-01-07T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_exposure_query_with_multiple_variant_exposures(self):
+    def test_exposure_query_with_multiple_variant_exposures(self, _name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
         ff_property = f"$feature/{self.feature_flag.key}"
 
         journeys_for(
@@ -882,6 +848,8 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
+        self._save_experiment_with_precomputation(self.experiment, use_precomputation)
+
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
@@ -904,11 +872,15 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.total_exposures["test"], 1)
         self.assertEqual(response.total_exposures[MULTIPLE_VARIANT_KEY], 1)
 
+    @parameterized.expand([("direct", False), ("precomputed", True)])
     @freeze_time("2024-01-07T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_exposure_query_using_group_aggregation(self):
+    def test_exposure_query_using_group_aggregation(self, _name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
         self.experiment.start_date = datetime(2024, 1, 1).replace(tzinfo=ZoneInfo("UTC"))
         self.experiment.end_date = datetime(2024, 1, 28).replace(tzinfo=ZoneInfo("UTC"))
+        if use_precomputation:
+            self.experiment.exposure_preaggregation_enabled = True
         self.experiment.save()
 
         group_type_index = 0
@@ -938,13 +910,17 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.total_exposures["control"], 2)
         self.assertEqual(response.total_exposures["test"], 3)
 
+    @parameterized.expand([("direct", False), ("precomputed", True)])
     @freeze_time("2024-01-07T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_exposure_query_multiple_variant_handling_first_seen(self):
+    def test_exposure_query_multiple_variant_handling_first_seen(self, _name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
         ff_property = f"$feature/{self.feature_flag.key}"
 
         # Set the experiment to use first_seen handling for multiple variants
         self.experiment.exposure_criteria = {"multiple_variant_handling": "first_seen"}
+        if use_precomputation:
+            self.experiment.exposure_preaggregation_enabled = True
         self.experiment.save()
 
         journeys_for(
@@ -1046,9 +1022,11 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Verify no MULTIPLE_VARIANT_KEY appears in total_exposures for first_seen handling
         self.assertNotIn(MULTIPLE_VARIANT_KEY, response.total_exposures)
 
+    @parameterized.expand([("direct", False), ("precomputed", True)])
     @freeze_time("2024-01-07T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_exposure_query_with_action_as_exposure_criteria(self):
+    def test_exposure_query_with_action_as_exposure_criteria(self, _name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
         # Create an action for purchase events with specific properties
         action = Action.objects.create(
             name="Qualified Purchase",
@@ -1118,6 +1096,8 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # Set exposure criteria to use the action
         self.experiment.exposure_criteria = {"exposure_config": ActionsNode(id=action.id).model_dump(mode="json")}
+        if use_precomputation:
+            self.experiment.exposure_preaggregation_enabled = True
         self.experiment.save()
 
         query = ExperimentExposureQuery(
@@ -1155,9 +1135,10 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # All test exposures on 2024-01-02
         self.assertEqual(test_series.exposure_counts[-1], 3)
 
+    @parameterized.expand([("direct", False), ("precomputed", True)])
     @freeze_time("2024-01-07T12:00:00Z")
-    def test_srm_calculation_with_balanced_distribution(self):
-        """SRM should have high p-value when distribution matches expected ratios"""
+    def test_srm_calculation_with_balanced_distribution(self, _name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
         ff_property = f"$feature/{self.feature_flag.key}"
 
         # Create balanced exposures (50 control, 50 test for 50/50 split)
@@ -1189,6 +1170,8 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         journeys_for(journeys, self.team)
         flush_persons_and_events()
 
+        self._save_experiment_with_precomputation(self.experiment, use_precomputation)
+
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
@@ -1216,9 +1199,10 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.sample_ratio_mismatch.expected["control"], 50.0)
         self.assertEqual(response.sample_ratio_mismatch.expected["test"], 50.0)
 
+    @parameterized.expand([("direct", False), ("precomputed", True)])
     @freeze_time("2024-01-07T12:00:00Z")
-    def test_srm_calculation_detects_significant_mismatch(self):
-        """SRM should have low p-value when distribution is significantly different from expected"""
+    def test_srm_calculation_detects_significant_mismatch(self, _name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
         ff_property = f"$feature/{self.feature_flag.key}"
 
         # Create highly imbalanced exposures (90 control, 10 test for 50/50 split)
@@ -1253,6 +1237,8 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         journeys_for(journeys, self.team)
         flush_persons_and_events()
 
+        self._save_experiment_with_precomputation(self.experiment, use_precomputation)
+
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
@@ -1281,9 +1267,10 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.sample_ratio_mismatch.expected["control"], 50.0)
         self.assertEqual(response.sample_ratio_mismatch.expected["test"], 50.0)
 
+    @parameterized.expand([("direct", False), ("precomputed", True)])
     @freeze_time("2024-01-07T12:00:00Z")
-    def test_srm_returns_none_when_insufficient_samples(self):
-        """SRM should return None when total exposures < 100"""
+    def test_srm_returns_none_when_insufficient_samples(self, _name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
         ff_property = f"$feature/{self.feature_flag.key}"
 
         journeys = {}
@@ -1313,6 +1300,8 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         journeys_for(journeys, self.team)
         flush_persons_and_events()
+
+        self._save_experiment_with_precomputation(self.experiment, use_precomputation)
 
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",

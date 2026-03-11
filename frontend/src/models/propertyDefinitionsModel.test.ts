@@ -411,4 +411,58 @@ describe('the property definitions model', () => {
             expect(logic.values.formatPropertyValueForDisplay('$timestamp', undefined)).toEqual(null)
         })
     })
+
+    describe('loading property values', () => {
+        it.each([
+            [
+                'valid array results',
+                { results: [{ name: 'chrome' }, { name: 'firefox' }], refreshing: false },
+                [{ name: 'chrome' }, { name: 'firefox' }],
+            ],
+            ['non-array object in results', { results: { some: 'object' }, refreshing: false }, []],
+            ['null results', { results: null, refreshing: false }, []],
+            ['missing results key', { refreshing: false }, []],
+        ])('handles %s without crashing and stores correct values', async (_label, apiResponse, expectedValues) => {
+            useMocks({
+                get: {
+                    '/api/event/values/': () => [200, apiResponse],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadPropertyValues({
+                    endpoint: undefined,
+                    type: PropertyDefinitionType.Event,
+                    propertyKey: 'browser',
+                    eventNames: [],
+                    newInput: undefined,
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.options['browser'].values).toEqual(expectedValues)
+        })
+
+        it('handles API errors by setting error state and stopping loading', async () => {
+            useMocks({
+                get: {
+                    '/api/event/values/': () => [503, { detail: 'Service Unavailable' }],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadPropertyValues({
+                    endpoint: undefined,
+                    type: PropertyDefinitionType.Event,
+                    propertyKey: 'browser',
+                    eventNames: [],
+                    newInput: undefined,
+                })
+            })
+                .toDispatchActions(['setOptionsLoading', 'setOptionsError'])
+                .toFinishAllListeners()
+
+            expect(logic.values.options['browser'].status).toEqual('error')
+            expect(logic.values.options['browser'].refreshing).toEqual(false)
+        })
+    })
 })

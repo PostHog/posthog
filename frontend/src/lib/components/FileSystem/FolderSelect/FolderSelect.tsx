@@ -166,7 +166,6 @@ export function FolderSelect({
                     selectMode="folder-only"
                     className="px-0 py-1"
                     data={fullFileSystemFiltered}
-                    mode="tree"
                     defaultSelectedFolderOrNodeId={
                         value?.includes('://') ? value : value ? 'project://' + value : undefined
                     }

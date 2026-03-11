@@ -1,0 +1,61 @@
+{
+    "id": 15,
+    "short_id": "emptyBold",
+    "name": "Empty Bold Number",
+    "derived_name": "signed_up count",
+    "filters": {},
+    "filters_hash": "cache_empty_bold_number",
+    "order": null,
+    "deleted": false,
+    "dashboards": [],
+    "last_refresh": "2022-08-09T15:15:30.352651Z",
+    "refreshing": false,
+    "result": [],
+    "created_at": "2022-08-08T14:30:15.912394Z",
+    "created_by": {
+        "id": 6,
+        "uuid": "01827ddb-2c5a-0000-8b59-d02c5e3a4cdc",
+        "distinct_id": "NbZZRONLD9Jn2FUgBbwKkGP0L6qemQZ0x3l7T5HBuCT",
+        "first_name": "Employee 427",
+        "email": "427@posthog.com"
+    },
+    "description": "",
+    "updated_at": "2022-08-08T14:32:27.143626Z",
+    "favorited": false,
+    "saved": true,
+    "last_modified_at": "2022-08-08T14:32:27.095209Z",
+    "last_modified_by": {
+        "id": 6,
+        "uuid": "01827ddb-2c5a-0000-8b59-d02c5e3a4cdc",
+        "distinct_id": "NbZZRONLD9Jn2FUgBbwKkGP0L6qemQZ0x3l7T5HBuCT",
+        "first_name": "Employee 427",
+        "email": "427@posthog.com"
+    },
+    "is_sample": false,
+    "timezone": null,
+    "tags": [],
+    "query": {
+        "kind": "InsightVizNode",
+        "source": {
+            "dateRange": {
+                "date_from": "-7d"
+            },
+            "filterTestAccounts": false,
+            "interval": "day",
+            "kind": "TrendsQuery",
+            "series": [
+                {
+                    "event": "signed_up",
+                    "kind": "EventsNode",
+                    "name": "signed_up"
+                }
+            ],
+            "trendsFilter": {
+                "display": "BoldNumber",
+                "resultCustomizationBy": "value"
+            },
+            "version": 2
+        },
+        "full": true
+    }
+}

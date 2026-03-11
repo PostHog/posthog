@@ -82,7 +82,10 @@ export function InsightDisplayConfig(): JSX.Element {
     const hideWeekendsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS]
 
     const showCompare =
-        (isTrends && display !== ChartDisplayType.ActionsAreaGraph && display !== ChartDisplayType.CalendarHeatmap) ||
+        (isTrends &&
+            display !== ChartDisplayType.ActionsAreaGraph &&
+            display !== ChartDisplayType.CalendarHeatmap &&
+            display !== ChartDisplayType.BoxPlot) ||
         isStickiness ||
         isWebAnalyticsInsightQuery(querySource)
     const showInterval =
@@ -105,6 +108,7 @@ export function InsightDisplayConfig(): JSX.Element {
         trendsDataLogic(insightProps)
     )
 
+    const isBoxPlot = display === ChartDisplayType.BoxPlot
     const advancedOptions: LemonMenuItems = [
         ...((isTrends && display !== ChartDisplayType.CalendarHeatmap) ||
         isRetention ||
@@ -113,24 +117,34 @@ export function InsightDisplayConfig(): JSX.Element {
         isLifecycle
             ? [
                   {
-                      title: 'Display',
-                      items: [
-                          ...(isLifecycle ? [{ label: () => <LifecycleStackingFilter /> }] : []),
-                          ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
-                          ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
-                          ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
-                          ...(display === ChartDisplayType.ActionsPie ? [{ label: () => <ShowPieTotalFilter /> }] : []),
-                          ...(showAlertThresholdLinesConfig
-                              ? [{ label: () => <ShowAlertThresholdLinesFilter /> }]
-                              : []),
-                          ...(showMultipleYAxesConfig ? [{ label: () => <ShowMultipleYAxesFilter /> }] : []),
-                          ...((isTrends || isRetention || isTrendsFunnel) && !isNonTimeSeriesDisplay
-                              ? [{ label: () => <ShowTrendLinesFilter /> }]
-                              : []),
-                          ...(isTrends && !isNonTimeSeriesDisplay && hideWeekendsEnabled
-                              ? [{ label: () => <HideWeekendsFilter /> }]
-                              : []),
-                      ],
+                      title: (
+                          <h5 className="mx-2 my-1" data-attr="options-display-section">
+                              Display
+                          </h5>
+                      ),
+                      items: isBoxPlot
+                          ? hasLegend
+                              ? [{ label: () => <ShowLegendFilter /> }]
+                              : []
+                          : [
+                                ...(isLifecycle ? [{ label: () => <LifecycleStackingFilter /> }] : []),
+                                ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
+                                ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
+                                ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
+                                ...(display === ChartDisplayType.ActionsPie
+                                    ? [{ label: () => <ShowPieTotalFilter /> }]
+                                    : []),
+                                ...(showAlertThresholdLinesConfig
+                                    ? [{ label: () => <ShowAlertThresholdLinesFilter /> }]
+                                    : []),
+                                ...(showMultipleYAxesConfig ? [{ label: () => <ShowMultipleYAxesFilter /> }] : []),
+                                ...((isTrends || isRetention || isTrendsFunnel) && !isNonTimeSeriesDisplay
+                                    ? [{ label: () => <ShowTrendLinesFilter /> }]
+                                    : []),
+                                ...(isTrends && !isNonTimeSeriesDisplay && hideWeekendsEnabled
+                                    ? [{ label: () => <HideWeekendsFilter /> }]
+                                    : []),
+                            ],
                   },
               ]
             : []),
@@ -165,79 +179,83 @@ export function InsightDisplayConfig(): JSX.Element {
                       title: 'Y-axis scale',
                       items: [{ label: () => <ScalePicker /> }],
                   },
-                  {
-                      title: 'Statistical analysis',
-                      items: [
-                          {
-                              label: () => (
-                                  <LemonSwitch
-                                      label="Show confidence intervals"
-                                      className="pb-2"
-                                      fullWidth
-                                      checked={showConfidenceIntervals}
-                                      disabledReason={
-                                          !isLineGraph
-                                              ? 'Confidence intervals are only available for line graphs'
-                                              : !isLinearScale
-                                                ? 'Confidence intervals are only supported for linear scale.'
-                                                : undefined
-                                      }
-                                      onChange={(checked) => {
-                                          if (isTrendsQuery(querySource)) {
-                                              const newQuery = { ...querySource }
-                                              newQuery.trendsFilter = {
-                                                  ...trendsFilter,
-                                                  showConfidenceIntervals: checked,
-                                              }
-                                              updateQuerySource(newQuery)
-                                          }
-                                      }}
-                                  />
-                              ),
-                          },
-                          ...(showConfidenceIntervals
-                              ? [
+                  ...(display === ChartDisplayType.BoxPlot
+                      ? []
+                      : [
+                            {
+                                title: 'Statistical analysis',
+                                items: [
                                     {
-                                        label: () => <ConfidenceLevelInput />,
+                                        label: () => (
+                                            <LemonSwitch
+                                                label="Show confidence intervals"
+                                                className="pb-2"
+                                                fullWidth
+                                                checked={showConfidenceIntervals}
+                                                disabledReason={
+                                                    !isLineGraph
+                                                        ? 'Confidence intervals are only available for line graphs'
+                                                        : !isLinearScale
+                                                          ? 'Confidence intervals are only supported for linear scale.'
+                                                          : undefined
+                                                }
+                                                onChange={(checked) => {
+                                                    if (isTrendsQuery(querySource)) {
+                                                        const newQuery = { ...querySource }
+                                                        newQuery.trendsFilter = {
+                                                            ...trendsFilter,
+                                                            showConfidenceIntervals: checked,
+                                                        }
+                                                        updateQuerySource(newQuery)
+                                                    }
+                                                }}
+                                            />
+                                        ),
                                     },
-                                ]
-                              : []),
-                          {
-                              label: () => (
-                                  <LemonSwitch
-                                      label="Show moving average"
-                                      className="pb-2"
-                                      fullWidth
-                                      checked={showMovingAverage}
-                                      disabledReason={
-                                          !isLineGraph
-                                              ? 'Moving average is only available for line and area graphs'
-                                              : !isLinearScale
-                                                ? 'Moving average is only supported for linear scale.'
-                                                : undefined
-                                      }
-                                      onChange={(checked) => {
-                                          if (isTrendsQuery(querySource)) {
-                                              const newQuery = { ...querySource }
-                                              newQuery.trendsFilter = {
-                                                  ...trendsFilter,
-                                                  showMovingAverage: checked,
-                                              }
-                                              updateQuerySource(newQuery)
-                                          }
-                                      }}
-                                  />
-                              ),
-                          },
-                          ...(showMovingAverage
-                              ? [
+                                    ...(showConfidenceIntervals
+                                        ? [
+                                              {
+                                                  label: () => <ConfidenceLevelInput />,
+                                              },
+                                          ]
+                                        : []),
                                     {
-                                        label: () => <MovingAverageIntervalsInput />,
+                                        label: () => (
+                                            <LemonSwitch
+                                                label="Show moving average"
+                                                className="pb-2"
+                                                fullWidth
+                                                checked={showMovingAverage}
+                                                disabledReason={
+                                                    !isLineGraph
+                                                        ? 'Moving average is only available for line and area graphs'
+                                                        : !isLinearScale
+                                                          ? 'Moving average is only supported for linear scale.'
+                                                          : undefined
+                                                }
+                                                onChange={(checked) => {
+                                                    if (isTrendsQuery(querySource)) {
+                                                        const newQuery = { ...querySource }
+                                                        newQuery.trendsFilter = {
+                                                            ...trendsFilter,
+                                                            showMovingAverage: checked,
+                                                        }
+                                                        updateQuerySource(newQuery)
+                                                    }
+                                                }}
+                                            />
+                                        ),
                                     },
-                                ]
-                              : []),
-                      ],
-                  },
+                                    ...(showMovingAverage
+                                        ? [
+                                              {
+                                                  label: () => <MovingAverageIntervalsInput />,
+                                              },
+                                          ]
+                                        : []),
+                                ],
+                            },
+                        ]),
               ]
             : []),
         ...(mightContainFractionalNumbers && isTrends && display !== ChartDisplayType.CalendarHeatmap

@@ -44,7 +44,7 @@ declare module '@storybook/types' {
              * @default ['chromium']
              */
             snapshotBrowsers?: SupportedBrowserName[]
-            /** If taking a component snapshot, you can narrow it down by specifying the selector. */
+            /** Narrow the snapshot to a specific element by specifying a CSS selector. Works for both component and scene (fullscreen) snapshots. */
             snapshotTargetSelector?: string
             /** specify an alternative viewport size */
             viewport?: { width: number; height: number }
@@ -54,6 +54,10 @@ declare module '@storybook/types' {
              * @default false
              */
             skipIframeWait?: boolean
+            /**
+             * Skip taking a dark mode snapshot. Useful for stories that don't support dark mode or have known issues in dark mode that would cause snapshot failures.
+             */
+            skipDarkMode?: boolean
         }
         msw?: {
             mocks?: Mocks
@@ -74,7 +78,6 @@ const LOADER_SELECTORS = [
     '.Toastify__toast',
     '[aria-busy="true"]',
     '.SessionRecordingPlayer--buffering',
-    '.PlayerSeekbar__segments__item--buffer-loading',
     '.Lettermark--unknown',
     '[data-attr="loading-bar"]',
 ]
@@ -139,7 +142,7 @@ async function expectStoryToMatchSnapshot(
     storyContext: StoryContext,
     browser: SupportedBrowserName
 ): Promise<void> {
-    const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
+    const { skipIframeWait = false, skipDarkMode = false } = storyContext.parameters?.testOptions ?? {}
     await waitForPageReady(page, skipIframeWait)
 
     // set up iframe load tracking early, before they start loading
@@ -230,7 +233,9 @@ async function expectStoryToMatchSnapshot(
 
     // Snapshot both light and dark themes
     await takeSnapshotWithTheme(page, context, browser, 'light', storyContext)
-    await takeSnapshotWithTheme(page, context, browser, 'dark', storyContext)
+    if (!skipDarkMode) {
+        await takeSnapshotWithTheme(page, context, browser, 'dark', storyContext)
+    }
 }
 
 async function takeSnapshotWithTheme(
@@ -394,12 +399,17 @@ async function expectStoryToMatchSceneSnapshot(
     page: Page,
     context: TestContext,
     browser: SupportedBrowserName,
-    theme: SnapshotTheme
+    theme: SnapshotTheme,
+    targetSelector?: string
 ): Promise<void> {
-    // If the `main` element isn't present, let's use `body` - this is needed in logged-out screens.
-    // We use .last(), because the order of selector matches is based on the order of elements in the DOM,
-    // and not the order of the selectors in the query.
-    await expectLocatorToMatchStorySnapshot(page.locator('body, main').last(), context, browser, theme)
+    if (targetSelector) {
+        await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme)
+    } else {
+        // If the `main` element isn't present, let's use `body` - this is needed in logged-out screens.
+        // We use .last(), because the order of selector matches is based on the order of elements in the DOM,
+        // and not the order of the selectors in the query.
+        await expectLocatorToMatchStorySnapshot(page.locator('body, main').last(), context, browser, theme)
+    }
 }
 
 async function expectStoryToMatchComponentSnapshot(

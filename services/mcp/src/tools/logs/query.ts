@@ -7,7 +7,12 @@ const schema = LogsQueryInputSchema
 
 type Params = z.infer<typeof schema>
 
-export const logsQueryHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+type Result = { results: unknown; hasMore: boolean; nextCursor: unknown }
+
+export const logsQueryHandler: ToolBase<typeof schema, Result>['handler'] = async (
+    context: Context,
+    params: Params
+) => {
     const projectId = await context.stateManager.getProjectId()
 
     const logsResult = await context.api.logs({ projectId }).query({ params })
@@ -22,7 +27,7 @@ export const logsQueryHandler: ToolBase<typeof schema>['handler'] = async (conte
     }
 }
 
-const tool = (): ToolBase<typeof schema> => ({
+const tool = (): ToolBase<typeof schema, Result> => ({
     name: 'logs-query',
     schema,
     handler: logsQueryHandler,

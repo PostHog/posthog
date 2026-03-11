@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import json
 import time
@@ -10,9 +12,12 @@ import logging
 import tempfile
 import subprocess
 from collections.abc import Iterable
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
+
+if TYPE_CHECKING:
+    from products.tasks.backend.temporal.process_task.utils import McpServerConfig
 
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.temporal.exceptions import (
@@ -44,7 +49,7 @@ class DockerSandbox:
     config: SandboxConfig
     _container_id: str
     _host_port: int | None
-    _registry: dict[str, "DockerSandbox"] = {}
+    _registry: dict[str, DockerSandbox] = {}
 
     def __init__(self, container_id: str, config: SandboxConfig, host_port: int | None = None):
         self._container_id = container_id
@@ -225,7 +230,7 @@ class DockerSandbox:
         return url
 
     @staticmethod
-    def create(config: SandboxConfig) -> "DockerSandbox":
+    def create(config: SandboxConfig) -> DockerSandbox:
         try:
             image = DockerSandbox._get_image(config)
             container_name = f"{config.name}-{uuid.uuid4().hex[:6]}"
@@ -285,7 +290,7 @@ class DockerSandbox:
             )
 
     @staticmethod
-    def get_by_id(sandbox_id: str) -> "DockerSandbox":
+    def get_by_id(sandbox_id: str) -> DockerSandbox:
         if sandbox_id in DockerSandbox._registry:
             return DockerSandbox._registry[sandbox_id]
 
@@ -541,6 +546,37 @@ class DockerSandbox:
         logger.info(f"Got connect credentials for sandbox {self.id}: {url}")
         return AgentServerResult(url=url, token=None)
 
+    def _build_agent_server_command(
+        self,
+        repo_path: str,
+        task_id: str,
+        run_id: str,
+        mode: str,
+        interaction_origin: str | None = None,
+        branch: str | None = None,
+        mcp_servers_arg: str = "",
+    ) -> str:
+        env_prefix = f"env TWIG_INTERACTION_ORIGIN={shlex.quote(interaction_origin)} " if interaction_origin else ""
+        branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
+        return (
+            f"cd /scripts && "
+            f"nohup {env_prefix}npx agent-server --port {AGENT_SERVER_PORT} --repositoryPath {shlex.quote(repo_path)} "
+            f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
+            f"{branch_flag}{mcp_servers_arg} "
+            f"> /tmp/agent-server.log 2>&1 &"
+        )
+
+    def _launch_and_check(self, command: str) -> bool:
+        """Execute the agent-server command and wait for the health check.
+
+        Returns True if the server started successfully, False otherwise.
+        """
+        result = self.execute(command, timeout_seconds=30)
+        if result.exit_code != 0:
+            logger.warning(f"Agent-server process failed to launch in sandbox {self.id}: {result.stderr}")
+            return False
+        return self._wait_for_health_check()
+
     def start_agent_server(
         self,
         repository: str,
@@ -548,6 +584,8 @@ class DockerSandbox:
         run_id: str,
         mode: str = "background",
         interaction_origin: str | None = None,
+        branch: str | None = None,
+        mcp_configs: list[McpServerConfig] | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -563,35 +601,47 @@ class DockerSandbox:
         org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        env_prefix = f"env TWIG_INTERACTION_ORIGIN={shlex.quote(interaction_origin)} " if interaction_origin else ""
-        command = (
-            f"cd /scripts && "
-            f"nohup {env_prefix}npx agent-server --port {AGENT_SERVER_PORT} --repositoryPath {shlex.quote(repo_path)} "
-            f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)} "
-            f"> /tmp/agent-server.log 2>&1 &"
+        mcp_servers_arg = ""
+        if mcp_configs:
+            mcp_json = json.dumps([c.to_dict() for c in mcp_configs])
+            mcp_servers_arg = f" --mcpServers {shlex.quote(mcp_json)}"
+
+        command = self._build_agent_server_command(
+            repo_path, task_id, run_id, mode, interaction_origin, branch, mcp_servers_arg
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository}")
-        result = self.execute(command, timeout_seconds=30)
 
-        if result.exit_code != 0:
-            raise SandboxExecutionError(
-                "Failed to start agent-server",
-                {"sandbox_id": self.id, "stderr": result.stderr},
-                cause=RuntimeError(result.stderr),
-            )
+        if self._launch_and_check(command):
+            logger.info(f"Agent-server started on port {self._host_port}")
+            return
 
-        if not self._wait_for_health_check():
+        # If branch flag was used, the installed agent-server version may not support --baseBranch.
+        # Kill the failed process and retry without it.
+        if branch:
             log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
-            raise SandboxExecutionError(
-                "Agent-server failed to start",
-                {"sandbox_id": self.id, "log": log_result.stdout},
-                cause=RuntimeError("Health check failed after retries"),
+            logger.warning(
+                f"Agent-server health check failed for sandbox {self.id} with --baseBranch. "
+                f"Retrying without branch flag. Log output:\n{log_result.stdout}"
             )
+            self.execute("pkill -f agent-server || true", timeout_seconds=5)
 
-        logger.info(f"Agent-server started on port {self._host_port}")
+            command = self._build_agent_server_command(
+                repo_path, task_id, run_id, mode, interaction_origin, branch=None, mcp_servers_arg=mcp_servers_arg
+            )
+            if self._launch_and_check(command):
+                logger.info(f"Agent-server started on port {self._host_port} (without --baseBranch)")
+                return
 
-    def _wait_for_health_check(self, max_attempts: int = 10, delay_seconds: float = 0.5) -> bool:
+        log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
+        logger.warning(f"Agent-server health check failed for sandbox {self.id}. Log output:\n{log_result.stdout}")
+        raise SandboxExecutionError(
+            "Agent-server failed to start",
+            {"sandbox_id": self.id, "log": log_result.stdout},
+            cause=RuntimeError("Health check failed after retries"),
+        )
+
+    def _wait_for_health_check(self, max_attempts: int = 20, delay_seconds: float = 1.0) -> bool:
         """Poll health endpoint until server is ready."""
         health_cmd = f"curl -s -o /dev/null -w '%{{http_code}}' http://localhost:{AGENT_SERVER_PORT}/health"
         for _ in range(max_attempts):

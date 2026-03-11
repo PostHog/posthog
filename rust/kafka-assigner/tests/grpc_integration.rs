@@ -9,7 +9,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use common::{
-    create_grpc_client, set_topic_config, start_assigner, start_grpc_server, test_store,
+    create_grpc_client, create_kafka_topic, start_assigner, start_grpc_server, test_store,
     wait_for_condition, NUM_PARTITIONS, POLL_INTERVAL, WAIT_TIMEOUT,
 };
 use kafka_assigner::types::HandoffPhase;
@@ -18,6 +18,10 @@ use kafka_assigner_proto::kafka_assigner::v1::kafka_assigner_client::KafkaAssign
 use proto::assignment_command::Command;
 use tonic::transport::Channel;
 use tonic::Streaming;
+
+fn test_topic(test_name: &str) -> String {
+    format!("test-{}-{}", test_name, uuid::Uuid::new_v4())
+}
 
 // ── Simulated deduplicator consumer ─────────────────────────────
 
@@ -29,11 +33,12 @@ struct SimulatedConsumer {
 }
 
 impl SimulatedConsumer {
-    async fn connect(addr: SocketAddr, name: &str) -> Self {
+    async fn connect(addr: SocketAddr, name: &str, topic: &str) -> Self {
         let mut client = create_grpc_client(addr).await;
         let response = client
             .register(proto::RegisterRequest {
                 consumer_name: name.to_string(),
+                topic: topic.to_string(),
             })
             .await
             .expect("register RPC failed");
@@ -126,12 +131,13 @@ fn spawn_consumer_driver(
 async fn grpc_single_consumer_gets_assignments() {
     let store = test_store("grpc-single").await;
     let cancel = CancellationToken::new();
+    let topic = test_topic("grpc-single");
 
-    set_topic_config(&store, "events", NUM_PARTITIONS).await;
+    create_kafka_topic(&topic, NUM_PARTITIONS as i32).await;
     let _assigner = start_assigner(Arc::clone(&store), cancel.clone());
     let server = start_grpc_server(Arc::clone(&store), cancel.clone()).await;
 
-    let c0 = SimulatedConsumer::connect(server.addr, "c-0").await;
+    let c0 = SimulatedConsumer::connect(server.addr, "c-0", &topic).await;
     let _c0_driver = spawn_consumer_driver(c0, Duration::ZERO);
 
     let check_store = Arc::clone(&store);
@@ -159,13 +165,14 @@ async fn grpc_single_consumer_gets_assignments() {
 async fn grpc_two_consumers_split_partitions() {
     let store = test_store("grpc-two-split").await;
     let cancel = CancellationToken::new();
+    let topic = test_topic("grpc-two-split");
 
-    set_topic_config(&store, "events", NUM_PARTITIONS).await;
+    create_kafka_topic(&topic, NUM_PARTITIONS as i32).await;
     let server = start_grpc_server(Arc::clone(&store), cancel.clone()).await;
 
     // Register both consumers before starting assigner (no handoffs needed).
-    let c0 = SimulatedConsumer::connect(server.addr, "c-0").await;
-    let c1 = SimulatedConsumer::connect(server.addr, "c-1").await;
+    let c0 = SimulatedConsumer::connect(server.addr, "c-0", &topic).await;
+    let c1 = SimulatedConsumer::connect(server.addr, "c-1", &topic).await;
     let _c0_driver = spawn_consumer_driver(c0, Duration::ZERO);
     let _c1_driver = spawn_consumer_driver(c1, Duration::ZERO);
 
@@ -204,12 +211,13 @@ async fn grpc_two_consumers_split_partitions() {
 async fn grpc_full_handoff_lifecycle() {
     let store = test_store("grpc-handoff").await;
     let cancel = CancellationToken::new();
+    let topic = test_topic("grpc-handoff");
 
-    set_topic_config(&store, "events", NUM_PARTITIONS).await;
+    create_kafka_topic(&topic, NUM_PARTITIONS as i32).await;
     let _assigner = start_assigner(Arc::clone(&store), cancel.clone());
     let server = start_grpc_server(Arc::clone(&store), cancel.clone()).await;
 
-    let c0 = SimulatedConsumer::connect(server.addr, "c-0").await;
+    let c0 = SimulatedConsumer::connect(server.addr, "c-0", &topic).await;
     let _c0_driver = spawn_consumer_driver(c0, Duration::ZERO);
 
     // Wait for c-0 to own all partitions.
@@ -227,7 +235,7 @@ async fn grpc_full_handoff_lifecycle() {
     // Register second consumer — triggers handoffs.
     // The consumer driver handles WarmPartition → PartitionReady
     // and the c0 driver handles ReleasePartition → PartitionReleased.
-    let c1 = SimulatedConsumer::connect(server.addr, "c-1").await;
+    let c1 = SimulatedConsumer::connect(server.addr, "c-1", &topic).await;
     let _c1_driver = spawn_consumer_driver(c1, Duration::ZERO);
 
     // Wait for handoffs to complete and assignments to balance.
@@ -260,12 +268,13 @@ async fn grpc_full_handoff_lifecycle() {
 async fn grpc_checkpoint_download_delay() {
     let store = test_store("grpc-warm-delay").await;
     let cancel = CancellationToken::new();
+    let topic = test_topic("grpc-warm-delay");
 
-    set_topic_config(&store, "events", NUM_PARTITIONS).await;
+    create_kafka_topic(&topic, NUM_PARTITIONS as i32).await;
     let _assigner = start_assigner(Arc::clone(&store), cancel.clone());
     let server = start_grpc_server(Arc::clone(&store), cancel.clone()).await;
 
-    let c0 = SimulatedConsumer::connect(server.addr, "c-0").await;
+    let c0 = SimulatedConsumer::connect(server.addr, "c-0", &topic).await;
     let _c0_driver = spawn_consumer_driver(c0, Duration::ZERO);
 
     // Wait for c-0 to own all partitions.
@@ -281,7 +290,7 @@ async fn grpc_checkpoint_download_delay() {
     .await;
 
     // Register c-1 with a 2-second warm-up delay (simulating S3 download).
-    let c1 = SimulatedConsumer::connect(server.addr, "c-1").await;
+    let c1 = SimulatedConsumer::connect(server.addr, "c-1", &topic).await;
     let _c1_driver = spawn_consumer_driver(c1, Duration::from_secs(2));
 
     // Wait for handoffs to appear at Warming phase.
@@ -337,12 +346,13 @@ async fn grpc_checkpoint_download_delay() {
 async fn grpc_crash_during_warming() {
     let store = test_store("grpc-crash-warm").await;
     let cancel = CancellationToken::new();
+    let topic = test_topic("grpc-crash-warm");
 
-    set_topic_config(&store, "events", NUM_PARTITIONS).await;
+    create_kafka_topic(&topic, NUM_PARTITIONS as i32).await;
     let _assigner = start_assigner(Arc::clone(&store), cancel.clone());
     let server = start_grpc_server(Arc::clone(&store), cancel.clone()).await;
 
-    let c0 = SimulatedConsumer::connect(server.addr, "c-0").await;
+    let c0 = SimulatedConsumer::connect(server.addr, "c-0", &topic).await;
     let _c0_driver = spawn_consumer_driver(c0, Duration::ZERO);
 
     // Wait for c-0 to own all partitions.
@@ -368,7 +378,7 @@ async fn grpc_crash_during_warming() {
 
     // Register c-1 but do NOT drive the handoff — connect and wait for
     // Warming handoffs, then crash before calling PartitionReady.
-    let c1 = SimulatedConsumer::connect(server.addr, "c-1").await;
+    let c1 = SimulatedConsumer::connect(server.addr, "c-1", &topic).await;
 
     // Wait for Warming handoffs targeting c-1.
     let check_store = Arc::clone(&store);
@@ -385,12 +395,12 @@ async fn grpc_crash_during_warming() {
     .await;
 
     // Crash c-1 — drops the gRPC stream. The server detects the closed
-    // channel, revokes the etcd lease, and the consumer disappears.
+    // channel and the etcd lease expires via TTL, removing the consumer.
     c1.crash();
 
-    // Stale handoffs targeting dead c-1 should be cleaned up.
+    // Stale handoffs targeting dead c-1 should be cleaned up after lease expiry.
     let check_store = Arc::clone(&store);
-    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+    wait_for_condition(Duration::from_secs(30), POLL_INTERVAL, || {
         let store = Arc::clone(&check_store);
         async move { store.list_handoffs().await.unwrap_or_default().is_empty() }
     })
@@ -413,14 +423,15 @@ async fn grpc_crash_during_warming() {
 async fn grpc_consumer_crashes_mid_operation() {
     let store = test_store("grpc-crash-mid").await;
     let cancel = CancellationToken::new();
+    let topic = test_topic("grpc-crash-mid");
 
-    set_topic_config(&store, "events", NUM_PARTITIONS).await;
+    create_kafka_topic(&topic, NUM_PARTITIONS as i32).await;
     let _assigner = start_assigner(Arc::clone(&store), cancel.clone());
     let server = start_grpc_server(Arc::clone(&store), cancel.clone()).await;
 
-    let c0 = SimulatedConsumer::connect(server.addr, "c-0").await;
+    let c0 = SimulatedConsumer::connect(server.addr, "c-0", &topic).await;
     let _c0_driver = spawn_consumer_driver(c0, Duration::ZERO);
-    let c1 = SimulatedConsumer::connect(server.addr, "c-1").await;
+    let c1 = SimulatedConsumer::connect(server.addr, "c-1", &topic).await;
     let c1_driver = spawn_consumer_driver(c1, Duration::ZERO);
 
     // Wait for balanced assignment with both consumers (drive handoffs).
@@ -445,8 +456,9 @@ async fn grpc_consumer_crashes_mid_operation() {
     // Wait for c-1 to disappear and all partitions to converge to c-0.
     // The c-0 driver handles WarmPartition commands for incoming partitions.
     // Complete-phase handoffs with dead old_owner (c-1) are auto-cleaned.
+    // The lease expires via TTL (not eagerly revoked), so we need extra time.
     let check_store = Arc::clone(&store);
-    wait_for_condition(Duration::from_secs(15), POLL_INTERVAL, || {
+    wait_for_condition(Duration::from_secs(30), POLL_INTERVAL, || {
         let store = Arc::clone(&check_store);
         async move {
             let handoffs = store.list_handoffs().await.unwrap_or_default();
@@ -465,12 +477,13 @@ async fn grpc_consumer_crashes_mid_operation() {
 async fn grpc_rapid_reconnect() {
     let store = test_store("grpc-reconnect").await;
     let cancel = CancellationToken::new();
+    let topic = test_topic("grpc-reconnect");
 
-    set_topic_config(&store, "events", NUM_PARTITIONS).await;
+    create_kafka_topic(&topic, NUM_PARTITIONS as i32).await;
     let _assigner = start_assigner(Arc::clone(&store), cancel.clone());
     let server = start_grpc_server(Arc::clone(&store), cancel.clone()).await;
 
-    let c0 = SimulatedConsumer::connect(server.addr, "c-0").await;
+    let c0 = SimulatedConsumer::connect(server.addr, "c-0", &topic).await;
     let c0_driver = spawn_consumer_driver(c0, Duration::ZERO);
 
     // Wait for c-0 to own all partitions.
@@ -489,13 +502,14 @@ async fn grpc_rapid_reconnect() {
     c0_driver.abort();
 
     // Immediately reconnect with the same consumer name.
-    let c0_new = SimulatedConsumer::connect(server.addr, "c-0").await;
+    let c0_new = SimulatedConsumer::connect(server.addr, "c-0", &topic).await;
     let _c0_new_driver = spawn_consumer_driver(c0_new, Duration::ZERO);
 
     // Wait for the consumer to be registered and all partitions assigned.
-    // There may be a brief window where the old lease is revoked and the
-    // new one isn't yet seen by the assigner, so partitions may briefly
-    // be unassigned. The system should converge.
+    // The old lease is NOT eagerly revoked — it expires naturally via TTL.
+    // If the reconnect happens before the TTL elapses, the new registration
+    // overwrites the key without a Delete event, avoiding unnecessary
+    // rebalancing. The system should converge.
     let check_store = Arc::clone(&store);
     wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
         let store = Arc::clone(&check_store);
@@ -518,17 +532,18 @@ async fn grpc_rapid_reconnect() {
 async fn grpc_sequential_crashes_converge() {
     let store = test_store("grpc-seq-crash").await;
     let cancel = CancellationToken::new();
+    let topic = test_topic("grpc-seq-crash");
 
-    set_topic_config(&store, "events", NUM_PARTITIONS).await;
+    create_kafka_topic(&topic, NUM_PARTITIONS as i32).await;
     let _assigner = start_assigner(Arc::clone(&store), cancel.clone());
     let server = start_grpc_server(Arc::clone(&store), cancel.clone()).await;
 
     // Start 3 consumers.
-    let c0 = SimulatedConsumer::connect(server.addr, "c-0").await;
+    let c0 = SimulatedConsumer::connect(server.addr, "c-0", &topic).await;
     let _c0_driver = spawn_consumer_driver(c0, Duration::ZERO);
-    let c1 = SimulatedConsumer::connect(server.addr, "c-1").await;
+    let c1 = SimulatedConsumer::connect(server.addr, "c-1", &topic).await;
     let c1_driver = spawn_consumer_driver(c1, Duration::ZERO);
-    let c2 = SimulatedConsumer::connect(server.addr, "c-2").await;
+    let c2 = SimulatedConsumer::connect(server.addr, "c-2", &topic).await;
     let c2_driver = spawn_consumer_driver(c2, Duration::ZERO);
 
     // Wait for 3-way assignment (all consumers have partitions, no handoffs).
@@ -550,9 +565,9 @@ async fn grpc_sequential_crashes_converge() {
     // Crash c-2.
     c2_driver.abort();
 
-    // Wait for convergence to c-0 + c-1.
+    // Wait for convergence to c-0 + c-1 (lease expires via TTL).
     let check_store = Arc::clone(&store);
-    wait_for_condition(Duration::from_secs(20), POLL_INTERVAL, || {
+    wait_for_condition(Duration::from_secs(30), POLL_INTERVAL, || {
         let store = Arc::clone(&check_store);
         async move {
             let handoffs = store.list_handoffs().await.unwrap_or_default();
@@ -569,9 +584,9 @@ async fn grpc_sequential_crashes_converge() {
     // Crash c-1.
     c1_driver.abort();
 
-    // Wait for convergence to c-0 only.
+    // Wait for convergence to c-0 only (lease expires via TTL).
     let check_store = Arc::clone(&store);
-    wait_for_condition(Duration::from_secs(20), POLL_INTERVAL, || {
+    wait_for_condition(Duration::from_secs(30), POLL_INTERVAL, || {
         let store = Arc::clone(&check_store);
         async move {
             let handoffs = store.list_handoffs().await.unwrap_or_default();
@@ -596,13 +611,14 @@ const LARGE_TIMEOUT: Duration = Duration::from_secs(60);
 async fn grpc_fast_scale_to_20() {
     let store = test_store("grpc-scale-20").await;
     let cancel = CancellationToken::new();
+    let topic = test_topic("grpc-scale-20");
 
-    set_topic_config(&store, "events", LARGE_NUM_PARTITIONS).await;
+    create_kafka_topic(&topic, LARGE_NUM_PARTITIONS as i32).await;
     let _assigner = start_assigner(Arc::clone(&store), cancel.clone());
     let server = start_grpc_server(Arc::clone(&store), cancel.clone()).await;
 
     // Register first consumer and wait for it to own all partitions.
-    let c0 = SimulatedConsumer::connect(server.addr, "c-0").await;
+    let c0 = SimulatedConsumer::connect(server.addr, "c-0", &topic).await;
     let mut drivers: Vec<JoinHandle<SimulatedConsumer>> =
         vec![spawn_consumer_driver(c0, Duration::ZERO)];
 
@@ -620,7 +636,7 @@ async fn grpc_fast_scale_to_20() {
     // Rapidly register 19 more consumers.
     for i in 1..LARGE_NUM_CONSUMERS {
         let name = format!("c-{i}");
-        let c = SimulatedConsumer::connect(server.addr, &name).await;
+        let c = SimulatedConsumer::connect(server.addr, &name, &topic).await;
         drivers.push(spawn_consumer_driver(c, Duration::ZERO));
     }
 
@@ -662,8 +678,9 @@ async fn grpc_fast_scale_to_20() {
 async fn grpc_fast_scale_down_20_to_4() {
     let store = test_store("grpc-scale-down").await;
     let cancel = CancellationToken::new();
+    let topic = test_topic("grpc-scale-down");
 
-    set_topic_config(&store, "events", LARGE_NUM_PARTITIONS).await;
+    create_kafka_topic(&topic, LARGE_NUM_PARTITIONS as i32).await;
     let _assigner = start_assigner(Arc::clone(&store), cancel.clone());
     let server = start_grpc_server(Arc::clone(&store), cancel.clone()).await;
 
@@ -671,7 +688,7 @@ async fn grpc_fast_scale_down_20_to_4() {
     let mut drivers: BTreeMap<String, JoinHandle<SimulatedConsumer>> = BTreeMap::new();
     for i in 0..LARGE_NUM_CONSUMERS {
         let name = format!("c-{i}");
-        let c = SimulatedConsumer::connect(server.addr, &name).await;
+        let c = SimulatedConsumer::connect(server.addr, &name, &topic).await;
         drivers.insert(name, spawn_consumer_driver(c, Duration::ZERO));
     }
 

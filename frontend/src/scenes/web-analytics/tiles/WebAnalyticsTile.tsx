@@ -30,8 +30,11 @@ import { userLogic } from 'scenes/userLogic'
 import {
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_REFERRER_PREFIX,
+    DEVICE_DRILL_DOWN_MAP,
+    GEOGRAPHY_DRILL_DOWN_MAP,
     GeographyTab,
     ProductTab,
+    SOURCE_DRILL_DOWN_MAP,
     TileId,
     faviconUrl,
     webStatsBreakdownToPropertyName,
@@ -55,7 +58,7 @@ import {
     WebVitalsPathBreakdownQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import { ChartDisplayType, InsightLogicProps, PropertyFilterType } from '~/types'
+import { ChartDisplayType, InsightLogicProps, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { NewActionButton } from 'products/actions/frontend/components/NewActionButton'
 
@@ -258,6 +261,8 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>Channel Type</>
         case WebStatsBreakdown.InitialReferringDomain:
             return <>Referring Domain</>
+        case WebStatsBreakdown.InitialReferringURL:
+            return <>Referring URL</>
         case WebStatsBreakdown.InitialUTMSource:
             return <>UTM Source</>
         case WebStatsBreakdown.InitialUTMCampaign:
@@ -799,6 +804,7 @@ export const WebStatsTableTile = ({
 }): JSX.Element => {
     const { togglePropertyFilter } = useActions(webAnalyticsLogic)
     const { productTab } = useValues(webAnalyticsLogic)
+    const { rawWebAnalyticsFilters } = useValues(webAnalyticsFilterLogic)
 
     const { key, type } = webStatsBreakdownToPropertyName(breakdownBy) || {}
 
@@ -811,6 +817,36 @@ export const WebStatsTableTile = ({
     const utmMedium = webStatsBreakdownToPropertyName(WebStatsBreakdown.InitialUTMMedium)!
     const utmCampaign = webStatsBreakdownToPropertyName(WebStatsBreakdown.InitialUTMCampaign)!
     const referringDomain = webStatsBreakdownToPropertyName(WebStatsBreakdown.InitialReferringDomain)!
+
+    const getDrillDownTabChange = useCallback(
+        (
+            filterKey: string,
+            filterValue: string | number | null
+        ): { sourceTab?: string; geographyTab?: string; deviceTab?: string } | undefined => {
+            const sourceTab = SOURCE_DRILL_DOWN_MAP[breakdownBy]
+            const geographyTab = GEOGRAPHY_DRILL_DOWN_MAP[breakdownBy]
+            const deviceTab = DEVICE_DRILL_DOWN_MAP[breakdownBy]
+            const drillDownTab = sourceTab || geographyTab || deviceTab
+            if (!drillDownTab || filterValue === null) {
+                return undefined
+            }
+            const isAlreadyFiltered = rawWebAnalyticsFilters.some(
+                (f) =>
+                    f.key === filterKey &&
+                    f.operator === PropertyOperator.Exact &&
+                    (Array.isArray(f.value) ? f.value.includes(filterValue) : f.value === filterValue)
+            )
+            if (isAlreadyFiltered) {
+                return undefined
+            }
+            return {
+                ...(sourceTab ? { sourceTab } : {}),
+                ...(geographyTab ? { geographyTab } : {}),
+                ...(deviceTab ? { deviceTab } : {}),
+            }
+        },
+        [breakdownBy, rawWebAnalyticsFilters]
+    )
 
     const onClick = useCallback(
         (breakdownValue: string | null) => {
@@ -837,7 +873,8 @@ export const WebStatsTableTile = ({
                     togglePropertyFilter(utmMedium.type, utmMedium.key, values[1])
                 }
                 if (values[2] && values[2] !== BREAKDOWN_NULL_DISPLAY) {
-                    togglePropertyFilter(utmCampaign.type, utmCampaign.key, values[2])
+                    const drillDownTabChange = getDrillDownTabChange(utmCampaign.key, values[2])
+                    togglePropertyFilter(utmCampaign.type, utmCampaign.key, values[2], drillDownTabChange)
                 }
                 return
             }
@@ -864,9 +901,20 @@ export const WebStatsTableTile = ({
                 return
             }
 
-            togglePropertyFilter(type, key, breakdownValue)
+            togglePropertyFilter(type, key, breakdownValue, getDrillDownTabChange(key, breakdownValue))
         },
-        [togglePropertyFilter, type, key, productTab, breakdownBy, utmSource, utmMedium, utmCampaign, referringDomain]
+        [
+            togglePropertyFilter,
+            type,
+            key,
+            productTab,
+            breakdownBy,
+            utmSource,
+            utmMedium,
+            utmCampaign,
+            referringDomain,
+            getDrillDownTabChange,
+        ]
     )
 
     const context = useMemo((): QueryContext => {

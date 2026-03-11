@@ -85,6 +85,7 @@ where
         consumer_config: &ClientConfig,
         assigner_endpoint: &str,
         consumer_name: String,
+        topic: String,
         store_manager: Arc<StoreManager>,
         checkpoint_importer: Option<Arc<CheckpointImporter>>,
         offset_tracker: Arc<OffsetTracker>,
@@ -101,7 +102,8 @@ where
             .context("Failed to create Kafka consumer for assigner mode")?;
 
         // Connect to the kafka-assigner and register
-        let mut grpc_client = AssignerGrpcClient::connect(assigner_endpoint, consumer_name).await?;
+        let mut grpc_client =
+            AssignerGrpcClient::connect(assigner_endpoint, consumer_name, topic).await?;
         let command_stream = grpc_client.register().await?;
 
         let handler = AssignerCommandHandler::new(

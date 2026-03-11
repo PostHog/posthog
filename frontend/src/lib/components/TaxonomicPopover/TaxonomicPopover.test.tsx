@@ -57,13 +57,13 @@ describe('TaxonomicPopover', () => {
 
     it('opens dropdown on click and calls onChange with correct args on selection', async () => {
         const { onChange } = renderPopover({ placeholder: 'Select an event' })
-        userEvent.click(screen.getByText('Select an event'))
+        await userEvent.click(screen.getByText('Select an event'))
 
         await waitFor(() => {
             expect(screen.getByTestId('prop-filter-events-1')).toBeInTheDocument()
         })
 
-        userEvent.click(screen.getByTestId('prop-filter-events-1'))
+        await userEvent.click(screen.getByTestId('prop-filter-events-1'))
 
         await waitFor(() => {
             expect(onChange).toHaveBeenCalledTimes(1)
@@ -76,7 +76,7 @@ describe('TaxonomicPopover', () => {
 
     it('clear button calls onChange with empty value', async () => {
         const { onChange } = renderPopover({ value: 'pageview', allowClear: true })
-        userEvent.click(screen.getByLabelText('Clear selection'))
+        await userEvent.click(screen.getByLabelText('Clear selection'))
 
         await waitFor(() => {
             expect(onChange).toHaveBeenCalledWith('', TaxonomicFilterGroupType.Events, null)
@@ -102,13 +102,13 @@ describe('TaxonomicPopover', () => {
 
         it('coerces selected value to string in onChange', async () => {
             const { onChange } = renderStringPopover({ value: '', placeholder: 'Pick event' })
-            userEvent.click(screen.getByText('Pick event'))
+            await userEvent.click(screen.getByText('Pick event'))
 
             await waitFor(() => {
                 expect(screen.getByTestId('prop-filter-events-1')).toBeInTheDocument()
             })
 
-            userEvent.click(screen.getByTestId('prop-filter-events-1'))
+            await userEvent.click(screen.getByTestId('prop-filter-events-1'))
 
             await waitFor(() => {
                 expect(onChange).toHaveBeenCalledTimes(1)

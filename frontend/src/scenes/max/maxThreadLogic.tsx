@@ -978,6 +978,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             try {
                 await api.conversations.cancel(values.conversation.id)
                 cache.generationController?.abort()
+                actions.clearQueuedMessages()
                 actions.resetThread()
             } catch (e: any) {
                 lemonToast.error(e?.data?.detail || 'Failed to cancel the generation.')
