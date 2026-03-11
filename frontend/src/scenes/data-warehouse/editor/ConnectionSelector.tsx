@@ -59,8 +59,12 @@ export function ConnectionSelector(): JSX.Element | null {
             },
         ]
     }, [dataWarehouseSourcesLoading, directPostgresSources])
+    // Strip the legacy top-level connectionId so source.connectionId stays canonical.
+    const { connectionId: _legacyConnectionId, ...sourceQueryWithoutLegacyConnectionId } =
+        sourceQuery as typeof sourceQuery & {
+            connectionId?: string
+        }
 
-    const sourceQueryWithConnection = sourceQuery as typeof sourceQuery & { connectionId?: string }
     const selectedValue = dataWarehouseSourcesLoading
         ? LOADING_CONNECTIONS
         : selectedConnectionId && directPostgresSources.some((source) => source.id === selectedConnectionId)
@@ -80,8 +84,7 @@ export function ConnectionSelector(): JSX.Element | null {
             onChange={(nextValue) => {
                 if (!nextValue || nextValue === POSTHOG_WAREHOUSE) {
                     setSourceQuery({
-                        ...sourceQueryWithConnection,
-                        connectionId: undefined,
+                        ...sourceQueryWithoutLegacyConnectionId,
                         source: {
                             ...sourceQuery.source,
                             connectionId: undefined,
@@ -104,8 +107,7 @@ export function ConnectionSelector(): JSX.Element | null {
                 }
 
                 setSourceQuery({
-                    ...sourceQueryWithConnection,
-                    connectionId: nextValue,
+                    ...sourceQueryWithoutLegacyConnectionId,
                     source: {
                         ...sourceQuery.source,
                         connectionId: nextValue,

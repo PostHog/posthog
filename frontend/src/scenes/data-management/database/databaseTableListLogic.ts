@@ -50,6 +50,14 @@ const getInitialConnectionIdFromHash = (): string | null => {
     return hashConnectionId && hashConnectionId.length > 0 ? hashConnectionId : null
 }
 
+const shouldDeferInitialDatabaseLoad = (connectionId: string | null): boolean => {
+    if (typeof window === 'undefined' || !connectionId) {
+        return false
+    }
+
+    return window.location.pathname === '/sql'
+}
+
 export const databaseTableListLogic = kea<databaseTableListLogicType>([
     path(['scenes', 'data-management', 'database', 'databaseTableListLogic']),
     connect(() => ({
@@ -236,7 +244,12 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
         ],
     }),
     afterMount(({ actions }) => {
-        actions.setConnection(getInitialConnectionIdFromHash())
-        actions.loadDatabase()
+        const initialConnectionId = getInitialConnectionIdFromHash()
+
+        actions.setConnection(initialConnectionId)
+
+        if (!shouldDeferInitialDatabaseLoad(initialConnectionId)) {
+            actions.loadDatabase()
+        }
     }),
 ])

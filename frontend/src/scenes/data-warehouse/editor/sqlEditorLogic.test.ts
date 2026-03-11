@@ -284,6 +284,30 @@ describe('sqlEditorLogic', () => {
             })
         })
 
+        it('ignores the legacy top-level connectionId when selecting the active connection', () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
+                [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
+            })
+
+            logic.actions.setSourceQuery({
+                kind: NodeKind.DataVisualizationNode,
+                connectionId: 'conn-123',
+                source: {
+                    kind: NodeKind.HogQLQuery,
+                    query: 'SELECT 1',
+                    connectionId: undefined,
+                },
+            } as DataVisualizationNode & { connectionId?: string })
+
+            expect(logic.values.selectedConnectionId).toBeUndefined()
+        })
+
         it('reads connection id from hash and keeps it in URL sync', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,

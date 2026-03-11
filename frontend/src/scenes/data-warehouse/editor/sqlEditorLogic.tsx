@@ -1189,8 +1189,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 if (!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]) {
                     return undefined
                 }
-                const sourceQueryWithConnection = sourceQuery as typeof sourceQuery & { connectionId?: string }
-                return sourceQuery.source.connectionId ?? sourceQueryWithConnection.connectionId
+                return sourceQuery.source.connectionId
             },
         ],
         isEditingMaterializedView: [
@@ -1454,8 +1453,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             const currentConnectionId = values.sourceQuery.source.connectionId || undefined
 
             if (connectionIdFromHash !== currentConnectionId) {
+                const { connectionId: _legacyConnectionId, ...sourceQueryWithoutLegacyConnectionId } =
+                    values.sourceQuery as typeof values.sourceQuery & { connectionId?: string }
+
                 actions.setSourceQuery({
-                    ...values.sourceQuery,
+                    ...sourceQueryWithoutLegacyConnectionId,
                     source: {
                         ...values.sourceQuery.source,
                         connectionId: connectionIdFromHash,
