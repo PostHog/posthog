@@ -239,6 +239,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setPendingApproval: (proposalId: string) => ({ proposalId }),
         clearPendingApproval: true,
         appendSandboxEntry: (entry: LogEntry) => ({ entry }),
+        refreshSandboxEntries: true,
+        resetSandboxEntries: true,
         continueAfterForm: (formAnswers: MultiQuestionFormAnswers) => ({
             formAnswers,
         }),
@@ -541,6 +543,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             [] as LogEntry[],
             {
                 appendSandboxEntry: (state, { entry }) => [...state, entry],
+                refreshSandboxEntries: (state) => [...state],
+                resetSandboxEntries: () => [],
                 setConversation: () => [],
                 resetThread: () => [],
             },
@@ -599,6 +603,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
             try {
                 cache.generationController = new AbortController()
+                actions.resetSandboxEntries()
 
                 // Ensure we have valid data for the API call
                 const apiData: any = { ...streamData }
@@ -1965,6 +1970,9 @@ export async function onEventImplementation(
             cache.sandboxToolMap as Map<string, LogEntry>
         )
         if (!entry) {
+            // Null return from an ACP tool_call/tool_call_update means the tool map
+            // entry was mutated in-place. Refresh to trigger re-render.
+            actions.refreshSandboxEntries()
             return
         }
 

@@ -237,8 +237,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             snapshot_ext_id = (previous_run.state or {}).get("snapshot_external_id")
             extra_state = {
                 "resume_from_run_id": str(resume_from_run_id),
-                "pending_user_message": pending_user_message,
             }
+            if pending_user_message is not None:
+                extra_state["pending_user_message"] = pending_user_message
             if snapshot_ext_id:
                 extra_state["snapshot_external_id"] = snapshot_ext_id
 
