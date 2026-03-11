@@ -367,7 +367,7 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
                         </div>
                     )}
 
-                    {visibleStatuses.includes('archived') && archivedWorkflows.length > 0 && (
+                    {visibleStatuses.includes('archived') && (
                         <div className="mb-6">
                             <div className="flex items-center gap-2 mb-2 min-h-8">
                                 <h3 className="m-0">Archived</h3>
@@ -417,6 +417,7 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
                                 defaultSorting={{ columnKey: 'updatedAt', order: 1 }}
                                 pagination={{ pageSize: 20 }}
                                 nouns={['workflow', 'workflows']}
+                                emptyState="No archived workflows"
                             />
                         </div>
                     )}
