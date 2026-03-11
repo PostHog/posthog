@@ -189,7 +189,12 @@ def _resolve_target_table(
     database: DatabaseTableLookup,
 ) -> tuple[Table | str, Table] | None:
     join_table: Table | str = target_table
-    if source_table_name is not None and "." in source_table_name and "." not in join_table:
+    if (
+        source_table_name is not None
+        and isinstance(join_table, str)
+        and "." in source_table_name
+        and "." not in join_table
+    ):
         join_table = ".".join([*source_table_name.split(".")[:-1], join_table])
 
     if isinstance(join_table, str):

@@ -1174,12 +1174,12 @@ class Database(BaseModel):
         database._add_views(views)
 
         with timings.measure("warehouse_foreign_keys"):
-            for table, warehouse_table in warehouse_tables_to_process:
+            for hogql_table, warehouse_table_model in warehouse_tables_to_process:
                 add_postgres_foreign_key_lazy_joins(
-                    hogql_table=table,
-                    warehouse_table=warehouse_table,
+                    hogql_table=hogql_table,
+                    warehouse_table=warehouse_table_model,
                     database=database,
-                    schemas=_get_active_external_data_schemas(warehouse_table),
+                    schemas=_get_active_external_data_schemas(warehouse_table_model),
                 )
 
         with timings.measure("data_warehouse_joins"):
