@@ -235,6 +235,9 @@ def _fetch_persons_by_distinct_ids_via_personhog(team_id: int, distinct_ids: lis
         )
 
     person_ids = [r.person.id for r in valid_results]
+    if not person_ids:
+        return []
+
     distinct_ids_resp = client.get_distinct_ids_for_persons(
         GetDistinctIdsForPersonsRequest(team_id=team_id, person_ids=person_ids)
     )
@@ -313,6 +316,9 @@ def _fetch_persons_by_uuids_via_personhog(team_id: int, uuids: list[str]) -> lis
         logger.warning("personhog_team_mismatch", operation="get_persons_by_uuids", team_id=team_id, dropped=mismatched)
 
     person_ids = [p.id for p in valid_persons]
+    if not person_ids:
+        return []
+
     distinct_ids_resp = client.get_distinct_ids_for_persons(
         GetDistinctIdsForPersonsRequest(team_id=team_id, person_ids=person_ids)
     )

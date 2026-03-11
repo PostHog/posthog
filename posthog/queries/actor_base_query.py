@@ -285,10 +285,13 @@ def _fetch_people_via_personhog(
         logger.warning("personhog_team_mismatch", operation="get_people", team_id=team_id, dropped=mismatched)
 
     person_ids = [p.id for p in valid_persons]
+    if not person_ids:
+        return []
+
+    # distinct_id_limit is enforced client-side; the proto does not support server-side truncation yet
     distinct_ids_resp = client.get_distinct_ids_for_persons(
         GetDistinctIdsForPersonsRequest(team_id=team_id, person_ids=person_ids)
     )
-
     distinct_ids_by_person: dict[int, list[str]] = {}
     for pd in distinct_ids_resp.person_distinct_ids:
         dids = [d.distinct_id for d in pd.distinct_ids]
@@ -298,7 +301,6 @@ def _fetch_people_via_personhog(
 
     persons = [proto_person_to_model(p, distinct_ids=distinct_ids_by_person.get(p.id, [])) for p in valid_persons]
     persons.sort(key=lambda p: (-(p.created_at.timestamp() if p.created_at else 0), str(p.uuid)))
-
     return persons
 
 
