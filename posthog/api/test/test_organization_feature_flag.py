@@ -446,6 +446,24 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("error", response.json())
 
+    def test_copy_feature_flag_from_other_org_returns_not_found(self):
+        from posthog.models.organization import Organization
+
+        other_org = Organization.objects.create(name="other org")
+        other_team = Team.objects.create(organization=other_org)
+        FeatureFlag.objects.create(team=other_team, created_by=self.user, key="other-org-flag")
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": "other-org-flag",
+            "from_project": other_team.id,
+            "target_project_ids": [self.team_2.id],
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "Feature flag to copy does not exist.")
+
     def test_copy_feature_flag_to_nonexistent_target(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
         nonexistent_project_id = 999

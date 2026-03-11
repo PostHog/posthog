@@ -14,6 +14,10 @@ import {
 } from './utils'
 
 describe('LLM Analytics utils', () => {
+    beforeEach(() => {
+        console.warn = jest.fn()
+    })
+
     describe('getSessionStartTimestamp', () => {
         it.each([
             ['2024-01-15T12:00:00Z', '2024-01-14T12:00:00Z'],
@@ -60,63 +64,41 @@ describe('LLM Analytics utils', () => {
         })
     })
 
-    it('normalizeOutputMessage: parses OpenAI message', () => {
-        const message: OpenAICompletionMessage = {
-            role: 'assistant',
-            content: 'Hello, world!',
-        }
-        expect(normalizeMessage(message, 'user')).toEqual([
-            {
+    describe('normalizeOutputMessage', () => {
+        it('parses OpenAI message', () => {
+            const message: OpenAICompletionMessage = {
                 role: 'assistant',
                 content: 'Hello, world!',
-            },
-        ])
-    })
-
-    it('normalizeOutputMessage: stringifies incomplete OpenAI message', () => {
-        const message = {
-            role: 'assistant',
-        }
-        expect(normalizeMessage(message, 'user')).toEqual([
-            {
-                role: 'assistant',
-                content: JSON.stringify(message),
-            },
-        ])
-
-        expect(normalizeMessage(message, 'assistant')).toEqual([
-            {
-                role: 'assistant',
-                content: JSON.stringify(message),
-            },
-        ])
-    })
-
-    it('normalizeOutputMessage: parses OpenAI tool calls', () => {
-        const message = {
-            role: 'assistant',
-            content: '',
-            tool_calls: [
+            }
+            expect(normalizeMessage(message, 'user')).toEqual([
                 {
-                    type: 'function',
-                    id: '123',
-                    function: {
-                        name: 'test',
-                        arguments: '{"foo": "bar"}',
-                    },
+                    role: 'assistant',
+                    content: 'Hello, world!',
                 },
+            ])
+        })
+
+        it('stringifies incomplete OpenAI message', () => {
+            const message = {
+                role: 'assistant',
+            }
+            expect(normalizeMessage(message, 'user')).toEqual([
                 {
-                    type: 'function',
-                    id: '456',
-                    function: {
-                        name: 'test2',
-                        arguments: '{"bar": "baz"}',
-                    },
+                    role: 'assistant',
+                    content: JSON.stringify(message),
                 },
-            ],
-        }
-        expect(normalizeMessage(message, 'user')).toEqual([
-            {
+            ])
+
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                {
+                    role: 'assistant',
+                    content: JSON.stringify(message),
+                },
+            ])
+        })
+
+        it('parses OpenAI tool calls', () => {
+            const message = {
                 role: 'assistant',
                 content: '',
                 tool_calls: [
@@ -125,7 +107,7 @@ describe('LLM Analytics utils', () => {
                         id: '123',
                         function: {
                             name: 'test',
-                            arguments: { foo: 'bar' },
+                            arguments: '{"foo": "bar"}',
                         },
                     },
                     {
@@ -133,214 +115,238 @@ describe('LLM Analytics utils', () => {
                         id: '456',
                         function: {
                             name: 'test2',
-                            arguments: { bar: 'baz' },
+                            arguments: '{"bar": "baz"}',
                         },
                     },
                 ],
-            },
-        ])
-    })
-
-    it('normalizeOutputMessage: parses OpenAI tool use', () => {
-        const message = {
-            role: 'tool',
-            content: 'response',
-            tool_call_id: '456',
-        }
-
-        expect(normalizeMessage(message, 'user')).toEqual([
-            {
-                role: 'tool',
-                content: 'response',
-                tool_call_id: '456',
-            },
-        ])
-    })
-
-    it('normalizeOutputMessage: parses a string message', () => {
-        expect(normalizeMessage('foo', 'user')).toEqual([
-            {
-                role: 'user',
-                content: 'foo',
-            },
-        ])
-
-        expect(normalizeMessage('foo', 'assistant')).toEqual([
-            {
-                role: 'assistant',
-                content: 'foo',
-            },
-        ])
-    })
-
-    it('normalizeOutputMessage: parses an Anthropic tool call message', () => {
-        let message: any = {
-            type: 'tool_use',
-            id: 'toolu_01D7FLrfh4GYq7yT1ULFeyMV',
-            name: 'get_stock_price',
-            input: { ticker: '^GSPC' },
-        }
-
-        expect(normalizeMessage(message, 'assistant')).toEqual([
-            {
-                role: 'assistant',
-                content: '',
-                tool_calls: [
-                    {
-                        type: 'function',
-                        id: 'toolu_01D7FLrfh4GYq7yT1ULFeyMV',
-                        function: {
-                            name: 'get_stock_price',
-                            arguments: { ticker: '^GSPC' },
-                        },
-                    },
-                ],
-            },
-        ])
-
-        message = {
-            role: 'assistant',
-            content: [
+            }
+            expect(normalizeMessage(message, 'user')).toEqual([
                 {
-                    type: 'tool_use',
-                    id: 'toolu_01D7FLrfh4GYq7yT1ULFeyMV',
-                    name: 'get_stock_price',
-                    input: { ticker: '^GSPC' },
-                },
-                {
-                    type: 'tool_use',
-                    id: 'toolu_01D7FLrfh4GYq7yT1ULFeyMV2',
-                    name: 'get_stock_price',
-                    input: { ticker: '^GSPC' },
-                },
-            ],
-        }
-
-        expect(normalizeMessage(message, 'assistant')).toEqual([
-            {
-                role: 'assistant',
-                content: '',
-                tool_calls: [
-                    {
-                        type: 'function',
-                        id: 'toolu_01D7FLrfh4GYq7yT1ULFeyMV',
-                        function: {
-                            name: 'get_stock_price',
-                            arguments: { ticker: '^GSPC' },
-                        },
-                    },
-                ],
-            },
-            {
-                role: 'assistant',
-                content: '',
-                tool_calls: [
-                    {
-                        type: 'function',
-                        id: 'toolu_01D7FLrfh4GYq7yT1ULFeyMV2',
-                        function: {
-                            name: 'get_stock_price',
-                            arguments: { ticker: '^GSPC' },
-                        },
-                    },
-                ],
-            },
-        ])
-    })
-
-    it('normalizeOutputMessage: prefers top-level tool_calls over content tool_use blocks', () => {
-        // This is the format produced by LangChain's Anthropic callback
-        // content has raw Anthropic format with empty input (streaming artifact)
-        // tool_calls has the normalized OpenAI format with correct arguments
-        const message = {
-            role: 'assistant',
-            content: [
-                { type: 'text', text: 'Let me check that.' },
-                {
-                    type: 'tool_use',
-                    id: 'toolu_123',
-                    name: 'get_weather',
-                    input: {}, // Empty - streaming artifact
-                },
-            ],
-            tool_calls: [
-                {
-                    type: 'function',
-                    id: 'toolu_123',
-                    function: {
-                        name: 'get_weather',
-                        arguments: '{"location": "San Francisco"}', // Correct arguments
-                    },
-                },
-            ],
-        }
-
-        const result = normalizeMessage(message, 'assistant')
-
-        // Should use the tool_calls array, not extract from content
-        expect(result).toHaveLength(2)
-        expect(result[0]).toEqual({
-            role: 'assistant',
-            content: 'Let me check that.',
-        })
-        expect(result[1]).toEqual({
-            role: 'assistant',
-            content: '',
-            tool_calls: [
-                {
-                    type: 'function',
-                    id: 'toolu_123',
-                    function: {
-                        name: 'get_weather',
-                        arguments: { location: 'San Francisco' },
-                    },
-                },
-            ],
-        })
-    })
-
-    it('normalizeOutputMessage: parses an Anthropic tool result message', () => {
-        let message: AnthropicInputMessage = {
-            role: 'user',
-            content: [
-                {
-                    type: 'tool_result',
-                    tool_use_id: '1',
-                    content: 'foo',
-                },
-            ],
-        }
-
-        expect(normalizeMessage(message, 'user')).toEqual([
-            {
-                role: 'assistant (tool result)',
-                content: 'foo',
-                tool_call_id: '1',
-            },
-        ])
-
-        message = {
-            role: 'user',
-            content: [
-                {
-                    type: 'tool_result',
-                    tool_use_id: '1',
-                    content: [
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
                         {
-                            type: 'text',
-                            text: 'foo',
+                            type: 'function',
+                            id: '123',
+                            function: {
+                                name: 'test',
+                                arguments: { foo: 'bar' },
+                            },
+                        },
+                        {
+                            type: 'function',
+                            id: '456',
+                            function: {
+                                name: 'test2',
+                                arguments: { bar: 'baz' },
+                            },
                         },
                     ],
                 },
-            ],
-        }
-        expect(normalizeMessage(message, 'user')).toEqual([
-            {
-                role: 'assistant (tool result)',
-                content: 'foo',
-                tool_call_id: '1',
-            },
-        ])
+            ])
+        })
+
+        it('parses OpenAI tool use', () => {
+            const message = {
+                role: 'tool',
+                content: 'response',
+                tool_call_id: '456',
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                {
+                    role: 'tool',
+                    content: 'response',
+                    tool_call_id: '456',
+                },
+            ])
+        })
+
+        it('parses a string message', () => {
+            expect(normalizeMessage('foo', 'user')).toEqual([
+                {
+                    role: 'user',
+                    content: 'foo',
+                },
+            ])
+
+            expect(normalizeMessage('foo', 'assistant')).toEqual([
+                {
+                    role: 'assistant',
+                    content: 'foo',
+                },
+            ])
+        })
+
+        it('parses an Anthropic tool call message', () => {
+            let message: any = {
+                type: 'tool_use',
+                id: 'toolu_01D7FLrfh4GYq7yT1ULFeyMV',
+                name: 'get_stock_price',
+                input: { ticker: '^GSPC' },
+            }
+
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'toolu_01D7FLrfh4GYq7yT1ULFeyMV',
+                            function: {
+                                name: 'get_stock_price',
+                                arguments: { ticker: '^GSPC' },
+                            },
+                        },
+                    ],
+                },
+            ])
+
+            message = {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'tool_use',
+                        id: 'toolu_01D7FLrfh4GYq7yT1ULFeyMV',
+                        name: 'get_stock_price',
+                        input: { ticker: '^GSPC' },
+                    },
+                    {
+                        type: 'tool_use',
+                        id: 'toolu_01D7FLrfh4GYq7yT1ULFeyMV2',
+                        name: 'get_stock_price',
+                        input: { ticker: '^GSPC' },
+                    },
+                ],
+            }
+
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'toolu_01D7FLrfh4GYq7yT1ULFeyMV',
+                            function: {
+                                name: 'get_stock_price',
+                                arguments: { ticker: '^GSPC' },
+                            },
+                        },
+                    ],
+                },
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'toolu_01D7FLrfh4GYq7yT1ULFeyMV2',
+                            function: {
+                                name: 'get_stock_price',
+                                arguments: { ticker: '^GSPC' },
+                            },
+                        },
+                    ],
+                },
+            ])
+        })
+
+        it('prefers top-level tool_calls over content tool_use blocks', () => {
+            // This is the format produced by LangChain's Anthropic callback
+            // content has raw Anthropic format with empty input (streaming artifact)
+            // tool_calls has the normalized OpenAI format with correct arguments
+            const message = {
+                role: 'assistant',
+                content: [
+                    { type: 'text', text: 'Let me check that.' },
+                    {
+                        type: 'tool_use',
+                        id: 'toolu_123',
+                        name: 'get_weather',
+                        input: {}, // Empty - streaming artifact
+                    },
+                ],
+                tool_calls: [
+                    {
+                        type: 'function',
+                        id: 'toolu_123',
+                        function: {
+                            name: 'get_weather',
+                            arguments: '{"location": "San Francisco"}', // Correct arguments
+                        },
+                    },
+                ],
+            }
+
+            const result = normalizeMessage(message, 'assistant')
+
+            // Should use the tool_calls array, not extract from content
+            expect(result).toHaveLength(2)
+            expect(result[0]).toEqual({
+                role: 'assistant',
+                content: 'Let me check that.',
+            })
+            expect(result[1]).toEqual({
+                role: 'assistant',
+                content: '',
+                tool_calls: [
+                    {
+                        type: 'function',
+                        id: 'toolu_123',
+                        function: {
+                            name: 'get_weather',
+                            arguments: { location: 'San Francisco' },
+                        },
+                    },
+                ],
+            })
+        })
+
+        it('parses an Anthropic tool result message', () => {
+            let message: AnthropicInputMessage = {
+                role: 'user',
+                content: [
+                    {
+                        type: 'tool_result',
+                        tool_use_id: '1',
+                        content: 'foo',
+                    },
+                ],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                {
+                    role: 'assistant (tool result)',
+                    content: 'foo',
+                    tool_call_id: '1',
+                },
+            ])
+
+            message = {
+                role: 'user',
+                content: [
+                    {
+                        type: 'tool_result',
+                        tool_use_id: '1',
+                        content: [
+                            {
+                                type: 'text',
+                                text: 'foo',
+                            },
+                        ],
+                    },
+                ],
+            }
+            expect(normalizeMessage(message, 'user')).toEqual([
+                {
+                    role: 'assistant (tool result)',
+                    content: 'foo',
+                    tool_call_id: '1',
+                },
+            ])
+        })
     })
 
     it('normalizeMessage: handles new array-based content format', () => {

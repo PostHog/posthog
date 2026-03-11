@@ -3,6 +3,8 @@ import logging
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
+
 from parameterized import parameterized
 
 from posthog.models.integration import Integration
@@ -16,10 +18,16 @@ from products.slack_app.backend.api import (
     RulesCommand,
     _extract_explicit_repo,
     _get_full_repo_names,
+    _invalidate_repo_list_cache,
     _match_repo_rule,
     _parse_rules_command,
+    _repo_list_cache_key,
     select_repository,
 )
+
+
+def _repo_dict(org: str, name: str, repo_id: int = 1) -> dict:
+    return {"id": repo_id, "name": name, "full_name": f"{org}/{name}"}
 
 
 @patch("products.slack_app.backend.api.GitHubIntegration")
@@ -50,8 +58,11 @@ class TestGetFullRepoNames:
         )
 
         mock_github = MagicMock()
-        mock_github.organization.return_value = "posthog"
-        mock_github.list_repositories.return_value = ["posthog", "posthog-js", "plugin-server"]
+        mock_github.list_repositories.return_value = [
+            _repo_dict("posthog", "posthog", 1),
+            _repo_dict("posthog", "posthog-js", 2),
+            _repo_dict("posthog", "plugin-server", 3),
+        ]
         mock_github_class.return_value = mock_github
 
         result = _get_full_repo_names(self.slack_integration)
@@ -65,11 +76,10 @@ class TestGetFullRepoNames:
             sensitive_config={"access_token": "ghp-test"},
         )
 
-        page1 = [f"repo-{i}" for i in range(100)]
-        page2 = [f"repo-{i}" for i in range(100, 120)]
+        page1 = [_repo_dict("org", f"repo-{i}", i) for i in range(100)]
+        page2 = [_repo_dict("org", f"repo-{i}", i) for i in range(100, 120)]
 
         mock_github = MagicMock()
-        mock_github.organization.return_value = "org"
         mock_github.list_repositories.side_effect = [page1, page2]
         mock_github_class.return_value = mock_github
 
@@ -94,12 +104,10 @@ class TestGetFullRepoNames:
         )
 
         gh_a = MagicMock()
-        gh_a.organization.return_value = "orgA"
-        gh_a.list_repositories.return_value = ["repo-1"]
+        gh_a.list_repositories.return_value = [_repo_dict("orgA", "repo-1", 1)]
 
         gh_b = MagicMock()
-        gh_b.organization.return_value = "orgB"
-        gh_b.list_repositories.return_value = ["repo-2"]
+        gh_b.list_repositories.return_value = [_repo_dict("orgB", "repo-2", 2)]
 
         mock_github_class.side_effect = [gh_a, gh_b]
 
@@ -116,8 +124,7 @@ class TestGetFullRepoNames:
         )
 
         mock_github = MagicMock()
-        mock_github.organization.return_value = "org"
-        mock_github.list_repositories.return_value = [f"repo-{i}" for i in range(10)]
+        mock_github.list_repositories.return_value = [_repo_dict("org", f"repo-{i}", i) for i in range(10)]
         mock_github_class.return_value = mock_github
 
         with caplog.at_level(logging.WARNING):
@@ -135,12 +142,221 @@ class TestGetFullRepoNames:
         )
 
         mock_github = MagicMock()
-        mock_github.organization.return_value = "posthog"
-        mock_github.list_repositories.return_value = ["zebra", "alpha", "middle"]
+        mock_github.list_repositories.return_value = [
+            _repo_dict("posthog", "zebra", 1),
+            _repo_dict("posthog", "alpha", 2),
+            _repo_dict("posthog", "middle", 3),
+        ]
         mock_github_class.return_value = mock_github
 
         result = _get_full_repo_names(self.slack_integration)
         assert result == ["posthog/alpha", "posthog/middle", "posthog/zebra"]
+
+
+@patch("products.slack_app.backend.api.GitHubIntegration")
+class TestGetFullRepoNamesCache:
+    @pytest.fixture(autouse=True)
+    def setup(self, db):
+        cache.clear()
+        self.organization = Organization.objects.create(name="Cache Org")
+        self.team = Team.objects.create(organization=self.organization, name="Cache Team")
+        self.slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack-twig",
+            integration_id="T_CACHE",
+            sensitive_config={"access_token": "xoxb-cache"},
+        )
+
+    def _create_github_integration(self, team=None, name="posthog"):
+        return Integration.objects.create(
+            team=team or self.team,
+            kind="github",
+            config={"account": {"name": name}},
+            sensitive_config={"access_token": "ghp-test"},
+        )
+
+    def test_cache_miss_populates_cache(self, mock_github_class):
+        self._create_github_integration()
+        mock_github = MagicMock()
+        mock_github.list_repositories.return_value = [_repo_dict("posthog", "repo-a")]
+        mock_github_class.return_value = mock_github
+
+        result = _get_full_repo_names(self.slack_integration)
+
+        assert result == ["posthog/repo-a"]
+        assert cache.get(_repo_list_cache_key(self.team.id)) == ["posthog/repo-a"]
+
+    def test_cache_hit_avoids_github_api(self, mock_github_class):
+        self._create_github_integration()
+        mock_github = MagicMock()
+        mock_github.list_repositories.return_value = [_repo_dict("posthog", "repo-a")]
+        mock_github_class.return_value = mock_github
+
+        _get_full_repo_names(self.slack_integration)
+        mock_github_class.reset_mock()
+
+        result = _get_full_repo_names(self.slack_integration)
+
+        assert result == ["posthog/repo-a"]
+        mock_github_class.assert_not_called()
+
+    def test_team_isolation(self, mock_github_class):
+        org_b = Organization.objects.create(name="Other Org")
+        team_b = Team.objects.create(organization=org_b, name="Other Team")
+        slack_b = Integration.objects.create(
+            team=team_b,
+            kind="slack-twig",
+            integration_id="T_OTHER",
+            sensitive_config={"access_token": "xoxb-other"},
+        )
+        self._create_github_integration(team=self.team, name="orgA")
+        self._create_github_integration(team=team_b, name="orgB")
+
+        gh_a = MagicMock()
+        gh_a.list_repositories.return_value = [_repo_dict("orgA", "repo-a")]
+
+        gh_b = MagicMock()
+        gh_b.list_repositories.return_value = [_repo_dict("orgB", "repo-b")]
+
+        mock_github_class.side_effect = [gh_a, gh_b]
+
+        result_a = _get_full_repo_names(self.slack_integration)
+        result_b = _get_full_repo_names(slack_b)
+
+        assert result_a == ["orgA/repo-a"]
+        assert result_b == ["orgB/repo-b"]
+
+    def test_invalidation_forces_refetch(self, mock_github_class):
+        self._create_github_integration()
+        mock_github = MagicMock()
+        mock_github.list_repositories.return_value = [_repo_dict("posthog", "repo-a")]
+        mock_github_class.return_value = mock_github
+
+        _get_full_repo_names(self.slack_integration)
+        _invalidate_repo_list_cache(self.team.id)
+
+        assert cache.get(_repo_list_cache_key(self.team.id)) is None
+
+        mock_github.list_repositories.return_value = [
+            _repo_dict("posthog", "repo-a"),
+            _repo_dict("posthog", "repo-b", 2),
+        ]
+        result = _get_full_repo_names(self.slack_integration)
+        assert result == ["posthog/repo-a", "posthog/repo-b"]
+
+    def test_no_github_integrations_caches_empty(self, mock_github_class):
+        result = _get_full_repo_names(self.slack_integration)
+
+        assert result == []
+        assert cache.get(_repo_list_cache_key(self.team.id)) == []
+        mock_github_class.assert_not_called()
+
+    def test_empty_result_with_github_integrations_not_cached(self, mock_github_class):
+        self._create_github_integration()
+        mock_github = MagicMock()
+        mock_github.list_repositories.return_value = []
+        mock_github_class.return_value = mock_github
+
+        result = _get_full_repo_names(self.slack_integration)
+
+        assert result == []
+        assert cache.get(_repo_list_cache_key(self.team.id)) is None
+
+    def test_signal_invalidates_on_github_save(self, mock_github_class):
+        self._create_github_integration()
+        mock_github = MagicMock()
+        mock_github.list_repositories.return_value = [_repo_dict("posthog", "repo-a")]
+        mock_github_class.return_value = mock_github
+
+        _get_full_repo_names(self.slack_integration)
+        assert cache.get(_repo_list_cache_key(self.team.id)) is not None
+
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="gh-new",
+            config={"account": {"name": "new-org"}},
+            sensitive_config={"access_token": "ghp-new"},
+        )
+
+        assert cache.get(_repo_list_cache_key(self.team.id)) is None
+
+    def test_signal_invalidates_on_github_delete(self, mock_github_class):
+        gh_record = self._create_github_integration()
+        mock_github = MagicMock()
+        mock_github.list_repositories.return_value = [_repo_dict("posthog", "repo-a")]
+        mock_github_class.return_value = mock_github
+
+        _get_full_repo_names(self.slack_integration)
+        assert cache.get(_repo_list_cache_key(self.team.id)) is not None
+
+        gh_record.delete()
+
+        assert cache.get(_repo_list_cache_key(self.team.id)) is None
+
+    def test_signal_ignores_non_github_integration(self, mock_github_class):
+        self._create_github_integration()
+        mock_github = MagicMock()
+        mock_github.list_repositories.return_value = [_repo_dict("posthog", "repo-a")]
+        mock_github_class.return_value = mock_github
+
+        _get_full_repo_names(self.slack_integration)
+        assert cache.get(_repo_list_cache_key(self.team.id)) is not None
+
+        Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="S99",
+            sensitive_config={"access_token": "xoxb-other"},
+        )
+
+        assert cache.get(_repo_list_cache_key(self.team.id)) is not None
+
+
+@patch("products.slack_app.backend.api.GitHubIntegration")
+class TestPostRepoPickerPrewarm:
+    @pytest.fixture(autouse=True)
+    def setup(self, db):
+        cache.clear()
+        self.organization = Organization.objects.create(name="Prewarm Org")
+        self.team = Team.objects.create(organization=self.organization, name="Prewarm Team")
+        self.slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack-twig",
+            integration_id="T_PREWARM",
+            sensitive_config={"access_token": "xoxb-prewarm"},
+        )
+
+    @patch("products.slack_app.backend.api.SlackIntegration")
+    def test_prewarm_calls_get_full_repo_names(self, mock_slack_cls, mock_github_class):
+        from products.slack_app.backend.api import _post_repo_picker_message
+
+        mock_slack = MagicMock()
+        mock_slack_cls.return_value = mock_slack
+
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            config={"account": {"name": "posthog"}},
+            sensitive_config={"access_token": "ghp-test"},
+        )
+        mock_github = MagicMock()
+        mock_github.list_repositories.return_value = [_repo_dict("posthog", "repo-a")]
+        mock_github_class.return_value = mock_github
+
+        _post_repo_picker_message(
+            slack=mock_slack,
+            integration=self.slack_integration,
+            channel="C001",
+            thread_ts="123.456",
+            slack_user_id="U001",
+            event_text="fix bug",
+            user_message_ts=None,
+            guidance="Pick a repo",
+            action_id="twig_repo_select",
+        )
+
+        assert cache.get(_repo_list_cache_key(self.team.id)) == ["posthog/repo-a"]
 
 
 class TestExtractExplicitRepo:

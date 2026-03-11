@@ -5,7 +5,7 @@
  * Recording API-specific types.
  */
 import { CommonConfig } from '../../common/config'
-import { SessionRecordingConfig } from '../../session-recording/config'
+import { SessionRecordingApiConfig, SessionRecordingConfig } from '../../session-recording/config'
 
 // Re-export all shared encryption types so existing recording-api imports still work
 export {
@@ -27,18 +27,21 @@ export {
  */
 export type RecordingApiConfig = Pick<
     CommonConfig,
-    'KAFKA_CLIENT_RACK' | 'REDIS_POOL_MIN_SIZE' | 'REDIS_POOL_MAX_SIZE'
+    'SITE_URL' | 'KAFKA_CLIENT_RACK' | 'REDIS_POOL_MIN_SIZE' | 'REDIS_POOL_MAX_SIZE'
 > &
     Pick<
-        SessionRecordingConfig,
+        SessionRecordingApiConfig,
         | 'SESSION_RECORDING_API_REDIS_HOST'
         | 'SESSION_RECORDING_API_REDIS_PORT'
+        | 'SESSION_RECORDING_KMS_ENDPOINT'
+        | 'SESSION_RECORDING_DYNAMODB_ENDPOINT'
+    > &
+    Pick<
+        SessionRecordingConfig,
         | 'SESSION_RECORDING_V2_S3_REGION'
         | 'SESSION_RECORDING_V2_S3_ENDPOINT'
         | 'SESSION_RECORDING_V2_S3_ACCESS_KEY_ID'
         | 'SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY'
         | 'SESSION_RECORDING_V2_S3_BUCKET'
         | 'SESSION_RECORDING_V2_S3_PREFIX'
-        | 'SESSION_RECORDING_KMS_ENDPOINT'
-        | 'SESSION_RECORDING_DYNAMODB_ENDPOINT'
     >

@@ -1,9 +1,11 @@
-export type SessionRecordingConfig = {
+export type SessionRecordingApiConfig = {
     SESSION_RECORDING_API_REDIS_HOST: string
     SESSION_RECORDING_API_REDIS_PORT: number
     SESSION_RECORDING_KMS_ENDPOINT: string | undefined
     SESSION_RECORDING_DYNAMODB_ENDPOINT: string | undefined
+}
 
+export type SessionRecordingConfig = {
     SESSION_RECORDING_LOCAL_DIRECTORY: string
     SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: number
     SESSION_RECORDING_MAX_BUFFER_SIZE_KB: number

@@ -287,7 +287,7 @@ class TestEmitClusterEvents:
             cluster_labels={0: ClusterLabel(title="Test Cluster", description="Test desc")},
             coords_2d=np.array([[0.0, 0.0], [0.1, 0.1]]),
             centroid_coords_2d=np.array([[0.05, 0.05]]),
-            job_id=123,
+            job_id="123",
             job_name="OpenAI traces",
         )
 
@@ -297,7 +297,7 @@ class TestEmitClusterEvents:
         assert call_kwargs["team"].id == mock_team.id
         assert "$ai_clustering_run_id" in call_kwargs["properties"]
         assert call_kwargs["properties"]["$ai_clustering_run_id"] == "test_run_123"
-        assert call_kwargs["properties"]["$ai_clustering_job_id"] == 123
+        assert call_kwargs["properties"]["$ai_clustering_job_id"] == "123"
         assert call_kwargs["properties"]["$ai_clustering_job_name"] == "OpenAI traces"
 
     @patch("posthog.temporal.llm_analytics.trace_clustering.event_emission.create_event")

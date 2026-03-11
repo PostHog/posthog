@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -13,7 +12,6 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
 import { SurveysTable } from 'scenes/surveys/components/SurveysTable'
-import { captureMaxAISurveyCreationException } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -68,7 +66,7 @@ function NewSurveyButton(): JSX.Element {
 
 function Surveys(): JSX.Element {
     const { tab } = useValues(surveysLogic)
-    const { setTab, loadSurveys, addProductIntent } = useActions(surveysLogic)
+    const { setTab, handleMaxSurveyCreated } = useActions(surveysLogic)
 
     return (
         <SceneContent>
@@ -94,34 +92,7 @@ function Surveys(): JSX.Element {
                         'Create a quick satisfaction survey for support interactions',
                     ],
                     context: {},
-                    callback: (toolOutput: {
-                        survey_id?: string
-                        survey_name?: string
-                        survey_type?: string
-                        error?: string
-                        error_message?: string
-                    }) => {
-                        addProductIntent({
-                            product_type: ProductKey.SURVEYS,
-                            intent_context: ProductIntentContext.SURVEY_CREATED,
-                            metadata: {
-                                survey_id: toolOutput.survey_id,
-                                source: SURVEY_CREATED_SOURCE.MAX_AI,
-                                created_successfully: !toolOutput?.error,
-                            },
-                        })
-
-                        if (toolOutput?.error || !toolOutput?.survey_id) {
-                            return captureMaxAISurveyCreationException(toolOutput.error, SURVEY_CREATED_SOURCE.MAX_AI)
-                        }
-
-                        loadSurveys()
-                        if (toolOutput.survey_type === 'popover') {
-                            router.actions.push(urls.surveyWizard(toolOutput.survey_id))
-                        } else {
-                            router.actions.push(urls.survey(toolOutput.survey_id) + '?edit=true')
-                        }
-                    },
+                    callback: (toolOutput) => handleMaxSurveyCreated(toolOutput, SURVEY_CREATED_SOURCE.MAX_AI),
                 }}
             />
             <SurveysDisabledBanner />

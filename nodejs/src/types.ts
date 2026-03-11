@@ -16,7 +16,7 @@ import type { IngestionConsumerConfig } from './ingestion/config'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from './kafka/producer'
 import type { LogsIngestionConsumerConfig } from './logs-ingestion/config'
-import type { SessionRecordingConfig } from './session-recording/config'
+import type { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
 import { PubSub } from './utils/pubsub'
@@ -47,7 +47,7 @@ export {
     PersonBatchWritingMode,
 } from './ingestion/config'
 export { LogsIngestionConsumerConfig } from './logs-ingestion/config'
-export { SessionRecordingConfig } from './session-recording/config'
+export { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
 
 interface HealthCheckResultResponse {
     service: string
@@ -115,7 +115,8 @@ export interface PluginsServerConfig
         CdpConfig,
         IngestionConsumerConfig,
         LogsIngestionConsumerConfig,
-        SessionRecordingConfig {}
+        SessionRecordingConfig,
+        SessionRecordingApiConfig {}
 
 export interface HubServices {
     postgres: PostgresRouter
@@ -162,6 +163,7 @@ export interface PluginServerCapabilities {
     appManagementSingleton?: boolean
     evaluationScheduler?: boolean
     cdpCyclotronShadowWorker?: boolean
+    cdpCyclotronV2Janitor?: boolean
     recordingApi?: boolean
 }
 
@@ -292,6 +294,7 @@ export interface Team {
     available_features: OrganizationAvailableFeature[]
     drop_events_older_than_seconds: number | null
     logs_settings?: LogsSettings | null
+    extra_settings: Record<string, string | number | boolean> | null
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */

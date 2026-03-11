@@ -54,7 +54,7 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
             surveysLogic,
             ['loadSurveys'],
             eventUsageLogic,
-            ['reportSurveyCreated', 'reportSurveyEdited'],
+            ['reportSurveyCreated', 'reportSurveyEdited', 'reportSurveyTemplateClicked'],
             teamLogic,
             ['addProductIntent'],
         ],
@@ -260,6 +260,8 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
                 ...template.conditions,
                 seenSurveyWaitPeriodInDays: frequencyToDays[frequencyValue],
             })
+
+            actions.reportSurveyTemplateClicked(template.templateType, SURVEY_CREATED_SOURCE.SURVEY_WIZARD)
         },
         restoreDefaultQuestions: () => {
             const template = values.selectedTemplate

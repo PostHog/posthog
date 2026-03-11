@@ -1,6 +1,5 @@
 """Alias test - verifies that alias links two distinct IDs to the same person."""
 
-import time
 import uuid
 
 import structlog
@@ -21,15 +20,13 @@ class TestAlias(AcceptanceTest):
 
         # Capture both events before polling to reduce wall-clock time
         logger.info("test_alias: capturing event for Person A", distinct_id=distinct_id_a)
-        first_timestamp = time.time()
         first_event_uuid = self.client.capture_event(
-            event_name, distinct_id_a, {"$set": {"source": "first", "$test_timestamp": first_timestamp}}
+            event_name, distinct_id_a, {"$set": {"source": "first", "$test_version": 1}}
         )
 
         logger.info("test_alias: capturing event for Person B", distinct_id=distinct_id_b)
-        second_timestamp = time.time()
         second_event_uuid = self.client.capture_event(
-            event_name, distinct_id_b, {"$set": {"source": "second", "$test_timestamp": second_timestamp}}
+            event_name, distinct_id_b, {"$set": {"source": "second", "$test_version": 2}}
         )
 
         # Poll for both events
@@ -49,7 +46,7 @@ class TestAlias(AcceptanceTest):
 
         # Wait for alias to propagate and query person by Person A's distinct_id
         logger.info("test_alias: querying for Person A after alias", distinct_id=distinct_id_a)
-        person = self.client.query_person_by_distinct_id(distinct_id_a, min_timestamp=second_timestamp)
+        person = self.client.query_person_by_distinct_id(distinct_id_a, min_version=2)
         assert person is not None, "Alias not propagated within time budget"
 
         # Query all events for this person - should have all 3 specific events

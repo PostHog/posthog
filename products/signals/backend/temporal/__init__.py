@@ -1,7 +1,7 @@
 from products.signals.backend.temporal.actionability_judge import actionability_judge_activity
+from products.signals.backend.temporal.deletion import SignalReportDeletionWorkflow
 from products.signals.backend.temporal.emit_eval_signal import EmitEvalSignalWorkflow, emit_eval_signal_activity
 from products.signals.backend.temporal.grouping import (
-    EmitSignalWorkflow,
     TeamSignalGroupingWorkflow,
     assign_and_emit_signal_activity,
     fetch_report_contexts_activity,
@@ -12,6 +12,12 @@ from products.signals.backend.temporal.grouping import (
     run_signal_semantic_search_activity,
     verify_match_specificity_activity,
     wait_for_signal_in_clickhouse_activity,
+)
+from products.signals.backend.temporal.reingestion import (
+    SignalReportReingestionWorkflow,
+    delete_report_activity,
+    reingest_signals_activity,
+    soft_delete_report_signals_activity,
 )
 from products.signals.backend.temporal.safety_judge import safety_judge_activity
 from products.signals.backend.temporal.summarize_signals import summarize_signals_activity
@@ -27,14 +33,16 @@ from products.signals.backend.temporal.summary import (
 
 WORKFLOWS = [
     TeamSignalGroupingWorkflow,
-    EmitSignalWorkflow,  # kept for in-flight workflows during migration
     SignalReportSummaryWorkflow,
+    SignalReportReingestionWorkflow,
+    SignalReportDeletionWorkflow,
     EmitEvalSignalWorkflow,
 ]
 
 ACTIVITIES = [
     actionability_judge_activity,
     assign_and_emit_signal_activity,
+    delete_report_activity,
     emit_eval_signal_activity,
     fetch_report_contexts_activity,
     fetch_signal_type_examples_activity,
@@ -46,9 +54,11 @@ ACTIVITIES = [
     mark_report_in_progress_activity,
     mark_report_pending_input_activity,
     mark_report_ready_activity,
+    reingest_signals_activity,
     reset_report_to_potential_activity,
     run_signal_semantic_search_activity,
     safety_judge_activity,
+    soft_delete_report_signals_activity,
     verify_match_specificity_activity,
     wait_for_signal_in_clickhouse_activity,
     summarize_signals_activity,

@@ -12,10 +12,12 @@ export function FrameContext({
 }): JSX.Element {
     const { before, line, after } = context
     return (
-        <>
-            <FrameContextLine lines={before} language={language} />
-            <FrameContextLine lines={[line]} language={language} highlight />
-            <FrameContextLine lines={after} language={language} />
-        </>
+        <div className="overflow-x-auto [&_span]:!whitespace-pre">
+            <div className="w-fit min-w-full">
+                <FrameContextLine lines={before} language={language} />
+                <FrameContextLine lines={[line]} language={language} highlight />
+                <FrameContextLine lines={after} language={language} />
+            </div>
+        </div>
     )
 }

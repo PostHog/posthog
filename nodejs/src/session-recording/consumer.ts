@@ -16,8 +16,7 @@ import {
 import { TopHog } from '../ingestion/tophog/tophog'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
-import { getBlockDecryptor, getBlockEncryptor } from '../session-replay/shared/crypto'
-import { VerifyingEncryptor } from '../session-replay/shared/crypto/verifying-encryptor'
+import { getBlockEncryptor } from '../session-replay/shared/crypto'
 import { getKeyStore } from '../session-replay/shared/keystore'
 import { MemoryCachedKeyStore } from '../session-replay/shared/keystore/cache'
 import { SessionMetadataStore } from '../session-replay/shared/metadata/session-metadata-store'
@@ -32,7 +31,7 @@ import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { IngestionConsumerConfig } from '../ingestion/config'
-import { SessionRecordingConfig } from './config'
+import { SessionRecordingApiConfig, SessionRecordingConfig } from './config'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
@@ -49,6 +48,7 @@ import { SessionTracker } from './sessions/session-tracker'
  * This type covers SessionRecordingConfig plus infra config needed for Redis pools and encryption.
  */
 export type SessionRecordingIngesterConfig = SessionRecordingConfig &
+    SessionRecordingApiConfig &
     Pick<
         CommonConfig,
         // For KafkaProducerWrapper.create
@@ -233,13 +233,7 @@ export class SessionRecordingIngester {
             dynamoDBEndpoint: config.SESSION_RECORDING_DYNAMODB_ENDPOINT,
         })
         this.keyStore = new MemoryCachedKeyStore(keyStore)
-        const encryptor = getBlockEncryptor(this.keyStore)
-        const decryptor = getBlockDecryptor(this.keyStore)
-        this.encryptor = new VerifyingEncryptor(
-            encryptor,
-            decryptor,
-            config.SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE
-        )
+        this.encryptor = getBlockEncryptor(this.keyStore)
 
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: this.config.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,

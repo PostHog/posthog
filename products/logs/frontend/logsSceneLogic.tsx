@@ -25,6 +25,7 @@ import {
     DEFAULT_INITIAL_LOGS_LIMIT,
     logsViewerDataLogic,
 } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
+import { logsFilterHistoryLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterHistoryLogic'
 import {
     DEFAULT_DATE_RANGE,
     DEFAULT_SERVICE_NAMES,
@@ -34,7 +35,10 @@ import {
 } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 import type { logsSceneLogicType } from './logsSceneLogicType'
-import { LogsFiltersHistoryEntry } from './types'
+
+export type LogsSceneActiveTab = 'viewer' | 'configuration'
+const VALID_ACTIVE_TABS: LogsSceneActiveTab[] = ['viewer', 'configuration']
+const DEFAULT_ACTIVE_TAB: LogsSceneActiveTab = 'viewer'
 
 export interface LogsLogicProps {
     tabId: string
@@ -54,6 +58,8 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             ['setOrderBy'],
             logsViewerDataLogic({ id: props.tabId }),
             ['setInitialLogsLimit', 'runQuery', 'clearLogs', 'fetchLogsSuccess'],
+            logsFilterHistoryLogic({ id: props.tabId }),
+            ['pushToFilterHistory'],
         ],
         values: [
             logsViewerFiltersLogic({ id: props.tabId }),
@@ -66,6 +72,14 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
     })),
     tabAwareUrlToAction(({ actions, values }) => {
         const urlToAction = (_: any, params: Params): void => {
+            if (
+                typeof params.activeTab === 'string' &&
+                VALID_ACTIVE_TABS.includes(params.activeTab as LogsSceneActiveTab) &&
+                params.activeTab !== values.activeTab
+            ) {
+                actions.setActiveTab(params.activeTab as LogsSceneActiveTab)
+            }
+
             const filtersFromUrl: Partial<LogsViewerFilters> = {}
             let hasFilterChanges = false
 
@@ -175,37 +189,35 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             })
         }
 
+        const syncActiveTab = (): ReturnType<typeof syncSearchParams> => {
+            return syncSearchParams(router, (params: Params) => {
+                updateSearchParams(params, 'activeTab', values.activeTab, DEFAULT_ACTIVE_TAB)
+                return params
+            })
+        }
+
         return {
             // initialLogsLimit is a one-shot override from "copy link to log" URLs.
             // It ensures the first fetch loads enough logs to include the linked log,
             // then resets to null so subsequent queries use the default page size.
             fetchLogsSuccess: () => clearInitialLogsLimit(),
             syncUrlAndRunQuery: () => buildUrlAndRunQuery(),
+            setActiveTab: () => syncActiveTab(),
         }
     }),
 
     actions({
+        setActiveTab: (activeTab: LogsSceneActiveTab) => ({ activeTab }),
         syncUrlAndRunQuery: true,
-        pushToFilterHistory: (filters: LogsViewerFilters) => ({ filters }),
-        restoreFiltersFromHistory: (index: number) => ({ index }),
-        clearFilterHistory: true,
         toggleAttributeBreakdown: (key: string) => ({ key }),
         setExpandedAttributeBreaksdowns: (expandedAttributeBreaksdowns: string[]) => ({ expandedAttributeBreaksdowns }),
     }),
 
     reducers({
-        filterHistory: [
-            [] as LogsFiltersHistoryEntry[],
-            { persist: true },
+        activeTab: [
+            DEFAULT_ACTIVE_TAB as LogsSceneActiveTab,
             {
-                pushToFilterHistory: (state, { filters }) => {
-                    if (state.length > 0 && equal(state[0].filters, filters)) {
-                        return state
-                    }
-                    const entry: LogsFiltersHistoryEntry = { filters, timestamp: Date.now() }
-                    return [entry, ...state].slice(0, 10)
-                },
-                clearFilterHistory: () => [],
+                setActiveTab: (_, { activeTab }) => activeTab,
             },
         ],
         expandedAttributeBreaksdowns: [
@@ -218,10 +230,6 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
 
     selectors({
         tabId: [(_, p) => [p.tabId], (tabId: string) => tabId],
-        hasFilterHistory: [
-            (s) => [s.filterHistory],
-            (filterHistory: LogsFiltersHistoryEntry[]) => filterHistory.length > 0,
-        ],
     }),
 
     listeners(({ values, actions }) => ({
@@ -340,22 +348,6 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             posthog.capture('logs setting changed', { setting: 'order_by', value: orderBy, source })
             actions.syncUrlAndRunQuery()
         },
-        restoreFiltersFromHistory: ({ index }) => {
-            const entry = values.filterHistory[index]
-            if (entry) {
-                posthog.capture('logs filter history restored', {
-                    history_index: index,
-                    history_size: values.filterHistory.length,
-                })
-                actions.setFilters(entry.filters, false)
-            }
-        },
-        clearFilterHistory: () => {
-            posthog.capture('logs filter history cleared', {
-                history_size: values.filterHistory.length,
-            })
-        },
-
         toggleAttributeBreakdown: ({ key }) => {
             const breakdowns = [...values.expandedAttributeBreaksdowns]
             const index = breakdowns.indexOf(key)
