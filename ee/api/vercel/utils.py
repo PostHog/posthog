@@ -2,10 +2,12 @@ from typing import Any
 
 from django.core.cache import cache
 
+import requests
 import structlog
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
-from social_core.utils import requests
+
+from posthog.security.outbound_proxy import external_requests
 
 from ee.api.vercel.types import VercelClaims, VercelUser, VercelUserClaims
 
@@ -42,7 +44,7 @@ def get_vercel_jwks() -> dict[str, Any]:
     if jwks is None:
         for attempt in range(3):
             try:
-                response = requests.get(VERCEL_JWKS_URL, timeout=10)
+                response = external_requests.get(VERCEL_JWKS_URL, timeout=10)
                 response.raise_for_status()
                 jwks = response.json()
                 cache.set(VERCEL_JWKS_CACHE_KEY, jwks, timeout=VERCEL_JWKS_CACHE_TIMEOUT)

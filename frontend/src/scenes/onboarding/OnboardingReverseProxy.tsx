@@ -8,8 +8,8 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { DomainConnectBanner } from 'lib/components/DomainConnect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
-import { apiHostOrigin } from 'lib/utils/apiHost'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { ProxyRecord, proxyLogic } from 'scenes/settings/environment/proxyLogic'
 
 import { OnboardingStepKey } from '~/types'
@@ -166,6 +166,11 @@ function WaitingForDns({ records }: { records: ProxyRecord[] }): JSX.Element {
                     />
                 </div>
             ))}
+            <p className="mb-4 text-sm">
+                <strong>Important:</strong> If you are using a DNS provider like Cloudflare that offers proxy options
+                (orange cloud), make sure the proxy is <strong>disabled</strong> (gray cloud) for this domain. Enabling
+                the proxy at your DNS provider may interfere with the managed reverse proxy functionality.
+            </p>
             <p>Once DNS has propagated, update your SDK to route events through your proxy domain.</p>
             <p className="text-xs text-secondary">
                 Requests to the proxy domain will fail until DNS propagation completes. It may take a few minutes to
@@ -195,7 +200,8 @@ function ProxyVerified({ record }: { record: ProxyRecord }): JSX.Element {
 }
 
 function ProxySnippet({ domain }: { domain: string }): JSX.Element {
-    const uiHost = apiHostOrigin()
+    const { preflight } = useValues(preflightLogic)
+    const uiHost = preflight?.site_url || window.location.origin
     return (
         <CodeSnippet language={Language.JavaScript}>
             {`posthog.init('<your-project-api-key>', {\n    api_host: 'https://${domain}',\n    ui_host: '${uiHost}',\n})`}

@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Generic, Optional, TypeVar, Union
 
+from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
+
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
@@ -67,7 +69,9 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         return {}
 
-    def get_schemas(self, config: ConfigType, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: ConfigType, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
         raise NotImplementedError()
 
     @property
@@ -118,6 +122,10 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
     @property
     @abstractmethod
     def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:
+        raise NotImplementedError()
+
+    @abstractmethod
+    def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
         raise NotImplementedError()
 
 

@@ -14,6 +14,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.security.outbound_proxy import external_requests
 
 from ee.api.authentication import VercelAuthentication
 
@@ -118,7 +119,7 @@ class VercelRegionProxyMixin:
         headers["Host"] = self.EU_DOMAIN
 
         try:
-            response = requests.request(
+            response = external_requests.request(
                 method=request.method or "GET",
                 url=target_url,
                 headers=headers,

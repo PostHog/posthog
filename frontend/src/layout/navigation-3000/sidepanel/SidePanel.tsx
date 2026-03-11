@@ -1,14 +1,20 @@
 import './SidePanel.scss'
 
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { lazy, Suspense, useEffect, useRef } from 'react'
 
 import { IconBook, IconGear, IconInfo, IconLock, IconLogomark, IconNotebook } from '@posthog/icons'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { cn } from 'lib/utils/css-classes'
-import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
+
+const NotebookPanel = lazy(() =>
+    import('scenes/notebooks/NotebookPanel/NotebookPanel').then((m) => ({ default: m.NotebookPanel }))
+)
+
+import { useWindowSize } from 'lib/hooks/useWindowSize'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import {
@@ -77,7 +83,7 @@ export const SIDE_PANEL_TABS: Record<
     },
 
     [SidePanelTab.Activity]: {
-        label: 'Team activity',
+        label: 'Activity logs',
         Icon: SidePanelActivityIcon,
         Content: SidePanelActivity,
     },
@@ -170,11 +176,25 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
         selectedTab &&
         sidePanelOpen &&
         (visibleTabs.includes(selectedTab) || (selectedTab === SidePanelTab.Info && scenePanelIsPresent))
-    const sidePanelWidth = !visibleTabs.length
+
+    // If the persisted state says the panel is open but the selected tab isn't
+    // available in this context (e.g. Info tab on a scene without a ScenePanel),
+    // close the panel so other components like SceneTitlePanelButton stay in sync.
+    useEffect(() => {
+        if (sidePanelOpen && selectedTab && !sidePanelOpenAndAvailable) {
+            closeSidePanel()
+        }
+    }, [sidePanelOpen, selectedTab, sidePanelOpenAndAvailable, closeSidePanel])
+
+    const { windowSize } = useWindowSize()
+
+    const rawSidePanelWidth = !visibleTabs.length
         ? 0
         : sidePanelOpenAndAvailable
           ? Math.max(desiredSize ?? DEFAULT_WIDTH, SIDE_PANEL_MIN_WIDTH_COMPACT)
           : 0
+
+    const sidePanelWidth = windowSize.width != null ? Math.min(rawSidePanelWidth, windowSize.width) : rawSidePanelWidth
 
     // Update sidepanel width in panelLayoutLogic
     useEffect(() => {
@@ -223,7 +243,9 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
             {PanelContent && (
                 <SidePanelNavigation activeTab={activeTab as SidePanelTab} onTabChange={(tab) => openSidePanel(tab)}>
                     <ErrorBoundary>
-                        <PanelContent />
+                        <Suspense fallback={<Spinner className="text-4xl mx-auto mt-16" />}>
+                            <PanelContent />
+                        </Suspense>
                     </ErrorBoundary>
                 </SidePanelNavigation>
             )}

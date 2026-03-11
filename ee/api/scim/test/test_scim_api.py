@@ -256,7 +256,7 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
         other_user = User.objects.create(email="alice@othercorp.com", first_name="Alice")
         OrganizationMembership.objects.create(user=other_user, organization=other_org)
 
-        with self.assertRaises(ValueError, msg="does not match organization domain"):
+        with self.assertRaises(ValueError, msg="does not match any verified domain"):
             PostHogSCIMUser.from_dict(
                 self._scim_user_data("alice@othercorp.com"),
                 self.domain,
@@ -284,13 +284,66 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
         )
         assert scim_user.obj.email == "newuser@example.com"
 
+    def test_from_dict_allows_user_with_different_verified_org_domain(self):
+        OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain="partner.com",
+            verified_at="2024-01-01T00:00:00Z",
+        )
+
+        scim_user = PostHogSCIMUser.from_dict(
+            self._scim_user_data("alice@partner.com"),
+            self.domain,
+        )
+        assert scim_user.obj.email == "alice@partner.com"
+
+    def test_from_dict_rejects_user_with_unverified_org_domain(self):
+        OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain="unverified.com",
+            verified_at=None,
+        )
+
+        with self.assertRaises(ValueError, msg="does not match any verified domain"):
+            PostHogSCIMUser.from_dict(
+                self._scim_user_data("alice@unverified.com"),
+                self.domain,
+            )
+        assert not User.objects.filter(email="alice@unverified.com").exists()
+
     def test_from_dict_rejects_creating_new_user_with_non_matching_domain(self):
-        with self.assertRaises(ValueError, msg="does not match organization domain"):
+        with self.assertRaises(ValueError, msg="does not match any verified domain"):
             PostHogSCIMUser.from_dict(
                 self._scim_user_data("newuser@evil.com"),
                 self.domain,
             )
         assert not User.objects.filter(email="newuser@evil.com").exists()
+
+    def test_put_allows_email_change_to_different_verified_org_domain(self):
+        self.client.credentials(**self.scim_headers)
+        OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain="partner.com",
+            verified_at="2024-01-01T00:00:00Z",
+        )
+
+        response = self.client.post(
+            f"/scim/v2/{self.domain.id}/Users",
+            self._scim_user_data("valid@example.com"),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        user_id = response.json()["id"]
+
+        response = self.client.put(
+            f"/scim/v2/{self.domain.id}/Users/{user_id}",
+            self._scim_user_data("valid@partner.com"),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        user = User.objects.get(id=user_id)
+        assert user.email == "valid@partner.com"
 
     def test_put_rejects_email_change_to_non_matching_domain(self):
         self.client.credentials(**self.scim_headers)

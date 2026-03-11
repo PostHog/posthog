@@ -1,9 +1,9 @@
 from typing import Any, Optional
 
-import requests
 from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 
+from posthog.security.outbound_proxy import external_requests
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.attio.settings import ATTIO_ENDPOINTS
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
@@ -119,7 +119,7 @@ def get_resource(name: str) -> EndpointResource:
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     """Validate Attio API credentials by making a test request."""
     try:
-        res = requests.get(
+        res = external_requests.get(
             "https://api.attio.com/v2/self",
             headers={
                 "Authorization": f"Bearer {api_key}",

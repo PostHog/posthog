@@ -14,6 +14,7 @@ import {
     LogEntryLevel,
     MinimalAppMetric,
     MinimalLogEntry,
+    WarehouseWebhookPayload,
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
@@ -154,6 +155,7 @@ export class HogFlowExecutorService {
         const metrics: MinimalAppMetric[] = []
         const logs: MinimalLogEntry[] = []
         const capturedPostHogEvents: HogFunctionCapturedEvent[] = []
+        const warehouseWebhookPayloads: WarehouseWebhookPayload[] = []
 
         const earlyExitResult = await this.shouldExitEarly(invocation)
         if (earlyExitResult) {
@@ -181,6 +183,7 @@ export class HogFlowExecutorService {
             logs.push(...result.logs)
             metrics.push(...result.metrics)
             capturedPostHogEvents.push(...result.capturedPostHogEvents)
+            warehouseWebhookPayloads.push(...result.warehouseWebhookPayloads)
 
             if (this.shouldEndHogFlowExecution(result, logs)) {
                 break
@@ -190,6 +193,7 @@ export class HogFlowExecutorService {
         result.logs = logs
         result.metrics = metrics
         result.capturedPostHogEvents = capturedPostHogEvents
+        result.warehouseWebhookPayloads = warehouseWebhookPayloads
 
         return result
     }
@@ -304,7 +308,7 @@ export class HogFlowExecutorService {
             })
             earlyExitResult.metrics.push({
                 team_id: hogFlow.team_id,
-                app_source_id: hogFlow.id,
+                app_source_id: invocation.parentRunId ?? hogFlow.id,
                 instance_id: invocation.state?.currentAction?.id || 'exit_condition',
                 metric_kind: 'other',
                 metric_name: 'early_exit',
@@ -508,7 +512,7 @@ export class HogFlowExecutorService {
     ): void {
         result.metrics.push({
             team_id: result.invocation.hogFlow.team_id,
-            app_source_id: result.invocation.hogFlow.id,
+            app_source_id: result.invocation.parentRunId ?? result.invocation.hogFlow.id,
             instance_id: action.id,
             metric_kind: metricName === 'failed' ? 'failure' : metricName === 'succeeded' ? 'success' : 'other',
             metric_name: metricName,
@@ -609,10 +613,10 @@ export class HogFlowExecutorService {
         let triggeredForActor = ''
         if (!hasCurrentAction) {
             triggeredForActor = isWebhookTriggered
-                ? ` at request of [Actor:${invocation.state.event?.distinct_id || 'unknown'}]`
+                ? ` at request of [Actor:${invocation.state.event?.distinct_id ?? 'unknown'}]`
                 : ''
             triggeredForActor += hasAssociatedPerson
-                ? ` for [Person:${invocation.person?.id}|${invocation.person?.name}]`
+                ? ` for [Person:${invocation.person?.id}|${invocation.person?.name ?? 'unknown'}]`
                 : ''
         }
 

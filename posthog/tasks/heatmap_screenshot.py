@@ -212,7 +212,7 @@ def generate_heatmap_screenshot(screenshot_id: str) -> None:
         except Exception as e:
             screenshot.status = SavedHeatmap.Status.FAILED
             screenshot.exception = str(e)
-            screenshot.save()
+            screenshot.save(update_fields=["status", "exception"])
 
             logger.exception(
                 "heatmap_screenshot.failed",

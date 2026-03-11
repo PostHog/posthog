@@ -1,12 +1,7 @@
 import json
-import asyncio
+import typing
 import datetime as dt
 import operator
-from typing import Any
-
-from django.conf import settings
-
-import aiokafka
 
 from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from posthog.temporal.common.clickhouse import ClickHouseClient
@@ -16,11 +11,22 @@ from products.batch_exports.backend.temporal.record_batch_model import SessionsR
 from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue
 from products.batch_exports.backend.tests.temporal.utils.records import get_record_batch_from_queue
 
+TeamId = str
+HogFunctionId = str
+Body = bytes
 
-async def assert_clickhouse_records_in_kafka(
+
+class RequestData(typing.NamedTuple):
+    team_id: TeamId
+    hog_function_id: HogFunctionId
+    body: Body
+
+
+async def assert_clickhouse_records_were_handled(
     clickhouse_client: ClickHouseClient,
+    handler,
+    hog_function_id,
     team_id: int,
-    topic: str,
     sort_key: str,
     batch_export_model: BatchExportModel | BatchExportSchema | None,
     batch_export_id: str,
@@ -33,46 +39,12 @@ async def assert_clickhouse_records_in_kafka(
 ):
     json_columns = {"properties", "set", "set_once", "person_properties"}
 
-    consumer = aiokafka.AIOKafkaConsumer(
-        topic,
-        group_id="test_batch_exports",
-        bootstrap_servers=settings.KAFKA_HOSTS,
-        security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
-        auto_offset_reset="earliest",
+    handled_records = [json.loads(request.body)["clickhouse_event"] for request in handler.data]
+    hog_function_ids = {request.hog_function_id for request in handler.data}
+
+    assert hog_function_id in hog_function_ids and len(hog_function_ids) == 1, (
+        f"Expected only '{hog_function_id}' but got '{hog_function_ids}'"
     )
-    produced_records = []
-
-    async with consumer:
-        while True:
-            try:
-                async with asyncio.timeout(5):
-                    msg = await consumer.getone()
-            except TimeoutError:
-                break
-
-            record = json.loads(msg.value)
-
-            if (
-                is_backfill
-                and (is_last := record.get("isLastBackfillingMessage", None)) is not None
-                and is_last is True
-            ):
-                break
-
-            for timestamp_column in (
-                "timestamp",
-                "created_at",
-                "group0_created_at",
-                "group1_created_at",
-                "group2_created_at",
-                "group3_created_at",
-                "group4_created_at",
-                "person_created_at",
-            ):
-                if (timestamp_str := record.get(timestamp_column)) is not None and isinstance(timestamp_str, str):
-                    record[timestamp_column] = dt.datetime.fromisoformat(timestamp_str)
-
-            produced_records.append(record)
 
     if batch_export_model is not None:
         if isinstance(batch_export_model, BatchExportModel):
@@ -128,7 +100,7 @@ async def assert_clickhouse_records_in_kafka(
                 select = expected_fields
 
             for record in record_batch.select(select).to_pylist():
-                expected_record: dict[str, Any] = {}
+                expected_record: dict[str, typing.Any] = {}
 
                 for k, v in record.items():
                     if k == "_inserted_at":
@@ -139,23 +111,23 @@ async def assert_clickhouse_records_in_kafka(
                         else:
                             expected_record[k] = json.loads(v)
                     elif isinstance(v, dt.datetime):
-                        expected_record[k] = v.replace(tzinfo=dt.UTC)
+                        expected_record[k] = v.replace(tzinfo=dt.UTC).isoformat()
                     else:
                         expected_record[k] = v
 
                 expected_records.append(expected_record)
 
-    produced_column_names = list(produced_records[0].keys())
+    produced_column_names = list(handled_records[0].keys())
     expected_column_names = [key for key in expected_records[0].keys() if key != "_inserted_at"]
     produced_column_names.sort()
     expected_column_names.sort()
 
     expected_records.sort(key=operator.itemgetter(sort_key))
-    produced_records.sort(key=operator.itemgetter(sort_key))
+    handled_records.sort(key=operator.itemgetter(sort_key))
 
     assert produced_column_names == expected_column_names, (
         f"Expected column names to be '{expected_column_names}', got '{produced_column_names}'"
     )
-    assert produced_records[0] == expected_records[0]
-    assert produced_records == expected_records
-    assert len(produced_records) == len(expected_records)
+    assert handled_records[0] == expected_records[0]
+    assert handled_records == expected_records
+    assert len(handled_records) == len(expected_records)

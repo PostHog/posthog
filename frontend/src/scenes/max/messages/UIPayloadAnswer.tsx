@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconCheck } from '@posthog/icons'
+import { IconCheck, IconNotebook } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
@@ -330,17 +330,15 @@ export function SummarizeSessionsWidget({
     }
 
     return (
-        <div className="flex items-center justify-between border rounded-lg bg-surface-primary px-2 py-1.5 w-full">
-            <span className="text-xs font-semibold text-secondary">{title || 'Sessions summary'}</span>
-            <LemonButton
-                to={`/session-summaries/${payload.session_group_summary_id}`}
-                icon={<IconOpenInNew />}
-                size="xsmall"
-                targetBlank
-                tooltip="Open full analysis"
-            >
-                Open full analysis
-            </LemonButton>
-        </div>
+        <LemonButton
+            to={urls.sessionSummary(payload.session_group_summary_id)}
+            icon={<IconNotebook />}
+            size="small"
+            targetBlank
+            type="primary"
+            className="bg-surface-primary w-fit mx-1"
+        >
+            Open analysis of sessions{title && `: ${title}`}
+        </LemonButton>
     )
 }

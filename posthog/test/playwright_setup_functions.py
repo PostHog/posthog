@@ -52,6 +52,11 @@ class PlaywrightSetupEvent(BaseModel):
     properties: dict[str, Any] | None = None
 
 
+class PlaywrightSetupPerson(BaseModel):
+    distinct_ids: list[str]
+    properties: dict[str, Any] | None = None
+
+
 class PlaywrightWorkspaceSetupData(BaseModel):
     organization_name: str | None = None
     use_current_time: bool | None = None
@@ -61,6 +66,7 @@ class PlaywrightWorkspaceSetupData(BaseModel):
     insights: list[PlaywrightSetupInsight] | None = None
     dashboards: list[PlaywrightSetupDashboard] | None = None
     events: list[PlaywrightSetupEvent] | None = None
+    persons: list[PlaywrightSetupPerson] | None = None
 
 
 class PlaywrightSetupCreatedVariable(BaseModel):
@@ -356,7 +362,7 @@ def _wait_for_events_in_clickhouse(team_id: int, expected_count: int, timeout_se
 
 
 def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -> None:
-    if not data.events:
+    if not data.events and not data.persons:
         return
 
     import uuid as uuid_module
@@ -366,36 +372,41 @@ def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -
     from posthog.models.person.util import create_person, create_person_distinct_id
     from posthog.models.utils import UUIDT
 
-    # Derive persons from distinct_ids in events
-    distinct_ids = {e.distinct_id for e in data.events}
     person_uuids: dict[str, str] = {}
+
+    # Create explicit persons (may have multiple distinct IDs)
+    if data.persons:
+        for person_spec in data.persons:
+            person_uuid = str(UUIDT())
+            props = person_spec.properties or {}
+            create_person(team_id=team.pk, version=0, uuid=person_uuid, properties=props)
+            pg_person = Person.objects.create(team=team, uuid=person_uuid, properties=props)
+            for distinct_id in person_spec.distinct_ids:
+                create_person_distinct_id(team_id=team.pk, distinct_id=distinct_id, person_id=person_uuid)
+                PersonDistinctId.objects.create(team=team, person=pg_person, distinct_id=distinct_id)
+                person_uuids[distinct_id] = person_uuid
+
+    if not data.events:
+        return
+
+    # Collect person properties from $set in event properties (last write wins)
+    person_props: dict[str, dict[str, Any]] = {}
+    for event_spec in data.events:
+        if event_spec.properties and "$set" in event_spec.properties:
+            person_props.setdefault(event_spec.distinct_id, {}).update(event_spec.properties["$set"])
+
+    # Create persons for distinct_ids not already created via explicit persons
+    distinct_ids = {e.distinct_id for e in data.events}
     for distinct_id in distinct_ids:
+        if distinct_id in person_uuids:
+            continue
         person_uuid = str(UUIDT())
         person_uuids[distinct_id] = person_uuid
-        create_person(team_id=team.pk, version=0, uuid=person_uuid)
+        props = person_props.get(distinct_id, {})
+        create_person(team_id=team.pk, version=0, uuid=person_uuid, properties=props)
         create_person_distinct_id(team_id=team.pk, distinct_id=distinct_id, person_id=person_uuid)
-        pg_person = Person.objects.create(team=team, uuid=person_uuid)
+        pg_person = Person.objects.create(team=team, uuid=person_uuid, properties=props)
         PersonDistinctId.objects.create(team=team, person=pg_person, distinct_id=distinct_id)
-
-    # Register event and property definitions so the taxonomic filter works
-    from products.event_definitions.backend.models.event_definition import EventDefinition
-    from products.event_definitions.backend.models.property_definition import PropertyDefinition
-
-    event_names = {e.event for e in data.events}
-    for event_name in event_names:
-        EventDefinition.objects.get_or_create(team=team, name=event_name, defaults={"project_id": team.project_id})
-
-    property_names: set[str] = set()
-    for e in data.events:
-        if e.properties:
-            property_names.update(e.properties.keys())
-    for prop_name in property_names:
-        PropertyDefinition.objects.get_or_create(
-            team=team,
-            name=prop_name,
-            type=PropertyDefinition.Type.EVENT,
-            defaults={"project_id": team.project_id},
-        )
 
     baseline_count = _count_events_in_clickhouse(team.pk)
 
@@ -412,6 +423,11 @@ def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -
         )
 
     _wait_for_events_in_clickhouse(team.pk, baseline_count + len(data.events))
+
+    # Populate event/property definitions so the taxonomic filter works
+    from posthog.demo.matrix.taxonomy_inference import infer_taxonomy_for_team
+
+    infer_taxonomy_for_team(team.pk)
 
 
 @dataclass(frozen=True)

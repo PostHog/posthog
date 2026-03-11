@@ -23,6 +23,7 @@ import posthoganalytics
 from rest_framework.exceptions import APIException
 
 from posthog.redis import get_client
+from posthog.security.outbound_proxy import external_requests
 from posthog.utils import get_ip_address, get_short_user_agent
 
 logger = structlog.get_logger(__name__)
@@ -173,7 +174,7 @@ def _call_radar_api(
     Make the actual API call to WorkOS Radar.
     """
     try:
-        response = requests.post(
+        response = external_requests.post(
             WORKOS_RADAR_API_URL,
             headers={
                 "Authorization": f"Bearer {settings.WORKOS_RADAR_API_KEY}",

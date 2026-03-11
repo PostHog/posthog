@@ -9,6 +9,7 @@ import {
     IconMemory,
     IconNotebook,
     IconNotification,
+    IconPlug,
     IconSearch,
     IconShuffle,
 } from '@posthog/icons'
@@ -22,6 +23,7 @@ import { isObject } from '~/lib/utils'
 import { AgentMode, AssistantTool } from '~/queries/schema/schema-assistant-messages'
 import { RecordingUniversalFilters } from '~/types'
 
+import type { SessionSummarizationUpdate } from './messages/SessionSummarizationProgress'
 import { EnhancedToolCall } from './Thread'
 
 export interface DisplayFormatterContext {
@@ -48,7 +50,7 @@ export interface ToolDefinition<N extends string = string> {
     displayFormatter?: (
         toolCall: EnhancedToolCall,
         { registeredToolMap }: DisplayFormatterContext
-    ) => string | [text: string, widgetDef: RecordingsWidgetDef | null]
+    ) => string | [text: string, widgetDef: RecordingsWidgetDef | SessionSummarizationWidgetDef | null]
     /**
      * If only available in a specific product, specify it here.
      * We're using Scene instead of ProductKey, because that's more flexible (specifically for SQL editor there
@@ -105,6 +107,11 @@ export interface RecordingsWidgetDef {
     args: RecordingUniversalFilters
 }
 
+export interface SessionSummarizationWidgetDef {
+    widget: 'session_summarization'
+    args: { updates: SessionSummarizationUpdate[] }
+}
+
 /** Static mode definition for display purposes. */
 export interface ModeDefinition {
     name: string
@@ -113,6 +120,8 @@ export interface ModeDefinition {
     /** Scenes that should trigger this agent mode */
     scenes?: Set<Scene>
     beta?: boolean
+    /** Feature flag key that gates this mode. When set, the mode is only available if the flag is enabled. */
+    flag?: keyof typeof FEATURE_FLAGS
 }
 
 /** Default tools available in all modes */
@@ -125,6 +134,17 @@ export const DEFAULT_TOOL_KEYS: (keyof typeof TOOL_DEFINITIONS)[] = [
 ]
 
 export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
+    call_mcp_server: {
+        name: 'Call an MCP server',
+        description: 'Call an MCP server',
+        icon: <IconPlug />,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Called an MCP server'
+            }
+            return 'Calling an MCP server...'
+        },
+    },
     todo_write: {
         name: 'Write a todo',
         description: 'Write a todo to remember a task',
@@ -896,10 +916,26 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         beta: true,
         modes: [AgentMode.SessionReplay],
         displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Summarized sessions'
+            const text = toolCall.status === 'completed' ? 'Summarized sessions' : 'Summarizing sessions...'
+            // Parse structured updates from the tool call updates
+            const updates = toolCall.updates
+            if (updates && updates.length > 0) {
+                const parsedUpdates: SessionSummarizationUpdate[] = []
+                for (const update of updates) {
+                    try {
+                        const parsed = JSON.parse(update)
+                        if (isObject(parsed) && (parsed.type === 'sessions_discovered' || parsed.type === 'progress')) {
+                            parsedUpdates.push(parsed as unknown as SessionSummarizationUpdate)
+                        }
+                    } catch {
+                        // Not a structured update, skip
+                    }
+                }
+                if (parsedUpdates.length > 0) {
+                    return [text, { widget: 'session_summarization', args: { updates: parsedUpdates } }]
+                }
             }
-            return 'Summarizing sessions...'
+            return text
         },
     },
     web_search: {
@@ -913,7 +949,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             }
             return toolCall.args.query ? `Searching the web for **${toolCall.args.query}**...` : 'Searching the web...'
         },
-        flag: FEATURE_FLAGS.PHAI_WEB_SEARCH,
     },
     manage_memories: {
         name: 'Manage memories',
@@ -1093,12 +1128,10 @@ export function getToolsForMode(mode: AgentMode): ToolDefinition[] {
 }
 
 /** Get default tools available in auto mode */
-export function getDefaultTools({ webSearchEnabled }: { webSearchEnabled: boolean }): ToolDefinition[] {
+export function getDefaultTools(): ToolDefinition[] {
     const defaultTools = DEFAULT_TOOL_KEYS.map((key) => TOOL_DEFINITIONS[key])
-    if (webSearchEnabled) {
-        // Add web search after `search`
-        defaultTools.splice(defaultTools.indexOf(TOOL_DEFINITIONS.search) + 1, 0, TOOL_DEFINITIONS.web_search)
-    }
+    // Add web search after `search`
+    defaultTools.splice(defaultTools.indexOf(TOOL_DEFINITIONS.search) + 1, 0, TOOL_DEFINITIONS.web_search)
     return defaultTools
 }
 

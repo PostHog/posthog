@@ -1,6 +1,7 @@
 /**
  * Text helper utilities for text view display
  */
+// eslint-disable-next-line import/no-cycle
 import { parseTruncatedSegments } from './segmentParser'
 import { TextSegment } from './types'
 

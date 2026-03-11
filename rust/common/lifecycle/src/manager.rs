@@ -8,6 +8,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const DEFAULT_PRESTOP_PATH: &str = "/tmp/shutdown";
+const DEFAULT_OBSERVABILITY_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
@@ -22,7 +23,7 @@ use crate::signals;
 
 /// Builder for [`Manager`]. Start with [`Manager::builder("name")`](Manager::builder),
 /// chain `.with_*()` calls, then call [`.build()`](ManagerBuilder::build).
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ManagerBuilder {
     name: String,
     global_shutdown_timeout: Duration,
@@ -30,6 +31,7 @@ pub struct ManagerBuilder {
     enable_prestop_check: bool,
     prestop_path: PathBuf,
     health_poll_interval: Duration,
+    external_shutdown_token: Option<CancellationToken>,
 }
 
 impl ManagerBuilder {
@@ -68,6 +70,13 @@ impl ManagerBuilder {
         self
     }
 
+    /// Use an external shutdown token. The caller controls when shutdown begins by calling
+    /// `token.cancel()`. Use in tests for deterministic shutdown control.
+    pub fn with_shutdown_token(mut self, token: CancellationToken) -> Self {
+        self.external_shutdown_token = Some(token);
+        self
+    }
+
     /// Consume the builder and produce a [`Manager`].
     pub fn build(self) -> Manager {
         Manager {
@@ -77,9 +86,11 @@ impl ManagerBuilder {
             enable_prestop_check: self.enable_prestop_check,
             prestop_path: self.prestop_path,
             health_poll_interval: self.health_poll_interval,
-            shutdown_token: CancellationToken::new(),
+            shutdown_token: self.external_shutdown_token.unwrap_or_default(),
+            observability_shutdown_token: CancellationToken::new(),
             event_tx_slot: Arc::new(OnceLock::new()),
             components: HashMap::new(),
+            observability_components: HashMap::new(),
             liveness_components: Vec::new(),
         }
     }
@@ -91,6 +102,8 @@ pub struct ComponentOptions {
     graceful_shutdown: Option<Duration>,
     liveness_deadline: Option<Duration>,
     stall_threshold: u32,
+    pub(crate) is_observability: bool,
+    pub(crate) is_advisory: bool,
     config_errors: Vec<String>,
 }
 
@@ -101,8 +114,32 @@ impl ComponentOptions {
             graceful_shutdown: None,
             liveness_deadline: None,
             stall_threshold: 1,
+            is_observability: false,
+            is_advisory: false,
             config_errors: Vec::new(),
         }
+    }
+
+    /// Mark this component as an observability handle (e.g. metrics server).
+    /// Observability handles are shut down *after* all standard components finish,
+    /// ensuring metrics flow during the entire graceful shutdown process.
+    /// Observability handles do not participate in active health monitoring;
+    /// combining `is_observability(true)` with `with_liveness_deadline` will panic.
+    /// (see test `observability_handle_shuts_down_after_standard_handles`)
+    pub fn is_observability(mut self, enabled: bool) -> Self {
+        self.is_observability = enabled;
+        self
+    }
+
+    /// Mark this component as advisory. Advisory handles participate in health
+    /// monitoring (gauge updates, `is_healthy()` queries) but stalls do NOT
+    /// trigger global shutdown. The monitor does not wait for advisory handles
+    /// during shutdown. Requires `with_liveness_deadline`. Cannot combine with
+    /// `is_observability`.
+    /// (see test `advisory_handle_stall_does_not_trigger_shutdown`)
+    pub fn is_advisory(mut self, enabled: bool) -> Self {
+        self.is_advisory = enabled;
+        self
     }
 
     /// Max time this component gets for cleanup after shutdown begins. If exceeded,
@@ -179,8 +216,10 @@ pub struct Manager {
     prestop_path: PathBuf,
     health_poll_interval: Duration,
     shutdown_token: CancellationToken,
+    observability_shutdown_token: CancellationToken,
     event_tx_slot: Arc<OnceLock<mpsc::Sender<ComponentEvent>>>,
     components: HashMap<String, ComponentState>,
+    observability_components: HashMap<String, ComponentState>,
     liveness_components: Vec<LivenessComponentRef>,
 }
 
@@ -196,6 +235,7 @@ impl Manager {
             enable_prestop_check: true,
             prestop_path: PathBuf::from(DEFAULT_PRESTOP_PATH),
             health_poll_interval: Duration::from_secs(5),
+            external_shutdown_token: None,
         }
     }
 
@@ -211,13 +251,38 @@ impl Manager {
             options.config_errors.join("; ")
         );
         assert!(
-            !self.components.contains_key(tag),
+            !self.components.contains_key(tag)
+                && !self.observability_components.contains_key(tag)
+                && !self.liveness_components.iter().any(|c| c.tag == tag),
             "component '{}' registered more than once",
+            tag
+        );
+        assert!(
+            !(options.is_advisory && options.is_observability),
+            "component '{}': advisory handles cannot be observability handles",
+            tag
+        );
+        assert!(
+            !(options.is_advisory && options.liveness_deadline.is_none()),
+            "component '{}': advisory handles require with_liveness_deadline",
+            tag
+        );
+        assert!(
+            !(options.is_advisory && options.graceful_shutdown.is_some()),
+            "component '{}': advisory handles are not waited on during shutdown; \
+             with_graceful_shutdown has no effect",
+            tag
+        );
+        assert!(
+            !(options.is_observability && options.liveness_deadline.is_some()),
+            "component '{}': observability handles cannot use liveness_deadline",
             tag
         );
 
         let healthy_until_ms = Arc::new(AtomicI64::new(HEALTH_STARTING));
+        let health_flag = Arc::new(std::sync::atomic::AtomicBool::new(true));
         let tag_owned = tag.to_string();
+        let is_obs = options.is_observability;
 
         if let Some(deadline) = options.liveness_deadline {
             let labels = [
@@ -231,10 +296,13 @@ impl Manager {
                 healthy_until_ms: healthy_until_ms.clone(),
                 stall_threshold: options.stall_threshold,
                 health_gauge,
+                advisory: options.is_advisory,
+                health_flag: health_flag.clone(),
             });
 
             debug!(
                 component = %tag_owned,
+                advisory = options.is_advisory,
                 graceful_shutdown_secs = options.graceful_shutdown.map(|d| d.as_secs_f64()),
                 liveness_deadline_secs = deadline.as_secs_f64(),
                 stall_threshold = options.stall_threshold,
@@ -243,25 +311,40 @@ impl Manager {
         } else {
             debug!(
                 component = %tag_owned,
+                observability = is_obs,
                 graceful_shutdown_secs = options.graceful_shutdown.map(|d| d.as_secs_f64()),
                 "Lifecycle: component registered"
             );
         }
 
-        self.components.insert(
-            tag_owned.clone(),
-            ComponentState {
-                graceful_shutdown: options.graceful_shutdown,
-                phase: ShutdownPhase::Running,
-            },
-        );
+        if !options.is_advisory {
+            let target_map = if is_obs {
+                &mut self.observability_components
+            } else {
+                &mut self.components
+            };
+            target_map.insert(
+                tag_owned.clone(),
+                ComponentState {
+                    graceful_shutdown: options.graceful_shutdown,
+                    phase: ShutdownPhase::Running,
+                },
+            );
+        }
+
+        let shutdown_token = if is_obs {
+            self.observability_shutdown_token.clone()
+        } else {
+            self.shutdown_token.clone()
+        };
 
         let inner = Arc::new(HandleInner {
             tag: tag_owned,
-            shutdown_token: self.shutdown_token.clone(),
+            shutdown_token,
             event_tx: self.event_tx_slot.clone(),
             healthy_until_ms,
             liveness_deadline: options.liveness_deadline,
+            health_flag,
             completed: std::sync::atomic::AtomicBool::new(false),
             process_scope_signalled: std::sync::atomic::AtomicBool::new(false),
         });
@@ -283,20 +366,11 @@ impl Manager {
         LivenessHandler::new()
     }
 
-    /// Future that resolves when shutdown begins. Pass to
-    /// `axum::serve(...).with_graceful_shutdown(manager.shutdown_signal())`
-    /// so the HTTP server stops accepting connections on shutdown.
-    pub fn shutdown_signal(&self) -> impl std::future::Future<Output = ()> + Send + 'static {
-        let token = self.shutdown_token.clone();
-        async move {
-            token.cancelled().await;
-        }
-    }
-
     fn spawn_monitor_thread(self) -> oneshot::Receiver<Result<(), LifecycleError>> {
         let (tx, rx) = oneshot::channel();
 
-        let channel_size = self.components.len() * 2 + 2;
+        let total_components = self.components.len() + self.observability_components.len();
+        let channel_size = total_components * 2 + 2;
         let (event_tx, event_rx) = mpsc::channel(channel_size);
         self.event_tx_slot
             .set(event_tx)
@@ -328,6 +402,17 @@ impl Manager {
         MonitorGuard {
             rx: self.spawn_monitor_thread(),
         }
+    }
+
+    /// Look up which component map a tag belongs to and return a mutable reference.
+    fn get_component_mut(&mut self, tag: &str) -> Option<&mut ComponentState> {
+        self.components
+            .get_mut(tag)
+            .or_else(|| self.observability_components.get_mut(tag))
+    }
+
+    fn is_observability_tag(&self, tag: &str) -> bool {
+        self.observability_components.contains_key(tag)
     }
 
     async fn run_monitor_loop(
@@ -410,21 +495,25 @@ impl Manager {
 
                                 if healthy {
                                     stall_counts[i] = 0;
+                                    comp.health_flag.store(true, Ordering::Relaxed);
                                 } else {
                                     stall_counts[i] += 1;
                                     if stall_counts[i] >= comp.stall_threshold {
-                                        warn!(
-                                            component = %comp.tag,
-                                            status,
-                                            stall_count = stall_counts[i],
-                                            stall_threshold = comp.stall_threshold,
-                                            "Lifecycle: health stall threshold reached"
-                                        );
-                                        drop(health_event_tx.try_send(ComponentEvent::Failure {
-                                            tag: comp.tag.clone(),
-                                            reason: format!("health check {status} (stall count {}/{})", stall_counts[i], comp.stall_threshold),
-                                        }));
-                                        return;
+                                        comp.health_flag.store(false, Ordering::Relaxed);
+                                        if !comp.advisory {
+                                            warn!(
+                                                component = %comp.tag,
+                                                status,
+                                                stall_count = stall_counts[i],
+                                                stall_threshold = comp.stall_threshold,
+                                                "Lifecycle: health stall threshold reached"
+                                            );
+                                            drop(health_event_tx.try_send(ComponentEvent::Failure {
+                                                tag: comp.tag.clone(),
+                                                reason: format!("health check {status} (stall count {}/{})", stall_counts[i], comp.stall_threshold),
+                                            }));
+                                            return;
+                                        }
                                     }
                                 }
                             }
@@ -437,6 +526,8 @@ impl Manager {
 
         let mut first_failure: Option<LifecycleError> = None;
 
+        // --- Phase 1: Normal operation ---
+        // Events from both standard and observability components trigger shutdown.
         loop {
             tokio::select! {
                 biased;
@@ -448,7 +539,7 @@ impl Manager {
                             warn!(trigger_component = %tag, trigger_reason = "failure",
                                 "Lifecycle: shutdown initiated: {reason:#}");
                             shutdown_token.cancel();
-                            if let Some(s) = self.components.get_mut(&tag) {
+                            if let Some(s) = self.get_component_mut(&tag) {
                                 s.phase = ShutdownPhase::Died;
                             }
                             first_failure = first_failure.or(Some(LifecycleError::ComponentFailure { tag, reason }));
@@ -459,7 +550,7 @@ impl Manager {
                             warn!(trigger_component = %tag, trigger_reason = "died",
                                 "Lifecycle: shutdown initiated, component died unexpectedly");
                             shutdown_token.cancel();
-                            if let Some(s) = self.components.get_mut(&tag) {
+                            if let Some(s) = self.get_component_mut(&tag) {
                                 s.phase = ShutdownPhase::Died;
                             }
                             first_failure = first_failure.or(Some(LifecycleError::ComponentDied { tag }));
@@ -473,10 +564,10 @@ impl Manager {
                             break;
                         }
                         ComponentEvent::WorkCompleted { tag } => {
-                            if let Some(s) = self.components.get_mut(&tag) {
+                            if let Some(s) = self.get_component_mut(&tag) {
                                 s.phase = ShutdownPhase::Completed;
                             }
-                            if self.all_components_finished() {
+                            if self.all_finished() {
                                 return self.finalize(Instant::now(), first_failure);
                             }
                         }
@@ -490,161 +581,321 @@ impl Manager {
             }
         }
 
+        // --- Phase 2: Standard component drain ---
+        let shutdown_clock = Instant::now();
+        let global_deadline = shutdown_clock + global_timeout;
+
         for s in self.components.values_mut() {
             if s.phase == ShutdownPhase::Running {
                 s.phase = ShutdownPhase::ShuttingDown;
             }
         }
 
-        if self.all_components_finished() {
-            return self.finalize(Instant::now(), first_failure);
-        }
-
-        let shutdown_clock = Instant::now();
-        let global_deadline = shutdown_clock + global_timeout;
-        let mut component_deadlines: Vec<(String, Instant)> = self
-            .components
-            .iter()
-            .filter_map(|(tag, s)| {
-                s.graceful_shutdown
-                    .map(|d| (tag.clone(), shutdown_clock + d))
-            })
-            .collect();
-        component_deadlines.sort_by(|a, b| a.1.cmp(&b.1));
-
-        loop {
-            let now = Instant::now();
-            if now >= global_deadline {
-                let remaining: Vec<String> = self
-                    .components
-                    .iter()
-                    .filter(|(_, s)| {
-                        s.phase != ShutdownPhase::Completed
-                            && s.phase != ShutdownPhase::TimedOut
-                            && s.phase != ShutdownPhase::Died
-                    })
-                    .map(|(t, _)| t.clone())
-                    .collect();
-                for tag in &remaining {
-                    metrics::emit_component_shutdown_result(&name, tag, "timeout");
-                }
-                warn!(
-                    total_duration_secs = global_timeout.as_secs_f64(),
-                    remaining = ?remaining,
-                    "Lifecycle: global shutdown timeout reached"
-                );
-                return Err(LifecycleError::ShutdownTimeout {
-                    elapsed: global_timeout,
-                    remaining,
-                });
-            }
-
-            let next_component_timeout = component_deadlines
+        if !self.all_standard_finished() {
+            let mut component_deadlines: Vec<(String, Instant)> = self
+                .components
                 .iter()
-                .find(|(tag, _)| {
-                    self.components
-                        .get(tag)
-                        .map(|s| s.phase == ShutdownPhase::ShuttingDown)
-                        == Some(true)
+                .filter_map(|(tag, s)| {
+                    s.graceful_shutdown
+                        .map(|d| (tag.clone(), shutdown_clock + d))
                 })
-                .map(|(_, t)| *t);
+                .collect();
+            component_deadlines.sort_by(|a, b| a.1.cmp(&b.1));
 
-            let wait_duration = [
-                next_component_timeout.map(|t| t.saturating_duration_since(now)),
-                Some(global_deadline.saturating_duration_since(now)),
-            ]
-            .into_iter()
-            .flatten()
-            .min()
-            .unwrap_or(Duration::from_secs(1));
-
-            tokio::select! {
-                biased;
-
-                Some(event) = event_rx.recv() => {
-                    match event {
-                        ComponentEvent::WorkCompleted { tag } => {
-                            if let Some(s) = self.components.get_mut(&tag) {
-                                if s.phase == ShutdownPhase::ShuttingDown {
-                                    s.phase = ShutdownPhase::Completed;
-                                    let elapsed = shutdown_clock.elapsed();
-                                    metrics::emit_component_shutdown_duration(&name, &tag, "completed", elapsed.as_secs_f64());
-                                    metrics::emit_component_shutdown_result(&name, &tag, "completed");
-                                    info!(component = %tag,
-                                        duration_secs = elapsed.as_secs_f64(),
-                                        result = "completed",
-                                        "Lifecycle: component completed shutdown");
-                                } else {
-                                    debug!(component = %tag, phase = ?s.phase,
-                                        "Lifecycle: late WorkCompleted for already-finished component");
-                                }
-                            }
-                        }
-                        ComponentEvent::Died { tag } => {
-                            if let Some(s) = self.components.get_mut(&tag) {
-                                s.phase = ShutdownPhase::Died;
-                                let elapsed = shutdown_clock.elapsed();
-                                metrics::emit_component_shutdown_duration(&name, &tag, "died", elapsed.as_secs_f64());
-                                metrics::emit_component_shutdown_result(&name, &tag, "died");
-                                warn!(component = %tag,
-                                    duration_secs = elapsed.as_secs_f64(),
-                                    result = "died",
-                                    "Lifecycle: component died during shutdown");
-                            }
-                        }
-                        ComponentEvent::Failure { tag, reason } => {
-                            if let Some(s) = self.components.get_mut(&tag) {
-                                s.phase = ShutdownPhase::Died;
-                                let elapsed = shutdown_clock.elapsed();
-                                metrics::emit_component_shutdown_duration(&name, &tag, "died", elapsed.as_secs_f64());
-                                metrics::emit_component_shutdown_result(&name, &tag, "died");
-                                warn!(component = %tag,
-                                    duration_secs = elapsed.as_secs_f64(),
-                                    result = "died",
-                                    "Lifecycle: component failed during shutdown");
-                            }
-                            first_failure = first_failure.or(Some(LifecycleError::ComponentFailure { tag, reason }));
-                        }
-                        ComponentEvent::ShutdownRequested { .. } => {}
-                    }
-                    if self.all_components_finished() {
-                        return self.finalize(shutdown_clock, first_failure);
-                    }
+            loop {
+                let now = Instant::now();
+                if now >= global_deadline {
+                    return self.emit_global_timeout(&name, global_timeout);
                 }
-                _ = tokio::time::sleep(wait_duration) => {
-                    let now = Instant::now();
-                    for (tag, deadline) in &component_deadlines {
-                        if now >= *deadline {
-                            if let Some(s) = self.components.get_mut(tag) {
-                                if s.phase == ShutdownPhase::ShuttingDown {
-                                    s.phase = ShutdownPhase::TimedOut;
-                                    if let Some(d) = s.graceful_shutdown {
-                                        metrics::emit_component_shutdown_duration(&name, tag, "timeout", d.as_secs_f64());
+
+                let next_component_timeout = component_deadlines
+                    .iter()
+                    .find(|(tag, _)| {
+                        self.components
+                            .get(tag)
+                            .map(|s| s.phase == ShutdownPhase::ShuttingDown)
+                            == Some(true)
+                    })
+                    .map(|(_, t)| *t);
+
+                let wait_duration = [
+                    next_component_timeout.map(|t| t.saturating_duration_since(now)),
+                    Some(global_deadline.saturating_duration_since(now)),
+                ]
+                .into_iter()
+                .flatten()
+                .min()
+                .unwrap_or(Duration::from_secs(1));
+
+                tokio::select! {
+                    biased;
+
+                    Some(event) = event_rx.recv() => {
+                        match event {
+                            ComponentEvent::WorkCompleted { tag } => {
+                                if let Some(s) = self.get_component_mut(&tag) {
+                                    if s.phase == ShutdownPhase::ShuttingDown {
+                                        s.phase = ShutdownPhase::Completed;
+                                        if !self.is_observability_tag(&tag) {
+                                            let elapsed = shutdown_clock.elapsed();
+                                            metrics::emit_component_shutdown_duration(&name, &tag, "completed", elapsed.as_secs_f64());
+                                            metrics::emit_component_shutdown_result(&name, &tag, "completed");
+                                            info!(component = %tag,
+                                                duration_secs = elapsed.as_secs_f64(),
+                                                result = "completed",
+                                                "Lifecycle: component completed shutdown");
+                                        }
+                                    } else {
+                                        debug!(component = %tag, phase = ?s.phase,
+                                            "Lifecycle: late WorkCompleted for already-finished component");
                                     }
-                                    metrics::emit_component_shutdown_result(&name, tag, "timeout");
-                                    warn!(component = %tag,
-                                        duration_secs = s.graceful_shutdown.unwrap_or_default().as_secs_f64(),
-                                        result = "timeout",
-                                        "Lifecycle: component timed out during graceful shutdown");
+                                }
+                            }
+                            ComponentEvent::Died { tag } => {
+                                if let Some(s) = self.get_component_mut(&tag) {
+                                    s.phase = ShutdownPhase::Died;
+                                    if !self.is_observability_tag(&tag) {
+                                        let elapsed = shutdown_clock.elapsed();
+                                        metrics::emit_component_shutdown_duration(&name, &tag, "died", elapsed.as_secs_f64());
+                                        metrics::emit_component_shutdown_result(&name, &tag, "died");
+                                        warn!(component = %tag,
+                                            duration_secs = elapsed.as_secs_f64(),
+                                            result = "died",
+                                            "Lifecycle: component died during shutdown");
+                                    }
+                                }
+                            }
+                            ComponentEvent::Failure { tag, reason } => {
+                                if let Some(s) = self.get_component_mut(&tag) {
+                                    s.phase = ShutdownPhase::Died;
+                                    if !self.is_observability_tag(&tag) {
+                                        let elapsed = shutdown_clock.elapsed();
+                                        metrics::emit_component_shutdown_duration(&name, &tag, "died", elapsed.as_secs_f64());
+                                        metrics::emit_component_shutdown_result(&name, &tag, "died");
+                                        warn!(component = %tag,
+                                            duration_secs = elapsed.as_secs_f64(),
+                                            result = "died",
+                                            "Lifecycle: component failed during shutdown");
+                                    }
+                                }
+                                first_failure = first_failure.or(Some(LifecycleError::ComponentFailure { tag, reason }));
+                            }
+                            ComponentEvent::ShutdownRequested { .. } => {}
+                        }
+                        if self.all_standard_finished() {
+                            break;
+                        }
+                    }
+                    _ = tokio::time::sleep(wait_duration) => {
+                        let now = Instant::now();
+                        for (tag, deadline) in &component_deadlines {
+                            if now >= *deadline {
+                                if let Some(s) = self.components.get_mut(tag) {
+                                    if s.phase == ShutdownPhase::ShuttingDown {
+                                        s.phase = ShutdownPhase::TimedOut;
+                                        if let Some(d) = s.graceful_shutdown {
+                                            metrics::emit_component_shutdown_duration(&name, tag, "timeout", d.as_secs_f64());
+                                        }
+                                        metrics::emit_component_shutdown_result(&name, tag, "timeout");
+                                        warn!(component = %tag,
+                                            duration_secs = s.graceful_shutdown.unwrap_or_default().as_secs_f64(),
+                                            result = "timeout",
+                                            "Lifecycle: component timed out during graceful shutdown");
+                                    }
                                 }
                             }
                         }
-                    }
-                    if self.all_components_finished() {
-                        return self.finalize(shutdown_clock, first_failure);
+                        if self.all_standard_finished() {
+                            break;
+                        }
                     }
                 }
             }
         }
+
+        // --- Phase 3: Observability component drain ---
+        if self.observability_components.is_empty() {
+            return self.finalize_all(first_failure);
+        }
+
+        info!("Lifecycle: standard components finished, draining observability components");
+        self.observability_shutdown_token.cancel();
+
+        for s in self.observability_components.values_mut() {
+            if s.phase == ShutdownPhase::Running {
+                s.phase = ShutdownPhase::ShuttingDown;
+            }
+        }
+
+        if !self.all_observability_finished() {
+            let obs_clock = Instant::now();
+
+            let mut obs_deadlines: Vec<(String, Instant)> = self
+                .observability_components
+                .iter()
+                .map(|(tag, s)| {
+                    let timeout = s
+                        .graceful_shutdown
+                        .unwrap_or(DEFAULT_OBSERVABILITY_SHUTDOWN_TIMEOUT);
+                    (tag.clone(), obs_clock + timeout)
+                })
+                .collect();
+            obs_deadlines.sort_by(|a, b| a.1.cmp(&b.1));
+
+            loop {
+                let now = Instant::now();
+                if now >= global_deadline {
+                    return self.emit_global_timeout(&name, global_timeout);
+                }
+
+                let next_obs_timeout = obs_deadlines
+                    .iter()
+                    .find(|(tag, _)| {
+                        self.observability_components
+                            .get(tag)
+                            .map(|s| s.phase == ShutdownPhase::ShuttingDown)
+                            == Some(true)
+                    })
+                    .map(|(_, t)| *t);
+
+                let wait_duration = [
+                    next_obs_timeout.map(|t| t.saturating_duration_since(now)),
+                    Some(global_deadline.saturating_duration_since(now)),
+                ]
+                .into_iter()
+                .flatten()
+                .min()
+                .unwrap_or(Duration::from_secs(1));
+
+                tokio::select! {
+                    biased;
+
+                    Some(event) = event_rx.recv() => {
+                        match event {
+                            ComponentEvent::WorkCompleted { tag } => {
+                                if let Some(s) = self.observability_components.get_mut(&tag) {
+                                    if s.phase == ShutdownPhase::ShuttingDown {
+                                        s.phase = ShutdownPhase::Completed;
+                                        info!(component = %tag,
+                                            result = "completed",
+                                            "Lifecycle: observability component completed shutdown");
+                                    } else {
+                                        debug!(component = %tag, phase = ?s.phase,
+                                            "Lifecycle: late WorkCompleted for already-finished observability component");
+                                    }
+                                }
+                            }
+                            ComponentEvent::Died { tag } => {
+                                if let Some(s) = self.observability_components.get_mut(&tag) {
+                                    s.phase = ShutdownPhase::Died;
+                                    warn!(component = %tag,
+                                        result = "died",
+                                        "Lifecycle: observability component died during shutdown");
+                                }
+                            }
+                            ComponentEvent::Failure { tag, reason } => {
+                                if let Some(s) = self.observability_components.get_mut(&tag) {
+                                    s.phase = ShutdownPhase::Died;
+                                    warn!(component = %tag,
+                                        result = "died",
+                                        "Lifecycle: observability component failed during shutdown: {reason}");
+                                }
+                                first_failure = first_failure.or(Some(LifecycleError::ComponentFailure { tag, reason }));
+                            }
+                            ComponentEvent::ShutdownRequested { .. } => {}
+                        }
+                        if self.all_observability_finished() {
+                            break;
+                        }
+                    }
+                    _ = tokio::time::sleep(wait_duration) => {
+                        let now = Instant::now();
+                        for (tag, deadline) in &obs_deadlines {
+                            if now >= *deadline {
+                                if let Some(s) = self.observability_components.get_mut(tag) {
+                                    if s.phase == ShutdownPhase::ShuttingDown {
+                                        s.phase = ShutdownPhase::TimedOut;
+                                        warn!(component = %tag,
+                                            duration_secs = s.graceful_shutdown
+                                                .unwrap_or(DEFAULT_OBSERVABILITY_SHUTDOWN_TIMEOUT)
+                                                .as_secs_f64(),
+                                            result = "timeout",
+                                            "Lifecycle: observability component timed out during shutdown");
+                                    }
+                                }
+                            }
+                        }
+                        if self.all_observability_finished() {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        self.finalize_all(first_failure)
     }
 
-    fn all_components_finished(&self) -> bool {
+    fn all_standard_finished(&self) -> bool {
         self.components.values().all(|s| {
             matches!(
                 s.phase,
                 ShutdownPhase::Completed | ShutdownPhase::Died | ShutdownPhase::TimedOut
             )
         })
+    }
+
+    fn all_observability_finished(&self) -> bool {
+        self.observability_components.values().all(|s| {
+            matches!(
+                s.phase,
+                ShutdownPhase::Completed | ShutdownPhase::Died | ShutdownPhase::TimedOut
+            )
+        })
+    }
+
+    fn all_finished(&self) -> bool {
+        self.all_standard_finished() && self.all_observability_finished()
+    }
+
+    fn remaining_tags(&self) -> Vec<String> {
+        self.components
+            .iter()
+            .chain(self.observability_components.iter())
+            .filter(|(_, s)| {
+                !matches!(
+                    s.phase,
+                    ShutdownPhase::Completed | ShutdownPhase::TimedOut | ShutdownPhase::Died
+                )
+            })
+            .map(|(t, _)| t.clone())
+            .collect()
+    }
+
+    fn emit_global_timeout(
+        &self,
+        service_name: &str,
+        global_timeout: Duration,
+    ) -> Result<(), LifecycleError> {
+        let remaining = self.remaining_tags();
+        for tag in &remaining {
+            if !self.is_observability_tag(tag) {
+                metrics::emit_component_shutdown_result(service_name, tag, "timeout");
+            }
+        }
+        warn!(
+            total_duration_secs = global_timeout.as_secs_f64(),
+            remaining = ?remaining,
+            "Lifecycle: global shutdown timeout reached"
+        );
+        Err(LifecycleError::ShutdownTimeout {
+            elapsed: global_timeout,
+            remaining,
+        })
+    }
+
+    fn finalize_all(&self, first_failure: Option<LifecycleError>) -> Result<(), LifecycleError> {
+        self.finalize(Instant::now(), first_failure)
     }
 
     fn finalize(
@@ -656,6 +907,7 @@ impl Manager {
         let clean = self
             .components
             .values()
+            .chain(self.observability_components.values())
             .all(|s| s.phase == ShutdownPhase::Completed);
         metrics::emit_shutdown_completed(&self.name, clean);
         if clean {

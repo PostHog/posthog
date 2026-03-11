@@ -7,13 +7,9 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-/**
- * * `AND` - AND
- * `OR` - OR
- */
-export type PropertyTypeEnumApi = (typeof PropertyTypeEnumApi)[keyof typeof PropertyTypeEnumApi]
+export type PropertyGroupOperatorApi = (typeof PropertyGroupOperatorApi)[keyof typeof PropertyGroupOperatorApi]
 
-export const PropertyTypeEnumApi = {
+export const PropertyGroupOperatorApi = {
     And: 'AND',
     Or: 'OR',
 } as const
@@ -37,9 +33,9 @@ export const PropertyTypeEnumApi = {
  * `in` - in
  * `not_in` - not_in
  */
-export type OperatorEnumApi = (typeof OperatorEnumApi)[keyof typeof OperatorEnumApi]
+export type PropertyItemOperatorEnumApi = (typeof PropertyItemOperatorEnumApi)[keyof typeof PropertyItemOperatorEnumApi]
 
-export const OperatorEnumApi = {
+export const PropertyItemOperatorEnumApi = {
     Exact: 'exact',
     IsNot: 'is_not',
     Icontains: 'icontains',
@@ -95,9 +91,9 @@ export const NullEnumApi = {} as const
  * `flag` - flag
  * `workflow_variable` - workflow_variable
  */
-export type PropertyItemTypeEnumApi = (typeof PropertyItemTypeEnumApi)[keyof typeof PropertyItemTypeEnumApi]
+export type Type19aEnumApi = (typeof Type19aEnumApi)[keyof typeof Type19aEnumApi]
 
-export const PropertyItemTypeEnumApi = {
+export const Type19aEnumApi = {
     Event: 'event',
     EventMetadata: 'event_metadata',
     Feature: 'feature',
@@ -128,9 +124,9 @@ export interface PropertyItemApi {
     /** Key of the property you're filtering on. For example `email` or `$current_url` */
     key: string
     /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
-    value: string
-    operator?: OperatorEnumApi | BlankEnumApi | NullEnumApi | null
-    type?: PropertyItemTypeEnumApi | BlankEnumApi
+    value: string | number | boolean | (string | number)[]
+    operator?: PropertyItemOperatorEnumApi | BlankEnumApi | NullEnumApi | null
+    type?: Type19aEnumApi | BlankEnumApi
 }
 
 export interface PropertyApi {
@@ -177,7 +173,7 @@ Or you can create more complicated queries with AND and OR:
 
 * `AND` - AND
 * `OR` - OR */
-    type?: PropertyTypeEnumApi
+    type?: PropertyGroupOperatorApi
     values: PropertyItemApi[]
 }
 

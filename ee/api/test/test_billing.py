@@ -247,7 +247,7 @@ def create_billing_products_response(**kwargs) -> dict[str, list[CustomerProduct
 
 
 class TestUnlicensedBillingAPI(APIBaseTest):
-    @patch("ee.api.billing.requests.get")
+    @patch("ee.api.billing.external_requests.get")
     @freeze_time("2022-01-01")
     def test_billing_calls_the_service_without_token(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
@@ -287,7 +287,7 @@ class TestBillingAPI(APILicensedTest):
         assert res.status_code == 404
         assert res.json()["detail"] == "Billing is not supported for this license type"
 
-    @patch("ee.api.billing.requests.get")
+    @patch("ee.api.billing.external_requests.get")
     @freeze_time("2022-01-01")
     def test_billing_calls_the_service_with_appropriate_token(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
@@ -331,7 +331,7 @@ class TestBillingAPI(APILicensedTest):
             "organization_role": "member",
         }
 
-    @patch("ee.api.billing.requests.get")
+    @patch("ee.api.billing.external_requests.get")
     def test_billing_returns_if_billing_exists(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
@@ -442,7 +442,7 @@ class TestBillingAPI(APILicensedTest):
             "free_trial_until": None,
         }
 
-    @patch("ee.api.billing.requests.get")
+    @patch("ee.api.billing.external_requests.get")
     def test_billing_returns_if_doesnt_exist(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
@@ -564,7 +564,7 @@ class TestBillingAPI(APILicensedTest):
             "stripe_portal_url": "http://localhost:8010/api/billing/portal",
         }
 
-    @patch("ee.api.billing.requests.get")
+    @patch("ee.api.billing.external_requests.get")
     def test_billing_stores_valid_license(self, mock_request):
         self.license.delete()
 
@@ -588,7 +588,7 @@ class TestBillingAPI(APILicensedTest):
         assert license.key == "test::test"
         assert license.plan == "scale"
 
-    @patch("ee.api.billing.requests.get")
+    @patch("ee.api.billing.external_requests.get")
     def test_billing_ignores_invalid_license(self, mock_request):
         self.license.delete()
 
@@ -610,7 +610,7 @@ class TestBillingAPI(APILicensedTest):
         }
 
     @freeze_time("2022-01-01T12:00:00Z")
-    @patch("ee.api.billing.requests.get")
+    @patch("ee.api.billing.external_requests.get")
     def test_license_is_updated_on_billing_load(self, mock_request):
         mock_request.return_value.status_code = 200
         mock_request.return_value.json.return_value = {
@@ -645,7 +645,7 @@ class TestBillingAPI(APILicensedTest):
         # Should be extended by 30 days
         assert license.valid_until == datetime(2022, 1, 31, 12, 0, 0, tzinfo=ZoneInfo("UTC"))
 
-    @patch("ee.api.billing.requests.get")
+    @patch("ee.api.billing.external_requests.get")
     def test_organization_available_product_features_updated_if_different(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
@@ -683,7 +683,7 @@ class TestBillingAPI(APILicensedTest):
             {"key": "feature2", "name": "feature2"},
         ]
 
-    @patch("ee.api.billing.requests.get")
+    @patch("ee.api.billing.external_requests.get")
     def test_organization_update_usage(self, mock_request):
         self.organization.customer_id = None
         self.organization.usage = None
@@ -736,7 +736,7 @@ class TestBillingAPI(APILicensedTest):
         assert res_json["products"][0]["addons"][0]["tiers"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["addons"][0]["tiers"][1]["current_amount_usd"] == "0.00"
 
-    @patch("ee.api.billing.requests.get")
+    @patch("ee.api.billing.external_requests.get")
     def test_organization_usage_count_with_demo_project(self, mock_request, *args):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock | Response:
             mock = MagicMock()
@@ -788,7 +788,7 @@ class TestBillingAPI(APILicensedTest):
         self.organization.refresh_from_db()
         assert self.organization.usage == create_usage_summary()
 
-    @patch("ee.api.billing.requests.get")
+    @patch("ee.api.billing.external_requests.get")
     def test_org_trust_score_updated(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
@@ -835,7 +835,7 @@ class TestBillingAPI(APILicensedTest):
             "surveys": 0,
         }
 
-    @patch("ee.api.billing.requests.get")
+    @patch("ee.api.billing.external_requests.get")
     def test_billing_with_supported_params(self, mock_get):
         """Test that the include_forecasting param is passed through to the billing service."""
 
@@ -868,7 +868,7 @@ class TestBillingAPI(APILicensedTest):
 
 
 class TestPortalBillingAPI(APILicensedTest):
-    @patch("ee.api.billing.requests.get")
+    @patch("ee.api.billing.external_requests.get")
     def test_portal_success(self, mock_request):
         mock_request.return_value.status_code = 200
         mock_request.return_value.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}

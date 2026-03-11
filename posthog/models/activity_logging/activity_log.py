@@ -77,7 +77,9 @@ ActivityScope = Literal[
     "WebAnalyticsFilterPreset",
     "CustomerProfileConfig",
     "Log",
+    "LogsAlertConfiguration",
     "ProductTour",
+    "Ticket",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
@@ -235,6 +237,7 @@ field_with_masked_contents: dict[ActivityScope, list[str]] = {
     "User": [
         "email",
         "password",
+        # No longer used but kept for backwards-compatibility with existing activity log entries
         "temporary_token",
         "pending_email",
     ],
@@ -284,6 +287,13 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "last_error_at",
     ],
     "Dashboard": ["last_accessed_at"],
+    "LogsAlertConfiguration": [
+        "next_check_at",
+        "last_notified_at",
+        "last_checked_at",
+        "consecutive_failures",
+        "state",
+    ],
     "PersonalAPIKey": [
         "last_used_at",
     ],

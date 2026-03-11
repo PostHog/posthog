@@ -48,10 +48,24 @@ const Insight44 = '44' as InsightShortId
 
 const MOCK_DASHBOARD_ID = 34
 
+const partialInsight42 = {
+    id: 42,
+    short_id: Insight42,
+    result: ['result 42'],
+    filters: API_FILTERS,
+}
+
 const partialInsight43 = {
     id: 43,
     short_id: Insight43,
     result: ['result 43'],
+    filters: API_FILTERS,
+}
+
+const partialInsight44 = {
+    id: 44,
+    short_id: Insight44,
+    result: ['result 44'],
     filters: API_FILTERS,
 }
 
@@ -137,13 +151,9 @@ describe('insightLogic', () => {
                 '/api/environments/:team_id/insights/path': { result: ['result from api'] },
                 '/api/environments/:team_id/insights/funnel/': { result: ['result from api'] },
                 '/api/environments/:team_id/insights/retention/': { result: ['result from api'] },
+                '/api/environments/:team_id/insights/42': partialInsight42,
                 '/api/environments/:team_id/insights/43/': partialInsight43,
-                '/api/environments/:team_id/insights/44/': {
-                    id: 44,
-                    short_id: Insight44,
-                    result: ['result 44'],
-                    filters: API_FILTERS,
-                },
+                '/api/environments/:team_id/insights/44/': partialInsight44,
                 '/api/environments/:team_id/insights/': (req) => {
                     if (req.url.searchParams.get('saved')) {
                         return [
@@ -223,7 +233,7 @@ describe('insightLogic', () => {
                 '/api/environments/:team_id/insights/viewed': [201],
                 '/api/environments/:team_id/insights/': (req) => [
                     200,
-                    { id: 12, short_id: Insight12, ...(req.body as any) },
+                    { ...(req.body as any), id: 12, short_id: Insight12 },
                 ],
                 '/api/environments/997/insights/cancel/': [201],
             },
@@ -460,7 +470,7 @@ describe('insightLogic', () => {
         insightDataLogic(insightProps).mount()
 
         const expectedPartialInsight = {
-            name: '',
+            name: undefined,
             description: '',
             tags: [],
             query: partial({
@@ -484,7 +494,7 @@ describe('insightLogic', () => {
             logic.actions.setInsightMetadataLocal({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] })
         }).toMatchValues({
             insight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
-            savedInsight: partial({ name: '', description: '', tags: [] }),
+            savedInsight: partial({ name: undefined, description: '', tags: [] }),
             insightChanged: true,
         })
 
@@ -646,13 +656,14 @@ describe('insightLogic', () => {
                         result: ['result 42'],
                         filters: API_FILTERS,
                         name: 'new name',
+                        description: 'new description',
                     })
                 )
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    insight: truth(({ name }) => {
-                        return name === 'new name'
+                    insight: truth(({ name, description }) => {
+                        return name === 'new name' && description === 'new description'
                     }),
                 })
         })
@@ -785,7 +796,7 @@ describe('insightLogic', () => {
             )
 
             await expectLogic(logic).toMatchValues({
-                insight: partial({ name: '' }),
+                insight: partial({ name: undefined }),
             })
         })
     })
@@ -890,6 +901,68 @@ describe('insightLogic', () => {
                     action.type === dashboardsModel.actionTypes.updateDashboardInsight &&
                     action.payload.insight.deleted === false,
             ])
+        })
+    })
+
+    describe('duplicateInsight', () => {
+        beforeEach(async () => {
+            const insightProps: InsightLogicProps = { dashboardItemId: Insight42 }
+            logic = insightLogic(insightProps)
+            logic.mount()
+
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    insight: partial({ id: 42 }),
+                })
+        })
+
+        it('fetches clean insight before duplicating', async () => {
+            jest.spyOn(api, 'create')
+
+            logic.actions.duplicateInsight(logic.values.insight as QueryBasedInsightModel, true)
+            await expectLogic(logic).toFinishAllListeners()
+
+            // The POST body should contain the clean insight fetched via getByShortId,
+            // not the one passed in (which may have dashboard filter overrides)
+            expect(api.create).toHaveBeenCalledWith(
+                expect.stringContaining('/insights'),
+                expect.objectContaining({ name: 'original name (copy)' }),
+                expect.anything()
+            )
+        })
+
+        it('falls back to original insight when fetch fails', async () => {
+            jest.spyOn(api, 'create')
+
+            const insightWithBadShortId = {
+                ...(logic.values.insight as QueryBasedInsightModel),
+                short_id: '500' as InsightShortId,
+                name: 'fallback name',
+            }
+            logic.actions.duplicateInsight(insightWithBadShortId, false)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(api.create).toHaveBeenCalledWith(
+                expect.stringContaining('/insights'),
+                expect.objectContaining({ name: 'fallback name (copy)' }),
+                expect.anything()
+            )
+        })
+
+        it('with redirectToInsight=true navigates to edit URL', async () => {
+            // POST mock returns short_id: Insight12 — listen on router before dispatching
+            await expectLogic(router, () => {
+                logic.actions.duplicateInsight(logic.values.insight as QueryBasedInsightModel, true)
+            }).toDispatchActions([router.actionCreators.push(urls.insightEdit(Insight12))])
+        })
+
+        it('with redirectToInsight=false does not navigate', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.duplicateInsight(logic.values.insight as QueryBasedInsightModel, false)
+            }).toFinishAllListeners()
+
+            await expectLogic(router).toNotHaveDispatchedActions(['push'])
         })
     })
 })

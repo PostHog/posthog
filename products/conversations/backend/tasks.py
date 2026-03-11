@@ -6,12 +6,12 @@ from uuid import UUID
 
 from django.core.cache import cache
 
-import requests
 import structlog
 from celery import shared_task
 
 from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia
+from posthog.security.outbound_proxy import external_requests
 from posthog.storage import object_storage
 
 from products.conversations.backend.formatting import extract_images_from_rich_content, rich_content_to_slack_payload
@@ -256,7 +256,7 @@ def _upload_image_to_slack_thread(
     if not _is_allowed_slack_upload_url(upload_url):
         raise ValueError("files.getUploadURLExternal returned disallowed upload URL")
 
-    upload_response = requests.post(
+    upload_response = external_requests.post(
         upload_url,
         data=image_bytes,
         headers={"Content-Type": "application/octet-stream"},

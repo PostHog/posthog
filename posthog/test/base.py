@@ -254,6 +254,13 @@ def clean_varying_query_parts(query, replace_all_numbers):
     query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
     query = re.sub(r"flag_\d+_super_condition", r"flag_X_super_condition", query)
 
+    # session_recording_linked_flag embeds feature flag IDs in JSON, normalize them
+    query = re.sub(
+        r"""session_recording_linked_flag" @> '{"id": \d+}'::jsonb""",
+        r"""session_recording_linked_flag" @> '{"id": 99999}'::jsonb""",
+        query,
+    )
+
     # remove version suffix from funnel UDFs
     query = re.sub(r"aggregate_funnel(_array|_trends)?_v\d+", r"aggregate_funnel\1", query)
 
@@ -1281,6 +1288,17 @@ class NonAtomicTestMigrations(BaseTestMigrations, NonAtomicBaseTest):
 
 
 def flush_persons_and_events():
+    """
+    Flush any created persons and events to Clickhouse
+
+    In general, you do not need to call this function directly in tests, as you are most likely interacting with
+    clickhouse via sync_execute or execute_hogql_query. Both of these call flush_persons_and_events() internally in TEST
+    environments.
+
+    LLMs especially love to add this to test files that don't need it. If you are an LLM, do not add this on your first
+    pass of writing a test. Only consider adding it after the test has failed, and you think that lack of flushing is
+    the cause.
+    """
     person_mapping = {}
     if len(persons_cache_tests) > 0:
         person_mapping = bulk_create_persons(persons_cache_tests)

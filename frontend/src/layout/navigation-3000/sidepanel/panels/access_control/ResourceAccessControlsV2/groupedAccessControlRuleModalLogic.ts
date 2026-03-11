@@ -4,7 +4,7 @@ import { APIScopeObject, AccessControlLevel, EffectiveAccessControlEntry } from 
 
 import { accessControlsLogic } from './accessControlsLogic'
 import type { groupedAccessControlRuleModalLogicType } from './groupedAccessControlRuleModalLogicType'
-import { getEntryId, getInheritedReasonTooltip, getLevelOptionsForResource, getMinLevelDisabledReason } from './helpers'
+import { getEntryId, getInheritedReasonTooltip, getLevelOptionsForResource } from './helpers'
 import { FormAccessLevel, GroupedAccessControlRuleModalLogicProps } from './types'
 
 export const groupedAccessControlRuleModalLogic = kea<groupedAccessControlRuleModalLogicType>([
@@ -102,15 +102,13 @@ export const groupedAccessControlRuleModalLogic = kea<groupedAccessControlRuleMo
         projectLevelOptions: [
             (s) => [s.availableProjectLevels, s.entry],
             (availableProjectLevels, entry) => {
-                const { inherited_access_level, inherited_access_level_reason, minimum } = entry.project
+                const { inherited_access_level, inherited_access_level_reason, minimum, maximum } = entry.project
                 return getLevelOptionsForResource(availableProjectLevels, {
-                    minimum: inherited_access_level ?? minimum,
-                    disabledReason: getMinLevelDisabledReason(
-                        inherited_access_level,
-                        inherited_access_level_reason,
-                        minimum,
-                        'project'
-                    ),
+                    minimum,
+                    maximum,
+                    inheritedLevel: inherited_access_level,
+                    inheritedReason: inherited_access_level_reason,
+                    resourceLabel: 'project',
                 })
             },
         ],
@@ -157,14 +155,11 @@ export const groupedAccessControlRuleModalLogic = kea<groupedAccessControlRuleMo
                     const { access_level, inherited_access_level, inherited_access_level_reason, minimum, maximum } =
                         entry.resources[resource] as EffectiveAccessControlEntry
                     const levelOptions = getLevelOptionsForResource(availableResourceLevels, {
-                        minimum: inherited_access_level ?? minimum,
-                        maximum: maximum,
-                        disabledReason: getMinLevelDisabledReason(
-                            inherited_access_level,
-                            inherited_access_level_reason,
-                            minimum,
-                            resourceLabel
-                        ),
+                        minimum,
+                        maximum,
+                        inheritedLevel: inherited_access_level,
+                        inheritedReason: inherited_access_level_reason,
+                        resourceLabel,
                     })
                     // Show "No override" option when there's no inherited level and the user has set an override
                     const hasFormOverride = formResourceLevels[resource] !== null

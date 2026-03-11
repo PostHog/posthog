@@ -6,7 +6,6 @@ from django.db import transaction
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
-import requests
 from loginas.utils import is_impersonated_session
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -17,6 +16,7 @@ from posthog.models.instance_setting import get_instance_settings
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.security.outbound_proxy import external_requests
 
 from products.conversations.backend.models import TeamConversationsSlackConfig
 from products.conversations.backend.support_slack import clear_supporthog_slack_token, save_supporthog_slack_token
@@ -155,7 +155,7 @@ def support_slack_oauth_callback(request: HttpRequest) -> HttpResponse:
         return _error_response(next_path, "support_slack_not_configured", 503)
 
     try:
-        response = requests.post(
+        response = external_requests.post(
             "https://slack.com/api/oauth.v2.access",
             data={
                 "client_id": client_id,

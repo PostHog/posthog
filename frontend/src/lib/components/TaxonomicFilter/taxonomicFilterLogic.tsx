@@ -22,10 +22,8 @@ import {
     TaxonomicFilterValue,
     isQuickFilterItem,
 } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, isString, pluralize, toParams } from 'lib/utils'
 import {
     getEventDefinitionIcon,
@@ -49,6 +47,7 @@ import {
     ReplayTaxonomicFilters,
     replayTaxonomicFiltersProperties,
 } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
+import { SavedFiltersTaxonomicGroup } from 'scenes/session-recordings/filters/SavedFiltersTaxonomicGroup'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -72,6 +71,7 @@ import {
     PropertyDefinition,
     PropertyDefinitionType,
     QueryBasedInsightModel,
+    SessionRecordingPlaylistType,
     TeamType,
 } from '~/types'
 
@@ -148,8 +148,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['eventMetadataPropertyDefinitions'],
             taxonomicFilterPreferencesLogic,
             ['eventOrdering'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
     })),
     actions(() => ({
@@ -245,7 +243,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         dataWarehousePopoverFields: [
             () => [(_, props) => props.dataWarehousePopoverFields],
-            (dataWarehousePopoverFields) => dataWarehousePopoverFields ?? {},
+            (dataWarehousePopoverFields) => dataWarehousePopoverFields ?? [],
         ],
         metadataSource: [
             () => [(_, props) => props.metadataSource],
@@ -996,6 +994,20 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'Replay',
                     },
                     {
+                        name: 'Saved filters',
+                        searchPlaceholder: 'saved filters',
+                        type: TaxonomicFilterGroupType.ReplaySavedFilters,
+                        endpoint: combineUrl(`api/projects/${projectId}/session_recording_playlists/`, {
+                            type: 'filters',
+                            order: '-last_modified_at',
+                        }).url,
+                        render: SavedFiltersTaxonomicGroup,
+                        getName: (filter: SessionRecordingPlaylistType) =>
+                            filter.name || filter.derived_name || 'Unnamed',
+                        getValue: (filter: SessionRecordingPlaylistType) => filter.short_id,
+                        getPopoverHeader: () => 'Saved filter',
+                    },
+                    {
                         name: 'On this page',
                         searchPlaceholder: 'elements from this page',
                         type: TaxonomicFilterGroupType.MaxAIContext,
@@ -1031,22 +1043,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (activeTab, taxonomicGroups) => taxonomicGroups.find((g) => g.type === activeTab),
         ],
         taxonomicGroupTypes: [
-            (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups, s.featureFlags],
-            (groupTypes, taxonomicGroups, featureFlags): TaxonomicFilterGroupType[] => {
+            (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups],
+            (groupTypes, taxonomicGroups): TaxonomicFilterGroupType[] => {
                 const availableGroupTypes = new Set(taxonomicGroups.map((group) => group.type))
-                const quickFiltersEnabled = featureFlags[FEATURE_FLAGS.TAXONOMIC_QUICK_FILTERS] === 'test'
                 const resolvedGroupTypes: TaxonomicFilterGroupType[] =
                     groupTypes || taxonomicGroups.map((group) => group.type)
-
-                const quickFilterGroupFlags: Partial<Record<TaxonomicFilterGroupType, FeatureFlagKey>> = {
-                    [TaxonomicFilterGroupType.PageviewUrls]: FEATURE_FLAGS.TAXONOMIC_QUICK_FILTER_PAGEVIEW_URLS,
-                    [TaxonomicFilterGroupType.PageviewEvents]: FEATURE_FLAGS.TAXONOMIC_QUICK_FILTER_PAGEVIEW_EVENTS,
-                    [TaxonomicFilterGroupType.Screens]: FEATURE_FLAGS.TAXONOMIC_QUICK_FILTER_SCREENS,
-                    [TaxonomicFilterGroupType.ScreenEvents]: FEATURE_FLAGS.TAXONOMIC_QUICK_FILTER_SCREEN_EVENTS,
-                    [TaxonomicFilterGroupType.EmailAddresses]: FEATURE_FLAGS.TAXONOMIC_QUICK_FILTER_EMAIL_ADDRESSES,
-                    [TaxonomicFilterGroupType.AutocaptureEvents]:
-                        FEATURE_FLAGS.TAXONOMIC_QUICK_FILTER_AUTOCAPTURE_EVENTS,
-                }
 
                 const mutuallyExclusivePairs: [TaxonomicFilterGroupType, TaxonomicFilterGroupType][] = [
                     [TaxonomicFilterGroupType.PageviewUrls, TaxonomicFilterGroupType.PageviewEvents],
@@ -1064,17 +1065,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     if (excluded.has(groupType)) {
                         return false
                     }
-                    if (!availableGroupTypes.has(groupType)) {
-                        return false
-                    }
-                    if (groupType === TaxonomicFilterGroupType.SuggestedFilters) {
-                        return quickFiltersEnabled
-                    }
-                    const individualFlag = quickFilterGroupFlags[groupType] as FeatureFlagKey | undefined
-                    if (individualFlag) {
-                        return quickFiltersEnabled && !!featureFlags[individualFlag]
-                    }
-                    return true
+                    return availableGroupTypes.has(groupType)
                 })
             },
         ],

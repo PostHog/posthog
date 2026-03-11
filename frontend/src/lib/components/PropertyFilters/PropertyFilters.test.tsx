@@ -7,6 +7,7 @@ import { Provider } from 'kea'
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { initKeaTests } from '~/test/init'
 import { mockActionDefinition, mockGetEventDefinitions, mockGetPropertyDefinitions } from '~/test/mocks'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -30,7 +31,10 @@ describe('PropertyFilters', () => {
                     { id: 1, name: 'location', count: 1 },
                     { id: 2, name: 'role', count: 2 },
                 ],
-                '/api/environments/:team/events/values': [{ name: 'Chrome' }, { name: 'Firefox' }, { name: 'Safari' }],
+                '/api/environments/:team/events/values': {
+                    results: [{ name: 'Chrome' }, { name: 'Firefox' }, { name: 'Safari' }],
+                    refreshing: false,
+                },
             },
             post: {
                 '/api/environments/:team/query': { results: [] },
@@ -39,6 +43,7 @@ describe('PropertyFilters', () => {
         initKeaTests()
         actionsModel.mount()
         groupsModel.mount()
+        propertyDefinitionsModel.mount()
     })
 
     afterEach(() => {
@@ -82,19 +87,19 @@ describe('PropertyFilters', () => {
     it('add filter: click add, search, select property, verify onChange shape', async () => {
         const { onChange } = renderPropertyFilters({ sendAllKeyUpdates: true })
 
-        userEvent.click(screen.getByTestId('new-prop-filter-test-page'))
+        await userEvent.click(screen.getByTestId('new-prop-filter-test-page'))
 
         await waitFor(() => {
             expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
         })
 
-        userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), '$browser')
+        await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), '$browser')
 
         await waitFor(() => {
             expect(screen.getAllByText('$browser').length).toBeGreaterThanOrEqual(1)
         })
 
-        userEvent.click(screen.getByTestId('prop-filter-event_properties-0'))
+        await userEvent.click(screen.getByTestId('prop-filter-event_properties-0'))
 
         await waitFor(() => {
             expect(onChange).toHaveBeenCalled()
@@ -114,7 +119,7 @@ describe('PropertyFilters', () => {
 
         const firstRow = screen.getByTestId('property-filter-0')
         const closeButton = firstRow.querySelector('.PropertyFilterButton--closeable .LemonButton')
-        userEvent.click(closeButton!)
+        await userEvent.click(closeButton!)
 
         await waitFor(() => {
             expect(onChange).toHaveBeenCalled()
@@ -140,17 +145,17 @@ describe('PropertyFilters', () => {
             </Provider>
         )
 
-        userEvent.click(screen.getByTestId('new-prop-filter-round-trip'))
+        await userEvent.click(screen.getByTestId('new-prop-filter-round-trip'))
         await waitFor(() => {
             expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
         })
 
-        userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), '$browser')
+        await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), '$browser')
         await waitFor(() => {
             expect(screen.getAllByText('$browser').length).toBeGreaterThanOrEqual(1)
         })
 
-        userEvent.click(screen.getByTestId('prop-filter-event_properties-0'))
+        await userEvent.click(screen.getByTestId('prop-filter-event_properties-0'))
         await waitFor(() => {
             expect(onChange).toHaveBeenCalled()
         })

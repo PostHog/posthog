@@ -7,6 +7,7 @@ from posthog.hogql.database.models import FunctionCallTable
 from posthog.hogql.escape_sql import escape_hogql_identifier
 
 from posthog.person_db_router import PERSONS_DB_MODELS
+from posthog.scopes import APIScopeObject
 
 
 def build_function_call(postgres_table_name: str, context: Optional[HogQLContext] = None):
@@ -57,6 +58,7 @@ def build_function_call(postgres_table_name: str, context: Optional[HogQLContext
 class PostgresTable(FunctionCallTable):
     requires_args: bool = False
     postgres_table_name: str
+    access_scope: Optional[APIScopeObject] = None
 
     def to_printed_hogql(self):
         return escape_hogql_identifier(self.name)

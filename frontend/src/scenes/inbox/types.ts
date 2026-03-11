@@ -15,6 +15,7 @@ export enum SignalReportStatus {
     POTENTIAL = 'potential',
     CANDIDATE = 'candidate',
     IN_PROGRESS = 'in_progress',
+    PENDING_INPUT = 'pending_input',
     READY = 'ready',
     FAILED = 'failed',
 }
@@ -39,6 +40,7 @@ export interface SignalSourceConfig {
     config: Record<string, any>
     created_at: string
     updated_at: string
+    status: SignalSourceConfigStatus | null
 }
 
 export enum SignalSourceProduct {
@@ -56,4 +58,10 @@ export interface ToggleSignalSourceParams {
     sourceType: SignalSourceType
     enabled: boolean
     config?: Record<string, any>
+}
+
+export enum SignalSourceConfigStatus {
+    RUNNING = 'running',
+    COMPLETED = 'completed',
+    FAILED = 'failed',
 }

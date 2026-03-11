@@ -22,7 +22,7 @@ def _mock_hogql_result(rows: list[tuple]) -> MagicMock:
 
 
 def _single_input(trace_id: str = "trace-1", **kwargs) -> ClassifySentimentInput:
-    return ClassifySentimentInput(team_id=1, trace_ids=[trace_id], **kwargs)
+    return ClassifySentimentInput(team_id=1, ids=[trace_id], **kwargs)
 
 
 _PATCH_HOGQL = "posthog.hogql.query.execute_hogql_query"
@@ -47,7 +47,6 @@ class TestClassifySentimentSingleTrace:
         result = await classify_sentiment_activity(_single_input())
 
         assert result["trace-1"]["label"] == "neutral"
-        assert result["trace-1"]["generation_count"] == 0
         assert result["trace-1"]["message_count"] == 0
 
     @pytest.mark.asyncio
@@ -64,11 +63,11 @@ class TestClassifySentimentSingleTrace:
         result = await classify_sentiment_activity(_single_input())
 
         mock_classify.assert_called_once_with(["I love this product"])
-        assert result["trace-1"]["generation_count"] == 1
         assert result["trace-1"]["message_count"] == 1
         assert result["trace-1"]["label"] == "positive"
-        # message dict keys must be strings for orjson serialization
-        messages = result["trace-1"]["generations"]["gen-1"]["messages"]
+        # flat message keys use gen_uuid:msg_index format, all strings for orjson
+        messages = result["trace-1"]["messages"]
+        assert "gen-1:0" in messages
         assert all(isinstance(k, str) for k in messages.keys())
 
     @pytest.mark.asyncio
@@ -97,11 +96,10 @@ class TestClassifySentimentSingleTrace:
 
         mock_classify.assert_called_once_with(["msg-a", "msg-b", "msg-c"])
         trace = result["trace-1"]
-        assert trace["generation_count"] == 2
         assert trace["message_count"] == 3
-        assert "gen-1" in trace["generations"]
-        assert "gen-2" in trace["generations"]
-        assert len(trace["generations"]["gen-2"]["messages"]) == 2
+        assert "gen-1:0" in trace["messages"]
+        assert "gen-2:0" in trace["messages"]
+        assert "gen-2:1" in trace["messages"]
 
     @pytest.mark.asyncio
     @patch(_PATCH_CAP, 3)
@@ -131,7 +129,7 @@ class TestClassifySentimentSingleTrace:
         assert len(texts_classified) == 3
         trace = result["trace-1"]
         assert trace["message_count"] == 3
-        assert "gen-2" not in trace["generations"]
+        assert not any(k.startswith("gen-2:") for k in trace["messages"])
 
     @pytest.mark.asyncio
     @patch(_PATCH_CLASSIFY)
@@ -149,9 +147,8 @@ class TestClassifySentimentSingleTrace:
 
         mock_classify.assert_called_once_with(["a real message"])
         trace = result["trace-1"]
-        assert trace["generation_count"] == 1
-        assert "gen-1" not in trace["generations"]
-        assert "gen-2" in trace["generations"]
+        assert not any(k.startswith("gen-1:") for k in trace["messages"])
+        assert "gen-2:0" in trace["messages"]
 
     @pytest.mark.asyncio
     @patch(_PATCH_CLASSIFY)
@@ -198,7 +195,7 @@ class TestClassifySentimentBatch:
     async def test_empty_query_returns_neutral_for_all(self, mock_hogql: MagicMock):
         mock_hogql.return_value = _mock_hogql_result([])
 
-        result = await classify_sentiment_activity(ClassifySentimentInput(team_id=1, trace_ids=["t1", "t2"]))
+        result = await classify_sentiment_activity(ClassifySentimentInput(team_id=1, ids=["t1", "t2"]))
 
         assert result["t1"]["label"] == "neutral"
         assert result["t2"]["label"] == "neutral"
@@ -218,7 +215,7 @@ class TestClassifySentimentBatch:
             _make_sentiment_result("negative", 0.8),
         ]
 
-        result = await classify_sentiment_activity(ClassifySentimentInput(team_id=1, trace_ids=["t1", "t2"]))
+        result = await classify_sentiment_activity(ClassifySentimentInput(team_id=1, ids=["t1", "t2"]))
 
         # One classify call with all texts
         mock_classify.assert_called_once_with(["hello from t1", "hello from t2"])
@@ -226,9 +223,9 @@ class TestClassifySentimentBatch:
         mock_hogql.assert_called_once()
 
         assert result["t1"]["label"] == "positive"
-        assert result["t1"]["generation_count"] == 1
+        assert result["t1"]["message_count"] == 1
         assert result["t2"]["label"] == "negative"
-        assert result["t2"]["generation_count"] == 1
+        assert result["t2"]["message_count"] == 1
 
     @pytest.mark.asyncio
     @patch(_PATCH_CLASSIFY)
@@ -241,7 +238,7 @@ class TestClassifySentimentBatch:
         )
         mock_classify.return_value = [_make_sentiment_result("positive", 0.9)]
 
-        result = await classify_sentiment_activity(ClassifySentimentInput(team_id=1, trace_ids=["t1", "t2"]))
+        result = await classify_sentiment_activity(ClassifySentimentInput(team_id=1, ids=["t1", "t2"]))
 
         assert result["t1"]["label"] == "positive"
         assert result["t2"]["label"] == "neutral"

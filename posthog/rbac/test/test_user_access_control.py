@@ -1,5 +1,6 @@
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import serializers
@@ -1477,21 +1478,16 @@ class TestFieldLevelAccessControl(BaseUserAccessControlTest):
 
         # Verify session recording fields are mapped
         assert "session_recording_opt_in" in team_mappings
-        assert team_mappings["session_recording_opt_in"] == ("session_recording", "editor")
+        assert team_mappings["session_recording_opt_in"] == ("project", "admin")
         assert "session_recording_sample_rate" in team_mappings
-        assert team_mappings["session_recording_sample_rate"] == ("session_recording", "editor")
+        assert team_mappings["session_recording_sample_rate"] == ("project", "admin")
 
     def test_field_validation_blocks_without_access(self):
         """Test that field validation blocks updates without proper access"""
         from rest_framework.exceptions import ValidationError
 
-        # Give user only viewer access to session recordings
-        self._create_access_control(
-            resource="session_recording",
-            resource_id=None,
-            access_level="viewer",
-            organization_member=self.organization_membership,
-        )
+        # Set project access to "member" (default for all project members)
+        self._create_access_control(resource="project", resource_id=str(self.team.id), access_level="member")
         self._clear_uac_caches()
 
         # Create a mock serializer with access control mixin
@@ -1503,6 +1499,7 @@ class TestFieldLevelAccessControl(BaseUserAccessControlTest):
         serializer = TeamSerializer(instance=self.team, context={"view": view_mock})
 
         # Try to modify a protected field - should raise validation error
+        # session_recording_opt_in requires "admin" access to project, but user only has "member"
         attrs = {"session_recording_opt_in": True}
         with pytest.raises(ValidationError) as exc_info:
             serializer.validate(attrs)
@@ -1513,7 +1510,7 @@ class TestFieldLevelAccessControl(BaseUserAccessControlTest):
         # The error is a list, get the actual message
         error_detail = detail["session_recording_opt_in"]
         error_msg = str(error_detail[0]) if isinstance(error_detail, list) else str(error_detail)
-        assert "editor access to session recordings" in error_msg, f"Got error message: {error_msg!r}"
+        assert "admin access to projects" in error_msg, f"Got error message: {error_msg!r}"
 
     def test_field_validation_allows_with_proper_access(self):
         """Test that field validation allows updates with proper access"""
@@ -1795,3 +1792,31 @@ class TestGetEffectiveAccessLevelForMember:
         assert result.effective_access_level == expected_effective
         assert result.inherited_access_level == expected_inherited
         assert result.inherited_access_level_reason == expected_inherited_reason
+
+
+class TestAccessControlMissingEE(BaseTest):
+    """Verify that UserAccessControl methods don't crash when the ee module is not installed."""
+
+    def setUp(self):
+        super().setUp()
+        self.uac = UserAccessControl(self.user, self.team, self.organization.id)
+
+    @patch("posthog.rbac.user_access_control.EE_AVAILABLE", False)
+    def test_get_access_controls_returns_empty(self):
+        filters = {"team_id": self.team.id, "resource": "dashboard", "resource_id": None}
+        assert self.uac._get_access_controls(filters) == []
+
+    @patch("posthog.rbac.user_access_control.EE_AVAILABLE", False)
+    def test_preload_access_levels_does_not_crash(self):
+        self.uac.preload_access_levels(team=self.team, resource="dashboard")
+
+    @patch("posthog.rbac.user_access_control.EE_AVAILABLE", False)
+    def test_preload_object_access_controls_does_not_crash(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="test")
+        self.uac.preload_object_access_controls([dashboard])
+
+    @patch("posthog.rbac.user_access_control.EE_AVAILABLE", False)
+    def test_filter_and_annotate_file_system_queryset_returns_unfiltered(self):
+        qs = FileSystem.objects.filter(team=self.team)
+        result = self.uac.filter_and_annotate_file_system_queryset(qs)
+        assert list(result) == list(qs)

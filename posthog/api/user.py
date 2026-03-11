@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import time
 import secrets
@@ -15,6 +16,7 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
+from django.utils.html import escape
 from django.views.decorators.http import require_http_methods
 
 import jwt
@@ -42,8 +44,6 @@ from posthog.api.oauth.toolbar_service import (
     ToolbarOAuthState,
     build_authorization_url,
     build_toolbar_oauth_state,
-    exchange_code_for_tokens,
-    generate_pkce_pair,
     get_or_create_toolbar_oauth_application,
     new_state_nonce,
     normalize_and_validate_app_url,
@@ -64,7 +64,6 @@ from posthog.auth import (
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
-    TemporaryTokenAuthentication,
     session_auth_required,
 )
 from posthog.constants import PERMITTED_FORUM_DOMAINS
@@ -83,7 +82,7 @@ from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications, ShortcutPosition
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import ToolbarOAuthRefreshThrottle, UserAuthenticationThrottle, UserEmailVerificationThrottle
-from posthog.security.outbound_proxy import make_proxied_requests_session
+from posthog.security.outbound_proxy import external_requests, external_requests_session
 from posthog.tasks import user_identify
 from posthog.tasks.email import (
     send_email_change_emails,
@@ -287,21 +286,19 @@ class UserSerializer(serializers.ModelSerializer):
 
             expected_type = Notifications.__annotations__[key]
 
-            if key == "project_weekly_digest_disabled":
+            if key in ("project_weekly_digest_disabled", "error_tracking_weekly_digest_project_enabled"):
                 if not isinstance(value, dict):
                     raise serializers.ValidationError(
-                        f"project_weekly_digest_disabled must be a dictionary mapping project IDs to boolean values",
+                        f"{key} must be a dictionary mapping project IDs to boolean values",
                         code="invalid_input",
                     )
-                # Validate each project setting is a boolean
                 for _, disabled in value.items():
                     if not isinstance(disabled, bool):
                         raise serializers.ValidationError(
                             f"Project notification setting values must be boolean, got {type(disabled)} instead",
                             code="invalid_input",
                         )
-                # Merge with existing settings
-                current_settings[key] = {**current_settings.get("project_weekly_digest_disabled", {}), **value}
+                current_settings[key] = {**current_settings.get(key, {}), **value}
             elif key == "data_pipeline_error_threshold":
                 if not isinstance(value, (int, float)):
                     raise serializers.ValidationError(
@@ -651,7 +648,6 @@ class UserViewSet(
         detail=True,
         throttle_classes=[],
         authentication_classes=[
-            TemporaryTokenAuthentication,
             SessionAuthentication,
             PersonalAPIKeyAuthentication,
             OAuthAccessTokenAuthentication,
@@ -807,141 +803,22 @@ class UserViewSet(
 # Toolbar
 
 
-class ToolbarOAuthStartSerializer(serializers.Serializer):
-    app_url = serializers.URLField()
-    code_challenge = serializers.CharField()
-    code_challenge_method = serializers.ChoiceField(choices=["S256"], default="S256")
-    action_id = serializers.IntegerField(required=False, allow_null=True)
-    experiment_id = serializers.CharField(required=False, allow_null=True)
-    product_tour_id = serializers.CharField(required=False, allow_null=True)
-    user_intent = serializers.CharField(required=False, allow_null=True)
-
-
-class ToolbarOAuthExchangeSerializer(serializers.Serializer):
-    code = serializers.CharField()
-    state = serializers.CharField()
-    code_verifier = serializers.CharField()
-
-
-@session_auth_required
-@require_http_methods(["POST"])
-def toolbar_oauth_start(request):
-    """
-    Start browser OAuth for toolbar.
-
-    Returns the `/oauth/authorize` URL with PKCE params and signed state.
-    """
-    try:
-        body = json.loads(request.body or "{}")
-    except json.JSONDecodeError:
-        return JsonResponse({"code": "invalid_json", "detail": "Request body must be valid JSON"}, status=400)
-
-    serializer = ToolbarOAuthStartSerializer(data=body)
-    try:
-        serializer.is_valid(raise_exception=True)
-    except exceptions.ValidationError as exc:
-        return JsonResponse({"code": "invalid_request", "detail": exc.detail}, status=400)
-
-    team = request.user.team
-    if not team:
-        return JsonResponse({"code": "no_team", "detail": "No project found"}, status=400)
-
-    try:
-        app_url = normalize_and_validate_app_url(team, serializer.validated_data["app_url"])
-
-        oauth_app = get_or_create_toolbar_oauth_application(user=request.user)
-
-        signed_state, expires_at = build_toolbar_oauth_state(
-            ToolbarOAuthState(
-                nonce=new_state_nonce(),
-                user_id=request.user.id,
-                team_id=team.id,
-                app_url=app_url,
-                action_id=serializer.validated_data.get("action_id"),
-                experiment_id=serializer.validated_data.get("experiment_id"),
-                product_tour_id=serializer.validated_data.get("product_tour_id"),
-                user_intent=serializer.validated_data.get("user_intent"),
-            )
-        )
-
-        authorization_url = build_authorization_url(
-            application=oauth_app,
-            state=signed_state,
-            code_challenge=serializer.validated_data["code_challenge"],
-        )
-    except ToolbarOAuthError as exc:
-        return JsonResponse({"code": exc.code, "detail": exc.detail}, status=exc.status_code)
-
-    logger.info("toolbar_oauth_start_success", team_id=team.id, user_id=request.user.id, app_url=app_url)
-    return JsonResponse({"authorization_url": authorization_url, "expires_at": expires_at.isoformat()})
-
-
-@session_auth_required
-@require_http_methods(["POST"])
-def toolbar_oauth_exchange(request):
-    """
-    Complete toolbar OAuth by exchanging code for tokens server-side.
-
-    State is validated and consumed before exchanging the authorization code.
-    """
-    try:
-        body = json.loads(request.body or "{}")
-    except json.JSONDecodeError:
-        return JsonResponse({"code": "invalid_json", "detail": "Request body must be valid JSON"}, status=400)
-
-    serializer = ToolbarOAuthExchangeSerializer(data=body)
-    try:
-        serializer.is_valid(raise_exception=True)
-    except exceptions.ValidationError as exc:
-        return JsonResponse({"code": "invalid_request", "detail": exc.detail}, status=400)
-
-    # Check if the user has a team
-    team = request.user.team
-    if not team:
-        return JsonResponse({"code": "no_team", "detail": "No project found"}, status=400)
-
-    try:
-        state_payload = validate_and_consume_toolbar_oauth_state(
-            signed_state=serializer.validated_data["state"],
-            request_user=request.user,
-            request_team=team,
-        )
-        oauth_app = get_or_create_toolbar_oauth_application(user=request.user)
-
-        # Keep the code exchange on the backend so the popup never handles tokens.
-        token_payload = exchange_code_for_tokens(
-            client_id=oauth_app.client_id,
-            code=serializer.validated_data["code"],
-            code_verifier=serializer.validated_data["code_verifier"],
-        )
-        logger.info("toolbar_oauth_exchange_success", team_id=team.id, user_id=request.user.id)
-        return JsonResponse(
-            {
-                "access_token": token_payload["access_token"],
-                "refresh_token": token_payload["refresh_token"],
-                "token_type": token_payload["token_type"],
-                "expires_in": token_payload["expires_in"],
-                "scope": token_payload["scope"],
-                "app_url": state_payload["app_url"],
-            }
-        )
-    except ToolbarOAuthError as exc:
-        logger.warning("toolbar_oauth_exchange_failed", code=exc.code, user_id=request.user.id)
-        return JsonResponse({"code": exc.code, "detail": exc.detail}, status=exc.status_code)
-
-
 @require_http_methods(["GET"])
 def toolbar_oauth_authorize(request):
     """
     Start the toolbar OAuth flow.
 
-    Validates the redirect URL, generates PKCE + signed state, stores the
-    code_verifier in the session, and renders a consent page with the
-    authorization URL.
+    Validates the redirect URL, accepts the client-provided PKCE code_challenge,
+    builds a signed state, and redirects to the OAuth authorization endpoint.
+    The client holds the code_verifier and exchanges the code for tokens itself.
     """
     redirect_url = request.GET.get("redirect")
     if not redirect_url:
         return HttpResponse("You need to pass a url to ?redirect=", status=400)
+
+    code_challenge = request.GET.get("code_challenge")
+    if not code_challenge:
+        return HttpResponse("You need to pass a ?code_challenge=", status=400)
 
     team = request.user.team
     if not team:
@@ -949,7 +826,6 @@ def toolbar_oauth_authorize(request):
 
     try:
         app_url = normalize_and_validate_app_url(team, redirect_url)
-        code_verifier, code_challenge = generate_pkce_pair()
 
         oauth_app = get_or_create_toolbar_oauth_application(user=request.user)
 
@@ -966,11 +842,33 @@ def toolbar_oauth_authorize(request):
             application=oauth_app, state=signed_state, code_challenge=code_challenge
         )
     except ToolbarOAuthError as exc:
+        if exc.code == "forbidden_app_url":
+            parsed_redirect = urllib.parse.urlparse(redirect_url)
+            hostname = parsed_redirect.hostname or redirect_url
+            return render_template(
+                "toolbar_oauth_error.html",
+                request,
+                context={
+                    "error_title": "Domain not authorized",
+                    "error_message": "The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",
+                    "error_detail": (
+                        f"The hostname {hostname} needs to be added to your project's "
+                        "authorized URLs before the toolbar can be used on this site."
+                    ),
+                    "error_code": "403",
+                    "settings_url": f"{settings.SITE_URL}/settings/project-toolbar#authorized-urls",
+                },
+                status_code=exc.status_code,
+            )
         return HttpResponse(exc.detail, status=exc.status_code)
 
-    request.session["toolbar_oauth_code_verifier"] = code_verifier
-
+    # Mark session so the callback knows to redirect back to app_url with the code
     return redirect(authorization_url)
+
+
+@require_http_methods(["GET", "HEAD"])
+def toolbar_oauth_check(request):
+    return HttpResponse("ok", status=200)
 
 
 @require_http_methods(["GET"])
@@ -978,96 +876,67 @@ def toolbar_oauth_callback(request):
     """
     OAuth callback endpoint (redirect_uri for toolbar OAuth).
 
-    Two modes:
-    - Toolbar flow (code_verifier in session): exchanges the code for tokens
-      server-side and postMessages them to the opener (the toolbar page).
-    - posthog-js flow (no code_verifier): relays code/state to the opener
-      for client-side exchange.
+    Validates the signed state and redirects back to the customer's app_url
+    with the authorization code in the URL fragment. The client holds the PKCE
+    verifier and exchanges the code for tokens itself.
     """
+    # Clean up legacy session keys from the old server-side PKCE flow
+    request.session.pop("toolbar_oauth_code_verifier", None)
+    request.session.pop("toolbar_oauth_code_verifier_ts", None)
+
     error = request.GET.get("error")
     if error:
-        payload = {
-            "type": "toolbar_oauth_callback",
-            "error": error,
-            "error_description": request.GET.get("error_description"),
-        }
-        # Error payloads contain no sensitive data, so "*" is safe and ensures
-        # the opener (on the customer's domain) can receive the message.
-        return render_template(
-            "toolbar_oauth_callback.html",
-            request=request,
-            context={"payload": payload, "target_origin": "*"},
-        )
+        description = escape(request.GET.get("error_description", error))
+        return HttpResponse(
+            description, status=400, content_type="text/plain"
+        )  # nosemgrep: reflected-data-httpresponse
 
     code = request.GET.get("code")
     state = request.GET.get("state")
 
+    if not (code and state):
+        return HttpResponse("Missing code or state", status=400)
+
+    if not re.match(r"^[A-Za-z0-9._~-]+$", code):
+        return HttpResponse("Invalid authorization code format", status=400)
+
     if not request.user.is_authenticated:
-        code_verifier = None
-    else:
-        code_verifier = request.session.pop("toolbar_oauth_code_verifier", None)
+        return HttpResponse("Not authenticated", status=401)
 
-    if code_verifier and code and state:
-        # Toolbar flow: exchange code for tokens on the server
-        team = request.user.team
-        if not team:
-            payload = {"type": "toolbar_oauth_callback", "error": "no_team", "error_description": "No project found"}
-            return render_template(
-                "toolbar_oauth_callback.html",
-                request=request,
-                context={"payload": payload, "target_origin": "*"},
-            )
+    team = request.user.team
+    if not team:
+        return HttpResponse("No project found", status=400)
 
-        try:
-            state_payload = validate_and_consume_toolbar_oauth_state(
-                signed_state=state,
-                request_user=request.user,
-                request_team=team,
-            )
-            oauth_app = get_or_create_toolbar_oauth_application(user=request.user)
-            token_payload = exchange_code_for_tokens(
-                client_id=oauth_app.client_id,
-                code=code,
-                code_verifier=code_verifier,
-            )
-        except ToolbarOAuthError as exc:
-            payload = {"type": "toolbar_oauth_callback", "error": exc.code, "error_description": exc.detail}
-            return render_template(
-                "toolbar_oauth_callback.html",
-                request=request,
-                context={"payload": payload, "target_origin": "*"},
-            )
-
-        app_url = state_payload["app_url"]
-        parsed = urllib.parse.urlparse(app_url)
-        target_origin = f"{parsed.scheme}://{parsed.netloc}"
-
-        payload = {
-            "type": "toolbar_oauth_callback",
-            "access_token": token_payload["access_token"],
-            "refresh_token": token_payload["refresh_token"],
-            "expires_in": token_payload["expires_in"],
-            "client_id": oauth_app.client_id,
-        }
-        return render_template(
-            "toolbar_oauth_callback.html",
-            request=request,
-            context={"payload": payload, "target_origin": target_origin},
+    try:
+        state_payload = validate_and_consume_toolbar_oauth_state(
+            signed_state=state,
+            request_user=request.user,
+            request_team=team,
         )
+        oauth_app = get_or_create_toolbar_oauth_application(user=request.user)
+    except ToolbarOAuthError as exc:
+        return HttpResponse(exc.detail, status=exc.status_code)
 
-    # posthog-js flow: relay code/state for client-side exchange
-    payload = {
-        "type": "toolbar_oauth_result",
-        "code": code,
-        "state": state,
-        "error": error,
-        "error_description": request.GET.get("error_description"),
-    }
-    return render_template(
-        "toolbar_oauth_callback.html",
-        request=request,
-        context={"payload": payload, "target_origin": settings.SITE_URL},
-    )
+    # Re-validate app_url from the signed state against the team's allowlist.
+    # validate_and_consume_toolbar_oauth_state already does this, but repeating
+    # the call here makes the sanitisation visible at the point of use, which
+    # satisfies static-analysis tools that trace the taint from request.GET.
+    try:
+        app_url = normalize_and_validate_app_url(team, state_payload["app_url"])
+    except ToolbarOAuthError as exc:
+        return HttpResponse(exc.detail, status=exc.status_code)
+
+    parsed = urllib.parse.urlparse(app_url)
+    original_fragment = parsed.fragment
+    base_url = urllib.parse.urlunparse(parsed._replace(fragment=""))
+    quoted_code = urllib.parse.quote(code, safe="")
+    quoted_client_id = urllib.parse.quote(oauth_app.client_id, safe="")
+    toolbar_param = f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id}"
+    if original_fragment:
+        fragment = f"{original_fragment}&{toolbar_param}"
+    else:
+        fragment = toolbar_param
+    return redirect(f"{base_url}#{fragment}")
 
 
 class ToolbarOAuthRefreshView(APIView):
@@ -1195,6 +1064,9 @@ def prepare_toolbar_preloaded_flags(request):
 
 @session_auth_required
 def redirect_to_site(request):
+    # TODO: Now that toolbar uses OAuth, this endpoint mostly just redirects with toolbar params
+    # (token, actionId, etc.) in the hash. The domain-restriction is handled by OAuth redirect_uris.
+    # Consider removing this in favor of building the redirect URL client-side.
     REDIRECT_TO_SITE_COUNTER.inc()
     team = request.user.team
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
@@ -1204,19 +1076,32 @@ def redirect_to_site(request):
 
     if not team or not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
         REDIRECT_TO_SITE_FAILED_COUNTER.inc()
+        parsed_app_url = urllib.parse.urlparse(app_url)
+        hostname = parsed_app_url.hostname or app_url
         logger.error(
             "can_only_redirect_to_permitted_domain",
             permitted_domains=team.app_urls,
             app_url=app_url,
             team_id=team.id,
         )
-        return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
-    request.user.temporary_token = secrets.token_urlsafe(32)
-    request.user.save()
+        return render_template(
+            "toolbar_oauth_error.html",
+            request,
+            context={
+                "error_title": "Domain not authorized",
+                "error_message": "The toolbar cannot load on this domain because it is not in your project's authorized URLs.",
+                "error_detail": (
+                    f"The hostname {hostname} needs to be added to your project's "
+                    "authorized URLs before the toolbar can be used on this site."
+                ),
+                "error_code": "403",
+                "settings_url": f"{settings.SITE_URL}/settings/project-toolbar#authorized-urls",
+            },
+            status_code=403,
+        )
     params = {
         "action": "ph_authorize",
         "token": team.api_token,
-        "temporaryToken": request.user.temporary_token,
         "actionId": request.GET.get("actionId"),
         "experimentId": request.GET.get("experimentId"),
         "productTourId": request.GET.get("productTourId"),
@@ -1266,7 +1151,7 @@ def redirect_to_website(request):
 
     # check if a strapi id is attached
     if request.user.strapi_id is None:
-        response = requests.request(
+        response = external_requests.request(
             "POST",
             "https://squeak.posthog.cc/api/auth/local/register",
             json={
@@ -1322,7 +1207,7 @@ def test_slack_webhook(request):
         return JsonResponse({"error": "no webhook URL"})
     message = {"text": "_Greetings_ from PostHog!"}
     try:
-        session = make_proxied_requests_session()
+        session = external_requests_session()
 
         if not settings.DEBUG:
             raise_if_user_provided_url_unsafe(webhook)

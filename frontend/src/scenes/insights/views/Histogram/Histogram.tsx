@@ -6,6 +6,7 @@ import { useEffect } from 'react'
 
 import { FunnelLayout } from 'lib/constants'
 import { D3Selector, D3Transition, useD3 } from 'lib/hooks/useD3'
+// eslint-disable-next-line import/no-cycle
 import { animate, getOrCreateEl, wrap } from 'lib/utils/d3Utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'

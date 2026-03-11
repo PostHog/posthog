@@ -6,6 +6,7 @@ from django.conf import settings
 import aiohttp
 
 from posthog.exceptions_capture import capture_exception
+from posthog.security.outbound_proxy import external_aiohttp_session
 
 from .constants import (
     HARMONIC_BASE_URL,
@@ -35,17 +36,19 @@ class AsyncHarmonicClient:
             raise ValueError("Missing Harmonic API key: HARMONIC_API_KEY")
 
         self.session: Optional[aiohttp.ClientSession] = None
+        self._session_cm: Any = None
 
     async def __aenter__(self):
         """Async context manager entry - create session."""
         timeout = aiohttp.ClientTimeout(total=HARMONIC_REQUEST_TIMEOUT_SECONDS)
-        self.session = aiohttp.ClientSession(timeout=timeout)
+        self._session_cm = external_aiohttp_session(timeout=timeout)
+        self.session = await self._session_cm.__aenter__()
         return self
 
     async def __aexit__(self, *args):
         """Async context manager exit - close session."""
-        if self.session:
-            await self.session.close()
+        if self._session_cm:
+            await self._session_cm.__aexit__(*args)
 
     def _clean_domain(self, domain: str) -> str:
         """Clean domain name by removing protocols and www prefix."""

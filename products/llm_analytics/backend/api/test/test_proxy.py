@@ -16,7 +16,7 @@ from posthog.rate_limit import (
     LLMProxySustainedRateThrottle,
 )
 
-from products.llm_analytics.backend.api.proxy import LLMProxyViewSet
+from products.llm_analytics.backend.api.proxy import LLMProxyCompletionSerializer, LLMProxyViewSet
 from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
 
 TRIAL_THROTTLES = (LLMProxyBurstRateThrottle, LLMProxySustainedRateThrottle, LLMProxyDailyRateThrottle)
@@ -51,13 +51,40 @@ class TestLLMProxyThrottles(APIBaseTest):
             ("invalid_provider_key_id", str(uuid4()), "openai", None, "openai", True, TRIAL_THROTTLES),
             ("provider_key_without_api_key", "generated", "openai", {}, "openai", True, TRIAL_THROTTLES),
             (
+                "valid_matching_provider_key",
+                "generated",
+                "openai",
+                {"api_key": "sk-test-key"},
+                "openai",
+                True,
+                BYOK_THROTTLES,
+            ),
+            (
+                "valid_openrouter_byok_key",
+                "generated",
+                "openrouter",
+                {"api_key": "sk-or-key"},
+                "openrouter",
+                True,
+                BYOK_THROTTLES,
+            ),
+            (
+                "valid_fireworks_byok_key",
+                "generated",
+                "fireworks",
+                {"api_key": "fw-key"},
+                "fireworks",
+                True,
+                BYOK_THROTTLES,
+            ),
+            (
                 "provider_mismatch_key_anthropic_req_openai",
                 "generated",
                 "anthropic",
                 {"api_key": "sk-ant-key"},
                 "openai",
                 True,
-                TRIAL_THROTTLES,
+                BYOK_THROTTLES,
             ),
             (
                 "provider_mismatch_key_openai_req_anthropic",
@@ -65,15 +92,6 @@ class TestLLMProxyThrottles(APIBaseTest):
                 "openai",
                 {"api_key": "sk-key"},
                 "anthropic",
-                True,
-                TRIAL_THROTTLES,
-            ),
-            (
-                "valid_matching_provider_key",
-                "generated",
-                "openai",
-                {"api_key": "sk-test-key"},
-                "openai",
                 True,
                 BYOK_THROTTLES,
             ),
@@ -114,3 +132,20 @@ class TestLLMProxyThrottles(APIBaseTest):
     def test_models_endpoint_is_never_throttled(self) -> None:
         self._set_request("models", {})
         assert self.viewset.get_throttles() == []
+
+    def test_completion_serializer_accepts_sampling_settings(self) -> None:
+        serializer = LLMProxyCompletionSerializer(
+            data={
+                "system": "You are helpful.",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "model": "gpt-5-mini",
+                "provider": "openai",
+                "temperature": 0.4,
+                "top_p": 0.9,
+                "seed": 42,
+            }
+        )
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["temperature"] == 0.4
+        assert serializer.validated_data["top_p"] == 0.9
+        assert serializer.validated_data["seed"] == 42

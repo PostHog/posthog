@@ -21,6 +21,8 @@ from posthog.schema import (
     CachedRetentionQueryResponse,
     EventPropertyFilter,
     EventsQuery,
+    HogLanguage,
+    HogQLAutocomplete,
     HogQLPropertyFilter,
     HogQLQuery,
     MeanRetentionCalculation,
@@ -31,7 +33,7 @@ from posthog.schema import (
 
 from posthog.hogql.constants import LimitContext
 
-from posthog.api.services.query import process_query_dict
+from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.utils import UUIDT
 
@@ -146,6 +148,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "results": [[2, "sign out"], [1, "sign up"]],
                 },
             )
+
+    @patch("posthog.api.services.query.get_query_runner")
+    def test_hogql_autocomplete_bypasses_query_runner(self, mock_get_query_runner):
+        query = HogQLAutocomplete(
+            kind="HogQLAutocomplete",
+            query="select event from events",
+            language=HogLanguage.HOG_QL,
+            startPosition=6,
+            endPosition=6,
+        )
+
+        result = process_query_model(self.team, query, user=self.user)
+
+        self.assertIn("suggestions", result.model_dump())  # type: ignore
+        mock_get_query_runner.assert_not_called()
 
     @also_test_with_materialized_columns(["key"])
     @snapshot_clickhouse_queries

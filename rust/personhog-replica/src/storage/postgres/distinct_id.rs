@@ -1,22 +1,9 @@
 use async_trait::async_trait;
-use sqlx::FromRow;
 
 use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION};
 use crate::storage::error::StorageResult;
 use crate::storage::traits::DistinctIdLookup;
 use crate::storage::types::{DistinctIdMapping, DistinctIdWithVersion};
-
-#[derive(Debug, Clone, FromRow)]
-struct DistinctIdRow {
-    person_id: i64,
-    distinct_id: String,
-}
-
-#[derive(Debug, Clone, FromRow)]
-struct DistinctIdWithVersionRow {
-    distinct_id: String,
-    version: Option<i64>,
-}
 
 #[async_trait]
 impl DistinctIdLookup for PostgresStorage {
@@ -34,25 +21,20 @@ impl DistinctIdLookup for PostgresStorage {
 
         let pool = self.pool_for_consistency(consistency);
 
-        let rows = sqlx::query_as::<_, DistinctIdWithVersionRow>(
+        let rows = sqlx::query_as!(
+            DistinctIdWithVersion,
             r#"
             SELECT distinct_id, version
             FROM posthog_persondistinctid
             WHERE team_id = $1 AND person_id = $2
             "#,
+            team_id as i32,
+            person_id
         )
-        .bind(team_id)
-        .bind(person_id)
         .fetch_all(pool)
         .await?;
 
-        Ok(rows
-            .into_iter()
-            .map(|r| DistinctIdWithVersion {
-                distinct_id: r.distinct_id,
-                version: r.version,
-            })
-            .collect())
+        Ok(rows)
     }
 
     async fn get_distinct_ids_for_persons(
@@ -73,24 +55,19 @@ impl DistinctIdLookup for PostgresStorage {
 
         let pool = self.pool_for_consistency(consistency);
 
-        let rows = sqlx::query_as::<_, DistinctIdRow>(
+        let rows = sqlx::query_as!(
+            DistinctIdMapping,
             r#"
             SELECT person_id, distinct_id
             FROM posthog_persondistinctid
             WHERE team_id = $1 AND person_id = ANY($2)
             "#,
+            team_id as i32,
+            person_ids
         )
-        .bind(team_id)
-        .bind(person_ids)
         .fetch_all(pool)
         .await?;
 
-        Ok(rows
-            .into_iter()
-            .map(|r| DistinctIdMapping {
-                person_id: r.person_id,
-                distinct_id: r.distinct_id,
-            })
-            .collect())
+        Ok(rows)
     }
 }

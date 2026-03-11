@@ -7,6 +7,7 @@ import { dayjs } from 'lib/dayjs'
 import { HogQLQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType, HogQLMathType } from '~/types'
 
+// eslint-disable-next-line import/no-cycle
 import { PASS_RATE_SUCCESS_THRESHOLD } from './components/EvaluationMetrics'
 import type { evaluationMetricsLogicType } from './evaluationMetricsLogicType'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'

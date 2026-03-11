@@ -1,5 +1,6 @@
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
 
@@ -43,8 +44,10 @@ import {
     MaxContextType,
     MaxDashboardContext,
     MaxErrorTrackingIssueContext,
+    MaxEvaluationContext,
     MaxEventContext,
     MaxInsightContext,
+    MaxNotebookContext,
     MaxUIContext,
 } from './maxTypes'
 import { EnhancedToolCall } from './Thread'
@@ -205,6 +208,30 @@ export const errorTrackingIssueToMaxContextPayload = (issue: {
     }
 }
 
+export const notebookToMaxContextPayload = (notebook: {
+    short_id: string
+    title?: string | null
+}): MaxNotebookContext => ({
+    type: MaxContextType.NOTEBOOK,
+    id: notebook.short_id,
+    name: notebook.title,
+})
+
+export const evaluationToMaxContextPayload = (evaluation: {
+    id: string
+    name?: string | null
+    description?: string | null
+    evaluation_type: 'hog' | 'llm_judge'
+    hog_source?: string | null
+}): MaxEvaluationContext => ({
+    type: MaxContextType.EVALUATION,
+    id: evaluation.id,
+    name: evaluation.name,
+    description: evaluation.description,
+    evaluation_type: evaluation.evaluation_type,
+    hog_source: evaluation.hog_source,
+})
+
 /**
  * Generic context that can be passed when opening PostHog AI.
  */
@@ -213,6 +240,14 @@ export interface MaxOpenContext {
     errorTrackingIssue?: {
         id: string
         name?: string | null
+    }
+    /** Evaluation context */
+    evaluation?: {
+        id: string
+        name?: string | null
+        description?: string | null
+        evaluation_type: 'hog' | 'llm_judge'
+        hog_source?: string | null
     }
 }
 
@@ -224,6 +259,10 @@ export function convertToMaxUIContext(openContext: MaxOpenContext): Partial<MaxU
 
     if (openContext.errorTrackingIssue) {
         uiContext.error_tracking_issues = [errorTrackingIssueToMaxContextPayload(openContext.errorTrackingIssue)]
+    }
+
+    if (openContext.evaluation) {
+        uiContext.evaluations = [evaluationToMaxContextPayload(openContext.evaluation)]
     }
 
     return uiContext
@@ -265,12 +304,18 @@ export function captureFeedback(
 }
 
 /** Maps a scene ID to the agent mode that should be activated for that scene */
-export function getAgentModeForScene(sceneId: Scene | null): AgentMode | null {
+export function getAgentModeForScene(
+    sceneId: Scene | null,
+    featureFlags: Record<string, boolean | string>
+): AgentMode | null {
     if (!sceneId) {
         return null
     }
     for (const [mode, def] of Object.entries(MODE_DEFINITIONS)) {
         if (def.scenes?.has(sceneId)) {
+            if (def.flag && !featureFlags[FEATURE_FLAGS[def.flag]]) {
+                return null
+            }
             return mode as AgentMode
         }
     }
@@ -280,6 +325,9 @@ export function getAgentModeForScene(sceneId: Scene | null): AgentMode | null {
 export const visualizationTypeToQuery = (
     visualization: VisualizationItem | VisualizationArtifactContent | VisualizationBlock
 ): QuerySchema | null => {
+    if (!visualization) {
+        return null
+    }
     const source = castAssistantQuery('answer' in visualization ? visualization.answer : visualization.query)
     if (isHogQLQuery(source)) {
         return { kind: NodeKind.DataVisualizationNode, source: source } satisfies DataVisualizationNode

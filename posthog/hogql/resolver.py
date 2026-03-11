@@ -188,6 +188,7 @@ class Resolver(CloningVisitor):
                 recursive=True,
                 type=ast.CTETableType(name=node.name, select_query_type=base_select.type),
                 materialized=node.materialized,
+                using_key=node.using_key,
             )
             self.ctes[node.name] = placeholder
 
@@ -225,17 +226,39 @@ class Resolver(CloningVisitor):
                         new_name: initial.select[i].type or ast.UnknownType() for i, new_name in enumerate(node.columns)
                     }
 
+        if node.using_key is not None:
+            if node.columns:
+                valid_columns = set(node.columns)
+            elif isinstance(cte_expr, ast.SelectQuery) and cte_expr.type:
+                valid_columns = set(cte_expr.type.columns.keys())
+            elif isinstance(cte_expr, ast.SelectSetQuery) and cte_expr.type:
+                first_type = cte_expr.type.types[0]
+                while isinstance(first_type, ast.SelectSetQueryType):
+                    first_type = first_type.types[0]
+                valid_columns = set(first_type.columns.keys())
+            else:
+                valid_columns = set()
+
+            if valid_columns:
+                invalid = [k for k in node.using_key if k not in valid_columns]
+                if invalid:
+                    raise QueryError(
+                        f"USING KEY column(s) {', '.join(repr(k) for k in invalid)} not found in CTE '{node.name}'. "
+                        f"Available columns: {', '.join(sorted(valid_columns))}"
+                    )
+
         # Create a new CTE node instead of modifying the input
         # This ensures we can resolve CTEs even if they appear multiple times
         new_node = ast.CTE(
             start=node.start,
             end=node.end,
-            type=ast.CTETableType(name=node.name, select_query_type=cte_expr.type),
+            type=ast.CTETableType(name=node.name, select_query_type=cast(ast.SelectQueryType, cte_expr.type)),
             name=node.name,
             expr=cte_expr,
             cte_type=node.cte_type,
             recursive=node.recursive,
             materialized=node.materialized,
+            using_key=node.using_key,
             columns=node.columns,
         )
 
