@@ -29,7 +29,6 @@ import { WorkflowsSceneProps } from '../WorkflowsScene'
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlow } from './hogflows/types'
 import { newWorkflowLogic } from './newWorkflowLogic'
-import { NewWorkflowModal } from './NewWorkflowModal'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowStatusFilter, workflowsLogic } from './workflowsLogic'
 
@@ -423,7 +422,6 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
                     )}
                 </>
             )}
-            <NewWorkflowModal />
         </div>
     )
 }
