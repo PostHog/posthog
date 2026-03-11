@@ -1,6 +1,8 @@
 import typing
 import datetime as dt
 
+from django.conf import settings
+
 from temporalio import activity, workflow
 from temporalio.worker import (
     ActivityInboundInterceptor,
@@ -88,6 +90,8 @@ def increment_recordings_failed(count: int) -> None:
 
 
 class DeleteRecordingsMetricsInterceptor(Interceptor):
+    task_queue = settings.SESSION_REPLAY_TASK_QUEUE
+
     def intercept_activity(self, next: ActivityInboundInterceptor) -> ActivityInboundInterceptor:
         return _DeleteRecordingsActivityInterceptor(super().intercept_activity(next))
 

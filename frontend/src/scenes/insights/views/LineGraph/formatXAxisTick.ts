@@ -24,23 +24,7 @@ export function createXAxisTickCallback({
         return (value) => String(value)
     }
 
-    // Datetime strings (with time component) are already in the project timezone
-    // (ClickHouse applies toTimeZone before truncation), so parse them directly in
-    // that timezone. Date-only strings are calendar bucket labels — parse as midnight
-    // in the project timezone so that e.g. "2023-07-01" stays July and doesn't drift
-    // to June in behind-UTC timezones.
-    const parsedDates = allDays.map((d) => {
-        const s = String(d)
-        const hasTime = s.includes(' ') || s.includes('T')
-        if (hasTime) {
-            return dayjs.tz(s, timezone)
-        }
-        try {
-            return dayjs.tz(s + ' 00:00:00', timezone)
-        } catch {
-            return dayjs(null)
-        }
-    })
+    const parsedDates = allDays.map((d) => parseDateForAxis(String(d), timezone))
     const first = parsedDates[0]
     const last = parsedDates[parsedDates.length - 1]
 
@@ -62,6 +46,26 @@ export function createXAxisTickCallback({
         }
 
         return formatTick(mode, date, index)
+    }
+}
+
+/** Parse a date string as a wall-clock time in the given timezone.
+ *
+ * All strings from ClickHouse — both datetime ("2026-03-08 14:00:00") and
+ * date-only ("2026-03-08") — already have wall-clock digits in the project
+ * timezone because ClickHouse applies toTimeZone before truncation. */
+export function parseDateForAxis(dateStr: string, timezone: string): Dayjs {
+    const hasTime = dateStr.includes(' ') || dateStr.includes('T')
+    try {
+        // Parse as UTC so the result is browser-timezone-independent.
+        // (dayjs.tz(string, tz) goes through new Date() which uses the
+        // browser's local timezone and can shift dates during DST.)
+        const utc = hasTime ? dayjs.utc(dateStr) : dayjs.utc(dateStr + ' 00:00:00')
+        // keepLocalTime: true preserves the wall-clock digits while
+        // attaching the project timezone — no conversion arithmetic.
+        return utc.isValid() ? utc.tz(timezone, true) : dayjs(null)
+    } catch {
+        return dayjs(null)
     }
 }
 
