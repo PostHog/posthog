@@ -111,7 +111,7 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
         parsed = urlparse(deep_link_url)
         deep_link_token = parse_qs(parsed.query)["token"][0]
 
-        login_res = self.client.get(f"/login/stripe?token={deep_link_token}")
+        login_res = self.client.get(f"/agentic/login?token={deep_link_token}")
         assert login_res.status_code == 302
         assert "/project/" in login_res["Location"]
 
@@ -119,7 +119,7 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
         assert me_res.status_code == 200
         assert me_res.json()["email"] == "e2e-test@example.com"
 
-        reuse_res = self.client.get(f"/login/stripe?token={deep_link_token}")
+        reuse_res = self.client.get(f"/agentic/login?token={deep_link_token}")
         assert reuse_res.status_code == 302
         assert "expired_or_invalid_token" in reuse_res["Location"]
 

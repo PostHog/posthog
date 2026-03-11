@@ -44,7 +44,7 @@ PENDING_AUTH_TTL_SECONDS = 600
 DEEP_LINK_TTL_SECONDS = 600
 DEEP_LINK_CACHE_PREFIX = "stripe_app_deep_link:"
 SUPPORTED_DEEP_LINK_PURPOSES = {"dashboard"}
-DEEP_LINK_RATE_LIMIT_PREFIX = "stripe_login_rate:"
+DEEP_LINK_RATE_LIMIT_PREFIX = "agentic_login_rate:"
 DEEP_LINK_RATE_LIMIT_MAX_ATTEMPTS = 10
 DEEP_LINK_RATE_LIMIT_WINDOW_SECONDS = 300
 
@@ -777,7 +777,7 @@ def deep_links(request: Request) -> Response:
 
     expires_at = timezone.now() + timedelta(seconds=DEEP_LINK_TTL_SECONDS)
 
-    url = f"{host}/login/stripe?token={token}"
+    url = f"{host}/agentic/login?token={token}"
     if team_id:
         url += f"&team_id={team_id}"
 
@@ -848,15 +848,15 @@ def _region_to_host(region: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# GET /login/stripe — deep link login for Stripe APP users
+# GET /agentic/login — deep link login for agentic provisioning users
 # ---------------------------------------------------------------------------
 
 
-def stripe_login(request: Any) -> HttpResponseBase:
+def agentic_login(request: Any) -> HttpResponseBase:
     token = request.GET.get("token", "")
     if not token:
         _capture_deep_link_event("missing_token")
-        logger.warning("stripe_login.missing_token")
+        logger.warning("agentic_login.missing_token")
         return HttpResponseRedirect("/?error=missing_token")
 
     cache_key = f"{DEEP_LINK_CACHE_PREFIX}{token}"
@@ -869,18 +869,18 @@ def stripe_login(request: Any) -> HttpResponseBase:
 
     if link_data is None:
         _capture_deep_link_event("expired_or_invalid_token")
-        logger.warning("stripe_login.expired_or_invalid_token")
+        logger.warning("agentic_login.expired_or_invalid_token")
         return HttpResponseRedirect("/?error=expired_or_invalid_token")
 
     # Atomic delete — if another request already consumed this token, reject
     if not cache.delete(cache_key):
         _capture_deep_link_event("expired_or_invalid_token")
-        logger.warning("stripe_login.token_already_consumed")
+        logger.warning("agentic_login.token_already_consumed")
         return HttpResponseRedirect("/?error=expired_or_invalid_token")
 
     if not isinstance(link_data, dict):
         _capture_deep_link_event("invalid_token_data")
-        logger.warning("stripe_login.invalid_token_data")
+        logger.warning("agentic_login.invalid_token_data")
         return HttpResponseRedirect("/?error=invalid_token_data")
 
     user_id = link_data.get("user_id")
@@ -889,7 +889,7 @@ def stripe_login(request: Any) -> HttpResponseBase:
 
     if not user_id:
         _capture_deep_link_event("invalid_token_data")
-        logger.warning("stripe_login.missing_user_id")
+        logger.warning("agentic_login.missing_user_id")
         return HttpResponseRedirect("/?error=invalid_token_data")
 
     try:
@@ -904,13 +904,13 @@ def stripe_login(request: Any) -> HttpResponseBase:
 
     if not user.is_active:
         _capture_deep_link_event("user_inactive", user_id=user_id)
-        logger.warning("stripe_login.user_inactive", user_id=user_id)
+        logger.warning("agentic_login.user_inactive", user_id=user_id)
         return HttpResponseRedirect("/?error=user_inactive")
 
     auth_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
     _capture_deep_link_event("success", user_id=user_id, team_id=team_id, purpose=purpose)
-    logger.info("stripe_login.success", user_id=user_id, team_id=team_id, purpose=purpose)
+    logger.info("agentic_login.success", user_id=user_id, team_id=team_id, purpose=purpose)
 
     redirect_path = _deep_link_redirect_path(purpose, team_id)
     return HttpResponseRedirect(redirect_path)

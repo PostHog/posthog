@@ -39,7 +39,7 @@ class TestDeepLinks(StripeProvisioningTestBase):
 
 
 @override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
-class TestStripeLogin(StripeProvisioningTestBase):
+class TestAgenticLogin(StripeProvisioningTestBase):
     def _create_deep_link_token(self) -> str:
         token = "test_deep_link_token"
         cache.set(
@@ -51,23 +51,23 @@ class TestStripeLogin(StripeProvisioningTestBase):
 
     def test_valid_token_logs_in_and_redirects_to_project(self):
         token = self._create_deep_link_token()
-        res = self.client.get(f"/login/stripe?token={token}")
+        res = self.client.get(f"/agentic/login?token={token}")
         assert res.status_code == 302
         assert res["Location"] == f"/project/{self.team.id}"
 
     def test_valid_token_creates_session(self):
         token = self._create_deep_link_token()
-        self.client.get(f"/login/stripe?token={token}")
+        self.client.get(f"/agentic/login?token={token}")
         res = self.client.get("/api/users/@me/")
         assert res.status_code == 200
         assert res.json()["email"] == self.user.email
 
     def test_token_is_single_use(self):
         token = self._create_deep_link_token()
-        res1 = self.client.get(f"/login/stripe?token={token}")
+        res1 = self.client.get(f"/agentic/login?token={token}")
         assert res1.status_code == 302
         assert "/project/" in res1["Location"]
-        res2 = self.client.get(f"/login/stripe?token={token}")
+        res2 = self.client.get(f"/agentic/login?token={token}")
         assert res2.status_code == 302
         assert "expired_or_invalid_token" in res2["Location"]
 
@@ -78,7 +78,7 @@ class TestStripeLogin(StripeProvisioningTestBase):
         ]
     )
     def test_error_redirect(self, _name: str, token_value: str, expected_error: str):
-        url = "/login/stripe" if not token_value else f"/login/stripe?token={token_value}"
+        url = "/agentic/login" if not token_value else f"/agentic/login?token={token_value}"
         res = self.client.get(url)
         assert res.status_code == 302
         assert expected_error in res["Location"]
@@ -90,7 +90,7 @@ class TestStripeLogin(StripeProvisioningTestBase):
             {"user_id": self.user.id, "team_id": None},
             timeout=600,
         )
-        res = self.client.get(f"/login/stripe?token={token}")
+        res = self.client.get(f"/agentic/login?token={token}")
         assert res.status_code == 302
         assert res["Location"] == "/"
 
@@ -101,7 +101,7 @@ class TestStripeLogin(StripeProvisioningTestBase):
             {"user_id": self.user.id, "team_id": self.team.id},
             timeout=0,
         )
-        res = self.client.get(f"/login/stripe?token={token}")
+        res = self.client.get(f"/agentic/login?token={token}")
         assert res.status_code == 302
         assert res["Location"] == "/?error=expired_or_invalid_token"
 
@@ -112,12 +112,12 @@ class TestStripeLogin(StripeProvisioningTestBase):
             {"user_id": 999999, "team_id": self.team.id},
             timeout=600,
         )
-        res = self.client.get(f"/login/stripe?token={token}")
+        res = self.client.get(f"/agentic/login?token={token}")
         assert res.status_code == 302
         assert res["Location"] == "/?error=user_not_found"
 
     def test_redirects_are_relative(self):
         token = self._create_deep_link_token()
-        res = self.client.get(f"/login/stripe?token={token}")
+        res = self.client.get(f"/agentic/login?token={token}")
         assert res.status_code == 302
         assert not res["Location"].startswith("http")
