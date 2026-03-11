@@ -1,5 +1,5 @@
 import re
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import quote, urljoin
@@ -14,6 +14,7 @@ from tenacity import RetryCallState, retry, retry_if_exception_type, retry_if_re
 from posthog.security.outbound_proxy import external_requests
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
+from posthog.temporal.data_imports.sources.common.rest_source.fanout import build_dependent_resource
 from posthog.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     Endpoint,
@@ -350,7 +351,7 @@ def get_resource(
     incremental_field: str | None = None,
 ) -> EndpointResource:
     config = SENTRY_ENDPOINTS[endpoint]
-    if config.is_project_fanout or config.is_issue_fanout:
+    if config.fanout:
         raise ValueError(f"Fan-out endpoint '{endpoint}' must use the fan-out path")
 
     params: dict[str, Any] = {"limit": config.page_size}
@@ -404,118 +405,6 @@ def _make_source_response(endpoint_config: SentryEndpointConfig, items_fn) -> So
     )
 
 
-def _rename_parent_fields(parent_name: str, renames: dict[str, str]) -> Callable[[dict[str, Any]], dict[str, Any]]:
-    """Build a row mapper that renames ``_<parent>_<field>`` keys injected by
-    ``include_from_parent`` into the desired column names.
-
-    ``renames`` maps parent field names to target column names, e.g.
-    ``{"id": "project_id", "slug": "project_slug"}``.
-    """
-    key_map = {f"_{parent_name}_{src}": dst for src, dst in renames.items()}
-
-    def _mapper(row: dict[str, Any]) -> dict[str, Any]:
-        for prefixed_key, target_key in key_map.items():
-            if prefixed_key in row:
-                row[target_key] = row.pop(prefixed_key)
-        return row
-
-    return _mapper
-
-
-# ---------------------------------------------------------------------------
-# Dependent-resource builder (project fan-out + issue fan-out)
-# ---------------------------------------------------------------------------
-
-
-def _build_dependent_source(
-    *,
-    parent_name: str,
-    child_endpoint: str,
-    organization_slug: str,
-    auth_token: str,
-    base_api_url: str,
-    team_id: int,
-    job_id: str,
-    db_incremental_field_last_value: Any,
-    resolve_param: str,
-    resolve_field: str,
-    include_from_parent: list[str],
-    row_mapper: Callable[[dict[str, Any]], dict[str, Any]],
-    should_use_incremental_field: bool = False,
-    incremental_field: str | None = None,
-) -> SourceResponse:
-    """Build a dependent-resource config where ``parent_name`` is the parent
-    and the child endpoint resolves one path placeholder from each parent row.
-
-    Uses ``.replace()`` for ``{organization_slug}`` so that only the resolved
-    placeholder remains for ``process_parent_data_item`` to format.
-    """
-    parent_config = SENTRY_ENDPOINTS[parent_name]
-    child_config = SENTRY_ENDPOINTS[child_endpoint]
-
-    parent_params: dict[str, Any] = {"limit": parent_config.page_size}
-    if parent_name == "issues":
-        parent_params.update({"query": "", "sort": "date"})
-
-    parent_resource: EndpointResource = {
-        "name": parent_name,
-        "table_name": parent_name,
-        "primary_key": parent_config.primary_key,
-        "write_disposition": "replace",
-        "endpoint": {
-            "path": parent_config.path.format(organization_slug=organization_slug),
-            "params": parent_params,
-        },
-        "table_format": "delta",
-    }
-
-    child_path = child_config.path.replace("{organization_slug}", organization_slug)
-
-    child_params: dict[str, Any] = {
-        resolve_param: {
-            "type": "resolve",
-            "resource": parent_name,
-            "field": resolve_field,
-        },
-        "limit": child_config.page_size,
-    }
-    child_endpoint_config: Endpoint = {
-        "path": child_path,
-        "params": child_params,
-    }
-    use_merge = should_use_incremental_field and bool(child_config.incremental_fields)
-    if use_merge:
-        child_endpoint_config["incremental"] = _sentry_incremental_window(
-            incremental_field or child_config.default_incremental_field or "dateCreated"
-        )
-
-    child_resource: EndpointResource = {
-        "name": child_endpoint,
-        "table_name": child_endpoint,
-        "primary_key": child_config.primary_key,
-        "write_disposition": ({"disposition": "merge", "strategy": "upsert"} if use_merge else "replace"),
-        "include_from_parent": include_from_parent,
-        "endpoint": child_endpoint_config,
-        "table_format": "delta",
-    }
-
-    config: RESTAPIConfig = {
-        "client": _rest_api_client_config(base_api_url, auth_token),
-        "resource_defaults": {},
-        "resources": [parent_resource, child_resource],
-    }
-
-    resources = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
-    child_dlt_resource = next(r for r in resources if getattr(r, "name", None) == child_endpoint)
-    child_dlt_resource = child_dlt_resource.add_map(row_mapper)
-    return _make_source_response(child_config, lambda: child_dlt_resource)
-
-
-# Row mappers for the two fan-out families.
-_map_project_parent_fields = _rename_parent_fields("projects", {"id": "project_id", "slug": "project_slug"})
-_map_issue_parent_fields = _rename_parent_fields("issues", {"id": "issue_id"})
-
-
 # ---------------------------------------------------------------------------
 # Main entry point — routes each endpoint to the right extraction strategy
 # ---------------------------------------------------------------------------
@@ -535,57 +424,36 @@ def sentry_source(
     endpoint_config = SENTRY_ENDPOINTS[endpoint]
     base_api_url = f"{_normalize_api_base_url(api_base_url)}/api/0"
 
-    # --- Project fan-out (parent=projects, resolve project_slug) ---
-    if endpoint_config.is_project_fanout:
-        return _build_dependent_source(
-            parent_name="projects",
+    # issue_tag_values needs two-level fan-out (issues → tags → values)
+    # which can't be expressed as a single parent→child dependency.
+    if endpoint == "issue_tag_values":
+        headers = _auth_headers(auth_token)
+        return _make_source_response(
+            endpoint_config,
+            lambda: _iter_issue_tag_values_rows(
+                base_api_url=base_api_url,
+                headers=headers,
+                organization_slug=organization_slug,
+                incremental_last_seen_max=db_incremental_field_last_value if should_use_incremental_field else None,
+            ),
+        )
+
+    # --- Generic parent->child fan-out ---
+    if endpoint_config.fanout:
+        dependent_resource = build_dependent_resource(
+            endpoint_configs=SENTRY_ENDPOINTS,
             child_endpoint=endpoint,
-            organization_slug=organization_slug,
-            auth_token=auth_token,
-            base_api_url=base_api_url,
+            fanout=endpoint_config.fanout,
+            client_config=_rest_api_client_config(base_api_url, auth_token),
+            path_format_values={"organization_slug": organization_slug},
             team_id=team_id,
             job_id=job_id,
             db_incremental_field_last_value=db_incremental_field_last_value,
-            resolve_param="project_slug",
-            resolve_field="slug",
-            include_from_parent=["id", "slug"],
-            row_mapper=_map_project_parent_fields,
             should_use_incremental_field=should_use_incremental_field,
             incremental_field=incremental_field,
+            incremental_config_factory=_sentry_incremental_window,
         )
-
-    # --- Issue fan-out ---
-    if endpoint_config.is_issue_fanout:
-        # issue_tag_values needs two-level fan-out (issues → tags → values)
-        # which can't be expressed as a single parent→child dependency.
-        if endpoint == "issue_tag_values":
-            headers = _auth_headers(auth_token)
-            return _make_source_response(
-                endpoint_config,
-                lambda: _iter_issue_tag_values_rows(
-                    base_api_url=base_api_url,
-                    headers=headers,
-                    organization_slug=organization_slug,
-                    incremental_last_seen_max=db_incremental_field_last_value if should_use_incremental_field else None,
-                ),
-            )
-
-        return _build_dependent_source(
-            parent_name="issues",
-            child_endpoint=endpoint,
-            organization_slug=organization_slug,
-            auth_token=auth_token,
-            base_api_url=base_api_url,
-            team_id=team_id,
-            job_id=job_id,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            resolve_param="issue_id",
-            resolve_field="id",
-            include_from_parent=["id"],
-            row_mapper=_map_issue_parent_fields,
-            should_use_incremental_field=should_use_incremental_field,
-            incremental_field=incremental_field,
-        )
+        return _make_source_response(endpoint_config, lambda: dependent_resource)
 
     # --- Flat org-level endpoints (via rest_api_resources) ---
     config: RESTAPIConfig = {

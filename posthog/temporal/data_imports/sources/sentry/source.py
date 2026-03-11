@@ -90,9 +90,13 @@ Create a token in Sentry and make sure it includes:
             "404 Client Error": "Sentry organization not found. Verify your organization slug.",
         }
 
-    def get_schemas(self, config: SentrySourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: SentrySourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
         schemas: list[SourceSchema] = []
         for endpoint in ENDPOINTS:
+            if names and endpoint not in names:
+                continue
             incremental_fields = INCREMENTAL_FIELDS.get(endpoint, [])
             supports_incremental = bool(incremental_fields)
             schemas.append(

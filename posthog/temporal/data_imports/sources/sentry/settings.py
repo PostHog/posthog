@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Literal
 
+from posthog.temporal.data_imports.sources.common.rest_source.fanout import DependentEndpointConfig
+
 from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
 LAST_SEEN_INCREMENTAL: IncrementalField = {
@@ -41,8 +43,7 @@ class SentryEndpointConfig:
     page_size: int = 100
     sort_mode: Literal["asc", "desc"] = "asc"
     primary_key: str | list[str] = "id"
-    is_project_fanout: bool = False
-    is_issue_fanout: bool = False
+    fanout: DependentEndpointConfig | None = None
 
 
 SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
@@ -101,14 +102,26 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
         default_incremental_field="dateCreated",
         partition_key="date_created",
         primary_key=["project_id", "event_id"],
-        is_project_fanout=True,
+        fanout=DependentEndpointConfig(
+            parent_name="projects",
+            resolve_param="project_slug",
+            resolve_field="slug",
+            include_from_parent=["id", "slug"],
+            parent_field_renames={"id": "project_id", "slug": "project_slug"},
+        ),
     ),
     "project_users": SentryEndpointConfig(
         name="project_users",
         path="/projects/{organization_slug}/{project_slug}/users/",
         incremental_fields=[],
         primary_key=["project_id", "id"],
-        is_project_fanout=True,
+        fanout=DependentEndpointConfig(
+            parent_name="projects",
+            resolve_param="project_slug",
+            resolve_field="slug",
+            include_from_parent=["id", "slug"],
+            parent_field_renames={"id": "project_id", "slug": "project_slug"},
+        ),
     ),
     "project_client_keys": SentryEndpointConfig(
         name="project_client_keys",
@@ -116,7 +129,13 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
         incremental_fields=[],
         partition_key="date_created",
         primary_key=["project_id", "id"],
-        is_project_fanout=True,
+        fanout=DependentEndpointConfig(
+            parent_name="projects",
+            resolve_param="project_slug",
+            resolve_field="slug",
+            include_from_parent=["id", "slug"],
+            parent_field_renames={"id": "project_id", "slug": "project_slug"},
+        ),
     ),
     "project_service_hooks": SentryEndpointConfig(
         name="project_service_hooks",
@@ -124,7 +143,13 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
         incremental_fields=[],
         partition_key="date_created",
         primary_key=["project_id", "id"],
-        is_project_fanout=True,
+        fanout=DependentEndpointConfig(
+            parent_name="projects",
+            resolve_param="project_slug",
+            resolve_field="slug",
+            include_from_parent=["id", "slug"],
+            parent_field_renames={"id": "project_id", "slug": "project_slug"},
+        ),
     ),
     "issue_events": SentryEndpointConfig(
         name="issue_events",
@@ -133,14 +158,28 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
         default_incremental_field="dateCreated",
         partition_key="date_created",
         primary_key=["issue_id", "event_id"],
-        is_issue_fanout=True,
+        fanout=DependentEndpointConfig(
+            parent_name="issues",
+            resolve_param="issue_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "issue_id"},
+            parent_params={"query": "", "sort": "date"},
+        ),
     ),
     "issue_hashes": SentryEndpointConfig(
         name="issue_hashes",
         path="/organizations/{organization_slug}/issues/{issue_id}/hashes/",
         incremental_fields=[],
         primary_key=["issue_id", "id"],
-        is_issue_fanout=True,
+        fanout=DependentEndpointConfig(
+            parent_name="issues",
+            resolve_param="issue_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "issue_id"},
+            parent_params={"query": "", "sort": "date"},
+        ),
     ),
     "issue_tag_values": SentryEndpointConfig(
         name="issue_tag_values",
@@ -150,7 +189,6 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
         partition_key="last_seen",
         sort_mode="desc",
         primary_key=["issue_id", "tag_key", "value"],
-        is_issue_fanout=True,
     ),
 }
 
