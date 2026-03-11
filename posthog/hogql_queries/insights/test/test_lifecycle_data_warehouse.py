@@ -17,6 +17,7 @@ from posthog.schema import (
 
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
+from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties
 from posthog.models.group.util import create_group
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
@@ -333,6 +334,57 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
                     ).calculate()
 
                     self.assertEqual([[expected_name]], actors_response.results)
+
+    def test_lifecycle_data_warehouse_series_properties(self):
+        """Series-level data warehouse properties filter lifecycle results."""
+        table_name = self._setup_data_warehouse()
+
+        with freeze_time("2025-11-07T12:00:00Z"):
+            query = LifecycleQuery(
+                dateRange=DateRange(date_from="-1d"),
+                interval=IntervalType.DAY,
+                series=[
+                    LifecycleDataWarehouseNode(
+                        id=table_name,
+                        table_name=table_name,
+                        timestamp_field="sent_at",
+                        aggregation_target_field="users.person_id",
+                        created_at_field="users.signed_up",
+                        properties=clean_entity_properties(
+                            [{"key": "text", "value": "resurrecting", "operator": "exact", "type": "data_warehouse"}]
+                        ),
+                    )
+                ],
+            )
+            response = LifecycleQueryRunner(team=self.team, query=query).calculate()
+
+        self.assertEqual(
+            ["new", "returning", "resurrecting", "dormant"], [result["status"] for result in response.results]
+        )
+
+        results_by_status = {result["status"]: result for result in response.results}
+
+        self.assertEqual(["2025-11-06", "2025-11-07"], results_by_status["new"]["days"])
+        self.assertEqual([0.0, 0.0], results_by_status["new"]["data"])
+        self.assertEqual([0.0, 0.0], results_by_status["returning"]["data"])
+        self.assertEqual([0.0, 1.0], results_by_status["resurrecting"]["data"])
+        self.assertEqual([0.0, 0.0], results_by_status["dormant"]["data"])
+
+        with freeze_time("2025-11-07T12:00:00Z"):
+            actors_response = ActorsQueryRunner(
+                team=self.team,
+                query=ActorsQuery(
+                    select=["properties.name"],
+                    orderBy=["properties.name ASC"],
+                    source=InsightActorsQuery(
+                        day="2025-11-07",
+                        status="resurrecting",
+                        source=query,
+                    ),
+                ),
+            ).calculate()
+
+        self.assertEqual([["user-3"]], actors_response.results)
 
     def test_lifecycle_data_warehouse_invalid_aggregation_target(self):
         """Data warehouse source matching no aggregation target. Counts compute, but no actors are returned."""
