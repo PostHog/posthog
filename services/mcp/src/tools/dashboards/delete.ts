@@ -7,7 +7,9 @@ const schema = DashboardDeleteSchema
 
 type Params = z.infer<typeof schema>
 
-export const deleteHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+type Result = { success: boolean; message: string }
+
+export const deleteHandler: ToolBase<typeof schema, Result>['handler'] = async (context: Context, params: Params) => {
     const { dashboardId } = params
     const projectId = await context.stateManager.getProjectId()
     const result = await context.api.dashboards({ projectId }).delete({ dashboardId })
@@ -19,7 +21,7 @@ export const deleteHandler: ToolBase<typeof schema>['handler'] = async (context:
     return result.data
 }
 
-const tool = (): ToolBase<typeof schema> => ({
+const tool = (): ToolBase<typeof schema, Result> => ({
     name: 'dashboard-delete',
     schema,
     handler: deleteHandler,

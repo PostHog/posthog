@@ -255,7 +255,7 @@ class TestTicketAPI(APIBaseTest):
                 Channel.WIDGET,
                 {"channel_source": Channel.EMAIL},
             ),
-            ("distinct_id=user-123", "user-123", "distinct_id", "user-123", {}),
+            ("distinct_ids=user-123", "user-123", "distinct_id", "user-123", {}),
         ]
     )
     def test_filter_tickets(

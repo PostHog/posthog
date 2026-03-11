@@ -19,8 +19,9 @@ class TestAITemporalModuleIntegrity:
             "VideoSegmentClusteringWorkflow",
             "VideoSegmentClusteringCoordinatorWorkflow",
             "TeamSignalGroupingWorkflow",
-            "EmitSignalWorkflow",
             "SignalReportSummaryWorkflow",
+            "SignalReportReingestionWorkflow",
+            "SignalReportDeletionWorkflow",
             "EmitEvalSignalWorkflow",
         ]
         actual_workflow_names = [workflow.__name__ for workflow in ai.AI_WORKFLOWS + ai.SIGNALS_WORKFLOWS]
@@ -94,13 +95,16 @@ class TestAITemporalModuleIntegrity:
             "mark_report_in_progress_activity",
             "mark_report_pending_input_activity",
             "mark_report_ready_activity",
+            "reingest_signals_activity",
             "reset_report_to_potential_activity",
             "fetch_report_contexts_activity",
+            "soft_delete_report_signals_activity",
             "verify_match_specificity_activity",
             "run_signal_semantic_search_activity",
             "safety_judge_activity",
             "wait_for_signal_in_clickhouse_activity",
             "summarize_signals_activity",
+            "delete_report_activity",
             "emit_eval_signal_activity",
         ]
         actual_activity_names = [activity.__name__ for activity in ai.AI_ACTIVITIES + ai.SIGNALS_ACTIVITIES]

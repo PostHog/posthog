@@ -24,6 +24,7 @@ QUERY_LOOKBACK_DAYS = 30  # timestamp filter to enable partition pruning
 # Temporal workflow/activity config
 WORKFLOW_NAME = "llma-sentiment-classify"
 ACTIVITY_TIMEOUT_SECONDS = 120  # start-to-close timeout for classify activity
+ACTIVITY_SCHEDULE_TO_START_TIMEOUT_SECONDS = 30  # fail fast if no worker picks up the activity
 WORKFLOW_TIMEOUT_BATCH_SECONDS = 120  # task timeout for sentiment workflow
 MAX_RETRY_ATTEMPTS = 2  # retry policy for both workflow and activity
 
@@ -33,7 +34,7 @@ CACHE_KEY_PREFIX = "llma_sentiment"  # key format: {prefix}:{level}:{team_id}:{i
 
 # API config
 BATCH_MAX_TRACE_IDS = 5
-BATCH_MAX_GENERATION_IDS = 20  # generations tab can send more per batch
+BATCH_MAX_GENERATION_IDS = 5  # keep small to avoid upstream request timeouts
 
 # HogQL query template for fetching $ai_generation events.
 # Uses a window function to cap rows per trace at the ClickHouse level,

@@ -228,7 +228,14 @@ export const GroupPropertyFilterApiType = {
     Group: 'group',
 } as const
 
+/**
+ * @nullable
+ */
+export type GroupPropertyFilterApiGroupKeyNames = { [key: string]: string } | null | null
+
 export interface GroupPropertyFilterApi {
+    /** @nullable */
+    group_key_names?: GroupPropertyFilterApiGroupKeyNames
     /** @nullable */
     group_type_index?: number | null
     key: string
@@ -981,9 +988,29 @@ export interface PropertyGroupFilterApi {
     values: PropertyGroupFilterValueApi[]
 }
 
+export interface BoxPlotDatumApi {
+    day: string
+    label: string
+    max: number
+    mean: number
+    median: number
+    min: number
+    p25: number
+    p75: number
+    /** @nullable */
+    series_index?: number | null
+    /** @nullable */
+    series_label?: string | null
+}
+
 export type TrendsQueryResponseApiResultsItem = { [key: string]: unknown }
 
 export interface TrendsQueryResponseApi {
+    /**
+     * Box plot data when display type is BoxPlot
+     * @nullable
+     */
+    boxplot_data?: BoxPlotDatumApi[] | null
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -1727,6 +1754,7 @@ export const ChartDisplayTypeApi = {
     WorldMap: 'WorldMap',
     CalendarHeatmap: 'CalendarHeatmap',
     TwoDimensionalHeatmap: 'TwoDimensionalHeatmap',
+    BoxPlot: 'BoxPlot',
 } as const
 
 export interface TrendsFormulaNodeApi {
