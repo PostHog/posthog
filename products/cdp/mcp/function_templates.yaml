@@ -4,11 +4,11 @@
 #
 # To enable a tool, set enabled: true and add required scopes + annotations.
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
-category: Hog function templates
+category: Function templates
 feature: hog_function_templates
 url_prefix: /pipeline/templates
 tools:
-    hog-function-templates-list:
+    function-templates-list:
         operation: hog_function_templates_list
         enabled: true
         scopes:
@@ -18,14 +18,14 @@ tools:
             destructive: false
             idempotent: true
         list: true
-        title: List hog function templates
+        title: List function templates
         description: >
-            List available hog function templates. Templates are pre-built function configurations for common
+            List available function templates. Templates are pre-built function configurations for common
             integrations (Slack, webhooks, email, etc.) and transformations (GeoIP, etc.). Filter by type (destination,
             site_destination, site_app, transformation, etc.) via the 'type' query parameter. Results are sorted by
             popularity (number of active functions using each template).
         mcp_version: 1
-    hog-function-templates-retrieve:
+    function-templates-retrieve:
         operation: hog_function_templates_retrieve
         enabled: true
         scopes:
@@ -34,9 +34,9 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        title: Get hog function template
+        title: Get function template
         description: >
-            Get a specific hog function template by its template ID (e.g. 'template-slack', 'template-geoip'). Returns
+            Get a specific function template by its template ID (e.g. 'template-slack', 'template-geoip'). Returns
             the full template including source code, inputs schema, default filters, and mapping templates. Use this to
-            understand what inputs a template requires before creating a hog function from it.
+            understand what inputs a template requires before creating a function from it.
         mcp_version: 1

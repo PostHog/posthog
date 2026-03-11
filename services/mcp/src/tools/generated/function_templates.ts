@@ -1,22 +1,22 @@
-// AUTO-GENERATED from products/cdp/mcp/hog_function_templates.yaml + OpenAPI — do not edit
+// AUTO-GENERATED from products/cdp/mcp/function_templates.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
     HogFunctionTemplatesListQueryParams,
     HogFunctionTemplatesRetrieveParams,
-} from '@/generated/hog_function_templates/api'
+} from '@/generated/function_templates/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const HogFunctionTemplatesListSchema = HogFunctionTemplatesListQueryParams
+const FunctionTemplatesListSchema = HogFunctionTemplatesListQueryParams
 
-const hogFunctionTemplatesList = (): ToolBase<
-    typeof HogFunctionTemplatesListSchema,
+const functionTemplatesList = (): ToolBase<
+    typeof FunctionTemplatesListSchema,
     Schemas.PaginatedHogFunctionTemplateList & { _posthogUrl: string }
 > => ({
-    name: 'hog-function-templates-list',
-    schema: HogFunctionTemplatesListSchema,
-    handler: async (context: Context, params: z.infer<typeof HogFunctionTemplatesListSchema>) => {
+    name: 'function-templates-list',
+    schema: FunctionTemplatesListSchema,
+    handler: async (context: Context, params: z.infer<typeof FunctionTemplatesListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedHogFunctionTemplateList>({
             method: 'GET',
@@ -36,15 +36,15 @@ const hogFunctionTemplatesList = (): ToolBase<
     },
 })
 
-const HogFunctionTemplatesRetrieveSchema = HogFunctionTemplatesRetrieveParams.omit({ project_id: true })
+const FunctionTemplatesRetrieveSchema = HogFunctionTemplatesRetrieveParams.omit({ project_id: true })
 
-const hogFunctionTemplatesRetrieve = (): ToolBase<
-    typeof HogFunctionTemplatesRetrieveSchema,
+const functionTemplatesRetrieve = (): ToolBase<
+    typeof FunctionTemplatesRetrieveSchema,
     Schemas.HogFunctionTemplate
 > => ({
-    name: 'hog-function-templates-retrieve',
-    schema: HogFunctionTemplatesRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof HogFunctionTemplatesRetrieveSchema>) => {
+    name: 'function-templates-retrieve',
+    schema: FunctionTemplatesRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof FunctionTemplatesRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HogFunctionTemplate>({
             method: 'GET',
@@ -55,6 +55,6 @@ const hogFunctionTemplatesRetrieve = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'hog-function-templates-list': hogFunctionTemplatesList,
-    'hog-function-templates-retrieve': hogFunctionTemplatesRetrieve,
+    'function-templates-list': functionTemplatesList,
+    'function-templates-retrieve': functionTemplatesRetrieve,
 }

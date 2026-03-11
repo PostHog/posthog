@@ -4,53 +4,53 @@
 #
 # To enable a tool, set enabled: true and add required scopes + annotations.
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
-category: Hog functions
+category: Functions
 feature: hog_functions
 url_prefix: /pipeline
 tools:
-    environments-hog-functions-list:
+    environments-functions-list:
         operation: environments_hog_functions_list
         enabled: false
-    environments-hog-functions-create:
+    environments-functions-create:
         operation: environments_hog_functions_create
         enabled: false
-    environments-hog-functions-retrieve:
+    environments-functions-retrieve:
         operation: environments_hog_functions_retrieve
         enabled: false
-    environments-hog-functions-update:
+    environments-functions-update:
         operation: environments_hog_functions_update
         enabled: false
-    environments-hog-functions-partial-update:
+    environments-functions-partial-update:
         operation: environments_hog_functions_partial_update
         enabled: false
-    environments-hog-functions-destroy:
+    environments-functions-destroy:
         operation: environments_hog_functions_destroy
         enabled: false
-    environments-hog-functions-enable-backfills-create:
+    environments-functions-enable-backfills-create:
         operation: environments_hog_functions_enable_backfills_create
         enabled: false
-    environments-hog-functions-invocations-create:
+    environments-functions-invocations-create:
         operation: environments_hog_functions_invocations_create
         enabled: false
-    environments-hog-functions-logs-retrieve:
+    environments-functions-logs-retrieve:
         operation: environments_hog_functions_logs_retrieve
         enabled: false
-    environments-hog-functions-metrics-retrieve:
+    environments-functions-metrics-retrieve:
         operation: environments_hog_functions_metrics_retrieve
         enabled: false
-    environments-hog-functions-metrics-totals-retrieve:
+    environments-functions-metrics-totals-retrieve:
         operation: environments_hog_functions_metrics_totals_retrieve
         enabled: false
-    environments-hog-functions-icon-retrieve:
+    environments-functions-icon-retrieve:
         operation: environments_hog_functions_icon_retrieve
         enabled: false
-    environments-hog-functions-icons-retrieve:
+    environments-functions-icons-retrieve:
         operation: environments_hog_functions_icons_retrieve
         enabled: false
-    environments-hog-functions-rearrange-partial-update:
+    environments-functions-rearrange-partial-update:
         operation: environments_hog_functions_rearrange_partial_update
         enabled: false
-    hog-functions-list:
+    functions-list:
         operation: hog_functions_list
         enabled: true
         scopes:
@@ -60,14 +60,14 @@ tools:
             destructive: false
             idempotent: true
         list: true
-        title: List hog functions
+        title: List functions
         description: >
-            List all hog functions (destinations, transformations, site apps, and source webhooks) in the project.
+            List all functions (destinations, transformations, site apps, and source webhooks) in the project.
             Returns each function's name, type, enabled status, execution order, and template info. Filter by type
             (destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app,
             transformation) and enabled status via query parameters.
         mcp_version: 1
-    hog-functions-create:
+    functions-create:
         operation: hog_functions_create
         enabled: true
         scopes:
@@ -76,9 +76,9 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
-        title: Create hog function
+        title: Create function
         description: >
-            Create a new hog function. Requires 'type' (destination, site_destination, internal_destination,
+            Create a new function. Requires 'type' (destination, site_destination, internal_destination,
             source_webhook, warehouse_source_webhook, site_app, or transformation) and either 'hog' source code or a
             'template_id' to derive code from a template. Provide 'inputs_schema' to define configurable parameters and
             'inputs' with their values. Use 'filters' to control which events trigger the function. Transformations run
@@ -97,7 +97,7 @@ tools:
             template_id:
                 description: >
                     ID of a HogFunctionTemplate to derive defaults from (code, inputs_schema, icon, name, description).
-                    Use the hog-function-templates-list tool to find available templates.
+                    Use the function-templates-list tool to find available templates.
             hog:
                 description: >
                     Source code for the function. For most types this is Hog code; for site_destination and site_app
@@ -108,7 +108,7 @@ tools:
                 description: >
                     Execution priority for transformation functions (lower runs first). Only applies to
                     type=transformation. If omitted, the function is appended at the end.
-    hog-functions-retrieve:
+    functions-retrieve:
         operation: hog_functions_retrieve
         enabled: true
         scopes:
@@ -117,15 +117,15 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        title: Get hog function
+        title: Get function
         description: >
-            Get a specific hog function by ID. Returns the full configuration including source code, inputs schema,
+            Get a specific function by ID. Returns the full configuration including source code, inputs schema,
             input values (secrets are masked), filters, mappings, masking config, and runtime status.
         mcp_version: 1
-    hog-functions-update:
+    functions-update:
         operation: hog_functions_update
         enabled: false
-    hog-functions-partial-update:
+    functions-partial-update:
         operation: hog_functions_partial_update
         enabled: true
         scopes:
@@ -134,11 +134,11 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        title: Update hog function
+        title: Update function
         description: >
-            Partially update a hog function. Can enable/disable the function, change its name, description, source code,
+            Partially update a function. Can enable/disable the function, change its name, description, source code,
             inputs, filters, mappings, or masking config. The 'type' field cannot be changed after creation. To delete a
-            function, use the hog-functions-delete tool instead.
+            function, use the functions-delete tool instead.
         exclude_params:
             - bytecode
             - transpiled
@@ -149,7 +149,7 @@ tools:
         param_overrides:
             enabled:
                 description: Set to true to activate or false to deactivate the function.
-    hog-functions-delete:
+    functions-delete:
         operation: hog_functions_destroy
         enabled: true
         scopes:
@@ -158,15 +158,15 @@ tools:
             readOnly: false
             destructive: true
             idempotent: false
-        title: Delete hog function
+        title: Delete function
         description: >
-            Delete a hog function by ID (soft delete). The function will no longer appear in lists or process events,
+            Delete a function by ID (soft delete). The function will no longer appear in lists or process events,
             but historical data is preserved.
         soft_delete: true
-    hog-functions-enable-backfills-create:
+    functions-enable-backfills-create:
         operation: hog_functions_enable_backfills_create
         enabled: false
-    hog-functions-invocations-create:
+    functions-invocations-create:
         operation: hog_functions_invocations_create
         enabled: true
         scopes:
@@ -175,27 +175,27 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
-        title: Test-invoke hog function
+        title: Test-invoke function
         description: >
-            Test-invoke a hog function with a mock event payload. Sends the function configuration and test data to the
+            Test-invoke a function with a mock event payload. Sends the function configuration and test data to the
             plugin server for execution and returns logs and status. Use 'mock_async_functions: true' (default) to
             simulate external calls like fetch() without making real HTTP requests.
-    hog-functions-logs-retrieve:
+    functions-logs-retrieve:
         operation: hog_functions_logs_retrieve
         enabled: false
-    hog-functions-metrics-retrieve:
+    functions-metrics-retrieve:
         operation: hog_functions_metrics_retrieve
         enabled: false
-    hog-functions-metrics-totals-retrieve:
+    functions-metrics-totals-retrieve:
         operation: hog_functions_metrics_totals_retrieve
         enabled: false
-    hog-functions-icon-retrieve:
+    functions-icon-retrieve:
         operation: hog_functions_icon_retrieve
         enabled: false
-    hog-functions-icons-retrieve:
+    functions-icons-retrieve:
         operation: hog_functions_icons_retrieve
         enabled: false
-    hog-functions-rearrange-partial-update:
+    functions-rearrange-partial-update:
         operation: hog_functions_rearrange_partial_update
         enabled: true
         scopes:

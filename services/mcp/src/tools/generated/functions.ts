@@ -1,4 +1,4 @@
-// AUTO-GENERATED from products/cdp/mcp/hog_functions.yaml + OpenAPI — do not edit
+// AUTO-GENERATED from products/cdp/mcp/functions.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
@@ -12,18 +12,18 @@ import {
     HogFunctionsPartialUpdateParams,
     HogFunctionsRearrangePartialUpdateBody,
     HogFunctionsRetrieveParams,
-} from '@/generated/hog_functions/api'
+} from '@/generated/functions/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const HogFunctionsListSchema = HogFunctionsListQueryParams
+const FunctionsListSchema = HogFunctionsListQueryParams
 
-const hogFunctionsList = (): ToolBase<
-    typeof HogFunctionsListSchema,
+const functionsList = (): ToolBase<
+    typeof FunctionsListSchema,
     Schemas.PaginatedHogFunctionMinimalList & { _posthogUrl: string }
 > => ({
-    name: 'hog-functions-list',
-    schema: HogFunctionsListSchema,
-    handler: async (context: Context, params: z.infer<typeof HogFunctionsListSchema>) => {
+    name: 'functions-list',
+    schema: FunctionsListSchema,
+    handler: async (context: Context, params: z.infer<typeof FunctionsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedHogFunctionMinimalList>({
             method: 'GET',
@@ -47,12 +47,12 @@ const hogFunctionsList = (): ToolBase<
     },
 })
 
-const HogFunctionsCreateSchema = HogFunctionsCreateBody.omit({ _create_in_folder: true })
+const FunctionsCreateSchema = HogFunctionsCreateBody.omit({ _create_in_folder: true })
 
-const hogFunctionsCreate = (): ToolBase<typeof HogFunctionsCreateSchema, Schemas.HogFunction> => ({
-    name: 'hog-functions-create',
-    schema: HogFunctionsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof HogFunctionsCreateSchema>) => {
+const functionsCreate = (): ToolBase<typeof FunctionsCreateSchema, Schemas.HogFunction> => ({
+    name: 'functions-create',
+    schema: FunctionsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof FunctionsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.type !== undefined) {
@@ -106,12 +106,12 @@ const hogFunctionsCreate = (): ToolBase<typeof HogFunctionsCreateSchema, Schemas
     },
 })
 
-const HogFunctionsRetrieveSchema = HogFunctionsRetrieveParams.omit({ project_id: true })
+const FunctionsRetrieveSchema = HogFunctionsRetrieveParams.omit({ project_id: true })
 
-const hogFunctionsRetrieve = (): ToolBase<typeof HogFunctionsRetrieveSchema, Schemas.HogFunction> => ({
-    name: 'hog-functions-retrieve',
-    schema: HogFunctionsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof HogFunctionsRetrieveSchema>) => {
+const functionsRetrieve = (): ToolBase<typeof FunctionsRetrieveSchema, Schemas.HogFunction> => ({
+    name: 'functions-retrieve',
+    schema: FunctionsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof FunctionsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HogFunction>({
             method: 'GET',
@@ -121,14 +121,14 @@ const hogFunctionsRetrieve = (): ToolBase<typeof HogFunctionsRetrieveSchema, Sch
     },
 })
 
-const HogFunctionsPartialUpdateSchema = HogFunctionsPartialUpdateParams.omit({ project_id: true }).extend(
+const FunctionsPartialUpdateSchema = HogFunctionsPartialUpdateParams.omit({ project_id: true }).extend(
     HogFunctionsPartialUpdateBody.omit({ deleted: true, _create_in_folder: true }).shape
 )
 
-const hogFunctionsPartialUpdate = (): ToolBase<typeof HogFunctionsPartialUpdateSchema, Schemas.HogFunction> => ({
-    name: 'hog-functions-partial-update',
-    schema: HogFunctionsPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof HogFunctionsPartialUpdateSchema>) => {
+const functionsPartialUpdate = (): ToolBase<typeof FunctionsPartialUpdateSchema, Schemas.HogFunction> => ({
+    name: 'functions-partial-update',
+    schema: FunctionsPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof FunctionsPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.type !== undefined) {
@@ -179,12 +179,12 @@ const hogFunctionsPartialUpdate = (): ToolBase<typeof HogFunctionsPartialUpdateS
     },
 })
 
-const HogFunctionsDeleteSchema = HogFunctionsDestroyParams.omit({ project_id: true })
+const FunctionsDeleteSchema = HogFunctionsDestroyParams.omit({ project_id: true })
 
-const hogFunctionsDelete = (): ToolBase<typeof HogFunctionsDeleteSchema, unknown> => ({
-    name: 'hog-functions-delete',
-    schema: HogFunctionsDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof HogFunctionsDeleteSchema>) => {
+const functionsDelete = (): ToolBase<typeof FunctionsDeleteSchema, unknown> => ({
+    name: 'functions-delete',
+    schema: FunctionsDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof FunctionsDeleteSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'PATCH',
@@ -195,17 +195,17 @@ const hogFunctionsDelete = (): ToolBase<typeof HogFunctionsDeleteSchema, unknown
     },
 })
 
-const HogFunctionsInvocationsCreateSchema = HogFunctionsInvocationsCreateParams.omit({ project_id: true }).extend(
+const FunctionsInvocationsCreateSchema = HogFunctionsInvocationsCreateParams.omit({ project_id: true }).extend(
     HogFunctionsInvocationsCreateBody.shape
 )
 
-const hogFunctionsInvocationsCreate = (): ToolBase<
-    typeof HogFunctionsInvocationsCreateSchema,
+const functionsInvocationsCreate = (): ToolBase<
+    typeof FunctionsInvocationsCreateSchema,
     Schemas.HogFunctionInvocation
 > => ({
-    name: 'hog-functions-invocations-create',
-    schema: HogFunctionsInvocationsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof HogFunctionsInvocationsCreateSchema>) => {
+    name: 'functions-invocations-create',
+    schema: FunctionsInvocationsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof FunctionsInvocationsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.configuration !== undefined) {
@@ -232,12 +232,12 @@ const hogFunctionsInvocationsCreate = (): ToolBase<
     },
 })
 
-const HogFunctionsRearrangePartialUpdateSchema = HogFunctionsRearrangePartialUpdateBody
+const FunctionsRearrangePartialUpdateSchema = HogFunctionsRearrangePartialUpdateBody
 
-const hogFunctionsRearrangePartialUpdate = (): ToolBase<typeof HogFunctionsRearrangePartialUpdateSchema, unknown> => ({
-    name: 'hog-functions-rearrange-partial-update',
-    schema: HogFunctionsRearrangePartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof HogFunctionsRearrangePartialUpdateSchema>) => {
+const functionsRearrangePartialUpdate = (): ToolBase<typeof FunctionsRearrangePartialUpdateSchema, unknown> => ({
+    name: 'functions-rearrange-partial-update',
+    schema: FunctionsRearrangePartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof FunctionsRearrangePartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.orders !== undefined) {
@@ -253,11 +253,11 @@ const hogFunctionsRearrangePartialUpdate = (): ToolBase<typeof HogFunctionsRearr
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'hog-functions-list': hogFunctionsList,
-    'hog-functions-create': hogFunctionsCreate,
-    'hog-functions-retrieve': hogFunctionsRetrieve,
-    'hog-functions-partial-update': hogFunctionsPartialUpdate,
-    'hog-functions-delete': hogFunctionsDelete,
-    'hog-functions-invocations-create': hogFunctionsInvocationsCreate,
-    'hog-functions-rearrange-partial-update': hogFunctionsRearrangePartialUpdate,
+    'functions-list': functionsList,
+    'functions-create': functionsCreate,
+    'functions-retrieve': functionsRetrieve,
+    'functions-partial-update': functionsPartialUpdate,
+    'functions-delete': functionsDelete,
+    'functions-invocations-create': functionsInvocationsCreate,
+    'functions-rearrange-partial-update': functionsRearrangePartialUpdate,
 }
