@@ -36,6 +36,29 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
     query: LifecycleQuery
     cached_response: CachedLifecycleQueryResponse
 
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        self._validate_data_warehouse_settings()
+
+    def _validate_data_warehouse_settings(self) -> None:
+        if not self.is_data_warehouse_series:
+            return
+
+        unsupported_settings: list[str] = []
+        if self.query.properties not in (None, []):
+            unsupported_settings.append("filters")
+        if self.query.filterTestAccounts:
+            unsupported_settings.append("test account filters")
+        if self.query.samplingFactor is not None:
+            unsupported_settings.append("sampling")
+
+        if unsupported_settings:
+            settings = " and ".join(unsupported_settings)
+            verb = "is" if unsupported_settings == ["sampling"] else "are"
+            raise ValidationError(
+                f"{settings.capitalize()} {verb} not supported for lifecycle insights with a data warehouse series."
+            )
+
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         if self.query.samplingFactor == 0:
             counts_with_sampling: ast.Expr = ast.Constant(value=0)

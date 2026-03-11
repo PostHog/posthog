@@ -4,7 +4,10 @@ from pathlib import Path
 from uuid import uuid4
 
 from freezegun import freeze_time
+from parameterized import parameterized
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
+
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActorsQuery,
@@ -385,6 +388,49 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
             ).calculate()
 
         self.assertEqual([["user-3"]], actors_response.results)
+
+    @parameterized.expand(
+        [
+            (
+                "global_properties",
+                {"properties": clean_entity_properties([{"key": "text", "value": "new", "type": "data_warehouse"}])},
+                "Global properties are not supported",
+            ),
+            ("test_account_filters", {"filterTestAccounts": True}, "Test account filters are not supported"),
+            ("sampling", {"samplingFactor": 0.1}, "Sampling is not supported"),
+            (
+                "both",
+                {"filterTestAccounts": True, "samplingFactor": 0.1},
+                "Test account filters and sampling are not supported",
+            ),
+        ]
+    )
+    def test_lifecycle_data_warehouse_rejects_unsupported_settings(
+        self, _name: str, extra_query_kwargs: dict, expected_error: str
+    ) -> None:
+        table_name = self._setup_data_warehouse()
+
+        with freeze_time("2025-11-07T12:00:00Z"):
+            with self.assertRaises(ValidationError) as context:
+                LifecycleQueryRunner(
+                    team=self.team,
+                    query=LifecycleQuery(
+                        dateRange=DateRange(date_from="-1d"),
+                        interval=IntervalType.DAY,
+                        series=[
+                            LifecycleDataWarehouseNode(
+                                id=table_name,
+                                table_name=table_name,
+                                timestamp_field="sent_at",
+                                aggregation_target_field="users.person_id",
+                                created_at_field="users.signed_up",
+                            )
+                        ],
+                        **extra_query_kwargs,
+                    ),
+                )
+
+        self.assertIn(expected_error, str(context.exception))
 
     def test_lifecycle_data_warehouse_invalid_aggregation_target(self):
         """Data warehouse source matching no aggregation target. Counts compute, but no actors are returned."""
