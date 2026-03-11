@@ -464,8 +464,8 @@ async def _get_backfill_info_for_sessions(
 ) -> tuple[dt.datetime | None, int | None]:
     """Get adjusted start time and estimated record count for sessions model.
 
-    Uses HogQL to query the sessions table, matching the same filtering
-    logic as the actual export query in SessionsRecordBatchModel.
+    Queries the sessions table via HogQL, filtering by $end_timestamp
+    (this logic is the same as the actual export query, which aliases `$end_timestamp` as `_inserted_at`).
 
     Returns:
         A tuple of (adjusted_start_at, estimated_records_count).

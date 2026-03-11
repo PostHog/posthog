@@ -878,24 +878,23 @@ class TestGetBackfillInfoForSessions:
         assert earliest_start == dt.datetime(2021, 1, 10, 0, 0, 0, tzinfo=dt.UTC)
         assert record_count == 5
 
-    async def test_earliest_start_aligned_to_interval(self, ateam, generate_sessions, make_batch_export):
+    @pytest.mark.parametrize(
+        "interval,expected_start",
+        [
+            ("hour", dt.datetime(2021, 1, 15, 10, 0, 0, tzinfo=dt.UTC)),
+            ("every 5 minutes", dt.datetime(2021, 1, 15, 10, 35, 0, tzinfo=dt.UTC)),
+        ],
+    )
+    async def test_earliest_start_aligned_to_interval(
+        self, interval, expected_start, generate_sessions, make_batch_export
+    ):
         session_time = dt.datetime(2021, 1, 15, 10, 37, 45, tzinfo=dt.UTC)
         await generate_sessions(start_time=session_time, count=3)
 
-        # Hourly interval — should align to 10:00
-        batch_export = make_batch_export(interval="hour")
+        batch_export = make_batch_export(interval=interval)
         earliest_start, _ = await _get_backfill_info_for_sessions(
             batch_export=batch_export,
             start_at=None,
             end_at=None,
         )
-        assert earliest_start == dt.datetime(2021, 1, 15, 10, 0, 0, tzinfo=dt.UTC)
-
-        # 5-minute interval — should align to 10:35
-        batch_export = make_batch_export(interval="every 5 minutes")
-        earliest_start, _ = await _get_backfill_info_for_sessions(
-            batch_export=batch_export,
-            start_at=None,
-            end_at=None,
-        )
-        assert earliest_start == dt.datetime(2021, 1, 15, 10, 35, 0, tzinfo=dt.UTC)
+        assert earliest_start == expected_start
