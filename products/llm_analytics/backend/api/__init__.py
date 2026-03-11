@@ -13,6 +13,7 @@ from .score_definitions import ScoreDefinitionViewSet
 from .sentiment import LLMAnalyticsSentimentViewSet
 from .summarization import LLMAnalyticsSummarizationViewSet
 from .text_repr import LLMAnalyticsTextReprViewSet
+from .trace_reviews import TraceReviewViewSet
 from .translate import LLMAnalyticsTranslateViewSet
 
 __all__ = [
@@ -35,4 +36,5 @@ __all__ = [
     "LLMProviderKeyValidationViewSet",
     "ScoreDefinitionViewSet",
     "LLMAnalyticsSentimentViewSet",
+    "TraceReviewViewSet",
 ]

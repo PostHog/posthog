@@ -6,6 +6,7 @@ from .evaluations import Evaluation
 from .model_configuration import POSTHOG_ALLOWED_MODELS, LLMModelConfiguration
 from .provider_keys import LLMProvider, LLMProviderKey
 from .score_definitions import ScoreDefinition, ScoreDefinitionVersion
+from .trace_reviews import TraceReview, TraceReviewScore
 
 __all__ = [
     "ClusteringConfig",
@@ -20,4 +21,6 @@ __all__ = [
     "POSTHOG_ALLOWED_MODELS",
     "ScoreDefinition",
     "ScoreDefinitionVersion",
+    "TraceReview",
+    "TraceReviewScore",
 ]

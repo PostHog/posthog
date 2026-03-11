@@ -72,6 +72,7 @@ from products.llm_analytics.backend.api import (
     LLMProviderKeyViewSet,
     LLMProxyViewSet,
     ScoreDefinitionViewSet,
+    TraceReviewViewSet,
 )
 from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.posthog_ai.backend.api import MCPToolsViewSet
@@ -1299,6 +1300,13 @@ environments_router.register(
     r"llm_analytics/score_definitions",
     ScoreDefinitionViewSet,
     "environment_llm_analytics_score_definitions",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/trace_reviews",
+    TraceReviewViewSet,
+    "environment_llm_analytics_trace_reviews",
     ["team_id"],
 )
 

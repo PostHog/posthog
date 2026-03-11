@@ -201,8 +201,11 @@ export const llmAnalyticsScoreDefinitionsLogic = kea<llmAnalyticsScoreDefinition
 
     tabAwareActionToUrl(({ values }) => ({
         setFilters: () => {
-            const nextValues = getUrlFilters(values.filters)
-            const urlValues = getUrlFilters(cleanFilters(router.values.searchParams))
+            const nextValues = { ...getUrlFilters(values.filters), human_reviews_tab: 'scorers' }
+            const urlValues = {
+                ...getUrlFilters(cleanFilters(router.values.searchParams)),
+                human_reviews_tab: router.values.searchParams.human_reviews_tab === 'scorers' ? 'scorers' : undefined,
+            }
 
             if (!objectsEqual(nextValues, urlValues)) {
                 return [urls.llmAnalyticsReviews(), nextValues, {}, { replace: true }]
