@@ -1,42 +1,14 @@
-import time
-from urllib.parse import urlencode
-
 from django.core.cache import cache
 from django.test import override_settings
 
-from ee.api.agentic_provisioning.signature import compute_signature
+from parameterized import parameterized
+
 from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
-from ee.api.agentic_provisioning.views import AUTH_CODE_CACHE_PREFIX, DEEP_LINK_CACHE_PREFIX
+from ee.api.agentic_provisioning.views import DEEP_LINK_CACHE_PREFIX
 
 
 @override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
 class TestDeepLinks(StripeProvisioningTestBase):
-    def _get_bearer_token(self) -> str:
-        code = "dl_test_code"
-        cache.set(
-            f"{AUTH_CODE_CACHE_PREFIX}{code}",
-            {
-                "user_id": self.user.id,
-                "org_id": str(self.organization.id),
-                "team_id": self.team.id,
-                "stripe_account_id": "acct_123",
-                "scopes": ["query:read"],
-                "region": "US",
-            },
-            timeout=300,
-        )
-        body = urlencode({"grant_type": "authorization_code", "code": code}).encode()
-        ts = int(time.time())
-        sig = compute_signature(HMAC_SECRET, ts, body)
-        res = self.client.post(
-            "/api/agentic/oauth/token",
-            data=body,
-            content_type="application/x-www-form-urlencoded",
-            HTTP_STRIPE_SIGNATURE=f"t={ts},v1={sig}",
-            HTTP_API_VERSION="0.1d",
-        )
-        return res.json()["access_token"]
-
     def test_deep_link_returns_url(self):
         token = self._get_bearer_token()
         res = self._post_signed_with_bearer(
@@ -81,7 +53,7 @@ class TestStripeLogin(StripeProvisioningTestBase):
         token = self._create_deep_link_token()
         res = self.client.get(f"/login/stripe?token={token}")
         assert res.status_code == 302
-        assert f"/project/{self.team.id}" in res.url
+        assert res["Location"] == f"/project/{self.team.id}"
 
     def test_valid_token_creates_session(self):
         token = self._create_deep_link_token()
@@ -94,20 +66,22 @@ class TestStripeLogin(StripeProvisioningTestBase):
         token = self._create_deep_link_token()
         res1 = self.client.get(f"/login/stripe?token={token}")
         assert res1.status_code == 302
-        assert "/project/" in res1.url
+        assert "/project/" in res1["Location"]
         res2 = self.client.get(f"/login/stripe?token={token}")
         assert res2.status_code == 302
-        assert "expired_or_invalid_token" in res2.url
+        assert "expired_or_invalid_token" in res2["Location"]
 
-    def test_missing_token_redirects_with_error(self):
-        res = self.client.get("/login/stripe")
+    @parameterized.expand(
+        [
+            ("missing_token", "", "missing_token"),
+            ("invalid_token", "bogus", "expired_or_invalid_token"),
+        ]
+    )
+    def test_error_redirect(self, _name: str, token_value: str, expected_error: str):
+        url = "/login/stripe" if not token_value else f"/login/stripe?token={token_value}"
+        res = self.client.get(url)
         assert res.status_code == 302
-        assert "missing_token" in res.url
-
-    def test_invalid_token_redirects_with_error(self):
-        res = self.client.get("/login/stripe?token=bogus")
-        assert res.status_code == 302
-        assert "expired_or_invalid_token" in res.url
+        assert expected_error in res["Location"]
 
     def test_without_team_id_redirects_to_root(self):
         token = "test_no_team_token"
@@ -118,4 +92,32 @@ class TestStripeLogin(StripeProvisioningTestBase):
         )
         res = self.client.get(f"/login/stripe?token={token}")
         assert res.status_code == 302
-        assert res.url == "/"
+        assert res["Location"] == "/"
+
+    def test_expired_token_redirects_with_error(self):
+        token = "test_expired_token"
+        cache.set(
+            f"{DEEP_LINK_CACHE_PREFIX}{token}",
+            {"user_id": self.user.id, "team_id": self.team.id},
+            timeout=0,
+        )
+        res = self.client.get(f"/login/stripe?token={token}")
+        assert res.status_code == 302
+        assert res["Location"] == "/?error=expired_or_invalid_token"
+
+    def test_deleted_user_redirects_with_error(self):
+        token = "test_deleted_user_token"
+        cache.set(
+            f"{DEEP_LINK_CACHE_PREFIX}{token}",
+            {"user_id": 999999, "team_id": self.team.id},
+            timeout=600,
+        )
+        res = self.client.get(f"/login/stripe?token={token}")
+        assert res.status_code == 302
+        assert res["Location"] == "/?error=user_not_found"
+
+    def test_redirects_are_relative(self):
+        token = self._create_deep_link_token()
+        res = self.client.get(f"/login/stripe?token={token}")
+        assert res.status_code == 302
+        assert not res["Location"].startswith("http")
