@@ -97,8 +97,30 @@ function buildAppSync(appName: string): void {
 }
 
 async function buildAllAppsParallel(apps: string[]): Promise<void> {
-    console.info(`\n📦 Building ${apps.length} apps in parallel...`)
-    await Promise.all(apps.map((app) => buildAppAsync(app)))
+    // CI environments have limited memory — limit concurrency to avoid OOM kills
+    const concurrency = process.env.CI ? 4 : apps.length
+
+    if (concurrency < apps.length) {
+        console.info(`\n📦 Building ${apps.length} apps (concurrency: ${concurrency})...`)
+        const remaining = [...apps]
+        const workers: Promise<void>[] = []
+
+        async function next(): Promise<void> {
+            while (remaining.length > 0) {
+                const app = remaining.shift()!
+                await buildAppAsync(app)
+            }
+        }
+
+        for (let i = 0; i < concurrency; i++) {
+            workers.push(next())
+        }
+
+        await Promise.all(workers)
+    } else {
+        console.info(`\n📦 Building ${apps.length} apps in parallel...`)
+        await Promise.all(apps.map((app) => buildAppAsync(app)))
+    }
 }
 
 function watchApps(apps: string[]): void {
