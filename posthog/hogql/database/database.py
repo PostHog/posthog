@@ -1,4 +1,5 @@
 import dataclasses
+from collections import defaultdict
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -550,7 +551,6 @@ class Database(BaseModel):
         warehouse_tables_query = (
             DataWarehouseTable.raw_objects.select_related("credential", "external_data_source")
             .prefetch_related(
-                _active_external_data_schemas_prefetch(),
                 Prefetch(
                     "external_data_source__jobs",
                     queryset=ExternalDataJob.objects.filter(status="Completed", team_id=context.team_id).order_by(
@@ -570,6 +570,7 @@ class Database(BaseModel):
             warehouse_tables_query = warehouse_tables_query.none()
 
         warehouse_tables_with_data = list(warehouse_tables_query.all())
+        _preload_active_external_data_schemas(warehouse_tables_with_data)
         if self._is_direct_query():
             warehouse_tables_with_data = [
                 warehouse_table
@@ -992,8 +993,8 @@ class Database(BaseModel):
                     DataWarehouseTable.raw_objects.filter(team_id=team.pk)
                     .exclude(deleted=True)
                     .select_related("credential", "external_data_source")
-                    .prefetch_related(_active_external_data_schemas_prefetch())
                 )
+                _preload_active_external_data_schemas(tables)
                 if database._is_direct_query():
                     tables = [
                         table
@@ -1446,18 +1447,29 @@ HOGQL_CHARACTERS_TO_BE_WRAPPED = ["@", "-", "!", "$", "+"]
 NOT_DELETED_Q = Q(deleted=False) | Q(deleted__isnull=True)
 
 
-def _active_external_data_schemas_prefetch() -> Prefetch:
-    return Prefetch(
-        "externaldataschema_set",
-        queryset=ExternalDataSchema.objects.filter(NOT_DELETED_Q),
-    )
+def _preload_active_external_data_schemas(warehouse_tables: list[DataWarehouseTable]) -> None:
+    table_ids = [
+        str(warehouse_table.id) for warehouse_table in warehouse_tables if warehouse_table.external_data_source_id
+    ]
+    if not table_ids:
+        return
+
+    schemas_by_table_id: dict[str, list[ExternalDataSchema]] = defaultdict(list)
+    for schema in ExternalDataSchema.objects.filter(NOT_DELETED_Q, table_id__in=table_ids):
+        schemas_by_table_id[str(schema.table_id)].append(schema)
+
+    for warehouse_table in warehouse_tables:
+        warehouse_table._active_external_data_schemas = schemas_by_table_id.get(str(warehouse_table.id), [])
 
 
 def _get_active_external_data_schemas(warehouse_table: DataWarehouseTable) -> list[ExternalDataSchema]:
-    if not hasattr(warehouse_table, "externaldataschema_set"):
+    if hasattr(warehouse_table, "_active_external_data_schemas"):
+        return warehouse_table._active_external_data_schemas
+
+    if warehouse_table.external_data_source_id is None:
         return []
 
-    return [schema for schema in warehouse_table.externaldataschema_set.all() if schema.deleted is not True]
+    return list(ExternalDataSchema.objects.filter(NOT_DELETED_Q, table_id=warehouse_table.id))
 
 
 def _strip_external_source_prefix(source: ExternalDataSource, table_name: str) -> str:
