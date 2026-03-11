@@ -22,7 +22,7 @@ describe('PostgresGroupRepository Integration', () => {
 
     beforeEach(async () => {
         hub = await createHub()
-        await resetTestDatabase(undefined)
+        await resetTestDatabase()
         postgres = hub.postgres
         repository = new PostgresGroupRepository(postgres)
 

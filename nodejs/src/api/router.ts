@@ -3,20 +3,18 @@ import express, { Request, Response } from 'ultimate-express'
 
 import { corsMiddleware } from '~/api/middleware/cors'
 import { createInternalApiAuthMiddleware } from '~/api/middleware/internal-api-auth'
-import { HealthCheckResultError, PluginServerService, PluginsServerConfig } from '~/types'
+import { HealthCheckResultError, PluginServerService } from '~/types'
 import { logger } from '~/utils/logger'
 
 prometheus.collectDefaultMetrics()
 
-export function initializePrometheusLabels(
-    config: Pick<PluginsServerConfig, 'INGESTION_PIPELINE' | 'INGESTION_LANE'>
-): void {
+export function initializePrometheusLabels(ingestionPipeline: string | null, ingestionLane: string | null): void {
     const labels: Record<string, string> = {}
-    if (config.INGESTION_PIPELINE) {
-        labels['ingestion_pipeline'] = config.INGESTION_PIPELINE
+    if (ingestionPipeline) {
+        labels['ingestion_pipeline'] = ingestionPipeline
     }
-    if (config.INGESTION_LANE) {
-        labels['ingestion_lane'] = config.INGESTION_LANE
+    if (ingestionLane) {
+        labels['ingestion_lane'] = ingestionLane
     }
     if (Object.keys(labels).length > 0) {
         prometheus.register.setDefaultLabels(labels)

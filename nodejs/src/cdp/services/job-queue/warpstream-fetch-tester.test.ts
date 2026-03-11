@@ -2,8 +2,6 @@ import { mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { Message } from 'node-rdkafka'
 
-import { defaultConfig } from '../../../config/config'
-import { PluginsServerConfig } from '../../../types'
 import { parseJSON } from '../../../utils/json-parse'
 import {
     WarpstreamFetchTester,
@@ -29,21 +27,27 @@ function makeMessages(count: number, offset = 100): Message[] {
     return Array.from({ length: count }, (_, i) => makeMessage('test_topic', i % 4, offset + i))
 }
 
+type TesterConfig = ConstructorParameters<typeof WarpstreamFetchTester>[0]
+
+const defaultTesterConfig: TesterConfig = {
+    CDP_CYCLOTRON_WARPSTREAM_HTTP_URL: 'http://warpstream:8080',
+    CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: 50,
+    CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT: 0,
+    CDP_CYCLOTRON_TEST_FETCH_BATCH_COUNT: 0,
+    CDP_CYCLOTRON_TEST_FETCH_BATCH_SIZE: 10,
+}
+
+function createTester(overrides: Partial<TesterConfig> = {}): WarpstreamFetchTester {
+    const tester = new WarpstreamFetchTester({ ...defaultTesterConfig, ...overrides })
+    tester.start()
+    return tester
+}
+
 describe('WarpstreamFetchTester', () => {
     let tester: WarpstreamFetchTester
-    let config: PluginsServerConfig
 
     beforeEach(() => {
-        config = {
-            ...defaultConfig,
-            CDP_CYCLOTRON_WARPSTREAM_HTTP_URL: 'http://warpstream:8080',
-            CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: 50,
-            CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT: 0,
-            CDP_CYCLOTRON_TEST_FETCH_BATCH_COUNT: 0,
-            CDP_CYCLOTRON_TEST_FETCH_BATCH_SIZE: 10,
-        }
-        tester = new WarpstreamFetchTester(config)
-        tester.start()
+        tester = createTester()
 
         mockInternalFetch.mockClear()
         cdpSeekLatencyMs.reset()
@@ -59,7 +63,7 @@ describe('WarpstreamFetchTester', () => {
     })
 
     it('should do nothing when all messages have offset 0', async () => {
-        config.CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT = 10
+        tester = createTester({ CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT: 10 })
         const messages = Array.from({ length: 5 }, () => makeMessage('topic', 0, 0))
 
         await tester.maybeMeasureFetchLatency(messages)
@@ -67,7 +71,7 @@ describe('WarpstreamFetchTester', () => {
     })
 
     it('should fire individual fetches to single-record endpoint', async () => {
-        config.CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT = 3
+        tester = createTester({ CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT: 3 })
         const messages = makeMessages(3)
 
         await tester.maybeMeasureFetchLatency(messages)
@@ -84,8 +88,7 @@ describe('WarpstreamFetchTester', () => {
     })
 
     it('should fire batch fetches to batch endpoint', async () => {
-        config.CDP_CYCLOTRON_TEST_FETCH_BATCH_COUNT = 2
-        config.CDP_CYCLOTRON_TEST_FETCH_BATCH_SIZE = 5
+        tester = createTester({ CDP_CYCLOTRON_TEST_FETCH_BATCH_COUNT: 2, CDP_CYCLOTRON_TEST_FETCH_BATCH_SIZE: 5 })
         const messages = makeMessages(20)
 
         await tester.maybeMeasureFetchLatency(messages)
@@ -108,9 +111,11 @@ describe('WarpstreamFetchTester', () => {
     })
 
     it('should run both strategies concurrently when both configured', async () => {
-        config.CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT = 5
-        config.CDP_CYCLOTRON_TEST_FETCH_BATCH_COUNT = 2
-        config.CDP_CYCLOTRON_TEST_FETCH_BATCH_SIZE = 5
+        tester = createTester({
+            CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT: 5,
+            CDP_CYCLOTRON_TEST_FETCH_BATCH_COUNT: 2,
+            CDP_CYCLOTRON_TEST_FETCH_BATCH_SIZE: 5,
+        })
         const messages = makeMessages(20)
 
         await tester.maybeMeasureFetchLatency(messages)
@@ -123,7 +128,7 @@ describe('WarpstreamFetchTester', () => {
     })
 
     it('should sample down when more targets than configured count', async () => {
-        config.CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT = 3
+        tester = createTester({ CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT: 3 })
         const messages = makeMessages(100)
 
         await tester.maybeMeasureFetchLatency(messages)
@@ -131,7 +136,7 @@ describe('WarpstreamFetchTester', () => {
     })
 
     it('should record error metrics on non-2xx responses', async () => {
-        config.CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT = 2
+        tester = createTester({ CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT: 2 })
         mockInternalFetch.mockResolvedValue({
             status: 500,
             headers: {},
@@ -148,8 +153,7 @@ describe('WarpstreamFetchTester', () => {
     })
 
     it('should record error metrics on fetch exceptions', async () => {
-        config.CDP_CYCLOTRON_TEST_FETCH_BATCH_COUNT = 1
-        config.CDP_CYCLOTRON_TEST_FETCH_BATCH_SIZE = 3
+        tester = createTester({ CDP_CYCLOTRON_TEST_FETCH_BATCH_COUNT: 1, CDP_CYCLOTRON_TEST_FETCH_BATCH_SIZE: 3 })
         mockInternalFetch.mockRejectedValue(new Error('connection refused'))
 
         await tester.maybeMeasureFetchLatency(makeMessages(3))

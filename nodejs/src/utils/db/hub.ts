@@ -121,7 +121,10 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     const integrationManager = new IntegrationManagerService(pubSub, postgres, encryptedFields)
     const quotaLimiting = new QuotaLimiting(posthogRedisPool, teamManager)
     const internalCaptureService = new InternalCaptureService(serverConfig)
-    const internalFetchService = new InternalFetchService(serverConfig)
+    const internalFetchService = new InternalFetchService(
+        serverConfig.INTERNAL_API_BASE_URL,
+        serverConfig.INTERNAL_API_SECRET
+    )
 
     const hub: Hub = {
         ...serverConfig,
