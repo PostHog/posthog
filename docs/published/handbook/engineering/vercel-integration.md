@@ -4,7 +4,7 @@ sidebar: Handbook
 showTitle: true
 ---
 
-A reference for understanding how the PostHog <> Vercel Marketplace integration works end-to-end. Covers installation, billing, usage reporting, feature flag sync, SSO, and uninstall.
+A reference for understanding how the PostHog + Vercel Marketplace integration works end-to-end. Covers installation, billing, usage reporting, feature flag sync, SSO, and uninstall.
 
 ### Key concepts
 
