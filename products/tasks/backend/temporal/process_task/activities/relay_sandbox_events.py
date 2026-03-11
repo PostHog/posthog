@@ -7,9 +7,12 @@ from dataclasses import dataclass
 import httpx
 import httpx_sse
 import structlog
+from asgiref.sync import sync_to_async
 from temporalio import activity
 
+from products.tasks.backend.models import TaskRun as TaskRunModel
 from products.tasks.backend.services.agent_command import validate_sandbox_url
+from products.tasks.backend.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
 
 logger = structlog.get_logger(__name__)
@@ -52,15 +55,7 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
     redis_stream = TaskRunRedisStream(stream_key)
     await redis_stream.initialize()
 
-    # Build auth — the sandbox validates JWT via Authorization header.
-    # For Modal, the connect token is passed as a query param for tunnel auth.
-    from asgiref.sync import sync_to_async
-
-    from products.tasks.backend.models import TaskRun as TaskRunModel
-    from products.tasks.backend.services.connection_token import create_sandbox_connection_token
-
     task_run = await sync_to_async(lambda: TaskRunModel.objects.select_related("task").get(id=input.run_id))()
-    # Use the task creator's identity for the JWT
     created_by = await sync_to_async(lambda: task_run.task.created_by)()
     connection_token = create_sandbox_connection_token(
         task_run=task_run,

@@ -2,7 +2,14 @@ import json
 from dataclasses import dataclass
 
 import structlog
+from django_redis import get_redis_connection
 from temporalio import activity
+
+from products.tasks.backend.models import TaskRun
+from products.tasks.backend.services.agent_command import send_user_message
+from products.tasks.backend.services.connection_token import create_sandbox_connection_token
+from products.tasks.backend.services.sandbox import SANDBOX_TTL_SECONDS
+from products.tasks.backend.stream.redis_stream import get_task_run_stream_key
 
 logger = structlog.get_logger(__name__)
 
@@ -23,11 +30,6 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
     web layer. Writes turn_complete on success or an error event on failure so the
     SSE stream terminates cleanly.
     """
-    from products.tasks.backend.models import TaskRun
-    from products.tasks.backend.services.agent_command import send_user_message
-    from products.tasks.backend.services.connection_token import create_sandbox_connection_token
-    from products.tasks.backend.services.sandbox import SANDBOX_TTL_SECONDS
-
     try:
         task_run = TaskRun.objects.select_related("task__created_by").get(id=input.run_id)
     except TaskRun.DoesNotExist:
@@ -58,10 +60,6 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
 
 def _write_turn_complete(run_id: str) -> None:
     """Write a synthetic turn_complete event to the Redis stream."""
-    from django_redis import get_redis_connection
-
-    from products.tasks.backend.stream.redis_stream import get_task_run_stream_key
-
     stream_key = get_task_run_stream_key(run_id)
     event = {
         "type": "notification",
@@ -76,10 +74,6 @@ def _write_turn_complete(run_id: str) -> None:
 
 def _write_error_and_complete(run_id: str, error_message: str) -> None:
     """Write an error event followed by turn_complete to the Redis stream."""
-    from django_redis import get_redis_connection
-
-    from products.tasks.backend.stream.redis_stream import get_task_run_stream_key
-
     stream_key = get_task_run_stream_key(run_id)
     conn = get_redis_connection("default")
 
