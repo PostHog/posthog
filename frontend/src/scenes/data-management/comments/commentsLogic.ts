@@ -106,7 +106,9 @@ export const commentsLogic = kea<commentsLogicType>([
 
                     const response = await api.comments.list(params)
                     breakpoint()
-                    return response.results || []
+                    // Filter out conversations_ticket comments - they use rich content from SupportEditor
+                    // and are meant to be viewed in the conversations product, not here
+                    return (response.results || []).filter((c) => c.scope !== 'conversations_ticket')
                 },
                 deleteComment: async ({ id }: { id: CommentType['id'] }, breakpoint) => {
                     await breakpoint(25)
