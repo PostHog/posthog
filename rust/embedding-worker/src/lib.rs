@@ -179,7 +179,7 @@ pub async fn generate_embedding(
         error!("Error message from {}: {}", model.provider(), error_message);
     }
 
-    return Err(anyhow::anyhow!("Failed to generate embeddings"));
+    Err(anyhow::anyhow!("Failed to generate embeddings"))
 }
 
 // This is here, rather than on the embedding model, to avoid taking a dep on tiktoken in common/types. We
