@@ -15,8 +15,6 @@ export enum ModalView {
 }
 
 export interface QuickFiltersModalLogicProps extends QuickFiltersLogicProps {
-    /** Optional key to scope modal instances per consumer (e.g. per dashboard) */
-    modalKey?: string | number
     /** Optional callback fired when a new quick filter is created while the modal is open */
     onNewFilterCreated?: (filter: QuickFilter) => void
 }
@@ -24,7 +22,7 @@ export interface QuickFiltersModalLogicProps extends QuickFiltersLogicProps {
 export const quickFiltersModalLogic: LogicWrapper<quickFiltersModalLogicType> = kea<quickFiltersModalLogicType>([
     path(['lib', 'components', 'QuickFilters', 'quickFiltersModalLogic']),
     props({} as QuickFiltersModalLogicProps),
-    key((props) => `${props.context}-${props.modalKey ?? 'default'}`),
+    key((props) => props.context),
 
     connect((props: QuickFiltersModalLogicProps) => ({
         actions: [quickFiltersLogic(props), ['deleteFilter']],

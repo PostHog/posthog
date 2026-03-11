@@ -25,8 +25,6 @@ interface FooterActionsConfig {
 
 interface QuickFiltersModalContentProps {
     context: QuickFilterContext
-    /** Key to scope modal logic instance (must match parent) */
-    modalKey?: string | number
     /** Optional checkbox column for selecting which filters to show */
     selectionColumnConfig?: SelectionColumnConfig
     /** Optional footer actions (e.g. save selection) */
@@ -35,11 +33,10 @@ interface QuickFiltersModalContentProps {
 
 export function QuickFiltersModalContent({
     context,
-    modalKey,
     selectionColumnConfig,
     footerActionsConfig,
 }: QuickFiltersModalContentProps): JSX.Element {
-    const logic = quickFiltersModalLogic({ context, modalKey })
+    const logic = quickFiltersModalLogic({ context })
     const { quickFilters, quickFiltersLoading } = useValues(quickFiltersLogic({ context }))
     const { startAddNew, startEdit, confirmDelete, setSearchQuery } = useActions(logic)
     const { filteredQuickFilters, searchQuery } = useValues(logic)
@@ -68,13 +65,13 @@ export function QuickFiltersModalContent({
                   ]
                 : []),
             {
-                title: 'Filter name',
+                title: 'Name',
                 dataIndex: 'name',
                 render: (name: string) => <div className="font-medium">{name}</div>,
                 sorter: (a, b) => a.name.localeCompare(b.name),
             },
             {
-                title: 'Event property',
+                title: 'Property',
                 dataIndex: 'property_name',
                 render: (path: string) => <code className="text-xs">{path}</code>,
                 sorter: (a, b) => a.property_name.localeCompare(b.property_name),
@@ -105,7 +102,7 @@ export function QuickFiltersModalContent({
                 ),
             },
             {
-                title: 'Last updated',
+                title: 'Updated',
                 dataIndex: 'updated_at',
                 render: (date: string) => <TZLabel time={date} showPopover={false} />,
                 sorter: (a, b) => dayjs(a.updated_at).diff(b.updated_at),

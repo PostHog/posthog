@@ -19,13 +19,12 @@ import { quickFiltersModalLogic } from './quickFiltersModalLogic'
 
 interface QuickFilterFormProps {
     context: QuickFilterContext
-    modalKey?: string | number
 }
 
-export function QuickFilterForm({ context, modalKey }: QuickFilterFormProps): JSX.Element {
-    const modalLogic = quickFiltersModalLogic({ context, modalKey })
+export function QuickFilterForm({ context }: QuickFilterFormProps): JSX.Element {
+    const modalLogic = quickFiltersModalLogic({ context })
     const { editedFilter } = useValues(modalLogic)
-    const formLogic = quickFilterFormLogic({ context, modalKey, filter: editedFilter })
+    const formLogic = quickFilterFormLogic({ context, filter: editedFilter })
     const { handleFormBack } = useActions(modalLogic)
     const { quickFiltersLoading } = useValues(quickFiltersLogic({ context }))
     const { name, propertyName, options, isQuickFilterSubmitting } = useValues(formLogic)
@@ -34,7 +33,7 @@ export function QuickFilterForm({ context, modalKey }: QuickFilterFormProps): JS
     return (
         <Form
             logic={quickFilterFormLogic}
-            props={{ context, modalKey, filter: editedFilter }}
+            props={{ context, filter: editedFilter }}
             formKey="quickFilter"
             enableFormOnSubmit
         >
@@ -84,13 +83,7 @@ export function QuickFilterForm({ context, modalKey }: QuickFilterFormProps): JS
                         </div>
                         <div className="space-y-2">
                             {options.map((option: QuickFilterOption, index: number) => (
-                                <FilterOptionRow
-                                    key={option.id}
-                                    option={option}
-                                    index={index}
-                                    context={context}
-                                    modalKey={modalKey}
-                                />
+                                <FilterOptionRow key={option.id} option={option} index={index} context={context} />
                             ))}
                         </div>
                     </div>
@@ -141,19 +134,17 @@ function FilterOptionRow({
     option,
     index,
     context,
-    modalKey,
 }: {
     option: QuickFilterOption
     index: number
     context: QuickFilterContext
-    modalKey?: string | number
 }): JSX.Element {
-    const { editedFilter } = useValues(quickFiltersModalLogic({ context, modalKey }))
+    const { editedFilter } = useValues(quickFiltersModalLogic({ context }))
     const { quickFiltersLoading } = useValues(quickFiltersLogic({ context }))
     const { propertyName, options, quickFilterErrors } = useValues(
-        quickFilterFormLogic({ context, modalKey, filter: editedFilter })
+        quickFilterFormLogic({ context, filter: editedFilter })
     )
-    const { updateOption, removeOption } = useActions(quickFilterFormLogic({ context, modalKey, filter: editedFilter }))
+    const { updateOption, removeOption } = useActions(quickFilterFormLogic({ context, filter: editedFilter }))
     const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
 
     const propertyDefinitions = propertyDefinitionsByType(PropertyFilterType.Event)

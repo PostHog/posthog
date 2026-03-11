@@ -46,7 +46,7 @@ export const operatorsWithoutValues = [PropertyOperator.IsSet, PropertyOperator.
 export const quickFilterFormLogic: LogicWrapper<quickFilterFormLogicType> = kea<quickFilterFormLogicType>([
     path(['lib', 'components', 'QuickFilters', 'quickFilterFormLogic']),
     props({} as QuickFilterFormLogicProps),
-    key((props) => `${props.context}-${props.modalKey ?? 'default'}-${props.filter?.id || 'new'}`),
+    key((props) => `${props.context}-${props.filter?.id || 'new'}`),
 
     connect((props: QuickFilterFormLogicProps) => ({
         values: [propertyDefinitionsModel, ['options as propertyOptions']],
