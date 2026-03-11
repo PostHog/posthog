@@ -181,6 +181,7 @@ class QueryTags(BaseModel):
     mcp_client_name: Optional[str] = None
     mcp_client_version: Optional[str] = None
     mcp_protocol_version: Optional[str] = None
+    mcp_oauth_client_name: Optional[str] = None
 
     # constant query tags
     git_commit: Optional[str] = None
