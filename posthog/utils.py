@@ -370,6 +370,16 @@ def get_js_url(request: HttpRequest) -> str:
     return settings.JS_URL
 
 
+def _safe_preflight_check(request: HttpRequest) -> dict:
+    """Run preflight_check with a fallback so it never blocks page rendering."""
+    from posthog.views import preflight_check
+
+    try:
+        return json.loads(preflight_check(request).getvalue())
+    except Exception:
+        return {"django": True, "cloud": is_cloud()}
+
+
 def get_context_for_template(
     template_name: str,
     request: HttpRequest,
@@ -444,13 +454,12 @@ def get_context_for_template(
         from posthog.models.file_system.user_product_list import UserProductList
         from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl
         from posthog.user_permissions import UserPermissions
-        from posthog.views import preflight_check
 
         posthog_app_context = {
             "current_user": None,
             "current_project": None,
             "current_team": None,
-            "preflight": json.loads(preflight_check(request).getvalue()),
+            "preflight": _safe_preflight_check(request),
             "default_event_name": "$pageview",
             "custom_products": [],
             "switched_team": getattr(request, "switched_team", None),
@@ -619,8 +628,22 @@ async def initialize_self_capture_api_token():
         posthoganalytics.host = settings.SITE_URL
 
 
+DEFAULT_EVENT_INFO_CACHE_TTL = 300  # 5 minutes — rarely changes
+
+
 def get_default_event_info(team: "Team") -> dict:
+    from django.core.cache import cache
+
     from posthog.models import EventDefinition
+
+    cache_key = f"default_event_info_{team.pk}"
+    try:
+        cached = cache.get(cache_key)
+    except Exception:
+        cached = None
+
+    if cached is not None:
+        return cached
 
     existing_names = set(
         EventDefinition.objects.filter(team=team, name__in=["$pageview", "$screen"]).values_list("name", flat=True)
@@ -637,11 +660,18 @@ def get_default_event_info(team: "Team") -> dict:
     else:
         default_event_name = "$pageview"
 
-    return {
+    result = {
         "default_event_name": default_event_name,
         "has_pageview": has_pageview,
         "has_screen": has_screen,
     }
+
+    try:
+        cache.set(cache_key, result, DEFAULT_EVENT_INFO_CACHE_TTL)
+    except Exception:
+        pass
+
+    return result
 
 
 def get_default_event_name(team: "Team") -> str | None:

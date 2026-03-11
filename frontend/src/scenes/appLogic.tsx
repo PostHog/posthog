@@ -47,7 +47,7 @@ export const appLogic = kea<appLogicType>([
     events(({ actions, cache }) => ({
         afterMount: () => {
             cache.disposables.add(() => {
-                const timerId = window.setTimeout(() => actions.enableDelayedSpinner(), 1000)
+                const timerId = window.setTimeout(() => actions.enableDelayedSpinner(), 350)
                 return () => clearTimeout(timerId)
             }, 'spinnerTimeout')
             cache.disposables.add(() => {
