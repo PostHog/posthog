@@ -212,7 +212,7 @@ export function ActionsLineGraph({
             goalLines={[...alertThresholdLines, ...(goalLines || [])]}
             onClick={
                 context?.onDataPointClick ||
-                (showPersonsModal && !isMultiSeriesFormula(formula) && !hasDataWarehouseSeries)
+                (showPersonsModal && !isMultiSeriesFormula(formula) && (!hasDataWarehouseSeries || isLifecycle))
                     ? (payload) => {
                           const { index, points } = payload
 
