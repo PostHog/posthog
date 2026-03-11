@@ -5014,6 +5014,7 @@ export namespace Schemas {
     * `day` - day
     * `week` - week
     * `every 5 minutes` - every 5 minutes
+    * `every 15 minutes` - every 15 minutes
      */
     export type IntervalEnum = typeof IntervalEnum[keyof typeof IntervalEnum];
 
@@ -5023,6 +5024,7 @@ export namespace Schemas {
       Day: 'day',
       Week: 'week',
       Every5Minutes: 'every 5 minutes',
+      Every15Minutes: 'every 15 minutes',
     } as const;
 
     /**
