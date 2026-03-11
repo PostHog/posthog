@@ -224,8 +224,21 @@ export function DashboardItems(): JSX.Element {
                                 : undefined,
                             onDragHandleMouseDown: canEnterEditModeFromEdge
                                 ? (e: React.MouseEvent) => {
+                                      const target = e.target as Element | null
+                                      if (!target) {
+                                          return
+                                      }
+
+                                      const gridItem = target.closest('.react-grid-item')
+                                      if (!gridItem) {
+                                          return
+                                      }
+
+                                      // Don't trigger when clicking obvious interactive controls
                                       if (
-                                          (e.target as Element).closest('a, button, input, [role="button"], .Popover')
+                                          target.closest(
+                                              'input,textarea,button,select,a,p,h4,[contenteditable="true"],[role="textbox"]'
+                                          )
                                       ) {
                                           return
                                       }
