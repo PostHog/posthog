@@ -39,6 +39,7 @@ You typically run phrocs via `hogli dev` rather than directly.
 | `home` | Jump to top of output                           |
 | `end`  | Jump to bottom of output                        |
 | `r`    | Restart selected process                        |
+| `s`    | Stop selected process                           |
 | `c`    | Enter copy mode (output pane)                   |
 | `d`    | Open lazydocker (only if installed)             |
 | `?`    | Toggle full help                                |
@@ -55,6 +56,16 @@ Press `esc` to exit without copying.
 ## Debug logging
 
 Pass `--debug` to write a timestamped log of TUI events to `/tmp/phrocs-debug.log`:
+
+```log
+2026/03/06 10:00:00.123456 debug logging started
+2026/03/06 10:00:00.145678 resize: 220x54
+2026/03/06 10:00:00.200000 status: proc=backend status=running
+2026/03/06 10:00:01.300000 key: "j" (type=runes)
+2026/03/06 10:00:01.300100 proc selected: 0→1 (frontend)
+```
+
+Tail it in a separate terminal while phrocs is running:
 
 ```sh
 tail -f /tmp/phrocs-debug.log

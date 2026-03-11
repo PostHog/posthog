@@ -14,7 +14,32 @@ Run `hogli --help` to get the full, current command list. Run `hogli <command> -
 
 ## Process logging (for agents/debugging)
 
-`hogli dev:setup --log` enables file logging for all mprocs processes. Logs go to `/tmp/posthog-<process>.log` where `<process>` matches the mprocs process key (see `bin/mprocs.yaml`).
+`hogli dev:setup --log` enables file logging for all phrocs processes.
+Each process writes two files:
+
+- `/tmp/posthog-<process>.log` — full stdout/stderr stream
+- `/tmp/posthog-<process>.json` — structured status (pid, status, ready flag, exit code, timestamps)
+
+The JSON status values are: `starting` → `running` → `ready` (once ready_pattern matches) → `stopped` or `crashed`.
+
+### MCP tools (preferred for agents)
+
+The project ships a local MCP server (`bin/dev-env-mcp-server`) registered in `.mcp.json`.
+When Claude Code loads the project, two tools are available automatically:
+
+- **`get_process_status`** — returns status JSON for one or all processes;
+  pass no argument for a dashboard of all running processes
+- **`get_process_logs`** — returns recent log lines for a named process;
+  accepts `lines` (default 100, max 500) and `grep` (regex filter) arguments
+
+### Direct file access (fallback)
+
+If the MCP server is not configured, read files directly:
+
+```bash
+cat /tmp/posthog-backend.json      # status snapshot
+tail -100 /tmp/posthog-backend.log # recent log lines
+```
 
 ## Key references
 

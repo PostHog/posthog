@@ -7,6 +7,7 @@ The system is designed to be process-manager agnostic - mprocs is just one outpu
 from __future__ import annotations
 
 import os
+import shlex
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -308,21 +309,39 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         return proc_config
 
     def _add_logging(self, proc_config: dict[str, Any], process_name: str) -> dict[str, Any]:
-        """Wrap shell command to log output to /tmp/posthog-{name}.log.
-
+        """Wrap shell command to log output and write a JSON status file.
+        Delegates to bin/process-monitor, which:
+        - Tees stdout/stderr to /tmp/posthog-{name}.log
+        - Writes/updates /tmp/posthog-{name}.json with pid, status, ready flag,
+          exit code, and a rolling tail of recent log lines
+        The ready_pattern from mprocs config is forwarded so both phrocs (TUI)
+        and the JSON status file track readiness independently.
         Args:
             proc_config: The process configuration dict
-            process_name: Name of the process (used in log filename)
-
+            process_name: Name of the process (used in file paths)
         Returns:
-            Modified process configuration with tee logging
+            Modified process configuration wrapping the original shell command
         """
         shell = proc_config.get("shell", "")
         if not shell:
             return proc_config
 
-        log_file = f"/tmp/posthog-{process_name}.log"
-        proc_config["shell"] = f"{shell} 2>&1 | tee {log_file}"
+        ready_pattern = proc_config.get("ready_pattern", "")
+
+        monitor_cmd = " ".join(
+            [
+                "bin/process-monitor",
+                "--name",
+                shlex.quote(process_name),
+                "--ready-pattern",
+                shlex.quote(ready_pattern),
+                "--",
+                "bash",
+                "-c",
+                shlex.quote(shell),
+            ]
+        )
+        proc_config["shell"] = monitor_cmd
         return proc_config
 
     def save(self, config: MprocsConfig, output_path: Path) -> Path:
@@ -331,7 +350,7 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         with open(output_path, "w") as f:
             # Add header comment for log mode
             if config.posthog_config and config.posthog_config.log_to_files:
-                f.write("# Log mode: Output logged to /tmp/posthog-*.log\n")
+                f.write("# Log mode: output → /tmp/posthog-*.log   status → /tmp/posthog-*.json\n")
             yaml.dump(config.to_yaml_dict(), f, default_flow_style=False, sort_keys=False)
         return output_path
 

@@ -90,8 +90,8 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.NextProc, k.PrevProc},
 		{k.ScrollUp, k.ScrollDown},
 		{k.GotoTop, k.GotoBottom},
-		{k.Restart, k.Stop, k.SwapFocus, k.Docker},
-		{k.CopyMode, k.CopyEsc},
+		{k.Restart, k.Stop, k.SwapFocus},
+		{k.CopyMode, k.Docker},
 		{k.Quit, k.Help},
 	}
 }
