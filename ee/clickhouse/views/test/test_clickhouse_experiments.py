@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, FuzzyInt, _create_event, _create_person, flush_persons_and_events
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 
@@ -28,6 +28,49 @@ class TestExperimentCRUD(APILicensedTest):
     def test_can_list_experiments(self):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @parameterized.expand(
+        [
+            ("draft", "draft"),
+            ("running", "running"),
+            ("stopped", "stopped"),
+            ("complete", "stopped"),
+        ]
+    )
+    def test_can_filter_experiments_by_status(self, status_filter: str, expected_status: str) -> None:
+        self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Draft experiment",
+                "feature_flag_key": "draft-filter-flag",
+                "parameters": None,
+            },
+        )
+        self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Running experiment",
+                "feature_flag_key": "running-filter-flag",
+                "start_date": "2021-12-01T10:23",
+                "parameters": None,
+            },
+        )
+        self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Stopped experiment",
+                "feature_flag_key": "stopped-filter-flag",
+                "start_date": "2021-12-01T10:23",
+                "end_date": "2021-12-10T00:00",
+                "parameters": None,
+            },
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/?status={status_filter}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["status"], expected_status)
 
     def test_getting_experiments_is_not_nplus1(self) -> None:
         self.client.post(
@@ -126,6 +169,47 @@ class TestExperimentCRUD(APILicensedTest):
         experiment = Experiment.objects.get(pk=id)
         self.assertEqual(experiment.description, "Bazinga")
         self.assertEqual(experiment.end_date.strftime("%Y-%m-%dT%H:%M"), end_date)
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_creating_experiment_reports_user_action(self, mock_report_user_action):
+        ff_key = "tracked-experiment"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Tracked Experiment",
+                "description": "",
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {
+                    "events": [{"order": 0, "id": "$pageview"}],
+                    "properties": [],
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        mock_report_user_action.assert_called_once()
+        self.assertEqual(mock_report_user_action.call_args.args[0], self.user)
+        self.assertEqual(mock_report_user_action.call_args.args[1], "experiment created")
+        self.assertEqual(
+            mock_report_user_action.call_args.args[2],
+            {
+                "experiment_id": response.json()["id"],
+                "experiment_name": "Tracked Experiment",
+                "feature_flag_key": ff_key,
+                "type": "product",
+                "status": "draft",
+                "metrics_count": 0,
+                "secondary_metrics_count": 0,
+                "has_description": False,
+                "variant_count": 2,
+                "created_at": ANY,
+            },
+        )
+        self.assertEqual(mock_report_user_action.call_args.kwargs["team"], self.team)
+        self.assertIsNotNone(mock_report_user_action.call_args.kwargs["request"])
 
     def test_creating_experiment_with_ensure_experience_continuity(self):
         ff_key = "test-continuity-flag"
@@ -3120,6 +3204,28 @@ class TestExperimentCRUD(APILicensedTest):
         # The duplicate should use the NEW flag's variants, not the original's
         assert duplicate_data["feature_flag_key"] == "new-flag-with-different-variants"
         assert duplicate_data["parameters"]["feature_flag_variants"] == new_flag_variants
+
+    def test_duplicate_experiment_rejects_blank_feature_flag_key(self) -> None:
+        original_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Original Experiment",
+                "feature_flag_key": "original-flag",
+            },
+        )
+        self.assertEqual(original_response.status_code, status.HTTP_201_CREATED)
+        original_experiment = original_response.json()
+
+        duplicate_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{original_experiment['id']}/duplicate/",
+            {"feature_flag_key": ""},
+        )
+
+        self.assertEqual(duplicate_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            Experiment.objects.filter(team=self.team, name="Original Experiment (Copy)", deleted=False).count(),
+            0,
+        )
 
     def test_metric_fingerprinting(self):
         """Test that metric fingerprints are computed correctly on create and update"""

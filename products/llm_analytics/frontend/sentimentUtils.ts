@@ -1,3 +1,6 @@
+/** Tight date window around trace creation for sentiment ClickHouse queries. */
+export const SENTIMENT_DATE_WINDOW_DAYS = 2
+
 export type SentimentLabel = 'positive' | 'neutral' | 'negative'
 
 interface MessageScore {

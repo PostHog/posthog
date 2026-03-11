@@ -1097,6 +1097,9 @@ environments_router.register(
 
 # Logs endpoints
 register_grandfathered_environment_nested_viewset(r"logs", logs.LogsViewSet, "environment_logs", ["team_id"])
+register_grandfathered_environment_nested_viewset(
+    r"logs/alerts", logs.LogsAlertViewSet, "environment_logs_alerts", ["team_id"]
+)
 
 environments_router.register(
     r"logs/explainLogWithAI",

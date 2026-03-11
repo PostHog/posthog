@@ -57,6 +57,9 @@ jobs:
               with:
                   node-version: 24
                   cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-docs-check.yml
 
             - name: Install dependencies
               if: steps.source-check.outputs.changed == 'true'
