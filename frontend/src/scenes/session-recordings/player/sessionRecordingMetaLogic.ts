@@ -127,7 +127,7 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
         },
 
         loadRecordingMetaFailure: () => {
-            posthog.capture('recording not found', {
+            posthog.capture('session recording not found', {
                 recording_id: props.sessionRecordingId,
                 current_url: window.location.href,
             })
