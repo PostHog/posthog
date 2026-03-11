@@ -17,7 +17,7 @@ const SHOW_GUIDE_DEFAULT = true
 
 const WIZARD_STEPS: ExperimentWizardStep[] = ['about', 'variants', 'analytics']
 
-function stepStorageKey(tabId: string): string {
+export function stepStorageKey(tabId: string): string {
     return `tab-${tabId}-experiment-wizard-step`
 }
 
@@ -72,8 +72,9 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
                 'setExposureCriteria',
                 'setSharedMetrics',
                 'saveExperiment',
+                'saveExperimentSuccess',
             ],
-            variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false }),
+            variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false, tabId: props.tabId }),
             ['validateFeatureFlagKey', 'clearFeatureFlagKeyValidation'],
             selectExistingFeatureFlagModalLogic,
             ['loadFeatureFlagsForAutocomplete', 'loadFeatureFlagsSuccess'],
@@ -96,7 +97,18 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         setLinkedFeatureFlag: (flag: FeatureFlagType | null) => ({ flag }),
     }),
 
-    reducers(({ props }) => ({
+    reducers(({ props }: { props: ExperimentWizardLogicProps }) => ({
+        // Tracks whether the initial flag auto-link check has been performed.
+        // Prevents repeated auto-linking when other tabs trigger loadFeatureFlagsSuccess
+        // on the shared selectExistingFeatureFlagModalLogic singleton.
+        initialFlagCheckDone: [
+            false,
+            {
+                loadFeatureFlagsSuccess: () => true,
+                resetWizard: () => false,
+                saveExperimentSuccess: () => false,
+            },
+        ],
         showGuide: [
             (() => {
                 try {
@@ -115,6 +127,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             {
                 _applyStep: (_, { step }) => step,
                 resetWizard: () => 'about',
+                saveExperimentSuccess: () => 'about',
             },
         ],
         linkedFeatureFlag: [
@@ -122,6 +135,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             {
                 setLinkedFeatureFlag: (_, { flag }) => flag,
                 resetWizard: () => null,
+                saveExperimentSuccess: () => null,
             },
         ],
         departedSteps: [
@@ -129,6 +143,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             {
                 markStepDeparted: (state, { step }) => ({ ...state, [step]: true }),
                 resetWizard: () => ({}),
+                saveExperimentSuccess: () => ({}),
             },
         ],
     })),
@@ -224,6 +239,13 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
                 // ignore
             }
         },
+        saveExperimentSuccess: () => {
+            try {
+                sessionStorage.removeItem(stepStorageKey(props.tabId))
+            } catch {
+                // ignore
+            }
+        },
         toggleGuide: () => {
             actions.reportExperimentWizardGuideToggled(values.showGuide, values.currentStep)
             try {
@@ -237,6 +259,12 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         }: {
             featureFlags: { results: FeatureFlagType[]; count: number }
         }) => {
+            // Only auto-link on the first load for this tab. The
+            // selectExistingFeatureFlagModalLogic is a singleton, so other
+            // tabs loading flags would otherwise trigger auto-linking here.
+            if (values.initialFlagCheckDone) {
+                return
+            }
             const key = values.experiment?.feature_flag_key
             if (key && !values.linkedFeatureFlag && featureFlags.results?.length) {
                 const match = featureFlags.results.find((f) => f.key === key)
@@ -284,6 +312,13 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         afterMount: () => {
             actions.reportExperimentWizardStarted(values.showGuide)
             actions.loadFeatureFlagsForAutocomplete()
+            // Re-validate the feature flag key if one is already set.
+            // The per-tab variantsPanelLogic unmounts when switching tabs,
+            // so validation state is lost and needs to be re-checked.
+            const key = values.experiment?.feature_flag_key
+            if (key) {
+                actions.validateFeatureFlagKey(key)
+            }
         },
     })),
 ])

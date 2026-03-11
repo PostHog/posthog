@@ -243,7 +243,7 @@ async def test_export_recording_data_success():
 
     mock_recording = MagicMock()
     mock_storage = AsyncMock()
-    mock_storage.fetch_compressed_block = AsyncMock(return_value=b"block data content")
+    mock_storage.fetch_block = AsyncMock(return_value=b"block data content")
     mock_redis = AsyncMock()
 
     with (
@@ -260,7 +260,7 @@ async def test_export_recording_data_success():
 
         await export_recording_data(export_context)
 
-        mock_storage.fetch_compressed_block.assert_called_once_with(
+        mock_storage.fetch_block.assert_called_once_with(
             mock_block.url, export_context.session_id, export_context.team_id
         )
         assert mock_redis.setex.call_count == 2
@@ -366,7 +366,7 @@ async def test_export_recording_data_block_fetch_error():
 
     mock_recording = MagicMock()
     mock_storage = AsyncMock()
-    mock_storage.fetch_compressed_block = AsyncMock(side_effect=BlockFetchError("Fetch failed"))
+    mock_storage.fetch_block = AsyncMock(side_effect=BlockFetchError("Fetch failed"))
     mock_redis = AsyncMock()
 
     with (

@@ -59,6 +59,8 @@ from posthog.models.team.team import WeekStartDay
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.event_definitions.backend.models.property_definition import PropertyType
 
 from ee.clickhouse.materialized_columns.columns import (
@@ -4318,6 +4320,31 @@ class TestPostgresPrinter(BaseTest):
 
         self.assertNotIn("team_id", postgres)
         self.assertNotEqual(postgres, clickhouse)
+
+    def test_prints_direct_postgres_tables(self):
+        source = ExternalDataSource.objects.create(
+            source_id="source-id",
+            connection_id="connection-id",
+            destination_id="destination-id",
+            team=self.team,
+            sync_frequency=ExternalDataSource.SyncFrequency.DAILY,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            prefix="Readable Name",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+        DataWarehouseTable.objects.create(
+            name="accounts",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            external_data_source=source,
+            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+        )
+
+        self.assertEqual(
+            self._select("SELECT id FROM accounts"),
+            "SELECT accounts.id FROM public.accounts AS accounts LIMIT 50000",
+        )
 
     def test_boolean_and_null_literals(self):
         self.assertEqual(self._expr("true"), "true")

@@ -1,6 +1,6 @@
 use kafka_assigner_proto::kafka_assigner::v1 as proto;
 
-use crate::types::{AssignmentEvent, PartitionAssignment, TopicPartition};
+use crate::types::{AssignmentEvent, HandoffState, PartitionAssignment, TopicPartition};
 
 use proto::assignment_command::Command;
 
@@ -15,28 +15,45 @@ impl From<&TopicPartition> for proto::TopicPartition {
     }
 }
 
-impl From<&AssignmentEvent> for proto::AssignmentCommand {
-    fn from(event: &AssignmentEvent) -> Self {
-        let command = match event {
-            AssignmentEvent::Assignment {
-                assigned,
-                unassigned,
-            } => Command::Assignment(proto::AssignmentUpdate {
-                assigned: assigned.iter().map(proto::TopicPartition::from).collect(),
-                unassigned: unassigned.iter().map(proto::TopicPartition::from).collect(),
-            }),
-            AssignmentEvent::Warm(handoff) => Command::Warm(proto::WarmPartition {
-                partition: Some(proto::TopicPartition::from(&handoff.topic_partition())),
-                current_owner: handoff.old_owner.clone(),
-            }),
-            AssignmentEvent::Release(handoff) => Command::Release(proto::ReleasePartition {
-                partition: Some(proto::TopicPartition::from(&handoff.topic_partition())),
-                new_owner: handoff.new_owner.clone(),
-            }),
-        };
-        Self {
-            command: Some(command),
+/// Convert a domain event into one or more proto commands.
+///
+/// `Assignment` produces a single command with all partitions.
+/// `Warm` and `Release` are batched per-consumer at the domain level but
+/// expand to one proto command per partition (the proto schema uses a single
+/// partition per warm/release message).
+pub fn to_proto_commands(event: &AssignmentEvent) -> Vec<proto::AssignmentCommand> {
+    match event {
+        AssignmentEvent::Assignment {
+            assigned,
+            unassigned,
+        } => {
+            vec![proto::AssignmentCommand {
+                command: Some(Command::Assignment(proto::AssignmentUpdate {
+                    assigned: assigned.iter().map(proto::TopicPartition::from).collect(),
+                    unassigned: unassigned.iter().map(proto::TopicPartition::from).collect(),
+                })),
+            }]
         }
+        AssignmentEvent::Warm(handoffs) => handoffs.iter().map(warm_command).collect(),
+        AssignmentEvent::Release(handoffs) => handoffs.iter().map(release_command).collect(),
+    }
+}
+
+fn warm_command(handoff: &HandoffState) -> proto::AssignmentCommand {
+    proto::AssignmentCommand {
+        command: Some(Command::Warm(proto::WarmPartition {
+            partition: Some(proto::TopicPartition::from(&handoff.topic_partition())),
+            current_owner: handoff.old_owner.clone(),
+        })),
+    }
+}
+
+fn release_command(handoff: &HandoffState) -> proto::AssignmentCommand {
+    proto::AssignmentCommand {
+        command: Some(Command::Release(proto::ReleasePartition {
+            partition: Some(proto::TopicPartition::from(&handoff.topic_partition())),
+            new_owner: handoff.new_owner.clone(),
+        })),
     }
 }
 
@@ -107,9 +124,10 @@ mod tests {
                 partition: 3,
             }],
         };
-        let cmd = proto::AssignmentCommand::from(&event);
-        match cmd.command {
-            Some(Command::Assignment(update)) => {
+        let cmds = to_proto_commands(&event);
+        assert_eq!(cmds.len(), 1);
+        match cmds[0].command {
+            Some(Command::Assignment(ref update)) => {
                 assert_eq!(update.assigned.len(), 2);
                 assert_eq!(update.assigned[0].topic, "events");
                 assert_eq!(update.assigned[0].partition, 0);
@@ -123,21 +141,40 @@ mod tests {
     }
 
     #[test]
-    fn warm_event_includes_current_owner() {
-        let event = AssignmentEvent::Warm(HandoffState {
-            topic: "events".to_string(),
-            partition: 5,
-            old_owner: "c-0".to_string(),
-            new_owner: "c-1".to_string(),
-            phase: HandoffPhase::Warming,
-            started_at: 0,
-        });
-        let cmd = proto::AssignmentCommand::from(&event);
-        match cmd.command {
-            Some(Command::Warm(warm)) => {
-                let tp = warm.partition.unwrap();
-                assert_eq!(tp.topic, "events");
+    fn warm_batch_expands_to_individual_commands() {
+        let event = AssignmentEvent::Warm(vec![
+            HandoffState {
+                topic: "events".to_string(),
+                partition: 5,
+                old_owner: "c-0".to_string(),
+                new_owner: "c-1".to_string(),
+                phase: HandoffPhase::Warming,
+                started_at: 0,
+            },
+            HandoffState {
+                topic: "events".to_string(),
+                partition: 7,
+                old_owner: "c-0".to_string(),
+                new_owner: "c-1".to_string(),
+                phase: HandoffPhase::Warming,
+                started_at: 0,
+            },
+        ]);
+        let cmds = to_proto_commands(&event);
+        assert_eq!(cmds.len(), 2);
+
+        match cmds[0].command {
+            Some(Command::Warm(ref warm)) => {
+                let tp = warm.partition.as_ref().unwrap();
                 assert_eq!(tp.partition, 5);
+                assert_eq!(warm.current_owner, "c-0");
+            }
+            _ => panic!("expected warm command"),
+        }
+        match cmds[1].command {
+            Some(Command::Warm(ref warm)) => {
+                let tp = warm.partition.as_ref().unwrap();
+                assert_eq!(tp.partition, 7);
                 assert_eq!(warm.current_owner, "c-0");
             }
             _ => panic!("expected warm command"),
@@ -145,19 +182,20 @@ mod tests {
     }
 
     #[test]
-    fn release_event_includes_new_owner() {
-        let event = AssignmentEvent::Release(HandoffState {
+    fn release_batch_expands_to_individual_commands() {
+        let event = AssignmentEvent::Release(vec![HandoffState {
             topic: "events".to_string(),
             partition: 3,
             old_owner: "c-0".to_string(),
             new_owner: "c-1".to_string(),
             phase: HandoffPhase::Complete,
             started_at: 0,
-        });
-        let cmd = proto::AssignmentCommand::from(&event);
-        match cmd.command {
-            Some(Command::Release(rel)) => {
-                let tp = rel.partition.unwrap();
+        }]);
+        let cmds = to_proto_commands(&event);
+        assert_eq!(cmds.len(), 1);
+        match cmds[0].command {
+            Some(Command::Release(ref rel)) => {
+                let tp = rel.partition.as_ref().unwrap();
                 assert_eq!(tp.topic, "events");
                 assert_eq!(tp.partition, 3);
                 assert_eq!(rel.new_owner, "c-1");

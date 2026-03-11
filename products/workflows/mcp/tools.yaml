@@ -5,9 +5,54 @@
 # To enable a tool, set enabled: true and add required scopes + annotations.
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Workflows
-feature: hog_flows
-url_prefix: /workflows
+feature: workflows
+url_prefix: /pipeline/destinations
 tools:
+    messaging-categories-list:
+        operation: messaging_categories_list
+        enabled: false
+    messaging-categories-create:
+        operation: messaging_categories_create
+        enabled: false
+    messaging-categories-import-from-customerio-create:
+        operation: messaging_categories_import_from_customerio_create
+        enabled: false
+    messaging-categories-import-preferences-csv-create:
+        operation: messaging_categories_import_preferences_csv_create
+        enabled: false
+    messaging-preferences-generate-link-create:
+        operation: messaging_preferences_generate_link_create
+        enabled: false
+    messaging-preferences-opt-outs-retrieve:
+        operation: messaging_preferences_opt_outs_retrieve
+        enabled: false
+    messaging-templates-list:
+        operation: messaging_templates_list
+        enabled: false
+    messaging-templates-create:
+        operation: messaging_templates_create
+        enabled: false
+    hog-flow-templates-list:
+        operation: hog_flow_templates_list
+        enabled: false
+    hog-flow-templates-create:
+        operation: hog_flow_templates_create
+        enabled: false
+    hog-flow-templates-retrieve:
+        operation: hog_flow_templates_retrieve
+        enabled: false
+    hog-flow-templates-update:
+        operation: hog_flow_templates_update
+        enabled: false
+    hog-flow-templates-partial-update:
+        operation: hog_flow_templates_partial_update
+        enabled: false
+    hog-flow-templates-destroy:
+        operation: hog_flow_templates_destroy
+        enabled: false
+    hog-flow-templates-logs-retrieve:
+        operation: hog_flow_templates_logs_retrieve
+        enabled: false
     workflows-list:
         operation: hog_flows_list
         enabled: true
@@ -20,10 +65,13 @@ tools:
         list: true
         title: List workflows
         description: >
-            List all workflows in the project. Returns workflows with their name,
-            description, status (draft/active/archived), version, trigger configuration,
-            and timestamps.
+            List all workflows in the project. Returns workflows with their name, description, status
+            (draft/active/archived), version, trigger configuration, and timestamps.
         mcp_version: 1
+        ui_resource_uri: ui://posthog/workflow-list.html
+    hog-flows-create:
+        operation: hog_flows_create
+        enabled: false
     workflows-get:
         operation: hog_flows_retrieve
         enabled: true
@@ -33,8 +81,43 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: hog-{id}
         title: Get workflow
         description: >
-            Get a specific workflow by ID. Returns the full workflow definition
-            including trigger, edges, actions, exit condition, and variables.
+            Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit
+            condition, and variables.
         mcp_version: 1
+        ui_resource_uri: ui://posthog/workflow.html
+    hog-flows-update:
+        operation: hog_flows_update
+        enabled: false
+    hog-flows-partial-update:
+        operation: hog_flows_partial_update
+        enabled: false
+    hog-flows-destroy:
+        operation: hog_flows_destroy
+        enabled: false
+    hog-flows-batch-jobs-retrieve:
+        operation: hog_flows_batch_jobs_retrieve
+        enabled: false
+    hog-flows-batch-jobs-create:
+        operation: hog_flows_batch_jobs_create
+        enabled: false
+    hog-flows-invocations-create:
+        operation: hog_flows_invocations_create
+        enabled: false
+    hog-flows-logs-retrieve:
+        operation: hog_flows_logs_retrieve
+        enabled: false
+    hog-flows-metrics-retrieve:
+        operation: hog_flows_metrics_retrieve
+        enabled: false
+    hog-flows-metrics-totals-retrieve:
+        operation: hog_flows_metrics_totals_retrieve
+        enabled: false
+    hog-flows-bulk-delete-create:
+        operation: hog_flows_bulk_delete_create
+        enabled: false
+    hog-flows-user-blast-radius-create:
+        operation: hog_flows_user_blast_radius_create
+        enabled: false

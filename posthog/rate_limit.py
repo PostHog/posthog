@@ -262,6 +262,8 @@ class UserOrEmailRateThrottle(SimpleRateThrottle):
             # For unauthenticated requests, we want to throttle on something unique to the user they are trying to work with
             # This could be email for example when logging in or uuid when verifying email
             ident = request.data.get("email") or request.data.get("uuid") or self.get_ident(request)
+            if isinstance(ident, str):
+                ident = ident.lower()
             ident = hashlib.sha256(ident.encode()).hexdigest()
 
         return self.cache_format % {"scope": self.scope, "ident": ident}
@@ -717,6 +719,26 @@ class MCPOAuthSustainedThrottle(UserRateThrottle):
     rate = "50/hour"
 
 
+class MCPOAuthRedirectBurstThrottle(SimpleRateThrottle):
+    """IP-based rate limit for the public oauth_redirect endpoint."""
+
+    scope = "mcp_oauth_redirect_burst"
+    rate = "5/minute"
+
+    def get_cache_key(self, request, view):
+        return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
+
+
+class MCPOAuthRedirectSustainedThrottle(SimpleRateThrottle):
+    """IP-based rate limit for the public oauth_redirect endpoint."""
+
+    scope = "mcp_oauth_redirect_sustained"
+    rate = "50/hour"
+
+    def get_cache_key(self, request, view):
+        return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
+
+
 class MCPProxyBurstThrottle(UserRateThrottle):
     scope = "mcp_proxy_burst"
     rate = "60/minute"
@@ -757,6 +779,20 @@ class RestoreRedeemThrottle(SimpleRateThrottle):
 class CodeInviteThrottle(UserRateThrottle):
     scope = "code_invite"
     rate = "20000/hour"
+
+
+class MaterializationRateThrottle(PersonalApiKeyRateThrottle):
+    # Rate limit materialization toggle actions (materialize / revert) per saved query per team.
+    # Prevents agents from thrashing materialization state on the same query.
+    scope = "materialization"
+    rate = "5/hour"
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        pk = view.kwargs.get("pk", "")
+        if team_id and pk:
+            return self.cache_format % {"scope": self.scope, "ident": f"{team_id}_{pk}"}
+        return super().get_cache_key(request, view)
 
 
 class ToolbarOAuthRefreshThrottle(IPThrottle):

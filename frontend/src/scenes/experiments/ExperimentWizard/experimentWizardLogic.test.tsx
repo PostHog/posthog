@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
@@ -15,7 +17,7 @@ import { NEW_EXPERIMENT } from '../constants'
 import { createExperimentLogic } from '../ExperimentForm/createExperimentLogic'
 import { variantsPanelLogic } from '../ExperimentForm/variantsPanelLogic'
 import { experimentsLogic } from '../experimentsLogic'
-import { experimentWizardLogic } from './experimentWizardLogic'
+import { experimentWizardLogic, stepStorageKey } from './experimentWizardLogic'
 import { AboutStep } from './steps/AboutStep'
 import { VariantsStep } from './steps/VariantsStep'
 
@@ -338,6 +340,71 @@ describe('experimentWizardLogic', () => {
             wizardLogic2.unmount()
             createLogic2.unmount()
         })
+
+        it('resets step to about on saveExperimentSuccess', async () => {
+            logic.actions.setStep('analytics')
+            await expectLogic(logic).toMatchValues({ currentStep: 'analytics' })
+
+            logic.actions.saveExperimentSuccess()
+
+            await expectLogic(logic).toMatchValues({
+                currentStep: 'about',
+                linkedFeatureFlag: null,
+                departedSteps: {},
+            })
+            expect(sessionStorage.getItem(stepStorageKey(TAB_ID))).toBeNull()
+        })
+
+        it('clears sessionStorage step on saveExperimentSuccess so remount starts fresh', async () => {
+            logic.actions.setStep('analytics')
+            expect(sessionStorage.getItem(stepStorageKey(TAB_ID))).toBe('analytics')
+
+            logic.actions.saveExperimentSuccess()
+            logic.unmount()
+            createLogic.unmount()
+
+            createLogic = createExperimentLogic({ tabId: TAB_ID })
+            createLogic.mount()
+            logic = experimentWizardLogic({ tabId: TAB_ID })
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({ currentStep: 'about' })
+        })
+
+        it('stale sessionStorage from previous session is cleared on fresh navigation', () => {
+            // Simulate stale state: step saved from a previous experiment session
+            sessionStorage.setItem(stepStorageKey(TAB_ID), 'analytics')
+
+            // Simulate what experimentSceneLogic does on fresh navigation to /experiments/new
+            sessionStorage.removeItem(stepStorageKey(TAB_ID))
+
+            // Now mount the wizard — should start on 'about'
+            logic.unmount()
+            createLogic.unmount()
+
+            createLogic = createExperimentLogic({ tabId: TAB_ID })
+            createLogic.mount()
+            logic = experimentWizardLogic({ tabId: TAB_ID })
+            logic.mount()
+
+            expect(logic.values.currentStep).toBe('about')
+        })
+
+        it('tab switch preserves step when sessionStorage is not cleared', async () => {
+            logic.actions.setStep('variants')
+            await expectLogic(logic).toMatchValues({ currentStep: 'variants' })
+
+            // Simulate tab switch: unmount and remount without clearing sessionStorage
+            logic.unmount()
+            createLogic.unmount()
+
+            createLogic = createExperimentLogic({ tabId: TAB_ID })
+            createLogic.mount()
+            logic = experimentWizardLogic({ tabId: TAB_ID })
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({ currentStep: 'variants' })
+        })
     })
 
     describe('validation', () => {
@@ -444,7 +511,7 @@ describe('experimentWizardLogic', () => {
         it('existing feature flag key shows error when validation fails', async () => {
             // Directly set the validation result on the variantsPanelLogic instance
             // (the same instance createExperimentLogic connects to)
-            const vpLogic = variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false })
+            const vpLogic = variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false, tabId: TAB_ID })
             vpLogic.actions.validateFeatureFlagKeySuccess({
                 valid: false,
                 error: 'A feature flag with this key already exists.',
@@ -486,7 +553,7 @@ describe('experimentWizardLogic', () => {
             useMocks({
                 ...apiMocks,
                 post: {
-                    '/api/projects/@current/experiments/': async (req: any) => {
+                    [`/api/projects/${MOCK_TEAM_ID}/experiments/`]: async (req: any) => {
                         capturedPayload = await req.json()
                         return [
                             200,

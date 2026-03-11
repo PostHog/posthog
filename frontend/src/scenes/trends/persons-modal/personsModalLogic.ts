@@ -5,7 +5,7 @@ import { router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { isGroupType, isSessionType } from 'lib/utils'
+import { assignField, isGroupType, isSessionType } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { urls } from 'scenes/urls'
@@ -124,9 +124,9 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         breakpoint()
 
                         const assembledSelectFields = values.selectFields
-                        const additionalFieldIndices = Object.values(props.additionalSelect || {}).map((field) =>
-                            assembledSelectFields.indexOf(field)
-                        )
+                        const fieldKeys = Object.keys(props.additionalSelect || {}) as Array<keyof CommonActorType>
+                        const fieldValues = Object.values(props.additionalSelect || {}) as Array<keyof CommonActorType>
+                        const additionalFieldIndices = fieldValues.map((field) => assembledSelectFields.indexOf(field))
                         const personColumnIndex = (response.columns || []).indexOf('person')
                         const newResponse: ListActorsResponse = {
                             results: [
@@ -144,11 +144,12 @@ export const personsModalLogic = kea<personsModalLogicType>([
                                                 matched_recordings: [],
                                                 value_at_data_point: null,
                                             }
-                                            Object.keys(props.additionalSelect || {}).forEach((field, index) => {
-                                                group[field] = result[additionalFieldIndices[index]]
+                                            fieldKeys.forEach((field, index) => {
+                                                assignField(group, field, result[additionalFieldIndices[index]])
                                             })
                                             return group
                                         }
+
                                         if (result[0].session_id !== undefined) {
                                             const session: SessionActorType = {
                                                 type: 'session',
@@ -159,8 +160,8 @@ export const personsModalLogic = kea<personsModalLogicType>([
                                                 value_at_data_point: null,
                                                 person: personColumnIndex >= 0 ? result[personColumnIndex] : undefined,
                                             }
-                                            Object.keys(props.additionalSelect || {}).forEach((field, index) => {
-                                                session[field] = result[additionalFieldIndices[index]]
+                                            fieldKeys.forEach((field, index) => {
+                                                assignField(session, field, result[additionalFieldIndices[index]])
                                             })
                                             return session
                                         }
@@ -174,11 +175,9 @@ export const personsModalLogic = kea<personsModalLogicType>([
                                             matched_recordings: [],
                                             value_at_data_point: null,
                                         }
-
-                                        Object.keys(props.additionalSelect || {}).forEach((field, index) => {
-                                            person[field] = result[additionalFieldIndices[index]]
+                                        fieldKeys.forEach((field, index) => {
+                                            assignField(person, field, result[additionalFieldIndices[index]])
                                         })
-
                                         return person
                                     }),
                                 },

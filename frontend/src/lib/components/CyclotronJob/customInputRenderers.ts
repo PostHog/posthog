@@ -15,4 +15,7 @@ export const CUSTOM_INPUT_RENDERERS: Record<
     posthog_assignee: lazy(
         () => import('products/conversations/frontend/components/Assignee/CyclotronJobInputAssignee')
     ),
+    posthog_ticket_tags: lazy(
+        () => import('products/conversations/frontend/components/TicketTags/CyclotronJobInputTicketTags')
+    ),
 }
