@@ -1,4 +1,4 @@
-import { createXAxisTickCallback } from './formatXAxisTick'
+import { createXAxisTickCallback } from './dates'
 
 function weeklyDates(start: string, count: number): string[] {
     const dates: string[] = []

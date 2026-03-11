@@ -36,6 +36,7 @@ import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
@@ -76,6 +77,7 @@ import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
 import { llmPlaygroundPromptsLogic } from './playground/llmPlaygroundPromptsLogic'
 import { SearchHighlight } from './SearchHighlight'
+import { SENTIMENT_DATE_WINDOW_DAYS } from './sentimentUtils'
 import { SummaryViewDisplay } from './summary-view/SummaryViewDisplay'
 import { TextViewDisplay } from './text-view/TextViewDisplay'
 import { exportTraceToClipboard } from './traceExportUtils'
@@ -344,7 +346,10 @@ function TraceMetadata({
     const sentimentResult = showSentiment ? getTraceSentiment(trace.id) : undefined
     const sentimentLoading = showSentiment ? isTraceLoading(trace.id) : false
     if (showSentiment && sentimentResult === undefined && !sentimentLoading) {
-        ensureSentimentLoaded(trace.id)
+        ensureSentimentLoaded(trace.id, {
+            dateFrom: trace.createdAt,
+            dateTo: dayjs(trace.createdAt).add(SENTIMENT_DATE_WINDOW_DAYS, 'day').toISOString(),
+        })
     }
 
     const cached = personsCache[trace.distinctId]
@@ -613,7 +618,10 @@ const TreeNode = React.memo(function TraceNode({
     const isGeneration = isLLMEvent(item) && (item as LLMTraceEvent).event === '$ai_generation'
     const genSentiment = showSentiment && isGeneration ? getGenerationSentiment(item.id) : undefined
     if (showSentiment && isGeneration && genSentiment === undefined && !isGenerationLoading(item.id)) {
-        ensureGenerationSentimentLoaded(item.id)
+        ensureGenerationSentimentLoaded(item.id, {
+            dateFrom: topLevelTrace.createdAt,
+            dateTo: dayjs(topLevelTrace.createdAt).add(SENTIMENT_DATE_WINDOW_DAYS, 'day').toISOString(),
+        })
     }
 
     const children = [
