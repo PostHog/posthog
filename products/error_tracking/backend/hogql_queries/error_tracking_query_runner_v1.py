@@ -133,10 +133,6 @@ class ErrorTrackingQueryV1Builder:
 
         return [str(issue["id"]) for issue in queryset.values("id")] if use_prefetched else []
 
-    # ------------------------------------------------------------------ #
-    # Helpers                                                              #
-    # ------------------------------------------------------------------ #
-
     @cached_property
     def _properties(self):
         return self.query.filterGroup.values[0].values if self.query.filterGroup else []
