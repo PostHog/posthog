@@ -48,7 +48,7 @@ def posthog_client():
     )
     if not api_key:
         logger.warning("POSTHOG_PROJECT_API_KEY is not set — eval events will not be captured")
-    client = Posthog(api_key, host=host, disabled=False, debug=True)
+    client = Posthog(api_key, host=host, disabled=False, debug=bool(os.environ.get("POSTHOG_DEBUG")))
     yield client
     client.shutdown()
 

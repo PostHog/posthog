@@ -180,15 +180,17 @@ async def main():
                     rank = int(np.where(ranked_indices == j)[0][0])
                     same_report_ranks.append(rank)
 
-    own_ranks = np.array(own_ranks)
+    own_ranks_arr = np.array(own_ranks)
     print(f"Query's own signal rank (0 = closest, lower = better):")
     print(
-        f"  mean={own_ranks.mean():.1f}  median={np.median(own_ranks):.0f}  "
-        f"p90={np.percentile(own_ranks, 90):.0f}  max={own_ranks.max()}"
+        f"  mean={own_ranks_arr.mean():.1f}  median={np.median(own_ranks_arr):.0f}  "
+        f"p90={np.percentile(own_ranks_arr, 90):.0f}  max={own_ranks_arr.max()}"
     )
-    print(f"  rank 0 (best): {(own_ranks == 0).sum()}/{len(own_ranks)} ({100 * (own_ranks == 0).mean():.0f}%)")
-    print(f"  rank <3: {(own_ranks < 3).sum()}/{len(own_ranks)} ({100 * (own_ranks < 3).mean():.0f}%)")
-    print(f"  rank <5: {(own_ranks < 5).sum()}/{len(own_ranks)} ({100 * (own_ranks < 5).mean():.0f}%)")
+    print(
+        f"  rank 0 (best): {(own_ranks_arr == 0).sum()}/{len(own_ranks_arr)} ({100 * (own_ranks_arr == 0).mean():.0f}%)"
+    )
+    print(f"  rank <3: {(own_ranks_arr < 3).sum()}/{len(own_ranks_arr)} ({100 * (own_ranks_arr < 3).mean():.0f}%)")
+    print(f"  rank <5: {(own_ranks_arr < 5).sum()}/{len(own_ranks_arr)} ({100 * (own_ranks_arr < 5).mean():.0f}%)")
 
     if same_report_ranks:
         sr = np.array(same_report_ranks)

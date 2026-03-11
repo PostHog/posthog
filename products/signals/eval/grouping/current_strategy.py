@@ -251,12 +251,12 @@ class CurrentStrategy:
                     reason=result.reason,
                 )
             elif match_type == "new":
-                result = NewGroup.model_validate(data)
+                new_group = NewGroup.model_validate(data)
                 return GroupingDecision(
                     report_id=str(uuid.uuid4()),
                     is_new=True,
-                    title=result.title,
-                    reason=result.reason,
+                    title=new_group.title,
+                    reason=new_group.reason,
                 )
             else:
                 raise ValueError(f"Invalid match_type: {match_type}")

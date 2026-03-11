@@ -6,15 +6,10 @@ Two judges:
 2. Signal placement judge — evaluates each signal's fit in its assigned group
 """
 
-import os
 import json
 import logging
 
-import anthropic
-from dotenv import find_dotenv, load_dotenv
-from harness import GroupingDecision, GroupingResult, TestSignal
-
-load_dotenv(find_dotenv(usecwd=True))
+from harness import GroupingDecision, GroupingResult, TestSignal, call_llm_standalone
 
 logger = logging.getLogger(__name__)
 
@@ -22,41 +17,19 @@ EVAL_MODEL = "claude-sonnet-4-5"
 
 
 # ---------------------------------------------------------------------------
-# Helper: call LLM and parse JSON response
+# Helper: call LLM and parse JSON response (with retry)
 # ---------------------------------------------------------------------------
 
 
 async def _call_judge(system_prompt: str, user_prompt: str) -> dict:
-    client = anthropic.AsyncAnthropic(
-        api_key=os.environ["ANTHROPIC_API_KEY"],
-        timeout=120.0,
-    )
-
-    response = await client.messages.create(
+    return await call_llm_standalone(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        validate=lambda text: json.loads(text),
         model=EVAL_MODEL,
-        system=system_prompt,
-        messages=[
-            {"role": "user", "content": user_prompt},
-            {"role": "assistant", "content": "{"},
-        ],
-        max_tokens=8192,
         temperature=0.2,
+        max_tokens=8192,
     )
-
-    text = ""
-    for block in reversed(response.content):
-        if block.type == "text":
-            text = block.text
-            break
-
-    text = "{" + text
-    stripped = text.strip()
-    if stripped.startswith("```json") and stripped.endswith("```"):
-        text = stripped[len("```json") : -len("```")].strip()
-    elif stripped.startswith("```") and stripped.endswith("```"):
-        text = stripped[len("```") : -len("```")].strip()
-
-    return json.loads(text)
 
 
 # ---------------------------------------------------------------------------

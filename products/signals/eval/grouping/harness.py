@@ -47,8 +47,8 @@ class TestSignal:
     source_id: str
     weight: float
     timestamp: str
-    extra: dict
     original_report_id: str
+    extra: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -325,6 +325,7 @@ async def call_llm_standalone(
     temperature: float = 0.2,
     retries: int = LLM_MAX_RETRIES,
     model: str = LLM_MODEL,
+    max_tokens: int = LLM_MAX_RESPONSE_TOKENS,
 ) -> T:
     """
     Standalone LLM call matching the production call_llm() pattern.
@@ -348,7 +349,7 @@ async def call_llm_standalone(
             model=model,
             system=system_prompt,
             messages=messages,
-            max_tokens=LLM_MAX_RESPONSE_TOKENS,
+            max_tokens=max_tokens,
             temperature=temperature,
         )
         text_content = _extract_text_content(response)

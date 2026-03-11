@@ -25,6 +25,7 @@ from harness import (
     GroupingDecision,
     InMemorySignalStore,
     SignalCandidate,
+    StoredSignal,
     TestSignal,
     call_llm_standalone,
 )
@@ -59,7 +60,7 @@ def _search_truncated(
         return []
     q = q / q_norm
 
-    distances: list[tuple[float, object]] = []
+    distances: list[tuple[float, StoredSignal]] = []
     for sig in store._signals:
         sig_trunc = np.array(sig.embedding[:dims], dtype=np.float64)
         sig_norm = np.linalg.norm(sig_trunc)
