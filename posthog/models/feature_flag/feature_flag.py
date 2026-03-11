@@ -712,6 +712,13 @@ class FeatureFlagDashboards(models.Model):
 
 class FeatureFlagEvaluationTag(models.Model):
     """
+    DEPRECATED: This model is deprecated and will be removed. See GitHub issue #50712.
+
+    Use EvaluationContext and FeatureFlagEvaluationContext instead.
+    This model is kept temporarily for backward compatibility during the migration
+    from tag-based evaluation contexts to the new independent EvaluationContext model.
+
+    Original docstring:
     Marks an existing tag as also being an evaluation context for a feature flag.
     When a tag is marked as an evaluation context, it serves dual purpose:
     1. It remains an organizational tag (via the TaggedItem relationship)
@@ -745,6 +752,13 @@ class FeatureFlagEvaluationTag(models.Model):
 
 class TeamDefaultEvaluationTag(UUIDModel):
     """
+    DEPRECATED: This model is deprecated and will be removed. See GitHub issue #50712.
+
+    Use EvaluationContext and TeamDefaultEvaluationContext instead.
+    This model is kept temporarily for backward compatibility during the migration
+    from tag-based evaluation contexts to the new independent EvaluationContext model.
+
+    Original docstring:
     Defines default evaluation contexts that will be automatically applied to new feature flags in a team.
     These contexts serve as default evaluation contexts that can be configured at the team/organization level.
     When a new feature flag is created and the team has default_evaluation_contexts_enabled=True,
