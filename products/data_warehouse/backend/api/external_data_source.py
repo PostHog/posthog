@@ -733,16 +733,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 (source_schema for source_schema in source_schemas if source_schema.name == schema_name), None
             )
 
-            sync_type_config: dict = {}
-            if requires_incremental_fields:
-                sync_type_config["incremental_field"] = incremental_field
-                sync_type_config["incremental_field_type"] = incremental_field_type
-
-            if source_type_model == ExternalDataSourceType.POSTGRES:
-                sync_type_config["schema_metadata"] = postgres_schema_metadata(
+            schema_metadata = (
+                postgres_schema_metadata(
                     source_schema.columns if source_schema else [],
                     source_schema.foreign_keys if source_schema else [],
                 )
+                if source_type_model == ExternalDataSourceType.POSTGRES
+                else {}
+            )
 
             schema_model = ExternalDataSchema.objects.create(
                 name=schema_name,
