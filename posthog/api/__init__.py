@@ -6,6 +6,7 @@ from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.onboarding import OnboardingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
+from posthog.api.snippet import SnippetViewSet
 from posthog.api.wizard import http as wizard
 from posthog.approvals import api as approval_api
 from posthog.batch_exports import http as batch_exports
@@ -1173,6 +1174,8 @@ projects_router.register(
     "project_flag_value",
     ["project_id"],
 )
+
+projects_router.register(r"snippet", SnippetViewSet, "project_snippet", ["team_id"])
 
 register_grandfathered_environment_nested_viewset(
     r"datasets",
