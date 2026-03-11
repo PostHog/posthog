@@ -7,15 +7,16 @@ endpoints.
 ## How it works
 
 The pipeline turns YAML configs + the Django OpenAPI schema into ready-to-use TypeScript
-tool handlers and Zod validation schemas. Operations are discovered by matching URL paths
-against product names (e.g., `error_tracking` matches all paths containing `/error_tracking/`),
-same approach as the frontend type generator.
+tool handlers and Zod validation schemas. Operations are discovered in two ways (in priority order):
+1. **Explicit tags** — matches endpoints whose OpenAPI tag equals the product name.
+   ViewSets in `products/<name>/backend/` are auto-tagged. ViewSets elsewhere need `@extend_schema(tags=["<product>"])`.
+2. **URL substring fallback** — selects endpoints whose path contains `/<name>/` (hyphens normalized to underscores).
 
 ```text
 OpenAPI schema (Django)
         │
         ▼
-  scaffold-yaml          ← discovers operations by URL path, writes YAML stubs
+  scaffold-yaml          ← discovers operations by tag + URL path, writes YAML stubs
         │
         ▼
   YAML definitions       ← product teams enable tools, add scopes/annotations/descriptions
@@ -70,6 +71,14 @@ Run the full pipeline: `hogli build:openapi`
    hogli build:openapi
    ```
 
+### Subset files
+
+Files named something other than `tools.yaml` in a product's `mcp/` folder (e.g., `prompts.yaml`) are treated as **subset files**:
+
+- The product name is derived from the directory (e.g., `products/llm_analytics/mcp/prompts.yaml` uses `llm_analytics`)
+- Existing tools are validated against OpenAPI operations, but no new operations are added
+- Useful for organizing tools into logical groups within a single product
+
 ## Keeping definitions in sync
 
 When backend API endpoints are added or removed, YAML definitions need updating.
@@ -81,7 +90,13 @@ pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
 
 This is idempotent and non-destructive — it only adds newly discovered operations
 (with `enabled: false`) and removes stale ones. All hand-authored configuration
-(descriptions, scopes, annotations, etc.) is preserved. CI runs this as a drift check.
+(descriptions, scopes, annotations, etc.) is preserved.
+File writes are skipped when there are no semantic changes to avoid formatting-only rewrites.
+
+For subset files, the scaffold script warns on stderr when tools can't be matched to OpenAPI operations,
+listing the specific tools and suggesting to add `@extend_schema(tags=["<product>"])` to the ViewSet.
+
+CI runs this as a drift check.
 
 ## YAML schema reference
 
