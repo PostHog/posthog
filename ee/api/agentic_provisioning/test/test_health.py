@@ -1,5 +1,7 @@
 import time
 
+from unittest.mock import patch
+
 from django.test import override_settings
 
 from ee.api.agentic_provisioning.signature import compute_signature
@@ -50,3 +52,16 @@ class TestProvisioningHealth(StripeProvisioningTestBase):
             HTTP_API_VERSION="0.1d",
         )
         assert res.status_code == 401
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_signature_succeeds_with_rate_limiting_enabled(self, _mock):
+        res = self._get_signed("/api/agentic/provisioning/health")
+        assert res.status_code == 200
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_post_signature_succeeds_with_rate_limiting_enabled(self, _mock):
+        res = self._post_signed(
+            "/api/agentic/provisioning/account-requests",
+            data={"email": "test@example.com", "account_name": "Test"},
+        )
+        assert res.status_code not in (400, 500), f"Unexpected error: {res.json()}"

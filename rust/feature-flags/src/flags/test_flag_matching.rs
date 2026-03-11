@@ -225,6 +225,205 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_person_only_flags_succeed_without_group_type_mappings() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            None,
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "email".to_string(),
+                        value: Some(json!("test@example.com")),
+                        operator: None,
+                        prop_type: PropertyType::Person,
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        // No group type mappings initialized — this should not cause an error
+        // for person-only flags
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache,
+            None,
+            None,
+        );
+
+        let flags = FeatureFlagList {
+            flags: vec![flag.clone()],
+            ..Default::default()
+        };
+        let result = matcher
+            .evaluate_all_feature_flags(
+                flags,
+                Some(HashMap::from([(
+                    "email".to_string(),
+                    json!("test@example.com"),
+                )])),
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+        assert!(
+            !result.errors_while_computing_flags,
+            "Person-only flag evaluation should not error when group type mappings are uninitialized"
+        );
+        assert_eq!(
+            result.flags.get("test_flag").unwrap().to_value(),
+            FlagValue::Boolean(true)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_mixed_person_and_group_flags_succeed_without_group_type_mappings() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let person_flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            Some("person_flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "email".to_string(),
+                        value: Some(json!("test@example.com")),
+                        operator: None,
+                        prop_type: PropertyType::Person,
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let group_flag = create_test_flag(
+            Some(2),
+            Some(team.id),
+            None,
+            Some("group_flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "name".to_string(),
+                        value: Some(json!("Acme")),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: PropertyType::Group,
+                        group_type_index: Some(0),
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: Some(0),
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        // No group type mappings initialized — person flags in a mixed batch
+        // should still evaluate successfully
+        let groups = HashMap::from([("project".to_string(), json!("proj-1"))]);
+
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache,
+            None,
+            Some(groups),
+        );
+
+        let flags = FeatureFlagList {
+            flags: vec![person_flag.clone(), group_flag.clone()],
+            ..Default::default()
+        };
+        let result = matcher
+            .evaluate_all_feature_flags(
+                flags,
+                Some(HashMap::from([(
+                    "email".to_string(),
+                    json!("test@example.com"),
+                )])),
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+
+        assert!(
+            !result.errors_while_computing_flags,
+            "Missing group type mappings should not cause errors for person flags in a mixed batch"
+        );
+        assert_eq!(
+            result.flags.get("person_flag").unwrap().to_value(),
+            FlagValue::Boolean(true),
+        );
+        // Group flag evaluates with empty group properties, so it won't match
+        assert_eq!(
+            result.flags.get("group_flag").unwrap().to_value(),
+            FlagValue::Boolean(false),
+        );
+    }
+
+    #[tokio::test]
     async fn test_group_property_overrides() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
@@ -7745,5 +7944,157 @@ mod tests {
             FeatureFlagMatchReason::SuperConditionValue.to_string(),
             "Match reason should be SuperConditionValue"
         );
+    }
+
+    #[tokio::test]
+    async fn test_paired_group_identifiers_avoid_cartesian_product() {
+        use crate::utils::test_utils::create_group_in_pg;
+
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        // Flag targeting "project" (group type index 0)
+        let project_flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            None,
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "name".to_string(),
+                        value: Some(json!("Acme")),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: PropertyType::Group,
+                        group_type_index: Some(0),
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: Some(0),
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        // Flag targeting "organization" (group type index 1)
+        let org_flag = create_test_flag(
+            Some(2),
+            Some(team.id),
+            Some("org_flag".to_string()),
+            None,
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "tier".to_string(),
+                        value: Some(json!("enterprise")),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: PropertyType::Group,
+                        group_type_index: Some(1),
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: Some(1),
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        // Insert correct group rows
+        create_group_in_pg(
+            context.persons_reader.clone(),
+            team.id,
+            "project",
+            "proj-456",
+            json!({"name": "Acme"}),
+        )
+        .await
+        .unwrap();
+
+        create_group_in_pg(
+            context.persons_reader.clone(),
+            team.id,
+            "organization",
+            "org-123",
+            json!({"tier": "enterprise"}),
+        )
+        .await
+        .unwrap();
+
+        // Insert a decoy row: project type (index 0) with org's key ("org-123").
+        // With the old cartesian-product query this row would be fetched and its
+        // properties would overwrite the correct project properties.
+        create_group_in_pg(
+            context.persons_reader.clone(),
+            team.id,
+            "project",
+            "org-123",
+            json!({"name": "DECOY"}),
+        )
+        .await
+        .unwrap();
+
+        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.id);
+        group_type_mapping_cache
+            .init(context.persons_reader.clone())
+            .await
+            .unwrap();
+
+        let groups = HashMap::from([
+            ("project".to_string(), json!("proj-456")),
+            ("organization".to_string(), json!("org-123")),
+        ]);
+
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            Some(group_type_mapping_cache),
+            Some(groups),
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&project_flag, &org_flag])
+            .await
+            .unwrap();
+
+        let group_props = matcher.flag_evaluation_state.get_group_properties();
+
+        // Project (index 0) should have properties from (0, "proj-456"), not the decoy (0, "org-123")
+        let project_props = group_props
+            .get(&0)
+            .expect("project group properties should be loaded");
+        assert_eq!(
+            project_props.get("name"),
+            Some(&json!("Acme")),
+            "Project properties should come from the correct (type_index, key) pair, not the cartesian-product decoy"
+        );
+
+        // Organization (index 1) should have its own properties
+        let org_props = group_props
+            .get(&1)
+            .expect("organization group properties should be loaded");
+        assert_eq!(org_props.get("tier"), Some(&json!("enterprise")));
     }
 }

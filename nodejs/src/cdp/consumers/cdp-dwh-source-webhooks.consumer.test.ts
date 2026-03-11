@@ -107,7 +107,7 @@ if (not inputs.bypass_signature_check) {
   }
 }
 
-return request.body
+produceToWarehouseWebhooks(request.body)
 `
 
 // Minimal template-like object for compileInputs (only needs inputs_schema)
@@ -160,7 +160,7 @@ describe('DWH source webhooks', () => {
                 id: 'template-warehouse-source-default',
                 name: 'Default warehouse source webhook',
                 type: 'warehouse_source_webhook',
-                code: 'return request.body',
+                code: 'produceToWarehouseWebhooks(request.body)',
                 inputs_schema: [],
             })
 
@@ -235,8 +235,8 @@ describe('DWH source webhooks', () => {
                 body: webhookReq.body,
             })
 
-            expect(res.status).toEqual(200)
-            expect(res.body).toEqual({ status: 'ok' })
+            expect(res.status).toEqual(201)
+            expect(res.body).toEqual({ status: 'queued' })
 
             await waitForBackgroundTasks()
 
@@ -292,8 +292,8 @@ describe('DWH source webhooks', () => {
                 body: { type: 'charge.succeeded', data: { object: { id: 'ch_1' } } },
             })
 
-            expect(res.status).toEqual(200)
-            expect(res.body).toEqual({ status: 'ok' })
+            expect(res.status).toEqual(201)
+            expect(res.body).toEqual({ status: 'queued' })
 
             await waitForBackgroundTasks()
 
@@ -322,7 +322,8 @@ describe('DWH source webhooks', () => {
             })
 
             expect(res.status).toEqual(500)
-            expect(res.body).toEqual({ error: 'Missing schema_id on hog function' })
+            expect(res.body).toEqual({ error: 'Internal error' })
+            expect(getDwhKafkaMessages()).toHaveLength(0)
         })
 
         it('should include the full webhook body in the Kafka payload', async () => {
@@ -344,7 +345,7 @@ describe('DWH source webhooks', () => {
                 body: webhookReq.body,
             })
 
-            expect(res.status).toEqual(200)
+            expect(res.status).toEqual(201)
             await waitForBackgroundTasks()
 
             const kafkaMessages = getDwhKafkaMessages()

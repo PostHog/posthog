@@ -845,7 +845,7 @@ class TestFunnelSessionActors(ClickhouseTestMixin, APIBaseTest):
         self.person = _create_person(
             distinct_ids=["user_1"],
             team_id=self.team.pk,
-            properties={"email": "test@example.com", "$browser": "Chrome"},
+            properties={"email": "test@example.com", "name": "Test User", "$browser": "Chrome"},
         )
         _create_event(
             event="step one",
@@ -983,3 +983,71 @@ class TestFunnelSessionActors(ClickhouseTestMixin, APIBaseTest):
         assert "person" in response.columns
         assert len(response.results) == 1
         assert str(response.results[0][0]["session_id"]) == self.session_id_2
+
+    @freeze_time("2021-01-08 00:00:00.000Z")
+    def test_funnel_session_actors_search_by_email(self):
+        self._create_session_funnel_data()
+
+        funnels_query = self._base_funnels_query()
+        funnel_actors_query = FunnelsActorsQuery(source=funnels_query, funnelStep=1)
+
+        actors_query = ActorsQuery(
+            source=funnel_actors_query,
+            select=["actor"],
+            search="test@example.com",
+        )
+        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+        assert len(response.results) == 2
+        session_ids = {str(row[0]["session_id"]) for row in response.results}
+        assert session_ids == {self.session_id_1, self.session_id_2}
+
+    @freeze_time("2021-01-08 00:00:00.000Z")
+    def test_funnel_session_actors_search_by_name(self):
+        self._create_session_funnel_data()
+
+        funnels_query = self._base_funnels_query()
+        funnel_actors_query = FunnelsActorsQuery(source=funnels_query, funnelStep=1)
+
+        actors_query = ActorsQuery(
+            source=funnel_actors_query,
+            select=["actor"],
+            search="Test User",
+        )
+        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+        assert len(response.results) == 2
+        session_ids = {str(row[0]["session_id"]) for row in response.results}
+        assert session_ids == {self.session_id_1, self.session_id_2}
+
+    @freeze_time("2021-01-08 00:00:00.000Z")
+    def test_funnel_session_actors_search_email_no_match(self):
+        self._create_session_funnel_data()
+
+        funnels_query = self._base_funnels_query()
+        funnel_actors_query = FunnelsActorsQuery(source=funnels_query, funnelStep=1)
+
+        actors_query = ActorsQuery(
+            source=funnel_actors_query,
+            select=["actor"],
+            search="non-existing@example.com",
+        )
+        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+        assert len(response.results) == 0
+
+    @freeze_time("2021-01-08 00:00:00.000Z")
+    def test_funnel_session_actors_search_name_no_match(self):
+        self._create_session_funnel_data()
+
+        funnels_query = self._base_funnels_query()
+        funnel_actors_query = FunnelsActorsQuery(source=funnels_query, funnelStep=1)
+
+        actors_query = ActorsQuery(
+            source=funnel_actors_query,
+            select=["actor"],
+            search="non existing",
+        )
+        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+        assert len(response.results) == 0

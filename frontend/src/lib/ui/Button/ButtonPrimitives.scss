@@ -148,7 +148,7 @@
 }
 
 .button-primitive--variant-outline {
-    border: 1px solid var(--color-border-primary);
+    border: 1px solid color-mix(in oklab, var(--color-border-secondary), transparent 40%);
 
     &:not([aria-disabled='true']) {
         &[data-active='true'],
