@@ -25,8 +25,8 @@ export interface ScoreDefinitionFilters {
     order_by: string
 }
 
-type ScoreDefinitionFilterInput = Partial<ScoreDefinitionFilters> & {
-    archived?: ScoreDefinitionFilters['archived'] | boolean
+type ScoreDefinitionFilterInput = Omit<Partial<ScoreDefinitionFilters>, 'archived'> & {
+    archived?: ScoreDefinitionFilters['archived'] | 'all' | boolean | null
 }
 
 const ALLOWED_ORDER_BY_VALUES = new Set([

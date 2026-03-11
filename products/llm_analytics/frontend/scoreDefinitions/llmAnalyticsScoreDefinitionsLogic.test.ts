@@ -35,6 +35,7 @@ const mockScoreDefinition: ScoreDefinition = {
         distinct_id: 'test-distinct-id-1',
         first_name: 'Test',
         email: 'test@example.com',
+        hedgehog_config: null,
     },
     created_at: '2026-03-11T00:00:00Z',
     updated_at: '2026-03-11T00:00:00Z',

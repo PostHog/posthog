@@ -4,7 +4,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
-from products.llm_analytics.backend.models.score_definitions import ScoreDefinition
+from products.llm_analytics.backend.models.score_definitions import ScoreDefinition, ScoreDefinitionVersion
 
 
 class TestScoreDefinitionsApi(APIBaseTest):
@@ -19,6 +19,11 @@ class TestScoreDefinitionsApi(APIBaseTest):
 
     def _endpoint(self) -> str:
         return f"/api/environments/{self.team.id}/llm_analytics/score_definitions/"
+
+    def _current_version(self, definition: ScoreDefinition) -> ScoreDefinitionVersion:
+        current_version = definition.current_version
+        assert current_version is not None
+        return current_version
 
     def test_returns_403_when_feature_flag_disabled(self):
         self.mock_feature_enabled.return_value = False
@@ -65,10 +70,11 @@ class TestScoreDefinitionsApi(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         definition = ScoreDefinition.objects.get(pk=response.data["id"])
+        current_version = self._current_version(definition)
         self.assertEqual(definition.created_by, self.user)
         self.assertEqual(definition.kind, payload["kind"])
-        self.assertEqual(definition.current_version.version, 1)
-        self.assertEqual(definition.current_version.config, payload["config"])
+        self.assertEqual(current_version.version, 1)
+        self.assertEqual(current_version.config, payload["config"])
 
     def test_patch_updates_metadata_without_creating_a_new_version(self):
         definition = self._create_definition()
@@ -81,10 +87,11 @@ class TestScoreDefinitionsApi(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         definition.refresh_from_db()
+        current_version = self._current_version(definition)
         self.assertEqual(definition.name, "Updated quality")
         self.assertEqual(definition.description, "Updated description")
         self.assertTrue(definition.archived)
-        self.assertEqual(definition.current_version.version, 1)
+        self.assertEqual(current_version.version, 1)
         self.assertEqual(definition.versions.count(), 1)
 
     def test_create_starts_active(self):
@@ -119,7 +126,7 @@ class TestScoreDefinitionsApi(APIBaseTest):
 
     def test_new_version_creates_immutable_snapshot_and_advances_current_version(self):
         definition = self._create_definition()
-        original_config = definition.current_version.config
+        original_config = self._current_version(definition).config
 
         response = self.client.post(
             f"{self._endpoint()}{definition.id}/new_version/",
@@ -129,7 +136,8 @@ class TestScoreDefinitionsApi(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         definition.refresh_from_db()
-        self.assertEqual(definition.current_version.version, 2)
+        current_version = self._current_version(definition)
+        self.assertEqual(current_version.version, 2)
         self.assertEqual(definition.versions.count(), 2)
         self.assertEqual(definition.versions.get(version=1).config, original_config)
         self.assertEqual(

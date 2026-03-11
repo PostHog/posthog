@@ -26,7 +26,7 @@ class CategoricalScoreOptionSerializer(serializers.Serializer):
         max_length=128,
         help_text="Stable option key. Use lowercase letters, numbers, underscores, or hyphens.",
     )
-    label = serializers.CharField(max_length=256, help_text="Human-readable option label.")
+    label = serializers.CharField(max_length=256, help_text="Human-readable option label.")  # type: ignore[assignment]
 
     def validate_key(self, value: str) -> str:
         return normalize_score_definition_key(value, field_name="key")

@@ -120,6 +120,15 @@ function parseOptionalNumber(value: string): number | null {
     return Number.isFinite(parsedValue) ? parsedValue : NaN
 }
 
+function getNumericInputValue(value: string): number | undefined {
+    const parsedValue = parseOptionalNumber(value)
+    return parsedValue === null || Number.isNaN(parsedValue) ? undefined : parsedValue
+}
+
+function formatNumericInputValue(value: number | undefined): string {
+    return typeof value === 'number' && Number.isFinite(value) ? String(value) : ''
+}
+
 function getCategoricalConfig(config: ScoreDefinitionConfig): CategoricalScoreDefinitionConfig {
     return 'options' in config ? config : { options: [] }
 }
@@ -502,8 +511,8 @@ function ScoreDefinitionModal({
         const numericConfig = draft.kind === 'numeric' ? (config as NumericScoreDefinitionConfig) : null
         if (
             numericConfig &&
-            numericConfig.min !== undefined &&
-            numericConfig.max !== undefined &&
+            numericConfig.min != null &&
+            numericConfig.max != null &&
             numericConfig.min > numericConfig.max
         ) {
             lemonToast.error('Numeric max must be greater than or equal to min.')
@@ -650,24 +659,24 @@ function ScoreDefinitionModal({
                                     <label className="text-sm font-medium">Min</label>
                                     <LemonInput
                                         type="number"
-                                        value={draft.numericMin}
-                                        onChange={(value) => setField('numericMin', value)}
+                                        value={getNumericInputValue(draft.numericMin)}
+                                        onChange={(value) => setField('numericMin', formatNumericInputValue(value))}
                                     />
                                 </div>
                                 <div className="space-y-1">
                                     <label className="text-sm font-medium">Max</label>
                                     <LemonInput
                                         type="number"
-                                        value={draft.numericMax}
-                                        onChange={(value) => setField('numericMax', value)}
+                                        value={getNumericInputValue(draft.numericMax)}
+                                        onChange={(value) => setField('numericMax', formatNumericInputValue(value))}
                                     />
                                 </div>
                                 <div className="space-y-1">
                                     <label className="text-sm font-medium">Increment</label>
                                     <LemonInput
                                         type="number"
-                                        value={draft.numericStep}
-                                        onChange={(value) => setField('numericStep', value)}
+                                        value={getNumericInputValue(draft.numericStep)}
+                                        onChange={(value) => setField('numericStep', formatNumericInputValue(value))}
                                     />
                                     <div className="text-xs text-muted-alt">
                                         Optional amount the score should increase by, for example 1 or 0.5.

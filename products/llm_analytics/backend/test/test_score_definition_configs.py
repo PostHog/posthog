@@ -43,8 +43,10 @@ class TestScoreDefinitionConfigValidation(unittest.TestCase):
         with self.assertRaises(serializers.ValidationError) as err:
             serializer.is_valid(raise_exception=True)
 
+        detail = err.exception.detail
+        assert isinstance(detail, dict)
         self.assertEqual(
-            {field: [str(detail) for detail in details] for field, details in err.exception.detail.items()},
+            {field: [str(item) for item in details] for field, details in detail.items()},
             expected_detail,
         )
 
