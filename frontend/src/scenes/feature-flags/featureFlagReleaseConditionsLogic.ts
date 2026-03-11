@@ -113,6 +113,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         }),
         setTotalUsers: (count: number) => ({ count }),
         calculateBlastRadius: true,
+        calculateBlastRadiusForCondition: (sortKey: string, properties: AnyPropertyFilter[] | undefined) => ({
+            sortKey,
+            properties,
+        }),
         loadAllFlagKeys: (flagIds: string[]) => ({ flagIds }),
         setFlagKeys: (flagKeys: Record<string, string>) => ({ flagKeys }),
         setFlagKeysLoading: (isLoading: boolean) => ({ isLoading }),
@@ -344,28 +348,11 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             actions.setAffectedUsers(sortKey, response.users_affected)
             actions.setTotalUsers(response.total_users)
         },
-        addConditionSet: async () => {
+        addConditionSet: () => {
             const newGroup = values.filters.groups[values.filters.groups.length - 1]
             if (newGroup.sort_key) {
-                actions.setAffectedUsers(newGroup.sort_key, undefined)
                 actions.openCondition(newGroup.sort_key)
-
-                // Fire the API call to calculate blast radius for the new empty condition set
-                try {
-                    const response = await api.create(
-                        `api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`,
-                        {
-                            condition: { properties: [] },
-                            group_type_index: values.filters?.aggregation_group_type_index ?? null,
-                        }
-                    )
-
-                    actions.setAffectedUsers(newGroup.sort_key, response.users_affected)
-                    actions.setTotalUsers(response.total_users)
-                } catch {
-                    // Fall back to the sentinel value so the UI shows the rollout percentage
-                    actions.setAffectedUsers(newGroup.sort_key, -1)
-                }
+                actions.calculateBlastRadiusForCondition(newGroup.sort_key, newGroup.properties)
             }
         },
         removeConditionSet: () => {
@@ -400,52 +387,28 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 actions.setOpenConditions(newOpenConditions)
             }
         },
-        calculateBlastRadius: async () => {
-            const usersAffectedPromises: Promise<{
-                result: UserBlastRadiusType
-                sortKey: string
-            }>[] = []
+        calculateBlastRadiusForCondition: async ({ sortKey, properties }) => {
+            actions.setAffectedUsers(sortKey, undefined)
 
+            let response: UserBlastRadiusType
+            if (!properties || properties.some(isEmptyProperty)) {
+                // don't compute for incomplete conditions
+                response = { users_affected: -1, total_users: -1 }
+            } else {
+                response = await api.create(`api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`, {
+                    condition: { properties },
+                    group_type_index: values.filters?.aggregation_group_type_index ?? null,
+                })
+            }
+
+            actions.setAffectedUsers(sortKey, response.users_affected)
+            if (response.total_users !== -1) {
+                actions.setTotalUsers(response.total_users)
+            }
+        },
+        calculateBlastRadius: () => {
             values.filters.groups.forEach((condition: FeatureFlagGroupTypeWithSortKey) => {
-                const { sort_key: sortKey } = condition
-                actions.setAffectedUsers(sortKey, undefined)
-
-                const properties = condition.properties
-                let responsePromise: Promise<UserBlastRadiusType>
-                if (!properties || properties.some(isEmptyProperty)) {
-                    // don't compute for incomplete conditions
-                    responsePromise = Promise.resolve({
-                        users_affected: -1,
-                        total_users: -1,
-                    })
-                } else if (properties.length === 0) {
-                    // Request total users for empty condition sets
-                    responsePromise = api.create(
-                        `api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`,
-                        {
-                            condition: { properties: [] },
-                            group_type_index: values.filters?.aggregation_group_type_index ?? null,
-                        }
-                    )
-                } else {
-                    responsePromise = api.create(
-                        `api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`,
-                        {
-                            condition,
-                            group_type_index: values.filters?.aggregation_group_type_index ?? null,
-                        }
-                    )
-                }
-                usersAffectedPromises.push(responsePromise.then((result) => ({ result, sortKey })))
-            })
-
-            const results = await Promise.all(usersAffectedPromises)
-
-            results.forEach(({ result, sortKey }) => {
-                actions.setAffectedUsers(sortKey, result.users_affected)
-                if (result.total_users !== -1) {
-                    actions.setTotalUsers(result.total_users)
-                }
+                actions.calculateBlastRadiusForCondition(condition.sort_key, condition.properties)
             })
         },
         loadAllFlagKeys: async ({ flagIds }) => {
