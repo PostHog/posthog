@@ -14,18 +14,32 @@ from temporalio import activity
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.models.exported_recording import ExportedRecording
 from posthog.redis import get_async_client
-from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.recordings import recording_s3_client
 from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
 from posthog.session_recordings.recordings.recording_api_client import recording_api_client
-from posthog.session_recordings.session_recording_v2_service import list_blocks
+from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.export_recording.types import ExportContext, ExportRecordingInput, RedisConfig
 
 LOGGER = get_write_only_logger()
+
+
+async def _list_blocks(session_id: str, team_id: int) -> list[RecordingBlock]:
+    async with recording_api_client() as client:
+        raw_blocks = await client.list_blocks(session_id, team_id)
+    return [
+        RecordingBlock(
+            key=b["key"],
+            start_byte=b["start_byte"],
+            end_byte=b["end_byte"],
+            start_timestamp=b["start_timestamp"],
+            end_timestamp=b["end_timestamp"],
+        )
+        for b in raw_blocks
+    ]
 
 
 def _redis_url(config: RedisConfig) -> str:
@@ -136,9 +150,7 @@ async def export_recording_data_prefix(input: ExportContext) -> None:
     logger = LOGGER.bind()
     logger.info(f"Exporting recording data prefix for session {input.session_id}")
 
-    recording = SessionRecording(session_id=input.session_id, team_id=input.team_id)
-    await database_sync_to_async(recording.load_metadata)()
-    recording_blocks = await database_sync_to_async(list_blocks)(recording)
+    recording_blocks = await _list_blocks(input.session_id, input.team_id)
 
     if not recording_blocks:
         logger.warning("No recording blocks found, skipping prefix export...")
@@ -163,9 +175,7 @@ async def export_recording_data(input: ExportContext) -> None:
     logger = LOGGER.bind()
     logger.info(f"Exporting recording data for session {input.session_id}")
 
-    recording = SessionRecording(session_id=input.session_id, team_id=input.team_id)
-    await database_sync_to_async(recording.load_metadata)()
-    recording_blocks = await database_sync_to_async(list_blocks)(recording)
+    recording_blocks = await _list_blocks(input.session_id, input.team_id)
 
     logger.info(f"Found {len(recording_blocks)} blocks to export")
 
