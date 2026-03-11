@@ -58,5 +58,5 @@ In practice, when we migrated experiment metrics precomputation from Dagster to 
 #### Where do we use each?
 
 **Celery**: Small, fast background tasks (e.g. sending email, minor async operations)
-**Temporal**: Batch exports, data warehouse source syncing, AI platform task generation, experiment metrics precomputation
+**Temporal**: Batch exports, data warehouse source syncing, AI platform task generation, experiment metrics precomputation, health checks
 **Dagster**: Exchange rate tracking, one-off production management commands, web analytics data pre-processing
