@@ -74,7 +74,7 @@ from posthog.models.group.group import Group
 from posthog.models.property import Property
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.surveys.survey import Survey
-from posthog.permissions import ProjectSecretAPITokenPermission
+from posthog.permissions import ProjectSecretAPITokenPermission, is_authenticated_via_project_secret_api_token
 from posthog.queries.base import determine_parsed_date_for_property_matching
 from posthog.rate_limit import BurstRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -143,6 +143,12 @@ LOCAL_EVALUATION_ETAG_COUNTER = Counter(
 LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER = Counter(
     "posthog_local_evaluation_secret_api_key_in_body_total",
     "Local evaluation requests where secret_api_key was passed in request body instead of Authorization header",
+)
+
+LOCAL_EVALUATION_AUTH_COUNTER = Counter(
+    "posthog_local_evaluation_auth_total",
+    "Local evaluation requests by authentication method",
+    labelnames=["method"],  # "secret_api_token" or "personal_api_key"
 )
 
 
@@ -2568,6 +2574,11 @@ class FeatureFlagViewSet(
 
         # Track send_cohorts parameter usage
         LOCAL_EVALUATION_REQUEST_COUNTER.labels(send_cohorts=str(include_cohorts).lower()).inc()
+
+        auth_method = (
+            "secret_api_token" if is_authenticated_via_project_secret_api_token(request) else "personal_api_key"
+        )
+        LOCAL_EVALUATION_AUTH_COUNTER.labels(method=auth_method).inc()
 
         try:
             # Check if team is quota limited for feature flags
