@@ -11,6 +11,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.pipelines.pipeline.utils import normalize_column_name
+from posthog.temporal.data_imports.pipelines.pipeline_sync import set_initial_sync_complete
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
@@ -167,6 +168,10 @@ async def run_post_load_operations(
 
     logger.debug("Notifying revenue analytics that sync has completed")
     await notify_revenue_analytics_that_sync_has_completed(schema, source, logger)
+
+    if not schema.initial_sync_complete:
+        await logger.adebug("Setting initial_sync_complete on schema")
+        await set_initial_sync_complete(schema_id=schema.id, team_id=job.team_id)
 
     if resource is not None:
         await finalize_desc_sort_incremental_value(resource, schema, last_incremental_field_value, logger)

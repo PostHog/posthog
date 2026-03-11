@@ -1,3 +1,141 @@
+// highlight.js token styles — light theme (VS Code light palette)
+.hljs-comment,
+.hljs-quote {
+    color: rgb(0 128 0);
+}
+
+.hljs-keyword,
+.hljs-selector-tag {
+    color: rgb(0 0 255);
+}
+
+.hljs-built_in {
+    color: rgb(0 112 193);
+}
+
+.hljs-tag {
+    color: rgb(128 0 0);
+}
+
+.hljs-attr,
+.hljs-attribute {
+    color: rgb(255 0 0);
+}
+
+.hljs-number {
+    color: rgb(9 134 88);
+}
+
+.hljs-literal,
+.hljs-variable.constant_ {
+    color: rgb(129 31 63);
+}
+
+.hljs-title,
+.hljs-title.function_ {
+    color: rgb(0 0 255);
+}
+
+.hljs-title.class_,
+.hljs-class .hljs-title {
+    color: rgb(38 127 153);
+}
+
+.hljs-string,
+.hljs-deletion {
+    color: rgb(163 21 21);
+}
+
+.hljs-variable,
+.hljs-template-variable,
+.hljs-addition {
+    color: rgb(9 134 88);
+}
+
+.hljs-operator,
+.hljs-punctuation {
+    color: rgb(0 0 0);
+}
+
+.hljs-strong {
+    font-weight: bold;
+}
+
+.hljs-emphasis {
+    font-style: italic;
+}
+
+// Dark theme overrides
+.hljs-dark {
+    .hljs-comment,
+    .hljs-quote {
+        color: rgb(106 153 85);
+    }
+
+    .hljs-keyword,
+    .hljs-built_in {
+        color: rgb(86 156 214);
+    }
+
+    .hljs-tag {
+        color: rgb(78 201 176);
+    }
+
+    .hljs-title.class_,
+    .hljs-class .hljs-title {
+        color: rgb(78 201 176);
+    }
+
+    .hljs-literal,
+    .hljs-variable.constant_ {
+        color: rgb(100 102 149);
+    }
+
+    .hljs-number,
+    .hljs-addition {
+        color: rgb(181 206 168);
+    }
+
+    .hljs-selector-tag,
+    .hljs-selector-class {
+        color: rgb(215 186 125);
+    }
+
+    .hljs-attr,
+    .hljs-attribute,
+    .hljs-variable,
+    .hljs-template-variable {
+        color: rgb(156 220 254);
+    }
+
+    .hljs-string,
+    .hljs-deletion {
+        color: rgb(206 145 120);
+    }
+
+    .hljs-title,
+    .hljs-title.function_ {
+        color: rgb(220 220 170);
+    }
+
+    .hljs-operator,
+    .hljs-punctuation {
+        color: rgb(212 212 212);
+    }
+
+    .hljs-strong {
+        font-weight: bold;
+    }
+
+    .hljs-emphasis {
+        font-style: italic;
+    }
+
+    .hljs-meta {
+        color: rgb(0 0 128);
+    }
+}
+
 .CodeSnippet {
     position: relative;
     font-size: 0.875rem;

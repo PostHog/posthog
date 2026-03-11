@@ -2,8 +2,8 @@
 /**
  * Scaffolds YAML tool definitions from the OpenAPI schema.
  *
- * Discovers operations by matching URL paths containing /{product}/,
- * same approach as frontend/bin/generate-openapi-types.mjs.
+ * Discovers operations using x-explicit-tags (priority 1) and URL path
+ * substring matching (fallback), same approach as generate-openapi-types.mjs.
  *
  * Idempotent: re-running on an existing file only adds newly discovered
  * operations and removes stale ones. All hand-authored config is preserved.
@@ -19,7 +19,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 
-import { CategoryConfigSchema, type ToolConfig } from './yaml-config-schema'
+import { CategoryConfigSchema } from './yaml-config-schema'
 
 const MCP_ROOT = path.resolve(__dirname, '..')
 const REPO_ROOT = path.resolve(MCP_ROOT, '../..')
@@ -36,6 +36,8 @@ interface OpenApiOperation {
     parameters?: Array<{ in: string; name: string }>
     summary?: string
     description?: string
+    deprecated?: boolean
+    'x-explicit-tags'?: string[]
 }
 
 interface OpenApiSpec {
@@ -88,10 +90,41 @@ function operationIdToToolName(operationId: string): string {
 }
 
 /**
- * Find operations whose URL path contains /{product}/ — same approach
- * as frontend/bin/generate-openapi-types.mjs matchUrlToProduct().
+ * Find operations by x-explicit-tags — same priority-1 approach as
+ * frontend/bin/generate-openapi-types.mjs resolveTagToProduct().
+ * Tags are set via @extend_schema(tags=[...]) or auto-derived from
+ * the ViewSet module path (products/<name>/backend/ → tag "<name>").
  */
-function findOperationsByProduct(spec: OpenApiSpec, product: string): DiscoveredOperation[] {
+function findOperationsByTag(spec: OpenApiSpec, product: string): DiscoveredOperation[] {
+    const ops: DiscoveredOperation[] = []
+    const httpMethods = new Set(['get', 'post', 'put', 'patch', 'delete'])
+
+    for (const [urlPath, methods] of Object.entries(spec.paths)) {
+        for (const [method, op] of Object.entries(methods)) {
+            if (!httpMethods.has(method) || !op?.operationId || op.deprecated) {
+                continue
+            }
+            const tags = op['x-explicit-tags'] ?? []
+            if (tags.includes(product)) {
+                ops.push({
+                    operationId: op.operationId,
+                    method: method.toUpperCase(),
+                    path: urlPath,
+                    description: op.summary || op.description,
+                })
+            }
+        }
+    }
+
+    return ops
+}
+
+/**
+ * Find operations whose URL path contains /{product}/ — fallback when
+ * x-explicit-tags doesn't match, same as generate-openapi-types.mjs
+ * matchUrlToProduct().
+ */
+function findOperationsByUrl(spec: OpenApiSpec, product: string): DiscoveredOperation[] {
     const ops: DiscoveredOperation[] = []
     const httpMethods = new Set(['get', 'post', 'put', 'patch', 'delete'])
     const needle = `/${product}/`
@@ -102,7 +135,7 @@ function findOperationsByProduct(spec: OpenApiSpec, product: string): Discovered
         }
 
         for (const [method, op] of Object.entries(methods)) {
-            if (!httpMethods.has(method) || !op?.operationId) {
+            if (!httpMethods.has(method) || !op?.operationId || op.deprecated) {
                 continue
             }
 
@@ -118,6 +151,30 @@ function findOperationsByProduct(spec: OpenApiSpec, product: string): Discovered
     return ops
 }
 
+/**
+ * Find operations for a product. Uses the same priority as
+ * frontend/bin/generate-openapi-types.mjs:
+ * 1. x-explicit-tags match (covers ViewSets with @extend_schema(tags=[...])
+ *    and ViewSets in products/<name>/backend/)
+ * 2. URL path substring match (fallback for legacy endpoints)
+ */
+function findOperationsByProduct(spec: OpenApiSpec, product: string): DiscoveredOperation[] {
+    const byTag = findOperationsByTag(spec, product)
+    const byUrl = findOperationsByUrl(spec, product)
+
+    // Merge, preferring tag-matched ops and deduping by operationId
+    const seen = new Set(byTag.map((op) => op.operationId))
+    const merged = [...byTag]
+    for (const op of byUrl) {
+        if (!seen.has(op.operationId)) {
+            merged.push(op)
+            seen.add(op.operationId)
+        }
+    }
+
+    return merged
+}
+
 function findOperationsByPath(spec: OpenApiSpec, pathPrefix: string): DiscoveredOperation[] {
     const ops: DiscoveredOperation[] = []
     const httpMethods = new Set(['get', 'post', 'put', 'patch', 'delete'])
@@ -128,7 +185,7 @@ function findOperationsByPath(spec: OpenApiSpec, pathPrefix: string): Discovered
         }
 
         for (const [method, op] of Object.entries(methods)) {
-            if (!httpMethods.has(method) || !op?.operationId) {
+            if (!httpMethods.has(method) || !op?.operationId || op.deprecated) {
                 continue
             }
 
@@ -202,7 +259,8 @@ function generateFreshYaml(ops: DiscoveredOperation[], tag: string): string {
 function mergeWithExisting(
     existingPath: string,
     ops: DiscoveredOperation[],
-    tag: string
+    tag: string,
+    validOperationIds: Set<string>
 ): { content: string; added: number; removed: number } {
     const parsed = parseYaml(fs.readFileSync(existingPath, 'utf-8'))
     const result = CategoryConfigSchema.safeParse(parsed)
@@ -216,26 +274,32 @@ function mergeWithExisting(
     const existing = result.data
     const existingTools = existing.tools
 
-    // Map base operationId → existing tool entry (name + config)
-    // Uses base (strip _N suffix) so dedup changes don't lose existing config
-    const byBaseOperationId = new Map<string, { name: string; config: ToolConfig }>()
-    for (const [name, config] of Object.entries(existingTools)) {
-        const base = config.operation.replace(/_\d+$/, '')
-        byBaseOperationId.set(base, { name, config })
-    }
-
-    const openApiBaseIds = new Set(ops.map((op) => op.operationId.replace(/_\d+$/, '')))
+    const openApiByBase = new Map(ops.map((op) => [op.operationId.replace(/_\d+$/, ''), op]))
     const mergedTools: Record<string, unknown> = {}
     let added = 0
+    let removed = 0
 
-    // Add operations in OpenAPI order
+    // Preserve existing tool order and hand-authored operation values
+    for (const [name, config] of Object.entries(existingTools)) {
+        const base = config.operation.replace(/_\d+$/, '')
+        const op = openApiByBase.get(base)
+        if (op) {
+            // Keep the author's chosen operation variant if it still exists in
+            // OpenAPI — they may have picked a specific _N suffix deliberately
+            // (e.g. _2 for /api/projects/ path). Fall back to the deduped
+            // operationId when their variant was renumbered or removed.
+            const operation = validOperationIds.has(config.operation) ? config.operation : op.operationId
+            mergedTools[name] = { ...config, operation }
+        } else {
+            removed++
+        }
+    }
+
+    // Append new operations (not yet in YAML) at the end
+    const existingBaseIds = new Set(Object.values(existingTools).map((c) => c.operation.replace(/_\d+$/, '')))
     for (const op of ops) {
         const base = op.operationId.replace(/_\d+$/, '')
-        const existing = byBaseOperationId.get(base)
-        if (existing) {
-            // Preserve MCP-specific config, update operationId to the deduplicated one
-            mergedTools[existing.name] = { ...existing.config, operation: op.operationId }
-        } else {
+        if (!existingBaseIds.has(base)) {
             mergedTools[operationIdToToolName(op.operationId)] = {
                 operation: op.operationId,
                 enabled: false,
@@ -243,9 +307,6 @@ function mergeWithExisting(
             added++
         }
     }
-
-    // Count removed (in old YAML but not in OpenAPI anymore)
-    const removed = [...byBaseOperationId.keys()].filter((id) => !openApiBaseIds.has(id)).length
 
     const merged = {
         category: existing.category ?? tag.charAt(0).toUpperCase() + tag.slice(1),
@@ -324,7 +385,8 @@ function syncAll(spec: OpenApiSpec): void {
             process.stdout.write(`${product}: no operations found in OpenAPI, skipping\n`)
             continue
         }
-        const { content, added, removed } = mergeWithExisting(filePath, ops, product)
+        const validIds = new Set(rawOps.map((op) => op.operationId))
+        const { content, added, removed } = mergeWithExisting(filePath, ops, product, validIds)
         fs.writeFileSync(filePath, content)
         writtenFiles.push(filePath)
         const parts = [`${ops.length} operation(s)`]
@@ -370,8 +432,8 @@ function main(): void {
         console.error('       scaffold-yaml --path <prefix> [--output <file>]')
         console.error('       scaffold-yaml --sync-all')
         console.error('')
-        console.error('--product is a substring match: selects endpoints whose path contains /<name>/')
-        console.error('(hyphens normalized to underscores). Can be a product name or any path segment.')
+        console.error('--product discovers endpoints by x-explicit-tags first, then URL path fallback.')
+        console.error('Uses the product folder name (underscores), e.g. error_tracking, workflows.')
         process.exit(1)
     }
 
@@ -389,8 +451,10 @@ function main(): void {
         ? path.resolve(MCP_ROOT, outputPath)
         : path.join(DEFINITIONS_DIR, `${name.replace(/-/g, '_')}.yaml`)
 
+    const validIds = new Set(rawOps.map((op) => op.operationId))
+
     if (fs.existsSync(resolvedOutput)) {
-        const { content, added, removed } = mergeWithExisting(resolvedOutput, ops, name)
+        const { content, added, removed } = mergeWithExisting(resolvedOutput, ops, name, validIds)
         fs.writeFileSync(resolvedOutput, content)
         const parts = [`${ops.length} operation(s)`]
         if (added > 0) {

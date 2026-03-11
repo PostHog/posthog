@@ -7,7 +7,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from llm_gateway.api.handler import ANTHROPIC_CONFIG, handle_llm_request
+from llm_gateway.api.handler import ANTHROPIC_CONFIG, _sanitize_request_data, handle_llm_request
 from llm_gateway.config import get_settings
 from llm_gateway.dependencies import RateLimitedUser
 from llm_gateway.metrics.prometheus import REQUEST_COUNT, REQUEST_LATENCY
@@ -80,7 +80,7 @@ async def _handle_count_tokens(
             detail={"error": {"message": "Anthropic API key not configured", "type": "configuration_error"}},
         )
 
-    data = body.model_dump(exclude_none=True)
+    data = _sanitize_request_data(body.model_dump(exclude_none=True))
 
     headers = {
         "x-api-key": api_key,

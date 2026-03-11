@@ -7,6 +7,8 @@ import { objectsEqual } from 'lib/utils'
 import { HogFlowAction } from '../types'
 import type { batchTriggerLogicType } from './batchTriggerLogicType'
 
+export const BLAST_RADIUS_LIMIT = 5000
+
 export interface BatchTriggerLogicProps {
     id?: string | 'new'
     filters?: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
@@ -42,9 +44,7 @@ export const batchTriggerLogic = kea<batchTriggerLogicType>([
             actions.loadBlastRadius()
         }
     }),
-    afterMount(({ actions, props }) => {
-        if (props.filters?.properties && props.filters.properties.length > 0) {
-            actions.loadBlastRadius()
-        }
+    afterMount(({ actions }) => {
+        actions.loadBlastRadius()
     }),
 ])

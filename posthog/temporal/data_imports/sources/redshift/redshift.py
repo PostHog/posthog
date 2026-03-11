@@ -49,7 +49,7 @@ def filter_redshift_incremental_fields(
 
 
 def get_redshift_row_count(
-    host: str, port: int, database: str, user: str, password: str, schema: str
+    host: str, port: int, database: str, user: str, password: str, schema: str, names: list[str] | None = None
 ) -> dict[str, int]:
     """Get row counts for all tables in a Redshift schema."""
     connection = psycopg.connect(
@@ -72,20 +72,32 @@ def get_redshift_row_count(
                 sql.SQL("SET statement_timeout = {timeout}").format(timeout=sql.Literal(1000 * 30))  # 30 secs
             )
 
+            params: dict = {"schema": schema}
+            names_filter = ""
+            if names:
+                params["names"] = names
+                names_filter = 'AND "table" = ANY(%(names)s)'
+
             cursor.execute(
-                """
+                f"""
                 SELECT "table" AS table_name, tbl_rows AS row_count
                 FROM svv_table_info
-                WHERE schema = %(schema)s
+                WHERE schema = %(schema)s {names_filter}
                 """,
-                {"schema": schema},
+                params,
             )
             row_count_result = cursor.fetchall()
             row_counts = {row[0]: int(row[1]) for row in row_count_result}
 
+            views_params: dict = {"schema": schema}
+            views_names_filter = ""
+            if names is not None:
+                views_params["names"] = names
+                views_names_filter = "AND viewname = ANY(%(names)s)"
+
             cursor.execute(
-                "SELECT viewname FROM pg_views WHERE schemaname = %(schema)s",
-                {"schema": schema},
+                f"SELECT viewname FROM pg_views WHERE schemaname = %(schema)s {views_names_filter}",
+                views_params,
             )
             views = cursor.fetchall()
 
@@ -110,7 +122,7 @@ def get_redshift_row_count(
 
 
 def get_schemas(
-    host: str, database: str, user: str, password: str, schema: str, port: int
+    host: str, database: str, user: str, password: str, schema: str, port: int, names: list[str] | None = None
 ) -> dict[str, list[tuple[str, str, bool]]]:
     """Get all tables from Redshift source schemas to sync."""
     connection = psycopg.connect(
@@ -128,14 +140,20 @@ def get_schemas(
     )
 
     with connection.cursor() as cursor:
+        params: dict = {"schema": schema}
+        names_filter = ""
+        if names:
+            params["names"] = names
+            names_filter = "AND table_name = ANY(%(names)s)"
+
         cursor.execute(
-            """
+            f"""
             SELECT table_name, column_name, data_type, is_nullable
             FROM information_schema.columns
-            WHERE table_schema = %(schema)s
+            WHERE table_schema = %(schema)s {names_filter}
             ORDER BY table_name ASC
             """,
-            {"schema": schema},
+            params,
         )
         result = cursor.fetchall()
 

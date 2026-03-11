@@ -353,7 +353,12 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         has_message = serializer.validated_data.get("message") is not None
         has_resume_payload = serializer.validated_data.get("resume_payload") is not None
         if conversation.type == Conversation.Type.DEEP_RESEARCH:
-            is_research = True
+            if not is_new_conversation and is_idle and has_message and not has_resume_payload:
+                conversation.type = Conversation.Type.ASSISTANT
+                conversation.save(update_fields=["type", "updated_at"])
+                is_research = False
+            else:
+                is_research = True
 
         if has_message and not is_idle:
             raise Conflict("Cannot resume streaming with a new message")

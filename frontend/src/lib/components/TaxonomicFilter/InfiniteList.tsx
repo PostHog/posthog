@@ -471,6 +471,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
         value,
         taxonomicGroups,
         selectedProperties,
+        selectedItemMeta,
         dataWarehousePopoverFields,
     } = useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
@@ -585,6 +586,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                     logic={definitionPopoverLogic}
                     props={{
                         type: selectedItemGroup.type,
+                        selectedItemMeta,
                         updateRemoteItem,
                     }}
                 >
