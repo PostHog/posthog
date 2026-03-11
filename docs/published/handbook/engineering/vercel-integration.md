@@ -404,9 +404,9 @@ sequenceDiagram
         Billing->>Billing: Queue final invoice submission\nto Vercel (Celery task with\nbilling_provider passed as arg)
         Billing->>Billing: Reset billing_provider to "posthog"
         Billing-->>BM: {success: true}
+        BM-->>PH: success
+        PH->>PH: Delete OrganizationIntegration
     end
-
-    PH->>PH: Delete OrganizationIntegration
 ```
 
 **Critical detail:** The final invoice Celery task receives `billing_provider` as an explicit string argument at queue time (when it's still `"vercel"`). It does NOT read `customer.billing_provider` at execution time. This is why the reset to `"posthog"` doesn't break final invoice submission.
