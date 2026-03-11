@@ -528,35 +528,48 @@ func (m Model) renderHeader() string {
 	}
 	meta := headerMetaStyle.Render(fmt.Sprintf("%d running  ", running))
 
-	avail := m.width - lipgloss.Width(brand) - lipgloss.Width(meta)
-
 	if m.copyMode {
 		if p := m.activeProc(); p != nil {
 			label := lipgloss.NewStyle().
-				Background(colorOrange).
 				Foreground(colorWhite).
 				Bold(true).
 				Render(p.Name)
+			blue := lipgloss.NewStyle().Background(colorHeaderBlue).Render(" ")
+			yellow := lipgloss.NewStyle().Background(colorHeaderYellow).Render(" ")
+			red := lipgloss.NewStyle().Background(colorHeaderRed).Render(" ")
+			black := lipgloss.NewStyle().Background(colorHeaderBlack).Render(" ")
+			stripes := blue + yellow + red + black
+			stripesW := lipgloss.Width(stripes)
+
 			labelW := lipgloss.Width(label)
-			leftGap := (avail - labelW) / 2
+			innerW := m.width - stripesW - lipgloss.Width(brand) - lipgloss.Width(meta)
+			leftGap := (innerW - labelW) / 2
 			if leftGap < 0 {
 				leftGap = 0
 			}
-			rightGap := avail - labelW - leftGap
+			rightGap := innerW - labelW - leftGap
 			if rightGap < 0 {
 				rightGap = 0
 			}
-			left := headerMetaStyle.Width(leftGap).Render("")
-			right := headerMetaStyle.Width(rightGap).Render("")
-			return lipgloss.JoinHorizontal(lipgloss.Top, brand, left, label, right, meta)
+			left := lipgloss.NewStyle().Width(leftGap).Render("")
+			right := lipgloss.NewStyle().Width(rightGap).Render("")
+			return lipgloss.JoinHorizontal(lipgloss.Top, stripes, brand, left, label, right, meta)
 		}
 	}
 
-	if avail < 0 {
-		avail = 0
+	// Slim PostHog brand stripes + text with no background
+	blue := lipgloss.NewStyle().Background(colorHeaderBlue).Render(" ")
+	yellow := lipgloss.NewStyle().Background(colorHeaderYellow).Render(" ")
+	red := lipgloss.NewStyle().Background(colorHeaderRed).Render(" ")
+	black := lipgloss.NewStyle().Background(colorHeaderBlack).Render(" ")
+	stripes := blue + yellow + red + black
+
+	spacerW := m.width - lipgloss.Width(stripes) - lipgloss.Width(brand) - lipgloss.Width(meta)
+	if spacerW < 0 {
+		spacerW = 0
 	}
-	spacer := headerMetaStyle.Width(avail).Render("")
-	return lipgloss.JoinHorizontal(lipgloss.Top, brand, spacer, meta)
+	spacer := lipgloss.NewStyle().Width(spacerW).Render("")
+	return lipgloss.JoinHorizontal(lipgloss.Top, stripes, brand, spacer, meta)
 }
 
 func (m Model) renderSidebar() string {

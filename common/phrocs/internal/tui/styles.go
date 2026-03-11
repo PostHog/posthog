@@ -26,17 +26,23 @@ var (
 // Outer width of the process list column (including border)
 const sidebarWidth = 24
 
+// PostHog brand gradient colors for the header bar
+var (
+	colorHeaderBlue   = lipgloss.Color("#1D4AFF")
+	colorHeaderYellow = lipgloss.Color("#F7A501")
+	colorHeaderRed    = lipgloss.Color("#F54E00")
+	colorHeaderBlack  = lipgloss.Color("#151515")
+)
+
 var (
 	// Header
 	headerBrandStyle = lipgloss.NewStyle().
-				Background(colorOrange).
 				Foreground(colorWhite).
 				Bold(true).
 				Padding(0, 1)
 
 	headerMetaStyle = lipgloss.NewStyle().
-			Background(colorOrange).
-			Foreground(lipgloss.Color("#FFD0BD")).
+			Foreground(colorGrey).
 			Padding(0, 1)
 
 	// Sidebar
