@@ -147,19 +147,19 @@ def get_rows(
         if not items:
             break
 
-        for item in items:
-            batcher.batch(_flatten_item(item))
-
-        # Get next page URL before yielding
+        # Get next page URL before iterating items
         links = data.get("links", {})
         next_url = links.get("next")
 
-        if batcher.should_yield():
-            py_table = batcher.get_table()
-            yield py_table
+        for item in items:
+            batcher.batch(_flatten_item(item))
 
-            if next_url:
-                resumable_source_manager.save_state(KlaviyoResumeConfig(next_url=next_url))
+            if batcher.should_yield():
+                py_table = batcher.get_table()
+                yield py_table
+
+                if next_url:
+                    resumable_source_manager.save_state(KlaviyoResumeConfig(next_url=next_url))
 
         if not next_url:
             break
