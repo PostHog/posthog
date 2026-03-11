@@ -13,7 +13,7 @@ on:
                 description: ClickHouse server version. Leave blank for default
                 type: string
             clickhouseCompatShards:
-                description: Number of shards per ClickHouse compat version. Leave blank for default (2)
+                description: Number of shards per ClickHouse compat version. Leave blank for default
                 type: string
     pull_request:
     merge_group:
@@ -30,7 +30,7 @@ env:
     CLICKHOUSE_VERIFY: 'False'
     TEST: 1
     CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
-    CLICKHOUSE_COMPAT_SHARDS: ${{ github.event.inputs.clickhouseCompatShards || '2' }}
+    CLICKHOUSE_COMPAT_SHARDS: ${{ github.event.inputs.clickhouseCompatShards || '1' }}
     CLICKHOUSE_COMPAT_PYTEST_TARGETS: 'posthog/clickhouse ee/clickhouse'
     OBJECT_STORAGE_ENABLED: 'True'
     OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
@@ -1362,7 +1362,11 @@ jobs:
             - name: Read ClickHouse versions from JSON
               id: read-versions
               run: |
-                  compat_shards="${CLICKHOUSE_COMPAT_SHARDS:-1}"
+                  if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+                    compat_shards="${CLICKHOUSE_COMPAT_SHARDS:-1}"
+                  else
+                    compat_shards="2"
+                  fi
                   if ! [[ "$compat_shards" =~ ^[1-9][0-9]*$ ]]; then
                     echo "::error::CLICKHOUSE_COMPAT_SHARDS must be a positive integer, got '$compat_shards'"
                     exit 1
