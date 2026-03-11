@@ -15990,6 +15990,7 @@ export namespace Schemas {
     /**
      * * `posthog` - posthog
     * `twig` - twig
+    * `posthog-code` - posthog-code
      */
     export type InstallSourceEnum = typeof InstallSourceEnum[keyof typeof InstallSourceEnum];
 
@@ -15997,6 +15998,7 @@ export namespace Schemas {
     export const InstallSourceEnum = {
       Posthog: 'posthog',
       Twig: 'twig',
+      PosthogCode: 'posthog-code',
     } as const;
 
     export interface InstallCustom {
@@ -27896,6 +27898,7 @@ export namespace Schemas {
     /**
      * * `posthog` - posthog
     * `twig` - twig
+    * `posthog-code` - posthog-code
      * @minLength 1
      */
     install_source?: McpServerInstallationsAuthorizeRetrieveInstallSource;
@@ -27909,6 +27912,7 @@ export namespace Schemas {
     export const McpServerInstallationsAuthorizeRetrieveInstallSource = {
       Posthog: 'posthog',
       Twig: 'twig',
+      PosthogCode: 'posthog-code',
     } as const;
 
     export type McpServersListParams = {

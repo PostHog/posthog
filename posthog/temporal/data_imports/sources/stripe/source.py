@@ -178,8 +178,10 @@ These permissions are automatically pre-filled in the API key creation form if y
             "PermissionError": "Your API key does not have permissions to access endpoint. Please check your API key configuration and permissions in Stripe, then try again.",
         }
 
-    def get_schemas(self, config: StripeSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
-        return [
+    def get_schemas(
+        self, config: StripeSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
+        schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=_is_webhook_feature_flag_enabled(team_id)
@@ -190,6 +192,10 @@ These permissions are automatically pre-filled in the API key creation form if y
             )
             for endpoint in STRIPE_ENDPOINTS
         ]
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+        return schemas
 
     def validate_credentials(
         self, config: StripeSourceConfig, team_id: int, schema_name: Optional[str] = None

@@ -85,7 +85,8 @@ export class CdpApi {
         this.emailTrackingService = new EmailTrackingService(
             this.hogFunctionManager,
             this.hogFlowManager,
-            this.hogFunctionMonitoringService
+            this.hogFunctionMonitoringService,
+            services.recipientsManager
         )
         this.batchExportHogFunctionService = new BatchExportHogFunctionService(
             config.SITE_URL,
