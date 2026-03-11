@@ -42,6 +42,8 @@ def _extract_posthog_flags_from_headers(request: Request) -> dict[str, str]:
     return _extract_headers_with_prefix(request, POSTHOG_FLAG_PREFIX)
 
 
+# Implemented as a proxy for Anthropic models right now.
+# If you want other Bedrock models, adjust the logic below.
 async def _handle_bedrock_messages(
     body: AnthropicMessagesRequest,
     user: RateLimitedUser,
