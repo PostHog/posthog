@@ -1603,7 +1603,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         path: 'Tracing',
         intents: [ProductKey.TRACING],
         category: 'Unreleased',
-        iconType: 'tracing' as FileSystemIconType,
+        iconType: 'tracing',
         iconColor: ['var(--color-product-tracing-light)'] as FileSystemIconColor,
         href: urls.tracing(),
         flag: FEATURE_FLAGS.TRACING,

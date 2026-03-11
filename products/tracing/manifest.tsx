@@ -1,7 +1,7 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { FileSystemIconColor, ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
@@ -32,7 +32,7 @@ export const manifest: ProductManifest = {
             path: 'Tracing',
             intents: [ProductKey.TRACING],
             category: 'Unreleased',
-            iconType: 'tracing' as FileSystemIconType,
+            iconType: 'tracing',
             iconColor: ['var(--color-product-tracing-light)'] as FileSystemIconColor,
             href: urls.tracing(),
             flag: FEATURE_FLAGS.TRACING,
