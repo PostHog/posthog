@@ -7,6 +7,7 @@ import type { Experiment, FeatureFlagType } from '~/types'
 import { NEW_EXPERIMENT } from '../constants'
 import { createExperimentLogic } from '../ExperimentForm/createExperimentLogic'
 import { selectExistingFeatureFlagModalLogic } from '../ExperimentForm/selectExistingFeatureFlagModalLogic'
+import type { FeatureFlagKeyValidation } from '../ExperimentForm/variantsPanelLogic'
 import { variantsPanelLogic } from '../ExperimentForm/variantsPanelLogic'
 import type { experimentWizardLogicType } from './experimentWizardLogicType'
 
@@ -162,7 +163,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             (s) => [s.experiment, s.featureFlagKeyValidation, s.linkedFeatureFlag, s.departedSteps],
             (
                 experiment: Experiment,
-                featureFlagKeyValidation: { valid: boolean; error: string | null } | null,
+                featureFlagKeyValidation: FeatureFlagKeyValidation | null,
                 linkedFeatureFlag: FeatureFlagType | null,
                 departedSteps: Record<string, boolean>
             ): Record<ExperimentWizardStep, string[]> => {
