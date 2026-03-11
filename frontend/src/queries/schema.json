@@ -11404,6 +11404,10 @@
         "DatabaseSchemaQuery": {
             "additionalProperties": false,
             "properties": {
+                "connectionId": {
+                    "description": "Optional direct external data source id for schema introspection",
+                    "type": "string"
+                },
                 "kind": {
                     "const": "DatabaseSchemaQuery",
                     "type": "string"
@@ -11473,6 +11477,9 @@
         "DatabaseSchemaSource": {
             "additionalProperties": false,
             "properties": {
+                "access_method": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -17410,6 +17417,10 @@
         "HogQLAutocomplete": {
             "additionalProperties": false,
             "properties": {
+                "connectionId": {
+                    "description": "Optional direct external data source id for running against a specific source",
+                    "type": "string"
+                },
                 "endPosition": {
                     "$ref": "#/definitions/integer",
                     "description": "End position of the editor word"
@@ -17513,6 +17524,10 @@
         "HogQLMetadata": {
             "additionalProperties": false,
             "properties": {
+                "connectionId": {
+                    "description": "Optional direct external data source id for running against a specific source",
+                    "type": "string"
+                },
                 "debug": {
                     "description": "Enable more verbose output, usually run from the /debug page",
                     "type": "boolean"

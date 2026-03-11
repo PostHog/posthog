@@ -104,7 +104,7 @@ def _is_https(url: str) -> bool:
 def _is_valid_twig_callback_url(url: str) -> bool:
     """Validate that a Twig callback URL is safe to redirect to (prevents open redirect)."""
     parsed = urlparse(url)
-    if parsed.scheme in ("array", "twig"):
+    if parsed.scheme in ("array", "twig", "posthog-code"):
         return True
     if is_dev_mode() and parsed.scheme == "http" and parsed.hostname == "localhost":
         return True
@@ -199,7 +199,9 @@ class InstallCustomSerializer(serializers.Serializer):
     api_key = serializers.CharField(required=False, allow_blank=True, default="")
     description = serializers.CharField(required=False, allow_blank=True, default="")
     oauth_provider_kind = serializers.CharField(required=False, allow_blank=True, default="")
-    install_source = serializers.ChoiceField(choices=["posthog", "twig"], required=False, default="posthog")
+    install_source = serializers.ChoiceField(
+        choices=["posthog", "twig", "posthog-code"], required=False, default="posthog"
+    )
     twig_callback_url = serializers.CharField(required=False, allow_blank=True, default="")
 
     def validate_url(self, value: str) -> str:
@@ -216,7 +218,9 @@ class InstallCustomSerializer(serializers.Serializer):
 
 class AuthorizeQuerySerializer(serializers.Serializer):
     server_id = serializers.UUIDField(required=True)
-    install_source = serializers.ChoiceField(choices=["posthog", "twig"], required=False, default="posthog")
+    install_source = serializers.ChoiceField(
+        choices=["posthog", "twig", "posthog-code"], required=False, default="posthog"
+    )
     twig_callback_url = serializers.CharField(required=False, allow_blank=True, default="")
 
 
@@ -834,7 +838,7 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
         error: str | None = None,
         twig_callback_url: str = "",
     ) -> HttpResponse:
-        if install_source == "twig" and twig_callback_url:
+        if install_source in ["twig", "posthog-code"] and twig_callback_url:
             params = {"status": "error", "error": error} if error else {"status": "success"}
             separator = "&" if "?" in twig_callback_url else "?"
             redirect_url = f"{twig_callback_url}{separator}{urlencode(params)}"
