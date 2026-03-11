@@ -1986,6 +1986,9 @@ class GithubIssueSignalInput(BaseModel):
     source_product: Literal["github"] = "github"
     source_type: Literal["issue"] = "issue"
     weight: float
+    source_product__source_type: Literal["GithubIssueSignalInput"] = Field(
+        "GithubIssueSignalInput", alias="source_product, source_type"
+    )
 
 
 class Position(StrEnum):
@@ -2345,6 +2348,9 @@ class LinearIssueSignalInput(BaseModel):
     source_product: Literal["linear"] = "linear"
     source_type: Literal["issue"] = "issue"
     weight: float
+    source_product__source_type: Literal["LinearIssueSignalInput"] = Field(
+        "LinearIssueSignalInput", alias="source_product, source_type"
+    )
 
 
 class LinkedinAdsDefaultSources(StrEnum):
@@ -2382,6 +2388,9 @@ class LlmEvaluationSignalInput(BaseModel):
     source_product: Literal["llm_analytics"] = "llm_analytics"
     source_type: Literal["evaluation"] = "evaluation"
     weight: float
+    source_product__source_type: Literal["LlmEvaluationSignalInput"] = Field(
+        "LlmEvaluationSignalInput", alias="source_product, source_type"
+    )
 
 
 class LoadingBlock(BaseModel):
@@ -3744,6 +3753,43 @@ class SessionEventsItem(BaseModel):
     session_id: str = Field(..., description="Session ID these events belong to")
 
 
+class ProblemType(StrEnum):
+    CONFUSION = "confusion"
+    ABANDONMENT = "abandonment"
+    BLOCKING_EXCEPTION = "blocking_exception"
+    NON_BLOCKING_EXCEPTION = "non_blocking_exception"
+    FAILURE = "failure"
+
+
+class SessionProblemSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    distinct_id: str
+    end_time: str
+    problem_type: ProblemType
+    segment_title: str
+    session_end_time: str | None = None
+    session_id: str
+    session_start_time: str | None = None
+    start_time: str
+
+
+class SessionProblemSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: SessionProblemSignalExtra
+    source_id: str
+    source_product: Literal["session_replay"] = "session_replay"
+    source_type: Literal["session_problem"] = "session_problem"
+    weight: float
+    source_product__source_type: Literal["SessionProblemSignalInput"] = Field(
+        "SessionProblemSignalInput", alias="source_product, source_type"
+    )
+
+
 class SessionPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3832,6 +3878,9 @@ class SessionSegmentClusterSignalInput(BaseModel):
     source_product: Literal["session_replay"] = "session_replay"
     source_type: Literal["session_segment_cluster"] = "session_segment_cluster"
     weight: float
+    source_product__source_type: Literal["SessionSegmentClusterSignalInput"] = Field(
+        "SessionSegmentClusterSignalInput", alias="source_product, source_type"
+    )
 
 
 class SharingConfigurationSettings(BaseModel):
@@ -4520,6 +4569,9 @@ class ZendeskTicketSignalInput(BaseModel):
     source_product: Literal["zendesk"] = "zendesk"
     source_type: Literal["ticket"] = "ticket"
     weight: float
+    source_product__source_type: Literal["ZendeskTicketSignalInput"] = Field(
+        "ZendeskTicketSignalInput", alias="source_product, source_type"
+    )
 
 
 class Integer(RootModel[int]):
@@ -6790,7 +6842,8 @@ class SessionsTimelineQueryResponse(BaseModel):
 
 class SignalInput(
     RootModel[
-        SessionSegmentClusterSignalInput
+        SessionProblemSignalInput
+        | SessionSegmentClusterSignalInput
         | LlmEvaluationSignalInput
         | ZendeskTicketSignalInput
         | GithubIssueSignalInput
@@ -6798,12 +6851,13 @@ class SignalInput(
     ]
 ):
     root: (
-        SessionSegmentClusterSignalInput
+        SessionProblemSignalInput
+        | SessionSegmentClusterSignalInput
         | LlmEvaluationSignalInput
         | ZendeskTicketSignalInput
         | GithubIssueSignalInput
         | LinearIssueSignalInput
-    ) = Field(..., discriminator="source_product")
+    ) = Field(..., discriminator="source_product__source_type")
 
 
 class SourceFieldFileUploadConfig(BaseModel):
