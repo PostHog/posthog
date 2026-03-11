@@ -224,6 +224,11 @@ export function DashboardItems(): JSX.Element {
                                 : undefined,
                             onDragHandleMouseDown: canEnterEditModeFromEdge
                                 ? (e: React.MouseEvent) => {
+                                      if (
+                                          (e.target as Element).closest('a, button, input, [role="button"], .Popover')
+                                      ) {
+                                          return
+                                      }
                                       e.preventDefault()
                                       e.stopPropagation()
                                       setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardDragHandle)
