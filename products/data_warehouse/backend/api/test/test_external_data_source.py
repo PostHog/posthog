@@ -777,6 +777,49 @@ class TestExternalDataSource(APIBaseTest):
             1,
         )
 
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_restores_deleted_schema_instead_of_creating_duplicate(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="restored_table",
+                supports_incremental=False,
+                supports_append=False,
+            ),
+        ]
+        source = self._create_external_data_source()
+        deleted_schema = ExternalDataSchema.objects.create(
+            name="restored_table",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            should_sync=True,
+            deleted=True,
+            sync_type_config={"legacy_key": "keep"},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["added"], 1)
+        self.assertEqual(response.json()["deleted"], 0)
+        self.assertEqual(
+            ExternalDataSchema.objects.filter(
+                team_id=self.team.pk, source_id=source.pk, name="restored_table", deleted=False
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, name="restored_table").count(),
+            1,
+        )
+
+        restored_schema = ExternalDataSchema.objects.get(pk=deleted_schema.pk)
+        self.assertFalse(restored_schema.deleted)
+        self.assertFalse(restored_schema.should_sync)
+        self.assertEqual(restored_schema.sync_type_config.get("legacy_key"), "keep")
+
     def test_refresh_schemas_returns_400_when_no_job_inputs(self):
         source = self._create_external_data_source()
         source.job_inputs = None
