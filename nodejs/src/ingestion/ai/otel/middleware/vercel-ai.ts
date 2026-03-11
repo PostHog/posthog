@@ -45,6 +45,9 @@ function process(event: PluginEvent, next: () => void): void {
     }
     const props = event.properties
 
+    // Capture opId before next() since STRIP_KEYS deletes it afterward
+    const opId = props['ai.operationId']
+
     // Map ai.prompt.messages → gen_ai.input.messages before the standard mapping
     // runs, so mapOtelAttributes() picks it up as $ai_input.
     if (props['ai.prompt.messages'] !== undefined && props['gen_ai.input.messages'] === undefined) {
@@ -53,17 +56,17 @@ function process(event: PluginEvent, next: () => void): void {
     delete props['ai.prompt.messages']
 
     // Build gen_ai.output.messages from ai.response.text so mapOtelAttributes()
-    // maps it to $ai_output_choices.
+    // maps it to $ai_output_choices. We pass the array directly since
+    // mapOtelAttributes only parses string values.
     if (props['ai.response.text'] !== undefined && props['gen_ai.output.messages'] === undefined) {
         const text = props['ai.response.text']
-        props['gen_ai.output.messages'] = JSON.stringify([{ role: 'assistant', content: text }])
+        props['gen_ai.output.messages'] = [{ role: 'assistant', content: text }]
     }
     delete props['ai.response.text']
 
     next()
 
     // For trace-level spans (top-level generateText/streamText), set input/output state
-    const opId = props['ai.operationId']
     const isTopLevel =
         event.event === '$ai_trace' ||
         (typeof opId === 'string' &&
