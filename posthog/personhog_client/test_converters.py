@@ -147,6 +147,7 @@ def _make_proto_person(**kwargs) -> SimpleNamespace:
         "version": 0,
         "is_identified": False,
         "is_user_id": False,
+        "last_seen_at": 0,
     }
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
@@ -164,6 +165,7 @@ class TestProtoPersonToModel:
                     "properties": json.dumps({"email": "test@example.com", "name": "Test"}).encode(),
                     "created_at": 1700000000,
                     "is_identified": True,
+                    "last_seen_at": 1700000000000,
                 },
                 None,
             ),
@@ -203,6 +205,11 @@ class TestProtoPersonToModel:
         else:
             # When proto has no created_at, we fall back to now() since the Django field is non-nullable
             assert isinstance(person.created_at, datetime)
+
+        if proto_kwargs.get("last_seen_at"):
+            assert person.last_seen_at == datetime.fromtimestamp(proto_kwargs["last_seen_at"] / 1000, tz=UTC)
+        else:
+            assert person.last_seen_at is None
 
         if distinct_ids is not None:
             assert person.distinct_ids == distinct_ids
