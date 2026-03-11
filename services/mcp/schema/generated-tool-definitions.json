@@ -209,6 +209,81 @@
             "readOnlyHint": false
         }
     },
+    "evaluations-list": {
+        "description": "List all LLM Analytics evaluations in the project. Evaluations automatically score AI generations for quality, safety, relevance, and other criteria. Two types exist: \"llm_judge\" (sends each generation to an LLM with a scoring prompt) and \"hog\" (runs deterministic Hog code).\nResults are stored as $ai_evaluation events with properties: $ai_evaluation_id, $ai_evaluation_name, $ai_evaluation_type (\"online\" or \"offline\"), $ai_evaluation_runtime (\"llm_judge\" or \"hog\"), $ai_evaluation_result (boolean), $ai_evaluation_reasoning, $ai_evaluation_applicable, $ai_target_event_id, $ai_trace_id.",
+        "category": "LLM Analytics Evaluations",
+        "feature": "llm_analytics",
+        "summary": "List evaluations",
+        "title": "List evaluations",
+        "required_scopes": ["evaluation:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "evaluations-create": {
+        "description": "Create a new LLM Analytics evaluation. For \"llm_judge\" type, provide a prompt in evaluation_config and a model_configuration. For \"hog\" type, provide Hog source code in evaluation_config.source. Evaluations are disabled by default — use evaluations-partial-update to enable.",
+        "category": "LLM Analytics Evaluations",
+        "feature": "llm_analytics",
+        "summary": "Create evaluation",
+        "title": "Create evaluation",
+        "required_scopes": ["evaluation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "evaluations-retrieve": {
+        "description": "Get a specific evaluation by ID. Returns the full evaluation configuration including type, config, output settings, and model configuration.",
+        "category": "LLM Analytics Evaluations",
+        "feature": "llm_analytics",
+        "summary": "Get evaluation",
+        "title": "Get evaluation",
+        "required_scopes": ["evaluation:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "evaluations-partial-update": {
+        "description": "Update an evaluation. Can change name, description, enabled status, evaluation config, output config, or model configuration. Use {\"enabled\": true} to start scoring new generations. Use {\"deleted\": true} to soft-delete an evaluation.",
+        "category": "LLM Analytics Evaluations",
+        "feature": "llm_analytics",
+        "summary": "Update evaluation",
+        "title": "Update evaluation",
+        "required_scopes": ["evaluation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "evaluation-run": {
+        "description": "Trigger an async evaluation run on a specific generation event. Starts a Temporal workflow and returns immediately with a workflow ID. Requires evaluation_id, target_event_id, and timestamp (ISO 8601, needed for ClickHouse index lookup). The event field defaults to \"$ai_generation\".",
+        "category": "LLM Analytics Evaluations",
+        "feature": "llm_analytics",
+        "summary": "Run evaluation on a generation",
+        "title": "Run evaluation on a generation",
+        "required_scopes": ["evaluation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "workflows-list": {
         "description": "List all workflows in the project. Returns workflows with their name, description, status (draft/active/archived), version, trigger configuration, and timestamps.",
         "category": "Workflows",

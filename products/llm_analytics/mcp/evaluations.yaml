@@ -1,0 +1,94 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: LLM Analytics Evaluations
+feature: llm_analytics
+url_prefix: /evaluations
+tools:
+    evaluations-list:
+        operation: evaluations_list
+        enabled: true
+        scopes:
+            - evaluation:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List evaluations
+        description: >
+            List all LLM Analytics evaluations in the project. Evaluations automatically score AI generations for
+            quality, safety, relevance, and other criteria. Two types exist: "llm_judge" (sends each generation to an
+            LLM with a scoring prompt) and "hog" (runs deterministic Hog code).
+
+            Results are stored as $ai_evaluation events with properties: $ai_evaluation_id, $ai_evaluation_name,
+            $ai_evaluation_type ("online" or "offline"), $ai_evaluation_runtime ("llm_judge" or "hog"),
+            $ai_evaluation_result (boolean), $ai_evaluation_reasoning, $ai_evaluation_applicable, $ai_target_event_id,
+            $ai_trace_id.
+        include_params:
+            - search
+            - limit
+            - offset
+        mcp_version: 1
+    evaluations-create:
+        operation: evaluations_create
+        enabled: true
+        scopes:
+            - evaluation:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Create evaluation
+        description: >
+            Create a new LLM Analytics evaluation. For "llm_judge" type, provide a prompt in evaluation_config and a
+            model_configuration. For "hog" type, provide Hog source code in evaluation_config.source. Evaluations are
+            disabled by default — use evaluations-partial-update to enable.
+        param_overrides:
+            name:
+                description: Name of the evaluation (must be unique within the project, max 400 chars)
+            evaluation_type:
+                description: >
+                    Type of evaluation. "llm_judge" uses an LLM to score generations against a prompt. "hog" runs
+                    deterministic Hog code against each generation.
+    evaluations-retrieve:
+        operation: evaluations_retrieve
+        enabled: true
+        scopes:
+            - evaluation:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get evaluation
+        description: >
+            Get a specific evaluation by ID. Returns the full evaluation configuration including type, config, output
+            settings, and model configuration.
+        mcp_version: 1
+    evaluations-update:
+        operation: evaluations_update
+        enabled: false
+    evaluations-partial-update:
+        operation: evaluations_partial_update
+        enabled: true
+        scopes:
+            - evaluation:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update evaluation
+        description: >
+            Update an evaluation. Can change name, description, enabled status, evaluation config, output config, or
+            model configuration. Use {"enabled": true} to start scoring new generations. Use {"deleted": true} to
+            soft-delete an evaluation.
+    evaluations-destroy:
+        operation: evaluations_destroy
+        enabled: false
+    evaluations-test-hog-create:
+        operation: evaluations_test_hog_create
+        enabled: false
