@@ -732,7 +732,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
             mentioning_slack_user_id="U123",
         )
 
-        integration = Integration.objects.create(team=self.team, kind="slack-twig", integration_id="T_SLACK", config={})
         SlackThreadTaskMapping.objects.create(
             team=self.team,
             integration=integration,

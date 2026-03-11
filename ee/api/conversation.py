@@ -407,7 +407,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                 start_id = _get_latest_stream_id(run_id)
 
                 try:
-                    task_run = TaskRun.objects.select_related("task").get(id=run_id)
+                    task_run = TaskRun.objects.select_related("task").get(id=run_id, team=self.team)
                 except TaskRun.DoesNotExist:
                     raise exceptions.ValidationError("Sandbox session no longer exists.")
 
@@ -451,10 +451,14 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                     )
                     return StreamingHttpResponse(
                         (
-                            _sandbox_stream(conv_data, run_id, start_id, str(conversation_id), content)
+                            _sandbox_stream(
+                                conv_data, run_id, start_id, str(conversation_id), content, team_id=self.team.id
+                            )
                             if settings.SERVER_GATEWAY_INTERFACE == "ASGI"
                             else async_to_sync(
-                                lambda: _sandbox_stream(conv_data, run_id, start_id, str(conversation_id), content)
+                                lambda: _sandbox_stream(
+                                    conv_data, run_id, start_id, str(conversation_id), content, team_id=self.team.id
+                                )
                             )
                         ),
                         content_type="text/event-stream",
@@ -464,7 +468,11 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                 try:
                     client = sync_connect()
                     handle = client.get_workflow_handle(task_run.workflow_id)
-                    async_to_sync(handle.signal)(ProcessTaskWorkflow.send_followup_message, content)
+
+                    async def _send_signal():
+                        await handle.signal(ProcessTaskWorkflow.send_followup_message, content)
+
+                    asgi_async_to_sync(_send_signal)()
                 except Exception as e:
                     logger.warning(
                         "sandbox_followup_signal_failed",
@@ -489,9 +497,10 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                 except ValueError as e:
                     raise exceptions.ValidationError(str(e))
 
-                task_run = task.latest_run
-                if not task_run:
+                task_run_or_none = task.latest_run
+                if not task_run_or_none:
                     raise exceptions.ValidationError("Failed to create sandbox task run.")
+                task_run = task_run_or_none
 
                 run_id = str(task_run.id)
                 set_sandbox_mapping(str(conversation_id), str(task.id), run_id)
@@ -513,10 +522,12 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             )
             return StreamingHttpResponse(
                 (
-                    _sandbox_stream(conv_data, run_id, start_id, str(conversation_id), content)
+                    _sandbox_stream(conv_data, run_id, start_id, str(conversation_id), content, team_id=self.team.id)
                     if settings.SERVER_GATEWAY_INTERFACE == "ASGI"
                     else async_to_sync(
-                        lambda: _sandbox_stream(conv_data, run_id, start_id, str(conversation_id), content)
+                        lambda: _sandbox_stream(
+                            conv_data, run_id, start_id, str(conversation_id), content, team_id=self.team.id
+                        )
                     )
                 ),
                 content_type="text/event-stream",
@@ -764,6 +775,7 @@ async def _sandbox_stream(
     start_id: str = "0",
     conversation_id: str | None = None,
     user_content: str | None = None,
+    team_id: int | None = None,
 ) -> AsyncGenerator[bytes, None]:
     """Stream sandbox events from Redis to the browser as SSE.
 
@@ -873,7 +885,7 @@ async def _sandbox_stream(
         # Persist messages after the turn completes
         if conversation_id:
             agent_text = "".join(agent_text_chunks)
-            await _persist_sandbox_turn(conversation_id, user_content, agent_text)
+            await _persist_sandbox_turn(conversation_id, user_content, agent_text, team_id=team_id)
 
 
 async def _sandbox_error_stream(conv_data: str, error_message: str) -> AsyncGenerator[bytes, None]:
@@ -903,10 +915,15 @@ def _accumulate_agent_text(event: dict, chunks: list[str]) -> None:
             chunks.append(text)
 
 
-async def _persist_sandbox_turn(conversation_id: str, user_content: str | None, agent_text: str) -> None:
+async def _persist_sandbox_turn(
+    conversation_id: str, user_content: str | None, agent_text: str, team_id: int | None = None
+) -> None:
     """Persist user and agent messages on the Conversation after a sandbox turn."""
     try:
-        conversation = await Conversation.objects.aget(id=conversation_id)
+        lookup: dict[str, Any] = {"id": conversation_id}
+        if team_id is not None:
+            lookup["team_id"] = team_id
+        conversation = await Conversation.objects.aget(**lookup)
         messages: list[dict[str, Any]] = conversation.messages_json or []
         if user_content:
             messages.append({"type": "human", "content": user_content, "id": str(uuid.uuid4())})

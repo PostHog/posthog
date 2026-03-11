@@ -344,7 +344,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
 
     @staticmethod
-    async def _cancel_relay(relay_task: asyncio.Task) -> None:  # type: ignore[type-arg]
+    async def _cancel_relay(relay_task: "asyncio.Task[None]") -> None:
         """Cancel the relay task if still running."""
         if relay_task.done():
             return
