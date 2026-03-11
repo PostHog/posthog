@@ -12,5 +12,4 @@ class SourceSchema:
     row_count: int | None = None
     columns: list[tuple[str, str, bool]] = field(default_factory=list)
     foreign_keys: list[tuple[str, str, str]] = field(default_factory=list)
-    metadata: dict = field(default_factory=dict)
     label: str | None = None

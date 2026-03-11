@@ -380,42 +380,20 @@ def get_all_schemas_for_source_id(source_id: str, team_id: int):
     return list(ExternalDataSchema.objects.exclude(deleted=True).filter(team_id=team_id, source_id=source_id).all())
 
 
-RESERVED_SYNC_TYPE_CONFIG_KEYS = frozenset(
-    {
-        "reset_pipeline",
-        "incremental_field",
-        "incremental_field_type",
-        "incremental_field_last_value",
-        "incremental_field_earliest_value",
-        "partitioning_enabled",
-        "partition_count",
-        "partition_size",
-        "partition_mode",
-        "partition_format",
-        "partitioning_keys",
-        "backfilled_partition_format",
-        "chunk_size_override",
-    }
-)
-
-
 def _update_labels(
     old_schemas: list["ExternalDataSchema"],
-    new_schemas: dict[str, dict],
+    new_schemas: dict[str, str | None],
 ) -> None:
     """Update labels on existing schemas when the display name changes."""
     for old_schema in old_schemas:
-        new_metadata = new_schemas.get(old_schema.name)
-        if new_metadata is None:
-            continue
-        new_label = new_metadata.get("label")
+        new_label = new_schemas.get(old_schema.name)
         if new_label is not None and old_schema.label != new_label:
             old_schema.label = new_label
             old_schema.save(update_fields=["label"])
 
 
 def sync_old_schemas_with_new_schemas(
-    new_schemas: dict[str, dict], source_id: str, team_id: int
+    new_schemas: dict[str, str | None], source_id: str, team_id: int
 ) -> tuple[list[str], list[str]]:
     old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
     old_schemas_names = [schema.name for schema in old_schemas]
@@ -431,11 +409,7 @@ def sync_old_schemas_with_new_schemas(
     actually_created: list[str] = []
 
     for schema_name in schemas_to_create:
-        raw_metadata = new_schemas.get(schema_name, {})
-        label = raw_metadata.get("label")
-        schema_metadata = {
-            k: v for k, v in raw_metadata.items() if k not in RESERVED_SYNC_TYPE_CONFIG_KEYS and k != "label"
-        }
+        label = new_schemas.get(schema_name)
 
         deleted_obj = (
             ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, name=schema_name, deleted=True)
@@ -448,16 +422,9 @@ def sync_old_schemas_with_new_schemas(
             deleted_obj.should_sync = False
             if label is not None:
                 deleted_obj.label = label
-            if schema_metadata:
-                deleted_obj.sync_type_config = {
-                    **(deleted_obj.sync_type_config or {}),
-                    **schema_metadata,
-                }
             update_fields = ["deleted", "deleted_at", "should_sync", "updated_at"]
             if label is not None:
                 update_fields.append("label")
-            if schema_metadata:
-                update_fields.append("sync_type_config")
             deleted_obj.save(update_fields=update_fields)
             actually_created.append(schema_name)
             continue
@@ -465,8 +432,6 @@ def sync_old_schemas_with_new_schemas(
         defaults: dict[str, Any] = {"should_sync": False}
         if label is not None:
             defaults["label"] = label
-        if schema_metadata:
-            defaults["sync_type_config"] = schema_metadata
 
         obj, created = ExternalDataSchema.objects.get_or_create(
             team_id=team_id,
