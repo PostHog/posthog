@@ -325,6 +325,5 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                 expect.stringContaining('HTTP fetch failed on attempt 2 with status code 500. Retrying in '),
             ])
         })
-
     })
 })
