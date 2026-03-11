@@ -904,10 +904,15 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
 
 
 @dataclass
-class WaitForClickHouseInput:
-    team_id: int
+class WaitForClickHouseSignal:
     signal_id: str
     timestamp: datetime
+
+
+@dataclass
+class WaitForClickHouseInput:
+    team_id: int
+    signals: list[WaitForClickHouseSignal]
     max_wait_time_seconds: int = 3600
 
 
@@ -916,37 +921,48 @@ WAIT_POLL_INTERVAL_SECONDS = 10
 
 @temporalio.activity.defn
 async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) -> None:
-    """Poll ClickHouse until the emitted signal appears, or give up after max_wait_time_seconds.
+    """Poll ClickHouse until all emitted signals appear, or give up after max_wait_time_seconds.
 
     Filters on inserted_at >= (now - 1 minute) rather than on the deleted flag, so we
     confirm that *this specific ingestion* landed — regardless of whether the signal is
     deleted — and don't mistake an older row for the one we just emitted.
     """
+    if not input.signals:
+        return
+
     team = await Team.objects.aget(pk=input.team_id)
     inserted_at_threshold = timezone.now() - timedelta(minutes=1)
-    deadline = asyncio.get_event_loop().time() + input.max_wait_time_seconds
+    max_attempts = max(1, input.max_wait_time_seconds // WAIT_POLL_INTERVAL_SECONDS)
+
+    signal_ids = [s.signal_id for s in input.signals]
+    timestamps = [s.timestamp for s in input.signals]
+    min_timestamp = min(timestamps)
+    max_timestamp = max(timestamps)
 
     query = """
-        SELECT count()
+        SELECT count(DISTINCT document_id)
         FROM document_embeddings
-        WHERE toDate(timestamp) = toDate({timestamp})
+        WHERE timestamp >= {min_timestamp}
+          AND timestamp <= {max_timestamp}
           AND product = 'signals'
           AND document_type = 'signal'
           AND model_name = {model_name}
           AND rendering = 'plain'
-          AND document_id = {signal_id}
+          AND document_id IN {signal_ids}
           AND inserted_at >= {inserted_at_threshold}
     """
 
     placeholders = {
-        "timestamp": ast.Constant(value=input.timestamp),
+        "min_timestamp": ast.Constant(value=min_timestamp),
+        "max_timestamp": ast.Constant(value=max_timestamp),
         "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
-        "signal_id": ast.Constant(value=input.signal_id),
+        "signal_ids": ast.Constant(value=signal_ids),
         "inserted_at_threshold": ast.Constant(value=inserted_at_threshold),
     }
 
-    attempt = 0
-    while True:
+    expected_count = len(signal_ids)
+
+    for attempt in range(max_attempts):
         temporalio.activity.heartbeat(attempt)
 
         result = await sync_to_async(execute_hogql_query, thread_sensitive=False)(
@@ -956,23 +972,19 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
             placeholders=placeholders,
         )
 
-        if result.results and result.results[0][0] > 0:
+        if result.results and result.results[0][0] >= expected_count:
             logger.debug(
-                f"Signal {input.signal_id} found in ClickHouse after {attempt + 1} attempt(s)",
-                signal_id=input.signal_id,
+                f"All {expected_count} signal(s) found in ClickHouse after {attempt + 1} attempt(s)",
+                signal_ids=signal_ids,
                 team_id=input.team_id,
             )
             return
 
-        if asyncio.get_event_loop().time() >= deadline:
-            break
-
         await asyncio.sleep(WAIT_POLL_INTERVAL_SECONDS)
-        attempt += 1
 
     logger.warning(
-        f"Signal {input.signal_id} not found in ClickHouse after {input.max_wait_time_seconds}s, proceeding anyway",
-        signal_id=input.signal_id,
+        f"Not all signals found in ClickHouse after {input.max_wait_time_seconds}s, proceeding anyway",
+        signal_ids=signal_ids,
         team_id=input.team_id,
     )
 
@@ -1311,22 +1323,19 @@ async def _process_signal_batch(
 
     # Step 7: Wait for all emitted signals to land in CH so the next batch can find them
     if emitted_signals:
-        await asyncio.gather(
-            *[
-                workflow.execute_activity(
-                    wait_for_signal_in_clickhouse_activity,
-                    WaitForClickHouseInput(
-                        team_id=team_id,
-                        signal_id=sid,
-                        timestamp=result.timestamp,
-                        max_wait_time_seconds=3600,
-                    ),
-                    start_to_close_timeout=timedelta(hours=1, minutes=5),
-                    heartbeat_timeout=timedelta(seconds=30),
-                    retry_policy=RetryPolicy(maximum_attempts=2),
-                )
-                for sid, result in emitted_signals
-            ]
+        await workflow.execute_activity(
+            wait_for_signal_in_clickhouse_activity,
+            WaitForClickHouseInput(
+                team_id=team_id,
+                signals=[
+                    WaitForClickHouseSignal(signal_id=sid, timestamp=result.timestamp)
+                    for sid, result in emitted_signals
+                ],
+                max_wait_time_seconds=3600,
+            ),
+            start_to_close_timeout=timedelta(hours=1, minutes=5),
+            heartbeat_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
     # Spawn summary workflows after CH wait so they can find the signals

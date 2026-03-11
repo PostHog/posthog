@@ -13,7 +13,11 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.api import emit_signal, soft_delete_report_signals
 from products.signals.backend.models import SignalReport
-from products.signals.backend.temporal.grouping import WaitForClickHouseInput, wait_for_signal_in_clickhouse_activity
+from products.signals.backend.temporal.grouping import (
+    WaitForClickHouseInput,
+    WaitForClickHouseSignal,
+    wait_for_signal_in_clickhouse_activity,
+)
 from products.signals.backend.temporal.summary import (
     FetchSignalsForReportInput,
     FetchSignalsForReportOutput,
@@ -159,14 +163,18 @@ class SignalReportReingestionWorkflow:
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-        # 2b. Wait for the last soft-deleted signal to land in ClickHouse before re-ingesting
-        last_signal = fetch_result.signals[-1]
+        # 2b. Wait for all soft-deleted signals to land in ClickHouse before re-ingesting
         await workflow.execute_activity(
             wait_for_signal_in_clickhouse_activity,
             WaitForClickHouseInput(
                 team_id=inputs.team_id,
-                signal_id=last_signal.signal_id,
-                timestamp=datetime.fromisoformat(last_signal.timestamp),
+                signals=[
+                    WaitForClickHouseSignal(
+                        signal_id=s.signal_id,
+                        timestamp=datetime.fromisoformat(s.timestamp),
+                    )
+                    for s in fetch_result.signals
+                ],
                 max_wait_time_seconds=3600,
             ),
             start_to_close_timeout=timedelta(hours=1, minutes=5),
