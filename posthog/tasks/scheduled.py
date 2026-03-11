@@ -33,6 +33,7 @@ from posthog.tasks.hypercache_verification import (
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.llm_analytics_usage_report import send_llm_analytics_usage_reports
 from posthog.tasks.remote_config import sync_all_remote_configs
+from posthog.tasks.snippet_versioning import sync_posthog_js_latest
 from posthog.tasks.surveys import sync_all_surveys_cache
 from posthog.tasks.tasks import (
     calculate_cohort,
@@ -548,6 +549,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="0", minute=str(randrange(0, 40))),
         sync_all_remote_configs.s(),
         name="sync all remote configs",
+    )
+
+    sender.add_periodic_task(
+        60.0,  # every 60 seconds
+        sync_posthog_js_latest.s(),
+        name="sync posthog-js latest pointers",
     )
 
     sender.add_periodic_task(
