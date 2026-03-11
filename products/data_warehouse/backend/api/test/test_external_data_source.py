@@ -779,6 +779,7 @@ class TestExternalDataSource(APIBaseTest):
             1,
         )
 
+<<<<<<< HEAD
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_restores_deleted_schema_instead_of_creating_duplicate(self, mock_get_source):
         mock_get_source.return_value.parse_config.return_value = None
@@ -822,6 +823,8 @@ class TestExternalDataSource(APIBaseTest):
         self.assertTrue(restored_schema.should_sync)
         self.assertEqual(restored_schema.sync_type_config.get("legacy_key"), "keep")
 
+=======
+>>>>>>> 1c4b8f3b101 (fix(dwh): remove leftover conflict markers in test file)
     def test_refresh_schemas_returns_400_when_no_job_inputs(self):
         source = self._create_external_data_source()
         source.job_inputs = None
