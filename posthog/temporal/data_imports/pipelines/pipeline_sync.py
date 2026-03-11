@@ -169,7 +169,6 @@ async def validate_schema_and_update_table(
                 # create or update
                 table_created: DataWarehouseTable | None = external_data_schema.table
                 if table_created:
-                    table_created.name = table_name
                     table_created.format = table_params["format"]
                     table_created.url_pattern = new_url_pattern
                     table_created.queryable_folder = queryable_folder
