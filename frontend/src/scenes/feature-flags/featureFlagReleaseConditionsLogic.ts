@@ -60,7 +60,9 @@ export interface FeatureFlagReleaseConditionsLogicProps {
     evaluationRuntime?: FeatureFlagEvaluationRuntime
 }
 
-export type FeatureFlagGroupTypeWithSortKey = FeatureFlagGroupType & { sort_key: string }
+export type FeatureFlagGroupTypeWithSortKey = FeatureFlagGroupType & {
+    sort_key: string
+}
 
 function ensureSortKeys(
     filters: FeatureFlagFilters
@@ -105,7 +107,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             newVariant,
             newDescription,
         }),
-        setAffectedUsers: (sortKey: string, count?: number) => ({ sortKey, count }),
+        setAffectedUsers: (sortKey: string, count?: number) => ({
+            sortKey,
+            count,
+        }),
         setTotalUsers: (count: number) => ({ count }),
         calculateBlastRadius: true,
         loadAllFlagKeys: (flagIds: string[]) => ({ flagIds }),
@@ -164,7 +169,12 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 }
                 const groups = [
                     ...(state?.groups || []),
-                    { properties: [], rollout_percentage: 0, variant: null, sort_key: sortKey ?? uuidv4() },
+                    {
+                        properties: [],
+                        rollout_percentage: 0,
+                        variant: null,
+                        sort_key: sortKey ?? uuidv4(),
+                    },
                 ]
                 return { ...state, groups }
             },
@@ -175,7 +185,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
 
                 const groups = [...(state?.groups || [])]
                 if (newRolloutPercentage !== undefined) {
-                    groups[index] = { ...groups[index], rollout_percentage: newRolloutPercentage }
+                    groups[index] = {
+                        ...groups[index],
+                        rollout_percentage: newRolloutPercentage,
+                    }
                 }
 
                 if (newProperties !== undefined) {
@@ -216,13 +229,19 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 if (!state || index >= state.groups.length - 1) {
                     return state
                 }
-                return { ...state, groups: moveConditionSet(state.groups, index, index + 1) }
+                return {
+                    ...state,
+                    groups: moveConditionSet(state.groups, index, index + 1),
+                }
             },
             moveConditionSetUp: (state, { index }) => {
                 if (!state || index <= 0) {
                     return state
                 }
-                return { ...state, groups: moveConditionSet(state.groups, index, index - 1) }
+                return {
+                    ...state,
+                    groups: moveConditionSet(state.groups, index, index - 1),
+                }
             },
         },
         affectedUsers: [
@@ -377,7 +396,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             }
         },
         calculateBlastRadius: async () => {
-            const usersAffectedPromises: Promise<{ result: UserBlastRadiusType; sortKey: string }>[] = []
+            const usersAffectedPromises: Promise<{
+                result: UserBlastRadiusType
+                sortKey: string
+            }>[] = []
 
             values.filters.groups.forEach((condition: FeatureFlagGroupTypeWithSortKey) => {
                 const { sort_key: sortKey } = condition
@@ -387,7 +409,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 let responsePromise: Promise<UserBlastRadiusType>
                 if (!properties || properties.some(isEmptyProperty)) {
                     // don't compute for incomplete conditions
-                    responsePromise = Promise.resolve({ users_affected: -1, total_users: -1 })
+                    responsePromise = Promise.resolve({
+                        users_affected: -1,
+                        total_users: -1,
+                    })
                 } else if (properties.length === 0) {
                     // Request total users for empty condition sets
                     responsePromise = api.create(
@@ -538,7 +563,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
 
                 const taxonomicOptions: TaxonomicFilterProps['optionsFromProp'] = {
                     [TaxonomicFilterGroupType.Metadata]: [
-                        { name: 'distinct_id', propertyFilterType: PropertyFilterType.Person },
+                        {
+                            name: 'distinct_id',
+                            propertyFilterType: PropertyFilterType.Person,
+                        },
                     ],
                 }
                 return taxonomicOptions
