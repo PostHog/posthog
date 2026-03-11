@@ -613,6 +613,16 @@
                 }
             ]
         },
+        "AnyDataWarehouseNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/DataWarehouseNode"
+                },
+                {
+                    "$ref": "#/definitions/LifecycleDataWarehouseNode"
+                }
+            ]
+        },
         "AnyEntityNode": {
             "anyOf": [
                 {
@@ -19195,6 +19205,10 @@
                         }
                     ],
                     "description": "Groups aggregation"
+                },
+                "customAggregationTarget": {
+                    "description": "Non persons and groups aggregation target for a data warehouse based lifecycle insight.",
+                    "type": "boolean"
                 },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",

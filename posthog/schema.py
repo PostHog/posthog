@@ -15458,6 +15458,10 @@ class ActorsPropertyTaxonomyQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class AnyDataWarehouseNode(RootModel[DataWarehouseNode | LifecycleDataWarehouseNode]):
+    root: DataWarehouseNode | LifecycleDataWarehouseNode
+
+
 class AnyEntityNodeDataWarehouseNode(RootModel[EventsNode | ActionsNode | DataWarehouseNode]):
     root: EventsNode | ActionsNode | DataWarehouseNode
 
@@ -17500,6 +17504,10 @@ class LifecycleQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    customAggregationTarget: bool | None = Field(
+        default=None,
+        description=("Non persons and groups aggregation target for a data warehouse based lifecycle insight."),
+    )
     dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: DateRange | None = Field(default=None, description="Date range for the query")
     filterTestAccounts: bool | None = Field(

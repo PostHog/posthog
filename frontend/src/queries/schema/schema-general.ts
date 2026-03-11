@@ -2026,6 +2026,8 @@ export interface LifecycleQuery extends InsightsQueryBase<LifecycleQueryResponse
     series: AnyEntityNode<LifecycleDataWarehouseNode>[]
     /** Properties specific to the lifecycle insight */
     lifecycleFilter?: LifecycleFilter
+    /** For data warehouse based lifecycle insights when the aggregation target can't be mapped to persons or groups. */
+    customAggregationTarget?: boolean
 }
 
 export interface ActorsQueryResponse extends AnalyticsQueryResponseBase {
