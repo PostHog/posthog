@@ -185,7 +185,7 @@ export const VariableInput = ({
                         className="grow"
                         value={localInputValue}
                         onChange={(value) => setLocalInputValue(String(value))}
-                        options={variable.values.map((n) => ({ label: n, value: n }))}
+                        options={(variable.values ?? []).map((n) => ({ label: n, value: n }))}
                     />
                 )}
                 {variable.type === 'Date' && (
@@ -346,7 +346,7 @@ export const VariableComponent = ({
                     disabledReason={variableOverridesAreSet && 'Discard dashboard variables to change'}
                     value={variable.value ?? variable.default_value}
                     onChange={(value) => onChange(variable.id, value, variable.isNull ?? false)}
-                    options={variable.values.map((n) => ({ label: n, value: n }))}
+                    options={(variable.values ?? []).map((n) => ({ label: n, value: n }))}
                     size={size}
                 />
             </LemonField.Pure>

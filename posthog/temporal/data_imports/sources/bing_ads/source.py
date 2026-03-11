@@ -70,11 +70,13 @@ class BingAdsSource(SimpleSource[BingAdsSourceConfig], OAuthMixin):
             capture_exception(e)
             return False, f"Failed to validate Bing Ads credentials: {str(e)}"
 
-    def get_schemas(self, config: BingAdsSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: BingAdsSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
         bing_ads_schemas = get_schemas()
         ads_incremental_fields = get_incremental_fields()
 
-        return [
+        schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=ads_incremental_fields.get(endpoint, None) is not None,
@@ -86,6 +88,12 @@ class BingAdsSource(SimpleSource[BingAdsSourceConfig], OAuthMixin):
             )
             for endpoint in bing_ads_schemas.keys()
         ]
+
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+
+        return schemas
 
     def source_for_pipeline(self, config: BingAdsSourceConfig, inputs: SourceInputs) -> SourceResponse:
         integration = self.get_oauth_integration(config.bing_ads_integration_id, inputs.team_id)

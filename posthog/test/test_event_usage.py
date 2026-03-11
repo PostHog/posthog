@@ -31,6 +31,7 @@ class TestReportUserAction(BaseTest):
                     "mcp_client_name": None,
                     "mcp_client_version": None,
                     "mcp_protocol_version": None,
+                    "mcp_oauth_client_name": None,
                 },
             ),
             (
@@ -50,6 +51,7 @@ class TestReportUserAction(BaseTest):
                     "mcp_client_name": None,
                     "mcp_client_version": None,
                     "mcp_protocol_version": None,
+                    "mcp_oauth_client_name": None,
                 },
             ),
             (
@@ -58,6 +60,7 @@ class TestReportUserAction(BaseTest):
                     "X-Posthog-Mcp-Client-Name": "claude-code",
                     "X-Posthog-Mcp-Client-Version": "1.2.3",
                     "X-Posthog-Mcp-Protocol-Version": "2025-03-26",
+                    "X-Posthog-Mcp-Oauth-Client-Name": "Claude Code (posthog)",
                 },
                 None,
                 {
@@ -69,6 +72,7 @@ class TestReportUserAction(BaseTest):
                     "mcp_client_name": "claude-code",
                     "mcp_client_version": "1.2.3",
                     "mcp_protocol_version": "2025-03-26",
+                    "mcp_oauth_client_name": "Claude Code (posthog)",
                 },
             ),
             (
@@ -84,6 +88,7 @@ class TestReportUserAction(BaseTest):
                     "mcp_client_name": None,
                     "mcp_client_version": None,
                     "mcp_protocol_version": None,
+                    "mcp_oauth_client_name": None,
                     "key": "val",
                 },
             ),
@@ -100,6 +105,7 @@ class TestReportUserAction(BaseTest):
                     "mcp_client_name": None,
                     "mcp_client_version": None,
                     "mcp_protocol_version": None,
+                    "mcp_oauth_client_name": None,
                 },
             ),
             (
@@ -115,6 +121,7 @@ class TestReportUserAction(BaseTest):
                     "mcp_client_name": None,
                     "mcp_client_version": None,
                     "mcp_protocol_version": None,
+                    "mcp_oauth_client_name": None,
                     "key": "val",
                 },
             ),
@@ -186,12 +193,14 @@ class TestGetMcpProperties(BaseTest):
             HTTP_X_POSTHOG_MCP_CLIENT_NAME="claude-code",
             HTTP_X_POSTHOG_MCP_CLIENT_VERSION="1.2.3",
             HTTP_X_POSTHOG_MCP_PROTOCOL_VERSION="2025-03-26",
+            HTTP_X_POSTHOG_MCP_OAUTH_CLIENT_NAME="Claude Code (posthog)",
         )
         assert get_mcp_properties(request) == {
             "mcp_user_agent": "posthog/cursor 1.0",
             "mcp_client_name": "claude-code",
             "mcp_client_version": "1.2.3",
             "mcp_protocol_version": "2025-03-26",
+            "mcp_oauth_client_name": "Claude Code (posthog)",
         }
 
     def test_returns_none_for_missing_headers(self):
@@ -202,6 +211,7 @@ class TestGetMcpProperties(BaseTest):
             "mcp_client_name": None,
             "mcp_client_version": None,
             "mcp_protocol_version": None,
+            "mcp_oauth_client_name": None,
         }
 
 

@@ -677,6 +677,8 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     language: HogLanguage
     /** Query to validate */
     query: string
+    /** Optional direct external data source id for running against a specific source */
+    connectionId?: string
     /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
     sourceQuery?: AnyDataNode
     /** Extra globals for the query */
@@ -695,6 +697,8 @@ export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
     language: HogLanguage
     /** Query to validate */
     query: string
+    /** Optional direct external data source id for running against a specific source */
+    connectionId?: string
     /** Query in whose context to validate. */
     sourceQuery?: AnyDataNode
     /** Global values in scope */
@@ -3609,6 +3613,7 @@ export interface DatabaseSchemaSource {
     source_type: string
     prefix: string
     last_synced_at?: string
+    access_method?: string
 }
 
 export interface DatabaseSchemaField {
@@ -3717,6 +3722,8 @@ export interface DatabaseSchemaQueryResponse {
 
 export interface DatabaseSchemaQuery extends DataNode<DatabaseSchemaQueryResponse> {
     kind: NodeKind.DatabaseSchemaQuery
+    /** Optional direct external data source id for schema introspection */
+    connectionId?: string
 }
 
 export type DatabaseSerializedFieldType =
