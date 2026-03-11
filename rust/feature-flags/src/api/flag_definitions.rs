@@ -130,7 +130,9 @@ pub async fn flags_definitions(
     // Retrieve cached response from HyperCache (always with cohorts)
     let cached_response = get_from_cache(&state, &team_key, team.id).await?;
 
-    // Record usage for billing, filtering out non-billable flags (surveys, product tours)
+    // Record usage for billing, filtering out non-billable flags (surveys, product tours).
+    // Placed after the ETag/304 path intentionally: 304 responses skip billing,
+    // matching Django's /local_evaluation behavior.
     if !*state.config.skip_writes && has_billable_flags(&cached_response) {
         let library = Library::from_headers(&headers);
         if let Err(e) = increment_request_count(
