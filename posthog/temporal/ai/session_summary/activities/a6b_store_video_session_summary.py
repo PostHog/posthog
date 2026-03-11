@@ -1,7 +1,6 @@
 """
-Activity 6 of the video-based summarization workflow:
+Activity 6b of the video-based summarization workflow:
 Saving the single session summary.
-(Python modules have to start with a letter, hence the file is prefixed `a6_` instead of `6_`.)
 """
 
 from typing import Any
