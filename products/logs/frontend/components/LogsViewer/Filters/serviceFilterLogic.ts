@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
 
@@ -38,7 +38,9 @@ export const serviceFilterLogic = kea<serviceFilterLogicType>([
                     const url = combineUrl(`api/environments/${values.currentTeamId}/logs/values`, {
                         key: 'service.name',
                         attribute_type: 'resource',
-                        ...(logicProps.dateRange ? { dateRange: logicProps.dateRange } : {}),
+                        value: values.search,
+                        limit: 1000,
+                        ...(logicProps.dateRange ? { dateRange: JSON.stringify(logicProps.dateRange) } : {}),
                     }).url
                     const response = await api.get(url)
                     return ((response.results ?? []) as { name: string }[]).map((r) => r.name)
@@ -48,17 +50,15 @@ export const serviceFilterLogic = kea<serviceFilterLogicType>([
     })),
 
     selectors({
-        serviceNames: [
-            (s) => [s.allServiceNames, s.search],
-            (allServiceNames, search): string[] => {
-                if (!search) {
-                    return allServiceNames
-                }
-                const lower = search.toLowerCase()
-                return allServiceNames.filter((name) => name.toLowerCase().includes(lower))
-            },
-        ],
+        serviceNames: [(s) => [s.allServiceNames], (allServiceNames): string[] => allServiceNames],
     }),
+
+    listeners(({ actions }) => ({
+        setSearch: async (_, breakpoint) => {
+            await breakpoint(300)
+            actions.loadServiceNames()
+        },
+    })),
 
     propsChanged(({ actions, props: newProps }, oldProps) => {
         if (

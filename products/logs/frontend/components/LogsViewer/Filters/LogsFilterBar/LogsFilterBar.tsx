@@ -50,7 +50,7 @@ export const LogsFilterBar = (): JSX.Element => {
     const { logsLoading, liveTailRunning, liveTailDisabledReason } = useValues(logsViewerDataLogic)
     const { runQuery, setLiveTailRunning } = useActions(logsViewerDataLogic)
     const { zoomDateRange, setSeverityLevels, setServiceNames } = useActions(logsViewerFiltersLogic)
-    const { filters } = useValues(logsViewerFiltersLogic)
+    const { filters, utcDateRange } = useValues(logsViewerFiltersLogic)
     const { setDateRange } = useActions(logsViewerFiltersLogic)
     const { dateRange, severityLevels, serviceNames } = filters
 
@@ -60,7 +60,7 @@ export const LogsFilterBar = (): JSX.Element => {
                 <div className="flex gap-2 flex-wrap w-full justify-between">
                     <div className="flex shrink-0 flex-1 gap-1.5">
                         <SeverityLevelsFilter value={severityLevels} onChange={setSeverityLevels} />
-                        <ServiceFilter value={serviceNames} onChange={setServiceNames} dateRange={dateRange} />
+                        <ServiceFilter value={serviceNames} onChange={setServiceNames} dateRange={utcDateRange} />
                         <div className="min-w-[300px] max-w-[350px] w-full">
                             <LogsFilterSearch />
                         </div>

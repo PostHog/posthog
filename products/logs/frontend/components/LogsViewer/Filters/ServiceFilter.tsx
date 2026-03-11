@@ -10,7 +10,7 @@ import { serviceFilterLogic, ServiceFilterLogicProps } from './serviceFilterLogi
 interface ServiceFilterProps {
     value: LogsQuery['serviceNames']
     onChange: (serviceNames: LogsQuery['serviceNames']) => void
-    /** When omitted, loads all services regardless of time range */
+    /** When omitted, the backend's default date range is used */
     dateRange?: DateRange
 }
 
