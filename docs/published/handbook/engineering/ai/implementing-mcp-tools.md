@@ -259,8 +259,6 @@ pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
 This is idempotent and non-destructive –
 it only adds newly discovered operations (with `enabled: false`) and removes stale ones.
 All hand-authored configuration is preserved.
-File writes are skipped when there are no semantic changes to avoid unnecessary formatting-only rewrites.
-
 CI runs this as a drift check.
 
 See [`services/mcp/definitions/README.md`](https://github.com/PostHog/posthog/blob/master/services/mcp/definitions/README.md) for the full YAML schema reference (note: YAML definitions themselves now live in product folders)
