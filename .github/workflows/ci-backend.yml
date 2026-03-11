@@ -1477,16 +1477,7 @@ jobs:
     # Job just to collate the status of the matrix jobs for requiring passing status
     # Must depend on handle-snapshots to prevent auto-merge before commits complete
     django_tests:
-        needs:
-            [
-                django,
-                check-migrations,
-                async-migrations,
-                turbo-discover,
-                turbo-tests,
-                handle-snapshots,
-                repo-checks,
-            ]
+        needs: [django, check-migrations, async-migrations, turbo-discover, turbo-tests, handle-snapshots, repo-checks]
         name: Django Tests Pass
         runs-on: ubuntu-latest
         if: always()
