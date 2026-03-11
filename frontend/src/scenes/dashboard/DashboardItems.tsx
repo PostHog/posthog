@@ -222,6 +222,13 @@ export function DashboardItems(): JSX.Element {
                             onEnterEditModeFromEdge: canEnterEditModeFromEdge
                                 ? () => setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardEdgeHover)
                                 : undefined,
+                            onDragHandleMouseDown: canEnterEditModeFromEdge
+                                ? (e: React.MouseEvent) => {
+                                      e.preventDefault()
+                                      e.stopPropagation()
+                                      setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardDragHandle)
+                                  }
+                                : undefined,
                             showEditingControls: isEditablePlacement,
                             moveToDashboard: ({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
                                 if (!dashboard) {

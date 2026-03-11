@@ -105,6 +105,8 @@ export interface InsightCardProps extends Resizeable {
     canEnterEditModeFromEdge?: boolean
     /** Called when the user clicks an edge hint to enter edit mode. */
     onEnterEditModeFromEdge?: () => void
+    /** Called when the user mousedowns on the card (drag handle) in view mode to enter edit mode. */
+    onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
 }
 
 function InsightCardInternal(
@@ -146,6 +148,7 @@ function InsightCardInternal(
         surveyOpportunity,
         canEnterEditModeFromEdge,
         onEnterEditModeFromEdge,
+        onDragHandleMouseDown,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -276,6 +279,7 @@ function InsightCardInternal(
                         variablesOverride={variablesOverride}
                         placement={placement}
                         surveyOpportunity={surveyOpportunity}
+                        onDragHandleMouseDown={onDragHandleMouseDown}
                     />
                     {isVisible ? (
                         <div className="InsightCard__viz">

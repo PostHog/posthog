@@ -80,6 +80,7 @@ export enum DashboardEventSource {
     DashboardsList = 'dashboards_list',
     SceneCommonButtons = 'scene_common_buttons',
     CardEdgeHover = 'card_edge_hover',
+    CardDragHandle = 'card_drag_handle',
 }
 
 export enum InsightEventSource {
