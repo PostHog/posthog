@@ -195,9 +195,13 @@ export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
 
             return [currentLocation.pathname, newSearchParams, currentLocation.hashParams]
         }
+        const replaceFiltersInUrl = (): [string, Record<string, string>, Record<string, any>, { replace: true }] => {
+            const [pathname, searchParams, hashParams] = syncFiltersToUrl()
+            return [pathname, searchParams, hashParams, { replace: true }]
+        }
         return {
             setQuickFilterValue: syncFiltersToUrl,
-            restoreQuickFilterValue: syncFiltersToUrl,
+            restoreQuickFilterValue: replaceFiltersInUrl,
             clearQuickFilter: syncFiltersToUrl,
         }
     }),
