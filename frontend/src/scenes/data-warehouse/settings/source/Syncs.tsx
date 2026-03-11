@@ -39,7 +39,7 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
     )
     const showDebugLogs = user?.is_staff || user?.is_impersonated
 
-    const schemaOptions = Array.from(new Set(jobs.map((job) => job.schema.name)))
+    const schemaOptions = Array.from(new Set(jobs.map((job) => job.schema.label ?? job.schema.name)))
         .sort()
         .map((schemaName) => ({
             key: schemaName,
@@ -47,7 +47,9 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
         }))
 
     const filteredJobs =
-        selectedSchemas.length > 0 ? jobs.filter((job) => selectedSchemas.includes(job.schema.name)) : jobs
+        selectedSchemas.length > 0
+            ? jobs.filter((job) => selectedSchemas.includes(job.schema.label ?? job.schema.name))
+            : jobs
 
     return (
         <>
@@ -80,7 +82,7 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
                     {
                         title: 'Schema',
                         render: (_, job) => {
-                            return job.schema.name
+                            return job.schema.label ?? job.schema.name
                         },
                     },
                     {

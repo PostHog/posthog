@@ -680,7 +680,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             actions.updateSource({
                                 payload: {
                                     schemas: values.databaseSchema.map((schema) => ({
-                                        name: schema.table,
+                                        name: schema.name ?? schema.table,
                                         should_sync: schema.should_sync,
                                         sync_type: schema.sync_type,
                                         incremental_field: schema.incremental_field,

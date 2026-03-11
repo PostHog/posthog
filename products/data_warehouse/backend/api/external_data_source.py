@@ -529,6 +529,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         source_schemas = source.get_schemas(source_config, self.team_id)
         schema_names = [schema.name for schema in source_schemas]
+        schema_label_by_name = {s.name: s.label for s in source_schemas}
 
         payload_schemas = payload.get("schemas", None)
         if not payload_schemas or not isinstance(payload_schemas, list):
@@ -586,6 +587,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
             schema_model = ExternalDataSchema.objects.create(
                 name=schema_name,
+                label=schema_label_by_name.get(schema_name),
                 team=self.team,
                 source=new_source_model,
                 should_sync=should_sync,
@@ -761,7 +763,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         with transaction.atomic():
             ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
             schemas_created, schemas_deleted = sync_old_schemas_with_new_schemas(
-                schema_names,
+                {s.name: {**s.metadata, **({"label": s.label} if s.label else {})} for s in schemas},
                 source_id=str(instance.id),
                 team_id=self.team_id,
             )
@@ -824,7 +826,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         data = [
             {
-                "table": schema.name,
+                "table": schema.label or schema.name,
+                "name": schema.name,
                 "should_sync": False,
                 "incremental_fields": schema.incremental_fields,
                 "incremental_available": schema.supports_incremental,

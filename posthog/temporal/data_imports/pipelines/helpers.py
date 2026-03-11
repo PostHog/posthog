@@ -36,5 +36,6 @@ def incremental_type_to_initial_value(field_type: IncrementalFieldType) -> int |
         return "000000000000000000000000"
 
 
-def build_table_name(source: ExternalDataSource, schema_name: str):
-    return f"{source.prefix or ''}{source.source_type}_{schema_name}".lower()
+def build_table_name(source: ExternalDataSource, schema_name: str, display_name: str | None = None):
+    effective_name = display_name if display_name else schema_name
+    return f"{source.prefix or ''}{source.source_type}_{effective_name}".lower()
