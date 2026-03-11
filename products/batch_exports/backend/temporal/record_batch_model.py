@@ -235,6 +235,7 @@ INSERT INTO FUNCTION {s3_function}
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["sessions"])),
             where=where_and,
+            settings=sql.HogQLQueryBatchExportSettings(),
         )
 
     async def get_backfill_info(
