@@ -15,9 +15,8 @@ type MembershipCacheKey = (TeamId, Uuid);
 /// Wraps a CohortMembershipProvider with a Moka cache layer.
 ///
 /// Caches explicit membership results (cohort_id -> bool) keyed by (team_id, person_uuid).
-/// Uses `try_get_with` for per-key coalescing on cache miss to avoid thundering herd.
-/// If any requested cohort ID is missing from a cache hit, only the uncached IDs are
-/// fetched from the inner provider and the cache entry is updated.
+/// If any requested cohort ID is missing from the cache, only the uncached IDs are
+/// fetched from the inner provider and merged into the cache entry.
 pub struct CachedCohortMembershipProvider<
     P: CohortMembershipProvider = super::realtime_provider::RealtimeCohortMembershipProvider,
 > {
@@ -89,22 +88,14 @@ impl<P: CohortMembershipProvider> CohortMembershipProvider for CachedCohortMembe
                 .collect());
         }
 
-        // Full cache miss: use try_get_with for per-key coalescing so concurrent
-        // requests for the same (team_id, person_uuid) share a single fetch.
-        let inner = self.inner.clone();
-        let ids = cohort_ids.to_vec();
         let result = self
-            .cache
-            .try_get_with(cache_key, async move {
-                inner.check_memberships(team_id, person_uuid, &ids).await
-            })
-            .await
-            .map_err(|e| CohortMembershipError::QueryFailed(e.to_string()))?;
+            .inner
+            .check_memberships(team_id, person_uuid, cohort_ids)
+            .await?;
 
-        Ok(cohort_ids
-            .iter()
-            .map(|id| (*id, result.get(id).copied().unwrap_or(false)))
-            .collect())
+        self.cache.insert(cache_key, result.clone()).await;
+
+        Ok(result)
     }
 }
 
