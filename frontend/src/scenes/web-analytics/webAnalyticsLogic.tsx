@@ -2358,6 +2358,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 (date_to && date_to !== values.dateFilter.dateTo) ||
                 (interval && interval !== values.dateFilter.interval)
             ) {
+                actions.setPreZoomDateFilter(null)
                 actions.setDatesAndInterval(date_from, date_to, interval)
             }
             if (device_tab && device_tab !== values._deviceTab) {
@@ -2559,6 +2560,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             loadPreset: ({ filters }) => {
                 if (filters.dateFrom !== undefined || filters.dateTo !== undefined) {
                     const interval = filters.interval ?? values.dateFilter.interval
+                    actions.setPreZoomDateFilter(null)
                     actions.setDatesAndInterval(
                         filters.dateFrom ?? values.dateFilter.dateFrom,
                         filters.dateTo ?? values.dateFilter.dateTo,

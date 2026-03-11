@@ -32,6 +32,7 @@ import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useChart } from 'lib/hooks/useChart'
+import { useChartZoom } from 'lib/hooks/useChartZoom'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
@@ -323,7 +324,11 @@ export function LineGraph_({
     const isLog10 = yAxisScaleType === 'log10' // Currently log10 is the only logarithmic scale supported
     const isHighlightBarMode = isBar && isStacked && isShiftPressed
     const effectiveZoomCallback = !isBar && !isHorizontal ? onDateRangeZoom : undefined
-    const isResettingZoomRef = useRef(false)
+    const zoomPluginOptions = useChartZoom({
+        datasets,
+        onDateRangeZoom: effectiveZoomCallback,
+        enabled: !!effectiveZoomCallback,
+    })
 
     useEffect(() => {
         if (!isShiftPressed) {
@@ -621,55 +626,6 @@ export function LineGraph_({
                 intersect: isHighlightBarMode,
                 itemSort: (a, b) => a.label.localeCompare(b.label),
             }
-
-            const resetZoom = (chart: Chart): void => {
-                isResettingZoomRef.current = true
-                queueMicrotask(() => {
-                    chart.resetZoom()
-                    isResettingZoomRef.current = false
-                })
-            }
-
-            const getZoomDateRange = (chart: Chart): [string, string] | null => {
-                const days = datasets[0]?.days
-                if (!days?.length) {
-                    return null
-                }
-
-                const xScale = chart.scales.x
-                const minIndex = Math.max(0, Math.round(xScale.min))
-                const maxIndex = Math.min(days.length - 1, Math.round(xScale.max))
-                const dateFrom = days[minIndex]
-                const dateTo = days[maxIndex]
-
-                return dateFrom && dateTo ? [dateFrom, dateTo] : null
-            }
-
-            const zoomPluginOptions = effectiveZoomCallback
-                ? {
-                      zoom: {
-                          drag: {
-                              enabled: true,
-                              backgroundColor: 'rgba(59, 130, 246, 0.15)',
-                              borderColor: 'rgba(59, 130, 246, 0.5)',
-                              borderWidth: 1,
-                          },
-                          mode: 'x',
-                          onZoomComplete: ({ chart }: { chart: Chart }) => {
-                              if (isResettingZoomRef.current) {
-                                  return
-                              }
-
-                              const zoomDateRange = getZoomDateRange(chart)
-                              if (zoomDateRange) {
-                                  effectiveZoomCallback(...zoomDateRange)
-                              }
-
-                              resetZoom(chart)
-                          },
-                      },
-                  }
-                : undefined
 
             const options: ChartOptions = {
                 responsive: true,
@@ -1183,6 +1139,7 @@ export function LineGraph_({
             interval,
             timezone,
             effectiveZoomCallback,
+            zoomPluginOptions,
         ],
     })
 
