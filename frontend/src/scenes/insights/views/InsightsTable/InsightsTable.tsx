@@ -215,7 +215,7 @@ export function InsightsTable({
         },
     })
 
-    if (isValidBreakdown(breakdownFilter) && breakdownFilter.breakdown) {
+    if (breakdownFilter?.breakdown && isValidBreakdown(breakdownFilter)) {
         if (!isSingleSeriesWithBreakdown) {
             columns.push({
                 title: (
@@ -256,7 +256,7 @@ export function InsightsTable({
                 },
             })
         }
-    } else if (isValidBreakdown(breakdownFilter) && breakdownFilter?.breakdowns && !isSingleSeriesWithBreakdown) {
+    } else if (breakdownFilter?.breakdowns && isValidBreakdown(breakdownFilter) && !isSingleSeriesWithBreakdown) {
         breakdownFilter.breakdowns.forEach((breakdown, index) => {
             const formatItemBreakdownLabel = (item: IndexedTrendResult): string =>
                 formatBreakdownLabel(
