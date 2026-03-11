@@ -43,46 +43,62 @@ cd nodejs
 
 if [[ -n $DEBUG ]]; then
   echo "🧐 Verifying installed packages..."
-  pnpm --filter=@posthog/nodejs install
-fi
-
-if [ $? -ne 0 ]; then
-  echo "💥 Verification failed!"
-  exit 1
+  if ! pnpm --filter=@posthog/nodejs install; then
+    echo "💥 Verification failed!"
+    exit 1
+  fi
 fi
 
 if [[ -n $DEBUG ]]; then
+  # Build cyclotron dependency before starting
+  pnpm build:cyclotron
+
   if [[ -n $NO_WATCH ]]; then
-    cmd="pnpm start:devNoWatch"
+    cmd="NODE_ENV=dev node_modules/.bin/tsx src/index.ts"
   else
-    cmd="pnpm start:dev"
+    # Run tsx watch directly (not through pnpm script runner) to avoid
+    # extra process layers that interfere with signal propagation.
+    # --clear-screen=false prevents terminal reset escape codes that
+    # confuse mprocs and other process managers.
+    cmd="NODE_ENV=dev node_modules/.bin/tsx watch --clear-screen=false src/index.ts"
   fi
 else
   cmd="node dist/index.js"
 fi
 
+# Track whether we're being intentionally stopped vs crashing.
+# We run the command in the background and use `wait` so that bash
+# can receive signals via trap (bash defers trap delivery while a
+# foreground command is running).
+STOPPED=false
+trap 'STOPPED=true; kill -TERM $child 2>/dev/null' SIGTERM SIGINT
+
 if [[ -n $NO_RESTART_LOOP ]]; then
   echo "▶️ Starting nodejs..."
-  trap 'kill -TERM $child 2>/dev/null; while kill -0 $child 2>/dev/null; do sleep 1; done' EXIT
   $cmd &
   child=$!
   wait $child
 else
   echo "🔁 Starting nodejs services in a resiliency loop..."
   while true; do
-    $cmd
+    $cmd &
+    child=$!
+    wait $child
     status=$?
-    # Check if child was terminated by SIGKILL (kill -9 node)
-    if [ $status -gt 128 ]; then
-      sig=$((status - 128))
-      if [ $sig -eq 9 ]; then
-        echo "☠️ Nodejs services killed by SIGKILL, breaking loop"
-        break
-      fi
-    else
-      echo "💥 Nodejs services crashed!"
-      echo "⌛️ Waiting 2 seconds before restarting..."
-      sleep 2
+
+    if [ "$STOPPED" = true ]; then
+      echo "👋 Nodejs services stopped by signal, exiting loop"
+      break
     fi
+
+    sig=$((status - 128))
+    if [ $status -gt 128 ] && [ $sig -eq 9 ]; then
+      echo "☠️ Nodejs services killed by SIGKILL, breaking loop"
+      break
+    fi
+
+    echo "💥 Nodejs services exited with status $status"
+    echo "⌛️ Waiting 2 seconds before restarting..."
+    sleep 2
   done
 fi
