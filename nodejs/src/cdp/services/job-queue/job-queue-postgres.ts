@@ -135,7 +135,7 @@ export class CyclotronJobQueuePostgres {
         const worker = this.getCyclotronWorker()
 
         await Promise.all(
-            invocations.map(async (item) => {
+            invocations.map((item) => {
                 worker.updateJob(item.id, 'failed')
                 return worker.releaseJob(item.id)
             })
@@ -146,7 +146,7 @@ export class CyclotronJobQueuePostgres {
         const worker = this.getCyclotronWorker()
 
         await Promise.all(
-            invocations.map(async (item) => {
+            invocations.map((item) => {
                 worker.updateJob(item.id, 'canceled')
                 return worker.releaseJob(item.id)
             })
@@ -156,7 +156,7 @@ export class CyclotronJobQueuePostgres {
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]) {
         const worker = this.getCyclotronWorker()
         await Promise.all(
-            invocationResults.map(async (item) => {
+            invocationResults.map((item) => {
                 const id = item.invocation.id
                 if (item.error) {
                     logger.debug('⚡️', 'Updating job to failed', id)
@@ -180,7 +180,7 @@ export class CyclotronJobQueuePostgres {
         // Called specially for jobs that came from postgres but are being requeued to kafka
         const worker = this.getCyclotronWorker()
         await Promise.all(
-            invocations.map(async (item) => {
+            invocations.map((item) => {
                 const id = item.id
                 logger.debug('⚡️', 'Releasing job', id)
                 worker.updateJob(id, 'completed')

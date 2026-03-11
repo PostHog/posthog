@@ -17,7 +17,7 @@ import { parseJSON } from '../../utils/json-parse'
 import { promisifyCallback } from '../../utils/utils'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
-import { EXTEND_OBJECT_KEY, cdpTrackedFetch, isConnectionLevelError } from './hog-executor.service'
+import { EXTEND_OBJECT_KEY, isConnectionLevelError } from './hog-executor.service'
 
 // Mock before importing fetch
 jest.mock('~/utils/request', () => {
