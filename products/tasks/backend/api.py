@@ -228,7 +228,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         extra_state = None
         if resume_from_run_id:
-            # Validate the run belongs to THIS task (prevents cross-task resume)
+            # prevent cross-task resume
             previous_run = task.runs.filter(id=resume_from_run_id).first()
             if not previous_run:
                 return Response({"detail": "Invalid resume_from_run_id"}, status=400)

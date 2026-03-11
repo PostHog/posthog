@@ -288,7 +288,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 setThread: (_, { thread }) => thread,
                 // Remove streaming messages on failure so server state becomes source of truth
                 finalizeStreamingMessages: (state) => state.filter((msg) => msg.status !== 'loading'),
-                // Mark any still-loading messages as completed when generation finishes
                 completeThreadGeneration: (state) =>
                     state.map((msg) => (msg.status === 'loading' ? { ...msg, status: 'completed' as const } : msg)),
             },
