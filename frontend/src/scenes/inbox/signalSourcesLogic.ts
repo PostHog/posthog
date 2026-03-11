@@ -246,7 +246,12 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         actions.openDataSourceSetup('Github')
                         return
                     }
-                    await ensureRequiredTableSyncing('Github', 'issues')
+                    try {
+                        await ensureRequiredTableSyncing('Github', 'issues')
+                    } catch (error: any) {
+                        lemonToast.error(error?.detail || error?.message || 'Failed to enable GitHub Issues')
+                        return
+                    }
                 }
                 actions.toggleGithubIssues()
             },
@@ -261,7 +266,12 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         actions.openDataSourceSetup('Linear')
                         return
                     }
-                    await ensureRequiredTableSyncing('Linear', 'issues')
+                    try {
+                        await ensureRequiredTableSyncing('Linear', 'issues')
+                    } catch (error: any) {
+                        lemonToast.error(error?.detail || error?.message || 'Failed to enable Linear Issues')
+                        return
+                    }
                 }
                 actions.toggleLinearIssues()
             },
@@ -276,7 +286,12 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         actions.openDataSourceSetup('Zendesk')
                         return
                     }
-                    await ensureRequiredTableSyncing('Zendesk', 'tickets')
+                    try {
+                        await ensureRequiredTableSyncing('Zendesk', 'tickets')
+                    } catch (error: any) {
+                        lemonToast.error(error?.detail || error?.message || 'Failed to enable Zendesk Tickets')
+                        return
+                    }
                 }
                 actions.toggleZendeskTickets()
             },
