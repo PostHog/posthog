@@ -17,6 +17,7 @@ class Migration(migrations.Migration):
                 null=True,
                 on_delete=django.db.models.deletion.CASCADE,
                 to="posthog.team",
+                db_index=False,
             ),
         ),
     ]
