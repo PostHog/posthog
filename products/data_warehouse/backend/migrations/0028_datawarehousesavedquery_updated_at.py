@@ -6,6 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("data_warehouse", "0020_migrate_github_job_inputs_to_auth_type"),
+        ("data_modeling", "0006_backfill_nodes_edges_from_saved_queries"),
     ]
 
     operations = [
