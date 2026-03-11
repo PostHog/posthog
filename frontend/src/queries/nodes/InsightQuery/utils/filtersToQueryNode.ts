@@ -67,6 +67,7 @@ import {
     PathsFilterType,
     RetentionEntity,
     RetentionFilterType,
+    TrendsDataWarehouseFilter,
     TrendsFilterType,
     isDataWarehouseFilter,
     isGroupFilter,
@@ -132,8 +133,8 @@ export const legacyEntityToNode = (
                       created_at_field: (entity as LifecycleDataWarehouseFilter).created_at_field,
                   }
                 : {
-                      id_field: entity.id_field || undefined,
-                      distinct_id_field: entity.distinct_id_field || undefined,
+                      id_field: (entity as TrendsDataWarehouseFilter).id_field || undefined,
+                      distinct_id_field: (entity as TrendsDataWarehouseFilter).distinct_id_field || undefined,
                   }),
         } as DataWarehouseNode | LifecycleDataWarehouseNode
     }

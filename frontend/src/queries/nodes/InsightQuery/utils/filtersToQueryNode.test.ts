@@ -25,6 +25,7 @@ import {
     FunnelsFilterType,
     GroupMathType,
     InsightType,
+    LifecycleDatawarehouseFilter,
     LifecycleFilterType,
     PathType,
     PathsFilterType,
@@ -121,7 +122,7 @@ describe('actionsAndEventsToSeries', () => {
     })
 
     it('converts lifecycle data warehouse series to lifecycle nodes', () => {
-        const data_warehouse: ActionFilter[] = [
+        const data_warehouse: LifecycleDatawarehouseFilter[] = [
             {
                 type: 'data_warehouse',
                 id: 'warehouse_orders',
@@ -131,7 +132,7 @@ describe('actionsAndEventsToSeries', () => {
                 timestamp_field: 'timestamp',
                 aggregation_target_field: 'order_id',
                 created_at_field: 'created_at',
-            } as ActionFilter,
+            },
         ]
 
         const result = actionsAndEventsToSeries(
