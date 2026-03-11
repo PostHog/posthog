@@ -165,6 +165,7 @@ export interface PluginServerCapabilities {
     cdpCyclotronShadowWorker?: boolean
     cdpCyclotronV2Janitor?: boolean
     recordingApi?: boolean
+    ingestionV2Testing?: boolean
 }
 
 export type TeamId = Team['id']
