@@ -25,6 +25,12 @@ For API-backed sources, use this split:
 
 This keeps endpoint behavior declarative and easy to extend.
 
+For REST sources that mix top-level and fan-out endpoints, keep endpoint metadata in `settings.py` and route in `{source}.py` with this priority:
+
+1. endpoint-specific custom iterators (only when required),
+2. generic fan-out helper path,
+3. top-level endpoint path.
+
 ## Implementation checklist
 
 Copy this and track progress:
@@ -50,7 +56,6 @@ Source implementation:
 
 - Register with `@SourceRegistry.register`.
 - Source class should inherit `SimpleSource[GeneratedConfig]` unless resumable/webhook behavior is required.
-- Prefer explicit endpoint metadata in `settings.py` rather than hard-coded branches in transport logic.
 - API sources should usually return `table_format="delta"` in endpoint resources.
 - Use `primary_keys` for incremental merge safety; they are endpoint-specific (declare in `settings.py`, not always `id`).
 - Add partitioning for new sources where possible:
@@ -94,6 +99,15 @@ If behavior is not documented, keep parsing/merge logic conservative and add a c
   - then project-level fan-out,
   - then child/fan-out endpoints with bounded pagination.
 
+## Top-level endpoints (org/account level)
+
+Top-level endpoints are list/read endpoints that do not require parent-row expansion.
+
+- Declare endpoint metadata in `settings.py` (`path`, `primary_key`, `incremental_fields`, `partition_key`, `sort_mode`).
+- Build them through a single resource config (`get_resource(...)` style helper) and keep transport branches minimal.
+- Keep endpoint params declarative and stable (`limit`, required filters).
+- Use merge write disposition only when incremental semantics are reliable; otherwise full replace is safer.
+
 ## Pagination tips
 
 - Some APIs use cursor pagination in `Link` headers — check both `rel="next"` and any results flag the API may use.
@@ -115,7 +129,20 @@ If behavior is not documented, keep parsing/merge logic conservative and add a c
 
 Fan-out means iterating a parent resource (for example projects) and then querying child endpoints per parent (for example project issues).
 
-**Prefer dependent resources when you have a single parent→child.** Use `rest_api_resources` with a parent resource and a child that declares `type: "resolve"` for the parent field (e.g. parent slug or id). The shared infra (`rest_source/__init__.py`, `config_setup.process_parent_data_item`) paginates the parent and calls the child per parent row. Add `include_from_parent` so child rows get parent fields; they are injected as `_<parent>_<field>` via `make_parent_key_name`. Add a row mapper to rename those to the final column names (e.g. `project_id`, `project_slug`). Do not expose internal fan-out tuning knobs in the user-facing form; use internal defaults.
+**Prefer dependent resources when you have a single parent→child.** Use `rest_api_resources` with a parent resource and a child that declares `type: "resolve"` for the parent field (e.g. parent slug or id). The shared infra (`rest_source/__init__.py`, `config_setup.process_parent_data_item`) paginates the parent and calls the child per parent row. Add `include_from_parent` so child rows get parent fields; they are injected as `_<parent>_<field>` via `make_parent_key_name`.
+
+**Make fan-out declarative in endpoint config.** Add a fan-out config object in `settings.py` (for example `DependentEndpointConfig`) with:
+
+- `parent_name`
+- `resolve_param`
+- `resolve_field`
+- `include_from_parent`
+- optional parent field renames (e.g. `id -> project_id`)
+- optional parent endpoint params (for parent-specific defaults)
+
+Then route all single-hop fan-out endpoints through a shared helper (for example `common/rest_source/fanout.py:build_dependent_resource`) so callers do not reimplement parent/child config assembly.
+
+**Parent field rename mapping belongs in the helper.** If a helper supports declarative renames, apply the map there. Callers should not branch on whether renames exist.
 
 **Path pre-formatting:** Child paths often have multiple placeholders (e.g. org and resource slug). `process_parent_data_item` only does `str.format()` with the _resolved_ param. Pre-format any static placeholders with `.replace()` on the child path before passing to the resource config, so only the resolved placeholder remains and DLT does not raise `KeyError`.
 
@@ -138,8 +165,10 @@ Add at least two test modules:
   - credential validation status mapping
   - mapper/filter helpers if present
   - fan-out endpoint row format assertions (dict shape + parent identifiers)
-  - for dependent-resource fan-out: mock `rest_api_resources`, pass rows with `_<parent>_<field>` keys to exercise the row mapper; optionally assert config shape
+  - for dependent-resource fan-out: mock `rest_api_resources`, pass rows with `_<parent>_<field>` keys to exercise parent-field injection and rename behavior
   - expected return schema checks for each declared endpoint in `settings.py`
+
+Prefer behavior tests over config-shape tests. Avoid brittle assertions on internal config dict structure unless they protect a known regression that cannot be asserted via output behavior.
 
 Use parameterized tests for status codes and edge cases.
 
