@@ -58,10 +58,10 @@ class TaskRunRedisStream:
         delay_increment = 0.15
         max_delay = 2.0
         timeout = 120.0  # 2 min — sandbox provisioning can be slow
-        start_time = asyncio.get_event_loop().time()
+        start_time = asyncio.get_running_loop().time()
 
         while True:
-            elapsed = asyncio.get_event_loop().time() - start_time
+            elapsed = asyncio.get_running_loop().time() - start_time
             if elapsed >= timeout:
                 logger.debug(
                     "task_run_stream_wait_timeout",
@@ -88,10 +88,10 @@ class TaskRunRedisStream:
         Raises TaskRunStreamError on error sentinel or timeout.
         """
         current_id = start_id
-        start_time = asyncio.get_event_loop().time()
+        start_time = asyncio.get_running_loop().time()
 
         while True:
-            if asyncio.get_event_loop().time() - start_time > self._timeout:
+            if asyncio.get_running_loop().time() - start_time > self._timeout:
                 raise TaskRunStreamError("Stream timeout — task run took too long")
 
             try:

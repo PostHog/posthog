@@ -134,7 +134,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 },
             )
 
-            relay_task = asyncio.ensure_future(self._relay_sandbox_events(agent_server_output))
+            if self._context and self._context.mode == "interactive":
+                relay_task = asyncio.ensure_future(self._relay_sandbox_events(agent_server_output))
+            else:
+                relay_task = asyncio.ensure_future(asyncio.sleep(0))  # no-op future
 
             is_resume = bool((self.context.state or {}).get("resume_from_run_id"))
             if not is_resume:
