@@ -20,13 +20,6 @@
 export const QUERY_RESULTS_RESOURCE_URI = 'ui://posthog/query-results.html'
 
 /**
- * Debug app for testing MCP Apps SDK integration.
- * Used by: debug-mcp-ui-apps
- * Displays SDK events, tool result data, and Mosaic component showcase.
- */
-export const DEBUG_RESOURCE_URI = 'ui://posthog/debug.html'
-
-/**
 
  * Action detail visualization.
  * Used by: action-get, action-create, action-update
@@ -52,6 +45,13 @@ export const COHORT_RESOURCE_URI = 'ui://posthog/cohort.html'
 export const COHORT_LIST_RESOURCE_URI = 'ui://posthog/cohort-list.html'
 
 /**
+ * Debug app for testing MCP Apps SDK integration.
+ * Used by: debug-mcp-ui-apps
+ * Displays SDK events, tool result data, and Mosaic component showcase.
+ */
+export const DEBUG_RESOURCE_URI = 'ui://posthog/debug.html'
+
+/**
  * Error details visualization with stack traces.
  * Used by: error-details
  */
@@ -66,3 +66,19 @@ export const ERROR_ISSUE_RESOURCE_URI = 'ui://posthog/error-issue.html'
  * Used by: error-tracking-issues-list
  */
 export const ERROR_ISSUE_LIST_RESOURCE_URI = 'ui://posthog/error-issue-list.html'
+
+/**
+ * Experiment detail visualization.
+ * Used by: experiment-get, experiment-create, experiment-update
+ */
+export const EXPERIMENT_RESOURCE_URI = 'ui://posthog/experiment.html'
+/**
+ * Experiment list visualization.
+ * Used by: experiment-get-all
+ */
+export const EXPERIMENT_LIST_RESOURCE_URI = 'ui://posthog/experiment-list.html'
+/**
+ * Experiment results visualization.
+ * Used by: experiment-results-get
+ */
+export const EXPERIMENT_RESULTS_RESOURCE_URI = 'ui://posthog/experiment-results.html'
