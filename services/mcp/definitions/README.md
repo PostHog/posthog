@@ -6,11 +6,9 @@ endpoints.
 
 ## How it works
 
-The pipeline turns YAML configs + the Django OpenAPI schema into ready-to-use TypeScript
-tool handlers and Zod validation schemas. Operations are discovered in two ways (in priority order):
-1. **Explicit tags** — matches endpoints whose OpenAPI tag equals the product name.
-   ViewSets in `products/<name>/backend/` are auto-tagged. ViewSets elsewhere need `@extend_schema(tags=["<product>"])`.
-2. **URL substring fallback** — selects endpoints whose path contains `/<name>/` (hyphens normalized to underscores).
+tool handlers and Zod validation schemas. Operations are discovered by matching URL paths
+against product names (e.g., `error_tracking` matches all paths containing `/error_tracking/`),
+same approach as the frontend type generator.
 
 ```text
 OpenAPI schema (Django)
