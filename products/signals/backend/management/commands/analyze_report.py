@@ -17,7 +17,8 @@ TEST_SIGNALS = [
             "Feature request: Compare against previous option for funnel insights. "
             "Customer would be able to select two arbitrary intervals (week, month etc) and compare "
             "the % change in conversion between those two periods. Current workaround is HogQL "
-            "breakdown like toString(toISOWeek(timestamp))."
+            "breakdown like toString(toISOWeek(timestamp)). "
+            "Check how many users are currently using the funnel insight type to gauge demand."
         ),
         source_product="github_issues",
         source_type="enhancement",
@@ -36,7 +37,8 @@ TEST_SIGNALS = [
             "The Time to Convert histogram calculates bin width dynamically based on max conversion "
             "time / number of bins. Bin boundaries shift when data distribution changes, making it "
             "harder to track trends over time or compare across date ranges. Request for fixed bin "
-            "width option (e.g., '1 minute per bin'). From Zendesk support ticket."
+            "width option (e.g., '1 minute per bin'). From Zendesk support ticket. "
+            "There may be existing insights or dashboards tracking funnel conversion times worth checking."
         ),
         source_product="github_issues",
         source_type="enhancement",
@@ -55,7 +57,8 @@ TEST_SIGNALS = [
             "The Time to Convert view only shows average conversion time as a summary stat. "
             "Averages can be skewed by outliers, making median or percentiles (P50, P90, P99) more "
             "useful for understanding typical user behavior. Request to add aggregation options "
-            "alongside or instead of average. From Zendesk support ticket."
+            "alongside or instead of average. From Zendesk support ticket. "
+            "Check if there's a feature flag gating any funnel stats improvements already in progress."
         ),
         source_product="github_issues",
         source_type="enhancement",
