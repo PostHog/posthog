@@ -111,7 +111,7 @@ export function LLMPromptScene(): JSX.Element {
                                     icon={<IconPencil />}
                                     onClick={() => setMode(PromptMode.Edit)}
                                     size="small"
-                                    data-attr="prompt-edit-button"
+                                    data-attr="llma-prompt-edit-button"
                                 >
                                     Edit latest
                                 </LemonButton>
@@ -130,7 +130,7 @@ export function LLMPromptScene(): JSX.Element {
                                         }
                                     }}
                                     size="small"
-                                    data-attr="prompt-use-as-latest-button"
+                                    data-attr="llma-prompt-use-as-latest-button"
                                 >
                                     Use as latest
                                 </LemonButton>
@@ -147,7 +147,7 @@ export function LLMPromptScene(): JSX.Element {
                                 icon={<IconTrash />}
                                 onClick={() => openArchivePromptDialog(deletePrompt)}
                                 size="small"
-                                data-attr="prompt-delete-button"
+                                data-attr="llma-prompt-delete-button"
                             >
                                 Archive
                             </LemonButton>
@@ -243,7 +243,7 @@ export function LLMPromptScene(): JSX.Element {
                                 }}
                                 disabledReason={isPromptFormSubmitting ? 'Saving…' : undefined}
                                 size="small"
-                                data-attr="prompt-cancel-button"
+                                data-attr="llma-prompt-cancel-button"
                             >
                                 Cancel
                             </LemonButton>
@@ -274,7 +274,7 @@ export function LLMPromptScene(): JSX.Element {
                                         icon={<IconTrash />}
                                         onClick={() => openArchivePromptDialog(deletePrompt)}
                                         size="small"
-                                        data-attr="prompt-delete-button"
+                                        data-attr="llma-prompt-delete-button"
                                     >
                                         Archive
                                     </LemonButton>
