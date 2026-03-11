@@ -1,0 +1,19 @@
+{% extends "email/base.html" %} {% block section %}
+
+<p><strong>Hello,</strong></p>
+<p>
+    Your evaluation report for <strong>{{ evaluation_name }}</strong> is ready.
+</p>
+<p class="muted">
+    Period: {{ period_start }} to {{ period_end }}
+</p>
+
+<div class="divider"></div>
+
+{{ report_body|safe }}
+
+<div class="mb mt text-center">
+    <a class="button primary" href="{{ evaluation_url }}">View evaluation in PostHog</a>
+</div>
+
+{% endblock %}
