@@ -146,10 +146,9 @@ async def validate_schema_and_update_table(
 
         _schema_id = external_data_schema.id
         _schema_name: str = external_data_schema.name
-        _display_name: str = external_data_schema.display_name
         incremental_or_append = external_data_schema.should_use_incremental_field
 
-        table_name = build_table_name(job.pipeline, _schema_name, display_name=_display_name)
+        table_name = build_table_name(job.pipeline, _schema_name)
         normalized_schema_name = NamingConvention().normalize_identifier(_schema_name)
         new_url_pattern = job.url_pattern_by_schema(normalized_schema_name)
 
