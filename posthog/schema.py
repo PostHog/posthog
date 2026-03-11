@@ -16173,6 +16173,10 @@ class HogQLQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    connectionId: str | None = Field(
+        default=None,
+        description=("Optional direct external data source id for running against a specific source"),
+    )
     explain: bool | None = None
     filters: HogQLFilters | None = None
     kind: Literal["HogQLQuery"] = "HogQLQuery"
