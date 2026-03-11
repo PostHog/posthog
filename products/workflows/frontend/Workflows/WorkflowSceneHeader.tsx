@@ -102,11 +102,19 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                 <LemonDivider vertical />
                                 <ScenePanel>
                                     <ScenePanelActionsSection>
-                                        <ButtonPrimitive menuItem onClick={() => duplicate()} data-attr="workflow-duplicate-btn">
+                                        <ButtonPrimitive
+                                            menuItem
+                                            onClick={() => duplicate()}
+                                            data-attr="workflow-duplicate-btn"
+                                        >
                                             <IconCopy />
                                             Duplicate
                                         </ButtonPrimitive>
-                                        <ButtonPrimitive menuItem onClick={showSaveAsTemplateModal} data-attr="workflow-save-as-template-btn">
+                                        <ButtonPrimitive
+                                            menuItem
+                                            onClick={showSaveAsTemplateModal}
+                                            data-attr="workflow-save-as-template-btn"
+                                        >
                                             <IconScreen />
                                             Save as template
                                         </ButtonPrimitive>
