@@ -19,6 +19,7 @@ import {
     IntegrationFilter,
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsColumnsSchemaNames,
+    MarketingAnalyticsDrillDownLevel,
     NativeMarketingSource,
     NodeKind,
     ProductIntentContext,
@@ -217,6 +218,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             integrationSourceIds?: string[]
             chartDisplayType?: ChartDisplayType
             tileColumnSelection?: string
+            drillDownLevel?: MarketingAnalyticsDrillDownLevel
         }) => ({ params }),
         showColumnConfigModal: true,
         hideColumnConfigModal: true,
@@ -224,6 +226,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         hideConversionGoalModal: true,
         setChartDisplayType: (chartDisplayType: ChartDisplayType) => ({ chartDisplayType }),
         setTileColumnSelection: (column: validColumnsForTiles) => ({ column }),
+        setDrillDownLevel: (level: MarketingAnalyticsDrillDownLevel) => ({ level }),
         setInitialized: true,
     }),
     reducers({
@@ -364,6 +367,15 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     params.tileColumnSelection !== undefined
                         ? (params.tileColumnSelection as validColumnsForTiles)
                         : state,
+            },
+        ],
+        drillDownLevel: [
+            MarketingAnalyticsDrillDownLevel.Campaign as MarketingAnalyticsDrillDownLevel,
+            persistConfig,
+            {
+                setDrillDownLevel: (_, { level }) => level,
+                syncFromUrl: (state, { params }) =>
+                    params.drillDownLevel !== undefined ? params.drillDownLevel : state,
             },
         ],
     }),
@@ -718,6 +730,11 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 searchParams.set('tile_column', values.tileColumnSelection)
             }
 
+            // Drill-down level
+            if (values.drillDownLevel && values.drillDownLevel !== MarketingAnalyticsDrillDownLevel.Campaign) {
+                searchParams.set('drill_down_level', values.drillDownLevel)
+            }
+
             return [window.location.pathname, searchParams.toString()]
         }
 
@@ -729,6 +746,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             setIntegrationFilter: buildUrl,
             setChartDisplayType: buildUrl,
             setTileColumnSelection: buildUrl,
+            setDrillDownLevel: buildUrl,
             // Note: syncFromUrl is NOT mapped here - it's only for receiving URL changes
         }
     }),
@@ -754,6 +772,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             setIntegrationFilter: trackDashboardInteraction,
             setChartDisplayType: trackDashboardInteraction,
             setTileColumnSelection: trackDashboardInteraction,
+            setDrillDownLevel: trackDashboardInteraction,
             reloadAll: trackDashboardInteraction,
             applyConversionGoal: [
                 () => {
@@ -866,6 +885,10 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         const tileColumn = searchParams.get('tile_column')
         if (tileColumn) {
             params.tileColumnSelection = tileColumn
+        }
+        const drillDownLevel = searchParams.get('drill_down_level') as MarketingAnalyticsDrillDownLevel | null
+        if (drillDownLevel && Object.values(MarketingAnalyticsDrillDownLevel).includes(drillDownLevel)) {
+            params.drillDownLevel = drillDownLevel
         }
 
         // Apply URL params if any were found

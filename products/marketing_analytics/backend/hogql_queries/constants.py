@@ -19,6 +19,7 @@ from posthog.schema import (
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsConstants,
+    MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsItem,
     MarketingIntegrationConfig1,
     MarketingIntegrationConfig2,
@@ -244,6 +245,39 @@ BASE_COLUMN_MAPPING = {
 
 BASE_COLUMNS = [BASE_COLUMN_MAPPING[column] for column in MarketingAnalyticsBaseColumns]
 
+# Centralized drill-down level configuration
+DRILL_DOWN_LEVEL_CONFIG: dict[str, dict] = {
+    MarketingAnalyticsDrillDownLevel.CHANNEL: {
+        "column_alias": "Channel",
+        "excluded_base_columns": frozenset(
+            {
+                MarketingAnalyticsBaseColumns.ID,
+                MarketingAnalyticsBaseColumns.CAMPAIGN,
+                MarketingAnalyticsBaseColumns.SOURCE,
+            }
+        ),
+    },
+    MarketingAnalyticsDrillDownLevel.SOURCE: {
+        "column_alias": MarketingAnalyticsBaseColumns.SOURCE,
+        "excluded_base_columns": frozenset(
+            {
+                MarketingAnalyticsBaseColumns.ID,
+                MarketingAnalyticsBaseColumns.CAMPAIGN,
+                MarketingAnalyticsBaseColumns.SOURCE,
+            }
+        ),
+    },
+    MarketingAnalyticsDrillDownLevel.CAMPAIGN: {
+        "column_alias": MarketingAnalyticsBaseColumns.CAMPAIGN,
+        "excluded_base_columns": frozenset(),
+    },
+}
+
+# All possible grouping column aliases (used to identify string columns)
+DRILL_DOWN_STRING_COLUMN_ALIASES: frozenset[str] = frozenset(
+    cfg["column_alias"] for cfg in DRILL_DOWN_LEVEL_CONFIG.values()
+)
+
 # Marketing Analytics schema definition. This is the schema that is used to validate the source map.
 MARKETING_ANALYTICS_SCHEMA = {
     MarketingAnalyticsColumnsSchemaNames.CAMPAIGN: {"required": True},
@@ -455,12 +489,8 @@ def to_marketing_analytics_data(
             kind = "unit"
             is_increase_bad = False  # More conversions is good
 
-    # For string columns (ID, Campaign, Source), preserve the string values
-    if kind == "unit" and key in [
-        MarketingAnalyticsBaseColumns.ID.value,
-        MarketingAnalyticsBaseColumns.CAMPAIGN.value,
-        MarketingAnalyticsBaseColumns.SOURCE.value,
-    ]:
+    # For string columns (ID, Campaign, Source, and drill-down grouping aliases), preserve the string values
+    if kind == "unit" and key in (DRILL_DOWN_STRING_COLUMN_ALIASES | {MarketingAnalyticsBaseColumns.ID.value}):
         # String columns - no numeric processing needed
         pass
     else:
