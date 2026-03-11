@@ -1,6 +1,6 @@
 import dataclasses
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -1196,13 +1196,14 @@ class Database(BaseModel):
                     if to_field is None:
                         continue
 
+                    join_configuration = join.configuration if isinstance(join.configuration, dict) else {}
                     source_table.fields[join.field_name] = LazyJoin(
                         from_field=from_field,
                         to_field=to_field,
                         join_table=joining_table,
                         join_function=(
                             join.join_function_for_experiments()
-                            if "events" == join.joining_table_name and join.configuration.get("experiments_optimized")
+                            if "events" == join.joining_table_name and join_configuration.get("experiments_optimized")
                             else join.join_function()
                         ),
                     )
@@ -1447,7 +1448,7 @@ HOGQL_CHARACTERS_TO_BE_WRAPPED = ["@", "-", "!", "$", "+"]
 NOT_DELETED_Q = Q(deleted=False) | Q(deleted__isnull=True)
 
 
-def _preload_active_external_data_schemas(warehouse_tables: list[DataWarehouseTable]) -> None:
+def _preload_active_external_data_schemas(warehouse_tables: Sequence[DataWarehouseTable]) -> None:
     table_ids = [
         str(warehouse_table.id) for warehouse_table in warehouse_tables if warehouse_table.external_data_source_id
     ]
@@ -1459,12 +1460,16 @@ def _preload_active_external_data_schemas(warehouse_tables: list[DataWarehouseTa
         schemas_by_table_id[str(schema.table_id)].append(schema)
 
     for warehouse_table in warehouse_tables:
-        warehouse_table._active_external_data_schemas = schemas_by_table_id.get(str(warehouse_table.id), [])
+        warehouse_table.__dict__["_active_external_data_schemas"] = schemas_by_table_id.get(str(warehouse_table.id), [])
 
 
 def _get_active_external_data_schemas(warehouse_table: DataWarehouseTable) -> list[ExternalDataSchema]:
-    if hasattr(warehouse_table, "_active_external_data_schemas"):
-        return warehouse_table._active_external_data_schemas
+    active_external_data_schemas = cast(
+        Optional[list[ExternalDataSchema]],
+        getattr(warehouse_table, "_active_external_data_schemas", None),
+    )
+    if active_external_data_schemas is not None:
+        return active_external_data_schemas
 
     if warehouse_table.external_data_source_id is None:
         return []
