@@ -53,7 +53,15 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="ScoreDefinitionVersion",
             fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.UUIDField(
+                        default=posthog.models.utils.uuid7,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (
                     "created_by",

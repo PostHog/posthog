@@ -51,7 +51,7 @@ class ScoreDefinition(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         return version
 
 
-class ScoreDefinitionVersion(CreatedMetaFields, models.Model):
+class ScoreDefinitionVersion(UUIDModel, CreatedMetaFields):
     definition = models.ForeignKey(ScoreDefinition, on_delete=models.CASCADE, related_name="versions")
     version = models.PositiveIntegerField()
     config = models.JSONField(default=dict)
