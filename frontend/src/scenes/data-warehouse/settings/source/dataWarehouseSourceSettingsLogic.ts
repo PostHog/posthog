@@ -197,6 +197,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
         ],
         showEnabledSchemasOnly: [
             false as boolean,
+            { persist: true, storageKey: 'data-warehouse-show-enabled-schemas-only' },
             {
                 setShowEnabledSchemasOnly: (_, { showEnabledSchemasOnly }) => showEnabledSchemasOnly,
             },
