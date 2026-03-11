@@ -19,7 +19,6 @@ export interface Fuse extends FuseClass<HogFlow> {}
 export interface WorkflowsFilters {
     search: string
     createdBy: string | null
-    status: string | null
 }
 
 export const workflowsLogic = kea<workflowsLogicType>([
@@ -36,19 +35,17 @@ export const workflowsLogic = kea<workflowsLogicType>([
         setFilters: (filters: Partial<WorkflowsFilters>) => ({ filters }),
         setSearchTerm: (search: string) => ({ search }),
         setCreatedBy: (createdBy: string | null) => ({ createdBy }),
-        setStatus: (status: string | null) => ({ status }),
         toggleArchivedWorkflowSelection: (id: string) => ({ id }),
         selectAllArchivedWorkflows: (ids: string[]) => ({ ids }),
         clearArchivedWorkflowSelection: true,
     }),
     reducers({
         filters: [
-            { search: '', createdBy: null, status: null } as WorkflowsFilters,
+            { search: '', createdBy: null } as WorkflowsFilters,
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
                 setSearchTerm: (state, { search }) => ({ ...state, search }),
                 setCreatedBy: (state, { createdBy }) => ({ ...state, createdBy }),
-                setStatus: (state, { status }) => ({ ...state, status }),
             },
         ],
         selectedArchivedWorkflowIds: [
@@ -183,35 +180,43 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 })
             },
         ],
-        filteredWorkflows: [
+        filteredWorkflowsByStatus: [
             (s) => [s.workflows, s.filters, s.workflowsFuse],
-            (workflows, filters, workflowsFuse): HogFlow[] => {
-                let filtered = workflows.filter((workflow) => workflow.status !== 'archived')
+            (
+                workflows,
+                filters,
+                workflowsFuse
+            ): { active: HogFlow[]; draft: HogFlow[]; archived: HogFlow[] } => {
+                let filtered = workflows
 
-                // Filter by search term using Fuse
                 if (filters.search) {
                     const searchResults = workflowsFuse.search(filters.search)
-                    filtered = searchResults.map((result) => result.item)
+                    const matchedIds = new Set(searchResults.map((result) => result.item.id))
+                    filtered = filtered.filter((w) => matchedIds.has(w.id))
                 }
 
-                // Filter by status
-                if (filters.status) {
-                    filtered = filtered.filter((workflow) => workflow.status === filters.status)
-                }
-
-                // Filter by creator
                 if (filters.createdBy) {
-                    filtered = filtered.filter((workflow) => workflow.created_by?.uuid === filters.createdBy)
+                    filtered = filtered.filter((w) => w.created_by?.uuid === filters.createdBy)
                 }
 
-                return filtered
+                return {
+                    active: filtered.filter((w) => w.status === 'active'),
+                    draft: filtered.filter((w) => w.status === 'draft'),
+                    archived: filtered.filter((w) => w.status === 'archived'),
+                }
             },
         ],
+        activeWorkflows: [
+            (s) => [s.filteredWorkflowsByStatus],
+            (byStatus): HogFlow[] => byStatus.active,
+        ],
+        draftWorkflows: [
+            (s) => [s.filteredWorkflowsByStatus],
+            (byStatus): HogFlow[] => byStatus.draft,
+        ],
         archivedWorkflows: [
-            (s) => [s.workflows],
-            (workflows): HogFlow[] => {
-                return workflows.filter((workflow) => workflow.status === 'archived')
-            },
+            (s) => [s.filteredWorkflowsByStatus],
+            (byStatus): HogFlow[] => byStatus.archived,
         ],
         allArchivedSelected: [
             (s) => [s.archivedWorkflows, s.selectedArchivedWorkflowIds],
