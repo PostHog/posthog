@@ -91,10 +91,6 @@ pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
 This is idempotent and non-destructive — it only adds newly discovered operations
 (with `enabled: false`) and removes stale ones. All hand-authored configuration
 (descriptions, scopes, annotations, etc.) is preserved.
-File writes are skipped when there are no semantic changes to avoid formatting-only rewrites.
-
-For subset files, the scaffold script warns on stderr when tools can't be matched to OpenAPI operations,
-listing the specific tools and suggesting to add `@extend_schema(tags=["<product>"])` to the ViewSet.
 
 CI runs this as a drift check.
 
