@@ -20,7 +20,7 @@ import {
     ProductIntentContext,
     ProductKey,
 } from '~/queries/schema/schema-general'
-import type { Experiment, FeatureFlagFilters, MultivariateFlagVariant } from '~/types'
+import type { Experiment, FeatureFlagFilters, FeatureFlagType, MultivariateFlagVariant } from '~/types'
 
 import { NEW_EXPERIMENT } from '../constants'
 import { FORM_MODES, experimentLogic } from '../experimentLogic'
