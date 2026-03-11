@@ -8,6 +8,8 @@ and scraped by the Prometheus endpoint on the worker pod.
 import typing
 import datetime as dt
 
+from django.conf import settings
+
 from temporalio import activity, workflow
 from temporalio.worker import (
     ActivityInboundInterceptor,
@@ -106,6 +108,8 @@ def increment_errors(error_type: str) -> None:
 
 class SummarizationMetricsInterceptor(Interceptor):
     """Interceptor to emit Prometheus metrics for summarization workflows."""
+
+    task_queue = settings.LLMA_TASK_QUEUE
 
     def intercept_activity(self, next: ActivityInboundInterceptor) -> ActivityInboundInterceptor:
         return _SummarizationActivityInterceptor(super().intercept_activity(next))

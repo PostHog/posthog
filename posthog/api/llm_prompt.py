@@ -17,6 +17,7 @@ from rest_framework.serializers import BaseSerializer
 from posthog.api.capture import capture_internal
 from posthog.api.llm_prompt_serializers import (
     LLMPromptFetchQuerySerializer,
+    LLMPromptListQuerySerializer,
     LLMPromptPublicSerializer,
     LLMPromptPublishSerializer,
     LLMPromptResolveQuerySerializer,
@@ -361,6 +362,7 @@ class LLMPromptViewSet(
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @extend_schema(parameters=[LLMPromptListQuerySerializer])
     @llma_track_latency("llma_prompts_list")
     @monitor(feature=None, endpoint="llma_prompts_list", method="GET")
     def list(self, request: Request, *args, **kwargs) -> Response:

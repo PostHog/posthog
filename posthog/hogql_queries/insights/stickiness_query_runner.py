@@ -1,6 +1,9 @@
 from datetime import timedelta
 from math import ceil
-from typing import Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
+
+if TYPE_CHECKING:
+    from rest_framework.request import Request
 
 from django.utils.timezone import now
 
@@ -62,8 +65,11 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
+        request: Optional["Request"] = None,
     ):
-        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+        super().__init__(
+            query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, request=request
+        )
         self.series = self.setup_series()
 
     def _refresh_frequency(self):

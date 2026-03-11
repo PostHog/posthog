@@ -332,3 +332,38 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         fs_entry = FileSystem.objects.filter(team=self.team, ref=notebook_short_id, type="notebook").first()
         assert fs_entry is not None
         assert "Notebooks/Special Team Folder" in fs_entry.path
+
+    def test_create_notebook_with_custom_short_id(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            {"title": "From Artifact", "short_id": "abcd"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["short_id"] == "abcd"
+
+        notebook = Notebook.objects.get(team=self.team, short_id="abcd")
+        assert notebook.title == "From Artifact"
+
+    def test_create_notebook_without_short_id_auto_generates(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            {"title": "Auto ID"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert len(response.json()["short_id"]) > 0
+
+    @parameterized.expand(
+        [
+            ("too long", "a" * 13),
+            ("non alphanumeric", "ab-cd!"),
+        ]
+    )
+    def test_create_notebook_rejects_invalid_short_id(self, _name, bad_id):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            {"title": "Bad ID", "short_id": bad_id},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

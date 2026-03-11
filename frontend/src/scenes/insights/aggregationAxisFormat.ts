@@ -1,7 +1,10 @@
+import posthog from 'posthog-js'
+
 import { LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect'
 import { compactNumber, humanFriendlyCurrency, humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
+import { formatCurrency } from 'lib/utils/geography/currency'
 
-import { TrendsFilter } from '~/queries/schema/schema-general'
+import { CurrencyCode, TrendsFilter } from '~/queries/schema/schema-general'
 import { ChartDisplayType, TrendsFilterType } from '~/types'
 
 const formats = ['numeric', 'duration', 'duration_ms', 'percentage', 'percentage_scaled', 'currency', 'short'] as const
@@ -21,7 +24,8 @@ export const INSIGHT_UNIT_OPTIONS: LemonSelectOptionLeaf<AggregationAxisFormat>[
 // legacy trend filters, as we still return these as part of a data response
 export const formatAggregationAxisValue = (
     trendsFilter: TrendsFilter | null | undefined | Partial<TrendsFilterType>,
-    value: number | string
+    value: number | string,
+    currency?: CurrencyCode
 ): string => {
     value = Number(value)
     const maxDecimalPlaces =
@@ -54,7 +58,14 @@ export const formatAggregationAxisValue = (
                 formattedValue = percentage(value, maxDecimalPlaces)
                 break
             case 'currency':
-                formattedValue = humanFriendlyCurrency(value)
+                // In the rare case where we get an error because we have an invalid currency code
+                // let's make sure we fallback to the human friendly one
+                try {
+                    formattedValue = currency ? formatCurrency(value, currency) : humanFriendlyCurrency(value)
+                } catch (error) {
+                    posthog.captureException(error, { value, currency })
+                    formattedValue = humanFriendlyCurrency(value)
+                }
                 break
             case 'short':
                 formattedValue = compactNumber(value)
@@ -70,13 +81,15 @@ export const formatAggregationAxisValue = (
 export const formatPercentStackAxisValue = (
     trendsFilter: TrendsFilter | null | undefined | Partial<TrendsFilterType>,
     value: number | string,
-    isPercentStackView: boolean
+    isPercentStackView: boolean,
+    currency?: CurrencyCode
 ): string => {
     if (isPercentStackView) {
         value = Number(value)
         return percentage(value / 100)
     }
-    return formatAggregationAxisValue(trendsFilter, value)
+
+    return formatAggregationAxisValue(trendsFilter, value, currency)
 }
 
 export const axisLabel = (chartDisplayType: ChartDisplayType | null | undefined): string => {
