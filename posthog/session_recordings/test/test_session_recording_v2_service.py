@@ -28,17 +28,40 @@ class TestSessionRecordingV2Service(TestCase):
     @patch("posthog.session_recordings.session_recording_v2_service._fetch_blocks_from_recording_api")
     def test_list_blocks_returns_blocks_from_recording_api(self, mock_fetch):
         mock_fetch.return_value = [
-            RecordingBlock(key="bucket/key1", start=0, end=100),
-            RecordingBlock(key="bucket/key2", start=0, end=200),
+            RecordingBlock(
+                key="bucket/key1",
+                start_byte=0,
+                end_byte=100,
+                start_timestamp="2024-01-01T00:00:00Z",
+                end_timestamp="2024-01-01T00:01:00Z",
+            ),
+            RecordingBlock(
+                key="bucket/key2",
+                start_byte=0,
+                end_byte=200,
+                start_timestamp="2024-01-01T00:01:00Z",
+                end_timestamp="2024-01-01T00:02:00Z",
+            ),
         ]
 
         blocks = list_blocks(self.recording)
 
-        self.assertEqual(len(blocks), 2)
-        self.assertEqual(blocks[0].key, "bucket/key1")
-        self.assertEqual(blocks[0].start, 0)
-        self.assertEqual(blocks[0].end, 100)
-        self.assertEqual(blocks[1].key, "bucket/key2")
+        assert blocks == [
+            RecordingBlock(
+                key="bucket/key1",
+                start_byte=0,
+                end_byte=100,
+                start_timestamp="2024-01-01T00:00:00Z",
+                end_timestamp="2024-01-01T00:01:00Z",
+            ),
+            RecordingBlock(
+                key="bucket/key2",
+                start_byte=0,
+                end_byte=200,
+                start_timestamp="2024-01-01T00:01:00Z",
+                end_timestamp="2024-01-01T00:02:00Z",
+            ),
+        ]
         mock_fetch.assert_called_once_with("test_session", 1)
 
     @patch("posthog.session_recordings.session_recording_v2_service._fetch_blocks_from_recording_api")
@@ -47,7 +70,7 @@ class TestSessionRecordingV2Service(TestCase):
 
         blocks = list_blocks(self.recording)
 
-        self.assertEqual(blocks, [])
+        assert blocks == []
 
     @patch("posthog.session_recordings.session_recording_v2_service._fetch_blocks_from_recording_api")
     def test_list_blocks_returns_empty_list_when_no_blocks(self, mock_fetch):
@@ -55,20 +78,36 @@ class TestSessionRecordingV2Service(TestCase):
 
         blocks = list_blocks(self.recording)
 
-        self.assertEqual(blocks, [])
+        assert blocks == []
 
     @patch("posthog.session_recordings.session_recording_v2_service.cache")
     @patch("posthog.session_recordings.session_recording_v2_service._fetch_blocks_from_recording_api")
     def test_list_blocks_caches_result(self, mock_fetch, mock_cache):
         mock_cache.get.return_value = None
-        mock_fetch.return_value = [RecordingBlock(key="bucket/key1", start=0, end=100)]
+        mock_fetch.return_value = [
+            RecordingBlock(
+                key="bucket/key1",
+                start_byte=0,
+                end_byte=100,
+                start_timestamp="2024-01-01T00:00:00Z",
+                end_timestamp="2024-01-01T00:01:00Z",
+            )
+        ]
 
         list_blocks(self.recording)
 
         expected_cache_key = listing_cache_key(self.recording)
         mock_cache.set.assert_called_once_with(
             expected_cache_key,
-            [RecordingBlock(key="bucket/key1", start=0, end=100)],
+            [
+                RecordingBlock(
+                    key="bucket/key1",
+                    start_byte=0,
+                    end_byte=100,
+                    start_timestamp="2024-01-01T00:00:00Z",
+                    end_timestamp="2024-01-01T00:01:00Z",
+                )
+            ],
             timeout=FIVE_SECONDS,
         )
 
@@ -85,12 +124,20 @@ class TestSessionRecordingV2Service(TestCase):
     @patch("posthog.session_recordings.session_recording_v2_service.cache")
     @patch("posthog.session_recordings.session_recording_v2_service._fetch_blocks_from_recording_api")
     def test_list_blocks_returns_cached_data_without_calling_api(self, mock_fetch, mock_cache):
-        cached_blocks = [RecordingBlock(key="bucket/key1", start=0, end=100)]
+        cached_blocks = [
+            RecordingBlock(
+                key="bucket/key1",
+                start_byte=0,
+                end_byte=100,
+                start_timestamp="2024-01-01T00:00:00Z",
+                end_timestamp="2024-01-01T00:01:00Z",
+            )
+        ]
         mock_cache.get.return_value = cached_blocks
 
         blocks = list_blocks(self.recording)
 
-        self.assertEqual(blocks, cached_blocks)
+        assert blocks == cached_blocks
         mock_fetch.assert_not_called()
         mock_cache.set.assert_not_called()
 

@@ -241,24 +241,31 @@ export class RecordingService {
             return []
         }
 
-        const blocks: { startTime: string; block: RecordingBlock }[] = []
+        const blocks: { sortKey: string; block: RecordingBlock }[] = []
         for (let i = 0; i < block_urls.length; i++) {
             const parsed = RecordingService.parseBlockUrl(block_urls[i])
             if (parsed) {
-                blocks.push({ startTime: block_first_timestamps[i], block: parsed })
+                blocks.push({
+                    sortKey: block_first_timestamps[i],
+                    block: {
+                        ...parsed,
+                        start_timestamp: block_first_timestamps[i],
+                        end_timestamp: block_last_timestamps[i],
+                    },
+                })
             }
         }
 
-        blocks.sort((a, b) => a.startTime.localeCompare(b.startTime))
+        blocks.sort((a, b) => a.sortKey.localeCompare(b.sortKey))
 
-        if (blocks.length === 0 || blocks[0].startTime !== start_time) {
+        if (blocks.length === 0 || blocks[0].sortKey !== start_time) {
             return []
         }
 
         return blocks.map((b) => b.block)
     }
 
-    static parseBlockUrl(blockUrl: string): RecordingBlock | null {
+    static parseBlockUrl(blockUrl: string): { key: string; start_byte: number; end_byte: number } | null {
         try {
             const url = new URL(blockUrl)
             const key = url.pathname.replace(/^\//, '')
@@ -267,7 +274,7 @@ export class RecordingService {
                 logger.warn('[RecordingService] Invalid block URL range', { blockUrl })
                 return null
             }
-            return { key, start: parseInt(match[1]), end: parseInt(match[2]) }
+            return { key, start_byte: parseInt(match[1]), end_byte: parseInt(match[2]) }
         } catch {
             logger.warn('[RecordingService] Failed to parse block URL', { blockUrl })
             return null

@@ -24,10 +24,10 @@ class RecordingApiClient:
         self.base_url = base_url.rstrip("/")
 
     async def fetch_block(
-        self, key: str, start: int, end: int, session_id: str, team_id: int, *, decompress: bool = False
+        self, key: str, start_byte: int, end_byte: int, session_id: str, team_id: int, *, decompress: bool = False
     ) -> bytes:
         url = f"{self.base_url}/api/projects/{team_id}/recordings/{session_id}/block"
-        params: dict[str, str | int] = {"key": key, "start": start, "end": end}
+        params: dict[str, str | int] = {"key": key, "start_byte": start_byte, "end_byte": end_byte}
         if decompress:
             params["decompress"] = "true"
 
@@ -67,13 +67,23 @@ class RecordingApiClient:
     async def list_blocks(self, session_id: str, team_id: int) -> list[dict]:
         url = f"{self.base_url}/api/projects/{team_id}/recordings/{session_id}/blocks"
 
-        async with self.session.get(url) as response:
-            if response.status == 404:
-                return []
-            response.raise_for_status()
-            data = await response.json()
-
-        return data.get("blocks", [])
+        try:
+            async with self.session.get(url) as response:
+                if response.status == 404:
+                    return []
+                response.raise_for_status()
+                data = await response.json()
+            return data.get("blocks", [])
+        except aiohttp.ClientError as e:
+            logger.exception(
+                "recording_api_client.list_blocks_failed",
+                url=url,
+                session_id=session_id,
+                team_id=team_id,
+                error=str(e),
+                exc_info=False,
+            )
+            raise
 
     async def delete_recordings(self, session_ids: list[str], team_id: int, deleted_by: str) -> list[str]:
         """

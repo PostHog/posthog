@@ -244,7 +244,7 @@ export class RecordingApi {
         }
 
         const { team_id: teamId, session_id: sessionId } = paramsResult.data
-        const { key, start: startByte, end: endByte, decompress } = queryResult.data
+        const { key, start_byte: startByte, end_byte: endByte, decompress } = queryResult.data
 
         // Validate S3 key format
         if (!this.recordingService.validateS3Key(key)) {

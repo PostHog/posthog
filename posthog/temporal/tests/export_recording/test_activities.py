@@ -176,7 +176,13 @@ async def test_export_recording_data_prefix_success():
         redis_config=TEST_REDIS_CONFIG,
     )
 
-    mock_block = RecordingBlock(key="team_id/123/session_id/test-session/data/file.json", start=0, end=100)
+    mock_block = RecordingBlock(
+        key="team_id/123/session_id/test-session/data/file.json",
+        start_byte=0,
+        end_byte=100,
+        start_timestamp="2024-01-01T00:00:00Z",
+        end_timestamp="2024-01-01T00:01:00Z",
+    )
 
     mock_recording = MagicMock()
     mock_redis = AsyncMock()
@@ -238,7 +244,13 @@ async def test_export_recording_data_success():
         redis_config=TEST_REDIS_CONFIG,
     )
 
-    mock_block = RecordingBlock(key="team/123/session/test-session/data/file.json", start=100, end=200)
+    mock_block = RecordingBlock(
+        key="team/123/session/test-session/data/file.json",
+        start_byte=100,
+        end_byte=200,
+        start_timestamp="2024-01-01T00:00:00Z",
+        end_timestamp="2024-01-01T00:01:00Z",
+    )
 
     mock_recording = MagicMock()
     mock_storage = AsyncMock()
@@ -260,7 +272,11 @@ async def test_export_recording_data_success():
         await export_recording_data(export_context)
 
         mock_storage.fetch_block.assert_called_once_with(
-            mock_block.key, mock_block.start, mock_block.end, export_context.session_id, export_context.team_id
+            mock_block.key,
+            mock_block.start_byte,
+            mock_block.end_byte,
+            export_context.session_id,
+            export_context.team_id,
         )
         assert mock_redis.setex.call_count == 2
 
@@ -323,7 +339,13 @@ async def test_export_recording_data_block_fetch_error():
         redis_config=TEST_REDIS_CONFIG,
     )
 
-    mock_block = RecordingBlock(key="team/123/session/test-session/data/file.json", start=100, end=200)
+    mock_block = RecordingBlock(
+        key="team/123/session/test-session/data/file.json",
+        start_byte=100,
+        end_byte=200,
+        start_timestamp="2024-01-01T00:00:00Z",
+        end_timestamp="2024-01-01T00:01:00Z",
+    )
 
     mock_recording = MagicMock()
     mock_storage = AsyncMock()

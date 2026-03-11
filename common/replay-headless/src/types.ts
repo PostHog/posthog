@@ -6,8 +6,10 @@ export interface ViewportEvent {
 
 export interface RecordingBlock {
     key: string
-    start: number
-    end: number
+    start_byte: number
+    end_byte: number
+    start_timestamp: string
+    end_timestamp: string
 }
 
 export interface PlayerConfig {

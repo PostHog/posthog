@@ -22,8 +22,10 @@ BLOCK_LISTING_CACHE_HIT_COUNTER = Counter(
 @dataclasses.dataclass(frozen=True)
 class RecordingBlock:
     key: str
-    start: int
-    end: int
+    start_byte: int
+    end_byte: int
+    start_timestamp: str
+    end_timestamp: str
 
 
 FIVE_SECONDS = 5
@@ -49,7 +51,16 @@ async def _fetch_blocks_from_recording_api(session_id: str, team_id: int) -> lis
     async with recording_api_client() as client:
         raw_blocks = await client.list_blocks(session_id, team_id)
 
-    return [RecordingBlock(key=b["key"], start=b["start"], end=b["end"]) for b in raw_blocks]
+    return [
+        RecordingBlock(
+            key=b["key"],
+            start_byte=b["start_byte"],
+            end_byte=b["end_byte"],
+            start_timestamp=b["start_timestamp"],
+            end_timestamp=b["end_timestamp"],
+        )
+        for b in raw_blocks
+    ]
 
 
 def list_blocks(recording: SessionRecording) -> list[RecordingBlock]:

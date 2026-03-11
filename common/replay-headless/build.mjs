@@ -29,14 +29,3 @@ const outputHtml = html.replace('<!-- INLINE_JS -->', () => `<script>${js}</scri
 
 mkdirSync(resolve(__dirname, 'dist'), { recursive: true })
 writeFileSync(resolve(__dirname, 'dist/player.html'), outputHtml)
-
-const sizeKB = (outputHtml.length / 1024).toFixed(1)
-
-// Show which modules pulled in postcss
-if (result.metafile) {
-    const inputs = Object.keys(result.metafile.inputs)
-    const postcssInputs = inputs.filter((i) => i.includes('postcss'))
-    if (postcssInputs.length) {
-        postcssInputs.forEach((p) => {})
-    }
-}

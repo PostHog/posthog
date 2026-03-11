@@ -11,8 +11,20 @@ const makeConfig = (overrides?: Partial<PlayerConfig>): PlayerConfig => ({
 })
 
 const blocks: RecordingBlock[] = [
-    { key: 'session_recordings/30d/1000-abc123', start: 0, end: 5000 },
-    { key: 'session_recordings/30d/2000-def456', start: 100, end: 6000 },
+    {
+        key: 'session_recordings/30d/1000-abc123',
+        start_byte: 0,
+        end_byte: 5000,
+        start_timestamp: '2024-01-01T00:00:00Z',
+        end_timestamp: '2024-01-01T00:01:00Z',
+    },
+    {
+        key: 'session_recordings/30d/2000-def456',
+        start_byte: 100,
+        end_byte: 6000,
+        start_timestamp: '2024-01-01T00:01:00Z',
+        end_timestamp: '2024-01-01T00:02:00Z',
+    },
 ]
 
 const mockResponse = (

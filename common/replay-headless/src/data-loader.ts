@@ -12,6 +12,8 @@ import {
 
 import type { PlayerConfig, RecordingBlock } from './types'
 
+const MAX_CONCURRENT_FETCHES = 6
+
 async function fetchBlocks(config: PlayerConfig): Promise<RecordingBlock[]> {
     const url = `${config.recordingApiBaseUrl}/api/projects/${config.teamId}/recordings/${config.sessionId}/blocks`
 
@@ -34,8 +36,8 @@ async function fetchBlock(config: PlayerConfig, block: RecordingBlock): Promise<
     const url = `${config.recordingApiBaseUrl}/api/projects/${config.teamId}/recordings/${config.sessionId}/block`
     const params = new URLSearchParams({
         key: block.key,
-        start: String(block.start),
-        end: String(block.end),
+        start_byte: String(block.start_byte),
+        end_byte: String(block.end_byte),
         decompress: 'true',
     })
 
@@ -68,19 +70,25 @@ export async function loadAllSources(config: PlayerConfig): Promise<LoadedSource
     const sources: SessionRecordingSnapshotSource[] = []
     const snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> = {}
 
-    const results = await Promise.all(
-        blocks.map(async (block, index) => {
-            const text = await fetchBlock(config, block)
-            const lines = text.split('\n').filter(Boolean)
-            const snapshots: RecordingSnapshot[] = parseJsonSnapshots(
-                lines,
-                config.sessionId,
-                noOpTelemetry,
-                registerWindowId
-            )
-            return { index, snapshots }
-        })
-    )
+    const results: { index: number; snapshots: RecordingSnapshot[] }[] = []
+    for (let i = 0; i < blocks.length; i += MAX_CONCURRENT_FETCHES) {
+        const batch = blocks.slice(i, i + MAX_CONCURRENT_FETCHES)
+        const batchResults = await Promise.all(
+            batch.map(async (block, batchIndex) => {
+                const index = i + batchIndex
+                const text = await fetchBlock(config, block)
+                const lines = text.split('\n').filter(Boolean)
+                const snapshots: RecordingSnapshot[] = parseJsonSnapshots(
+                    lines,
+                    config.sessionId,
+                    noOpTelemetry,
+                    registerWindowId
+                )
+                return { index, snapshots }
+            })
+        )
+        results.push(...batchResults)
+    }
 
     for (const { index, snapshots } of results) {
         const source: SessionRecordingSnapshotSource = {

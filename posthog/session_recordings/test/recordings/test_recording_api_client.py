@@ -55,7 +55,7 @@ class TestFetchBlock:
         assert result == b"compressed-data"
         mock_session.get.assert_called_once_with(
             "http://localhost:6740/api/projects/1/recordings/session-123/block",
-            params={"key": "key", "start": 0, "end": 100},
+            params={"key": "key", "start_byte": 0, "end_byte": 100},
         )
 
     @pytest.mark.asyncio
@@ -81,7 +81,7 @@ class TestFetchBlock:
         assert result == b'{"type": 3, "data": {}}'
         mock_session.get.assert_called_once_with(
             "http://localhost:6740/api/projects/1/recordings/session-123/block",
-            params={"key": "key", "start": 0, "end": 100, "decompress": "true"},
+            params={"key": "key", "start_byte": 0, "end_byte": 100, "decompress": "true"},
         )
 
     @pytest.mark.asyncio
@@ -163,7 +163,19 @@ class TestListBlocks:
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.raise_for_status = MagicMock()
-        mock_response.json = AsyncMock(return_value={"blocks": [{"key": "path/key1", "start": 0, "end": 100}]})
+        mock_response.json = AsyncMock(
+            return_value={
+                "blocks": [
+                    {
+                        "key": "path/key1",
+                        "start_byte": 0,
+                        "end_byte": 100,
+                        "start_timestamp": "2024-01-01T00:00:00Z",
+                        "end_timestamp": "2024-01-01T00:01:00Z",
+                    }
+                ]
+            }
+        )
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
 
@@ -171,7 +183,15 @@ class TestListBlocks:
 
         result = await client.list_blocks("session-123", 1)
 
-        assert result == [{"key": "path/key1", "start": 0, "end": 100}]
+        assert result == [
+            {
+                "key": "path/key1",
+                "start_byte": 0,
+                "end_byte": 100,
+                "start_timestamp": "2024-01-01T00:00:00Z",
+                "end_timestamp": "2024-01-01T00:01:00Z",
+            }
+        ]
         mock_session.get.assert_called_once_with(
             "http://localhost:6740/api/projects/1/recordings/session-123/blocks",
         )
@@ -203,6 +223,25 @@ class TestListBlocks:
         result = await client.list_blocks("session-123", 1)
 
         assert result == []
+
+    @pytest.mark.asyncio
+    async def test_server_error_raises(self, client, mock_session):
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.raise_for_status = MagicMock(
+            side_effect=aiohttp.ClientResponseError(
+                request_info=MagicMock(),
+                history=(),
+                status=500,
+            )
+        )
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session.get = MagicMock(return_value=mock_response)
+
+        with pytest.raises(aiohttp.ClientResponseError):
+            await client.list_blocks("session-123", 1)
 
 
 class TestDeleteRecordings:

@@ -175,11 +175,11 @@ async def export_recording_data(input: ExportContext) -> None:
     async with recording_api_client() as storage:
         for block in recording_blocks:
             filename = block.key.split("/")[-1]
-            block_offset = block.start
+            block_offset = block.start_byte
 
             try:
                 block_data = await storage.fetch_block(
-                    block.key, block.start, block.end, input.session_id, input.team_id
+                    block.key, block.start_byte, block.end_byte, input.session_id, input.team_id
                 )
                 logger.info(f"Successfully fetched block data ({len(block_data)} bytes)")
             except RecordingDeletedError:

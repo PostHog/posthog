@@ -219,11 +219,11 @@ describe('RecordingService', () => {
         it.each([
             [
                 's3://posthog/session_recordings/30d/1000-abc123?range=bytes=0-5000',
-                { key: 'session_recordings/30d/1000-abc123', start: 0, end: 5000 },
+                { key: 'session_recordings/30d/1000-abc123', start_byte: 0, end_byte: 5000 },
             ],
             [
                 's3://bucket/session_recordings/90d/2000-def456?range=bytes=100-6000',
-                { key: 'session_recordings/90d/2000-def456', start: 100, end: 6000 },
+                { key: 'session_recordings/90d/2000-def456', start_byte: 100, end_byte: 6000 },
             ],
         ])('parses "%s"', (url, expected) => {
             expect(RecordingService.parseBlockUrl(url)).toEqual(expected)
@@ -252,8 +252,20 @@ describe('RecordingService', () => {
             const blocks = RecordingService.buildBlockList('sess-1', 1, row)
 
             expect(blocks).toEqual([
-                { key: 'session_recordings/30d/1000-aaa', start: 0, end: 100 },
-                { key: 'session_recordings/30d/2000-bbb', start: 0, end: 200 },
+                {
+                    key: 'session_recordings/30d/1000-aaa',
+                    start_byte: 0,
+                    end_byte: 100,
+                    start_timestamp: '2024-01-01 00:00:00.000000',
+                    end_timestamp: '2024-01-01 00:00:59.000000',
+                },
+                {
+                    key: 'session_recordings/30d/2000-bbb',
+                    start_byte: 0,
+                    end_byte: 200,
+                    start_timestamp: '2024-01-01 00:01:00.000000',
+                    end_timestamp: '2024-01-01 00:01:59.000000',
+                },
             ])
         })
 
@@ -270,8 +282,20 @@ describe('RecordingService', () => {
 
             const blocks = RecordingService.buildBlockList('sess-1', 1, row)
 
-            expect(blocks[0].key).toBe('session_recordings/30d/1000-aaa')
-            expect(blocks[1].key).toBe('session_recordings/30d/2000-bbb')
+            expect(blocks[0]).toEqual({
+                key: 'session_recordings/30d/1000-aaa',
+                start_byte: 0,
+                end_byte: 100,
+                start_timestamp: '2024-01-01 00:00:00.000000',
+                end_timestamp: '2024-01-01 00:00:59.000000',
+            })
+            expect(blocks[1]).toEqual({
+                key: 'session_recordings/30d/2000-bbb',
+                start_byte: 0,
+                end_byte: 200,
+                start_timestamp: '2024-01-01 00:01:00.000000',
+                end_timestamp: '2024-01-01 00:01:59.000000',
+            })
         })
 
         it('returns empty when first block start_time does not match recording start_time', () => {
@@ -317,7 +341,15 @@ describe('RecordingService', () => {
 
             const blocks = RecordingService.buildBlockList('sess-1', 1, row)
 
-            expect(blocks).toEqual([{ key: 'session_recordings/30d/1000-aaa', start: 0, end: 100 }])
+            expect(blocks).toEqual([
+                {
+                    key: 'session_recordings/30d/1000-aaa',
+                    start_byte: 0,
+                    end_byte: 100,
+                    start_timestamp: '2024-01-01 00:00:00.000000',
+                    end_timestamp: '2024-01-01 00:00:59.000000',
+                },
+            ])
         })
     })
 
@@ -344,8 +376,20 @@ describe('RecordingService', () => {
             const blocks = await service.listBlocks('sess-1', 1)
 
             expect(blocks).toEqual([
-                { key: 'session_recordings/30d/1000-aaa', start: 0, end: 100 },
-                { key: 'session_recordings/30d/2000-bbb', start: 0, end: 200 },
+                {
+                    key: 'session_recordings/30d/1000-aaa',
+                    start_byte: 0,
+                    end_byte: 100,
+                    start_timestamp: '2024-01-01 00:00:00.000000',
+                    end_timestamp: '2024-01-01 00:00:59.000000',
+                },
+                {
+                    key: 'session_recordings/30d/2000-bbb',
+                    start_byte: 0,
+                    end_byte: 200,
+                    start_timestamp: '2024-01-01 00:01:00.000000',
+                    end_timestamp: '2024-01-01 00:01:59.000000',
+                },
             ])
             expect(mockClickhouse.query).toHaveBeenCalledWith(
                 expect.objectContaining({
