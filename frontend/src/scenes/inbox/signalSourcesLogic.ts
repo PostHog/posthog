@@ -20,6 +20,50 @@ import {
     ToggleSignalSourceParams,
 } from './types'
 
+export type DataWarehouseSource = 'Linear' | 'Zendesk' | 'Github'
+
+const DATA_WAREHOUSE_SOURCE_CONFIG: Record<
+    DataWarehouseSource,
+    {
+        sourceProduct: SignalSourceProduct
+        sourceType: SignalSourceType
+        requiredTable: 'issues' | 'tickets'
+        enableErrorMessage: string
+    }
+> = {
+    Github: {
+        sourceProduct: SignalSourceProduct.GITHUB,
+        sourceType: SignalSourceType.ISSUE,
+        requiredTable: 'issues',
+        enableErrorMessage: 'Failed to enable GitHub Issues',
+    },
+    Linear: {
+        sourceProduct: SignalSourceProduct.LINEAR,
+        sourceType: SignalSourceType.ISSUE,
+        requiredTable: 'issues',
+        enableErrorMessage: 'Failed to enable Linear Issues',
+    },
+    Zendesk: {
+        sourceProduct: SignalSourceProduct.ZENDESK,
+        sourceType: SignalSourceType.TICKET,
+        requiredTable: 'tickets',
+        enableErrorMessage: 'Failed to enable Zendesk Tickets',
+    },
+}
+
+function getDataWarehouseSourceConfig(
+    values: signalSourcesLogicType['values'],
+    dwSource: DataWarehouseSource
+): SignalSourceConfig | null {
+    if (dwSource === 'Github') {
+        return values.githubIssuesConfig
+    }
+    if (dwSource === 'Linear') {
+        return values.linearIssuesConfig
+    }
+    return values.zendeskTicketsConfig
+}
+
 function toggleSourceConfigState(
     state: SignalSourceConfig[] | null,
     sourceProduct: SignalSourceProduct,
@@ -63,12 +107,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         openSessionAnalysisSetup: true,
         closeSessionAnalysisSetup: true,
         toggleSessionAnalysis: true,
-        toggleGithubIssues: true,
-        toggleLinearIssues: true,
-        toggleZendeskTickets: true,
-        initiateGithubIssuesToggle: true,
-        initiateLinearIssuesToggle: true,
-        initiateZendeskTicketsToggle: true,
+        toggleDataWarehouseSource: (dwSource: DataWarehouseSource) => ({ dwSource }),
+        initiateDataWarehouseSourceToggle: (dwSource: DataWarehouseSource) => ({ dwSource }),
         openDataSourceSetup: (product: ExternalDataSourceType) => ({ product }),
         closeDataSourceSetup: true,
         onDataSourceSetupComplete: (product: ExternalDataSourceType) => ({ product }),
@@ -122,12 +162,10 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     SignalSourceProduct.SESSION_REPLAY,
                     SignalSourceType.SESSION_ANALYSIS_CLUSTER
                 ),
-            toggleGithubIssues: (state: SignalSourceConfig[] | null) =>
-                toggleSourceConfigState(state, SignalSourceProduct.GITHUB, SignalSourceType.ISSUE),
-            toggleLinearIssues: (state: SignalSourceConfig[] | null) =>
-                toggleSourceConfigState(state, SignalSourceProduct.LINEAR, SignalSourceType.ISSUE),
-            toggleZendeskTickets: (state: SignalSourceConfig[] | null) =>
-                toggleSourceConfigState(state, SignalSourceProduct.ZENDESK, SignalSourceType.TICKET),
+            toggleDataWarehouseSource: (state: SignalSourceConfig[] | null, { dwSource }) => {
+                const { sourceProduct, sourceType } = DATA_WAREHOUSE_SOURCE_CONFIG[dwSource]
+                return toggleSourceConfigState(state, sourceProduct, sourceType)
+            },
         },
         togglingSourceKeys: [
             new Set<string>(),
@@ -235,65 +273,27 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 // Load external data sources so we can check connectivity when user toggles a source
                 actions.loadSources()
             },
-            initiateGithubIssuesToggle: async () => {
-                const isCurrentlyEnabled = values.githubIssuesConfig?.enabled === true
+            initiateDataWarehouseSourceToggle: async ({ dwSource }) => {
+                const { requiredTable, enableErrorMessage } = DATA_WAREHOUSE_SOURCE_CONFIG[dwSource]
+                const sourceConfig = getDataWarehouseSourceConfig(values, dwSource)
+                const isCurrentlyEnabled = sourceConfig?.enabled === true
                 if (!isCurrentlyEnabled) {
                     const hasSource =
                         values.dataWarehouseSources?.results?.some(
-                            (s: ExternalDataSource) => s.source_type === 'Github'
+                            (s: ExternalDataSource) => s.source_type === dwSource
                         ) ?? false
                     if (!hasSource) {
-                        actions.openDataSourceSetup('Github')
+                        actions.openDataSourceSetup(dwSource)
                         return
                     }
                     try {
-                        await ensureRequiredTableSyncing('Github', 'issues')
+                        await ensureRequiredTableSyncing(dwSource, requiredTable)
                     } catch (error: any) {
-                        lemonToast.error(error?.detail || error?.message || 'Failed to enable GitHub Issues')
+                        lemonToast.error(error?.detail || error?.message || enableErrorMessage)
                         return
                     }
                 }
-                actions.toggleGithubIssues()
-            },
-            initiateLinearIssuesToggle: async () => {
-                const isCurrentlyEnabled = values.linearIssuesConfig?.enabled === true
-                if (!isCurrentlyEnabled) {
-                    const hasSource =
-                        values.dataWarehouseSources?.results?.some(
-                            (s: ExternalDataSource) => s.source_type === 'Linear'
-                        ) ?? false
-                    if (!hasSource) {
-                        actions.openDataSourceSetup('Linear')
-                        return
-                    }
-                    try {
-                        await ensureRequiredTableSyncing('Linear', 'issues')
-                    } catch (error: any) {
-                        lemonToast.error(error?.detail || error?.message || 'Failed to enable Linear Issues')
-                        return
-                    }
-                }
-                actions.toggleLinearIssues()
-            },
-            initiateZendeskTicketsToggle: async () => {
-                const isCurrentlyEnabled = values.zendeskTicketsConfig?.enabled === true
-                if (!isCurrentlyEnabled) {
-                    const hasSource =
-                        values.dataWarehouseSources?.results?.some(
-                            (s: ExternalDataSource) => s.source_type === 'Zendesk'
-                        ) ?? false
-                    if (!hasSource) {
-                        actions.openDataSourceSetup('Zendesk')
-                        return
-                    }
-                    try {
-                        await ensureRequiredTableSyncing('Zendesk', 'tickets')
-                    } catch (error: any) {
-                        lemonToast.error(error?.detail || error?.message || 'Failed to enable Zendesk Tickets')
-                        return
-                    }
-                }
-                actions.toggleZendeskTickets()
+                actions.toggleDataWarehouseSource(dwSource)
             },
             onDataSourceSetupComplete: ({ product }: { product: ExternalDataSourceType }) => {
                 const mapping: Partial<
@@ -351,30 +351,13 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     enabled: desiredEnabled,
                 })
             },
-            toggleGithubIssues: () => {
-                const config = values.githubIssuesConfig
+            toggleDataWarehouseSource: ({ dwSource }) => {
+                const { sourceProduct, sourceType } = DATA_WAREHOUSE_SOURCE_CONFIG[dwSource]
+                const config = getDataWarehouseSourceConfig(values, dwSource)
                 const desiredEnabled = config?.enabled ?? true
                 actions.toggleSignalSource({
-                    sourceProduct: SignalSourceProduct.GITHUB,
-                    sourceType: SignalSourceType.ISSUE,
-                    enabled: desiredEnabled,
-                })
-            },
-            toggleLinearIssues: () => {
-                const config = values.linearIssuesConfig
-                const desiredEnabled = config?.enabled ?? true
-                actions.toggleSignalSource({
-                    sourceProduct: SignalSourceProduct.LINEAR,
-                    sourceType: SignalSourceType.ISSUE,
-                    enabled: desiredEnabled,
-                })
-            },
-            toggleZendeskTickets: () => {
-                const config = values.zendeskTicketsConfig
-                const desiredEnabled = config?.enabled ?? true
-                actions.toggleSignalSource({
-                    sourceProduct: SignalSourceProduct.ZENDESK,
-                    sourceType: SignalSourceType.TICKET,
+                    sourceProduct,
+                    sourceType,
                     enabled: desiredEnabled,
                 })
             },

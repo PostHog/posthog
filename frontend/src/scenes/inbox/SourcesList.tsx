@@ -153,9 +153,7 @@ export function SourcesList(): JSX.Element {
         toggleSessionAnalysis,
         openSessionAnalysisSetup,
         clearSessionAnalysisFilters,
-        initiateGithubIssuesToggle,
-        initiateLinearIssuesToggle,
-        initiateZendeskTicketsToggle,
+        initiateDataWarehouseSourceToggle,
     } = useActions(signalSourcesLogic)
 
     const recordingFilters = sessionAnalysisConfig?.config?.recording_filters
@@ -198,7 +196,7 @@ export function SourcesList(): JSX.Element {
                 checked={!!zendeskTicketsConfig?.enabled}
                 loading={isZendeskTicketsToggling}
                 requiresSetup
-                onToggle={() => initiateZendeskTicketsToggle()}
+                onToggle={() => initiateDataWarehouseSourceToggle('Zendesk')}
             />
 
             <Source
@@ -209,7 +207,7 @@ export function SourcesList(): JSX.Element {
                 checked={!!linearIssuesConfig?.enabled}
                 loading={isLinearIssuesToggling}
                 requiresSetup
-                onToggle={() => initiateLinearIssuesToggle()}
+                onToggle={() => initiateDataWarehouseSourceToggle('Linear')}
             />
 
             <Source
@@ -220,7 +218,7 @@ export function SourcesList(): JSX.Element {
                 checked={!!githubIssuesConfig?.enabled}
                 loading={isGithubIssuesToggling}
                 requiresSetup
-                onToggle={() => initiateGithubIssuesToggle()}
+                onToggle={() => initiateDataWarehouseSourceToggle('Github')}
             />
 
             <Source
