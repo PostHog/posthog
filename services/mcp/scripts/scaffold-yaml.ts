@@ -19,7 +19,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 
-import { CategoryConfigSchema, type ToolConfig } from './yaml-config-schema'
+import { CategoryConfigSchema } from './yaml-config-schema'
 
 const MCP_ROOT = path.resolve(__dirname, '..')
 const REPO_ROOT = path.resolve(MCP_ROOT, '../..')
@@ -259,7 +259,8 @@ function generateFreshYaml(ops: DiscoveredOperation[], tag: string): string {
 function mergeWithExisting(
     existingPath: string,
     ops: DiscoveredOperation[],
-    tag: string
+    tag: string,
+    validOperationIds: Set<string>
 ): { content: string; added: number; removed: number } {
     const parsed = parseYaml(fs.readFileSync(existingPath, 'utf-8'))
     const result = CategoryConfigSchema.safeParse(parsed)
@@ -273,14 +274,6 @@ function mergeWithExisting(
     const existing = result.data
     const existingTools = existing.tools
 
-    // Map base operationId → existing tool entry (name + config)
-    // Uses base (strip _N suffix) so dedup changes don't lose existing config
-    const byBaseOperationId = new Map<string, { name: string; config: ToolConfig }>()
-    for (const [name, config] of Object.entries(existingTools)) {
-        const base = config.operation.replace(/_\d+$/, '')
-        byBaseOperationId.set(base, { name, config })
-    }
-
     const openApiByBase = new Map(ops.map((op) => [op.operationId.replace(/_\d+$/, ''), op]))
     const mergedTools: Record<string, unknown> = {}
     let added = 0
@@ -291,9 +284,12 @@ function mergeWithExisting(
         const base = config.operation.replace(/_\d+$/, '')
         const op = openApiByBase.get(base)
         if (op) {
-            // Keep the author's chosen operation variant — they may have picked
-            // a specific _N suffix deliberately (e.g. _2 for /api/projects/ path)
-            mergedTools[name] = { ...config }
+            // Keep the author's chosen operation variant if it still exists in
+            // OpenAPI — they may have picked a specific _N suffix deliberately
+            // (e.g. _2 for /api/projects/ path). Fall back to the deduped
+            // operationId when their variant was renumbered or removed.
+            const operation = validOperationIds.has(config.operation) ? config.operation : op.operationId
+            mergedTools[name] = { ...config, operation }
         } else {
             removed++
         }
@@ -389,7 +385,8 @@ function syncAll(spec: OpenApiSpec): void {
             process.stdout.write(`${product}: no operations found in OpenAPI, skipping\n`)
             continue
         }
-        const { content, added, removed } = mergeWithExisting(filePath, ops, product)
+        const validIds = new Set(rawOps.map((op) => op.operationId))
+        const { content, added, removed } = mergeWithExisting(filePath, ops, product, validIds)
         fs.writeFileSync(filePath, content)
         writtenFiles.push(filePath)
         const parts = [`${ops.length} operation(s)`]
@@ -454,8 +451,10 @@ function main(): void {
         ? path.resolve(MCP_ROOT, outputPath)
         : path.join(DEFINITIONS_DIR, `${name.replace(/-/g, '_')}.yaml`)
 
+    const validIds = new Set(rawOps.map((op) => op.operationId))
+
     if (fs.existsSync(resolvedOutput)) {
-        const { content, added, removed } = mergeWithExisting(resolvedOutput, ops, name)
+        const { content, added, removed } = mergeWithExisting(resolvedOutput, ops, name, validIds)
         fs.writeFileSync(resolvedOutput, content)
         const parts = [`${ops.length} operation(s)`]
         if (added > 0) {
