@@ -494,8 +494,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                         mode="interactive",
                         start_workflow=True,
                     )
-                except ValueError as e:
-                    raise exceptions.ValidationError(str(e))
+                except ValueError:
+                    raise exceptions.ValidationError("Failed to create sandbox task.")
 
                 task_run_or_none = task.latest_run
                 if not task_run_or_none:
