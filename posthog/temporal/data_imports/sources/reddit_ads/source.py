@@ -85,7 +85,7 @@ class RedditAdsSource(SimpleSource[RedditAdsSourceConfig], OAuthMixin):
             for endpoint_config in REDDIT_ADS_CONFIG.values()
         ]
 
-        if names is not None:
+        if names:
             names_set = set(names)
             schemas = [s for s in schemas if s.name in names_set]
 

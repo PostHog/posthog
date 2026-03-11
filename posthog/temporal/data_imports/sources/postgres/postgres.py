@@ -118,7 +118,7 @@ def get_postgres_row_count(
             params: dict = {"schema": schema}
             names_filter_tables = ""
             names_filter_matviews = ""
-            if names is not None:
+            if names:
                 params["names"] = names
                 names_filter_tables = "AND tablename = ANY(%(names)s)"
                 names_filter_matviews = "AND matviewname = ANY(%(names)s)"
@@ -192,7 +192,7 @@ def get_schemas(
         params: dict = {"schema": schema}
         names_filter = ""
         names_filter_pg = ""
-        if names is not None:
+        if names:
             params["names"] = names
             names_filter = "AND table_name = ANY(%(names)s)"
             names_filter_pg = "AND c.relname = ANY(%(names)s)"
@@ -268,7 +268,7 @@ def get_foreign_keys(
     with connection.cursor() as cursor:
         params: dict = {"schema": schema}
         names_filter = ""
-        if names is not None:
+        if names:
             params["names"] = names
             names_filter = "AND tc.table_name = ANY(%(names)s)"
 

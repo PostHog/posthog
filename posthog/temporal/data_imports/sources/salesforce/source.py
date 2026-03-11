@@ -46,7 +46,7 @@ class SalesforceSource(SimpleSource[SalesforceSourceConfig], OAuthMixin):
             )
             for endpoint in ENDPOINTS
         ]
-        if names is not None:
+        if names:
             names_set = set(names)
             schemas = [s for s in schemas if s.name in names_set]
         return schemas

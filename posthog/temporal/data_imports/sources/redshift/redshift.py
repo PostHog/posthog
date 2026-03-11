@@ -74,7 +74,7 @@ def get_redshift_row_count(
 
             params: dict = {"schema": schema}
             names_filter = ""
-            if names is not None:
+            if names:
                 params["names"] = names
                 names_filter = 'AND "table" = ANY(%(names)s)'
 
@@ -142,7 +142,7 @@ def get_schemas(
     with connection.cursor() as cursor:
         params: dict = {"schema": schema}
         names_filter = ""
-        if names is not None:
+        if names:
             params["names"] = names
             names_filter = "AND table_name = ANY(%(names)s)"
 
