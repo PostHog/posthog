@@ -274,6 +274,7 @@ async fn test_get_distinct_ids_for_person() {
             team_id: ctx.team_id,
             person_id: person.id,
             read_options: None,
+            limit_per_person: None,
         }))
         .await
         .expect("RPC failed");
@@ -532,6 +533,7 @@ async fn test_get_distinct_ids_for_persons() {
             team_id: ctx.team_id,
             person_ids: vec![person1.id, person2.id],
             read_options: None,
+            limit_per_person: None,
         }))
         .await
         .expect("RPC failed");
