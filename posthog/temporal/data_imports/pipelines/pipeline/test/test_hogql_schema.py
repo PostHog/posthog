@@ -2,6 +2,7 @@ import pyarrow as pa
 from parameterized import parameterized
 
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
+from posthog.temporal.data_imports.pipelines.pipeline_sync import merge_columns
 
 
 class TestHogQLSchemaJsonDetection:
@@ -20,15 +21,40 @@ class TestHogQLSchemaJsonDetection:
         schema.add_pyarrow_table(table)
         assert schema.schema["col"] == expected_type
 
-    def test_json_type_not_downgraded_on_subsequent_add(self):
-        schema = HogQLSchema()
 
-        # First batch: JSON detected
-        table1 = pa.table({"col": pa.array(['{"key": "value"}'], type=pa.string())})
-        schema.add_pyarrow_table(table1)
-        assert schema.schema["col"] == "StringJSONDatabaseField"
+class TestMergeColumnsJsonPreservation:
+    @parameterized.expand(
+        [
+            (
+                "preserves_json_when_new_batch_has_nulls",
+                {"col": {"clickhouse": "String", "hogql": "StringJSONDatabaseField"}},
+                {"col": "StringDatabaseField"},
+                "StringJSONDatabaseField",
+            ),
+            (
+                "keeps_string_when_no_prior_json",
+                {"col": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+                {"col": "StringDatabaseField"},
+                "StringDatabaseField",
+            ),
+            (
+                "allows_upgrade_to_json",
+                {"col": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+                {"col": "StringJSONDatabaseField"},
+                "StringJSONDatabaseField",
+            ),
+            (
+                "preserves_json_on_first_sync",
+                {},
+                {"col": "StringJSONDatabaseField"},
+                "StringJSONDatabaseField",
+            ),
+        ]
+    )
+    def test_merge_columns_json_type_handling(self, _name, existing_columns, table_schema_dict, expected_hogql):
+        db_columns = {"col": "String"}
 
-        # Second batch: first value is plain string — should NOT downgrade
-        table2 = pa.table({"col": pa.array(["plain text"], type=pa.string())})
-        schema.add_pyarrow_table(table2)
-        assert schema.schema["col"] == "StringJSONDatabaseField"
+        result = merge_columns(db_columns, table_schema_dict, existing_columns)
+
+        assert result["col"]["hogql"] == expected_hogql
+        assert result["col"]["clickhouse"] == "String"
