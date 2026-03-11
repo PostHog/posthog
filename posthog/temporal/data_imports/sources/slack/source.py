@@ -3,7 +3,6 @@ from typing import cast
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
-    SourceFieldOauthConfig,
 )
 
 from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
@@ -25,17 +24,6 @@ class SlackSource(SimpleSource[SlackSourceConfig]):
             name=SchemaExternalDataSourceType.SLACK,
             label="Slack",
             iconPath="/static/services/slack.png",
+            fields=cast(list[FieldType], []),
             unreleasedSource=True,
-            fields=cast(
-                list[FieldType],
-                [
-                    SourceFieldOauthConfig(
-                        name="slack_integration_id",
-                        label="Slack workspace",
-                        required=True,
-                        kind="slack",
-                        requiredScopes="channels:read groups:read channels:history groups:history users:read users:read.email reactions:read",
-                    )
-                ],
-            ),
         )
