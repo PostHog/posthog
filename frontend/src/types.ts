@@ -6020,6 +6020,10 @@ export type OnboardingProduct = {
     iconColor: string
     url: string
     scene: Scene
+    setupEffort?: 'automatic' | 'low' | 'medium'
+    socialProof?: string
+    userCentricDescription?: string
+    capabilities?: string[]
 }
 
 export type CyclotronJobInputSchemaType = {

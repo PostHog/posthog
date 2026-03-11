@@ -184,6 +184,10 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         return self.get_filters().get("holdout_groups", []) or []
 
     @property
+    def holdout(self):
+        return self.get_filters().get("holdout", None)
+
+    @property
     def _payloads(self):
         return self.get_filters().get("payloads", {}) or {}
 

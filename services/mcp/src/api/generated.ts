@@ -3363,6 +3363,7 @@ export namespace Schemas {
       ScreenName: 'ScreenName',
       InitialChannelType: 'InitialChannelType',
       InitialReferringDomain: 'InitialReferringDomain',
+      InitialReferringURL: 'InitialReferringURL',
       InitialUTMSource: 'InitialUTMSource',
       InitialUTMCampaign: 'InitialUTMCampaign',
       InitialUTMMedium: 'InitialUTMMedium',
@@ -10849,6 +10850,8 @@ export namespace Schemas {
     }
 
     export interface DatabaseSchemaSource {
+      /** @nullable */
+      access_method?: string | null;
       id: string;
       /** @nullable */
       last_synced_at?: string | null;
@@ -11018,6 +11021,11 @@ export namespace Schemas {
     }
 
     export interface DatabaseSchemaQuery {
+      /**
+       * Optional direct external data source id for schema introspection
+       * @nullable
+       */
+      connectionId?: string | null;
       kind?: DatabaseSchemaQueryKind;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -15704,6 +15712,11 @@ export namespace Schemas {
 
     export interface HogQLMetadata {
       /**
+       * Optional direct external data source id for running against a specific source
+       * @nullable
+       */
+      connectionId?: string | null;
+      /**
        * Enable more verbose output, usually run from the /debug page
        * @nullable
        */
@@ -15739,6 +15752,11 @@ export namespace Schemas {
     }
 
     export interface HogQLAutocomplete {
+      /**
+       * Optional direct external data source id for running against a specific source
+       * @nullable
+       */
+      connectionId?: string | null;
       /** End position of the editor word */
       endPosition: number;
       /** Table to validate the expression against */
