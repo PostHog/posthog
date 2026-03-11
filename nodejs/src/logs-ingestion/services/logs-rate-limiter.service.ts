@@ -2,7 +2,6 @@ import { Histogram } from 'prom-client'
 
 import { RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
 
-
 import { LogsIngestionConsumerConfig } from '../config'
 import { LogsIngestionMessage } from '../types'
 

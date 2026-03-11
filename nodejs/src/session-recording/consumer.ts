@@ -6,6 +6,7 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { CommonConfig } from '../common/config'
 import { buildIntegerMatcher } from '../config/config'
 import { KAFKA_CLICKHOUSE_TOPHOG } from '../config/kafka-topics'
+import { IngestionConsumerConfig } from '../ingestion/config'
 import { BatchPipelineUnwrapper } from '../ingestion/pipelines/batch-pipeline-unwrapper'
 import {
     SessionReplayPipelineInput,
@@ -30,7 +31,6 @@ import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restr
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { PromiseScheduler } from '../utils/promise-scheduler'
-import { IngestionConsumerConfig } from '../ingestion/config'
 import { SessionRecordingApiConfig, SessionRecordingConfig } from './config'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
@@ -67,8 +67,7 @@ export type SessionRecordingIngesterConfig = SessionRecordingConfig &
     Pick<
         IngestionConsumerConfig,
         // For TopHog metrics
-        | 'INGESTION_PIPELINE'
-        | 'INGESTION_LANE'
+        'INGESTION_PIPELINE' | 'INGESTION_LANE'
     >
 
 export class SessionRecordingIngester {
