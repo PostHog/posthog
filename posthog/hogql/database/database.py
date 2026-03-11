@@ -44,7 +44,6 @@ from posthog.hogql.database.models import (
     FunctionCallTable,
     IntegerDatabaseField,
     LazyJoin,
-    LazyJoinToAdd,
     SavedQuery,
     StringArrayDatabaseField,
     StringDatabaseField,
@@ -55,6 +54,7 @@ from posthog.hogql.database.models import (
     VirtualTable,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.postgres_utils import add_postgres_foreign_key_lazy_joins
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
@@ -1174,8 +1174,13 @@ class Database(BaseModel):
         database._add_views(views)
 
         with timings.measure("warehouse_foreign_keys"):
-            for warehouse_table, table in warehouse_tables_to_process:
-                _add_foreign_key_lazy_joins(warehouse_table, table, database)
+            for table, warehouse_table in warehouse_tables_to_process:
+                add_postgres_foreign_key_lazy_joins(
+                    hogql_table=table,
+                    warehouse_table=warehouse_table,
+                    database=database,
+                    schemas=_get_active_external_data_schemas(warehouse_table),
+                )
 
         with timings.measure("data_warehouse_joins"):
             for join in DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True):
@@ -1523,214 +1528,6 @@ def _should_include_connection_table(
 
     schemas = _get_active_external_data_schemas(warehouse_table)
     return not schemas or any(schema.should_sync for schema in schemas)
-
-
-def _foreign_key_join_function(
-    from_field: list[str | int], to_field: list[str | int]
-) -> Callable[[LazyJoinToAdd, HogQLContext, ast.SelectQuery], ast.JoinExpr]:
-    def _join_function(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery):
-        join_table = join_to_add.lazy_join.resolve_table(context)
-
-        if isinstance(join_table.name, str):
-            join_table_chain = cast(list[str | int], join_table.name.split("."))
-        else:
-            join_table_chain = [join_to_add.to_table]
-
-        if not join_to_add.fields_accessed:
-            raise ResolutionError(f"No fields requested from {join_to_add.to_table}")
-
-        left = ast.Field(chain=[join_to_add.from_table, *from_field])
-        right = ast.Field(chain=[join_to_add.to_table, *to_field])
-
-        return ast.JoinExpr(
-            table=ast.SelectQuery(
-                select=[
-                    ast.Alias(alias=alias, expr=ast.Field(chain=chain))
-                    for alias, chain in join_to_add.fields_accessed.items()
-                ],
-                select_from=ast.JoinExpr(table=ast.Field(chain=join_table_chain)),
-            ),
-            join_type="LEFT JOIN",
-            alias=join_to_add.to_table,
-            constraint=ast.JoinConstraint(
-                expr=ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=left, right=right),
-                constraint_type="ON",
-            ),
-        )
-
-    return _join_function
-
-
-def _reverse_foreign_key_field_name(from_table: str, target_table: str) -> str:
-    from_base = from_table.split(".")[-1]
-    target_base = target_table.split(".")[-1]
-
-    if from_base.startswith(target_base):
-        reverse_name = from_base[len(target_base) :].lstrip("_") or from_base
-    else:
-        reverse_name = from_base
-
-    if not reverse_name.endswith("s"):
-        reverse_name = f"{reverse_name}s"
-
-    return reverse_name
-
-
-def _add_foreign_key_lazy_joins(hogql_table: Table, warehouse_table: DataWarehouseTable, database: Database) -> None:
-    def _get_foreign_keys(schema: ExternalDataSchema) -> list[dict[str, str]]:
-        raw_foreign_keys: Any = schema.foreign_keys
-        if raw_foreign_keys is None:
-            metadata = schema.sync_type_config.get("schema_metadata") if schema.sync_type_config else None
-            if isinstance(metadata, dict):
-                raw_foreign_keys = metadata.get("foreign_keys")
-
-        if not isinstance(raw_foreign_keys, list):
-            return []
-
-        foreign_keys: list[dict[str, str]] = []
-        for foreign_key in raw_foreign_keys:
-            if not isinstance(foreign_key, dict):
-                continue
-
-            column = foreign_key.get("column")
-            target_table = foreign_key.get("target_table")
-            target_column = foreign_key.get("target_column")
-            if not (isinstance(column, str) and isinstance(target_table, str) and isinstance(target_column, str)):
-                continue
-
-            foreign_keys.append(
-                {
-                    "column": column,
-                    "target_table": target_table,
-                    "target_column": target_column,
-                }
-            )
-
-        return foreign_keys
-
-    schemas = _get_active_external_data_schemas(warehouse_table)
-    schema_with_foreign_keys = next((schema for schema in schemas if _get_foreign_keys(schema)), None)
-
-    foreign_keys = _get_foreign_keys(schema_with_foreign_keys) if schema_with_foreign_keys else []
-
-    def _is_same_external_scope(target_hogql_table: Table) -> bool:
-        source_table_name = hogql_table.name if isinstance(hogql_table.name, str) else None
-        target_table_name = target_hogql_table.name if isinstance(target_hogql_table.name, str) else None
-        if source_table_name is None or target_table_name is None:
-            return False
-
-        source = warehouse_table.external_data_source
-        if source is not None and source.access_method == ExternalDataSource.AccessMethod.DIRECT:
-            return isinstance(
-                target_hogql_table, DirectPostgresTable
-            ) and target_hogql_table.external_data_source_id == str(source.id)
-
-        if "." not in source_table_name or "." not in target_table_name:
-            return False
-
-        return source_table_name.rsplit(".", 1)[0] == target_table_name.rsplit(".", 1)[0]
-
-    def _add_join(column: str, target_table: str, target_column: str) -> None:
-        if not column or not target_table or not target_column:
-            return
-
-        try:
-            from_field = get_join_field_chain(column)
-            to_field = get_join_field_chain(target_column)
-        except Exception as error:
-            capture_exception(error)
-            return
-        if from_field is None or to_field is None:
-            return
-
-        field_name = column[:-3] if column.endswith("_id") and len(column) > 3 else column
-        if hogql_table.fields.get(field_name):
-            return
-
-        join_table: Table | str = target_table
-        target_hogql_table: Table | None = None
-        if isinstance(join_table, str) and isinstance(hogql_table.name, str):
-            if "." in hogql_table.name and "." not in join_table:
-                join_table = ".".join([*hogql_table.name.split(".")[:-1], join_table])
-
-            if not database.has_table(join_table):
-                return
-
-            target_hogql_table = database.get_table(join_table)
-        elif isinstance(join_table, Table):
-            target_hogql_table = join_table
-
-        if target_hogql_table is None or not _is_same_external_scope(target_hogql_table):
-            return
-
-        hogql_table.fields[field_name] = LazyJoin(
-            from_field=from_field,
-            to_field=to_field,
-            join_table=join_table,
-            join_function=_foreign_key_join_function(from_field, to_field),
-        )
-
-        target_table_name = target_hogql_table.name if isinstance(target_hogql_table.name, str) else None
-
-        source_table_name = hogql_table.name if isinstance(hogql_table.name, str) else None
-        if target_table_name is None or source_table_name is None:
-            return
-
-        reverse_field_name = _reverse_foreign_key_field_name(source_table_name, target_table_name)
-
-        if target_hogql_table.fields.get(reverse_field_name) is None:
-            target_hogql_table.fields[reverse_field_name] = LazyJoin(
-                from_field=to_field,
-                to_field=from_field,
-                join_table=hogql_table,
-                join_function=_foreign_key_join_function(to_field, from_field),
-            )
-
-    for foreign_key in foreign_keys:
-        _add_join(
-            foreign_key.get("column", ""),
-            foreign_key.get("target_table", ""),
-            foreign_key.get("target_column", ""),
-        )
-
-    if foreign_keys:
-        return
-
-    # Fallback inference when explicit FK metadata is unavailable.
-    # This keeps direct Postgres ergonomics high for common *_id columns.
-    if not isinstance(hogql_table.name, str):
-        return
-
-    source_parts = hogql_table.name.split(".")
-    namespace = source_parts[:-1]
-
-    def _candidate_target_tables(base_name: str) -> list[str]:
-        local_candidates = [base_name, f"{base_name}s", f"posthog_{base_name}"]
-        scoped_candidates = [".".join([*namespace, name]) for name in local_candidates] if namespace else []
-        if scoped_candidates:
-            return scoped_candidates
-        return local_candidates
-
-    columns = warehouse_table.columns or {}
-    for column_name in columns.keys():
-        if not column_name.endswith("_id") or len(column_name) <= 3:
-            continue
-        field_name = column_name[:-3]
-        if hogql_table.fields.get(field_name):
-            continue
-
-        target_table_name = next(
-            (
-                candidate
-                for candidate in _candidate_target_tables(field_name)
-                if database.has_table(candidate) and _is_same_external_scope(database.get_table(candidate))
-            ),
-            None,
-        )
-        if target_table_name is None:
-            continue
-
-        _add_join(column_name, target_table_name, "id")
 
 
 def serialize_fields(
