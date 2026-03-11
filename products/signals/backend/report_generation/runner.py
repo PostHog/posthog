@@ -95,11 +95,13 @@ async def _poll_until_done(task_run) -> tuple[str, str | None, str | None]:
     """Poll logs for agent completion, fall back to TaskRun status."""
     from products.tasks.backend.models import TaskRun
 
+    printed_lines = 0
     elapsed = 0
     while elapsed < MAX_POLL_SECONDS:
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
         elapsed += POLL_INTERVAL_SECONDS
         finished, last_message, full_log = await sync_to_async(_check_logs)(task_run)
+        printed_lines = _stream_new_lines(full_log, printed_lines)
         if finished:
             return "completed", last_message, full_log
         refreshed = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
@@ -109,8 +111,35 @@ async def _poll_until_done(task_run) -> tuple[str, str | None, str | None]:
             TaskRun.Status.CANCELLED,
         }:
             _, last_message, full_log = await sync_to_async(_check_logs)(task_run)
+            printed_lines = _stream_new_lines(full_log, printed_lines)
             return refreshed.status, last_message, full_log
     return "timeout", None, None
+
+
+def _stream_new_lines(full_log: str | None, printed_lines: int) -> int:
+    """Print new agent message lines from logs, return updated line count."""
+    if not full_log:
+        return printed_lines
+    lines = full_log.strip().split("\n")
+    for line in lines[printed_lines:]:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        notification = entry.get("notification")
+        if not isinstance(notification, dict) or notification.get("method") != "session/update":
+            continue
+        params = notification.get("params")
+        update = params.get("update") if isinstance(params, dict) else None
+        if not isinstance(update, dict):
+            continue
+        text = _extract_text(update)
+        if text:
+            logger.info(text)
+    return len(lines)
 
 
 def _check_logs(task_run) -> tuple[bool, str | None, str | None]:
