@@ -28,6 +28,9 @@ def _fetch_person_by_distinct_id_via_personhog(team_id: int, distinct_id: str) -
 
     resp = client.get_person_by_distinct_id(GetPersonByDistinctIdRequest(team_id=team_id, distinct_id=distinct_id))
     if resp.person and resp.person.id:
+        # Only pass the queried distinct_id — the list endpoint also intentionally
+        # sets a single distinct_id to avoid expensive all-distinct-ids lookups.
+        # The MinimalPersonSerializer truncates to 10 anyway.
         return proto_person_to_model(resp.person, distinct_ids=[distinct_id])
     return None
 
