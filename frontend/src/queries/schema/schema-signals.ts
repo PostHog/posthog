@@ -14,6 +14,7 @@ export enum SignalSourceProduct {
 
 export enum SignalSourceType {
     SESSION_ANALYSIS_CLUSTER = 'session_analysis_cluster',
+    SESSION_PROBLEM = 'session_problem',
     EVALUATION = 'evaluation',
     ISSUE = 'issue',
     TICKET = 'ticket',
@@ -24,8 +25,43 @@ export enum SignalSourceType {
 
 // ── Per-product signal extras & inputs ──────────────────────────────────────────
 
-// Session replay segment cluster
+// Session replay problem (emitted per-session for problem-indicating segments)
 
+export interface SessionProblemEventEntry {
+    event: string
+    timestamp: string
+    current_url?: string
+    event_type?: string
+    interaction_text?: string
+}
+
+export interface SessionProblemSignalExtra {
+    session_id: string
+    segment_title: string
+    start_time: string
+    end_time: string
+    problem_type: 'confusion' | 'abandonment' | 'blocking_exception' | 'non_blocking_exception' | 'failure'
+    distinct_id: string
+    session_start_time?: string
+    session_end_time?: string
+    session_duration?: number
+    session_active_seconds?: number
+    exported_asset_id?: number
+    event_history?: SessionProblemEventEntry[]
+}
+
+export interface SessionProblemSignalInput {
+    source_type: 'session_problem'
+    source_product: 'session_replay'
+    source_id: string
+    description: string
+    weight: number
+    extra: SessionProblemSignalExtra
+}
+
+/** @deprecated No longer emitted. */
+
+/** @deprecated Use {@link SessionReplaySegment} is no longer emitted. */
 export interface SessionReplaySegment {
     session_id: string
     start_time: string
@@ -34,12 +70,14 @@ export interface SessionReplaySegment {
     content: string
 }
 
+/** @deprecated No longer emitted. */
 export interface SessionSegmentClusterMetrics {
     relevant_user_count: number
     active_users_in_period: number
     occurrence_count: number
 }
 
+/** @deprecated No longer emitted. */
 export interface SessionSegmentClusterSignalExtra {
     label_title: string
     actionable: boolean
@@ -47,6 +85,7 @@ export interface SessionSegmentClusterSignalExtra {
     metrics: SessionSegmentClusterMetrics
 }
 
+/** @deprecated No longer emitted. */
 export interface SessionSegmentClusterSignalInput {
     source_type: 'session_segment_cluster'
     source_product: 'session_replay'
@@ -203,8 +242,9 @@ export interface EnrichedReviewer {
 
 // ── Discriminated union over all signal variants ─────────────────────────────────
 
-/** @discriminator source_product */
+/** @discriminator source_product, source_type */
 export type SignalInput =
+    | SessionProblemSignalInput
     | SessionSegmentClusterSignalInput
     | LlmEvaluationSignalInput
     | ZendeskTicketSignalInput

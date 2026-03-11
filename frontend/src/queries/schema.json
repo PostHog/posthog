@@ -34074,6 +34074,102 @@
             "required": ["session_id", "events"],
             "type": "object"
         },
+        "SessionProblemEventEntry": {
+            "additionalProperties": false,
+            "properties": {
+                "current_url": {
+                    "type": "string"
+                },
+                "event": {
+                    "type": "string"
+                },
+                "event_type": {
+                    "type": "string"
+                },
+                "interaction_text": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
+                }
+            },
+            "required": ["event", "timestamp"],
+            "type": "object"
+        },
+        "SessionProblemSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "distinct_id": {
+                    "type": "string"
+                },
+                "end_time": {
+                    "type": "string"
+                },
+                "event_history": {
+                    "items": {
+                        "$ref": "#/definitions/SessionProblemEventEntry"
+                    },
+                    "type": "array"
+                },
+                "exported_asset_id": {
+                    "type": "number"
+                },
+                "problem_type": {
+                    "enum": ["confusion", "abandonment", "blocking_exception", "non_blocking_exception", "failure"],
+                    "type": "string"
+                },
+                "segment_title": {
+                    "type": "string"
+                },
+                "session_active_seconds": {
+                    "type": "number"
+                },
+                "session_duration": {
+                    "type": "number"
+                },
+                "session_end_time": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "session_start_time": {
+                    "type": "string"
+                },
+                "start_time": {
+                    "type": "string"
+                }
+            },
+            "required": ["session_id", "segment_title", "start_time", "end_time", "problem_type", "distinct_id"],
+            "type": "object"
+        },
+        "SessionProblemSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/SessionProblemSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "session_replay",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "session_problem",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
+        },
         "SessionPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -34296,6 +34392,7 @@
         },
         "SessionReplaySegment": {
             "additionalProperties": false,
+            "deprecated": "Use {@link SessionReplaySegment } is no longer emitted.",
             "properties": {
                 "content": {
                     "type": "string"
@@ -34318,6 +34415,7 @@
         },
         "SessionSegmentClusterMetrics": {
             "additionalProperties": false,
+            "deprecated": "No longer emitted.",
             "properties": {
                 "active_users_in_period": {
                     "type": "number"
@@ -34334,6 +34432,7 @@
         },
         "SessionSegmentClusterSignalExtra": {
             "additionalProperties": false,
+            "deprecated": "No longer emitted.",
             "properties": {
                 "actionable": {
                     "type": "boolean"
@@ -34356,6 +34455,7 @@
         },
         "SessionSegmentClusterSignalInput": {
             "additionalProperties": false,
+            "deprecated": "No longer emitted.",
             "properties": {
                 "description": {
                     "type": "string"
@@ -34650,9 +34750,12 @@
         },
         "SignalInput": {
             "discriminator": {
-                "propertyName": "source_product"
+                "propertyName": "source_product, source_type"
             },
             "oneOf": [
+                {
+                    "$ref": "#/definitions/SessionProblemSignalInput"
+                },
                 {
                     "$ref": "#/definitions/SessionSegmentClusterSignalInput"
                 },
@@ -34675,7 +34778,7 @@
                     "$ref": "#/definitions/ErrorTrackingSignalInput"
                 }
             ],
-            "required": ["source_product"],
+            "required": ["source_product, source_type"],
             "type": "object"
         },
         "SignalReviewerUserInfo": {
@@ -34715,6 +34818,7 @@
         "SignalSourceType": {
             "enum": [
                 "session_analysis_cluster",
+                "session_problem",
                 "evaluation",
                 "issue",
                 "ticket",
