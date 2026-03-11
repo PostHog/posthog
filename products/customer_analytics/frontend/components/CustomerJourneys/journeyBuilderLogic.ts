@@ -319,6 +319,10 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        resetBuilder: () => {
+            actions.setInsightQuery(createDefaultQuery())
+        },
+
         setQuery: () => {
             actions.collapsePath()
             actions.setInsightQuery(values.query)
