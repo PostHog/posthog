@@ -3,6 +3,11 @@ import { mapOtelAttributes } from '../attribute-mapping'
 import { convertOtelEvent } from '../index'
 import { createEvent } from '../test-helpers'
 
+jest.mock('../../metrics', () => ({
+    aiOtelMiddlewareCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
+    aiOtelEventTypeCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
+}))
+
 jest.mock('../attribute-mapping', () => ({
     mapOtelAttributes: jest.fn(),
 }))

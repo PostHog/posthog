@@ -147,6 +147,7 @@ function process(event: PluginEvent, next: () => void): void {
 const MARKER_KEYS = ['ai.operationId', 'ai.telemetry.functionId']
 
 export const vercelAi: OtelLibraryMiddleware = {
+    name: 'vercel-ai',
     matches: (event) => MARKER_KEYS.some((key) => event.properties?.[key] !== undefined),
     process,
 }

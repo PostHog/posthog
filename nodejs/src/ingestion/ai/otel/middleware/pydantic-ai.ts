@@ -131,6 +131,7 @@ function process(event: PluginEvent, next: () => void): void {
 const MARKER_KEYS = ['pydantic_ai.all_messages', 'logfire.msg', 'logfire.json_schema', 'model_request_parameters']
 
 export const pydanticAi: OtelLibraryMiddleware = {
+    name: 'pydantic-ai',
     matches: (event) => MARKER_KEYS.some((key) => event.properties?.[key] !== undefined),
     process,
 }

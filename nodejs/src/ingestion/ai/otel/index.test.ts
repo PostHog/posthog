@@ -1,12 +1,20 @@
+import { aiOtelEventTypeCounter, aiOtelMiddlewareCounter } from '../metrics'
 import { mapOtelAttributes } from './attribute-mapping'
 import { convertOtelEvent } from './index'
 import { createEvent } from './test-helpers'
+
+jest.mock('../metrics', () => ({
+    aiOtelMiddlewareCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
+    aiOtelEventTypeCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
+}))
 
 jest.mock('./attribute-mapping', () => ({
     mapOtelAttributes: jest.fn(),
 }))
 
 const mockedMapOtelAttributes = jest.mocked(mapOtelAttributes)
+const mockedMiddlewareCounter = jest.mocked(aiOtelMiddlewareCounter)
+const mockedEventTypeCounter = jest.mocked(aiOtelEventTypeCounter)
 
 describe('convertOtelEvent', () => {
     beforeEach(() => {
@@ -62,6 +70,29 @@ describe('convertOtelEvent', () => {
             })
             convertOtelEvent(event)
             expect(event.properties!['$ai_lib']).toBe('opentelemetry/pydantic-ai')
+        })
+    })
+
+    describe('metrics', () => {
+        it('increments middleware counter with library name when matched', () => {
+            const event = createEvent('$ai_generation', { 'logfire.msg': 'test' })
+            convertOtelEvent(event)
+            expect(mockedMiddlewareCounter.labels).toHaveBeenCalledWith({ library: 'pydantic-ai' })
+        })
+
+        it('increments middleware counter with "none" when no middleware matches', () => {
+            const event = createEvent('$ai_generation', {})
+            convertOtelEvent(event)
+            expect(mockedMiddlewareCounter.labels).toHaveBeenCalledWith({ library: 'none' })
+        })
+
+        it('increments event type counter with event type and library', () => {
+            const event = createEvent('$ai_generation', { 'ai.operationId': 'ai.generateText.doGenerate' })
+            convertOtelEvent(event)
+            expect(mockedEventTypeCounter.labels).toHaveBeenCalledWith({
+                event_type: '$ai_generation',
+                library: 'vercel-ai',
+            })
         })
     })
 })
