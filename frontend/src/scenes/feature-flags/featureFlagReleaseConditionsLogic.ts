@@ -351,16 +351,21 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 actions.openCondition(newGroup.sort_key)
 
                 // Fire the API call to calculate blast radius for the new empty condition set
-                const response = await api.create(
-                    `api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`,
-                    {
-                        condition: { properties: [] },
-                        group_type_index: values.filters?.aggregation_group_type_index ?? null,
-                    }
-                )
+                try {
+                    const response = await api.create(
+                        `api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`,
+                        {
+                            condition: { properties: [] },
+                            group_type_index: values.filters?.aggregation_group_type_index ?? null,
+                        }
+                    )
 
-                actions.setAffectedUsers(newGroup.sort_key, response.users_affected)
-                actions.setTotalUsers(response.total_users)
+                    actions.setAffectedUsers(newGroup.sort_key, response.users_affected)
+                    actions.setTotalUsers(response.total_users)
+                } catch {
+                    // Fall back to the sentinel value so the UI shows the rollout percentage
+                    actions.setAffectedUsers(newGroup.sort_key, -1)
+                }
             }
         },
         removeConditionSet: () => {
