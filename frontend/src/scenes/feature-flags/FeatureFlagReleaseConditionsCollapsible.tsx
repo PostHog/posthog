@@ -588,6 +588,22 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                             <div>
                                                 <LemonLabel className="mb-1">Rollout percentage</LemonLabel>
                                                 <div className="flex items-center gap-3">
+                                                    <div className="flex items-center gap-1">
+                                                        {[10, 25, 50, 75, 100].map((pct) => (
+                                                            <LemonButton
+                                                                key={pct}
+                                                                size="small"
+                                                                type={
+                                                                    (group.rollout_percentage ?? 100) === pct
+                                                                        ? 'primary'
+                                                                        : 'secondary'
+                                                                }
+                                                                onClick={() => updateConditionSet(index, pct)}
+                                                            >
+                                                                {pct}%
+                                                            </LemonButton>
+                                                        ))}
+                                                    </div>
                                                     <div className="flex-1">
                                                         <LemonSlider
                                                             value={group.rollout_percentage ?? 100}
