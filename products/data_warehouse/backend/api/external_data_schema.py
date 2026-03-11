@@ -28,6 +28,11 @@ from products.data_warehouse.backend.data_load.service import (
     trigger_external_data_workflow,
     unpause_external_data_schedule,
 )
+from products.data_warehouse.backend.direct_postgres import (
+    hide_direct_postgres_table,
+    postgres_schema_metadata_to_dwh_columns,
+    upsert_direct_postgres_table,
+)
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
 from products.data_warehouse.backend.models.external_data_schema import (
     sync_frequency_interval_to_sync_frequency,
@@ -166,6 +171,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         sync_time_of_day = data.get("sync_time_of_day", None)
         was_sync_frequency_updated = False
         was_sync_time_of_day_updated = False
+        source = instance.source
 
         if sync_frequency:
             sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
@@ -191,22 +197,36 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 validated_data["sync_time_of_day"] = None
                 instance.sync_time_of_day = None
 
-        if should_sync is True and sync_type is None and instance.sync_type is None:
-            raise ValidationError("Sync type must be set up first before enabling schema")
+        if source.supports_scheduled_sync:
+            if should_sync is True and sync_type is None and instance.sync_type is None:
+                raise ValidationError("Sync type must be set up first before enabling schema")
 
-        schedule_exists = external_data_workflow_exists(str(instance.id))
+            schedule_exists = external_data_workflow_exists(str(instance.id))
 
-        if schedule_exists:
-            if should_sync is False:
-                pause_external_data_schedule(str(instance.id))
-            elif should_sync is True:
-                unpause_external_data_schedule(str(instance.id))
-        else:
-            if should_sync is True:
-                sync_external_data_job_workflow(instance, create=True, should_sync=should_sync)
+            if schedule_exists:
+                if should_sync is False:
+                    pause_external_data_schedule(str(instance.id))
+                elif should_sync is True:
+                    unpause_external_data_schedule(str(instance.id))
+            else:
+                if should_sync is True:
+                    sync_external_data_job_workflow(instance, create=True, should_sync=should_sync)
 
-        if was_sync_frequency_updated or was_sync_time_of_day_updated:
-            sync_external_data_job_workflow(instance, create=False, should_sync=should_sync)
+            if was_sync_frequency_updated or was_sync_time_of_day_updated:
+                sync_external_data_job_workflow(instance, create=False, should_sync=should_sync)
+
+        if source.is_direct_postgres:
+            # We use "should_sync" to determine if the table should be exposed or hidden.
+            if should_sync is True and instance.should_sync is False:
+                validated_data["table"] = upsert_direct_postgres_table(
+                    instance.table,
+                    schema_name=instance.name,
+                    source=source,
+                    columns=postgres_schema_metadata_to_dwh_columns(instance.schema_metadata),
+                )
+
+            if should_sync is False and instance.should_sync is True:
+                hide_direct_postgres_table(instance.table)
 
         if trigger_refresh:
             instance.sync_type_config.update({"reset_pipeline": True})
@@ -304,6 +324,13 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["DELETE"], detail=True)
     def delete_data(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
+
+        if instance.source.is_direct_postgres:
+            hide_direct_postgres_table(instance.table)
+            instance.should_sync = False
+            instance.save(update_fields=["should_sync", "updated_at"])
+            return Response(status=status.HTTP_200_OK)
+
         instance.delete_table()
 
         return Response(status=status.HTTP_200_OK)

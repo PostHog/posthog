@@ -1,6 +1,8 @@
 import typing
 import datetime as dt
 
+from django.conf import settings
+
 from temporalio import activity, workflow
 from temporalio.worker import (
     ActivityInboundInterceptor,
@@ -88,6 +90,8 @@ def increment_recordings_failed(count: int) -> None:
 
 
 class DeleteRecordingsMetricsInterceptor(Interceptor):
+    task_queue = settings.SESSION_REPLAY_TASK_QUEUE
+
     def intercept_activity(self, next: ActivityInboundInterceptor) -> ActivityInboundInterceptor:
         return _DeleteRecordingsActivityInterceptor(super().intercept_activity(next))
 
@@ -109,7 +113,7 @@ class _DeleteRecordingsActivityInterceptor(ActivityInboundInterceptor):
         started_time = activity_info.started_time
         if scheduled_time and started_time:
             schedule_to_start_ms = int((started_time - scheduled_time).total_seconds() * 1000)
-            meter = get_metric_meter({"activity_type": activity_type})
+            meter = get_metric_meter()
             meter.create_histogram_timedelta(
                 name="delete_recordings_activity_schedule_to_start_latency",
                 description="Time between activity scheduling and start",
@@ -119,7 +123,6 @@ class _DeleteRecordingsActivityInterceptor(ActivityInboundInterceptor):
         with ExecutionTimeRecorder(
             "delete_recordings_activity_execution_latency",
             description="Execution latency for delete-recordings activities",
-            histogram_attributes={"activity_type": activity_type},
         ):
             return await super().execute_activity(input)
 
@@ -132,7 +135,7 @@ class _DeleteRecordingsWorkflowInterceptor(WorkflowInboundInterceptor):
         if workflow_type not in DELETE_RECORDINGS_WORKFLOW_TYPES:
             return await super().execute_workflow(input)
 
-        meter = get_metric_meter({"workflow_type": workflow_type})
+        meter = get_metric_meter()
         meter.create_counter(
             "delete_recordings_workflow_started",
             "Delete-recordings workflows started",
@@ -141,12 +144,11 @@ class _DeleteRecordingsWorkflowInterceptor(WorkflowInboundInterceptor):
         with ExecutionTimeRecorder(
             "delete_recordings_workflow_execution_latency",
             description="End-to-end workflow execution latency",
-            histogram_attributes={"workflow_type": workflow_type},
         ):
             status = "COMPLETED"
             try:
                 result = await super().execute_workflow(input)
-                meter = get_metric_meter({"workflow_type": workflow_type, "status": status})
+                meter = get_metric_meter({"status": status})
                 meter.create_counter(
                     "delete_recordings_workflow_finished",
                     "Delete-recordings workflows finished",
@@ -154,7 +156,7 @@ class _DeleteRecordingsWorkflowInterceptor(WorkflowInboundInterceptor):
                 return result
             except Exception:
                 status = "FAILED"
-                meter = get_metric_meter({"workflow_type": workflow_type, "status": status})
+                meter = get_metric_meter({"status": status})
                 meter.create_counter(
                     "delete_recordings_workflow_finished",
                     "Delete-recordings workflows finished",

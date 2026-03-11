@@ -82,14 +82,12 @@ describe('llmAnalyticsDatasetLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        jest.clearAllMocks()
+        jest.resetAllMocks()
 
-        mockApi.datasets = {
-            create: jest.fn(),
-            update: jest.fn(),
-            get: jest.fn(),
-            list: jest.fn(),
-        } as any
+        jest.spyOn(mockApi.datasets, 'create').mockResolvedValue(undefined as any)
+        jest.spyOn(mockApi.datasets, 'update').mockResolvedValue(undefined as any)
+        jest.spyOn(mockApi.datasets, 'get').mockResolvedValue(undefined as any)
+        jest.spyOn(mockApi.datasets, 'list').mockResolvedValue(undefined as any)
     })
 
     describe('new dataset creation', () => {

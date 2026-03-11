@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
 
+import structlog
 from rest_framework.exceptions import ValidationError
 from scipy.stats import chisquare
 
@@ -27,9 +28,19 @@ from posthog.hogql_queries.experiments.experiment_query_builder import (
     ExperimentQueryBuilder,
     get_exposure_config_params_for_builder,
 )
+from posthog.hogql_queries.experiments.experiment_query_runner import DEFAULT_EXPOSURE_TTL_SECONDS
 from posthog.hogql_queries.experiments.exposure_query_logic import get_entity_key
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.experiment import Experiment
+
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    LazyComputationResult,
+    LazyComputationTable,
+    ensure_precomputed,
+)
+
+logger = structlog.get_logger(__name__)
 
 QUERY_ROW_LIMIT = 5000  # Should be sufficient for all experiments (days * variants)
 SRM_MINIMUM_SAMPLE_SIZE = 100  # Minimum total exposures required for SRM calculation
@@ -57,6 +68,8 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
         if self.query.holdout:
             self.variants.append(f"holdout-{self.query.holdout.id}")
+
+        self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
 
         self.date_range = self._get_date_range()
         self.date_range_query = QueryDateRange(
@@ -91,6 +104,25 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             explicitDate=True,
         )
 
+    def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
+        query_string, placeholders = builder.get_exposure_query_for_precomputation()
+
+        if not self.experiment.start_date:
+            raise ValidationError("Experiment must have a start date for lazy computation")
+
+        date_from = self.experiment.start_date
+        date_to = self.experiment.end_date or datetime.now(UTC)
+
+        return ensure_precomputed(
+            team=self.team,
+            insert_query=query_string,
+            time_range_start=date_from,
+            time_range_end=date_to,
+            ttl_seconds=DEFAULT_EXPOSURE_TTL_SECONDS,
+            table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            placeholders=placeholders,
+        )
+
     def _get_exposure_query(self) -> ast.SelectQuery:
         (
             exposure_config,
@@ -108,6 +140,18 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             date_range_query=self.date_range_query,
             entity_key=get_entity_key(self.group_type_index),
         )
+
+        if self.experiment.exposure_preaggregation_enabled:
+            try:
+                result = self._ensure_exposures_precomputed(builder)
+                if result.ready:
+                    job_ids = [str(job_id) for job_id in result.job_ids]
+                    return builder.get_daily_exposures_from_precomputed(job_ids)
+                else:
+                    logger.warning("exposure_lazy_computation_not_ready", experiment_id=self.experiment.id)
+            except Exception:
+                logger.exception("exposure_lazy_computation_failed", experiment_id=self.experiment.id)
+
         return builder.get_exposure_timeseries_query()
 
     def _calculate_srm(self, total_exposures: dict[str, int]) -> SampleRatioMismatch | None:

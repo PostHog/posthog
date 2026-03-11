@@ -49,6 +49,7 @@ export function TaxonomicFilter({
     allowNonCapturedEvents = false,
     hogQLGlobals,
     definitionPopoverRenderer,
+    minSearchQueryLength,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -83,6 +84,7 @@ export function TaxonomicFilter({
         allowNonCapturedEvents,
         maxContextOptions,
         hogQLGlobals,
+        minSearchQueryLength,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)

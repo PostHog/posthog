@@ -13,6 +13,7 @@ import { ChartDisplayType } from '~/types'
 
 import { EXIT_NODE_ID, TRIGGER_NODE_ID } from '../../workflowLogic'
 import { WORKFLOW_METRICS_INFO } from '../../WorkflowMetrics'
+import { WORKFLOW_EMAIL_METRICS } from '../../workflowMetricsSummaryLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 
 export function HogFlowEditorPanelMetrics(): JSX.Element | null {
@@ -25,13 +26,18 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
 
     const logicKey = `hog-flow-metrics-${workflow.id}`
 
+    const selectedAction = workflow.actions.find((action) => action.id === actionId)
+    const isEmailAction = selectedAction?.type === 'function_email'
+
     const metricName = useMemo(() => {
         return actionId === TRIGGER_NODE_ID
-            ? ['triggered', 'rate_limited', 'disabled_permanently', 'filtered']
+            ? ['triggered', 'rate_limited', 'disabled_permanently']
             : actionId === EXIT_NODE_ID
               ? ['succeeded', 'failed']
-              : undefined
-    }, [actionId])
+              : isEmailAction
+                ? (Object.keys(WORKFLOW_EMAIL_METRICS) as string[])
+                : undefined
+    }, [actionId, isEmailAction])
 
     const logic = appMetricsLogic({
         logicKey,
@@ -105,20 +111,24 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
                                 },
                                 data: appMetricsTrends.labels,
                             }}
-                            yData={appMetricsTrends.series.map((x) => ({
-                                column: {
-                                    name: x.name,
-                                    type: { name: 'INTEGER', isNumerical: true },
-                                    label: x.name,
-                                    dataIndex: 0,
-                                },
-                                settings: {
-                                    display: {
-                                        color: WORKFLOW_METRICS_INFO[x.name]?.color,
+                            yData={appMetricsTrends.series.map((x) => {
+                                const colorSource = isEmailAction ? WORKFLOW_EMAIL_METRICS : WORKFLOW_METRICS_INFO
+                                return {
+                                    column: {
+                                        name: x.name,
+                                        type: { name: 'INTEGER', isNumerical: true },
+                                        label:
+                                            (colorSource as Record<string, { name: string }>)[x.name]?.name ?? x.name,
+                                        dataIndex: 0,
                                     },
-                                },
-                                data: x.values,
-                            }))}
+                                    settings: {
+                                        display: {
+                                            color: (colorSource as Record<string, { color: string }>)[x.name]?.color,
+                                        },
+                                    },
+                                    data: x.values,
+                                }
+                            })}
                             visualizationType={ChartDisplayType.ActionsLineGraph}
                             chartSettings={{
                                 showLegend: true,
