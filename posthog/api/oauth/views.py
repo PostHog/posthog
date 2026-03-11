@@ -309,10 +309,14 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         # First-party apps skip consent screen entirely
         if application.is_first_party:
             try:
-                # Auto-approve with all user's accessible teams
-                teams = Team.objects.filter(organization__members=request.user).values_list("pk", flat=True)
-                credentials["scoped_teams"] = list(teams)
-                credentials["scoped_organizations"] = []
+                # Auto-approve with all user's accessible organizations.
+                # Scope by org (not team) so the token works on both org-level
+                # endpoints (e.g. /api/organizations/{id}/projects/) and
+                # project-level endpoints. Team-level access is derived from
+                # org membership via queryset filtering.
+                org_ids = request.user.organizations.values_list("id", flat=True)
+                credentials["scoped_teams"] = []
+                credentials["scoped_organizations"] = [str(org_id) for org_id in org_ids]
 
                 uri, headers, body, status_code = self.create_authorization_response(
                     request=request, scopes=" ".join(scopes), credentials=credentials, allow=True
