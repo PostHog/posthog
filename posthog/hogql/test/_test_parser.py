@@ -1415,12 +1415,66 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
             self.assertEqual(
+                self._select("select 1 from events LIMIT 1 %"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    limit=ast.Constant(value=1),
+                    limit_percent=True,
+                ),
+            )
+            self.assertEqual(
+                self._select("select 1 from events LIMIT (60 + 7) %"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    limit=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Add,
+                        left=ast.Constant(value=60),
+                        right=ast.Constant(value=7),
+                    ),
+                    limit_percent=True,
+                ),
+            )
+            self.assertEqual(
+                self._select("select 1 from events LIMIT (select avg(team_id) from events) %"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    limit=ast.SelectQuery(
+                        select=[ast.Call(name="avg", args=[ast.Field(chain=["team_id"])])],
+                        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    ),
+                    limit_percent=True,
+                ),
+            )
+            self.assertEqual(
                 self._select("select 1 from events LIMIT 1 OFFSET 3"),
                 ast.SelectQuery(
                     select=[ast.Constant(value=1)],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                     limit=ast.Constant(value=1),
                     offset=ast.Constant(value=3),
+                ),
+            )
+            self.assertEqual(
+                self._select("select 1 from events LIMIT 1 % OFFSET 3"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    limit=ast.Constant(value=1),
+                    limit_percent=True,
+                    offset=ast.Constant(value=3),
+                ),
+            )
+            self.assertEqual(
+                self._select("select 1 from events LIMIT 42% OFFSET 20"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    limit=ast.Constant(value=42),
+                    limit_percent=True,
+                    offset=ast.Constant(value=20),
                 ),
             )
             self.assertEqual(

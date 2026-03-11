@@ -263,15 +263,17 @@ class HogQLPrinter(Visitor[str]):
         ]
 
         limit = node.limit
-        if self.context.limit_top_select and is_top_level_query:
+        # TODO: We skip the 50k limit guard when LIMIT % is present. Revisit if we can cap percent limits safely.
+        if self.context.limit_top_select and is_top_level_query and not node.limit_percent:
             max_limit = get_max_limit_for_context(self.context.limit_context or LimitContext.QUERY)
+            min_function = "least" if self.dialect == "postgres" else "min2"
 
             if limit is not None:
                 if isinstance(limit, ast.Constant) and isinstance(limit.value, int):
                     limit.value = min(limit.value, max_limit)
                 else:
                     limit = ast.Call(
-                        name="min2",
+                        name=min_function,
                         args=[ast.Constant(value=max_limit), limit],
                     )
             else:
@@ -283,6 +285,8 @@ class HogQLPrinter(Visitor[str]):
             )
 
         if limit is not None:
+            if node.limit_percent and self.dialect != "postgres":
+                raise QueryError(f"LIMIT percent is not allowed in {self.dialect} dialect")
             limit_str = f"LIMIT {self.visit(limit)}"
             if node.limit_percent:
                 limit_str += " %"

@@ -93,6 +93,26 @@ class TestResolver(BaseTest):
         assert isinstance(resolved.select_from, ast.JoinExpr)
         assert resolved.select_from.column_aliases == ["event_alias"]
 
+    def test_resolve_limit_percent_dialect_guard(self):
+        expr = self._select("SELECT 1 FROM events LIMIT 10 %")
+
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect="clickhouse")
+        self.assertEqual(str(context.exception), "LIMIT percent is not allowed in clickhouse dialect")
+
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert resolved.limit_percent is True
+
+    def test_resolve_limit_percent_range_guard(self):
+        expr = self._select("SELECT 1 FROM events LIMIT (100.1) %")
+
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect="postgres")
+        self.assertEqual(
+            str(context.exception),
+            "Limit percent must be between 0 and 100",
+        )
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_events_table_column_alias_inside_subquery(self):
         expr = self._select("SELECT b FROM (select event as b, timestamp as c from events) e WHERE e.b = 'test'")

@@ -309,6 +309,14 @@ class Resolver(CloningVisitor):
         # Visit the FROM clauses first. This resolves all table aliases onto self.scopes[-1]
         new_node.select_from = self.visit(node.select_from)
 
+        if node.limit_percent and self.dialect != "postgres":
+            raise QueryError(f"LIMIT percent is not allowed in {self.dialect} dialect")
+        # TODO: Consider constant folding to catch out-of-range percent expressions.
+        if node.limit_percent and isinstance(node.limit, ast.Constant) and isinstance(node.limit.value, (int, float)):
+            limit_value = float(node.limit.value)
+            if limit_value < 0 or limit_value > 100:
+                raise QueryError("Limit percent must be between 0 and 100")
+
         # Array joins (pass 1 - so we can use aliases from the array join in columns)
         new_node.array_join_op = node.array_join_op
         ac = AliasCollector()

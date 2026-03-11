@@ -177,6 +177,12 @@ class TestPrinter(BaseTest):
             "Table column aliases are not allowed in clickhouse dialect",
         )
 
+    def test_limit_percent_non_postgres_error(self):
+        self._assert_query_error(
+            "select 1 from events limit 10 %",
+            "LIMIT percent is not allowed in clickhouse dialect",
+        )
+
     def test_union_distinct(self):
         expr = parse_select("""select 1 as id union distinct select 2 as id""")
         response = to_printed_hogql(expr, self.team)
@@ -4381,6 +4387,22 @@ class TestPostgresPrinter(BaseTest):
     def test_column_aliases_postgres_dialect(self):
         printed = self._select("SELECT 1 FROM events AS e (event_alias, ts_alias)")
         self.assertIn("AS e (event_alias, ts_alias)", printed)
+
+    def test_limit_percent_postgres_dialect(self):
+        printed = self._select("SELECT 1 FROM events LIMIT 10 %")
+        self.assertIn("LIMIT 10 %", printed)
+
+    def test_limit_percent_postgres_dialect_with_expression(self):
+        printed = self._select("SELECT 1 FROM events LIMIT (60 + 7) %")
+        self.assertIn("LIMIT (60 + 7) %", printed)
+
+    def test_limit_percent_postgres_dialect_with_subquery(self):
+        printed = self._select("SELECT 1 FROM events LIMIT (SELECT avg(team_id) FROM events) %")
+        self.assertIn("LIMIT (SELECT avg(events.team_id) FROM events) %", printed)
+
+    def test_limit_percent_postgres_dialect_with_offset(self):
+        printed = self._select("SELECT 1 FROM events LIMIT 42% OFFSET 20")
+        self.assertIn("LIMIT 42 % OFFSET 20", printed)
 
     def test_boolean_and_null_literals(self):
         self.assertEqual(self._expr("true"), "true")
