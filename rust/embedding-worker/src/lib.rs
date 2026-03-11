@@ -103,7 +103,7 @@ pub async fn generate_embedding(
     labels: &RequestLabels,
 ) -> Result<(Vec<f64>, usize)> {
     let total_time = common_metrics::timing_guard(EMBEDDING_TOTAL_TIME, labels.render());
-    // Generate the text to actually send to OpenAI
+    // Generate the text to actually send to the embedding provider
     let (text, token_count) = generate_embedding_text(content, &model, labels)?;
 
     context.respect_rate_limits(model, token_count).await;
@@ -170,9 +170,13 @@ pub async fn generate_embedding(
 
     // All attempts exhausted or non-retryable error
     let status = last_status.unwrap();
-    error!("Failed to generate embeddings, got {} from openai", status);
+    error!(
+        "Failed to generate embeddings, got {} from {}",
+        status,
+        model.provider()
+    );
     if let Some(error_message) = last_error_body {
-        error!("Error message from OpenAI: {}", error_message);
+        error!("Error message from {}: {}", model.provider(), error_message);
     }
 
     return Err(anyhow::anyhow!("Failed to generate embeddings"));
