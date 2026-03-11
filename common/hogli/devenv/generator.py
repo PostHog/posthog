@@ -7,6 +7,9 @@ The system is designed to be process-manager agnostic - mprocs is just one outpu
 from __future__ import annotations
 
 import os
+import re
+import json
+import shutil
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -15,8 +18,8 @@ import yaml
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
-    from .registry import ProcessRegistry
-    from .resolver import ResolvedEnvironment
+    from .registry import ProcessDefinition, ProcessRegistry
+    from .resolver import IntentResolver, ResolvedEnvironment
 
 
 class DevenvConfig(BaseModel):
@@ -98,23 +101,10 @@ class MprocsGenerator(ConfigGenerator):
     """Generates mprocs.yaml configuration from resolved environment."""
 
     def __init__(self, registry: ProcessRegistry):
-        """Initialize generator.
-
-        Args:
-            registry: ProcessRegistry to get process configs from
-        """
         self.registry = registry
 
     def generate(self, resolved: ResolvedEnvironment, source_config: DevenvConfig | None = None) -> MprocsConfig:
-        """Generate mprocs configuration for resolved environment.
-
-        Args:
-            resolved: The resolved environment with required units
-            source_config: Optional source config to embed for re-resolution
-
-        Returns:
-            MprocsConfig with only the required processes
-        """
+        """Generate mprocs configuration for resolved environment."""
         procs: dict[str, dict[str, Any]] = {}
 
         # Info process is always first
@@ -139,6 +129,7 @@ class MprocsGenerator(ConfigGenerator):
             # Remove metadata fields - not mprocs config
             proc_config.pop("capability", None)
             proc_config.pop("ask_skip", None)
+            proc_config.pop("vscode", None)
 
             # Set autostart: false for skipped processes
             if name in resolved.skip_autostart:
@@ -225,36 +216,17 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         return {"shell": shell}
 
     def _add_startup_message(self, proc_config: dict[str, Any], process_name: str, reason: str) -> dict[str, Any]:
-        """Add a startup message to a process config.
-
-        Args:
-            proc_config: The process configuration dict
-            process_name: Name of the process
-            reason: Why this process is starting (capability name or "always required")
-
-        Returns:
-            Modified process configuration with startup message
-        """
+        """Add a startup message to a process config."""
         original_shell = proc_config.get("shell", "")
         if not original_shell:
             return proc_config
 
-        # Create a friendly message with config hint
         message = f"echo '▶ {process_name}: {reason} (configure via: hogli dev:setup)' && "
-
         proc_config["shell"] = message + original_shell
         return proc_config
 
     def _generate_docker_compose_config(self, profiles: list[str]) -> dict[str, Any]:
-        """Generate docker-compose process config with profile flags.
-
-        Args:
-            profiles: List of docker compose profiles to activate
-
-        Returns:
-            Process configuration dict with modified shell command
-        """
-        # Build the profile flags (may be empty for minimal stack)
+        """Generate docker-compose process config with profile flags."""
         if profiles:
             message = f"echo '▶ docker-compose: profiles: {', '.join(profiles)} (configure via: hogli dev:setup)' && "
         else:
@@ -270,22 +242,14 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
     def _add_nodejs_capability_groups(
         self, proc_config: dict[str, Any], resolved: ResolvedEnvironment
     ) -> dict[str, Any]:
-        """Add NODEJS_CAPABILITY_GROUPS env var based on resolved nodejs_* capabilities.
-
-        Strips 'nodejs_' prefix from capability names to get the group name.
-        e.g. nodejs_cdp -> cdp, nodejs_session_replay -> session_replay
-        """
+        """Add NODEJS_CAPABILITY_GROUPS env var based on resolved nodejs_* capabilities."""
         prefix = "nodejs_"
         enabled_groups = [cap.removeprefix(prefix) for cap in resolved.capabilities if cap.startswith(prefix)]
 
-        # If no specific groups are enabled, don't set the env var (use default behavior)
         if not enabled_groups:
             return proc_config
 
-        # Build the env var value
         groups_value = ",".join(enabled_groups)
-
-        # Prepend the env var export to the shell command
         original_shell = proc_config.get("shell", "")
         if original_shell:
             proc_config["shell"] = f"export NODEJS_CAPABILITY_GROUPS='{groups_value}' && {original_shell}"
@@ -307,15 +271,7 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         return proc_config
 
     def _add_logging(self, proc_config: dict[str, Any], process_name: str) -> dict[str, Any]:
-        """Wrap shell command to log output to /tmp/posthog-{name}.log.
-
-        Args:
-            proc_config: The process configuration dict
-            process_name: Name of the process (used in log filename)
-
-        Returns:
-            Modified process configuration with tee logging
-        """
+        """Wrap shell command to log output to /tmp/posthog-{name}.log."""
         shell = proc_config.get("shell", "")
         if not shell:
             return proc_config
@@ -328,7 +284,6 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         """Save mprocs configuration to YAML file."""
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w") as f:
-            # Add header comment for log mode
             if config.posthog_config and config.posthog_config.log_to_files:
                 f.write("# Log mode: Output logged to /tmp/posthog-*.log\n")
             yaml.dump(config.to_yaml_dict(), f, default_flow_style=False, sort_keys=False)
@@ -336,14 +291,7 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
 
 
 def load_devenv_config(mprocs_path: Path) -> DevenvConfig | None:
-    """Load DevenvConfig from a generated mprocs.yaml file.
-
-    Args:
-        mprocs_path: Path to generated mprocs.yaml
-
-    Returns:
-        DevenvConfig if _posthog section exists, None otherwise
-    """
+    """Load DevenvConfig from a generated mprocs.yaml file."""
     if not mprocs_path.exists():
         return None
 
@@ -366,19 +314,17 @@ def get_main_repo_from_worktree() -> Path | None:
     for parent in [current, *current.parents]:
         git_path = parent / ".git"
         if git_path.is_file():
-            # Worktree: .git file contains "gitdir: /path/to/main/.git/worktrees/<name>"
             try:
                 content = git_path.read_text().strip()
             except OSError:
                 return None
             if content.startswith("gitdir: ") and "worktrees" in content:
                 gitdir = Path(content.removeprefix("gitdir: ").strip())
-                # Resolve relative paths against .git file's directory
                 if not gitdir.is_absolute():
                     gitdir = (git_path.parent / gitdir).resolve()
                 return gitdir.parent.parent.parent
         elif git_path.is_dir():
-            break  # Regular repo, not a worktree
+            break
     return None
 
 
@@ -398,16 +344,13 @@ def get_generated_mprocs_path() -> Path:
             local_path = parent / ".posthog" / ".generated" / "mprocs.yaml"
             break
 
-    # If local config exists (or is symlink), use it
     if local_path.exists():
         return local_path
 
-    # Check main repo if in a worktree
     main_repo = get_main_repo_from_worktree()
     if main_repo:
         main_path = main_repo / ".posthog" / ".generated" / "mprocs.yaml"
         if main_path.exists():
-            # Create local symlink so bin/start (which uses $REPOSITORY_ROOT) finds it
             local_path.parent.mkdir(parents=True, exist_ok=True)
             if local_path.is_symlink():
                 local_path.unlink()
@@ -415,3 +358,367 @@ def get_generated_mprocs_path() -> Path:
             return main_path
 
     return local_path
+
+
+def _find_repo_root() -> Path:
+    """Walk up from cwd to find the repo root (.git directory)."""
+    current = Path.cwd().resolve()
+    for parent in [current, *current.parents]:
+        if (parent / ".git").exists():
+            return parent
+    return current
+
+
+def get_vscode_launch_path() -> Path:
+    """Get the VS Code launch.json path for the current repository."""
+    return _find_repo_root() / ".vscode" / "launch.json"
+
+
+def get_vscode_launch_template_path() -> Path:
+    """Get the VS Code launch.templ.json path for the current repository."""
+    return _find_repo_root() / ".vscode" / "launch.templ.json"
+
+
+# ---------------------------------------------------------------------------
+# VS Code launch.json generation
+#
+# Every resolved unit gets a launch config. Processes with a vscode block in
+# mprocs.yaml get an augmented config (debugpy, custom args, etc.). Processes
+# without one get a simple node-terminal config running the shell command.
+# ---------------------------------------------------------------------------
+
+
+def _get_display_name(proc: ProcessDefinition) -> str:
+    """Get the VS Code display name for a process.
+
+    Reads vscode.name if present, otherwise title-cases the process name.
+    """
+    if isinstance(proc.vscode_config, dict) and "name" in proc.vscode_config:
+        return proc.vscode_config["name"]
+    return proc.name.replace("-", " ").title()
+
+
+def _format_intent_label(intent_name: str) -> str:
+    """Format an intent name for display in a VS Code compound."""
+    acronym_words = {"ai", "llm", "mcp", "cdp"}
+    parts = intent_name.split("_")
+    formatted_parts: list[str] = []
+
+    for idx, part in enumerate(parts):
+        if part in acronym_words:
+            formatted_parts.append(part.upper())
+        elif idx == 0:
+            formatted_parts.append(part.capitalize())
+        else:
+            formatted_parts.append(part)
+
+    return " ".join(formatted_parts)
+
+
+def _build_debugpy_config(name: str, vscode: dict[str, Any], debugpy_env: dict[str, str]) -> dict[str, Any]:
+    """Build a debugpy launch configuration from mprocs.yaml vscode metadata."""
+    env = {**debugpy_env}
+    if vscode.get("env"):
+        env.update(vscode["env"])
+
+    config: dict[str, Any] = {
+        "_hogli": True,
+        "name": name,
+        "consoleName": name,
+        "type": "debugpy",
+        "request": "launch",
+    }
+
+    if "program" in vscode:
+        config["program"] = f"${{workspaceFolder}}/{vscode['program']}"
+    if "module" in vscode:
+        config["module"] = vscode["module"]
+    if "args" in vscode:
+        config["args"] = vscode["args"]
+    if vscode.get("django"):
+        config["django"] = True
+    if "justMyCode" in vscode:
+        config["justMyCode"] = vscode["justMyCode"]
+    if vscode.get("autoReload"):
+        config["autoReload"] = {"enable": True, "include": ["posthog/**/*.py"]}
+    if vscode.get("subProcess"):
+        config["subProcess"] = True
+
+    config["console"] = "integratedTerminal"
+    config["cwd"] = "${workspaceFolder}"
+    config["env"] = env
+    config["envFile"] = "${workspaceFolder}/.env"
+    config["presentation"] = {"group": "main", "hidden": True}
+
+    return config
+
+
+def _wrap_command_with_flox(command: str) -> str:
+    """Wrap a shell command so it runs inside flox activate, with fallback."""
+    escaped = command.replace("'", "'\\''")
+    return f"command -v flox >/dev/null 2>&1 && flox activate -- bash -c '{escaped}' || {command}"
+
+
+def _build_node_terminal_config(
+    name: str,
+    command: str,
+    vscode: dict[str, Any] | None = None,
+    env: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Build a node-terminal launch configuration."""
+    config: dict[str, Any] = {
+        "_hogli": True,
+        "name": name,
+        "type": "node-terminal",
+        "request": "launch",
+        "command": _wrap_command_with_flox(command),
+        "cwd": "${workspaceFolder}",
+    }
+
+    if vscode and vscode.get("skipFiles"):
+        config["skipFiles"] = vscode["skipFiles"]
+
+    merged_env: dict[str, str] = {}
+    if env:
+        merged_env.update(env)
+    if vscode and vscode.get("env"):
+        merged_env.update(vscode["env"])
+    if merged_env:
+        config["env"] = merged_env
+
+    config["presentation"] = {"group": "main", "hidden": True}
+
+    return config
+
+
+def build_vscode_configurations(
+    resolved: ResolvedEnvironment,
+    registry: ProcessRegistry,
+) -> list[dict[str, Any]]:
+    """Build VS Code launch configurations for all resolved units.
+
+    Every resolved unit gets a config. Processes with a vscode block get an
+    augmented config (debugpy, node-terminal with debug settings). Processes
+    without one get a simple node-terminal config running the shell command.
+    """
+    defaults = registry.get_vscode_defaults()
+    debugpy_env = defaults.get("debugpy_env", {})
+    nodejs_env = defaults.get("nodejs_env", {})
+
+    configurations: list[dict[str, Any]] = []
+    processes = registry.get_processes()
+
+    # Iterate in YAML declaration order (dict ordering is stable)
+    for name, proc in processes.items():
+        if name not in resolved.units:
+            continue
+
+        # vscode: false means explicitly excluded from VS Code
+        if proc.vscode_config is False:
+            continue
+
+        display_name = _get_display_name(proc)
+        vscode = proc.vscode_config
+
+        if isinstance(vscode, dict) and vscode.get("type") == "debugpy":
+            config = _build_debugpy_config(display_name, vscode, debugpy_env)
+
+        elif isinstance(vscode, dict) and vscode.get("type") == "node-terminal":
+            command = vscode.get("command", proc.shell)
+            config = _build_node_terminal_config(display_name, command, vscode)
+
+        else:
+            # Default: node-terminal running the shell command
+            config = _build_node_terminal_config(display_name, proc.shell)
+
+        # Inject nodejs-specific env and NODEJS_CAPABILITY_GROUPS
+        if name == "nodejs":
+            config.setdefault("env", {}).update(nodejs_env)
+            config["envFile"] = "${workspaceFolder}/.env"
+            prefix = "nodejs_"
+            groups = [cap.removeprefix(prefix) for cap in sorted(resolved.capabilities) if cap.startswith(prefix)]
+            if groups:
+                config["env"]["NODEJS_CAPABILITY_GROUPS"] = ",".join(groups)
+
+        # Merge process-level env from mprocs.yaml (e.g. llm-gateway)
+        proc_env = proc.config.get("env")
+        if proc_env:
+            config.setdefault("env", {}).update(proc_env)
+
+        configurations.append(config)
+
+    return configurations
+
+
+def _build_compound(name: str, configurations: list[str], group: str) -> dict[str, Any]:
+    """Build a VS Code compound in a consistent shape."""
+    return {
+        "name": name,
+        "configurations": configurations,
+        "stopAll": True,
+        "presentation": {"group": group},
+    }
+
+
+def _get_config_names_for_units(units: set[str], registry: ProcessRegistry) -> list[str]:
+    """Map resolved units to display names in YAML order, excluding vscode: false."""
+    return [
+        _get_display_name(proc)
+        for name, proc in registry.get_processes().items()
+        if name in units and proc.vscode_config is not False
+    ]
+
+
+def build_vscode_compounds(
+    resolver: IntentResolver,
+    resolved: ResolvedEnvironment,
+    registry: ProcessRegistry,
+) -> list[dict[str, Any]]:
+    """Build VS Code compounds from resolved intents.
+
+    Creates a main "PostHog" compound from all resolved units, plus per-intent
+    compounds when 2+ intents are selected. Identical config sets are deduplicated.
+    """
+    main_configs = _get_config_names_for_units(resolved.units, registry)
+    main_key = tuple(main_configs)
+
+    intent_labels = [_format_intent_label(name) for name in sorted(resolved.intents)]
+    main_name = f"PostHog ({', '.join(intent_labels)})" if intent_labels else "PostHog"
+    compounds = [_build_compound(main_name, main_configs, "main")]
+
+    # Per-intent compounds — only useful when multiple intents are selected
+    if len(resolved.intents) >= 2:
+        config_to_intents: dict[tuple[str, ...], list[str]] = {}
+        for intent_name in resolved.intents:
+            intent_resolved = resolver.resolve([intent_name])
+            configs = tuple(_get_config_names_for_units(intent_resolved.units, registry))
+            if not configs or configs == main_key:
+                continue
+            config_to_intents.setdefault(configs, []).append(intent_name)
+
+        for configs, intent_names in config_to_intents.items():
+            labels = [_format_intent_label(name) for name in sorted(intent_names)]
+            compound_name = f"PostHog ({', '.join(labels)})"
+            compounds.append(_build_compound(compound_name, list(configs), "intent"))
+
+    return compounds
+
+
+# ---------------------------------------------------------------------------
+# launch.json manipulation
+# ---------------------------------------------------------------------------
+
+
+def _find_keyed_array_range(content: str, key: str) -> tuple[int, int] | None:
+    """Find the [start, end) character range for an array value by key name."""
+    key_match = re.search(rf'"{re.escape(key)}"\s*:\s*\[', content)
+    if not key_match:
+        return None
+
+    start = key_match.end() - 1  # points to '['
+    depth = 0
+    in_string = False
+    escaped = False
+
+    for idx in range(start, len(content)):
+        char = content[idx]
+
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+        elif char == "[":
+            depth += 1
+        elif char == "]":
+            depth -= 1
+            if depth == 0:
+                return start, idx + 1
+
+    return None
+
+
+def _indent_json_array(data: list[Any], base_indent: str = "    ") -> str:
+    """Serialize a JSON array with consistent indentation for launch.json."""
+    lines = json.dumps(data, indent=4).splitlines()
+    return "\n".join([lines[0], *[f"{base_indent}{line}" for line in lines[1:]]])
+
+
+def _replace_keyed_array(content: str, key: str, new_data: list[Any]) -> str | None:
+    """Replace a JSON array value by key name, preserving surrounding content."""
+    array_range = _find_keyed_array_range(content, key)
+    if not array_range:
+        return None
+
+    start, end = array_range
+    new_json = _indent_json_array(new_data)
+    content = f"{content[:start]}{new_json}{content[end:]}"
+    return re.sub(rf'("{re.escape(key)}"\s*:)\s+\[', rf"\1 [", content, count=1)
+
+
+def regenerate_vscode_launch_config(
+    resolver: IntentResolver,
+    resolved: ResolvedEnvironment,
+    registry: ProcessRegistry,
+    output_path: Path | None = None,
+) -> Path:
+    """Regenerate .vscode/launch.json from resolved intent configuration.
+
+    Creates launch.json from the template if it doesn't exist yet.
+    Generated configs (_hogli marker) are replaced; manual configs are preserved.
+    """
+    launch_path = output_path or get_vscode_launch_path()
+
+    # Bootstrap from template if launch.json doesn't exist
+    if not launch_path.exists():
+        template_path = get_vscode_launch_template_path()
+        launch_path.parent.mkdir(parents=True, exist_ok=True)
+        if template_path.exists():
+            shutil.copy2(template_path, launch_path)
+        else:
+            launch_path.write_text(
+                json.dumps({"version": "0.2.0", "configurations": [], "inputs": [], "compounds": []}, indent=4)
+            )
+
+    try:
+        content = launch_path.read_text()
+    except OSError:
+        return launch_path
+
+    # Build new generated configurations
+    new_configs = build_vscode_configurations(resolved, registry)
+    new_config_names = {c["name"] for c in new_configs}
+
+    superseded: set[str] = set(registry.get_vscode_defaults().get("superseded", []))
+
+    configs_range = _find_keyed_array_range(content, "configurations")
+    if configs_range:
+        start, end = configs_range
+        try:
+            existing_configs = json.loads(content[start:end])
+        except json.JSONDecodeError:
+            existing_configs = []
+
+        # Keep manual configs: no _hogli marker, name not colliding with
+        # generated, and not in the superseded set
+        manual_configs = [
+            c
+            for c in existing_configs
+            if not c.get("_hogli") and c.get("name") not in new_config_names and c.get("name") not in superseded
+        ]
+
+        merged = new_configs + manual_configs
+        content = _replace_keyed_array(content, "configurations", merged) or content
+
+    # Build compounds from intent resolution
+    compounds = build_vscode_compounds(resolver, resolved, registry)
+    content = _replace_keyed_array(content, "compounds", compounds) or content
+
+    launch_path.write_text(content if content.endswith("\n") else f"{content}\n")
+    return launch_path

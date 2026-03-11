@@ -43,6 +43,9 @@ class MockRegistry(ProcessRegistry):
     def get_global_settings(self) -> dict:
         return {"mouse_scroll_speed": 1, "scrollback": 10000}
 
+    def get_vscode_defaults(self) -> dict:
+        return {}
+
     def get_ask_skip_processes(self) -> list[str]:
         return self._ask_skip
 

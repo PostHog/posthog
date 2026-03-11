@@ -5,6 +5,70 @@ set -e
 export REPOSITORY_ROOT=$(realpath "$(dirname "$0")/..")
 export LOCK_FILE="$REPOSITORY_ROOT/bin/start.lock"
 
+# VS Code mode options
+USE_VSCODE=false
+VSCODE_COMPOUND=${HOGLI_VSCODE_COMPOUND:-PostHog}
+ARGS=("$@")
+i=0
+while [[ $i -lt ${#ARGS[@]} ]]; do
+    arg="${ARGS[$i]}"
+    case "$arg" in
+        --vscode)
+            USE_VSCODE=true
+            ;;
+        --vscode-compound)
+            ((i += 1))
+            value="${ARGS[$i]:-}"
+            if [[ -z "$value" || "$value" == --* ]]; then
+                echo "Error: --vscode-compound requires a value"
+                exit 1
+            fi
+            USE_VSCODE=true
+            VSCODE_COMPOUND="$value"
+            ;;
+        --vscode-compound=*)
+            USE_VSCODE=true
+            VSCODE_COMPOUND="${arg#*=}"
+            ;;
+    esac
+    ((i += 1))
+done
+
+launch_vscode_command_uri() {
+    local compound_name="$1"
+    local encoded_args
+    local command_uri
+
+    if ! command -v python3 &>/dev/null; then
+        return 1
+    fi
+
+    encoded_args=$(python3 - "$compound_name" <<'PY'
+import json
+import sys
+import urllib.parse
+
+print(urllib.parse.quote(json.dumps([sys.argv[1]]), safe=""))
+PY
+)
+    command_uri="vscode://command/debug.startFromConfig?${encoded_args}"
+
+    if command -v open &>/dev/null; then
+        open "$command_uri" &>/dev/null
+        return $?
+    fi
+    if command -v xdg-open &>/dev/null; then
+        xdg-open "$command_uri" &>/dev/null
+        return $?
+    fi
+    if command -v powershell.exe &>/dev/null; then
+        powershell.exe -NoProfile -Command "Start-Process '$command_uri'" &>/dev/null
+        return $?
+    fi
+
+    return 1
+}
+
 # Acquire exclusive lock using flock (atomic, no race condition)
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
@@ -86,14 +150,54 @@ export DUCKGRES_PORT=${DUCKGRES_PORT:-15432}
 # Geo files
 ./bin/download-mmdb
 
-if ! command -v mprocs &>/dev/null; then
-    if command -v brew &>/dev/null; then
-        echo "🔁 Installing mprocs via Homebrew..."
-        brew install mprocs
-    else
-        echo "👉 To run bin/start, install mprocs: https://github.com/pvolok/mprocs#installation"
+if [[ "$USE_VSCODE" != "true" ]]; then
+    if ! command -v mprocs &>/dev/null; then
+        if command -v brew &>/dev/null; then
+            echo "🔁 Installing mprocs via Homebrew..."
+            brew install mprocs
+        else
+            echo "👉 To run bin/start, install mprocs: https://github.com/pvolok/mprocs#installation"
+            exit 1
+        fi
+    fi
+fi
+
+if [[ "$USE_VSCODE" == "true" ]]; then
+    if [[ "$*" == *"--custom"* ]]; then
+        echo "Error: --vscode cannot be combined with --custom"
         exit 1
     fi
+
+    if ! command -v code &>/dev/null; then
+        echo "Error: VS Code CLI ('code') is required for --vscode mode"
+        exit 1
+    fi
+
+    # Refresh generated configs so launch.json compounds stay in sync.
+    if command -v hogli &>/dev/null; then
+        hogli dev:generate 2>/dev/null || true
+    fi
+
+    # Read main compound name from launch.json (first compound) unless overridden
+    if [[ "$VSCODE_COMPOUND" == "PostHog" ]]; then
+        LAUNCH_JSON="$REPOSITORY_ROOT/.vscode/launch.json"
+        if [[ -f "$LAUNCH_JSON" ]]; then
+            detected=$(python3 -c "import json; print(json.load(open('$LAUNCH_JSON'))['compounds'][0]['name'])" 2>/dev/null || true)
+            if [[ -n "$detected" ]]; then
+                VSCODE_COMPOUND="$detected"
+            fi
+        fi
+    fi
+
+    code --reuse-window "$REPOSITORY_ROOT" &>/dev/null || code "$REPOSITORY_ROOT" &>/dev/null
+    sleep 1
+
+    if launch_vscode_command_uri "$VSCODE_COMPOUND"; then
+        echo "▶️ Started VS Code debug compound: $VSCODE_COMPOUND"
+    else
+        echo "⚠️  Open VS Code Run and Debug and start: $VSCODE_COMPOUND"
+    fi
+    exit 0
 fi
 
 # Use custom config, if provided (e.g. bin/start --custom bin/mprocs-custom.yaml)

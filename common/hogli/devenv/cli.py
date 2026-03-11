@@ -14,6 +14,7 @@ from .generator import (
     build_docker_compose_command,
     get_generated_mprocs_path,
     load_devenv_config,
+    regenerate_vscode_launch_config,
 )
 from .registry import create_mprocs_registry
 from .resolver import IntentResolver, load_intent_map
@@ -92,11 +93,14 @@ def dev_generate(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     generator.generate_and_save(resolved, output_path, saved_config)
+    vscode_path = regenerate_vscode_launch_config(resolver, resolved, registry)
 
     click.echo("Generated mprocs config from saved config")
     click.echo(f"  Products: {', '.join(sorted(resolved.intents))}")
     click.echo(f"  Units: {len(resolved.units)} processes")
     click.echo(f"  Config: {output_path}")
+    if vscode_path:
+        click.echo(f"  VS Code: {vscode_path}")
     click.echo("")
     click.echo("Run 'hogli dev:setup' to change your environment.")
 

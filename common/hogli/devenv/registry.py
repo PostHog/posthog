@@ -22,6 +22,7 @@ class ProcessDefinition:
     capability: str | None  # None for always_required or unassigned
     shell: str = ""
     config: dict[str, Any] = field(default_factory=dict)  # original config for passthrough
+    vscode_config: dict[str, Any] | bool | None = None  # None = default, False = skip, dict = explicit
 
 
 class ProcessRegistry(ABC):
@@ -50,6 +51,11 @@ class ProcessRegistry(ABC):
     @abstractmethod
     def get_global_settings(self) -> dict[str, Any]:
         """Get global settings (scrollback, mouse_scroll_speed, etc.)."""
+        ...
+
+    @abstractmethod
+    def get_vscode_defaults(self) -> dict[str, Any]:
+        """Get vscode_defaults section (debugpy_env, nodejs_env, superseded)."""
         ...
 
 
@@ -84,11 +90,20 @@ class MprocsRegistry(ProcessRegistry):
             if not isinstance(proc_data, dict):
                 continue
 
+            vscode_raw = proc_data.get("vscode")
+            if vscode_raw is False:
+                vscode_config: dict[str, Any] | bool | None = False
+            elif isinstance(vscode_raw, dict):
+                vscode_config = vscode_raw
+            else:
+                vscode_config = None
+
             processes[name] = ProcessDefinition(
                 name=name,
                 capability=proc_data.get("capability"),
                 shell=proc_data.get("shell", ""),
                 config=proc_data,
+                vscode_config=vscode_config,
             )
 
         return processes
@@ -114,6 +129,10 @@ class MprocsRegistry(ProcessRegistry):
     def get_global_settings(self) -> dict[str, Any]:
         """Get mprocs global settings (scrollback, mouse_scroll_speed, etc.)."""
         return {k: v for k, v in self.data.items() if k != "procs"}
+
+    def get_vscode_defaults(self) -> dict[str, Any]:
+        """Get vscode_defaults section (debugpy_env, nodejs_env, superseded)."""
+        return self.data.get("vscode_defaults", {})
 
     def get_ask_skip_processes(self) -> list[str]:
         """Get process names that have ask_skip: true."""

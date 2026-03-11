@@ -15,6 +15,7 @@ from .generator import (
     get_generated_mprocs_path,
     get_main_repo_from_worktree,
     load_devenv_config,
+    regenerate_vscode_launch_config,
 )
 from .registry import create_mprocs_registry
 from .resolver import IntentMap, IntentResolver
@@ -119,9 +120,14 @@ def run_setup_wizard(intent_map: IntentMap, log_to_files: bool = False) -> Deven
     output_path.parent.mkdir(parents=True, exist_ok=True)
     generator.generate_and_save(resolved, output_path, config)
 
+    # Generate VS Code launch.json from same resolved environment
+    vscode_path = regenerate_vscode_launch_config(resolver, resolved, registry)
+
     click.echo("")
     click.echo(click.style("✓ Config saved!", fg="green"))
     click.echo(f"  Location: {output_path}")
+    if vscode_path:
+        click.echo(f"  VS Code: {vscode_path}")
     click.echo("")
     click.echo("Run 'hogli start' to start.")
 
