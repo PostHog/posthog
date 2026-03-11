@@ -290,9 +290,9 @@ def test_internal_httpx_client_passes_kwargs():
     client.close()
 
 
-def test_internal_httpx_client_explicit_proxy_not_overridden():
-    client = internal_httpx_client(proxy="http://explicit-proxy:1234")
-    # setdefault should not clobber an explicitly passed proxy
+def test_internal_httpx_client_explicit_trust_env_not_overridden():
+    client = internal_httpx_client(trust_env=True)
+    # setdefault should not clobber an explicitly passed trust_env
     assert client._transport is not None
     client.close()
 
@@ -300,9 +300,8 @@ def test_internal_httpx_client_explicit_proxy_not_overridden():
 def test_internal_httpx_client_ignores_env_proxy(monkeypatch):
     monkeypatch.setenv("HTTPS_PROXY", "http://env-proxy:9999")
     monkeypatch.setenv("HTTP_PROXY", "http://env-proxy:9999")
-    # proxy=None is set by default, which tells httpx to skip env vars
     client = internal_httpx_client()
-    assert isinstance(client, httpx.Client)
+    assert isinstance(client._transport, httpx.HTTPTransport)
     client.close()
 
 
@@ -331,4 +330,4 @@ def test_internal_httpx_async_client_ignores_env_proxy(monkeypatch):
     monkeypatch.setenv("HTTPS_PROXY", "http://env-proxy:9999")
     monkeypatch.setenv("HTTP_PROXY", "http://env-proxy:9999")
     client = internal_httpx_async_client()
-    assert isinstance(client, httpx.AsyncClient)
+    assert isinstance(client._transport, httpx.AsyncHTTPTransport)

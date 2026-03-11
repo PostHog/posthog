@@ -161,7 +161,7 @@ def internal_httpx_client(**kwargs: Any) -> Any:
     """Create an ``httpx.Client`` that bypasses env proxy vars."""
     import httpx
 
-    kwargs.setdefault("proxy", None)
+    kwargs.setdefault("trust_env", False)
     return httpx.Client(**kwargs)
 
 
@@ -169,7 +169,7 @@ def internal_httpx_async_client(**kwargs: Any) -> Any:
     """Create an ``httpx.AsyncClient`` that bypasses env proxy vars."""
     import httpx
 
-    kwargs.setdefault("proxy", None)
+    kwargs.setdefault("trust_env", False)
     return httpx.AsyncClient(**kwargs)
 
 
