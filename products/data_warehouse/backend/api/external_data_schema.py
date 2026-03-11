@@ -17,7 +17,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.temporal.data_imports.sources import SourceRegistry
-from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 
 from products.data_warehouse.backend.data_load.service import (
     cancel_external_data_workflow,
@@ -367,12 +366,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": str(e)},
             )
 
-        schema: SourceSchema | None = None
-
-        for s in schemas:
-            if s.name == instance.name:
-                schema = s
-                break
+        schema = next((s for s in schemas if s.name == instance.name), None)
 
         if schema is None:
             return Response(
