@@ -621,6 +621,7 @@ class HogQLQueryExecutor:
 
         if self.debug and self.error is None:
             with self.timings.measure("explain"):
+                # nosemgrep: clickhouse-injection-taint - self.clickhouse_sql is HogQL-compiled from AST, not raw user input; values remain parameterized in clickhouse_context.values
                 explain_results = sync_execute(
                     f"EXPLAIN {self.clickhouse_sql}",
                     clickhouse_context.values,
