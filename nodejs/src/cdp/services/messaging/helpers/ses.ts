@@ -314,6 +314,10 @@ export class SesWebhookHandler {
             invocationId?: string
             metricName: MinimalAppMetric['metric_name']
         }[]
+        optOutRecipients?: {
+            teamId?: string
+            emailAddresses: string[]
+        }[]
     }> {
         logger.info('[SesWebhookHandler] handleWebhook', { body: opts.body, headers: opts.headers })
         const parsed = this.parseIncomingBody(opts.body)
@@ -362,11 +366,15 @@ export class SesWebhookHandler {
             invocationId?: string
             metricName: MinimalAppMetric['metric_name']
         }[] = []
+        const optOutRecipients: {
+            teamId?: string
+            emailAddresses: string[]
+        }[] = []
 
         for (const rec of records) {
             logger.info('[SesWebhookHandler] processing record', { rec })
             const tags = rec.mail.tags
-            const { functionId, invocationId } = parseEmailTrackingCode(tags?.ph_id?.[0] || '') || {}
+            const { functionId, invocationId, teamId } = parseEmailTrackingCode(tags?.ph_id?.[0] || '') || {}
 
             if (!functionId && !invocationId) {
                 logger.error('[SesWebhookHandler] handleWebhook: No functionId or invocationId found', { rec })
@@ -375,8 +383,14 @@ export class SesWebhookHandler {
 
             const metricName = EVENT_TYPE_TO_METRIC_NAME[rec.eventType]
             metrics.push({ functionId, invocationId, metricName })
+
+            // Opt out recipients on permanent bounces
+            if (teamId && rec.eventType === 'Bounce' && rec.bounce.bounceType === 'Permanent') {
+                const emails = rec.bounce.bouncedRecipients.map((r) => r.emailAddress)
+                optOutRecipients.push({ teamId, emailAddresses: emails })
+            }
         }
 
-        return { status: 200, body: { ok: true }, metrics }
+        return { status: 200, body: { ok: true }, metrics, optOutRecipients }
     }
 }

@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import posthog from 'posthog-js'
 import React from 'react'
 
 import { IconLlmPromptManagement } from '@posthog/icons'
@@ -54,7 +55,7 @@ export function PlaygroundSaveMenu({ prompt }: { prompt: PromptConfig }): JSX.El
                 </LemonField>
             ),
             errors: { name: (name) => (!name ? 'A name is required' : undefined) },
-            onSubmit: ({ name }) => saveAsNewPrompt(name),
+            onSubmit: ({ name }) => saveAsNewPrompt(prompt.id, name),
         })
     }
 
@@ -68,7 +69,7 @@ export function PlaygroundSaveMenu({ prompt }: { prompt: PromptConfig }): JSX.El
                 </LemonField>
             ),
             errors: { name: (name) => (!name ? 'A name is required' : undefined) },
-            onSubmit: ({ name }) => saveAsNewEvaluation(name, modelConfig),
+            onSubmit: ({ name }) => saveAsNewEvaluation(prompt.id, name, modelConfig),
         })
     }
 
@@ -85,13 +86,15 @@ export function PlaygroundSaveMenu({ prompt }: { prompt: PromptConfig }): JSX.El
             primaryButton: {
                 children: isPrompt ? 'Publish version' : 'Save',
                 type: 'primary',
-                onClick: () => (isPrompt ? saveToLinkedPrompt() : saveToLinkedEvaluation(modelConfig)),
+                onClick: () =>
+                    isPrompt ? saveToLinkedPrompt(prompt.id) : saveToLinkedEvaluation(prompt.id, modelConfig),
             },
             secondaryButton: { children: 'Cancel', type: 'secondary' },
         })
     }
 
     const clearLinkedSourceState = (): void => {
+        posthog.capture('llma playground source unlinked')
         clearLinkedSource()
         router.actions.replace(combineUrl(urls.llmAnalyticsPlayground(), cleanSourceSearchParams(searchParams)).url)
     }

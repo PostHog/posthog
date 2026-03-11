@@ -3824,6 +3824,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "nextCursor": {
+                    "description": "Cursor for fetching the next page of results",
+                    "type": "string"
+                },
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
@@ -6348,6 +6352,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "nextCursor": {
+                    "description": "Cursor for fetching the next page of results",
+                    "type": "string"
+                },
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
@@ -6738,6 +6746,9 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "hasMore": {
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -6749,6 +6760,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
@@ -6756,6 +6770,9 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
                 },
                 "query_metadata": {
                     "type": "object"
@@ -9222,6 +9239,10 @@
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
                                     "description": "Modifiers used when performing the query"
+                                },
+                                "nextCursor": {
+                                    "description": "Cursor for fetching the next page of results",
+                                    "type": "string"
                                 },
                                 "offset": {
                                     "$ref": "#/definitions/integer"
@@ -13937,6 +13958,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "nextCursor": {
+                    "description": "Cursor for fetching the next page of results",
+                    "type": "string"
+                },
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
@@ -17115,6 +17140,12 @@
         "GroupPropertyFilter": {
             "additionalProperties": false,
             "properties": {
+                "group_key_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
                 "group_type_index": {
                     "anyOf": [
                         {
@@ -23878,6 +23909,10 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "nextCursor": {
+                            "description": "Cursor for fetching the next page of results",
+                            "type": "string"
+                        },
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
@@ -25839,6 +25874,10 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "nextCursor": {
+                            "description": "Cursor for fetching the next page of results",
+                            "type": "string"
+                        },
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
@@ -27775,13 +27814,22 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
                         },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -30781,6 +30829,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "nextCursor": {
+                    "description": "Cursor for fetching the next page of results",
+                    "type": "string"
+                },
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
@@ -32701,9 +32753,17 @@
                     "const": "TeamTaxonomyQuery",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of rows to return"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of rows to skip before returning rows"
                 },
                 "response": {
                     "$ref": "#/definitions/TeamTaxonomyQueryResponse"
@@ -32726,13 +32786,22 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "hasMore": {
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",

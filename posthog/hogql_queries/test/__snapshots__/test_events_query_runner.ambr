@@ -71,6 +71,666 @@
                     use_hive_partitioning=0
   '''
 # ---
+# name: TestEventsQueryRunner.test_cursor_not_returned_for_aggregation_query
+  '''
+  SELECT count() AS `count()`,
+         toTimeZone(events.timestamp, 'UTC') AS timestamp
+  FROM events
+  WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')))
+  GROUP BY toTimeZone(events.timestamp, 'UTC')
+  ORDER BY count() DESC
+  LIMIT 3
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_cursor_not_returned_for_aggregation_query_minus_utc
+  '''
+  SELECT count() AS `count()`,
+         toTimeZone(events.timestamp, 'America/Phoenix') AS timestamp
+  FROM events
+  WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-11 17:00:05.000000', 6, 'America/Phoenix')), greater(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'America/Phoenix')))
+  GROUP BY toTimeZone(events.timestamp, 'America/Phoenix')
+  ORDER BY count() DESC
+  LIMIT 3
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_cursor_not_returned_for_aggregation_query_plus_utc
+  '''
+  SELECT count() AS `count()`,
+         toTimeZone(events.timestamp, 'Asia/Tokyo') AS timestamp
+  FROM events
+  WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-12 09:00:05.000000', 6, 'Asia/Tokyo')), greater(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'Asia/Tokyo')))
+  GROUP BY toTimeZone(events.timestamp, 'Asia/Tokyo')
+  ORDER BY count() DESC
+  LIMIT 3
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_cursor_not_returned_for_non_timestamp_order
+  '''
+  SELECT events.event AS event,
+         toTimeZone(events.timestamp, 'UTC') AS timestamp
+  FROM events
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')))
+                                                 ORDER BY events.event ASC
+                                                 LIMIT 3)), and(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'))))
+  ORDER BY events.event ASC
+  LIMIT 3
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_cursor_not_returned_for_non_timestamp_order_minus_utc
+  '''
+  SELECT events.event AS event,
+         toTimeZone(events.timestamp, 'America/Phoenix') AS timestamp
+  FROM events
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-11 17:00:05.000000', 6, 'America/Phoenix')), greater(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'America/Phoenix')))
+                                                 ORDER BY events.event ASC
+                                                 LIMIT 3)), and(less(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-11 17:00:05.000000', 6, 'America/Phoenix')), greater(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'America/Phoenix'))))
+  ORDER BY events.event ASC
+  LIMIT 3
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_cursor_not_returned_for_non_timestamp_order_plus_utc
+  '''
+  SELECT events.event AS event,
+         toTimeZone(events.timestamp, 'Asia/Tokyo') AS timestamp
+  FROM events
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-12 09:00:05.000000', 6, 'Asia/Tokyo')), greater(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'Asia/Tokyo')))
+                                                 ORDER BY events.event ASC
+                                                 LIMIT 3)), and(less(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-12 09:00:05.000000', 6, 'Asia/Tokyo')), greater(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'Asia/Tokyo'))))
+  ORDER BY events.event ASC
+  LIMIT 3
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc
+  '''
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
+         toTimeZone(events.timestamp, 'UTC') AS timestamp
+  FROM events
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')))
+                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+                                                 LIMIT 3)), and(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'))))
+  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  LIMIT 3
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc.1
+  '''
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
+         toTimeZone(events.timestamp, 'UTC') AS timestamp
+  FROM events
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-11 12:00:02.000000', 6, 'UTC')))
+                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+                                                 LIMIT 3)), and(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-11 12:00:02.000000', 6, 'UTC'))))
+  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  LIMIT 3
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc.2
+  '''
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
+         toTimeZone(events.timestamp, 'UTC') AS timestamp
+  FROM events
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-11 12:00:04.000000', 6, 'UTC')))
+                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+                                                 LIMIT 3)), and(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-11 12:00:04.000000', 6, 'UTC'))))
+  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  LIMIT 3
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc_minus_utc
+  '''
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
+         toTimeZone(events.timestamp, 'America/Phoenix') AS timestamp
+  FROM events
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-11 17:00:05.000000', 6, 'America/Phoenix')), greater(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'America/Phoenix')))
+                                                 ORDER BY toTimeZone(events.timestamp, 'America/Phoenix') ASC
+                                                 LIMIT 3)), and(less(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-11 17:00:05.000000', 6, 'America/Phoenix')), greater(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'America/Phoenix'))))
+  ORDER BY toTimeZone(events.timestamp, 'America/Phoenix') ASC
+  LIMIT 3
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc_minus_utc.1
+  '''
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
+         toTimeZone(events.timestamp, 'America/Phoenix') AS timestamp
+  FROM events
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-11 17:00:05.000000', 6, 'America/Phoenix')), greater(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-11 05:00:02.000000', 6, 'America/Phoenix')))
+                                                 ORDER BY toTimeZone(events.timestamp, 'America/Phoenix') ASC
+                                                 LIMIT 3)), and(less(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-11 17:00:05.000000', 6, 'America/Phoenix')), greater(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-11 05:00:02.000000', 6, 'America/Phoenix'))))
+  ORDER BY toTimeZone(events.timestamp, 'America/Phoenix') ASC
+  LIMIT 3
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc_minus_utc.2
+  '''
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
+         toTimeZone(events.timestamp, 'America/Phoenix') AS timestamp
+  FROM events
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-11 17:00:05.000000', 6, 'America/Phoenix')), greater(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-11 05:00:04.000000', 6, 'America/Phoenix')))
+                                                 ORDER BY toTimeZone(events.timestamp, 'America/Phoenix') ASC
+                                                 LIMIT 3)), and(less(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-11 17:00:05.000000', 6, 'America/Phoenix')), greater(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-11 05:00:04.000000', 6, 'America/Phoenix'))))
+  ORDER BY toTimeZone(events.timestamp, 'America/Phoenix') ASC
+  LIMIT 3
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc_plus_utc
+  '''
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
+         toTimeZone(events.timestamp, 'Asia/Tokyo') AS timestamp
+  FROM events
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-12 09:00:05.000000', 6, 'Asia/Tokyo')), greater(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'Asia/Tokyo')))
+                                                 ORDER BY toTimeZone(events.timestamp, 'Asia/Tokyo') ASC
+                                                 LIMIT 3)), and(less(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-12 09:00:05.000000', 6, 'Asia/Tokyo')), greater(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'Asia/Tokyo'))))
+  ORDER BY toTimeZone(events.timestamp, 'Asia/Tokyo') ASC
+  LIMIT 3
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc_plus_utc.1
+  '''
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
+         toTimeZone(events.timestamp, 'Asia/Tokyo') AS timestamp
+  FROM events
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-12 09:00:05.000000', 6, 'Asia/Tokyo')), greater(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-11 21:00:02.000000', 6, 'Asia/Tokyo')))
+                                                 ORDER BY toTimeZone(events.timestamp, 'Asia/Tokyo') ASC
+                                                 LIMIT 3)), and(less(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-12 09:00:05.000000', 6, 'Asia/Tokyo')), greater(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-11 21:00:02.000000', 6, 'Asia/Tokyo'))))
+  ORDER BY toTimeZone(events.timestamp, 'Asia/Tokyo') ASC
+  LIMIT 3
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc_plus_utc.2
+  '''
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
+         toTimeZone(events.timestamp, 'Asia/Tokyo') AS timestamp
+  FROM events
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-12 09:00:05.000000', 6, 'Asia/Tokyo')), greater(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-11 21:00:04.000000', 6, 'Asia/Tokyo')))
+                                                 ORDER BY toTimeZone(events.timestamp, 'Asia/Tokyo') ASC
+                                                 LIMIT 3)), and(less(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-12 09:00:05.000000', 6, 'Asia/Tokyo')), greater(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-11 21:00:04.000000', 6, 'Asia/Tokyo'))))
+  ORDER BY toTimeZone(events.timestamp, 'Asia/Tokyo') ASC
+  LIMIT 3
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc
+  '''
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
+         toTimeZone(events.timestamp, 'UTC') AS timestamp
+  FROM events
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')))
+                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
+                                                 LIMIT 3)), and(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'))))
+  ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
+  LIMIT 3
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc.1
+  '''
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
+         toTimeZone(events.timestamp, 'UTC') AS timestamp
+  FROM events
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-11 12:00:04.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')))
+                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
+                                                 LIMIT 3)), and(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-11 12:00:04.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'))))
+  ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
+  LIMIT 3
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc.2
+  '''
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
+         toTimeZone(events.timestamp, 'UTC') AS timestamp
+  FROM events
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-11 12:00:02.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')))
+                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
+                                                 LIMIT 3)), and(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-11 12:00:02.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'))))
+  ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
+  LIMIT 3
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc_minus_utc
+  '''
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
+         toTimeZone(events.timestamp, 'America/Phoenix') AS timestamp
+  FROM events
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-11 17:00:05.000000', 6, 'America/Phoenix')), greater(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'America/Phoenix')))
+                                                 ORDER BY toTimeZone(events.timestamp, 'America/Phoenix') DESC
+                                                 LIMIT 3)), and(less(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-11 17:00:05.000000', 6, 'America/Phoenix')), greater(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'America/Phoenix'))))
+  ORDER BY toTimeZone(events.timestamp, 'America/Phoenix') DESC
+  LIMIT 3
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc_minus_utc.1
+  '''
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
+         toTimeZone(events.timestamp, 'America/Phoenix') AS timestamp
+  FROM events
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-11 05:00:04.000000', 6, 'America/Phoenix')), greater(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'America/Phoenix')))
+                                                 ORDER BY toTimeZone(events.timestamp, 'America/Phoenix') DESC
+                                                 LIMIT 3)), and(less(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-11 05:00:04.000000', 6, 'America/Phoenix')), greater(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'America/Phoenix'))))
+  ORDER BY toTimeZone(events.timestamp, 'America/Phoenix') DESC
+  LIMIT 3
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc_minus_utc.2
+  '''
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
+         toTimeZone(events.timestamp, 'America/Phoenix') AS timestamp
+  FROM events
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-11 05:00:02.000000', 6, 'America/Phoenix')), greater(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'America/Phoenix')))
+                                                 ORDER BY toTimeZone(events.timestamp, 'America/Phoenix') DESC
+                                                 LIMIT 3)), and(less(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-11 05:00:02.000000', 6, 'America/Phoenix')), greater(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'America/Phoenix'))))
+  ORDER BY toTimeZone(events.timestamp, 'America/Phoenix') DESC
+  LIMIT 3
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc_plus_utc
+  '''
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
+         toTimeZone(events.timestamp, 'Asia/Tokyo') AS timestamp
+  FROM events
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-12 09:00:05.000000', 6, 'Asia/Tokyo')), greater(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'Asia/Tokyo')))
+                                                 ORDER BY toTimeZone(events.timestamp, 'Asia/Tokyo') DESC
+                                                 LIMIT 3)), and(less(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-12 09:00:05.000000', 6, 'Asia/Tokyo')), greater(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'Asia/Tokyo'))))
+  ORDER BY toTimeZone(events.timestamp, 'Asia/Tokyo') DESC
+  LIMIT 3
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc_plus_utc.1
+  '''
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
+         toTimeZone(events.timestamp, 'Asia/Tokyo') AS timestamp
+  FROM events
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-11 21:00:04.000000', 6, 'Asia/Tokyo')), greater(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'Asia/Tokyo')))
+                                                 ORDER BY toTimeZone(events.timestamp, 'Asia/Tokyo') DESC
+                                                 LIMIT 3)), and(less(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-11 21:00:04.000000', 6, 'Asia/Tokyo')), greater(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'Asia/Tokyo'))))
+  ORDER BY toTimeZone(events.timestamp, 'Asia/Tokyo') DESC
+  LIMIT 3
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc_plus_utc.2
+  '''
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
+         toTimeZone(events.timestamp, 'Asia/Tokyo') AS timestamp
+  FROM events
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-11 21:00:02.000000', 6, 'Asia/Tokyo')), greater(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'Asia/Tokyo')))
+                                                 ORDER BY toTimeZone(events.timestamp, 'Asia/Tokyo') DESC
+                                                 LIMIT 3)), and(less(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-11 21:00:02.000000', 6, 'Asia/Tokyo')), greater(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'Asia/Tokyo'))))
+  ORDER BY toTimeZone(events.timestamp, 'Asia/Tokyo') DESC
+  LIMIT 3
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_cursor_with_star_select
+  '''
+  SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
+  FROM events
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')))
+                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
+                                                 LIMIT 3)), and(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'))))
+  ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
+  LIMIT 3
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_cursor_with_star_select_minus_utc
+  '''
+  SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'America/Phoenix'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'America/Phoenix'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'America/Phoenix'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'America/Phoenix'), person_mode)`
+  FROM events
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-11 17:00:05.000000', 6, 'America/Phoenix')), greater(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'America/Phoenix')))
+                                                 ORDER BY toTimeZone(events.timestamp, 'America/Phoenix') DESC
+                                                 LIMIT 3)), and(less(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-11 17:00:05.000000', 6, 'America/Phoenix')), greater(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'America/Phoenix'))))
+  ORDER BY toTimeZone(events.timestamp, 'America/Phoenix') DESC
+  LIMIT 3
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_cursor_with_star_select_plus_utc
+  '''
+  SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'Asia/Tokyo'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'Asia/Tokyo'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'Asia/Tokyo'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'Asia/Tokyo'), person_mode)`
+  FROM events
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-12 09:00:05.000000', 6, 'Asia/Tokyo')), greater(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'Asia/Tokyo')))
+                                                 ORDER BY toTimeZone(events.timestamp, 'Asia/Tokyo') DESC
+                                                 LIMIT 3)), and(less(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-12 09:00:05.000000', 6, 'Asia/Tokyo')), greater(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-10 00:00:00.000000', 6, 'Asia/Tokyo'))))
+  ORDER BY toTimeZone(events.timestamp, 'Asia/Tokyo') DESC
+  LIMIT 3
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
 # name: TestEventsQueryRunner.test_element_chain_property_filter
   '''
   SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`

@@ -167,12 +167,16 @@ Product teams own their definitions and control which operations are exposed as 
 **Workflow: scaffold, configure, generate.**
 
 1. **Scaffold** a starter YAML with all operations disabled.
-   `--product` is a **substring match** on URL paths —
-   it selects every endpoint whose path contains `/<name>/`
-   (hyphens are normalized to underscores before matching).
-   The value doesn't have to be an exact product name;
-   any string that appears as a path segment will work
-   (e.g., `--product actions` matches `/api/projects/{project_id}/actions/`).
+   `--product` discovers endpoints in two ways (same priority as frontend type generation):
+   1. **`x-explicit-tags`** — matches endpoints whose OpenAPI tag equals the product name.
+      ViewSets in `products/<name>/backend/` are auto-tagged.
+      ViewSets elsewhere (e.g. `posthog/api/`) need `@extend_schema(tags=["<product>"])`.
+   2. **URL substring fallback** — selects endpoints whose path contains `/<name>/`
+      (hyphens normalized to underscores).
+
+   If your product's API routes use a different slug than the product folder name
+   (e.g. `workflows` product with `/hog_flows/` routes),
+   add `@extend_schema(tags=["workflows"])` to the ViewSet so the scaffold can find them.
 
    ```sh
    pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product
@@ -279,6 +283,8 @@ vague or missing descriptions lead to worse agent behavior.
 
 See the [type system guide](/handbook/engineering/type-system) for the full backend → frontend pipeline,
 including how to set up viewsets, serializers, and `@extend_schema` correctly.
+For a comprehensive audit checklist, before/after examples, and detailed serializer/viewset patterns,
+see the [`improving-drf-endpoints` skill](https://github.com/PostHog/posthog/blob/master/.agents/skills/improving-drf-endpoints/SKILL.md).
 
 **Tips:**
 
@@ -319,3 +325,7 @@ A `schema.json` integration into the codegen pipeline is planned.
 - **`query-examples`** – HogQL query patterns, system model schemas, and available functions.
   Extend this skill to explain how agents should use your HogQL-exposed tables and queries.
   See [`products/posthog_ai/skills/query-examples/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/query-examples/SKILL.md).
+- **`improving-drf-endpoints`** – Audit checklist and patterns for DRF serializers and viewsets.
+  Use when editing or reviewing endpoints to ensure `help_text`, field types, and `@extend_schema` annotations
+  flow correctly through the type pipeline.
+  See [`.agents/skills/improving-drf-endpoints/SKILL.md`](https://github.com/PostHog/posthog/blob/master/.agents/skills/improving-drf-endpoints/SKILL.md).

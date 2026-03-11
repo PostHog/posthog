@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import React from 'react'
 
 import {
@@ -318,6 +319,7 @@ function PromptCard({
 }): JSX.Element {
     const { submitting } = useValues(llmPlaygroundRunLogic)
     const showHeaderRow = promptCount > 1 || canRemove
+    const messagesRef = React.useRef<HTMLDivElement>(null)
 
     return (
         <div className="min-w-0 border rounded p-4 bg-transparent group/prompt ring-1 ring-primary/40 shadow-sm h-full flex flex-col min-h-0">
@@ -351,9 +353,11 @@ function PromptCard({
                 <ModelConfigBar promptId={prompt.id} />
             </div>
 
-            <div className="min-h-0 overflow-y-auto pr-1">
+            <div ref={messagesRef} className="min-h-0 flex-1 overflow-y-auto pr-1">
                 <MessagesSection promptId={prompt.id} />
             </div>
+
+            <MessageActions promptId={prompt.id} scrollContainerRef={messagesRef} />
         </div>
     )
 }
@@ -463,6 +467,10 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
                 selectedProviderKeyId={prompt.selectedProviderKeyId}
                 onSelect={(modelId, providerKeyId) => {
                     const trialProvider = parseTrialProviderKeyId(providerKeyId)
+                    posthog.capture('llma playground model changed', {
+                        model: modelId,
+                        is_byok: !trialProvider,
+                    })
                     setModel(modelId, trialProvider ? undefined : providerKeyId, promptId)
                 }}
                 groups={groups}
@@ -595,6 +603,17 @@ function ModelConfigBar({ promptId }: { promptId: string }): JSX.Element {
                 overlay={<SettingsDropdownOverlay promptId={promptId} />}
                 closeOnClickInside={false}
                 placement="bottom-end"
+                onVisibilityChange={(visible) => {
+                    if (!visible && prompt) {
+                        posthog.capture('llma playground parameters configured', {
+                            max_tokens: prompt.maxTokens,
+                            temperature: prompt.temperature,
+                            top_p: prompt.topP,
+                            reasoning_level: prompt.reasoningLevel,
+                            thinking: prompt.thinking,
+                        })
+                    }
+                }}
             >
                 <LemonButton
                     type="secondary"
@@ -612,8 +631,6 @@ function ModelConfigBar({ promptId }: { promptId: string }): JSX.Element {
 
 function MessagesSection({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
-    const { submitting } = useValues(llmPlaygroundRunLogic)
-    const { addMessage } = useActions(llmPlaygroundPromptsLogic)
 
     if (!prompt) {
         return <LemonSkeleton className="h-16" />
@@ -625,18 +642,42 @@ function MessagesSection({ promptId }: { promptId: string }): JSX.Element {
             {prompt.messages.map((message, index) => (
                 <MessageDisplay key={`${promptId}-${index}`} promptId={promptId} index={index} message={message} />
             ))}
-            <div className="flex items-center gap-2">
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconPlus />}
-                    onClick={() => addMessage(undefined, promptId)}
-                    disabledReason={submitting ? 'Generating...' : undefined}
-                >
-                    Message
-                </LemonButton>
-                <ToolsButton promptId={promptId} />
-            </div>
+        </div>
+    )
+}
+
+function MessageActions({
+    promptId,
+    scrollContainerRef,
+}: {
+    promptId: string
+    scrollContainerRef: React.RefObject<HTMLDivElement | null>
+}): JSX.Element {
+    const { submitting } = useValues(llmPlaygroundRunLogic)
+    const { addMessage } = useActions(llmPlaygroundPromptsLogic)
+
+    const handleAddMessage = (): void => {
+        addMessage(undefined, promptId)
+        requestAnimationFrame(() => {
+            const el = scrollContainerRef.current
+            if (el) {
+                el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+            }
+        })
+    }
+
+    return (
+        <div className="flex items-center gap-2 shrink-0 mt-3">
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconPlus />}
+                onClick={handleAddMessage}
+                disabledReason={submitting ? 'Generating...' : undefined}
+            >
+                Message
+            </LemonButton>
+            <ToolsButton promptId={promptId} />
         </div>
     )
 }
@@ -720,6 +761,7 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
                                 type="button"
                                 className="text-xs text-link"
                                 onClick={() => {
+                                    posthog.capture('llma playground tools example inserted')
                                     const exampleJson = JSON.stringify(EXAMPLE_TOOL, null, 2)
                                     handleToolsChange(exampleJson)
                                     setLocalToolsJson(exampleJson, promptId)
@@ -802,6 +844,9 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
             return
         }
 
+        posthog.capture('llma playground system prompt synced', {
+            target_prompt_count: promptConfigs.length - 1,
+        })
         for (const otherPrompt of promptConfigs) {
             if (otherPrompt.id !== promptId) {
                 setSystemPrompt(prompt.systemPrompt, otherPrompt.id)
@@ -820,7 +865,10 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                         icon={<IconCopy />}
                         tooltip="Copy system prompt"
                         noPadding
-                        onClick={() => void copyToClipboard(prompt.systemPrompt, 'system prompt')}
+                        onClick={() => {
+                            posthog.capture('llma playground response copied', { content_type: 'system_prompt' })
+                            void copyToClipboard(prompt.systemPrompt, 'system prompt')
+                        }}
                         data-attr="llma-playground-copy-system-prompt"
                     />
                     {hasOtherPrompts && (
@@ -928,6 +976,7 @@ function MessageDisplay({
         editModal?.type === 'message' && editModal.promptId === promptId && editModal.messageIndex === index
 
     const handleRoleChange = (newRole: MessageRole): void => {
+        posthog.capture('llma playground message role changed', { from: message.role, to: newRole })
         updateMessage(index, { role: newRole }, promptId)
     }
 
@@ -978,7 +1027,12 @@ function MessageDisplay({
                         icon={<IconCopy />}
                         tooltip="Copy message"
                         noPadding
-                        onClick={() => void copyToClipboard(message.content, `${message.role} message`)}
+                        onClick={() => {
+                            posthog.capture('llma playground response copied', {
+                                content_type: message.role === 'assistant' ? 'assistant_message' : 'user_message',
+                            })
+                            void copyToClipboard(message.content, `${message.role} message`)
+                        }}
                     />
                     <LemonButton
                         size="small"

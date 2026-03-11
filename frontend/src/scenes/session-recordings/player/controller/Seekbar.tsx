@@ -4,6 +4,8 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 import React from 'react'
 
+import { SourceLoadingState } from '@posthog/replay-shared'
+
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 
@@ -11,7 +13,6 @@ import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
 import { playerSettingsLogic } from '../playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from '../sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
-import { SourceLoadingState } from '../snapshot-store/types'
 import { PlayerSeekbarPreview } from './PlayerSeekbarPreview'
 import { PlayerSeekbarTicks } from './PlayerSeekbarTicks'
 import { seekbarLogic } from './seekbarLogic'

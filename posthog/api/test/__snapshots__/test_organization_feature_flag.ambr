@@ -2932,7 +2932,11 @@
   SELECT 1 AS "a"
   FROM "posthog_team"
   WHERE ("posthog_team"."project_id" = 99999
+<<<<<<< thotta/feat/use-case-segmentation
          AND "posthog_team"."session_recording_linked_flag" @> '{"id": 45}'::jsonb)
+=======
+         AND "posthog_team"."session_recording_linked_flag" @> '{"id": 99999}'::jsonb)
+>>>>>>> master
   LIMIT 1
   '''
 # ---
