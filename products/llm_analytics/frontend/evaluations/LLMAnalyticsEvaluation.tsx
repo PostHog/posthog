@@ -35,6 +35,7 @@ import { modelPickerLogic } from '../modelPickerLogic'
 import { providerKeyStateIssueDescription, providerLabel } from '../settings/providerKeyStateUtils'
 import { EvaluationCodeEditor } from './components/EvaluationCodeEditor'
 import { EvaluationPromptEditor } from './components/EvaluationPromptEditor'
+import { EvaluationReportConfig } from './components/EvaluationReportConfig'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
 import { LLMEvaluationLogicProps, llmEvaluationLogic } from './llmEvaluationLogic'
@@ -453,7 +454,17 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                         </p>
                                         <EvaluationTriggers />
                                     </div>
+
+                                    {/* Scheduled Reports (inline config for new evaluations) */}
+                                    {isNewEvaluation && <EvaluationReportConfig evaluationId="new" />}
                                 </Form>
+
+                                {/* Scheduled Reports (for existing evaluations, outside the form) */}
+                                {!isNewEvaluation && (
+                                    <div className="mt-6">
+                                        <EvaluationReportConfig evaluationId={evaluation.id} />
+                                    </div>
+                                )}
                             </div>
                         ),
                     },

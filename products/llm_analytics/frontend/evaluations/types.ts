@@ -82,6 +82,68 @@ export interface HogTestResult {
     error: string | null
 }
 
+export type EvaluationReportFrequency = 'hourly' | 'daily' | 'weekly'
+
+export interface EvaluationReportDeliveryTarget {
+    type: 'email' | 'slack'
+    value?: string
+    integration_id?: number
+    channel?: string
+}
+
+export interface EvaluationReport {
+    id: string
+    evaluation: string
+    frequency: EvaluationReportFrequency
+    byweekday: string[] | null
+    start_date: string
+    next_delivery_date: string | null
+    delivery_targets: EvaluationReportDeliveryTarget[]
+    max_sample_size: number
+    enabled: boolean
+    deleted: boolean
+    last_delivered_at: string | null
+    created_by: number | null
+    created_at: string
+}
+
+export interface EvaluationReportSection {
+    content: string
+    referenced_generation_ids: string[]
+}
+
+export interface EvaluationReportRunContent {
+    executive_summary?: EvaluationReportSection
+    statistics?: EvaluationReportSection
+    trend_analysis?: EvaluationReportSection
+    failure_patterns?: EvaluationReportSection
+    pass_patterns?: EvaluationReportSection
+    notable_changes?: EvaluationReportSection
+    recommendations?: EvaluationReportSection
+    risk_assessment?: EvaluationReportSection
+}
+
+export interface EvaluationReportRunMetadata {
+    total_runs: number
+    pass_count: number
+    fail_count: number
+    na_count: number
+    pass_rate: number
+    previous_pass_rate: number | null
+}
+
+export interface EvaluationReportRun {
+    id: string
+    report: string
+    content: EvaluationReportRunContent
+    metadata: EvaluationReportRunMetadata
+    period_start: string
+    period_end: string
+    delivery_status: 'pending' | 'delivered' | 'partial_failure' | 'failed'
+    delivery_errors: string[]
+    created_at: string
+}
+
 export type EvaluationSummaryFilter = 'all' | 'pass' | 'fail' | 'na'
 
 export interface EvaluationPattern {
