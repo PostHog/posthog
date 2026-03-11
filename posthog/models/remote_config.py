@@ -320,6 +320,22 @@ class RemoteConfig(UUIDTModel):
         # Array of JS objects to be included when building the final JS
         config["siteAppsJS"] = self._build_site_apps_js()
 
+        # MARK: Snippet versioning (internal, stripped before serving to client)
+        from posthog.models.team.extensions import get_or_create_team_extension
+        from posthog.models.team.snippet_config import TeamSnippetConfig
+
+        snippet_config = get_or_create_team_extension(team, TeamSnippetConfig)
+        config["_snippetVersionPin"] = snippet_config.snippet_version_pin
+
+        # MARK: SDK version info
+        from posthog.models.snippet_versioning import resolve_version
+
+        resolved_version = resolve_version(snippet_config.snippet_version_pin)
+        if resolved_version:
+            config["sdkVersion"] = resolved_version
+            if settings.POSTHOG_JS_SCRIPTS_BASE_URL:
+                config["scriptsBaseUrl"] = f"{settings.POSTHOG_JS_SCRIPTS_BASE_URL.rstrip('/')}/v{resolved_version}"
+
         return config
 
     @tracer.start_as_current_span("RemoteConfig._build_site_apps_js")
@@ -389,6 +405,7 @@ class RemoteConfig(UUIDTModel):
     def get_config_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> dict:
         config = cls._get_config_via_cache(token)
         config = sanitize_config_for_public_cdn(config, request=request)
+        config.pop("_snippetVersionPin", None)
 
         return config
 
@@ -400,6 +417,7 @@ class RemoteConfig(UUIDTModel):
         site_apps_js = config.pop("siteAppsJS", None)
         # We don't want to include the minimal site apps content as we have the JS now
         config.pop("siteApps", None)
+        config.pop("_snippetVersionPin", None)
         config = sanitize_config_for_public_cdn(config, request=request)
 
         js_content = f"""(function() {{
@@ -416,10 +434,29 @@ class RemoteConfig(UUIDTModel):
     @classmethod
     @tracer.start_as_current_span("RemoteConfig.get_array_js_via_token")
     def get_array_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
+        from posthog.models.snippet_versioning import get_js_content, resolve_version
+
         # NOTE: Unlike the other methods we dont store this in the cache as it is cheap to build at runtime
+        config = cls._get_config_via_cache(token)
+        version = resolve_version(config.get("_snippetVersionPin"))
+
+        if version:
+            array_js = get_js_content(version)
+        else:
+            array_js = get_array_js_content()
+
         js_content = cls.get_config_js_via_token(token, request=request)
 
-        return f"""{get_array_js_content()}\n\n{js_content}"""
+        return f"""{array_js}\n\n{js_content}"""
+
+    @classmethod
+    def get_snippet_version_pin(cls, token: str) -> Optional[str]:
+        """Get the snippet version pin from cached config."""
+        try:
+            config = cls._get_config_via_cache(token)
+            return config.get("_snippetVersionPin")
+        except cls.DoesNotExist:
+            return None
 
     def sync(self, force: bool = False):
         """
@@ -487,6 +524,28 @@ class RemoteConfig(UUIDTModel):
 
         except Exception:
             logger.exception(f"Failed to purge CDN for team {self.team_id}")
+            REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="failure").inc()
+        else:
+            REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="success").inc()
+
+    @staticmethod
+    def purge_cdn_by_tag(tag: str):
+        """Purge all CDN entries matching a Cache-Tag."""
+        if not settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT or not settings.REMOTE_CONFIG_CDN_PURGE_TOKEN:
+            return
+
+        data = {"tags": [tag]}
+
+        try:
+            res = external_requests.post(
+                settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT,
+                headers={"Authorization": f"Bearer {settings.REMOTE_CONFIG_CDN_PURGE_TOKEN}"},
+                json=data,
+            )
+            if res.status_code != 200:
+                raise Exception(f"Failed to purge CDN by tag {tag}: {res.status_code} {res.text}")
+        except Exception:
+            logger.exception(f"Failed to purge CDN by tag {tag}")
             REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="failure").inc()
         else:
             REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="success").inc()
@@ -591,6 +650,11 @@ def product_tour_deleted(sender, instance, **kwargs):
 
 @receiver(post_save, sender=ErrorTrackingSuppressionRule)
 def error_tracking_suppression_rule_saved(sender, instance: "ErrorTrackingSuppressionRule", created, **kwargs):
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+
+
+@receiver(post_save, sender="posthog.TeamSnippetConfig")
+def snippet_config_saved(sender, instance, created, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 

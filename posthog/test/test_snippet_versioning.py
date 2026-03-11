@@ -1,0 +1,178 @@
+import json
+
+from unittest.mock import patch
+
+from django.core.cache import cache
+from django.test import SimpleTestCase, override_settings
+
+import posthog.models.snippet_versioning as sv
+from posthog.models.snippet_versioning import (
+    REDIS_JS_KEY_PREFIX,
+    REDIS_LATEST_KEY,
+    get_js_content,
+    resolve_latest,
+    resolve_version,
+    validate_version_artifacts,
+)
+from posthog.tasks.snippet_versioning import sync_posthog_js_latest
+
+
+class TestGetJsContent(SimpleTestCase):
+    @override_settings(POSTHOG_JS_S3_BUCKET="")
+    def test_returns_disk_content_when_versioning_disabled(self):
+        content = get_js_content("1.358.0")
+        assert content is not None
+        assert len(content) > 0
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    def test_returns_redis_content_when_cached(self):
+        cache.set(f"{REDIS_JS_KEY_PREFIX}:1.358.0", "cached-js-content", 3600)
+        try:
+            content = get_js_content("1.358.0")
+            assert content == "cached-js-content"
+        finally:
+            cache.delete(f"{REDIS_JS_KEY_PREFIX}:1.358.0")
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    @patch("posthog.models.snippet_versioning.object_storage.read")
+    def test_fetches_from_s3_and_caches_in_redis(self, mock_read):
+        mock_read.return_value = "s3-js-content"
+        try:
+            content = get_js_content("1.358.0")
+            assert content == "s3-js-content"
+            mock_read.assert_called_once_with("posthog-js/v1.358.0/array.js", bucket="test-bucket", missing_ok=True)
+            assert cache.get(f"{REDIS_JS_KEY_PREFIX}:1.358.0") == "s3-js-content"
+        finally:
+            cache.delete(f"{REDIS_JS_KEY_PREFIX}:1.358.0")
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    @patch("posthog.models.snippet_versioning.object_storage.read")
+    def test_falls_back_to_disk_when_s3_misses(self, mock_read):
+        mock_read.return_value = None
+        content = get_js_content("99.99.99")
+        assert content is not None
+        assert len(content) > 0
+
+
+class TestResolveLatest(SimpleTestCase):
+    def setUp(self):
+        sv._latest_pointers_cache = None
+        sv._latest_pointers_cache_time = 0
+
+    def tearDown(self):
+        cache.delete(REDIS_LATEST_KEY)
+        sv._latest_pointers_cache = None
+        sv._latest_pointers_cache_time = 0
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    def test_returns_version_from_redis(self):
+        cache.set(REDIS_LATEST_KEY, json.dumps({"latest": "1.359.0"}))
+        version = resolve_latest()
+        assert version == "1.359.0"
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="")
+    def test_returns_none_when_versioning_disabled(self):
+        version = resolve_latest()
+        assert version is None
+
+
+class TestValidateArtifacts(SimpleTestCase):
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    @patch("posthog.models.snippet_versioning.object_storage.read")
+    def test_returns_true_when_array_js_exists(self, mock_read):
+        mock_read.return_value = "js-content"
+        assert validate_version_artifacts("1.358.0") is True
+        mock_read.assert_called_once_with("posthog-js/v1.358.0/array.js", bucket="test-bucket", missing_ok=True)
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    @patch("posthog.models.snippet_versioning.object_storage.read")
+    def test_returns_false_when_array_js_missing(self, mock_read):
+        mock_read.return_value = None
+        assert validate_version_artifacts("99.99.99") is False
+
+
+class TestResolveVersion(SimpleTestCase):
+    def setUp(self):
+        sv._latest_pointers_cache = None
+        sv._latest_pointers_cache_time = 0
+        pointers = {"latest": "1.359.0", "1": "1.359.0", "1.358": "1.358.3"}
+        cache.set(REDIS_LATEST_KEY, json.dumps(pointers))
+
+    def tearDown(self):
+        cache.delete(REDIS_LATEST_KEY)
+        sv._latest_pointers_cache = None
+        sv._latest_pointers_cache_time = 0
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    def test_exact_version_returned_as_is(self):
+        assert resolve_version("1.358.0") == "1.358.0"
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    def test_major_pin_resolved_via_pointers(self):
+        assert resolve_version("1") == "1.359.0"
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    def test_minor_pin_resolved_via_pointers(self):
+        assert resolve_version("1.358") == "1.358.3"
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    def test_none_defaults_to_major_pin(self):
+        assert resolve_version(None) == "1.359.0"
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="")
+    def test_returns_none_when_versioning_disabled(self):
+        assert resolve_version(None) is None
+
+
+class TestSyncTask(SimpleTestCase):
+    def setUp(self):
+        sv._latest_pointers_cache = None
+        sv._latest_pointers_cache_time = 0
+
+    def tearDown(self):
+        cache.delete(REDIS_LATEST_KEY)
+        sv._latest_pointers_cache = None
+        sv._latest_pointers_cache_time = 0
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    @patch("posthog.tasks.snippet_versioning.validate_version_artifacts")
+    @patch("posthog.tasks.snippet_versioning.object_storage.read")
+    def test_syncs_latest_json_to_redis(self, mock_read, mock_validate):
+        mock_read.return_value = json.dumps({"latest": "1.359.0"})
+        mock_validate.return_value = True
+
+        sync_posthog_js_latest()
+
+        raw = cache.get(REDIS_LATEST_KEY)
+        pointers = json.loads(raw)
+        assert pointers["latest"] == "1.359.0"
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    @patch("posthog.tasks.snippet_versioning.validate_version_artifacts")
+    @patch("posthog.tasks.snippet_versioning.object_storage.read")
+    def test_skips_update_when_unchanged(self, mock_read, mock_validate):
+        pointers = {"latest": "1.359.0"}
+        cache.set(REDIS_LATEST_KEY, json.dumps(pointers))
+        mock_read.return_value = json.dumps(pointers)
+        mock_validate.return_value = True
+
+        sync_posthog_js_latest()
+
+        mock_validate.assert_not_called()
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    @patch("posthog.tasks.snippet_versioning.validate_version_artifacts")
+    @patch("posthog.tasks.snippet_versioning.object_storage.read")
+    def test_rejects_update_when_artifacts_missing(self, mock_read, mock_validate):
+        cache.delete(REDIS_LATEST_KEY)
+        mock_read.return_value = json.dumps({"latest": "99.99.99"})
+        mock_validate.return_value = False
+
+        sync_posthog_js_latest()
+
+        assert cache.get(REDIS_LATEST_KEY) is None
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="")
+    def test_noop_when_versioning_disabled(self):
+        sync_posthog_js_latest()
+        assert cache.get(REDIS_LATEST_KEY) is None

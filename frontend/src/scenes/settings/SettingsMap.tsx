@@ -93,6 +93,7 @@ import {
     ReplayNetworkHeadersPayloads,
 } from './environment/SessionRecordingSettings'
 import { SlackIntegration } from './environment/SlackIntegration'
+import { SnippetVersionPin } from './environment/SnippetVersionPin'
 import { SurveyDefaultAppearance, SurveyEnableToggle } from './environment/SurveySettings'
 import { TeamAccessControl } from './environment/TeamAccessControl'
 import { TeamDangerZone } from './environment/TeamDangerZone'
@@ -200,6 +201,21 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'google tag manager',
                     'gtm',
                 ],
+            },
+            {
+                id: 'snippet-version',
+                title: (
+                    <>
+                        Snippet version{' '}
+                        <LemonTag type="warning" className="ml-1 uppercase">
+                            Experimental
+                        </LemonTag>
+                    </>
+                ),
+                description: 'Pin the snippet to a specific version of posthog-js. Defaults to the latest v1 release.',
+                flag: ['SNIPPET_VERSIONING'],
+                component: <SnippetVersionPin />,
+                keywords: ['version', 'pin', 'snippet', 'sdk', 'posthog-js'],
             },
             {
                 id: 'snippet-v2',

@@ -487,6 +487,11 @@ REMOTE_CONFIG_CDN_PURGE_ENDPOINT = get_from_env("REMOTE_CONFIG_CDN_PURGE_ENDPOIN
 REMOTE_CONFIG_CDN_PURGE_TOKEN = get_from_env("REMOTE_CONFIG_CDN_PURGE_TOKEN", "")
 REMOTE_CONFIG_CDN_PURGE_DOMAINS = get_list(os.getenv("REMOTE_CONFIG_CDN_PURGE_DOMAINS", ""))
 
+# Versioned posthog-js S3 bucket — enables versioned JS content serving when set
+POSTHOG_JS_S3_BUCKET = get_from_env("POSTHOG_JS_S3_BUCKET", "")
+# Base URL for CDN-fronted bucket (used in scriptsBaseUrl config field)
+POSTHOG_JS_SCRIPTS_BASE_URL = get_from_env("POSTHOG_JS_SCRIPTS_BASE_URL", "")
+
 ####
 # /capture
 

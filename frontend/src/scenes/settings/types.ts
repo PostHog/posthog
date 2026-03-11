@@ -74,6 +74,7 @@ export type SettingSectionId =
 
 export type SettingId =
     | 'snippet-v2'
+    | 'snippet-version'
     | 'replay-triggers'
     | 'replay-integrations'
     | 'display-name'
