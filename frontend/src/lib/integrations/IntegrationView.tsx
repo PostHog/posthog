@@ -11,7 +11,7 @@ import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/User
 import { TeamMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
-import { IconBranch, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconBranch } from 'lib/lemon-ui/icons'
 
 import { CyclotronJobInputSchemaType, IntegrationType } from '~/types'
 
