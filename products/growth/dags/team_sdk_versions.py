@@ -13,7 +13,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tags_context
-from posthog.dags.common import JobOwners
+from posthog.dags.common import JobOwners, check_for_concurrent_runs
 from posthog.dags.common.ops import get_all_team_ids_op
 from posthog.dags.common.resources import redis
 from posthog.exceptions_capture import capture_exception
@@ -221,9 +221,13 @@ def cache_all_team_sdk_versions_job():
     aggregate_results_op(results.collect())
 
 
-cache_all_team_sdk_versions_schedule = dagster.ScheduleDefinition(
-    job=cache_all_team_sdk_versions_job,
+@dagster.schedule(
     cron_schedule="0 0 * * *",  # Every day at midnight
+    job=cache_all_team_sdk_versions_job,
     execution_timezone="UTC",
-    name="cache_all_team_sdk_versions_schedule",
 )
+def cache_all_team_sdk_versions_schedule(context: dagster.ScheduleEvaluationContext):
+    skip_reason = check_for_concurrent_runs(context, tags={})
+    if skip_reason:
+        return skip_reason
+    return dagster.RunRequest()
