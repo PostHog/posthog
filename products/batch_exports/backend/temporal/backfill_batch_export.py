@@ -6,6 +6,7 @@ import asyncio
 import datetime as dt
 import dataclasses
 import collections.abc
+from contextlib import suppress
 
 from django.conf import settings
 from django.db.models import Sum
@@ -279,6 +280,7 @@ async def _get_backfill_info_for_events(
     exclude_events: list[str],
     filters_str: str,
     extra_query_parameters: dict[str, typing.Any],
+    log_comment: str = "{}",
 ) -> tuple[dt.datetime | None, int | None]:
     """Get adjusted start time and estimated record count for events model.
 
@@ -310,12 +312,14 @@ async def _get_backfill_info_for_events(
         {filters_str}
         {date_conditions}
         FORMAT JSONEachRow
+        SETTINGS log_comment=%(log_comment)s
     """
 
     query_parameters = {
         "team_id": team_id,
         "include_events": include_events,
         "exclude_events": exclude_events,
+        "log_comment": log_comment,
         **extra_query_parameters,
     }
 
@@ -353,6 +357,7 @@ async def _get_backfill_info_for_persons(
     batch_export: BatchExport,
     start_at: dt.datetime | None,
     end_at: dt.datetime | None,
+    log_comment: str = "{}",
 ) -> tuple[dt.datetime | None, int | None]:
     """Get adjusted start time and estimated record count for persons model.
 
@@ -371,7 +376,7 @@ async def _get_backfill_info_for_persons(
 
     date_conditions = ""
     having_date_conditions = ""
-    query_parameters: dict[str, typing.Any] = {"team_id": team_id}
+    query_parameters: dict[str, typing.Any] = {"team_id": team_id, "log_comment": log_comment}
 
     if start_at is not None:
         date_conditions += "AND _timestamp >= %(start_at)s "
@@ -397,6 +402,7 @@ async def _get_backfill_info_for_persons(
         AND _timestamp > '2000-01-01'
         {date_conditions}
         FORMAT JSONEachRow
+        SETTINGS log_comment=%(log_comment)s
     """
 
     query_id = str(uuid.uuid4())
@@ -469,7 +475,7 @@ async def _get_backfill_info_for_persons(
         SELECT uniq(distinct_id) AS record_count
         FROM distinct_ids
         FORMAT JSONEachRow
-        SETTINGS optimize_uniq_to_count = 0
+        SETTINGS optimize_uniq_to_count = 0, log_comment=%(log_comment)s
     """
 
     count_query_id = str(uuid.uuid4())
@@ -497,6 +503,7 @@ async def _get_backfill_info_for_sessions(
     batch_export: BatchExport,
     start_at: dt.datetime | None,
     end_at: dt.datetime | None,
+    log_comment: str | None = None,
 ) -> tuple[dt.datetime | None, int | None]:
     """Get adjusted start time and estimated record count for sessions model.
 
@@ -509,7 +516,7 @@ async def _get_backfill_info_for_sessions(
     """
 
     model = SessionsRecordBatchModel(team_id=batch_export.team_id, batch_export_id=str(batch_export.id))
-    min_timestamp, record_count = await model.get_backfill_info(start_at, end_at)
+    min_timestamp, record_count = await model.get_backfill_info(start_at, end_at, log_comment=log_comment)
 
     if min_timestamp is None:
         return None, 0
@@ -534,6 +541,14 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
     logger = LOGGER.bind()
 
     logger.info("Getting backfill info")
+
+    tags = query_tagging.get_query_tags()
+    tags.team_id = inputs.team_id
+    with suppress(Exception):
+        tags.batch_export_id = uuid.UUID(inputs.batch_export_id)
+    tags.product = Product.BATCH_EXPORT
+    tags.query_type = "backfill_estimate"
+    log_comment = tags.to_json()
 
     batch_export = await BatchExport.objects.select_related("destination").aget(id=inputs.batch_export_id)
 
@@ -567,18 +582,21 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
             exclude_events=exclude_events,
             filters_str=filters_str,
             extra_query_parameters=extra_query_parameters,
+            log_comment=log_comment,
         )
     elif model == "persons":
         adjusted_start_at, record_count = await _get_backfill_info_for_persons(
             batch_export=batch_export,
             start_at=start_at,
             end_at=end_at,
+            log_comment=log_comment,
         )
     elif model == "sessions":
         adjusted_start_at, record_count = await _get_backfill_info_for_sessions(
             batch_export=batch_export,
             start_at=start_at,
             end_at=end_at,
+            log_comment=log_comment,
         )
     else:
         logger.info(

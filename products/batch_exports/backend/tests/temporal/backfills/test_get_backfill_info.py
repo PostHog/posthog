@@ -2,21 +2,27 @@ import uuid
 import datetime as dt
 
 import pytest
+from unittest.mock import patch
+
+from temporalio.testing import ActivityEnvironment
 
 from posthog.batch_exports.models import BatchExport, BatchExportDestination
 from posthog.models.utils import uuid7
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse, insert_sessions_in_clickhouse
 
 from products.batch_exports.backend.temporal.backfill_batch_export import (
+    GetBackfillInfoInputs,
     _get_backfill_info_for_events,
     _get_backfill_info_for_persons,
     _get_backfill_info_for_sessions,
+    get_backfill_info,
 )
 from products.batch_exports.backend.tests.temporal.utils.clickhouse import (
     truncate_events,
     truncate_persons,
     truncate_sessions,
 )
+from products.batch_exports.backend.tests.temporal.utils.mock_clickhouse import MockClickHouseClient
 from products.batch_exports.backend.tests.temporal.utils.persons import (
     generate_test_person_distinct_id2,
     generate_test_persons_in_clickhouse,
@@ -898,3 +904,171 @@ class TestGetBackfillInfoForSessions:
             end_at=None,
         )
         assert earliest_start == expected_start
+
+
+class TestGetBackfillInfoQueryMetadata:
+    """Tests for query metadata (query_id, query tags) set by the get_backfill_info activity."""
+
+    @pytest.fixture
+    def mock_clickhouse_client(self):
+        mock_client = MockClickHouseClient(
+            read_query_as_jsonl_responses=[[{"min_timestamp": "1970-01-01 00:00:00", "record_count": "0"}]],
+        )
+        with (
+            patch(
+                "products.batch_exports.backend.temporal.backfill_batch_export.get_client",
+                return_value=mock_client.mock_client_cm,
+            ),
+            patch(
+                "products.batch_exports.backend.temporal.record_batch_model.get_client",
+                return_value=mock_client.mock_client_cm,
+            ),
+        ):
+            yield mock_client
+
+    @pytest.fixture
+    def activity_environment(self):
+        return ActivityEnvironment()
+
+    @pytest.fixture
+    def batch_export_id(self):
+        return str(uuid.uuid4())
+
+    @pytest.fixture
+    def create_batch_export(self, ateam, batch_export_id):
+        async def _create(model: str = "events") -> BatchExport:
+            destination = await BatchExportDestination.objects.acreate(
+                type="S3",
+                config={
+                    "bucket_name": "test",
+                    "region": "us-east-1",
+                    "prefix": "/",
+                    "aws_access_key_id": "key",
+                    "aws_secret_access_key": "secret",
+                },
+            )
+            return await BatchExport.objects.acreate(
+                id=batch_export_id,
+                team_id=ateam.pk,
+                name="Test",
+                destination=destination,
+                interval="hour",
+                model=model,
+            )
+
+        return _create
+
+    @pytest.mark.parametrize("model", ["events", "persons", "sessions"])
+    async def test_sets_query_tags(
+        self, mock_clickhouse_client, activity_environment, ateam, batch_export_id, create_batch_export, model
+    ):
+        await create_batch_export(model=model)
+
+        inputs = GetBackfillInfoInputs(
+            team_id=ateam.pk,
+            batch_export_id=batch_export_id,
+            start_at=dt.datetime(2021, 1, 1, tzinfo=dt.UTC).isoformat(),
+            end_at=dt.datetime(2021, 1, 2, tzinfo=dt.UTC).isoformat(),
+        )
+
+        await activity_environment.run(get_backfill_info, inputs)
+
+        assert len(mock_clickhouse_client.calls) >= 1
+        mock_clickhouse_client.expect_properties_in_log_comment(
+            {
+                "team_id": ateam.pk,
+                "batch_export_id": batch_export_id,
+                "product": "batch_export",
+                "query_type": "backfill_estimate",
+            }
+        )
+
+    @pytest.mark.parametrize("model", ["events", "persons", "sessions"])
+    async def test_passes_query_id(
+        self, mock_clickhouse_client, activity_environment, ateam, batch_export_id, create_batch_export, model
+    ):
+        await create_batch_export(model=model)
+
+        inputs = GetBackfillInfoInputs(
+            team_id=ateam.pk,
+            batch_export_id=batch_export_id,
+            start_at=dt.datetime(2021, 1, 1, tzinfo=dt.UTC).isoformat(),
+            end_at=dt.datetime(2021, 1, 2, tzinfo=dt.UTC).isoformat(),
+        )
+
+        await activity_environment.run(get_backfill_info, inputs)
+
+        mock_clickhouse_client.expect_all_calls_have_query_id()
+
+    async def test_events_executes_single_query(
+        self, mock_clickhouse_client, activity_environment, ateam, batch_export_id, create_batch_export
+    ):
+        await create_batch_export(model="events")
+
+        inputs = GetBackfillInfoInputs(
+            team_id=ateam.pk,
+            batch_export_id=batch_export_id,
+            start_at=dt.datetime(2021, 1, 1, tzinfo=dt.UTC).isoformat(),
+            end_at=dt.datetime(2021, 1, 2, tzinfo=dt.UTC).isoformat(),
+        )
+
+        await activity_environment.run(get_backfill_info, inputs)
+
+        mock_clickhouse_client.expect_query_count(1)
+
+    async def test_persons_executes_single_query_when_no_data(
+        self, mock_clickhouse_client, activity_environment, ateam, batch_export_id, create_batch_export
+    ):
+        """Persons model runs min_timestamp query first; if no data, skips the count query."""
+        await create_batch_export(model="persons")
+
+        inputs = GetBackfillInfoInputs(
+            team_id=ateam.pk,
+            batch_export_id=batch_export_id,
+            start_at=dt.datetime(2021, 1, 1, tzinfo=dt.UTC).isoformat(),
+            end_at=dt.datetime(2021, 1, 2, tzinfo=dt.UTC).isoformat(),
+        )
+
+        await activity_environment.run(get_backfill_info, inputs)
+
+        mock_clickhouse_client.expect_query_count(1)
+
+    async def test_persons_executes_two_queries_when_data_exists(
+        self, mock_clickhouse_client, activity_environment, ateam, batch_export_id, create_batch_export
+    ):
+        """Persons model runs both min_timestamp and count queries when data exists."""
+        await create_batch_export(model="persons")
+
+        mock_clickhouse_client.read_query_as_jsonl_responses = [
+            [{"min_timestamp": "2021-01-15 10:30:00"}, {"min_timestamp": "2021-01-15 10:30:00"}],
+            [{"record_count": "42"}],
+        ]
+
+        inputs = GetBackfillInfoInputs(
+            team_id=ateam.pk,
+            batch_export_id=batch_export_id,
+            start_at=dt.datetime(2021, 1, 1, tzinfo=dt.UTC).isoformat(),
+            end_at=dt.datetime(2021, 1, 2, tzinfo=dt.UTC).isoformat(),
+        )
+
+        await activity_environment.run(get_backfill_info, inputs)
+
+        mock_clickhouse_client.expect_query_count(2)
+        mock_clickhouse_client.expect_unique_query_ids()
+        mock_clickhouse_client.expect_properties_in_log_comment({"query_type": "backfill_estimate"})
+
+    async def test_sessions_executes_single_query(
+        self, mock_clickhouse_client, activity_environment, ateam, batch_export_id, create_batch_export
+    ):
+        await create_batch_export(model="sessions")
+
+        inputs = GetBackfillInfoInputs(
+            team_id=ateam.pk,
+            batch_export_id=batch_export_id,
+            start_at=dt.datetime(2021, 1, 1, tzinfo=dt.UTC).isoformat(),
+            end_at=dt.datetime(2021, 1, 2, tzinfo=dt.UTC).isoformat(),
+        )
+
+        await activity_environment.run(get_backfill_info, inputs)
+
+        mock_clickhouse_client.expect_query_count(1)
