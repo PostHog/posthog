@@ -224,26 +224,21 @@ async def flush_kafka_batch(
 
 @database_sync_to_async
 def _batch_update_cohort_durations(cohort_durations: dict[int, int]) -> int:
-    """Batch update cohort durations and last calculation timestamps.
+    """Batch update cohort durations.
 
     Only updates duration_ms when it changed by more than DURATION_UPDATE_RELATIVE_THRESHOLD from the previous value.
-    Always updates last_calculation timestamp.
 
     Returns count of cohorts that had their duration updated.
     """
     if not cohort_durations:
         return 0
 
-    now = dt.datetime.now(dt.UTC)
     all_cohorts = list(Cohort.objects.filter(id__in=cohort_durations.keys()))
-    duration_updates_count = 0
+    cohorts_to_update = []
 
     for cohort in all_cohorts:
         new_duration = cohort_durations[cohort.pk]
         previous_duration = cohort.last_calculation_duration_ms or 0
-
-        # Always update last_calculation timestamp
-        cohort.last_calculation = now
 
         # Only update duration_ms if it changed significantly
         if previous_duration > 0:
@@ -255,12 +250,13 @@ def _batch_update_cohort_durations(cohort_durations: dict[int, int]) -> int:
 
         if should_update_duration:
             cohort.last_calculation_duration_ms = new_duration
-            duration_updates_count += 1
+            cohorts_to_update.append(cohort)
 
-    # Update all cohorts (some with duration change, all with timestamp)
-    Cohort.objects.bulk_update(all_cohorts, ["last_calculation_duration_ms", "last_calculation"])
+    # Only update cohorts that had significant duration changes
+    if cohorts_to_update:
+        Cohort.objects.bulk_update(cohorts_to_update, ["last_calculation_duration_ms"])
 
-    return duration_updates_count
+    return len(cohorts_to_update)
 
 
 @temporalio.activity.defn
