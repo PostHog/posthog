@@ -6,7 +6,11 @@ import { Provider } from 'kea'
 import { initKeaTests } from '~/test/init'
 
 import { CompatMessage } from '../types'
-import { ConversationMessagesDisplay, LLMMessageDisplay } from './ConversationMessagesDisplay'
+import {
+    ConversationDisplayOption,
+    ConversationMessagesDisplay,
+    LLMMessageDisplay,
+} from './ConversationMessagesDisplay'
 
 describe('LLMMessageDisplay', () => {
     beforeEach(() => {
@@ -53,16 +57,51 @@ describe('LLMMessageDisplay', () => {
         )
         expect(container.textContent).toContain(expectedSubstring)
     })
+})
 
-    it('expands only user messages with expand_user_only display option', () => {
-        const inputNormalized: CompatMessage[] = [
-            { role: 'system', content: 'system input content' },
-            { role: 'user', content: 'first user input content' },
-            { role: 'assistant', content: 'assistant input content' },
-            { role: 'user', content: 'second user input content' },
-        ]
-        const outputNormalized: CompatMessage[] = [{ role: 'assistant', content: 'assistant output content' }]
+describe('ConversationMessagesDisplay', () => {
+    beforeEach(() => {
+        initKeaTests()
+    })
 
+    afterEach(() => {
+        cleanup()
+    })
+
+    const inputNormalized: CompatMessage[] = [
+        { role: 'system', content: 'system input content' },
+        { role: 'user', content: 'first user input content' },
+        { role: 'assistant', content: 'assistant input content' },
+        { role: 'user', content: 'second user input content' },
+    ]
+    const outputNormalized: CompatMessage[] = [{ role: 'assistant', content: 'assistant output content' }]
+
+    it.each<[string, string, string[], string[]]>([
+        [
+            'expand_all',
+            'expand_all',
+            [
+                'system input content',
+                'first user input content',
+                'assistant input content',
+                'second user input content',
+                'assistant output content',
+            ],
+            [],
+        ],
+        [
+            'expand_user_only',
+            'expand_user_only',
+            ['first user input content', 'second user input content'],
+            ['system input content', 'assistant input content', 'assistant output content'],
+        ],
+        [
+            'collapse_except_output_and_last_input',
+            'collapse_except_output_and_last_input',
+            ['second user input content', 'assistant output content'],
+            ['system input content', 'first user input content', 'assistant input content'],
+        ],
+    ])('display option %s shows/hides correct messages', (_label, displayOption, visible, hidden) => {
         render(
             <Provider>
                 <ConversationMessagesDisplay
@@ -70,15 +109,16 @@ describe('LLMMessageDisplay', () => {
                     outputNormalized={outputNormalized}
                     errorData={null}
                     raisedError={false}
-                    displayOption="expand_user_only"
+                    displayOption={displayOption as ConversationDisplayOption}
                 />
             </Provider>
         )
 
-        expect(screen.getByText('first user input content')).toBeInTheDocument()
-        expect(screen.getByText('second user input content')).toBeInTheDocument()
-        expect(screen.queryByText('system input content')).not.toBeInTheDocument()
-        expect(screen.queryByText('assistant input content')).not.toBeInTheDocument()
-        expect(screen.queryByText('assistant output content')).not.toBeInTheDocument()
+        for (const text of visible) {
+            expect(screen.getByText(text)).toBeInTheDocument()
+        }
+        for (const text of hidden) {
+            expect(screen.queryByText(text)).not.toBeInTheDocument()
+        }
     })
 })
