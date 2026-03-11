@@ -10,12 +10,14 @@ from typing import Any, Optional, cast
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, Prefetch, Q, QuerySet, deletion
+from django.http import Http404
 
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse
 from prometheus_client import Counter
 from rest_framework import exceptions, request, serializers, status, viewsets
+from rest_framework.exceptions import NotFound
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 
@@ -2848,6 +2850,10 @@ class FeatureFlagViewSet(
     @action(methods=["GET"], detail=True, required_scopes=["feature_flag:read"])
     def status(self, request: request.Request, **kwargs):
         feature_flag_id = kwargs["pk"]
+        try:
+            self.get_object()  # enforce RBAC when flag exists
+        except (NotFound, Http404):
+            pass  # let the checker handle not-found / soft-deleted
 
         checker = FeatureFlagStatusChecker(
             feature_flag_id=feature_flag_id,
@@ -2913,14 +2919,12 @@ class FeatureFlagViewSet(
         limit = request.validated_query_data["limit"]
         page = request.validated_query_data["page"]
 
-        item_id = kwargs["pk"]
-        if not FeatureFlag.objects_including_soft_deleted.filter(id=item_id, team__project_id=self.project_id).exists():
-            return Response(status=status.HTTP_404_NOT_FOUND)
+        item = self.get_object()
 
         activity_page = load_activity(
             scope="FeatureFlag",
             team_id=self.team_id,
-            item_ids=[str(item_id)],
+            item_ids=[str(item.id)],
             limit=limit,
             page=page,
         )
