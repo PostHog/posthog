@@ -244,9 +244,10 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
 
     @property
     def data_warehouse_series(self) -> LifecycleDataWarehouseNode:
-        if not self.is_data_warehouse_series:
+        series = self.query.series[0]
+        if not isinstance(series, LifecycleDataWarehouseNode):
             raise ValueError("Expected a data warehouse series")
-        return self.query.series[0]
+        return series
 
     @property
     def timestamp_field(self) -> ast.Expr:
