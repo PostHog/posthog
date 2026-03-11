@@ -13,7 +13,7 @@ export function IntegrationScopesWarning({
     schema,
 }: {
     integration: IntegrationType
-    schema?: Pick<{ requiredScopes?: string }, 'requiredScopes'>
+    schema?: { requiredScopes?: string }
 }): JSX.Element {
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
