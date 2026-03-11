@@ -1,20 +1,29 @@
 from django.db import migrations
 
 
+def backfill_team_id(apps, schema_editor):
+    ErrorTrackingIssueAssignment = apps.get_model("error_tracking", "ErrorTrackingIssueAssignment")
+    batch_size = 5000
+
+    while True:
+        ids = list(
+            ErrorTrackingIssueAssignment.objects.filter(team_id__isnull=True).values_list("id", flat=True)[:batch_size]
+        )
+        if not ids:
+            break
+
+        batch = list(ErrorTrackingIssueAssignment.objects.filter(id__in=ids).select_related("issue"))
+        for assignment in batch:
+            assignment.team_id = assignment.issue.team_id
+
+        ErrorTrackingIssueAssignment.objects.bulk_update(batch, ["team_id"])
+
+
 class Migration(migrations.Migration):
     dependencies = [
         ("error_tracking", "0009_errortrackingissueassignment_team"),
     ]
 
     operations = [
-        migrations.RunSQL(
-            sql="""
-                UPDATE posthog_errortrackingissueassignment a
-                SET team_id = i.team_id
-                FROM posthog_errortrackingissue i
-                WHERE a.issue_id = i.id
-                  AND a.team_id IS NULL
-            """,
-            reverse_sql=migrations.RunSQL.noop,
-        ),
+        migrations.RunPython(backfill_team_id, reverse_code=migrations.RunPython.noop),
     ]
