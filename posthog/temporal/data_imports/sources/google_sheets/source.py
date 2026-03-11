@@ -47,6 +47,10 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
     ) -> list[SourceSchema]:
         sheets = get_google_sheets_schemas(config)
 
+        if names is not None:
+            names_set = set(names)
+            sheets = [(name, row_count) for name, row_count in sheets if name in names_set]
+
         schemas: list[SourceSchema] = []
         for name, _ in sheets:
             incremental_fields = get_google_sheets_schema_incremental_fields(config, name)
@@ -59,9 +63,6 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
                     incremental_fields=incremental_fields,
                 )
             )
-
-        if names is not None:
-            schemas = [s for s in schemas if s.name in names]
 
         return schemas
 

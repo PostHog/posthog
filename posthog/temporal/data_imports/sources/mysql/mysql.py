@@ -81,6 +81,9 @@ def get_schemas(
         params: dict = {"schema": schema}
         names_filter = ""
         if names is not None:
+            if not names:
+                connection.close()
+                return {}
             params["names"] = tuple(names)
             names_filter = "AND table_name IN %(names)s"
 

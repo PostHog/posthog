@@ -90,7 +90,8 @@ class BingAdsSource(SimpleSource[BingAdsSourceConfig], OAuthMixin):
         ]
 
         if names is not None:
-            schemas = [s for s in schemas if s.name in names]
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
 
         return schemas
 
