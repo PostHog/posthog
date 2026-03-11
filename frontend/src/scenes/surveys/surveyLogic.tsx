@@ -623,20 +623,18 @@ export const surveyLogic = kea<surveyLogicType>([
                     }
                 }
                 if (props.id === 'new' && router.values.hashParams.fromTemplate) {
-                    const templatedSurvey = values.survey
+                    const templatedSurvey = { ...values.survey }
                     templatedSurvey.appearance = {
                         ...defaultSurveyAppearance,
                         ...teamLogic.values.currentTeam?.survey_config?.appearance,
-                        ...templatedSurvey.appearance,
                     }
                     return templatedSurvey
                 }
 
-                const newSurvey = NEW_SURVEY
+                const newSurvey = { ...NEW_SURVEY }
                 newSurvey.appearance = {
                     ...defaultSurveyAppearance,
                     ...teamLogic.values.currentTeam?.survey_config?.appearance,
-                    ...newSurvey.appearance,
                 }
 
                 return newSurvey
@@ -2187,7 +2185,13 @@ export const surveyLogic = kea<surveyLogicType>([
     }),
     forms(({ actions, props, values }) => ({
         survey: {
-            defaults: { ...NEW_SURVEY } as NewSurvey | Survey,
+            defaults: {
+                ...NEW_SURVEY,
+                appearance: {
+                    ...defaultSurveyAppearance,
+                    ...teamLogic.values.currentTeam?.survey_config?.appearance,
+                },
+            } as NewSurvey | Survey,
             errors: ({ name, questions, appearance, type }) => {
                 const sanitizedAppearance = sanitizeSurveyAppearance(appearance)
                 return {
