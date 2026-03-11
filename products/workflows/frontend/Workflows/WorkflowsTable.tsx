@@ -308,6 +308,12 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
                 <>
                     <div className="flex justify-between gap-2 flex-wrap mb-4">
                         <div className="flex items-center gap-2">
+                            <LemonInput
+                                type="search"
+                                placeholder="Search for workflows"
+                                onChange={setSearchTerm}
+                                value={filters.search}
+                            />
                             <LemonSegmentedButton
                                 value={filters.status}
                                 onChange={(value) => setStatusFilter(value as WorkflowStatusFilter)}
@@ -318,12 +324,6 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
                                     { value: 'archived', label: 'Archived' },
                                 ]}
                                 size="small"
-                            />
-                            <LemonInput
-                                type="search"
-                                placeholder="Search for workflows"
-                                onChange={setSearchTerm}
-                                value={filters.search}
                             />
                         </div>
                         <div className="flex items-center gap-2">
@@ -373,25 +373,27 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
 
                     {visibleStatuses.includes('archived') && archivedWorkflows.length > 0 && (
                         <div className="mb-6">
-                            <h3 className="flex items-center gap-2 mb-2">
-                                Archived <LemonTag type="completion">Archived</LemonTag>
-                            </h3>
-                            <div className="flex items-center gap-2 mb-2">
-                                <LemonCheckbox
-                                    checked={
-                                        allArchivedSelected
-                                            ? true
-                                            : selectedArchivedWorkflowIds.size > 0
-                                              ? 'indeterminate'
-                                              : false
-                                    }
-                                    onChange={(checked) =>
-                                        checked
-                                            ? selectAllArchivedWorkflows(archivedWorkflows.map((w) => w.id))
-                                            : clearArchivedWorkflowSelection()
-                                    }
-                                    label="Select all"
-                                />
+                            <div className="flex items-center gap-2 mb-2 min-h-8">
+                                <h3 className="flex items-center gap-2 m-0">
+                                    Archived <LemonTag type="completion">Archived</LemonTag>
+                                </h3>
+                                <div className="flex items-center gap-2 ml-4">
+                                    <LemonCheckbox
+                                        checked={
+                                            allArchivedSelected
+                                                ? true
+                                                : selectedArchivedWorkflowIds.size > 0
+                                                  ? 'indeterminate'
+                                                  : false
+                                        }
+                                        onChange={(checked) =>
+                                            checked
+                                                ? selectAllArchivedWorkflows(archivedWorkflows.map((w) => w.id))
+                                                : clearArchivedWorkflowSelection()
+                                        }
+                                        label="Select all"
+                                    />
+                                </div>
                                 <div className="flex-1" />
                                 {selectedArchivedWorkflowIds.size > 0 && (
                                     <LemonButton
