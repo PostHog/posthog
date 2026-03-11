@@ -201,6 +201,7 @@ async def events_batch_export(temporal_client, ateam, clickhouse_client, bucket_
     "interval,timezone,offset_day,offset_hour",
     [
         ("every 5 minutes", "UTC", None, None),  # only supports UTC and no offset
+        ("every 15 minutes", "UTC", None, None),  # only supports UTC and no offset
         ("hour", "UTC", None, None),  # only supports UTC and no offset
         ("day", "UTC", None, None),
         ("week", "UTC", None, None),
