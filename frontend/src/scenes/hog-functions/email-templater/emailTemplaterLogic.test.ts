@@ -3,8 +3,12 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { EMAIL_TYPE_SUPPORTED_FIELDS } from './EmailTemplater'
-import { emailTemplaterLogic, EmailTemplate, EmailTemplaterLogicProps } from './emailTemplaterLogic'
+import {
+    emailTemplaterLogic,
+    EMAIL_TYPE_SUPPORTED_FIELDS,
+    EmailTemplate,
+    EmailTemplaterLogicProps,
+} from './emailTemplaterLogic'
 
 const DEFAULT_EMAIL_TEMPLATE: EmailTemplate = {
     design: null,

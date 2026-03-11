@@ -29,56 +29,9 @@ import 'products/workflows/frontend/TemplateLibrary/MessageTemplatesGrid.scss'
 import { MessageTemplateCard } from 'products/workflows/frontend/TemplateLibrary/MessageTemplateCard'
 
 import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
-import { EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
+import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
 
 export type EmailEditorMode = 'full' | 'preview'
-
-/**
- * email: basic email editor with free-text fields, used for configuring email platform realtime destinations
- * native_email: advanced editor with email integration dropdown, and additional email metafields
- * native_email-template: editor for creating reusable templates, with only subject and preheader, and email content fields
- */
-export type EmailTemplaterType = 'email' | 'native_email' | 'native_email_template'
-export type EmailMetaFieldKey = 'from' | 'to' | 'replyTo' | 'subject' | 'preheader'
-export type EmailMetaField = {
-    key: EmailMetaFieldKey
-    label: string
-    optional: boolean
-    helpText?: string
-    isAdvancedField?: boolean
-}
-
-const EMAIL_META_FIELDS = {
-    FROM: { key: 'from', label: 'From', optional: false },
-    TO: { key: 'to', label: 'To', optional: false },
-    REPLY_TO: {
-        key: 'replyTo',
-        label: 'Reply-To',
-        optional: true,
-        isAdvancedField: true,
-        helpText: 'Optional reply-to email address. You can comma separate multiple reply-to addresses.',
-    },
-    PREHEADER: {
-        key: 'preheader',
-        label: 'Preheader',
-        optional: true,
-        isAdvancedField: true,
-        helpText: 'This is the preview text that appears below the subject line in an inbox.',
-    },
-    SUBJECT: { key: 'subject', label: 'Subject', optional: false },
-} as const
-
-export const EMAIL_TYPE_SUPPORTED_FIELDS: Record<EmailTemplaterType, EmailMetaField[]> = {
-    email: [EMAIL_META_FIELDS.FROM, EMAIL_META_FIELDS.TO, EMAIL_META_FIELDS.SUBJECT],
-    native_email: [
-        EMAIL_META_FIELDS.FROM,
-        EMAIL_META_FIELDS.TO,
-        EMAIL_META_FIELDS.REPLY_TO,
-        EMAIL_META_FIELDS.SUBJECT,
-        EMAIL_META_FIELDS.PREHEADER,
-    ],
-    native_email_template: [EMAIL_META_FIELDS.SUBJECT, EMAIL_META_FIELDS.PREHEADER],
-}
 
 function AddAdvancedFieldButtons(): JSX.Element | null {
     const { hiddenAdvancedFields } = useValues(emailTemplaterLogic)
