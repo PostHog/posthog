@@ -371,34 +371,16 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
                         <div className="mb-6">
                             <div className="flex items-center gap-2 mb-2 min-h-8">
                                 <h3 className="m-0">Archived</h3>
-                                <div className="flex items-center gap-2 ml-4">
-                                    <LemonCheckbox
-                                        checked={
-                                            allArchivedSelected
-                                                ? true
-                                                : selectedArchivedWorkflowIds.size > 0
-                                                  ? 'indeterminate'
-                                                  : false
-                                        }
-                                        onChange={(checked) =>
-                                            checked
-                                                ? selectAllArchivedWorkflows(archivedWorkflows.map((w) => w.id))
-                                                : clearArchivedWorkflowSelection()
-                                        }
-                                        label="Select all"
-                                    />
-                                </div>
                                 <div className="flex-1" />
-                                {selectedArchivedWorkflowIds.size > 0 && (
-                                    <LemonButton
-                                        type="secondary"
-                                        status="danger"
-                                        size="small"
-                                        onClick={() => deleteSelectedWorkflows()}
-                                    >
-                                        Delete selected ({selectedArchivedWorkflowIds.size})
-                                    </LemonButton>
-                                )}
+                                <LemonButton
+                                    type="secondary"
+                                    status="danger"
+                                    size="small"
+                                    className={selectedArchivedWorkflowIds.size > 0 ? 'visible' : 'invisible'}
+                                    onClick={() => deleteSelectedWorkflows()}
+                                >
+                                    Delete selected ({selectedArchivedWorkflowIds.size})
+                                </LemonButton>
                             </div>
                             <LemonTable
                                 dataSource={archivedWorkflows}
@@ -406,6 +388,22 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
                                 rowKey="id"
                                 columns={[
                                     {
+                                        title: (
+                                            <LemonCheckbox
+                                                checked={
+                                                    allArchivedSelected
+                                                        ? true
+                                                        : selectedArchivedWorkflowIds.size > 0
+                                                          ? 'indeterminate'
+                                                          : false
+                                                }
+                                                onChange={(checked) =>
+                                                    checked
+                                                        ? selectAllArchivedWorkflows(archivedWorkflows.map((w) => w.id))
+                                                        : clearArchivedWorkflowSelection()
+                                                }
+                                            />
+                                        ),
                                         width: 0,
                                         render: (_, item) => (
                                             <LemonCheckbox
