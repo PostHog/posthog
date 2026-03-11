@@ -6,11 +6,12 @@ and pushes results back to Salesforce.
 """
 
 import json
+import hashlib
 from typing import Any, Literal, cast
 
 import polars as pl
 import dagster
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from posthog.hogql.constants import LimitContext
@@ -191,10 +192,10 @@ Return a JSON object with a "classifications" key containing an array of objects
 class AccountClassification(BaseModel):
     sf_account_id: str
     archetype: Literal["AI Native", "Cloud Native", "Unknown"]
-    ai_native_score: int  # 0-9
-    cloud_native_score: int  # 0-8
+    ai_native_score: int = Field(ge=0, le=9)
+    cloud_native_score: int = Field(ge=0, le=8)
     stage: Literal["Enterprise", "Scaled", "Early / Growth", "Unknown"]
-    confidence: float  # 0.0-1.0
+    confidence: float = Field(ge=0.0, le=1.0)
     key_signals: str
 
 
@@ -333,6 +334,12 @@ def build_salesforce_records(
     return records
 
 
+def _hash_sf_record(record: dict[str, Any]) -> str:
+    """Deterministic hash of a Salesforce update record for change detection."""
+    serialized = json.dumps(record, sort_keys=True, default=str)
+    return hashlib.sha256(serialized.encode()).hexdigest()[:16]
+
+
 # --------------------------------------------------------------------------- #
 # LLM classification with retry
 # --------------------------------------------------------------------------- #
@@ -350,9 +357,24 @@ def _classify_batch(client: Any, batch: list[dict[str, Any]]) -> list[AccountCla
         ],
         temperature=0,
         response_format={"type": "json_object"},
+        timeout=60,
     )
     raw = response.choices[0].message.content or ""
-    return parse_llm_response(raw)
+    results = parse_llm_response(raw)
+    if not results:
+        raise ValueError(f"LLM returned empty/unparseable response for batch of {len(batch)} accounts")
+
+    expected_ids = {a["sf_account_id"] for a in batch}
+    returned_ids = [r.sf_account_id for r in results]
+    returned_id_set = set(returned_ids)
+    if len(returned_ids) != len(returned_id_set):
+        raise ValueError(f"LLM returned duplicate sf_account_ids in batch of {len(batch)} accounts")
+    if returned_id_set != expected_ids:
+        missing = expected_ids - returned_id_set
+        extra = returned_id_set - expected_ids
+        raise ValueError(f"LLM ID mismatch: missing={missing}, extra={extra}")
+
+    return results
 
 
 # --------------------------------------------------------------------------- #
@@ -414,13 +436,23 @@ def archetype_llm_classification(
     """Classify all accounts using LLM."""
     df = archetype_account_data
     if df.is_empty():
-        context.log.info("No accounts to classify")
+        context.log.info("No accounts to classify, preserving prior metadata")
+        prior_hashes, prior_classifications = _get_prior_materialization_metadata(context)
+        context.add_output_metadata(
+            {
+                "total_classified": dagster.MetadataValue.int(0),
+                "newly_classified": dagster.MetadataValue.int(0),
+                "carried_forward": dagster.MetadataValue.int(0),
+                "account_hashes": dagster.MetadataValue.json(prior_hashes),
+                "classifications": dagster.MetadataValue.json(prior_classifications),
+            }
+        )
         return pl.DataFrame()
 
     # Incremental: hash input data and compare with prior run
-    hashed_df = compute_dataframe_hashes(df)
-    prior_hashes = _get_prior_classification_hashes(context)
-    prior_classifications = _get_prior_classifications(context)
+    hashed_df = compute_dataframe_hashes(df.select(LLM_CONTEXT_COLUMNS))
+    hashed_df = df.join(hashed_df.select("sf_account_id", "data_hash"), on="sf_account_id")
+    prior_hashes, prior_classifications = _get_prior_materialization_metadata(context)
 
     # Determine which accounts need re-classification
     accounts_to_classify = []
@@ -503,22 +535,38 @@ def archetype_to_salesforce(
     # Reconstruct classifications from DataFrame
     classifications = [AccountClassification.model_validate(row) for row in archetype_llm_classification.to_dicts()]
 
-    # Build Salesforce update records
-    update_records = build_salesforce_records(classifications, use_case_df)
+    # Build Salesforce update records and filter to only changed ones
+    all_records = build_salesforce_records(classifications, use_case_df)
+    prior_sf_hashes = _get_prior_sf_record_hashes(context)
 
-    if not update_records:
-        context.log.info("No records to update in Salesforce")
-        return
+    current_sf_hashes: dict[str, str] = {}
+    changed_records: list[dict[str, Any]] = []
+    for record in all_records:
+        sf_id = record["Id"]
+        record_hash = _hash_sf_record(record)
+        current_sf_hashes[sf_id] = record_hash
+        if prior_sf_hashes.get(sf_id) != record_hash:
+            changed_records.append(record)
 
-    context.log.info(f"Pushing {len(update_records)} records to Salesforce")
-    sf = get_salesforce_client()
-    bulk_update_salesforce_accounts(sf, update_records)
+    context.log.info(f"{len(changed_records)} of {len(all_records)} records changed, pushing to Salesforce")
+
+    succeeded, failed = 0, 0
+    if changed_records:
+        sf = get_salesforce_client()
+        succeeded, failed = bulk_update_salesforce_accounts(sf, changed_records)
 
     context.add_output_metadata(
         {
-            "records_pushed": dagster.MetadataValue.int(len(update_records)),
+            "records_considered": dagster.MetadataValue.int(len(all_records)),
+            "records_changed": dagster.MetadataValue.int(len(changed_records)),
+            "records_succeeded": dagster.MetadataValue.int(succeeded),
+            "records_failed": dagster.MetadataValue.int(failed),
+            "sf_record_hashes": dagster.MetadataValue.json(current_sf_hashes),
         }
     )
+
+    if failed:
+        raise RuntimeError(f"Salesforce update had {failed} failures out of {len(changed_records)} records")
 
 
 # --------------------------------------------------------------------------- #
@@ -526,29 +574,39 @@ def archetype_to_salesforce(
 # --------------------------------------------------------------------------- #
 
 
-def _get_prior_classification_hashes(context: dagster.AssetExecutionContext) -> dict[str, str]:
-    """Retrieve account hashes from the last archetype_llm_classification materialization."""
+def _get_prior_materialization_metadata(
+    context: dagster.AssetExecutionContext,
+) -> tuple[dict[str, str], dict[str, dict]]:
+    """Retrieve account hashes and classifications from the last materialization."""
     asset_key = dagster.AssetKey(["archetype_llm_classification"])
     last_event = context.instance.get_latest_materialization_event(asset_key)
     if not last_event or not last_event.asset_materialization:
-        return {}
+        return {}, {}
     metadata = last_event.asset_materialization.metadata
+
+    hashes: dict[str, str] = {}
     hashes_meta = metadata.get("account_hashes")
     if hashes_meta and isinstance(hashes_meta, dagster.JsonMetadataValue):
-        return cast(dict[str, str], hashes_meta.value or {})
-    return {}
+        hashes = cast(dict[str, str], hashes_meta.value or {})
+
+    classifications: dict[str, dict] = {}
+    classifications_meta = metadata.get("classifications")
+    if classifications_meta and isinstance(classifications_meta, dagster.JsonMetadataValue):
+        classifications = cast(dict[str, dict], classifications_meta.value or {})
+
+    return hashes, classifications
 
 
-def _get_prior_classifications(context: dagster.AssetExecutionContext) -> dict[str, dict]:
-    """Retrieve prior classifications from the last archetype_llm_classification materialization."""
-    asset_key = dagster.AssetKey(["archetype_llm_classification"])
+def _get_prior_sf_record_hashes(context: dagster.AssetExecutionContext) -> dict[str, str]:
+    """Retrieve Salesforce record hashes from the last archetype_to_salesforce materialization."""
+    asset_key = dagster.AssetKey(["archetype_to_salesforce"])
     last_event = context.instance.get_latest_materialization_event(asset_key)
     if not last_event or not last_event.asset_materialization:
         return {}
     metadata = last_event.asset_materialization.metadata
-    classifications_meta = metadata.get("classifications")
-    if classifications_meta and isinstance(classifications_meta, dagster.JsonMetadataValue):
-        return cast(dict[str, dict], classifications_meta.value or {})
+    hashes_meta = metadata.get("sf_record_hashes")
+    if hashes_meta and isinstance(hashes_meta, dagster.JsonMetadataValue):
+        return cast(dict[str, str], hashes_meta.value or {})
     return {}
 
 
