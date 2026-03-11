@@ -7,6 +7,38 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
+const PRODUCT_DEFINITION_FILES = new Set(['tools.yaml', 'tools.yml'])
+const PRODUCT_DEFINITION_FILE_DISPLAY = 'tools.yaml or tools.yml'
+
+export function isYamlFile(fileName) {
+    return fileName.endsWith('.yaml') || fileName.endsWith('.yml')
+}
+
+function formatProductDir(productName) {
+    return `products/${productName}/mcp`
+}
+
+function validateProductDefinitionFiles(productName, files) {
+    if (files.length === 0) {
+        return
+    }
+
+    if (files.length > 1) {
+        throw new Error(
+            `Invalid MCP definitions in ${formatProductDir(productName)}: expected exactly one YAML file named ` +
+                `"${PRODUCT_DEFINITION_FILE_DISPLAY}", found ${files.join(', ')}`
+        )
+    }
+
+    const [file] = files
+    if (!PRODUCT_DEFINITION_FILES.has(file)) {
+        throw new Error(
+            `Invalid MCP definition filename in ${formatProductDir(productName)}: expected ` +
+                `"${PRODUCT_DEFINITION_FILE_DISPLAY}", found "${file}"`
+        )
+    }
+}
+
 /**
  * Resolve the OpenAPI schema path, respecting OPENAPI_SCHEMA_PATH env override.
  *
@@ -23,7 +55,7 @@ export function resolveSchemaPath(repoRoot) {
  *
  * Scans:
  * - services/mcp/definitions/*.yaml — core MCP tool configs
- * - products/*\/mcp/*.yaml — per-product tool configs
+ * - products/*\/mcp/tools.yaml or tools.yml — per-product tool configs
  *
  * @param {object} opts
  * @param {string} opts.definitionsDir - absolute path to services/mcp/definitions/
@@ -35,7 +67,7 @@ export function discoverDefinitions({ definitionsDir, productsDir }) {
 
     if (fs.existsSync(definitionsDir)) {
         for (const file of fs.readdirSync(definitionsDir)) {
-            if (!file.endsWith('.yaml') && !file.endsWith('.yml')) {
+            if (!isYamlFile(file)) {
                 continue
             }
             sources.push({
@@ -54,14 +86,13 @@ export function discoverDefinitions({ definitionsDir, productsDir }) {
             if (!fs.existsSync(mcpDir)) {
                 continue
             }
-            for (const file of fs.readdirSync(mcpDir)) {
-                if (!file.endsWith('.yaml') && !file.endsWith('.yml')) {
-                    continue
-                }
-                const moduleName =
-                    file === 'tools.yaml' || file === 'tools.yml' ? product.name : file.replace(/\.ya?ml$/, '')
+            const yamlFiles = fs.readdirSync(mcpDir).filter((file) => isYamlFile(file))
+            validateProductDefinitionFiles(product.name, yamlFiles)
+
+            if (yamlFiles.length === 1) {
+                const [file] = yamlFiles
                 sources.push({
-                    moduleName,
+                    moduleName: product.name,
                     filePath: path.join(mcpDir, file),
                 })
             }

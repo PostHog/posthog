@@ -141,7 +141,13 @@ export default defineConfig({
 // Main
 // ------------------------------------------------------------------
 
-const definitions = discoverDefinitions({ definitionsDir, productsDir })
+let definitions = []
+try {
+    definitions = discoverDefinitions({ definitionsDir, productsDir })
+} catch (error) {
+    console.error(error instanceof Error ? error.message : String(error))
+    process.exit(1)
+}
 
 if (definitions.length === 0) {
     console.log('No MCP YAML definitions found, skipping Orval Zod generation.')

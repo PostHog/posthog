@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { getToolByName } from '@/shared/test-utils'
-import { GENERATED_TOOLS } from '@/tools/generated/prompts'
+import { GENERATED_TOOLS } from '@/tools/generated/llm_analytics'
 import type { Context } from '@/tools/types'
 
 function createContext(requestReturnValue: unknown): { context: Context; requestMock: ReturnType<typeof vi.fn> } {

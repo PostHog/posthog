@@ -1,4 +1,4 @@
-// AUTO-GENERATED from products/llm_analytics/mcp/prompts.yaml + OpenAPI — do not edit
+// AUTO-GENERATED from products/llm_analytics/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
@@ -9,7 +9,7 @@ import {
     LlmPromptsNamePartialUpdateParams,
     LlmPromptsNameRetrieveParams,
     LlmPromptsNameRetrieveQueryParams,
-} from '@/generated/prompts/api'
+} from '@/generated/llm_analytics/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const PromptListSchema = LlmPromptsListQueryParams.omit({ limit: true, offset: true })

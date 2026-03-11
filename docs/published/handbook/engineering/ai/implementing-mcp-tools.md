@@ -19,7 +19,7 @@ pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
     --output ../../products/your_product/mcp/tools.yaml
 
 # 2. Configure the YAML – enable tools, add scopes, annotations, descriptions
-#    Place in products/<product>/mcp/*.yaml (preferred, e.g. actions, cohorts)
+#    Place in products/<product>/mcp/tools.yaml or products/<product>/mcp/tools.yml (preferred)
 
 # 3. Add a HogQL system table in posthog/hogql/database/schema/system.py
 #    and a model reference in products/posthog_ai/skills/query-examples/references/
@@ -156,7 +156,7 @@ build:openapi-mcp-tools  YAML definitions + Zod schemas → TypeScript tool hand
 ### YAML definitions
 
 YAML definitions are the configuration layer.
-They live in **`products/<product>/mcp/*.yaml`**, keeping config close to the owning product's code.
+They live in **`products/<product>/mcp/tools.yaml`** or **`products/<product>/mcp/tools.yml`**, keeping config close to the owning product's code.
 
 > **Fallback path:** `services/mcp/definitions/*.yaml` is available for functionality that doesn't have a product folder.
 > When a product folder exists, always place definitions there.

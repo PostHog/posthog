@@ -18,7 +18,7 @@ pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
     --output ../../products/your_product/mcp/tools.yaml
 
 # 2. Configure the YAML — enable tools, add scopes, annotations, descriptions
-#    Place in products/<product>/mcp/*.yaml (preferred) or services/mcp/definitions/*.yaml
+#    Place in products/<product>/mcp/tools.yaml or products/<product>/mcp/tools.yml (preferred) or services/mcp/definitions/*.yaml
 
 # 3. Add a HogQL system table in posthog/hogql/database/schema/system.py
 #    and a model reference in products/posthog_ai/skills/query-examples/references/
@@ -72,7 +72,7 @@ Bad: "Search for session recordings of an experiment" — bundles multiple conce
 YAML files configure which operations are exposed as MCP tools.
 See existing definitions for patterns:
 
-- `products/<product>/mcp/*.yaml` — preferred, keeps config close to the code
+- `products/<product>/mcp/tools.yaml` or `products/<product>/mcp/tools.yml` — preferred, keeps config close to the code
 - `services/mcp/definitions/*.yaml` — fallback for functionality without a product folder
 
 The build pipeline discovers YAML files from both paths.

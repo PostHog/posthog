@@ -743,7 +743,14 @@ function main(): void {
     const spec = loadOpenApi()
     const knownTypes = loadKnownSchemaTypes(spec)
 
-    const definitionSources = discoverDefinitions({ definitionsDir: DEFINITIONS_DIR, productsDir: PRODUCTS_DIR })
+    let definitionSources: { moduleName: string; filePath: string }[] = []
+    try {
+        definitionSources = discoverDefinitions({ definitionsDir: DEFINITIONS_DIR, productsDir: PRODUCTS_DIR })
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        console.error(message)
+        process.exit(1)
+    }
 
     if (definitionSources.length === 0) {
         console.error('No YAML definitions found in definitions/ or products/*/mcp/')

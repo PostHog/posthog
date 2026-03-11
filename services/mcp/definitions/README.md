@@ -39,6 +39,8 @@ Run the full pipeline: `hogli build:openapi`
        --output ../../products/your_product/mcp/tools.yaml
    ```
 
+   Product MCP definitions must use `products/<product>/mcp/tools.yaml` or `products/<product>/mcp/tools.yml`.
+
    `--product` is a **substring match** on URL paths:
    it selects every endpoint whose path contains `/<name>/`
    (hyphens are normalized to underscores before matching).

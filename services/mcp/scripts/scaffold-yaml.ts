@@ -19,6 +19,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 
+import { discoverDefinitions, isYamlFile } from './lib/definitions.mjs'
 import { CategoryConfigSchema, type ToolConfig } from './yaml-config-schema'
 
 const MCP_ROOT = path.resolve(__dirname, '..')
@@ -87,6 +88,42 @@ function loadOpenApi(): OpenApiSpec {
 
 function operationIdToToolName(operationId: string): string {
     return operationId.replace(/_/g, '-')
+}
+
+function isCanonicalProductMcpOutput(filePath: string): boolean {
+    const relative = path.relative(PRODUCTS_DIR, filePath)
+    const parts = relative.split(path.sep)
+    return parts.length === 3 && parts[1] === 'mcp'
+}
+
+function validateProductMcpOutputPath(filePath: string): void {
+    if (!isCanonicalProductMcpOutput(filePath)) {
+        return
+    }
+
+    const fileName = path.basename(filePath)
+    if (fileName !== 'tools.yaml' && fileName !== 'tools.yml') {
+        const product = path.basename(path.dirname(path.dirname(filePath)))
+        console.error(
+            `Invalid MCP definition filename in products/${product}/mcp: expected "tools.yaml" or "tools.yml", found "${fileName}"`
+        )
+        process.exit(1)
+    }
+
+    const directory = path.dirname(filePath)
+    if (!fs.existsSync(directory)) {
+        return
+    }
+
+    const otherYamlFiles = fs.readdirSync(directory).filter((entry) => isYamlFile(entry) && entry !== fileName)
+    if (otherYamlFiles.length > 0) {
+        const product = path.basename(path.dirname(directory))
+        console.error(
+            `Invalid MCP definitions in products/${product}/mcp: expected exactly one YAML file named "tools.yaml" or "tools.yml", found ` +
+                `${[fileName, ...otherYamlFiles].join(', ')}`
+        )
+        process.exit(1)
+    }
 }
 
 /**
@@ -331,40 +368,14 @@ function syncAll(spec: OpenApiSpec): void {
         filePath: string
     }
 
-    const targets: SyncTarget[] = []
-
-    // Core definitions — product derived from filename (e.g. actions.yaml → "actions")
-    if (fs.existsSync(DEFINITIONS_DIR)) {
-        for (const file of fs.readdirSync(DEFINITIONS_DIR)) {
-            if (!file.endsWith('.yaml') && !file.endsWith('.yml')) {
-                continue
-            }
-            targets.push({
-                product: file.replace(/\.ya?ml$/, ''),
-                filePath: path.join(DEFINITIONS_DIR, file),
-            })
-        }
-    }
-
-    // Product definitions — product derived from directory name
-    if (fs.existsSync(PRODUCTS_DIR)) {
-        for (const entry of fs.readdirSync(PRODUCTS_DIR, { withFileTypes: true })) {
-            if (!entry.isDirectory() || entry.name.startsWith('_')) {
-                continue
-            }
-            const mcpDir = path.join(PRODUCTS_DIR, entry.name, 'mcp')
-            if (!fs.existsSync(mcpDir)) {
-                continue
-            }
-            for (const file of fs.readdirSync(mcpDir)) {
-                if (!file.endsWith('.yaml') && !file.endsWith('.yml')) {
-                    continue
-                }
-                const product =
-                    file === 'tools.yaml' || file === 'tools.yml' ? entry.name : file.replace(/\.ya?ml$/, '')
-                targets.push({ product, filePath: path.join(mcpDir, file) })
-            }
-        }
+    let targets: SyncTarget[] = []
+    try {
+        const definitions = discoverDefinitions({ definitionsDir: DEFINITIONS_DIR, productsDir: PRODUCTS_DIR })
+        targets = definitions.map((source) => ({ product: source.moduleName, filePath: source.filePath }))
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        console.error(message)
+        process.exit(1)
     }
 
     if (targets.length === 0) {
@@ -445,6 +456,7 @@ function main(): void {
     const resolvedOutput = outputPath
         ? path.resolve(MCP_ROOT, outputPath)
         : path.join(DEFINITIONS_DIR, `${name.replace(/-/g, '_')}.yaml`)
+    validateProductMcpOutputPath(resolvedOutput)
 
     if (fs.existsSync(resolvedOutput)) {
         const { content, added, removed } = mergeWithExisting(resolvedOutput, ops, name)
