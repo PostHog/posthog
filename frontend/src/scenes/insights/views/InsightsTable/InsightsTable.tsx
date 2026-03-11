@@ -256,7 +256,7 @@ export function InsightsTable({
                 },
             })
         }
-    } else if (breakdownFilter?.breakdowns && !isSingleSeriesWithBreakdown) {
+    } else if (isValidBreakdown(breakdownFilter) && breakdownFilter?.breakdowns && !isSingleSeriesWithBreakdown) {
         breakdownFilter.breakdowns.forEach((breakdown, index) => {
             const formatItemBreakdownLabel = (item: IndexedTrendResult): string =>
                 formatBreakdownLabel(
