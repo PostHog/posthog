@@ -319,6 +319,7 @@ function PromptCard({
 }): JSX.Element {
     const { submitting } = useValues(llmPlaygroundRunLogic)
     const showHeaderRow = promptCount > 1 || canRemove
+    const messagesRef = React.useRef<HTMLDivElement>(null)
 
     return (
         <div className="min-w-0 border rounded p-4 bg-transparent group/prompt ring-1 ring-primary/40 shadow-sm h-full flex flex-col min-h-0">
@@ -352,9 +353,11 @@ function PromptCard({
                 <ModelConfigBar promptId={prompt.id} />
             </div>
 
-            <div className="min-h-0 overflow-y-auto pr-1">
+            <div ref={messagesRef} className="min-h-0 flex-1 overflow-y-auto pr-1">
                 <MessagesSection promptId={prompt.id} />
             </div>
+
+            <MessageActions promptId={prompt.id} scrollContainerRef={messagesRef} />
         </div>
     )
 }
@@ -628,8 +631,6 @@ function ModelConfigBar({ promptId }: { promptId: string }): JSX.Element {
 
 function MessagesSection({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
-    const { submitting } = useValues(llmPlaygroundRunLogic)
-    const { addMessage } = useActions(llmPlaygroundPromptsLogic)
 
     if (!prompt) {
         return <LemonSkeleton className="h-16" />
@@ -641,18 +642,42 @@ function MessagesSection({ promptId }: { promptId: string }): JSX.Element {
             {prompt.messages.map((message, index) => (
                 <MessageDisplay key={`${promptId}-${index}`} promptId={promptId} index={index} message={message} />
             ))}
-            <div className="flex items-center gap-2">
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconPlus />}
-                    onClick={() => addMessage(undefined, promptId)}
-                    disabledReason={submitting ? 'Generating...' : undefined}
-                >
-                    Message
-                </LemonButton>
-                <ToolsButton promptId={promptId} />
-            </div>
+        </div>
+    )
+}
+
+function MessageActions({
+    promptId,
+    scrollContainerRef,
+}: {
+    promptId: string
+    scrollContainerRef: React.RefObject<HTMLDivElement | null>
+}): JSX.Element {
+    const { submitting } = useValues(llmPlaygroundRunLogic)
+    const { addMessage } = useActions(llmPlaygroundPromptsLogic)
+
+    const handleAddMessage = (): void => {
+        addMessage(undefined, promptId)
+        requestAnimationFrame(() => {
+            const el = scrollContainerRef.current
+            if (el) {
+                el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+            }
+        })
+    }
+
+    return (
+        <div className="flex items-center gap-2 shrink-0 mt-3">
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconPlus />}
+                onClick={handleAddMessage}
+                disabledReason={submitting ? 'Generating...' : undefined}
+            >
+                Message
+            </LemonButton>
+            <ToolsButton promptId={promptId} />
         </div>
     )
 }

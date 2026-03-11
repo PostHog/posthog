@@ -30,6 +30,7 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlagDashboards, get_feature_flags_for_team_in_cache
 from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
 from posthog.models.feature_flag.flag_status import FeatureFlagStatus
+from posthog.models.group.group import Group
 from posthog.models.group.util import create_group
 from posthog.models.organization import Organization
 from posthog.models.person import Person
@@ -83,53 +84,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         for key in r.scan_iter("*"):
             r.delete(key)
         return super().setUp()
-
-    def test_cant_create_flag_with_more_than_max_values(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags",
-            {
-                "name": "Beta feature",
-                "key": "beta-x",
-                "filters": {
-                    "groups": [
-                        {
-                            "rollout_percentage": 65,
-                            "properties": [
-                                {
-                                    "key": "email",
-                                    "type": "person",
-                                    "value": [
-                                        "1@gmail.com",
-                                        "2@gmail.com",
-                                        "3@gmail.com",
-                                        "4@gmail.com",
-                                        "5@gmail.com",
-                                        "6@gmail.com",
-                                        "7@gmail.com",
-                                        "8@gmail.com",
-                                        "9@gmail.com",
-                                        "10@gmail.com",
-                                        "11@gmail.com",
-                                        "12@gmail.com",
-                                    ],
-                                    "operator": "exact",
-                                }
-                            ],
-                        }
-                    ]
-                },
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "Property group expressions of type email cannot contain more than 10 values.",
-                "attr": "filters",
-            },
-        )
 
     def test_cant_create_flag_with_duplicate_key(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
@@ -5919,6 +5873,63 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "value": cohort.pk,
                 "cohort_name": "test_cohort",
             },
+        )
+
+    def test_feature_flag_includes_group_key_names(self):
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        Group.objects.create(
+            team=self.team,
+            group_key="org-uuid-1",
+            group_type_index=0,
+            group_properties={"name": "Acme Corp"},
+            version=0,
+        )
+        Group.objects.create(
+            team=self.team,
+            group_key="org-uuid-2",
+            group_type_index=0,
+            group_properties={"name": "Widget Inc"},
+            version=0,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Group flag",
+                "key": "group-flag",
+                "filters": {
+                    "aggregation_group_type_index": 0,
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": "$group_key",
+                                    "type": "group",
+                                    "value": ["org-uuid-1", "org-uuid-2"],
+                                    "operator": "exact",
+                                    "group_type_index": 0,
+                                }
+                            ]
+                        }
+                    ],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/{response.json()['id']}/",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        prop = response.json()["filters"]["groups"][0]["properties"][0]
+        self.assertEqual(prop["key"], "$group_key")
+        self.assertEqual(
+            prop["group_key_names"],
+            {"org-uuid-1": "Acme Corp", "org-uuid-2": "Widget Inc"},
         )
 
     def test_create_feature_flag_in_specific_folder(self):

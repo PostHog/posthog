@@ -12,6 +12,8 @@ class ReadEvents(BaseModel):
     """Returns the list of available events. Events are sorted by their popularity where the most popular events are at the top."""
 
     kind: Literal["events"] = "events"
+    limit: int = Field(default=500, ge=1, le=500, description="Number of events to return per page.")
+    offset: int = Field(default=0, ge=0, description="Number of events to skip for pagination.")
 
 
 class ReadEventProperties(BaseModel):
@@ -84,7 +86,7 @@ def execute_taxonomy_query(query: ReadTaxonomyQuery, toolkit: TaxonomyAgentToolk
     """
     match query:
         case ReadEvents():
-            return format_events_yaml([], team)
+            return format_events_yaml([], team, limit=query.limit, offset=query.offset)
         case ReadEventProperties():
             return toolkit.retrieve_event_or_action_properties(query.event_name)
         case ReadEventSamplePropertyValues():

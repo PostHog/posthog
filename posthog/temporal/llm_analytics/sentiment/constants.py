@@ -24,6 +24,7 @@ QUERY_LOOKBACK_DAYS = 30  # timestamp filter to enable partition pruning
 # Temporal workflow/activity config
 WORKFLOW_NAME = "llma-sentiment-classify"
 ACTIVITY_TIMEOUT_SECONDS = 120  # start-to-close timeout for classify activity
+ACTIVITY_SCHEDULE_TO_START_TIMEOUT_SECONDS = 30  # fail fast if no worker picks up the activity
 WORKFLOW_TIMEOUT_BATCH_SECONDS = 120  # task timeout for sentiment workflow
 MAX_RETRY_ATTEMPTS = 2  # retry policy for both workflow and activity
 
