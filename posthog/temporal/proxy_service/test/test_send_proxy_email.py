@@ -16,7 +16,7 @@ def _make_inputs(**overrides):
         "domain": "proxy.example.com",
     }
     defaults.update(overrides)
-    return SendProxyCreatedEmailInputs(**defaults)
+    return SendProxyCreatedEmailInputs(**defaults)  # type: ignore
 
 
 @pytest.mark.django_db(transaction=True)
