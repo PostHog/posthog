@@ -35,7 +35,11 @@ class BuildBetterSource(SimpleSource[BuildBetterSourceConfig]):
         }
 
     def get_schemas(
-        self, config: BuildBetterSourceConfig, team_id: int, with_counts: bool = False
+        self,
+        config: BuildBetterSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        table_names: list[str] | None = None,
     ) -> list[SourceSchema]:
         return [
             SourceSchema(

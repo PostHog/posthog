@@ -135,7 +135,13 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
             "Connection refused": None,
         }
 
-    def get_schemas(self, config: RedshiftSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self,
+        config: RedshiftSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        table_names: list[str] | None = None,
+    ) -> list[SourceSchema]:
         schemas = []
 
         with self.with_ssh_tunnel(config) as (host, port):

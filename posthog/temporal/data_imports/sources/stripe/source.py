@@ -143,7 +143,9 @@ These permissions are automatically pre-filled in the API key creation form if y
             "PermissionError": "Your API key does not have permissions to access endpoint. Please check your API key configuration and permissions in Stripe, then try again.",
         }
 
-    def get_schemas(self, config: StripeSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: StripeSourceConfig, team_id: int, with_counts: bool = False, table_names: list[str] | None = None
+    ) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,

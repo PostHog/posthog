@@ -35,7 +35,11 @@ class SalesforceSource(SimpleSource[SalesforceSourceConfig], OAuthMixin):
         }
 
     def get_schemas(
-        self, config: SalesforceSourceConfig, team_id: int, with_counts: bool = False
+        self,
+        config: SalesforceSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        table_names: list[str] | None = None,
     ) -> list[SourceSchema]:
         return [
             SourceSchema(

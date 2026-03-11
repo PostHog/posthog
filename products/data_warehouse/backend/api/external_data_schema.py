@@ -359,7 +359,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         try:
-            schemas = new_source.get_schemas(config, self.team_id)
+            schemas = new_source.get_schemas(config, self.team_id, table_names=[instance.name])
         except Exception as e:
             capture_exception(e)
             return Response(

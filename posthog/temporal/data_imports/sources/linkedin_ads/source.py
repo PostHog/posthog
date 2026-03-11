@@ -82,7 +82,11 @@ class LinkedInAdsSource(SimpleSource[LinkedinAdsSourceConfig]):
             return False, f"Failed to validate LinkedIn Ads credentials: {str(e)}"
 
     def get_schemas(
-        self, config: LinkedinAdsSourceConfig, team_id: int, with_counts: bool = False
+        self,
+        config: LinkedinAdsSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        table_names: list[str] | None = None,
     ) -> list[SourceSchema]:
         linkedin_ads_schemas = get_linkedin_ads_schemas()
         ads_incremental_fields = get_linkedin_ads_incremental_fields()

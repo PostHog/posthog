@@ -31,7 +31,11 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
         return ExternalDataSourceType.TEMPORALIO
 
     def get_schemas(
-        self, config: TemporalIOSourceConfig, team_id: int, with_counts: bool = False
+        self,
+        config: TemporalIOSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        table_names: list[str] | None = None,
     ) -> list[SourceSchema]:
         return [
             SourceSchema(

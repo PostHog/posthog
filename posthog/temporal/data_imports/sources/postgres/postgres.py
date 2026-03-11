@@ -140,7 +140,14 @@ def get_postgres_row_count(
 
 
 def get_schemas(
-    host: str, database: str, user: str, password: str, schema: str, port: int, require_ssl: bool = False
+    host: str,
+    database: str,
+    user: str,
+    password: str,
+    schema: str,
+    port: int,
+    require_ssl: bool = False,
+    table_names: list[str] | None = None,
 ) -> dict[str, list[tuple[str, str, bool]]]:
     """Get all tables from PostgreSQL source schemas to sync."""
 
@@ -166,12 +173,19 @@ def get_schemas(
             ) from e
         raise
 
+    table_filter = ""
+    params: dict[str, Any] = {"schema": schema}
+    if table_names is not None:
+        table_filter = " AND table_name = ANY(%(table_names)s)"
+        params["table_names"] = table_names
+
     with connection.cursor() as cursor:
+        cursor.execute(sql.SQL("SET LOCAL statement_timeout = {timeout}").format(timeout=sql.Literal(1000 * 30)))
         cursor.execute(
-            """
+            f"""
             SELECT * FROM (
                 SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns
-                WHERE table_schema = %(schema)s
+                WHERE table_schema = %(schema)s{table_filter}
                 UNION ALL
                 SELECT
                     c.relname AS table_name,
@@ -181,13 +195,14 @@ def get_schemas(
                 FROM pg_class c
                 JOIN pg_namespace n ON c.relnamespace = n.oid
                 JOIN pg_attribute a ON a.attrelid = c.oid
-                WHERE c.relkind = 'm'  -- materialized view
+                WHERE c.relkind = 'm'
                 AND n.nspname = %(schema)s
                 AND a.attnum > 0
                 AND NOT a.attisdropped
+                {"AND c.relname = ANY(%(table_names)s)" if table_names is not None else ""}
             ) t
             ORDER BY table_name ASC""",
-            {"schema": schema},
+            params,
         )
         result = cursor.fetchall()
 
@@ -201,7 +216,14 @@ def get_schemas(
 
 
 def get_foreign_keys(
-    host: str, database: str, user: str, password: str, schema: str, port: int, require_ssl: bool = False
+    host: str,
+    database: str,
+    user: str,
+    password: str,
+    schema: str,
+    port: int,
+    require_ssl: bool = False,
+    table_names: list[str] | None = None,
 ) -> dict[str, list[tuple[str, str, str]]]:
     """Get foreign keys for tables in the selected PostgreSQL schema."""
 
@@ -227,9 +249,16 @@ def get_foreign_keys(
             ) from e
         raise
 
+    table_filter = ""
+    params: dict[str, Any] = {"schema": schema}
+    if table_names is not None:
+        table_filter = " AND tc.table_name = ANY(%(table_names)s)"
+        params["table_names"] = table_names
+
     with connection.cursor() as cursor:
+        cursor.execute(sql.SQL("SET LOCAL statement_timeout = {timeout}").format(timeout=sql.Literal(1000 * 30)))
         cursor.execute(
-            """
+            f"""
             SELECT
                 tc.table_name AS table_name,
                 kcu.column_name AS column_name,
@@ -244,10 +273,10 @@ def get_foreign_keys(
                 AND ccu.table_schema = tc.table_schema
             WHERE tc.constraint_type = 'FOREIGN KEY'
               AND tc.table_schema = %(schema)s
-              AND ccu.table_schema = %(schema)s
+              AND ccu.table_schema = %(schema)s{table_filter}
             ORDER BY tc.table_name, kcu.ordinal_position
             """,
-            {"schema": schema},
+            params,
         )
         result = cursor.fetchall()
 

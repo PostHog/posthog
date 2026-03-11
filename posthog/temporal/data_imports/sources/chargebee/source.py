@@ -35,7 +35,13 @@ class ChargebeeSource(SimpleSource[ChargebeeSourceConfig]):
             "Unauthorized for url": "Chargebee authentication failed. Please check your API key and site name.",
         }
 
-    def get_schemas(self, config: ChargebeeSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self,
+        config: ChargebeeSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        table_names: list[str] | None = None,
+    ) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,

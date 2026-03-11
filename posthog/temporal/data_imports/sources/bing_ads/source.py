@@ -70,7 +70,13 @@ class BingAdsSource(SimpleSource[BingAdsSourceConfig], OAuthMixin):
             capture_exception(e)
             return False, f"Failed to validate Bing Ads credentials: {str(e)}"
 
-    def get_schemas(self, config: BingAdsSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self,
+        config: BingAdsSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        table_names: list[str] | None = None,
+    ) -> list[SourceSchema]:
         bing_ads_schemas = get_schemas()
         ads_incremental_fields = get_incremental_fields()
 

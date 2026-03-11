@@ -81,7 +81,13 @@ class ShopifySource(SimpleSource[ShopifySourceConfig]):
         except Exception as e:
             return False, str(e)
 
-    def get_schemas(self, config: ShopifySourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self,
+        config: ShopifySourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        table_names: list[str] | None = None,
+    ) -> list[SourceSchema]:
         schemas = []
         for obj in SHOPIFY_GRAPHQL_OBJECTS.values():
             endpoint_config = ENDPOINT_CONFIGS.get(obj.name)

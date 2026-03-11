@@ -55,6 +55,7 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
         config: GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig,
         team_id: int,
         with_counts: bool = False,
+        table_names: list[str] | None = None,
     ) -> list[SourceSchema]:
         google_ads_schemas = get_google_ads_schemas(
             config,

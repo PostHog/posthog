@@ -72,7 +72,11 @@ class SnapchatAdsSource(SimpleSource[SnapchatAdsSourceConfig], OAuthMixin):
             return False, f"Failed to validate Snapchat Ads credentials: {str(e)}"
 
     def get_schemas(
-        self, config: SnapchatAdsSourceConfig, team_id: int, with_counts: bool = False
+        self,
+        config: SnapchatAdsSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        table_names: list[str] | None = None,
     ) -> list[SourceSchema]:
         return [
             SourceSchema(

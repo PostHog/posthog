@@ -67,7 +67,9 @@ You can generate an API key in your Attio workspace settings. Check out [this gu
             featureFlag="dwh_attio",
         )
 
-    def get_schemas(self, config: AttioSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: AttioSourceConfig, team_id: int, with_counts: bool = False, table_names: list[str] | None = None
+    ) -> list[SourceSchema]:
         # Attio API doesn't support updatedAt filtering, so only full refresh is supported
         return [
             SourceSchema(

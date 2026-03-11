@@ -62,7 +62,13 @@ The API key format is: `key-dc` (e.g., `abc123def456-us6`), where `dc` is the da
             "Invalid Mailchimp API key format": "Invalid API key format. Expected format: key-dc (e.g., abc123-us6)",
         }
 
-    def get_schemas(self, config: MailchimpSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self,
+        config: MailchimpSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        table_names: list[str] | None = None,
+    ) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,

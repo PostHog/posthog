@@ -32,7 +32,13 @@ class MetaAdsSource(SimpleSource[MetaAdsSourceConfig]):
             "cannot be loaded due to missing permissions": None,
         }
 
-    def get_schemas(self, config: MetaAdsSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self,
+        config: MetaAdsSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        table_names: list[str] | None = None,
+    ) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,

@@ -38,7 +38,13 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
             "401 Client Error": "Zendesk authentication failed. Please check your API token and subdomain.",
         }
 
-    def get_schemas(self, config: ZendeskSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self,
+        config: ZendeskSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        table_names: list[str] | None = None,
+    ) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,

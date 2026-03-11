@@ -66,7 +66,9 @@ class LinearSource(SimpleSource[LinearSourceConfig], OAuthMixin):
             raise ValueError("Linear access token not found")
         return integration.access_token
 
-    def get_schemas(self, config: LinearSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: LinearSourceConfig, team_id: int, with_counts: bool = False, table_names: list[str] | None = None
+    ) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,

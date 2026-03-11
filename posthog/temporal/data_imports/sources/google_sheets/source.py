@@ -39,7 +39,11 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         }
 
     def get_schemas(
-        self, config: GoogleSheetsSourceConfig, team_id: int, with_counts: bool = False
+        self,
+        config: GoogleSheetsSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        table_names: list[str] | None = None,
     ) -> list[SourceSchema]:
         sheets = get_google_sheets_schemas(config)
 

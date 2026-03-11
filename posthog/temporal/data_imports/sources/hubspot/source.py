@@ -65,7 +65,11 @@ class HubspotSource(SimpleSource[HubspotSourceConfig | HubspotSourceOldConfig], 
         return HubspotSourceOldConfig.from_dict(job_inputs)
 
     def get_schemas(
-        self, config: HubspotSourceConfig | HubspotSourceOldConfig, team_id: int, with_counts: bool = False
+        self,
+        config: HubspotSourceConfig | HubspotSourceOldConfig,
+        team_id: int,
+        with_counts: bool = False,
+        table_names: list[str] | None = None,
     ) -> list[SourceSchema]:
         return [
             SourceSchema(
