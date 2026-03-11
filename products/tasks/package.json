@@ -1,8 +1,7 @@
 {
     "name": "@posthog/products-tasks",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests backend/services -v --tb=short",
-        "backend:contract-check": "echo 'Contract files unchanged'"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests backend/services -v --tb=short"
     },
     "dependencies": {
         "fast-deep-equal": "catalog:",
