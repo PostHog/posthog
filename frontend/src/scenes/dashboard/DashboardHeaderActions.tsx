@@ -35,7 +35,7 @@ export function EditModeActions(): JSX.Element {
             </LemonButton>
             <AppShortcut
                 name="SaveDashboard"
-                keybind={[keyBinds.edit]}
+                keybind={[keyBinds.edit, keyBinds.save]}
                 intent="Save dashboard"
                 interaction="click"
                 scope={Scene.Dashboard}
