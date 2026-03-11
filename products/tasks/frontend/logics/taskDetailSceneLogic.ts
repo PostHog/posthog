@@ -49,6 +49,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         stopPolling: true,
         startStreaming: true,
         stopStreaming: true,
+        markStreamingFailed: true,
         appendStreamEntries: (entries: LogEntry[]) => ({ entries }),
         setLogs: (logs: string) => ({ logs }),
         updateRun: (run: TaskRun) => ({ run }),
@@ -94,7 +95,21 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             [] as LogEntry[],
             {
                 setSelectedRunId: (state, { taskId }) => (taskId === props.taskId ? [] : state),
-                appendStreamEntries: (state, { entries }) => [...state, ...entries],
+                appendStreamEntries: (state, { entries }) => {
+                    if (entries.length === 0) {
+                        return state
+                    }
+                    const last = state[state.length - 1]
+                    const first = entries[0]
+                    if (last?.type === 'agent' && first.type === 'agent') {
+                        return [
+                            ...state.slice(0, -1),
+                            { ...last, message: (last.message || '') + (first.message || '') },
+                            ...entries.slice(1),
+                        ]
+                    }
+                    return [...state, ...entries]
+                },
             },
         ],
         isStreaming: [
@@ -102,6 +117,13 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             {
                 startStreaming: () => true,
                 stopStreaming: () => false,
+            },
+        ],
+        streamingFailed: [
+            false,
+            {
+                setSelectedRunId: () => false,
+                markStreamingFailed: () => true,
             },
         ],
     })),
@@ -234,8 +256,11 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             }
             actions.loadTask()
             if (values.shouldPoll) {
-                // Try streaming first; falls back to polling on error
-                actions.startStreaming()
+                if (values.streamingFailed) {
+                    actions.startPolling()
+                } else {
+                    actions.startStreaming()
+                }
             } else {
                 actions.stopPolling()
                 actions.stopStreaming()
@@ -276,6 +301,8 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
 
                         if (!response.ok || !response.body) {
                             // Stream not available — fall back to polling
+                            actions.stopStreaming()
+                            actions.markStreamingFailed()
                             actions.startPolling()
                             return
                         }
@@ -331,6 +358,8 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                         }
                         // Stream failed — fall back to polling
                         console.warn('SSE stream error, falling back to polling:', e)
+                        actions.stopStreaming()
+                        actions.markStreamingFailed()
                         actions.startPolling()
                     }
                 }

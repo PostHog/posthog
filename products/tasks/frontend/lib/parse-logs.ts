@@ -192,6 +192,60 @@ function parseACPNotification(parsed: ACPNotification, id: string, toolMap: Map<
     return null
 }
 
+function parseLogObject(parsed: Record<string, unknown>, id: string): LogEntry | null {
+    if (parsed.toolName || parsed.tool_name || parsed.tool) {
+        return {
+            id,
+            type: 'tool',
+            timestamp: (parsed.timestamp || parsed.time) as string | undefined,
+            toolName: (parsed.toolName || parsed.tool_name || parsed.tool) as string,
+            toolStatus: 'completed',
+            toolArgs: (parsed.args || parsed.arguments || parsed.input) as Record<string, unknown> | undefined,
+            toolResult: parsed.result || parsed.output,
+        }
+    }
+
+    if (parsed.level || parsed.severity) {
+        return {
+            id,
+            type: 'console',
+            timestamp: (parsed.timestamp || parsed.time) as string | undefined,
+            level: normalizeLevel((parsed.level || parsed.severity) as string | undefined),
+            message: ((parsed.message || parsed.msg || parsed.text) as string) || JSON.stringify(parsed),
+        }
+    }
+
+    if (parsed.role === 'user' || parsed.type === 'user') {
+        return {
+            id,
+            type: 'user',
+            timestamp: (parsed.timestamp || parsed.time) as string | undefined,
+            message: (parsed.content || parsed.message || parsed.text) as string | undefined,
+        }
+    }
+
+    if (parsed.role === 'assistant' || parsed.type === 'agent' || parsed.type === 'assistant') {
+        return {
+            id,
+            type: 'agent',
+            timestamp: (parsed.timestamp || parsed.time) as string | undefined,
+            message: (parsed.content || parsed.message || parsed.text) as string | undefined,
+        }
+    }
+
+    if (parsed.message || parsed.msg || parsed.text) {
+        return {
+            id,
+            type: 'console',
+            timestamp: (parsed.timestamp || parsed.time) as string | undefined,
+            level: 'info',
+            message: (parsed.message || parsed.msg || parsed.text) as string,
+        }
+    }
+
+    return null
+}
+
 function parseLogLine(line: string, index: number, toolMap: Map<string, LogEntry>): LogEntry | null {
     const id = `log-${index}`
     const trimmed = line.trim()
@@ -211,61 +265,7 @@ function parseLogLine(line: string, index: number, toolMap: Map<string, LogEntry
             return parseACPNotification(parsed, id, toolMap)
         }
 
-        if (parsed.toolName || parsed.tool_name || parsed.tool) {
-            return {
-                id,
-                type: 'tool',
-                timestamp: parsed.timestamp || parsed.time,
-                toolName: parsed.toolName || parsed.tool_name || parsed.tool,
-                toolStatus: 'completed',
-                toolArgs: parsed.args || parsed.arguments || parsed.input,
-                toolResult: parsed.result || parsed.output,
-            }
-        }
-
-        if (parsed.level || parsed.severity) {
-            return {
-                id,
-                type: 'console',
-                timestamp: parsed.timestamp || parsed.time,
-                level: normalizeLevel(parsed.level || parsed.severity),
-                message: parsed.message || parsed.msg || parsed.text || JSON.stringify(parsed),
-            }
-        }
-
-        if (parsed.role === 'user' || parsed.type === 'user') {
-            return {
-                id,
-                type: 'user',
-                timestamp: parsed.timestamp || parsed.time,
-                message: parsed.content || parsed.message || parsed.text,
-            }
-        }
-
-        if (parsed.role === 'assistant' || parsed.type === 'agent' || parsed.type === 'assistant') {
-            return {
-                id,
-                type: 'agent',
-                timestamp: parsed.timestamp || parsed.time,
-                message: parsed.content || parsed.message || parsed.text,
-            }
-        }
-
-        if (parsed.message || parsed.msg || parsed.text) {
-            return {
-                id,
-                type: 'console',
-                timestamp: parsed.timestamp || parsed.time,
-                level: 'info',
-                message: parsed.message || parsed.msg || parsed.text,
-            }
-        }
-
-        return {
-            id,
-            type: 'raw',
-            raw: line,
-        }
+        return parseLogObject(parsed, id) ?? { id, type: 'raw', raw: line }
     } catch {
         return {
             id,
@@ -290,49 +290,7 @@ export function parseLogEvent(
         return parseACPNotification(event as ACPNotification, id, toolMap)
     }
 
-    // Fall back to generic heuristics (same as parseLogLine for JSON objects)
-    const parsed = event as Record<string, string | undefined>
-    if (parsed.toolName || parsed.tool_name || parsed.tool) {
-        return {
-            id,
-            type: 'tool',
-            timestamp: parsed.timestamp || parsed.time,
-            toolName: parsed.toolName || parsed.tool_name || parsed.tool,
-            toolStatus: 'completed',
-            toolArgs: (parsed as Record<string, unknown>).args as Record<string, unknown> | undefined,
-            toolResult: (parsed as Record<string, unknown>).result,
-        }
-    }
-
-    if (parsed.level || parsed.severity) {
-        return {
-            id,
-            type: 'console',
-            timestamp: parsed.timestamp || parsed.time,
-            level: normalizeLevel(parsed.level || parsed.severity),
-            message: parsed.message || parsed.msg || parsed.text || JSON.stringify(event),
-        }
-    }
-
-    if (parsed.role === 'user' || parsed.type === 'user') {
-        return {
-            id,
-            type: 'user',
-            timestamp: parsed.timestamp || parsed.time,
-            message: parsed.content || parsed.message || parsed.text,
-        }
-    }
-
-    if (parsed.role === 'assistant' || parsed.type === 'agent' || parsed.type === 'assistant') {
-        return {
-            id,
-            type: 'agent',
-            timestamp: parsed.timestamp || parsed.time,
-            message: parsed.content || parsed.message || parsed.text,
-        }
-    }
-
-    return null
+    return parseLogObject(event, id)
 }
 
 export function parseLogs(logs: string): LogEntry[] {
