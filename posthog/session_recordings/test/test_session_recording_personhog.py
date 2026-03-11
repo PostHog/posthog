@@ -97,7 +97,9 @@ class TestLoadPersonRouting(SimpleTestCase):
 
         recording.load_person()
 
-        mock_routing_counter.labels.assert_called_with(operation="load_person", source=expected_source)
+        mock_routing_counter.labels.assert_called_with(
+            operation="load_person", source=expected_source, client_name="posthog-django"
+        )
 
         if gate_on and grpc_exception is None:
             mock_person_objects.db_manager.assert_not_called()

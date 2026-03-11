@@ -73,7 +73,9 @@ class TestGetPersonsByUuidsRouting(SimpleTestCase):
         else:
             assert result == mock_qs
 
-        mock_routing_counter.labels.assert_called_with(operation="get_persons_by_uuids", source=expected_source)
+        mock_routing_counter.labels.assert_called_with(
+            operation="get_persons_by_uuids", source=expected_source, client_name="posthog-django"
+        )
 
         if grpc_exception is not None and gate_on:
             mock_errors_counter.labels.assert_called_once()
@@ -144,7 +146,9 @@ class TestGetPersonsByDistinctIdsRouting(SimpleTestCase):
                 result = get_persons_by_distinct_ids(team_id, distinct_ids)
                 assert result == []
 
-        mock_routing_counter.labels.assert_called_with(operation="get_persons_by_distinct_ids", source=expected_source)
+        mock_routing_counter.labels.assert_called_with(
+            operation="get_persons_by_distinct_ids", source=expected_source, client_name="posthog-django"
+        )
 
         if grpc_exception is not None and gate_on:
             mock_errors_counter.labels.assert_called_once()
