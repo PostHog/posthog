@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-03-09 20:04:37 UTC
+// Generated at: 2026-03-11 10:12:41 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -9,6 +9,7 @@ export type CanonicalProvider =
     | 'alibaba'
     | 'alibaba-opensource'
     | 'amazon-bedrock'
+    | 'ambient-fp8'
     | 'anthropic'
     | 'arcee-ai-bf16'
     | 'arcee-ai-modal'
@@ -25,7 +26,6 @@ export type CanonicalProvider =
     | 'chutes-fp8'
     | 'chutes-int4'
     | 'cirrascale'
-    | 'clarifai'
     | 'clarifai-bf16'
     | 'clarifai-fp4'
     | 'cloudflare'
@@ -58,12 +58,10 @@ export type CanonicalProvider =
     | 'inception'
     | 'inceptron-fp8'
     | 'inceptron-int4'
-    | 'infermatic'
     | 'infermatic-bf16'
     | 'inflection'
     | 'io-net-bf16'
     | 'io-net-fp16'
-    | 'ionstream-bf16'
     | 'ionstream-fp8'
     | 'liquid'
     | 'mancer-fp8'
