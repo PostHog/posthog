@@ -113,15 +113,13 @@ class TestGroupingQuality:
 
             input_lines = []
             if matching_group:
-                for sid in matching_group.signal_ids[:5]:
+                for i, sid in enumerate(matching_group.signal_ids):
                     sig = signal_lookup.get(sid)
                     if sig:
                         input_lines.append(
-                            f"[{sig.source_product}/{sig.source_type}] {sig.content[:100].replace(chr(10), ' ')}"
+                            f"--- Signal {i + 1} [{sig.source_product}/{sig.source_type}] ---\n{sig.content}"
                         )
-                if len(matching_group.signal_ids) > 5:
-                    input_lines.append(f"... and {len(matching_group.signal_ids) - 5} more")
-            input_str = "\n".join(input_lines) if input_lines else ""
+            input_str = "\n\n".join(input_lines)
 
             is_singleton = coherence is None
             status = "SINGLETON" if is_singleton else f"coherence={coherence}/5"
@@ -134,6 +132,14 @@ class TestGroupingQuality:
                 assessment[:60],
             )
 
+            output_str = (
+                f"Group: {group_id} — {group_title}\n"
+                f"Signals: {signal_count}\n"
+                f"Coherence: {coherence}/5\n"
+                f"Misplaced: {misplaced}\n"
+                f"Assessment: {assessment}"
+            )
+
             common = {
                 "client": self.posthog_client,
                 "experiment_id": experiment_id,
@@ -141,24 +147,28 @@ class TestGroupingQuality:
                 "item_id": item_id,
                 "item_name": item_name,
                 "input": input_str,
-                "output": assessment,
-                "expected": f"{signal_count} signals",
+                "output": output_str,
+                "expected": None,
             }
 
-            if coherence is not None:
-                capture_evaluation(
-                    **common,
-                    metric=EvalMetric(
-                        name="coherence",
-                        version="1",
-                        result_type="numeric",
-                        score=coherence / 5.0,
-                        score_min=0,
-                        score_max=1,
-                        reasoning=f"Coherence {coherence}/5: {assessment}",
-                    ),
-                )
+            coherence_score = 1.0 if is_singleton else coherence / 5.0
+            coherence_reasoning = (
+                "Singleton (coherent by definition)" if is_singleton else f"Coherence {coherence}/5: {assessment}"
+            )
+            capture_evaluation(
+                **common,
+                metric=EvalMetric(
+                    name="coherence",
+                    version="1",
+                    result_type="numeric",
+                    score=coherence_score,
+                    score_min=0,
+                    score_max=1,
+                    reasoning=coherence_reasoning,
+                ),
+            )
 
+            if not is_singleton:
                 capture_evaluation(
                     **common,
                     metric=EvalMetric(
@@ -182,6 +192,19 @@ class TestGroupingQuality:
                     score_min=0,
                     score_max=1,
                     reasoning=f"{misplaced} misplaced signal{'s' if misplaced != 1 else ''} in group of {signal_count}",
+                ),
+            )
+
+            capture_evaluation(
+                **common,
+                metric=EvalMetric(
+                    name="is_group",
+                    version="1",
+                    result_type="binary",
+                    score=0.0 if is_singleton else 1.0,
+                    score_min=0,
+                    score_max=1,
+                    reasoning="Singleton" if is_singleton else f"Group of {signal_count} signals",
                 ),
             )
 
