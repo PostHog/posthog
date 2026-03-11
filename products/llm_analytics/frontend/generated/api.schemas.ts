@@ -752,6 +752,156 @@ export interface PatchedDatasetApi {
     readonly team?: number
 }
 
+/**
+ * * `categorical` - categorical
+ * `numeric` - numeric
+ * `boolean` - boolean
+ */
+export type Kind01eEnumApi = (typeof Kind01eEnumApi)[keyof typeof Kind01eEnumApi]
+
+export const Kind01eEnumApi = {
+    Categorical: 'categorical',
+    Numeric: 'numeric',
+    Boolean: 'boolean',
+} as const
+
+export interface CategoricalScoreOptionApi {
+    /**
+     * Stable option key. Use lowercase letters, numbers, underscores, or hyphens.
+     * @maxLength 128
+     */
+    key: string
+    /**
+     * Human-readable option label.
+     * @maxLength 256
+     */
+    label: string
+}
+
+export interface CategoricalScoreDefinitionConfigApi {
+    /**
+     * Ordered categorical options available to the scorer.
+     */
+    options: CategoricalScoreOptionApi[]
+}
+
+export interface NumericScoreDefinitionConfigApi {
+    /**
+     * Optional inclusive minimum score.
+     * @nullable
+     */
+    min?: number | null
+    /**
+     * Optional inclusive maximum score.
+     * @nullable
+     */
+    max?: number | null
+    /**
+     * Optional increment step for numeric input, for example 1 or 0.5.
+     * @nullable
+     */
+    step?: number | null
+}
+
+export interface BooleanScoreDefinitionConfigApi {
+    /**
+     * Optional label for a true value.
+     */
+    true_label?: string
+    /**
+     * Optional label for a false value.
+     */
+    false_label?: string
+}
+
+export type ScoreDefinitionConfigApi =
+    | CategoricalScoreDefinitionConfigApi
+    | NumericScoreDefinitionConfigApi
+    | BooleanScoreDefinitionConfigApi
+
+export interface ScoreDefinitionApi {
+    readonly id: string
+    readonly name: string
+    readonly description: string
+    readonly kind: Kind01eEnumApi
+    readonly archived: boolean
+    /**
+     * Current immutable configuration version number.
+     */
+    readonly current_version: number
+    /**
+     * Current immutable scorer configuration.
+     */
+    readonly config: ScoreDefinitionConfigApi
+    /**
+     * User who created the scorer.
+     * @nullable
+     */
+    readonly created_by: UserBasicApi | null
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    readonly team: number
+}
+
+export interface PaginatedScoreDefinitionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ScoreDefinitionApi[]
+}
+
+export interface PatchedScoreDefinitionMetadataApi {
+    /**
+     * Updated scorer name.
+     * @maxLength 255
+     */
+    name?: string
+    /**
+     * Updated scorer description.
+     * @nullable
+     */
+    description?: string | null
+    /**
+     * Whether the scorer is archived.
+     */
+    archived?: boolean
+}
+
+export interface ScoreDefinitionCreateApi {
+    /**
+     * Human-readable scorer name.
+     * @maxLength 255
+     */
+    name: string
+    /**
+     * Optional human-readable description.
+     * @nullable
+     */
+    description?: string | null
+    /**
+     * Scorer kind. This cannot be changed after creation.
+     */
+    kind: Kind01eEnumApi
+    /**
+     * New scorers are always created as active.
+     */
+    archived?: boolean
+    /**
+     * Initial immutable scorer configuration.
+     */
+    config: ScoreDefinitionConfigApi
+}
+
+export interface ScoreDefinitionNewVersionApi {
+    /**
+     * Next immutable scorer configuration.
+     */
+    config: ScoreDefinitionConfigApi
+}
+
 export type EvaluationsListParams = {
     /**
      * Filter by enabled status
@@ -814,6 +964,33 @@ export type LlmAnalyticsProviderKeysListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type LlmAnalyticsScoreDefinitionsListParams = {
+    /**
+     * Filter by archived state.
+     */
+    archived?: boolean
+    /**
+     * Filter by scorer kind.
+     */
+    kind?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Sort by name, kind, created_at, updated_at, or current_version.
+     */
+    order_by?: string
+    /**
+     * Search scorers by name or description.
+     */
+    search?: string
 }
 
 export type LlmAnalyticsSentimentCreate400 = { [key: string]: unknown }

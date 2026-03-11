@@ -71,6 +71,7 @@ from products.llm_analytics.backend.api import (
     LLMProviderKeyValidationViewSet,
     LLMProviderKeyViewSet,
     LLMProxyViewSet,
+    ScoreDefinitionViewSet,
 )
 from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.posthog_ai.backend.api import MCPToolsViewSet
@@ -1280,6 +1281,13 @@ environments_router.register(
     r"llm_analytics/sentiment",
     LLMAnalyticsSentimentViewSet,
     "environment_llm_analytics_sentiment",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/score_definitions",
+    ScoreDefinitionViewSet,
+    "environment_llm_analytics_score_definitions",
     ["team_id"],
 )
 

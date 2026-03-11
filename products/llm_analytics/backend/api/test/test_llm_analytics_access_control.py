@@ -1,5 +1,6 @@
 import pytest
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -22,6 +23,12 @@ except ImportError:
 class TestLLMAnalyticsAccessControl(APIBaseTest):
     def setUp(self):
         super().setUp()
+        self.feature_flag_patcher = patch(
+            "products.llm_analytics.backend.api.score_definitions.posthoganalytics.feature_enabled",
+            return_value=True,
+        )
+        self.feature_flag_patcher.start()
+        self.addCleanup(self.feature_flag_patcher.stop)
 
         self.organization.available_product_features = [
             {
@@ -105,6 +112,13 @@ class TestLLMAnalyticsAccessControl(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/{endpoint}/{obj.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_viewer_can_list_score_definitions(self):
+        self._set_access_level(self.viewer_user, access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/score_definitions/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     # -- Viewer cannot create/update/delete --
 
     def test_viewer_cannot_create_evaluation(self):
@@ -152,6 +166,21 @@ class TestLLMAnalyticsAccessControl(APIBaseTest):
 
         response = self.client.delete(
             f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{self.provider_key.id}/",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_viewer_cannot_create_score_definition(self):
+        self._set_access_level(self.viewer_user, access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/score_definitions/",
+            {
+                "name": "Quality",
+                "kind": "categorical",
+                "config": {"options": [{"key": "good", "label": "Good"}]},
+            },
+            format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -204,6 +233,21 @@ class TestLLMAnalyticsAccessControl(APIBaseTest):
             f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{self.provider_key.id}/",
         )
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_editor_can_create_score_definition(self):
+        self._set_access_level(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/score_definitions/",
+            {
+                "name": "Quality",
+                "kind": "categorical",
+                "config": {"options": [{"key": "good", "label": "Good"}]},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     # -- None access blocks everything --
 
