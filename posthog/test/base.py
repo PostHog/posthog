@@ -973,7 +973,9 @@ def cleanup_materialized_columns():
     optionally_drop("groups")
 
 
-def get_index_from_explain(query: str, index_name: str, *, replace_placeholders=True) -> dict | None:
+def get_index_from_explain(
+    query: str, index_name: str, *, replace_placeholders_with: str = "'dummy_value'"
+) -> dict | None:
     """
     Run EXPLAIN PLAN on a query and extract info for the given index name.
 
@@ -986,8 +988,7 @@ def get_index_from_explain(query: str, index_name: str, *, replace_placeholders=
     * It does not go anywhere near real users or their inputs
     """
     # Substitute HogQL placeholders with dummy values for EXPLAIN
-    if replace_placeholders:
-        query = re.sub(r"%\(hogql_val_\d+\)s", "'dummy_value'", query)
+    query = re.sub(r"%\(hogql_val_\d+\)s", replace_placeholders_with, query)
     explain_result = sync_execute(f"EXPLAIN PLAN indexes=1,json=1 {query}")
     plan_json = json.loads(explain_result[0][0])
 
