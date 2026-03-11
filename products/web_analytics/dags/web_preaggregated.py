@@ -1,7 +1,8 @@
 import os
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Optional
+from functools import wraps
+from typing import Union
 
 import dagster
 from dagster import BackfillPolicy, DailyPartitionsDefinition
@@ -34,15 +35,22 @@ from products.web_analytics.dags.web_preaggregated_utils import (
     web_analytics_retry_policy_def,
 )
 
+ScheduleResult = Union[dagster.SkipReason, dagster.RunRequest, None]
 
-def check_for_kill_switch(context: dagster.ScheduleEvaluationContext) -> Optional[dagster.SkipReason]:
-    if TEST:
-        return None
-    kill_switch_level = get_kill_switch_level()
-    if kill_switch_level != KillSwitchLevel.OFF:
-        context.log.info(f"Skipping web pre-aggregate job due to ClickHouse kill switch: {kill_switch_level}")
-        return dagster.SkipReason(f"ClickHouse kill switch is enabled ({kill_switch_level})")
-    return None
+
+def skip_on_kill_switch(
+    fn: Callable[[dagster.ScheduleEvaluationContext], ScheduleResult],
+) -> Callable[[dagster.ScheduleEvaluationContext], ScheduleResult]:
+    @wraps(fn)
+    def wrapper(context: dagster.ScheduleEvaluationContext) -> ScheduleResult:
+        if not TEST:
+            kill_switch_level = get_kill_switch_level()
+            if kill_switch_level != KillSwitchLevel.OFF:
+                context.log.info(f"Skipping due to ClickHouse kill switch: {kill_switch_level}")
+                return dagster.SkipReason(f"ClickHouse kill switch is enabled ({kill_switch_level})")
+        return fn(context)
+
+    return wrapper
 
 
 MAX_PARTITIONS_PER_RUN_ENV_VAR = "DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_RUN"
@@ -201,13 +209,8 @@ web_pre_aggregate_job = dagster.define_asset_job(
     execution_timezone="UTC",
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
+@skip_on_kill_switch
 def web_pre_aggregate_historical_schedule(context: dagster.ScheduleEvaluationContext):
-    # Skip if ClickHouse kill switch is enabled
-    skip_reason = check_for_kill_switch(context)
-    if skip_reason:
-        return skip_reason
-
-    # Check for existing runs of the same job to prevent concurrent execution
     skip_reason = check_for_concurrent_runs(context)
     if skip_reason:
         return skip_reason
@@ -225,13 +228,8 @@ def web_pre_aggregate_historical_schedule(context: dagster.ScheduleEvaluationCon
     execution_timezone="UTC",
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
+@skip_on_kill_switch
 def web_pre_aggregate_current_day_schedule(context: dagster.ScheduleEvaluationContext):
-    # Skip if ClickHouse kill switch is enabled
-    skip_reason = check_for_kill_switch(context)
-    if skip_reason:
-        return skip_reason
-
-    # Check for existing runs of the same job to prevent concurrent execution
     skip_reason = check_for_concurrent_runs(context)
     if skip_reason:
         return skip_reason
@@ -267,6 +265,7 @@ def ensure_web_analytics_tables_exist(context: dagster.ScheduleEvaluationContext
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
     default_status=dagster.DefaultScheduleStatus.RUNNING if DEBUG else dagster.DefaultScheduleStatus.STOPPED,
 )
+@skip_on_kill_switch
 def web_analytics_v2_backfill_schedule(context: dagster.ScheduleEvaluationContext):
     """
     Schedule that materializes web analytics v2 assets for today's partition.
@@ -278,12 +277,6 @@ def web_analytics_v2_backfill_schedule(context: dagster.ScheduleEvaluationContex
     if not DEBUG:
         return dagster.SkipReason("Schedule only runs in DEBUG mode")
 
-    # Skip if ClickHouse kill switch is enabled
-    skip_reason = check_for_kill_switch(context)
-    if skip_reason:
-        return skip_reason
-
-    # Ensure tables exist with production schema before running backfill
     ensure_web_analytics_tables_exist(context)
 
     try:
