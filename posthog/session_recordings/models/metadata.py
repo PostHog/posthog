@@ -1,4 +1,3 @@
-import dataclasses
 from datetime import datetime
 from typing import Literal, Optional, TypedDict, Union
 
@@ -37,17 +36,6 @@ class MatchingSessionRecordingEvent(TypedDict):
 class DecompressedRecordingData(TypedDict):
     has_next: bool
     snapshot_data_by_window_id: dict[WindowId, list[Union[SnapshotData, SessionRecordingEventSummary]]]
-
-
-@dataclasses.dataclass(frozen=True)
-class RecordingBlockListing:
-    start_time: datetime
-    block_first_timestamps: list[datetime]
-    block_last_timestamps: list[datetime]
-    block_urls: list[str]
-
-    def is_empty(self) -> bool:
-        return not self.block_urls
 
 
 class RecordingMetadata(TypedDict):

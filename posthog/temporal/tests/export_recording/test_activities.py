@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from posthog.models.exported_recording import ExportedRecording
 from posthog.session_recordings.recordings.errors import BlockFetchError
+from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 from posthog.temporal.export_recording.activities import (
     _redis_key,
     _redis_url,
@@ -175,8 +176,7 @@ async def test_export_recording_data_prefix_success():
         redis_config=TEST_REDIS_CONFIG,
     )
 
-    mock_block = MagicMock()
-    mock_block.url = "s3://bucket/team_id/123/session_id/test-session/data/file.json?range=bytes=0-100"
+    mock_block = RecordingBlock(key="team_id/123/session_id/test-session/data/file.json", start=0, end=100)
 
     mock_recording = MagicMock()
     mock_redis = AsyncMock()
@@ -238,8 +238,7 @@ async def test_export_recording_data_success():
         redis_config=TEST_REDIS_CONFIG,
     )
 
-    mock_block = MagicMock()
-    mock_block.url = "s3://bucket/team/123/session/test-session/data/file.json?range=bytes=100-200"
+    mock_block = RecordingBlock(key="team/123/session/test-session/data/file.json", start=100, end=200)
 
     mock_recording = MagicMock()
     mock_storage = AsyncMock()
@@ -261,7 +260,7 @@ async def test_export_recording_data_success():
         await export_recording_data(export_context)
 
         mock_storage.fetch_block.assert_called_once_with(
-            mock_block.url, export_context.session_id, export_context.team_id
+            mock_block.key, mock_block.start, mock_block.end, export_context.session_id, export_context.team_id
         )
         assert mock_redis.setex.call_count == 2
 
@@ -314,43 +313,6 @@ async def test_export_recording_data_no_blocks():
 
 
 @pytest.mark.asyncio
-async def test_export_recording_data_malformed_url():
-    export_id = uuid4()
-    export_context = ExportContext(
-        export_id=export_id,
-        exported_recording_id=TEST_RECORDING_ID,
-        session_id="test-session",
-        team_id=123,
-        redis_config=TEST_REDIS_CONFIG,
-    )
-
-    mock_block = MagicMock()
-    mock_block.url = "s3://bucket/team/123/session/test-session/data/file.json?invalid_query"
-
-    mock_recording = MagicMock()
-    mock_redis = AsyncMock()
-    mock_storage = AsyncMock()
-
-    with (
-        patch("posthog.temporal.export_recording.activities.SessionRecording", return_value=mock_recording),
-        patch("posthog.temporal.export_recording.activities.database_sync_to_async") as mock_db_sync,
-        patch("posthog.temporal.export_recording.activities.list_blocks") as mock_list_blocks,
-        patch("posthog.temporal.export_recording.activities.recording_api_client") as mock_storage_client,
-        patch("posthog.temporal.export_recording.activities.get_async_client") as mock_get_async_client,
-    ):
-        mock_db_sync.side_effect = lambda fn: AsyncMock(return_value=fn())
-        mock_list_blocks.return_value = [mock_block]
-        mock_storage_client.return_value.__aenter__.return_value = mock_storage
-        mock_get_async_client.return_value = mock_redis
-
-        await export_recording_data(export_context)
-
-        mock_redis.setex.assert_called_once()
-        manifest_call = mock_redis.setex.call_args
-        assert json.loads(manifest_call[0][2]) == []
-
-
-@pytest.mark.asyncio
 async def test_export_recording_data_block_fetch_error():
     export_id = uuid4()
     export_context = ExportContext(
@@ -361,8 +323,7 @@ async def test_export_recording_data_block_fetch_error():
         redis_config=TEST_REDIS_CONFIG,
     )
 
-    mock_block = MagicMock()
-    mock_block.url = "s3://bucket/team/123/session/test-session/data/file.json?range=bytes=100-200"
+    mock_block = RecordingBlock(key="team/123/session/test-session/data/file.json", start=100, end=200)
 
     mock_recording = MagicMock()
     mock_storage = AsyncMock()

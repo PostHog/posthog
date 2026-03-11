@@ -1374,7 +1374,7 @@ class SessionRecordingViewSet(
             try:
                 block = blocks[block_index]
                 content = await api_client.fetch_block(
-                    block.url, recording.session_id, self.team.id, decompress=decompress
+                    block.key, block.start, block.end, recording.session_id, self.team.id, decompress=decompress
                 )
                 return block_index, content
             except RecordingDeletedError:

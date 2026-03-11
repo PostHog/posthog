@@ -1,11 +1,9 @@
-import re
 import json
 import uuid
 import base64
 import shutil
 from datetime import datetime
 from pathlib import Path
-from urllib import parse
 from uuid import uuid4
 
 from django.conf import settings
@@ -147,8 +145,7 @@ async def export_recording_data_prefix(input: ExportContext) -> None:
         return
 
     first_block = recording_blocks[0]
-    _, _, s3_path, _, _, _ = parse.urlparse(first_block.url)
-    s3_path = s3_path.lstrip("/")
+    s3_path = first_block.key
 
     prefix = "/".join(s3_path.split("/")[:-1])
 
@@ -177,25 +174,18 @@ async def export_recording_data(input: ExportContext) -> None:
     r = get_async_client(_redis_url(input.redis_config))
     async with recording_api_client() as storage:
         for block in recording_blocks:
-            _, _, s3_path, _, query, _ = parse.urlparse(block.url)
-
-            filename = s3_path.split("/")[-1]
-
-            match = re.match(r"^range=bytes=(\d+)-(\d+)$", query)
-
-            if not match:
-                logger.warning(f"Got malformed byte range in block URL: {query}, skipping...")
-                continue
-
-            block_offset = int(match.group(1))
+            filename = block.key.split("/")[-1]
+            block_offset = block.start
 
             try:
-                block_data = await storage.fetch_block(block.url, input.session_id, input.team_id)
+                block_data = await storage.fetch_block(
+                    block.key, block.start, block.end, input.session_id, input.team_id
+                )
                 logger.info(f"Successfully fetched block data ({len(block_data)} bytes)")
             except RecordingDeletedError:
                 raise
             except BlockFetchError:
-                logger.warning(f"Failed to fetch block at {block.url}, skipping...")
+                logger.warning(f"Failed to fetch block {block.key}, skipping...")
                 continue
 
             redis_key = _redis_key(input.export_id, "block", filename)
