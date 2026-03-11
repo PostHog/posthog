@@ -60,7 +60,7 @@ class PostgresPrinter(HogQLPrinter):
             bucket_size = minute_bucket_sizes[node.name]
             return (
                 f"date_trunc('hour', {bucket_arg}) + "
-                f"(floor(extract(minute from {bucket_arg}) / {bucket_size})::int * interval '1 minute')"
+                f"(floor(extract(minute from {bucket_arg}) / {bucket_size})::int * {bucket_size} * interval '1 minute')"
             )
 
         # No function call validation for postgres

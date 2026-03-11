@@ -4406,17 +4406,17 @@ class TestPostgresPrinter(BaseTest):
             (
                 "toStartOfFiveMinutes(timestamp)",
                 "date_trunc('hour', events.timestamp) + "
-                "(floor(extract(minute from events.timestamp) / 5)::int * interval '1 minute')",
+                "(floor(extract(minute from events.timestamp) / 5)::int * 5 * interval '1 minute')",
             ),
             (
                 "toStartOfTenMinutes(timestamp)",
                 "date_trunc('hour', events.timestamp) + "
-                "(floor(extract(minute from events.timestamp) / 10)::int * interval '1 minute')",
+                "(floor(extract(minute from events.timestamp) / 10)::int * 10 * interval '1 minute')",
             ),
             (
                 "toStartOfFifteenMinutes(timestamp)",
                 "date_trunc('hour', events.timestamp) + "
-                "(floor(extract(minute from events.timestamp) / 15)::int * interval '1 minute')",
+                "(floor(extract(minute from events.timestamp) / 15)::int * 15 * interval '1 minute')",
             ),
         ]
     )
