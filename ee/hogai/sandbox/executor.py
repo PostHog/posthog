@@ -24,6 +24,7 @@ from products.tasks.backend.temporal.client import execute_task_processing_workf
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
 
 from ee.hogai.api.serializers import ConversationMinimalSerializer
+from ee.hogai.sandbox import TURN_COMPLETE_METHOD
 from ee.hogai.sandbox.mapping import get_sandbox_mapping, set_sandbox_mapping
 from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.feature_flags import has_sandbox_mode_feature_flag
@@ -32,8 +33,6 @@ from ee.models.assistant import Conversation
 logger = structlog.get_logger(__name__)
 
 SANDBOX_TURN_IDLE_TIMEOUT = 60  # seconds of silence before ending the per-turn stream (safety fallback)
-
-_TURN_COMPLETE_METHOD = "_posthog/turn_complete"
 
 
 def handle_sandbox_message(
@@ -227,7 +226,7 @@ def _is_turn_complete(event: dict) -> bool:
     if event.get("type") != "notification":
         return False
     notification = event.get("notification", {})
-    return notification.get("method") == _TURN_COMPLETE_METHOD
+    return notification.get("method") == TURN_COMPLETE_METHOD
 
 
 async def _sandbox_stream(

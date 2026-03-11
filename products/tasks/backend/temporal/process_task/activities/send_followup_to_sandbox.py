@@ -11,9 +11,9 @@ from products.tasks.backend.services.connection_token import create_sandbox_conn
 from products.tasks.backend.services.sandbox import SANDBOX_TTL_SECONDS
 from products.tasks.backend.stream.redis_stream import get_task_run_stream_key
 
-logger = structlog.get_logger(__name__)
+from ee.hogai.sandbox import TURN_COMPLETE_METHOD
 
-_TURN_COMPLETE_METHOD = "_posthog/turn_complete"
+logger = structlog.get_logger(__name__)
 
 
 @dataclass
@@ -64,7 +64,7 @@ def _write_turn_complete(run_id: str) -> None:
     event = {
         "type": "notification",
         "notification": {
-            "method": _TURN_COMPLETE_METHOD,
+            "method": TURN_COMPLETE_METHOD,
             "params": {"source": "posthog"},
         },
     }
