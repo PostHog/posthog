@@ -4394,6 +4394,7 @@ class WebStatsBreakdown(StrEnum):
     SCREEN_NAME = "ScreenName"
     INITIAL_CHANNEL_TYPE = "InitialChannelType"
     INITIAL_REFERRING_DOMAIN = "InitialReferringDomain"
+    INITIAL_REFERRING_URL = "InitialReferringURL"
     INITIAL_UTM_SOURCE = "InitialUTMSource"
     INITIAL_UTM_CAMPAIGN = "InitialUTMCampaign"
     INITIAL_UTM_MEDIUM = "InitialUTMMedium"

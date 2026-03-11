@@ -258,6 +258,8 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>Channel Type</>
         case WebStatsBreakdown.InitialReferringDomain:
             return <>Referring Domain</>
+        case WebStatsBreakdown.InitialReferringURL:
+            return <>Referring URL</>
         case WebStatsBreakdown.InitialUTMSource:
             return <>UTM Source</>
         case WebStatsBreakdown.InitialUTMCampaign:

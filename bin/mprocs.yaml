@@ -77,6 +77,17 @@ procs:
             fi
         capability: temporal_workflows
 
+    recording-rasterizer:
+        shell: |-
+            bin/wait-for-docker temporal && \
+            bin/temporal-recording-rasterizer-worker
+        capability: recording_rasterizer
+        env:
+            VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
+            VIDEO_EXPORT_OBJECT_STORAGE_REGION: 'us-east-1'
+            AWS_ACCESS_KEY_ID: 'object_storage_root_user'
+            AWS_SECRET_ACCESS_KEY: 'object_storage_root_password'
+
     dagster:
         shell: |-
             bin/wait-for-docker && \
