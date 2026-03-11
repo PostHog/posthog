@@ -1426,7 +1426,7 @@ async fn test_rate_limit_per_team_override() -> Result<()> {
 
     // Configure a very restrictive custom rate for this specific token
     let mut custom_rates = HashMap::new();
-    custom_rates.insert(token.clone(), "1/second".to_string());
+    custom_rates.insert(token.clone(), "1/hour".to_string());
     config.flags_rate_limits = feature_flags::config::FlagsRateLimits(custom_rates);
 
     let context = TestContext::new(None).await;
@@ -1450,7 +1450,7 @@ async fn test_rate_limit_per_team_override() -> Result<()> {
         "distinct_id": "user123",
     });
 
-    // First request succeeds (custom rate: 1/second, so 1 burst)
+    // First request succeeds (custom rate: 1/hour, so 1 burst with no replenishment during test)
     let response = client
         .post(format!("http://{}/flags", server.addr))
         .header("content-type", "application/json")

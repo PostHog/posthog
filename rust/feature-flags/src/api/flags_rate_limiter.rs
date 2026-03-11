@@ -217,8 +217,8 @@ impl KeyedRateLimiter {
 }
 
 /// Maximum number of per-token rate limit overrides allowed.
-/// Prevents excessive memory usage and cleanup overhead from large configs.
-const MAX_CUSTOM_RATE_OVERRIDES: usize = 100;
+/// Reuses the config-level constant to keep both checks in sync.
+const MAX_CUSTOM_RATE_OVERRIDES: usize = crate::config::MAX_FLAGS_RATE_LIMIT_OVERRIDES;
 
 /// Redacts a token for safe logging, showing only a prefix and suffix.
 fn redact_token(token: &str) -> String {

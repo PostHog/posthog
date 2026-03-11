@@ -151,7 +151,7 @@ impl FromStr for FlagDefinitionsRateLimits {
 pub struct FlagsRateLimits(pub HashMap<String, String>);
 
 /// Maximum number of per-token rate limit overrides allowed.
-const MAX_FLAGS_RATE_LIMIT_OVERRIDES: usize = 100;
+pub const MAX_FLAGS_RATE_LIMIT_OVERRIDES: usize = 100;
 
 impl FromStr for FlagsRateLimits {
     type Err = String;
