@@ -256,7 +256,7 @@ class LogsQueryRunnerMixin(QueryRunner):
         # this is important as it reduces the parts/granules that need to have their skip indexes loaded
         exprs.append(
             parse_expr(
-                "time_bucket >= toStartOfDay({date_from}) and time_bucket <= toStartOfDay({date_to})",
+                "toStartOfDay(time_bucket) >= toStartOfDay({date_from}) and toStartOfDay(time_bucket) <= toStartOfDay({date_to})",
                 placeholders={
                     **self.query_date_range.to_placeholders(),
                 },
