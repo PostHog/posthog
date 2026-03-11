@@ -5892,7 +5892,6 @@ export enum SDKKey {
     GROQ = 'groq',
     HELICONE = 'helicone',
     HUGGING_FACE = 'hugging_face',
-    HTML_SNIPPET = 'html',
     INSTRUCTOR = 'instructor',
     IOS = 'ios',
     JAVA = 'java',

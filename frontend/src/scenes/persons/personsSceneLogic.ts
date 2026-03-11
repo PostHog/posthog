@@ -1,5 +1,5 @@
 import equal from 'fast-deep-equal'
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -9,6 +9,7 @@ import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
@@ -18,23 +19,30 @@ import { Breadcrumb } from '~/types'
 import type { personsSceneLogicType } from './personsSceneLogicType'
 
 export const PEOPLE_LIST_CONTEXT_KEY = 'people-list'
-const DEFAULT_COLUMNS = [...defaultDataTableColumns(NodeKind.ActorsQuery), 'person.$delete']
-export const PEOPLE_LIST_DEFAULT_QUERY = {
-    kind: NodeKind.DataTableNode,
-    source: {
-        kind: NodeKind.ActorsQuery,
-        tags: { productKey: ProductKey.CUSTOMER_ANALYTICS },
-        select: DEFAULT_COLUMNS,
-    },
-    defaultColumns: DEFAULT_COLUMNS,
-    full: true,
-    propertiesViaUrl: true,
-    contextKey: PEOPLE_LIST_CONTEXT_KEY,
-} as DataTableNode
+
+function buildDefaultQuery(personLastSeenAtEnabled: boolean): DataTableNode {
+    const columns = [...defaultDataTableColumns(NodeKind.ActorsQuery, personLastSeenAtEnabled), 'person.$delete']
+    return {
+        kind: NodeKind.DataTableNode,
+        source: {
+            kind: NodeKind.ActorsQuery,
+            tags: { productKey: ProductKey.CUSTOMER_ANALYTICS },
+            select: columns,
+        },
+        defaultColumns: columns,
+        full: true,
+        propertiesViaUrl: true,
+        contextKey: PEOPLE_LIST_CONTEXT_KEY,
+    } as DataTableNode
+}
+
+export const PEOPLE_LIST_DEFAULT_QUERY = buildDefaultQuery(false)
 
 export const personsSceneLogic = kea<personsSceneLogicType>([
     path(['scenes', 'persons', 'personsSceneLogic']),
     tabAwareScene(),
+
+    connect({ values: [teamLogic, ['currentTeam']] }),
 
     actions({
         setQuery: (query: DataTableNode) => ({ query }),
@@ -47,10 +55,9 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
         query: [
             PEOPLE_LIST_DEFAULT_QUERY,
             {
-                setQuery: (_, { query }) => ({
+                setQuery: (state, { query }) => ({
                     ...query,
-                    // Need this so that clicking "reset to defaults" in column configurator also bring back the delete button
-                    defaultColumns: DEFAULT_COLUMNS,
+                    defaultColumns: query.defaultColumns ?? state.defaultColumns,
                 }),
             },
         ],
@@ -76,6 +83,12 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
     }),
 
     selectors({
+        defaultQuery: [
+            (s) => [s.currentTeam],
+            (currentTeam): DataTableNode =>
+                buildDefaultQuery(currentTeam?.extra_settings?.person_last_seen_at_enabled === true),
+        ],
+        defaultColumns: [(s) => [s.defaultQuery], (defaultQuery): string[] => defaultQuery.defaultColumns ?? []],
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [
@@ -92,7 +105,7 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
         setQuery: () => [
             urls.persons(),
             {},
-            equal(values.query, PEOPLE_LIST_DEFAULT_QUERY) ? {} : { q: values.query },
+            equal(values.query, values.defaultQuery) ? {} : { q: values.query },
             { replace: true },
         ],
     })),
@@ -100,13 +113,17 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
     tabAwareUrlToAction(({ actions, values }) => ({
         [urls.persons()]: (_, __, { q: queryParam }): void => {
             if (!equal(queryParam, values.query)) {
-                // nothing in the URL
                 if (!queryParam) {
-                    // We set the query again so that the actionToUrl for setQuery can run, which updates the url
-                    actions.setQuery(values.query)
+                    actions.setQuery({
+                        ...values.defaultQuery,
+                        defaultColumns: values.defaultColumns,
+                    })
                 } else {
                     if (typeof queryParam === 'object') {
-                        actions.setQuery(queryParam)
+                        actions.setQuery({
+                            ...queryParam,
+                            defaultColumns: values.defaultColumns,
+                        })
                     } else {
                         lemonToast.error('Invalid query in URL')
                         console.error({ queryParam })
