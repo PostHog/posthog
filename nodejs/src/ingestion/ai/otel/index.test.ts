@@ -1,25 +1,12 @@
-import { PluginEvent } from '~/plugin-scaffold'
-
 import { mapOtelAttributes } from './attribute-mapping'
 import { convertOtelEvent } from './index'
+import { createEvent } from './test-helpers'
 
 jest.mock('./attribute-mapping', () => ({
     mapOtelAttributes: jest.fn(),
 }))
 
 const mockedMapOtelAttributes = jest.mocked(mapOtelAttributes)
-
-const createEvent = (event: string, properties: Record<string, unknown>): PluginEvent => ({
-    event,
-    distinct_id: 'user-123',
-    team_id: 1,
-    properties,
-    uuid: 'test-uuid',
-    timestamp: new Date().toISOString(),
-    ip: '127.0.0.1',
-    site_url: 'https://app.posthog.com',
-    now: new Date().toISOString(),
-})
 
 describe('convertOtelEvent', () => {
     beforeEach(() => {

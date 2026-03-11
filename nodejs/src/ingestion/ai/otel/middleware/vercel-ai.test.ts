@@ -1,8 +1,7 @@
-import { PluginEvent } from '~/plugin-scaffold'
-
 import { parseJSON } from '../../../../utils/json-parse'
 import { mapOtelAttributes } from '../attribute-mapping'
 import { convertOtelEvent } from '../index'
+import { createEvent } from '../test-helpers'
 
 jest.mock('../attribute-mapping', () => ({
     mapOtelAttributes: jest.fn(),
@@ -10,21 +9,32 @@ jest.mock('../attribute-mapping', () => ({
 
 const mockedMapOtelAttributes = jest.mocked(mapOtelAttributes)
 
-const createEvent = (event: string, properties: Record<string, unknown>): PluginEvent => ({
-    event,
-    distinct_id: 'user-123',
-    team_id: 1,
-    properties,
-    uuid: 'test-uuid',
-    timestamp: new Date().toISOString(),
-    ip: '127.0.0.1',
-    site_url: 'https://app.posthog.com',
-    now: new Date().toISOString(),
-})
+/**
+ * Minimal mock that replicates the subset of mapOtelAttributes behavior
+ * needed by the vercel-ai middleware: parsing gen_ai.input/output.messages
+ * into $ai_input/$ai_output_choices and promoting root spans to traces.
+ */
+function mockMapOtelAttributes(e: { event: string; properties?: Record<string, unknown> }): void {
+    const props = e.properties ?? {}
+    if (props['gen_ai.input.messages'] !== undefined) {
+        const val = props['gen_ai.input.messages']
+        props['$ai_input'] = typeof val === 'string' ? parseJSON(val) : val
+        delete props['gen_ai.input.messages']
+    }
+    if (props['gen_ai.output.messages'] !== undefined) {
+        const val = props['gen_ai.output.messages']
+        props['$ai_output_choices'] = typeof val === 'string' ? parseJSON(val) : val
+        delete props['gen_ai.output.messages']
+    }
+    if (e.event === '$ai_span' && !props['$ai_parent_id']) {
+        e.event = '$ai_trace'
+    }
+}
 
 describe('vercel-ai middleware', () => {
     beforeEach(() => {
         jest.clearAllMocks()
+        mockedMapOtelAttributes.mockImplementation(mockMapOtelAttributes)
     })
 
     describe('$ai_generation', () => {
@@ -82,14 +92,6 @@ describe('vercel-ai middleware', () => {
     })
 
     describe('$ai_trace (top-level span)', () => {
-        beforeEach(() => {
-            mockedMapOtelAttributes.mockImplementation((e) => {
-                if (e.event === '$ai_span' && !e.properties?.['$ai_parent_id']) {
-                    e.event = '$ai_trace'
-                }
-            })
-        })
-
         it('extracts input/output state from top-level generateText span', () => {
             const messages = [
                 { role: 'system', content: 'You are helpful.' },
