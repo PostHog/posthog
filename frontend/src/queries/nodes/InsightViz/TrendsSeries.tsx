@@ -34,13 +34,7 @@ export function TrendsSeries(): JSX.Element | null {
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { showGroupsOptions: showGroupsOptionsFromModel, groupsTaxonomicTypes } = useValues(groupsModel)
-
-    // Disable groups for calendar heatmap and box plot
-    const showGroupsOptions =
-        display === ChartDisplayType.CalendarHeatmap || display === ChartDisplayType.BoxPlot
-            ? false
-            : showGroupsOptionsFromModel
+    const { showGroupsOptions, groupsTaxonomicTypes } = useValues(groupsModel)
 
     const supportsDwhLifecycle = featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DWH_LIFECYCLE_SUPPORT]
 
