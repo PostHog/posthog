@@ -42,6 +42,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
         }),
         pinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
         unpinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
+        favoriteDashboard: (id: number, favorited: boolean) => ({ id, favorited }),
         duplicateDashboard: ({
             id,
             name,
@@ -197,6 +198,15 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 eventUsageLogic.actions.reportDashboardPinToggled(false, source)
                 return getQueryBasedDashboard(response)!
             },
+            favoriteDashboard: async ({ id, favorited }) => {
+                const response = await api.update<DashboardType>(
+                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}/favorite/`,
+                    {
+                        favorited,
+                    }
+                )
+                return getQueryBasedDashboard(response)!
+            },
             duplicateDashboard: async ({ id, name, show, duplicateTiles }) => {
                 const result = await api.create<DashboardType>(
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/`,
@@ -254,6 +264,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 },
                 pinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
                 unpinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
+                favoriteDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
                 duplicateDashboardSuccess: (state, { dashboard }) => ({
                     ...state,
                     [dashboard.id]: { ...dashboard, _highlight: true },

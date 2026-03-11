@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
+import { IconHome, IconLock, IconPin, IconPinFilled, IconShare, IconStar, IconStarFilled } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
@@ -69,7 +69,7 @@ export function DashboardsTable({
     extraActions,
     hideActions,
 }: DashboardsTableProps): JSX.Element {
-    const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
+    const { unpinDashboard, pinDashboard, favoriteDashboard } = useActions(dashboardsModel)
     const { tableSortingChanged } = useActions(dashboardsLogic)
     const { tableSorting } = useValues(dashboardsLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -79,6 +79,26 @@ export function DashboardsTable({
     const { itemsByRef } = useValues(projectTreeDataLogic)
 
     const columns: LemonTableColumns<DashboardType> = [
+        {
+            width: 0,
+            dataIndex: 'is_favorited',
+            render: function Render(is_favorited, { id }) {
+                return (
+                    <LemonButton
+                        size="small"
+                        onClick={() => favoriteDashboard(id, !is_favorited)}
+                        tooltip={is_favorited ? 'Remove from favorites' : 'Add to favorites'}
+                        icon={
+                            is_favorited ? (
+                                <IconStarFilled className="text-warning" />
+                            ) : (
+                                <IconStar className="text-secondary" />
+                            )
+                        }
+                    />
+                )
+            },
+        },
         {
             width: 0,
             dataIndex: 'pinned',

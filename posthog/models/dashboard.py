@@ -165,3 +165,13 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
             "has_description": self.description != "",
             "tags_count": self.tagged_items.count(),
         }
+
+
+class DashboardFavorite(models.Model):
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    dashboard = models.ForeignKey("Dashboard", on_delete=models.CASCADE)
+    user = models.ForeignKey("User", on_delete=models.CASCADE)
+    favorited_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("dashboard", "user")
