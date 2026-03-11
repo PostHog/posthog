@@ -977,194 +977,6 @@ BATCH_DEBOUNCE_SECONDS = 5
 TYPE_EXAMPLES_CACHE_TTL = timedelta(minutes=5)
 
 
-async def _process_one_signal(inputs: EmitSignalInputs) -> str:
-    """Process a single signal through the full grouping pipeline."""
-    signal_id = str(uuid.uuid4())
-
-    embedding_result, type_examples_result = await asyncio.gather(
-        workflow.execute_activity(
-            get_embedding_activity,
-            GenerateEmbeddingInput(team_id=inputs.team_id, content=inputs.description),
-            start_to_close_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        ),
-        workflow.execute_activity(
-            fetch_signal_type_examples_activity,
-            FetchSignalTypeExamplesInput(team_id=inputs.team_id),
-            start_to_close_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        ),
-    )
-
-    search_queries_result = await workflow.execute_activity(
-        generate_search_queries_activity,
-        GenerateSearchQueriesInput(
-            description=inputs.description,
-            source_product=inputs.source_product,
-            source_type=inputs.source_type,
-            signal_type_examples=type_examples_result.examples,
-        ),
-        start_to_close_timeout=timedelta(minutes=5),
-        retry_policy=RetryPolicy(maximum_attempts=3),
-    )
-
-    queries = search_queries_result.queries
-
-    query_embedding_results: list[GenerateEmbeddingOutput] = await asyncio.gather(
-        *[
-            workflow.execute_activity(
-                get_embedding_activity,
-                GenerateEmbeddingInput(team_id=inputs.team_id, content=query),
-                start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-            for query in queries
-        ]
-    )
-
-    query_results: list[RunSignalSemanticSearchOutput] = await asyncio.gather(
-        *[
-            workflow.execute_activity(
-                run_signal_semantic_search_activity,
-                RunSignalSemanticSearchInput(
-                    team_id=inputs.team_id,
-                    embedding=emb_result.embedding,
-                    limit=10,
-                ),
-                start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-            for emb_result in query_embedding_results
-        ]
-    )
-
-    # Step 4.5: Fetch report contexts for group-aware matching
-    all_candidates = [c for r in query_results for c in r.candidates]
-    unique_report_ids = list({c.report_id for c in all_candidates})
-
-    report_contexts_result: FetchReportContextsOutput = await workflow.execute_activity(
-        fetch_report_contexts_activity,
-        FetchReportContextsInput(team_id=inputs.team_id, report_ids=unique_report_ids),
-        start_to_close_timeout=timedelta(minutes=2),
-        retry_policy=RetryPolicy(maximum_attempts=3),
-    )
-
-    # Step 5: Group-aware LLM match
-    match_result = await workflow.execute_activity(
-        match_signal_to_report_activity,
-        MatchSignalToReportInput(
-            description=inputs.description,
-            source_product=inputs.source_product,
-            source_type=inputs.source_type,
-            queries=queries,
-            query_results=[r.candidates for r in query_results],
-            report_contexts=report_contexts_result.contexts,
-        ),
-        start_to_close_timeout=timedelta(minutes=5),
-        retry_policy=RetryPolicy(maximum_attempts=3),
-    )
-
-    # Step 5.5: PR-specificity verification for existing matches
-    updated_title: Optional[str] = None
-
-    if isinstance(match_result, ExistingReportMatch):
-        report_ctx = report_contexts_result.contexts.get(match_result.report_id)
-        report_title = report_ctx.title if report_ctx else ""
-
-        # Fetch existing signals for the report, then run the LLM specificity check
-        group_signals_result: FetchSignalsForReportOutput = await workflow.execute_activity(
-            fetch_signals_for_report_activity,
-            FetchSignalsForReportInput(team_id=inputs.team_id, report_id=match_result.report_id),
-            start_to_close_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-
-        # Hard requirement, no try-except wrapping, but could lead to the signal skip if the activity exceeds retries
-        specificity_result: VerifyMatchSpecificityOutput = await workflow.execute_activity(
-            verify_match_specificity_activity,
-            VerifyMatchSpecificityInput(
-                team_id=inputs.team_id,
-                report_id=match_result.report_id,
-                report_title=report_title,
-                new_signal_description=inputs.description,
-                new_signal_source_product=inputs.source_product,
-                new_signal_source_type=inputs.source_type,
-                group_signals=group_signals_result.signals,
-            ),
-            start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-
-        specificity_meta = SpecificityMetadata(
-            pr_title=specificity_result.pr_title,
-            specific_enough=specificity_result.specific_enough,
-            reason=specificity_result.reason,
-        )
-
-        if specificity_result.specific_enough:
-            updated_title = specificity_result.pr_title
-            match_result.match_metadata.specificity = specificity_meta
-        else:
-            match_result = NewReportMatch(
-                # Picking the first line, as it's will usually represent the title of the signal
-                # TODO: Rework if we decide to store title/description and match them separately
-                title=inputs.description.split("\n")[0],
-                summary=f"Split from group: {report_title}",
-                match_metadata=NoMatchMetadata(
-                    reason=f'PR-specificity rejected: "{specificity_result.pr_title}" — {specificity_result.reason}',
-                    specificity_rejection=specificity_meta,
-                ),
-            )
-
-    # Step 6: Assign and emit
-    assign_result: AssignAndEmitSignalOutput = await workflow.execute_activity(
-        assign_and_emit_signal_activity,
-        AssignAndEmitSignalInput(
-            team_id=inputs.team_id,
-            signal_id=signal_id,
-            description=inputs.description,
-            weight=inputs.weight,
-            source_product=inputs.source_product,
-            source_type=inputs.source_type,
-            source_id=inputs.source_id,
-            extra=inputs.extra,
-            embedding=embedding_result.embedding,
-            match_result=match_result,
-            updated_title=updated_title,
-        ),
-        start_to_close_timeout=timedelta(minutes=2),
-        retry_policy=RetryPolicy(maximum_attempts=3),
-    )
-
-    await workflow.execute_activity(
-        wait_for_signal_in_clickhouse_activity,
-        WaitForClickHouseInput(
-            team_id=inputs.team_id,
-            signal_id=signal_id,
-            timestamp=assign_result.timestamp,
-        ),
-        start_to_close_timeout=timedelta(minutes=2),
-        heartbeat_timeout=timedelta(seconds=30),
-        retry_policy=RetryPolicy(maximum_attempts=2),
-    )
-
-    if assign_result.promoted:
-        try:
-            await workflow.start_child_workflow(
-                SignalReportSummaryWorkflow.run,
-                SignalReportSummaryWorkflowInputs(team_id=inputs.team_id, report_id=assign_result.report_id),
-                id=SignalReportSummaryWorkflow.workflow_id_for(inputs.team_id, assign_result.report_id),
-                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-                parent_close_policy=ParentClosePolicy.ABANDON,
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                execution_timeout=timedelta(minutes=30),
-            )
-        except temporalio.exceptions.WorkflowAlreadyStartedError:
-            pass
-
-    return signal_id
-
-
 @dataclass
 class _ProcessedBatchSignal:
     """A signal processed earlier in the current batch, used to augment later signals' candidates."""
@@ -1494,7 +1306,7 @@ async def _process_signal_batch(
             )
 
     # Step 7: Wait for CH once at the end of the batch so the next batch can find these signals
-    if last_signal_id and last_assign_result and workflow.patched("wait-for-clickhouse-v1"):
+    if last_signal_id and last_assign_result:
         await workflow.execute_activity(
             wait_for_signal_in_clickhouse_activity,
             WaitForClickHouseInput(
@@ -1575,63 +1387,45 @@ class TeamSignalGroupingWorkflow:
         while True:
             await workflow.wait_condition(lambda: len(self._signal_buffer) > 0)
 
-            if workflow.patched("batch-processing-v1"):
-                # Debounce: wait briefly for more signals to accumulate
-                if len(self._signal_buffer) < BATCH_SIZE:
-                    try:
-                        await workflow.wait_condition(
-                            lambda: len(self._signal_buffer) >= BATCH_SIZE,
-                            timeout=timedelta(seconds=BATCH_DEBOUNCE_SECONDS),
-                        )
-                    except TimeoutError:
-                        pass
-
-                batch: list[EmitSignalInputs] = []
-                while self._signal_buffer and len(batch) < BATCH_SIZE:
-                    batch.append(self._signal_buffer.pop(0))
-                self._buffer_size_gauge.set(len(self._signal_buffer))
-
-                # Invalidate type examples cache if stale
-                now = workflow.now()
-                cached = self._cached_type_examples
-                if (
-                    self._type_examples_fetched_at is not None
-                    and (now - self._type_examples_fetched_at) > TYPE_EXAMPLES_CACHE_TTL
-                ):
-                    cached = None
-
+            # Debounce: wait briefly for more signals to accumulate
+            if len(self._signal_buffer) < BATCH_SIZE:
                 try:
-                    dropped, type_examples = await _process_signal_batch(batch, cached_type_examples=cached)
-                    self._cached_type_examples = type_examples
-                    self._type_examples_fetched_at = self._type_examples_fetched_at if cached is not None else now
-                    self._signals_dropped_counter.add(dropped)
-                except Exception:
-                    # Parallel phase failed — all signals in batch dropped
-                    self._signals_dropped_counter.add(len(batch))
-                    workflow.logger.exception(
-                        "Failed to process signal batch",
-                        team_id=input.team_id,
-                        batch_size=len(batch),
+                    await workflow.wait_condition(
+                        lambda: len(self._signal_buffer) >= BATCH_SIZE,
+                        timeout=timedelta(seconds=BATCH_DEBOUNCE_SECONDS),
                     )
+                except TimeoutError:
+                    pass
 
-                self._signals_processed += len(batch)
-            else:
-                signal = self._signal_buffer.pop(0)
-                self._buffer_size_gauge.set(len(self._signal_buffer))
+            batch: list[EmitSignalInputs] = []
+            while self._signal_buffer and len(batch) < BATCH_SIZE:
+                batch.append(self._signal_buffer.pop(0))
+            self._buffer_size_gauge.set(len(self._signal_buffer))
 
-                try:
-                    await _process_one_signal(signal)
-                except Exception:
-                    self._signals_dropped_counter.add(1)
-                    workflow.logger.exception(
-                        "Failed to process signal",
-                        team_id=input.team_id,
-                        source_product=signal.source_product,
-                        source_type=signal.source_type,
-                        source_id=signal.source_id,
-                    )
+            # Invalidate type examples cache if stale
+            now = workflow.now()
+            cached = self._cached_type_examples
+            if (
+                self._type_examples_fetched_at is not None
+                and (now - self._type_examples_fetched_at) > TYPE_EXAMPLES_CACHE_TTL
+            ):
+                cached = None
 
-                self._signals_processed += 1
+            try:
+                dropped, type_examples = await _process_signal_batch(batch, cached_type_examples=cached)
+                self._cached_type_examples = type_examples
+                self._type_examples_fetched_at = self._type_examples_fetched_at if cached is not None else now
+                self._signals_dropped_counter.add(dropped)
+            except Exception:
+                # Parallel phase failed — all signals in batch dropped
+                self._signals_dropped_counter.add(len(batch))
+                workflow.logger.exception(
+                    "Failed to process signal batch",
+                    team_id=input.team_id,
+                    batch_size=len(batch),
+                )
+
+            self._signals_processed += len(batch)
 
             if self._signals_processed >= CONTINUE_AS_NEW_THRESHOLD:
                 workflow.continue_as_new(

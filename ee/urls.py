@@ -15,6 +15,7 @@ from posthog.views import api_key_search_view, redis_edit_ttl_view, redis_values
 from ee.admin.loginas_views import loginas_user, upgrade_impersonation
 from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
 from ee.api import integration
+from ee.api.agentic_provisioning import views as agentic_provisioning_views
 from ee.api.vercel import vercel_connect, vercel_sso, vercel_webhooks
 from ee.middleware import admin_oauth2_callback
 from ee.support_sidebar_max.views import MaxChatViewSet
@@ -232,5 +233,51 @@ urlpatterns: list[Any] = [
         name="scim_resource_types",
     ),
     path("scim/v2/<uuid:domain_id>/Schemas", csrf_exempt(scim_views.SCIMSchemasView.as_view()), name="scim_schemas"),
+    # Stripe Agentic Provisioning Protocol (APP 0.1d)
+    path(
+        "api/agentic/provisioning/health",
+        csrf_exempt(agentic_provisioning_views.provisioning_health),
+        name="agentic_provisioning_health",
+    ),
+    path(
+        "api/agentic/provisioning/services",
+        csrf_exempt(agentic_provisioning_views.provisioning_services),
+        name="agentic_provisioning_services",
+    ),
+    path(
+        "api/agentic/provisioning/account_requests",
+        csrf_exempt(agentic_provisioning_views.account_requests),
+        name="agentic_provisioning_account_requests",
+    ),
+    path(
+        "api/agentic/authorize",
+        agentic_provisioning_views.agentic_authorize,
+        name="agentic_authorize",
+    ),
+    path(
+        "api/agentic/oauth/token",
+        csrf_exempt(agentic_provisioning_views.oauth_token),
+        name="agentic_provisioning_oauth_token",
+    ),
+    path(
+        "api/agentic/provisioning/resources",
+        csrf_exempt(agentic_provisioning_views.provisioning_resources_create),
+        name="agentic_provisioning_resources_create",
+    ),
+    path(
+        "api/agentic/provisioning/resources/<str:resource_id>/rotate_credentials",
+        csrf_exempt(agentic_provisioning_views.provisioning_rotate_credentials),
+        name="agentic_provisioning_rotate_credentials",
+    ),
+    path(
+        "api/agentic/provisioning/resources/<str:resource_id>",
+        csrf_exempt(agentic_provisioning_views.provisioning_resource_detail),
+        name="agentic_provisioning_resource_detail",
+    ),
+    path(
+        "api/agentic/provisioning/deep_links",
+        csrf_exempt(agentic_provisioning_views.deep_links),
+        name="agentic_provisioning_deep_links",
+    ),
     *admin_urlpatterns,
 ]

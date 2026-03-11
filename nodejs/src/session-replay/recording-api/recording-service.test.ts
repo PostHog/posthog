@@ -1,4 +1,5 @@
 import { NoSuchKey, S3Client } from '@aws-sdk/client-s3'
+import snappy from 'snappy'
 
 import { PostgresRouter } from '../../utils/db/postgres'
 import { SessionMetadataStore } from '../shared/metadata/session-metadata-store'
@@ -111,6 +112,23 @@ describe('RecordingService', () => {
 
             expect(result).toEqual({ ok: true, data: Buffer.from('decrypted data') })
             expect(mockDecryptor.decryptBlock).toHaveBeenCalledWith('session-123', 1, expect.any(Buffer))
+        })
+
+        it('returns decompressed data when decompress is true', async () => {
+            const originalData = '{"type": 3, "data": {}}'
+            const compressed = await snappy.compress(Buffer.from(originalData))
+            const mockBody = {
+                transformToByteArray: jest.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
+            }
+            mockS3Send.mockResolvedValue({ Body: mockBody })
+            mockDecryptor.decryptBlock.mockResolvedValue({
+                data: Buffer.from(compressed),
+                sessionState: 'ciphertext',
+            })
+
+            const result = await service.getBlock({ ...validParams, decompress: true })
+
+            expect(result).toEqual({ ok: true, data: Buffer.from(originalData) })
         })
 
         it('returns not_found when S3 returns no body', async () => {

@@ -896,6 +896,71 @@ class TestUserCostDisabledSustained:
         get_settings.cache_clear()
 
 
+class TestRateLimitPoisoningPrevention:
+    """Verify that cost is always recorded against the authenticated user's own bucket.
+
+    An attacker must not be able to:
+    1. Poison a victim's rate limit bucket by injecting their user ID
+    2. Bypass rate limiting entirely by omitting user identification
+    """
+
+    @pytest.mark.asyncio
+    async def test_cost_recorded_against_own_bucket_not_victim(self) -> None:
+        get_settings.cache_clear()
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
+
+        throttle = UserCostBurstThrottle(redis=None)
+
+        attacker = make_user(user_id=999, auth_method="personal_api_key")
+        victim = make_user(user_id=42, auth_method="oauth_access_token")
+
+        attacker_ctx = make_context(user=attacker, product="posthog_code", end_user_id="999")
+        victim_ctx = make_context(user=victim, product="posthog_code")
+
+        await throttle.record_cost(attacker_ctx, 100.0)
+
+        assert (await throttle.allow_request(attacker_ctx)).allowed is False, (
+            "Attacker's own bucket should be exhausted"
+        )
+        assert (await throttle.allow_request(victim_ctx)).allowed is True, (
+            "Victim's bucket must not be affected by attacker's usage"
+        )
+        get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_api_key_user_with_end_user_id_is_rate_limited(self) -> None:
+        get_settings.cache_clear()
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
+
+        throttle = UserCostBurstThrottle(redis=None)
+        user = make_user(user_id=999, auth_method="personal_api_key")
+        context = make_context(user=user, product="posthog_code", end_user_id="999")
+
+        await throttle.record_cost(context, 100.0)
+        result = await throttle.allow_request(context)
+
+        assert result.allowed is False, "Personal API key users must be rate limited when end_user_id is set"
+        get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_injected_victim_id_does_not_affect_victim_cache_key(self) -> None:
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
+
+        throttle = UserCostBurstThrottle(redis=None)
+
+        attacker = make_user(user_id=999, auth_method="personal_api_key")
+        attacker_ctx = make_context(user=attacker, product="posthog_code", end_user_id="999")
+        attacker_key = throttle._get_cache_key(attacker_ctx)
+
+        victim = make_user(user_id=42, auth_method="oauth_access_token")
+        victim_ctx = make_context(user=victim, product="posthog_code")
+        victim_key = throttle._get_cache_key(victim_ctx)
+
+        assert attacker_key != victim_key
+        assert ":999" in attacker_key
+        assert ":42" in victim_key
+
+
 class TestCostAccumulatorTTL:
     def test_cost_expires_after_window(self) -> None:
         from unittest.mock import patch

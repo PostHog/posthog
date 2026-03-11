@@ -25,6 +25,7 @@ import { DeleteRecordingsBodySchema, GetBlockQuerySchema, RecordingParamsSchema,
 import { KeyStore, RecordingApiConfig, RecordingDecryptor } from './types'
 
 export class RecordingApi {
+    private corsOrigin: string | null = null
     private s3Client: S3Client | null = null
     private s3Bucket: string | null = null
     private s3Prefix: string | null = null
@@ -48,6 +49,8 @@ export class RecordingApi {
     }
 
     async start(recordingService?: RecordingService): Promise<void> {
+        this.corsOrigin = this.config.SITE_URL || null
+
         if (recordingService) {
             this.recordingService = recordingService
             logger.info('[RecordingApi] Started with injected RecordingService')
@@ -173,13 +176,33 @@ export class RecordingApi {
             (req: express.Request, res: express.Response, next: express.NextFunction): Promise<void> =>
                 fn(req, res).catch(next)
 
-        router.get('/api/projects/:team_id/recordings/:session_id/block', asyncHandler(this.getBlock))
+        const blockPath = '/api/projects/:team_id/recordings/:session_id/block'
+
+        router.options(blockPath, this.handleCorsPreflightForBlock)
+        router.get(blockPath, asyncHandler(this.getBlock))
         router.post('/api/projects/:team_id/recordings/delete', asyncHandler(this.deleteRecordings))
 
         return router
     }
 
+    private setCorsHeaders(req: express.Request, res: express.Response): void {
+        if (this.corsOrigin && req.headers.origin === this.corsOrigin) {
+            res.set('Access-Control-Allow-Origin', this.corsOrigin)
+            res.set('Vary', 'Origin')
+        }
+    }
+
+    private handleCorsPreflightForBlock = (req: express.Request, res: express.Response): void => {
+        this.setCorsHeaders(req, res)
+        res.set('Access-Control-Allow-Methods', 'GET')
+        res.set('Access-Control-Allow-Headers', 'X-Internal-Api-Secret')
+        res.set('Access-Control-Max-Age', '86400')
+        res.status(204).end()
+    }
+
     private getBlock = async (req: express.Request, res: express.Response): Promise<void> => {
+        this.setCorsHeaders(req, res)
+
         // Parse and validate request
         const paramsResult = RecordingParamsSchema.safeParse(req.params)
         if (!paramsResult.success) {
@@ -200,7 +223,7 @@ export class RecordingApi {
         }
 
         const { team_id: teamId, session_id: sessionId } = paramsResult.data
-        const { key, start: startByte, end: endByte } = queryResult.data
+        const { key, start: startByte, end: endByte, decompress } = queryResult.data
 
         // Validate S3 key format
         if (!this.recordingService.validateS3Key(key)) {
@@ -216,6 +239,7 @@ export class RecordingApi {
                 key,
                 startByte,
                 endByte,
+                decompress,
             })
 
             // Serialize response
@@ -232,8 +256,9 @@ export class RecordingApi {
                 return
             }
 
-            res.set('Content-Type', 'application/octet-stream')
-            res.set('Content-Length', String(result.data.length))
+            const contentType = decompress ? 'application/jsonl' : 'application/octet-stream'
+            res.set('Content-Type', contentType)
+            res.set('Content-Length', String(Buffer.byteLength(result.data)))
             res.set('Cache-Control', 'public, max-age=2592000, immutable')
             res.send(result.data)
         } catch (error) {

@@ -228,7 +228,14 @@ export const GroupPropertyFilterApiType = {
     Group: 'group',
 } as const
 
+/**
+ * @nullable
+ */
+export type GroupPropertyFilterApiGroupKeyNames = { [key: string]: string } | null | null
+
 export interface GroupPropertyFilterApi {
+    /** @nullable */
+    group_key_names?: GroupPropertyFilterApiGroupKeyNames
     /** @nullable */
     group_type_index?: number | null
     key: string
@@ -990,6 +997,10 @@ export interface BoxPlotDatumApi {
     min: number
     p25: number
     p75: number
+    /** @nullable */
+    series_index?: number | null
+    /** @nullable */
+    series_label?: string | null
 }
 
 export type TrendsQueryResponseApiResultsItem = { [key: string]: unknown }

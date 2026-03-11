@@ -243,7 +243,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         dataWarehousePopoverFields: [
             () => [(_, props) => props.dataWarehousePopoverFields],
-            (dataWarehousePopoverFields) => dataWarehousePopoverFields ?? {},
+            (dataWarehousePopoverFields) => dataWarehousePopoverFields ?? [],
         ],
         metadataSource: [
             () => [(_, props) => props.metadataSource],
