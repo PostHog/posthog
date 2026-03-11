@@ -42,10 +42,10 @@ export function DataWarehouseScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name={sceneConfigurations[Scene.DataWarehouse].name}
-                description={sceneConfigurations[Scene.DataWarehouse].description}
+                name={sceneConfigurations[Scene.DataOps].name}
+                description={sceneConfigurations[Scene.DataOps].description}
                 resourceType={{
-                    type: sceneConfigurations[Scene.DataWarehouse].iconType || 'default_icon_type',
+                    type: sceneConfigurations[Scene.DataOps].iconType || 'default_icon_type',
                 }}
                 actions={
                     <div className="flex gap-2">
@@ -54,7 +54,7 @@ export function DataWarehouseScene(): JSX.Element {
                             keybind={[keyBinds.new]}
                             intent="New source"
                             interaction="click"
-                            scope={Scene.DataWarehouse}
+                            scope={Scene.DataOps}
                         >
                             <LemonButton
                                 type="primary"
@@ -78,19 +78,19 @@ export function DataWarehouseScene(): JSX.Element {
                         key: DataWarehouseTab.OVERVIEW,
                         label: 'Overview',
                         content: <OverviewTab />,
-                        link: urls.dataWarehouse(),
+                        link: urls.dataOps(),
                     },
                     {
                         key: DataWarehouseTab.SOURCES,
                         label: 'Sources',
                         content: <SourcesTab />,
-                        link: combineUrl(urls.dataWarehouse(), { ...searchParams, tab: DataWarehouseTab.SOURCES }).url,
+                        link: combineUrl(urls.dataOps(), { ...searchParams, tab: DataWarehouseTab.SOURCES }).url,
                     },
                     {
                         key: DataWarehouseTab.VIEWS,
                         label: 'Views',
                         content: <ViewsTab />,
-                        link: combineUrl(urls.dataWarehouse(), { ...searchParams, tab: DataWarehouseTab.VIEWS }).url,
+                        link: combineUrl(urls.dataOps(), { ...searchParams, tab: DataWarehouseTab.VIEWS }).url,
                     },
                     ...(featureFlags[FEATURE_FLAGS.DATA_MODELING_TAB]
                         ? [
@@ -98,7 +98,7 @@ export function DataWarehouseScene(): JSX.Element {
                                   key: DataWarehouseTab.MODELING,
                                   label: 'Modeling',
                                   content: <DataModelingTab />,
-                                  link: combineUrl(urls.dataWarehouse(), {
+                                  link: combineUrl(urls.dataOps(), {
                                       ...searchParams,
                                       tab: DataWarehouseTab.MODELING,
                                   }).url,

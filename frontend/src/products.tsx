@@ -51,7 +51,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     CustomerAnalytics: () => import('../../products/customer_analytics/frontend/CustomerAnalyticsScene'),
     CustomerAnalyticsConfiguration: () =>
         import('../../products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/CustomerAnalyticsConfigurationScene'),
-    DataWarehouse: () => import('../../products/data_warehouse/DataWarehouseScene'),
+    DataOps: () => import('../../products/data_warehouse/DataWarehouseScene'),
     Models: () => import('../../frontend/src/scenes/models/ModelsScene'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
@@ -118,7 +118,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
     '/customer_analytics/journeys': ['CustomerAnalytics', 'customerAnalyticsJourneys'],
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
-    '/data-warehouse': ['DataWarehouse', 'dataWarehouse'],
+    '/data-ops': ['DataOps', 'dataOps'],
     '/models': ['Models', 'models'],
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
@@ -265,8 +265,8 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         name: 'Customer analytics configuration',
     },
-    DataWarehouse: {
-        name: 'Data warehouse',
+    DataOps: {
+        name: 'Data ops',
         projectBased: true,
         defaultDocsPath: '/docs/data-warehouse',
         activityScope: 'DataWarehouse',
@@ -541,7 +541,7 @@ export const productUrls = {
     dashboardSubscription: (id: string | number, subscriptionId: string): string =>
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
-    dataWarehouse: (): string => '/data-warehouse',
+    dataOps: (): string => '/data-ops',
     models: (): string => '/models',
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
@@ -1184,6 +1184,17 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['Dashboard', 'Dashboards'],
     },
     {
+        path: 'Data ops',
+        intents: [ProductKey.DATA_WAREHOUSE, ProductKey.DATA_WAREHOUSE_SAVED_QUERY],
+        category: 'Unreleased',
+        href: urls.dataOps(),
+        flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
+        iconType: 'data_warehouse',
+        iconColor: ['var(--color-product-data-warehouse-light)'],
+        sceneKey: 'DataOps',
+        sceneKeys: ['DataOps', 'Models', 'SQLEditor'],
+    },
+    {
         path: `Data pipelines`,
         intents: [
             ProductKey.PIPELINE_BATCH_EXPORTS,
@@ -1197,17 +1208,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-data-pipeline-light)'],
         flag: FEATURE_FLAGS.SHOW_DATA_PIPELINES_NAV_ITEM,
         sceneKeys: ['Transformations'],
-    },
-    {
-        path: 'Data warehouse',
-        intents: [ProductKey.DATA_WAREHOUSE, ProductKey.DATA_WAREHOUSE_SAVED_QUERY],
-        category: 'Unreleased',
-        href: urls.dataWarehouse(),
-        flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
-        iconType: 'data_warehouse',
-        iconColor: ['var(--color-product-data-warehouse-light)'],
-        sceneKey: 'DataWarehouse',
-        sceneKeys: ['DataWarehouse', 'Models', 'SQLEditor'],
     },
     {
         path: 'Datasets',
@@ -1726,7 +1726,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         iconType: 'managed_viewsets',
         href: urls.dataWarehouseManagedViewsets(),
         flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
-        sceneKeys: ['DataWarehouse', 'Models', 'SQLEditor'],
+        sceneKeys: ['DataOps', 'Models', 'SQLEditor'],
     },
     {
         path: 'Marketing settings',

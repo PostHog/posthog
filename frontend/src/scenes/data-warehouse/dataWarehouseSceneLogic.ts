@@ -297,7 +297,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             // Remove any existing refresh timeout
             cache.disposables.dispose('refreshTimeout')
 
-            if (router.values.location.pathname.includes('data-warehouse')) {
+            if (router.values.location.pathname.includes('data-ops')) {
                 cache.disposables.add(() => {
                     const timerId = setTimeout(() => {
                         actions.loadSources()
@@ -316,7 +316,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         actions.loadBilling()
     }),
     urlToAction(({ actions, values }) => ({
-        [urls.dataWarehouse()]: (_, searchParams) => {
+        [urls.dataOps()]: (_, searchParams) => {
             const tab = searchParams.tab as DataWarehouseTab | undefined
             if (tab && Object.values(DataWarehouseTab).includes(tab) && tab !== values.activeTab) {
                 actions.setActiveTab(tab)
@@ -333,7 +333,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             } else {
                 searchParams.tab = values.activeTab
             }
-            return [urls.dataWarehouse(), searchParams]
+            return [urls.dataOps(), searchParams]
         },
     })),
 ])

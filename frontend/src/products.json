@@ -43,7 +43,7 @@
             "intents": ["data_warehouse_saved_queries", "data_warehouse"]
         },
         {
-            "path": "Data warehouse",
+            "path": "Data ops",
             "category": "Unreleased",
             "iconType": "data_warehouse",
             "type": null,

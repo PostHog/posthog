@@ -32,7 +32,7 @@ export enum Scene {
     Dashboards = 'Dashboards',
     DataManagement = 'DataManagement',
     DataPipelinesNew = 'DataPipelinesNew',
-    DataWarehouse = 'DataWarehouse',
+    DataOps = 'DataOps',
     DataWarehouseRedirect = 'DataWarehouseRedirect',
     DataWarehouseSource = 'DataWarehouseSource',
     DataWarehouseSourceNew = 'DataWarehouseSourceNew',
