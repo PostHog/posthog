@@ -57,7 +57,7 @@ export const DEFAULT_EXTENSIONS = [
     RichContentNodeMention,
     ExtensionDocument,
     Image,
-    Link,
+    Link.configure({ openOnClick: false }),
     Underline,
     // Keep most StarterKit extensions enabled so we can parse rich content that may contain them.
     // Only disable extensions that conflict with our custom extensions or aren't needed for parsing.
