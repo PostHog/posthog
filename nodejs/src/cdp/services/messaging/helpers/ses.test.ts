@@ -12,7 +12,7 @@ describe('SesWebhookHandler', () => {
         source: 'sender@example.com',
         messageId: 'msg-123',
         destination: ['to@example.com'],
-        tags: { ph_id: [generateEmailTrackingCode({ functionId: 'abc123', id: 'inv456' })] },
+        tags: { ph_id: [generateEmailTrackingCode({ functionId: 'abc123', id: 'inv456', teamId: 1 })] },
     }
 
     it('parses a raw Open event', async () => {
