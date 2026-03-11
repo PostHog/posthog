@@ -71,7 +71,9 @@ class TestExternalDataSchema(APIBaseTest):
 
     def test_incremental_fields_stripe(self):
         source = ExternalDataSource.objects.create(
-            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
         )
         schema = ExternalDataSchema.objects.create(
             name="BalanceTransaction",
@@ -118,7 +120,9 @@ class TestExternalDataSchema(APIBaseTest):
 
     def test_incremental_fields_missing_table_name(self):
         source = ExternalDataSource.objects.create(
-            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
         )
         schema = ExternalDataSchema.objects.create(
             name="Some_other_non_existent_table",
@@ -192,7 +196,9 @@ class TestExternalDataSchema(APIBaseTest):
 
     def test_update_schema_change_sync_type(self):
         source = ExternalDataSource.objects.create(
-            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
         )
         schema = ExternalDataSchema.objects.create(
             name="BalanceTransaction",
@@ -226,7 +232,9 @@ class TestExternalDataSchema(APIBaseTest):
 
     def test_update_schema_change_sync_type_incremental_field(self):
         source = ExternalDataSource.objects.create(
-            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
         )
         table = DataWarehouseTable.objects.create(team=self.team)
         schema = ExternalDataSchema.objects.create(

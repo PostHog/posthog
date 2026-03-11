@@ -1135,10 +1135,11 @@ export interface SharingConfigurationApi {
  * `firebase` - Firebase
  * `jira` - Jira
  * `pinterest-ads` - Pinterest Ads
+ * `stripe` - Stripe
  */
-export type Kind439EnumApi = (typeof Kind439EnumApi)[keyof typeof Kind439EnumApi]
+export type KindA98EnumApi = (typeof KindA98EnumApi)[keyof typeof KindA98EnumApi]
 
-export const Kind439EnumApi = {
+export const KindA98EnumApi = {
     Slack: 'slack',
     SlackTwig: 'slack-twig',
     Salesforce: 'salesforce',
@@ -1166,6 +1167,7 @@ export const Kind439EnumApi = {
     Firebase: 'firebase',
     Jira: 'jira',
     PinterestAds: 'pinterest-ads',
+    Stripe: 'stripe',
 } as const
 
 /**
@@ -1173,7 +1175,7 @@ export const Kind439EnumApi = {
  */
 export interface IntegrationApi {
     readonly id: number
-    kind: Kind439EnumApi
+    kind: KindA98EnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -1195,7 +1197,7 @@ export interface PaginatedIntegrationListApi {
  */
 export interface PatchedIntegrationApi {
     readonly id?: number
-    kind?: Kind439EnumApi
+    kind?: KindA98EnumApi
     config?: unknown
     readonly created_at?: string
     readonly created_by?: UserBasicApi

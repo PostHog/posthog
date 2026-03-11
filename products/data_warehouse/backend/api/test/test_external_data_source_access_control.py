@@ -56,7 +56,7 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
             created_by=created_by or self.user,
             prefix="test",
             job_inputs={
-                "stripe_secret_key": "sk_test_123",
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
             },
         )
 

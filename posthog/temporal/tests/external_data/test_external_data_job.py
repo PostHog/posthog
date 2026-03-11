@@ -256,7 +256,10 @@ def test_create_external_job_activity_update_schemas(activity_environment, team,
         team=team,
         status="running",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
     )
 
     ExternalDataSchema.objects.create(
@@ -518,7 +521,10 @@ async def test_run_stripe_job(activity_environment, team, minio_client, mock_str
             team=team,
             status="running",
             source_type="Stripe",
-            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            job_inputs={
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                "stripe_account_id": "acct_id",
+            },
         )
 
         customer_schema = _create_schema(STRIPE_CUSTOMER_RESOURCE_NAME, new_source, team)
@@ -551,7 +557,10 @@ async def test_run_stripe_job(activity_environment, team, minio_client, mock_str
             team=team,
             status="running",
             source_type="Stripe",
-            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            job_inputs={
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                "stripe_account_id": "acct_id",
+            },
         )
 
         charge_schema = _create_schema(STRIPE_CHARGE_RESOURCE_NAME, new_source, team)
@@ -636,7 +645,10 @@ async def test_run_stripe_job_row_count_update(activity_environment, team, minio
             team=team,
             status="running",
             source_type="Stripe",
-            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            job_inputs={
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                "stripe_account_id": "acct_id",
+            },
         )
 
         customer_schema = _create_schema(STRIPE_CUSTOMER_RESOURCE_NAME, new_source, team)
@@ -705,7 +717,10 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
         team=team,
         status="running",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
     )
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
