@@ -822,6 +822,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 // entirely and create the source with only those tables, using their default sync settings
                 if (values.requiredTables) {
                     const requiredSchemas = schemas.filter((schema) => values.requiredTables!.includes(schema.table))
+                    if (requiredSchemas.length !== values.requiredTables.length) {
+                        const missingTables = values.requiredTables.filter(
+                            (table) => !requiredSchemas.some((schema) => schema.table === table)
+                        )
+                        lemonToast.error(`Required tables not found in source: ${missingTables.join(', ')}`)
+                        actions.setIsLoading(false)
+                        return
+                    }
+
                     actions.updateSource({
                         payload: {
                             schemas: requiredSchemas.map((schema) => ({
