@@ -77,10 +77,11 @@ class SignalReportDeletionWorkflow:
                 team_id=inputs.team_id,
                 signal_id=last_signal.signal_id,
                 timestamp=datetime.fromisoformat(last_signal.timestamp),
+                max_wait_time_seconds=3600,
             ),
-            start_to_close_timeout=timedelta(minutes=2),
+            start_to_close_timeout=timedelta(hours=1, minutes=5),
             heartbeat_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
         # 3. Delete the report in Postgres

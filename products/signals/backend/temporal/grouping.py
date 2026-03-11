@@ -908,15 +908,15 @@ class WaitForClickHouseInput:
     team_id: int
     signal_id: str
     timestamp: datetime
+    max_wait_time_seconds: int = 3600
 
 
-WAIT_POLL_INTERVAL_SECONDS = 5
-WAIT_MAX_ATTEMPTS = 12  # 5s * 12 = 60s
+WAIT_POLL_INTERVAL_SECONDS = 10
 
 
 @temporalio.activity.defn
 async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) -> None:
-    """Poll ClickHouse until the emitted signal appears, or give up after ~1 minute.
+    """Poll ClickHouse until the emitted signal appears, or give up after max_wait_time_seconds.
 
     Filters on inserted_at >= (now - 1 minute) rather than on the deleted flag, so we
     confirm that *this specific ingestion* landed — regardless of whether the signal is
@@ -924,6 +924,7 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
     """
     team = await Team.objects.aget(pk=input.team_id)
     inserted_at_threshold = timezone.now() - timedelta(minutes=1)
+    deadline = asyncio.get_event_loop().time() + input.max_wait_time_seconds
 
     query = """
         SELECT count()
@@ -944,7 +945,8 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
         "inserted_at_threshold": ast.Constant(value=inserted_at_threshold),
     }
 
-    for attempt in range(WAIT_MAX_ATTEMPTS):
+    attempt = 0
+    while True:
         temporalio.activity.heartbeat(attempt)
 
         result = await sync_to_async(execute_hogql_query, thread_sensitive=False)(
@@ -962,10 +964,14 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
             )
             return
 
+        if asyncio.get_event_loop().time() >= deadline:
+            break
+
         await asyncio.sleep(WAIT_POLL_INTERVAL_SECONDS)
+        attempt += 1
 
     logger.warning(
-        f"Signal {input.signal_id} not found in ClickHouse after {WAIT_MAX_ATTEMPTS} attempts, proceeding anyway",
+        f"Signal {input.signal_id} not found in ClickHouse after {input.max_wait_time_seconds}s, proceeding anyway",
         signal_id=input.signal_id,
         team_id=input.team_id,
     )
@@ -1063,7 +1069,7 @@ async def _process_signal_batch(
         type_examples_result = await workflow.execute_activity(
             fetch_signal_type_examples_activity,
             FetchSignalTypeExamplesInput(team_id=team_id),
-            start_to_close_timeout=timedelta(minutes=2),
+            start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
@@ -1074,7 +1080,7 @@ async def _process_signal_batch(
             workflow.execute_activity(
                 get_embedding_activity,
                 GenerateEmbeddingInput(team_id=team_id, content=s.description),
-                start_to_close_timeout=timedelta(minutes=2),
+                start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
             for s in batch
@@ -1088,8 +1094,8 @@ async def _process_signal_batch(
                     source_type=s.source_type,
                     signal_type_examples=type_examples_result.examples,
                 ),
-                start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                start_to_close_timeout=timedelta(minutes=10),
+                retry_policy=RetryPolicy(maximum_attempts=5),
             )
             for s in batch
         ],
@@ -1109,7 +1115,7 @@ async def _process_signal_batch(
                 workflow.execute_activity(
                     get_embedding_activity,
                     GenerateEmbeddingInput(team_id=team_id, content=q_text),
-                    start_to_close_timeout=timedelta(minutes=2),
+                    start_to_close_timeout=timedelta(minutes=5),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
                 for _, q_text in all_queries_flat
@@ -1124,7 +1130,7 @@ async def _process_signal_batch(
                 workflow.execute_activity(
                     run_signal_semantic_search_activity,
                     RunSignalSemanticSearchInput(team_id=team_id, embedding=emb.embedding, limit=10),
-                    start_to_close_timeout=timedelta(minutes=2),
+                    start_to_close_timeout=timedelta(minutes=5),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
                 for emb in all_query_embeddings
@@ -1156,7 +1162,7 @@ async def _process_signal_batch(
     report_contexts_result: FetchReportContextsOutput = await workflow.execute_activity(
         fetch_report_contexts_activity,
         FetchReportContextsInput(team_id=team_id, report_ids=all_candidate_report_ids),
-        start_to_close_timeout=timedelta(minutes=2),
+        start_to_close_timeout=timedelta(minutes=5),
         retry_policy=RetryPolicy(maximum_attempts=3),
     )
     report_contexts: dict[str, ReportContext] = report_contexts_result.contexts
@@ -1164,8 +1170,7 @@ async def _process_signal_batch(
     # === SEQUENTIAL PHASE (steps 5-7) ===
     processed_batch_signals: list[_ProcessedBatchSignal] = []
     promoted_reports: dict[str, SignalReportSummaryWorkflowInputs] = {}
-    last_assign_result: Optional[AssignAndEmitSignalOutput] = None
-    last_signal_id: Optional[str] = None
+    emitted_signals: list[tuple[str, AssignAndEmitSignalOutput]] = []
 
     for i, signal in enumerate(batch):
         signal_id = str(uuid.uuid4())
@@ -1189,8 +1194,8 @@ async def _process_signal_batch(
                     query_results=augmented_results,
                     report_contexts=report_contexts,
                 ),
-                start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                start_to_close_timeout=timedelta(minutes=10),
+                retry_policy=RetryPolicy(maximum_attempts=5),
             )
 
             # Step 5.5: PR-specificity verification for existing matches
@@ -1203,7 +1208,7 @@ async def _process_signal_batch(
                 group_signals_result: FetchSignalsForReportOutput = await workflow.execute_activity(
                     fetch_signals_for_report_activity,
                     FetchSignalsForReportInput(team_id=team_id, report_id=match_result.report_id),
-                    start_to_close_timeout=timedelta(minutes=2),
+                    start_to_close_timeout=timedelta(minutes=5),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
 
@@ -1218,8 +1223,8 @@ async def _process_signal_batch(
                         new_signal_source_type=signal.source_type,
                         group_signals=group_signals_result.signals,
                     ),
-                    start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
+                    start_to_close_timeout=timedelta(minutes=10),
+                    retry_policy=RetryPolicy(maximum_attempts=5),
                 )
 
                 specificity_meta = SpecificityMetadata(
@@ -1257,7 +1262,7 @@ async def _process_signal_batch(
                     match_result=match_result,
                     updated_title=updated_title,
                 ),
-                start_to_close_timeout=timedelta(minutes=2),
+                start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
 
@@ -1272,8 +1277,7 @@ async def _process_signal_batch(
                     embedding=signal_embeddings[i].embedding,
                 )
             )
-            last_assign_result = assign_result
-            last_signal_id = signal_id
+            emitted_signals.append((signal_id, assign_result))
 
             # Update local report_contexts so later signals in the batch see this report
             if isinstance(match_result, ExistingReportMatch):
@@ -1305,18 +1309,24 @@ async def _process_signal_batch(
                 source_id=signal.source_id,
             )
 
-    # Step 7: Wait for CH once at the end of the batch so the next batch can find these signals
-    if last_signal_id and last_assign_result:
-        await workflow.execute_activity(
-            wait_for_signal_in_clickhouse_activity,
-            WaitForClickHouseInput(
-                team_id=team_id,
-                signal_id=last_signal_id,
-                timestamp=last_assign_result.timestamp,
-            ),
-            start_to_close_timeout=timedelta(minutes=2),
-            heartbeat_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=2),
+    # Step 7: Wait for all emitted signals to land in CH so the next batch can find them
+    if emitted_signals:
+        await asyncio.gather(
+            *[
+                workflow.execute_activity(
+                    wait_for_signal_in_clickhouse_activity,
+                    WaitForClickHouseInput(
+                        team_id=team_id,
+                        signal_id=sid,
+                        timestamp=result.timestamp,
+                        max_wait_time_seconds=3600,
+                    ),
+                    start_to_close_timeout=timedelta(hours=1, minutes=5),
+                    heartbeat_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+                for sid, result in emitted_signals
+            ]
         )
 
     # Spawn summary workflows after CH wait so they can find the signals
