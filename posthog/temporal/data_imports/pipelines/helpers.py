@@ -1,3 +1,4 @@
+import re
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
@@ -36,8 +37,18 @@ def incremental_type_to_initial_value(field_type: IncrementalFieldType) -> int |
         return "000000000000000000000000"
 
 
-def build_table_name(source: ExternalDataSource, schema_name: str):
-    # Always use the stable schema_name for physical table naming.
-    # display_name (derived from the user-editable label) may contain spaces,
-    # special characters, or exceed the DataWarehouseTable.name max_length of 128.
-    return f"{source.prefix or ''}{source.source_type}_{schema_name}".lower()
+_TABLE_NAME_MAX_LENGTH = 128
+
+
+def _sanitize_table_identifier(name: str) -> str:
+    """Replace non-alphanumeric chars with underscores and collapse runs."""
+    name = re.sub(r"[^a-z0-9_]", "_", name.lower())
+    name = re.sub(r"_+", "_", name)
+    return name.strip("_")
+
+
+def build_table_name(source: ExternalDataSource, schema_name: str, display_name: str | None = None):
+    effective_name = _sanitize_table_identifier(display_name) if display_name else schema_name
+    prefix = source.prefix or ""
+    full = f"{prefix}{source.source_type}_{effective_name}".lower()
+    return full[:_TABLE_NAME_MAX_LENGTH]
