@@ -164,16 +164,6 @@ They live in **`products/<product>/mcp/*.yaml`**, keeping config close to the ow
 The build pipeline discovers YAML files from both paths.
 Product teams own their definitions and control which operations are exposed as MCP tools.
 
-#### Subset files
-
-Files named something other than `tools.yaml` in a product's `mcp/` folder (e.g., `prompts.yaml`) are treated as **subset files**. Subset files:
-
-- Derive the product name from the directory (e.g., `products/llm_analytics/mcp/prompts.yaml` uses `llm_analytics` as the product)
-- Validate existing tools against OpenAPI operations but don't add new operations from the broader product
-- Are useful for organizing tools into logical groups within a single product
-
-When running `--sync-all`, the scaffold script warns on stderr if any tools in a subset file can't be matched to OpenAPI operations, with a hint to add `@extend_schema(tags=["<product>"])` to the ViewSet.
-
 **Workflow: scaffold, configure, generate.**
 
 1. **Scaffold** a starter YAML with all operations disabled.
@@ -271,8 +261,6 @@ it only adds newly discovered operations (with `enabled: false`) and removes sta
 All hand-authored configuration is preserved.
 File writes are skipped when there are no semantic changes to avoid unnecessary formatting-only rewrites.
 
-For subset files, the scaffold script warns on stderr when tools can't be matched to OpenAPI operations,
-listing the specific tools and suggesting to add `@extend_schema(tags=["<product>"])` to the ViewSet.
 CI runs this as a drift check.
 
 See [`services/mcp/definitions/README.md`](https://github.com/PostHog/posthog/blob/master/services/mcp/definitions/README.md) for the full YAML schema reference (note: YAML definitions themselves now live in product folders)
