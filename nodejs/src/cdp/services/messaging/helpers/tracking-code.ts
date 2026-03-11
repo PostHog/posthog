@@ -18,31 +18,41 @@ function fromBase64UrlSafe(b64url: string) {
     return Buffer.from(b64, 'base64').toString('utf8')
 }
 
-export const parseEmailTrackingCode = (
-    encodedTrackingCode: string
-): { functionId: string; invocationId: string } | null => {
-    // customId  is like ph_fn_id=function-1&ph_inv_id=invocation-1
+export type ParsedTrackingCode = {
+    functionId: string
+    invocationId: string
+    distinctId?: string
+}
+
+export const parseEmailTrackingCode = (encodedTrackingCode: string): ParsedTrackingCode | null => {
     const decodedTrackingCode = fromBase64UrlSafe(encodedTrackingCode)
     try {
-        const [functionId, invocationId] = decodedTrackingCode.split(':')
+        const [functionId, invocationId, ...distinctIdParts] = decodedTrackingCode.split(':')
         if (!functionId || !invocationId) {
             return null
         }
-        return { functionId, invocationId }
+        // distinct_id may contain colons (e.g. email addresses don't, but UUIDs with custom formats might)
+        const distinctId = distinctIdParts.length > 0 ? distinctIdParts.join(':') : undefined
+        return { functionId, invocationId, distinctId: distinctId || undefined }
     } catch {
         return null
     }
 }
 
 export const generateEmailTrackingCode = (
-    invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id'>
+    invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id'>,
+    distinctId?: string
 ): string => {
-    // Generate a base64 encoded string free of equal signs
-    return toBase64UrlSafe(`${invocation.functionId}:${invocation.id}`)
+    const parts = [invocation.functionId, invocation.id]
+    if (distinctId) {
+        parts.push(distinctId)
+    }
+    return toBase64UrlSafe(parts.join(':'))
 }
 
 export const generateEmailTrackingPixelUrl = (
-    invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id'>
+    invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id'>,
+    distinctId?: string
 ): string => {
-    return `${defaultConfig.CDP_EMAIL_TRACKING_URL}/public/m/pixel?ph_id=${generateEmailTrackingCode(invocation)}`
+    return `${defaultConfig.CDP_EMAIL_TRACKING_URL}/public/m/pixel?ph_id=${generateEmailTrackingCode(invocation, distinctId)}`
 }

@@ -12,7 +12,11 @@ import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from '../managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
 import { SesWebhookHandler } from './helpers/ses'
-import { generateEmailTrackingCode, generateEmailTrackingPixelUrl } from './helpers/tracking-code'
+import {
+    generateEmailTrackingCode,
+    generateEmailTrackingPixelUrl,
+    parseEmailTrackingCode,
+} from './helpers/tracking-code'
 
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
 const LINK_REGEX =
@@ -30,19 +34,34 @@ const emailTrackingErrorsCounter = new Counter({
     labelNames: ['error_type', 'source'],
 })
 
+const METRIC_NAME_TO_EVENT_NAME: Partial<Record<MinimalAppMetric['metric_name'], string>> = {
+    email_sent: '$messaging_email_sent',
+    email_failed: '$messaging_email_failed',
+    email_opened: '$messaging_email_opened',
+    email_link_clicked: '$messaging_email_link_clicked',
+    email_bounced: '$messaging_email_bounced',
+    email_blocked: '$messaging_email_blocked',
+    email_spam: '$messaging_email_spam',
+    email_unsubscribed: '$messaging_email_unsubscribed',
+}
+
+export { METRIC_NAME_TO_EVENT_NAME }
+
 export const generateTrackingRedirectUrl = (
     invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id'>,
-    targetUrl: string
+    targetUrl: string,
+    distinctId?: string
 ): string => {
-    return `${defaultConfig.CDP_EMAIL_TRACKING_URL}/public/m/redirect?ph_id=${generateEmailTrackingCode(invocation)}&target=${encodeURIComponent(targetUrl)}`
+    return `${defaultConfig.CDP_EMAIL_TRACKING_URL}/public/m/redirect?ph_id=${generateEmailTrackingCode(invocation, distinctId)}&target=${encodeURIComponent(targetUrl)}`
 }
 
 export const addTrackingToEmail = (html: string, invocation: CyclotronJobInvocationHogFunction): string => {
-    const trackingUrl = generateEmailTrackingPixelUrl(invocation)
+    const distinctId = invocation.state?.globals?.event?.distinct_id
+    const trackingUrl = generateEmailTrackingPixelUrl(invocation, distinctId)
 
     html = html.replace(LINK_REGEX, (m, d, s, u) => {
         const href = d || s || u || ''
-        const tracked = generateTrackingRedirectUrl(invocation, href)
+        const tracked = generateTrackingRedirectUrl(invocation, href, distinctId)
 
         // replace just the href in the original tag to preserve other attributes
         return m.replace(/\bhref\s*=\s*(?:"[^"]*"|'[^']*'|[^'">\s]+)/i, `href="${tracked}"`)
@@ -67,13 +86,17 @@ export class EmailTrackingService {
     public async trackMetric({
         functionId,
         invocationId,
+        distinctId,
         metricName,
         source,
+        properties,
     }: {
         functionId?: string
         invocationId?: string
+        distinctId?: string
         metricName: MinimalAppMetric['metric_name']
         source: 'direct' | 'ses'
+        properties?: Record<string, any>
     }): Promise<void> {
         if (!functionId || !invocationId) {
             logger.error('[EmailTrackingService] trackMetric: Invalid custom ID', {
@@ -116,6 +139,19 @@ export class EmailTrackingService {
             hogFlow ? 'hog_flow' : 'hog_function'
         )
 
+        if (distinctId) {
+            this.hogFunctionMonitoringService.queuePostHogEvent({
+                team_id: teamId,
+                distinct_id: distinctId,
+                event: METRIC_NAME_TO_EVENT_NAME[metricName] ?? `$messaging_${metricName}`,
+                properties: {
+                    $workflow_id: appSourceId,
+                    $messaging_source: source,
+                    ...properties,
+                },
+            })
+        }
+
         await this.hogFunctionMonitoringService.flush()
 
         trackingEventsCounter.inc({ event_type: metricName, source })
@@ -124,6 +160,26 @@ export class EmailTrackingService {
             invocationId,
             metricName,
         })
+    }
+
+    private parseTrackingParams(query: Record<string, any>): {
+        functionId?: string
+        invocationId?: string
+        distinctId?: string
+    } {
+        // Support both combined ph_id format and legacy separate params
+        if (query.ph_id) {
+            const parsed = parseEmailTrackingCode(query.ph_id as string)
+            return {
+                functionId: parsed?.functionId,
+                invocationId: parsed?.invocationId,
+                distinctId: parsed?.distinctId,
+            }
+        }
+        return {
+            functionId: query.ph_fn_id as string | undefined,
+            invocationId: query.ph_inv_id as string | undefined,
+        }
     }
 
     public async handleSesWebhook(req: ModifiedRequest): Promise<{ status: number; message?: string }> {
@@ -142,8 +198,10 @@ export class EmailTrackingService {
                 await this.trackMetric({
                     functionId: metric.functionId,
                     invocationId: metric.invocationId,
+                    distinctId: metric.distinctId,
                     metricName: metric.metricName,
                     source: 'ses',
+                    properties: metric.properties,
                 })
             }
 
@@ -156,14 +214,13 @@ export class EmailTrackingService {
     }
 
     public async handleEmailTrackingPixel(req: ModifiedRequest, res: express.Response): Promise<void> {
-        // NOTE: this is somewhat naieve. We should expand with UA checking for things like apple's tracking prevention etc.
-        const { ph_fn_id, ph_inv_id } = req.query
+        const { functionId, invocationId, distinctId } = this.parseTrackingParams(req.query)
 
-        // Track the value
         try {
             await this.trackMetric({
-                functionId: ph_fn_id as string,
-                invocationId: ph_inv_id as string,
+                functionId,
+                invocationId,
+                distinctId,
                 metricName: 'email_opened',
                 source: 'direct',
             })
@@ -176,20 +233,22 @@ export class EmailTrackingService {
     }
 
     public async handleEmailTrackingRedirect(req: ModifiedRequest, res: express.Response): Promise<void> {
-        const { ph_fn_id, ph_inv_id, target } = req.query
+        const { functionId, invocationId, distinctId } = this.parseTrackingParams(req.query)
+        const { target } = req.query
 
         if (!target) {
             res.status(404).send('Not found')
             return
         }
 
-        // Track the value
         try {
             await this.trackMetric({
-                functionId: ph_fn_id as string,
-                invocationId: ph_inv_id as string,
+                functionId,
+                invocationId,
+                distinctId,
                 metricName: 'email_link_clicked',
                 source: 'direct',
+                properties: { $link_url: target },
             })
         } catch (error) {
             logger.error('[EmailTrackingService] handleEmailTrackingRedirect: Error tracking metric', { error })

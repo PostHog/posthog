@@ -12,7 +12,7 @@ describe('SesWebhookHandler', () => {
         source: 'sender@example.com',
         messageId: 'msg-123',
         destination: ['to@example.com'],
-        tags: { ph_id: [generateEmailTrackingCode({ functionId: 'abc123', id: 'inv456' })] },
+        tags: { ph_id: [generateEmailTrackingCode({ functionId: 'abc123', id: 'inv456' }, 'user-123')] },
     }
 
     it('parses a raw Open event', async () => {
@@ -34,12 +34,14 @@ describe('SesWebhookHandler', () => {
             {
                 functionId: 'abc123',
                 invocationId: 'inv456',
+                distinctId: 'user-123',
                 metricName: 'email_opened',
+                properties: { $email_to: 'to@example.com' },
             },
         ])
     })
 
-    it('parses a raw Click event', async () => {
+    it('parses a raw Click event with link URL', async () => {
         const body = [
             {
                 eventType: 'Click',
@@ -55,6 +57,34 @@ describe('SesWebhookHandler', () => {
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result.status).toBe(200)
         expect(result.metrics?.[0].metricName).toBe('email_link_clicked')
+        expect(result.metrics?.[0].distinctId).toBe('user-123')
+        expect(result.metrics?.[0].properties).toEqual({
+            $email_to: 'to@example.com',
+            $link_url: 'https://example.com',
+        })
+    })
+
+    it('parses tracking code without distinct_id for backwards compatibility', async () => {
+        const legacyMail = {
+            ...baseMail,
+            tags: { ph_id: [generateEmailTrackingCode({ functionId: 'abc123', id: 'inv456' })] },
+        }
+        const body = [
+            {
+                eventType: 'Open',
+                mail: legacyMail,
+                open: {
+                    ipAddress: '1.2.3.4',
+                    userAgent: 'UA',
+                    timestamp: '2025-10-03T12:01:00Z',
+                },
+            },
+        ]
+        const result = await handler.handleWebhook({ body, headers: {} })
+        expect(result.status).toBe(200)
+        expect(result.metrics?.[0].functionId).toBe('abc123')
+        expect(result.metrics?.[0].invocationId).toBe('inv456')
+        expect(result.metrics?.[0].distinctId).toBeUndefined()
     })
 
     it('parses a raw Delivery event', async () => {
@@ -74,6 +104,7 @@ describe('SesWebhookHandler', () => {
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result.status).toBe(200)
         expect(result.metrics?.[0].metricName).toBe('email_sent')
+        expect(result.metrics?.[0].distinctId).toBe('user-123')
     })
 
     it('parses a raw Bounce event', async () => {
@@ -94,6 +125,7 @@ describe('SesWebhookHandler', () => {
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result.status).toBe(200)
         expect(result.metrics?.[0].metricName).toBe('email_bounced')
+        expect(result.metrics?.[0].distinctId).toBe('user-123')
     })
 
     it('parses a raw Complaint event', async () => {
@@ -110,6 +142,7 @@ describe('SesWebhookHandler', () => {
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result.status).toBe(200)
         expect(result.metrics?.[0].metricName).toBe('email_blocked')
+        expect(result.metrics?.[0].distinctId).toBe('user-123')
     })
 
     it('returns 200 and no metrics if tracking code is missing', async () => {
