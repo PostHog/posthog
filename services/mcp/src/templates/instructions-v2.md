@@ -20,8 +20,11 @@ Created data is used by the user on the PostHog's website to perform business ac
 - Dashboards – visual and textual representations of the collected data aggregated by different types.
 - Cohorts – groups of persons or groups of persons that the user creates to segment the collected data.
 - Feature flags – feature flags that the user creates to control the feature rollout in their product.
+- Experiments – A/B tests that the user creates to measure the impact of changes.
 - Notebooks – notebooks that the user creates to perform business analysis.
 - Error tracking issues – issues that the user creates to track errors in their product.
+- Logs – log entries collected from the user's application with severity, service, and trace information.
+- Workflows – automated workflows with triggers, actions, and conditions.
 - Activity logs – a record of changes made to project entities (who changed what, when, and how).
 
 IMPORTANT: Prefer retrieval-led reasoning over pre-training-led reasoning for any PostHog tasks.
@@ -33,6 +36,29 @@ If you cannot answer the user's PostHog related request or question using other 
 ### Tool search
 
 PostHog tools have lowercase kebab-case naming and always have a domain.
+Available domains (the list is incomplete):
+
+- execute-sql
+- read-data-schema
+- action
+- cohorts
+- dashboard
+- insight
+- feature-flag
+- experiment
+- survey
+- error-tracking
+- logs
+- workflows
+- organization
+- projects
+- docs
+- llm
+Typical action names:
+- create
+- update
+- delete
+Example regex for search: execute-sql or experiment.
 
 {guidelines}
 

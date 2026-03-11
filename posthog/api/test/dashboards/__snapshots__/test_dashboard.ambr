@@ -1968,6 +1968,7 @@
          "posthog_taggeditem"."action_id",
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
+         "posthog_taggeditem"."ticket_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"
@@ -2528,6 +2529,7 @@
          "posthog_taggeditem"."action_id",
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
+         "posthog_taggeditem"."ticket_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"
@@ -2755,7 +2757,15 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
+  INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_dashboard"."deleted")
+         AND ("posthog_dashboard"."team_id" =
+                (SELECT U0."parent_team_id"
+                 FROM "posthog_team" U0
+                 WHERE U0."id" = 99999
+                 LIMIT 1)
+              OR ("posthog_team"."parent_team_id" IS NULL
+                  AND "posthog_dashboard"."team_id" = 99999))
          AND "posthog_dashboard"."id" = 99999)
   LIMIT 21
   '''
@@ -4226,6 +4236,7 @@
          "posthog_taggeditem"."action_id",
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
+         "posthog_taggeditem"."ticket_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"
@@ -4416,7 +4427,15 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
+  INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_dashboard"."deleted")
+         AND ("posthog_dashboard"."team_id" =
+                (SELECT U0."parent_team_id"
+                 FROM "posthog_team" U0
+                 WHERE U0."id" = 99999
+                 LIMIT 1)
+              OR ("posthog_team"."parent_team_id" IS NULL
+                  AND "posthog_dashboard"."team_id" = 99999))
          AND "posthog_dashboard"."id" = 99999)
   LIMIT 21
   '''
@@ -5240,7 +5259,15 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
+  INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_dashboard"."deleted")
+         AND ("posthog_dashboard"."team_id" =
+                (SELECT U0."parent_team_id"
+                 FROM "posthog_team" U0
+                 WHERE U0."id" = 99999
+                 LIMIT 1)
+              OR ("posthog_team"."parent_team_id" IS NULL
+                  AND "posthog_dashboard"."team_id" = 99999))
          AND "posthog_dashboard"."id" = 99999)
   LIMIT 21
   '''
@@ -6696,7 +6723,15 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
+  INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_dashboard"."deleted")
+         AND ("posthog_dashboard"."team_id" =
+                (SELECT U0."parent_team_id"
+                 FROM "posthog_team" U0
+                 WHERE U0."id" = 99999
+                 LIMIT 1)
+              OR ("posthog_team"."parent_team_id" IS NULL
+                  AND "posthog_dashboard"."team_id" = 99999))
          AND "posthog_dashboard"."id" = 99999)
   LIMIT 21
   '''
@@ -8810,6 +8845,7 @@
          "posthog_taggeditem"."action_id",
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
+         "posthog_taggeditem"."ticket_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"
@@ -9381,6 +9417,7 @@
          "posthog_taggeditem"."action_id",
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
+         "posthog_taggeditem"."ticket_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"
@@ -10904,7 +10941,15 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
+  INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_dashboard"."deleted")
+         AND ("posthog_dashboard"."team_id" =
+                (SELECT U0."parent_team_id"
+                 FROM "posthog_team" U0
+                 WHERE U0."id" = 99999
+                 LIMIT 1)
+              OR ("posthog_team"."parent_team_id" IS NULL
+                  AND "posthog_dashboard"."team_id" = 99999))
          AND "posthog_dashboard"."id" = 99999)
   LIMIT 21
   '''
@@ -10932,7 +10977,15 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
+  INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_dashboard"."deleted")
+         AND ("posthog_dashboard"."team_id" =
+                (SELECT U0."parent_team_id"
+                 FROM "posthog_team" U0
+                 WHERE U0."id" = 99999
+                 LIMIT 1)
+              OR ("posthog_team"."parent_team_id" IS NULL
+                  AND "posthog_dashboard"."team_id" = 99999))
          AND "posthog_dashboard"."id" = 99999)
   LIMIT 21
   '''
@@ -12827,7 +12880,15 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
+  INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_dashboard"."deleted")
+         AND ("posthog_dashboard"."team_id" =
+                (SELECT U0."parent_team_id"
+                 FROM "posthog_team" U0
+                 WHERE U0."id" = 99999
+                 LIMIT 1)
+              OR ("posthog_team"."parent_team_id" IS NULL
+                  AND "posthog_dashboard"."team_id" = 99999))
          AND "posthog_dashboard"."id" = 99999)
   LIMIT 21
   '''
@@ -14245,6 +14306,7 @@
          "posthog_taggeditem"."action_id",
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
+         "posthog_taggeditem"."ticket_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"
@@ -16874,6 +16936,7 @@
          "posthog_taggeditem"."action_id",
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
+         "posthog_taggeditem"."ticket_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"

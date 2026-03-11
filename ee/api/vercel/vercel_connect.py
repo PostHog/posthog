@@ -108,6 +108,10 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
             timeout=CONNECT_SESSION_TIMEOUT,
         )
 
+        # Bind session_key to the user's browser session to prevent CSRF-style
+        # attacks where an attacker starts OAuth and tricks a victim into completing it.
+        request.session["vercel_connect_session"] = session_key
+
         link_params = {"session": session_key}
         if next_url:
             link_params["next"] = next_url
@@ -140,6 +144,11 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         user = cast(User, request.user)
         session_key = serializer.validated_data["session"]
         organization_id = serializer.validated_data["organization_id"]
+
+        # Verify the session_key was issued to this browser session
+        bound_session_key = request.session.get("vercel_connect_session")
+        if bound_session_key != session_key:
+            raise exceptions.ValidationError("Session mismatch. Please restart the linking flow from Vercel.")
 
         cached_data = cache.get(_get_connect_cache_key(session_key))
         if not cached_data:
@@ -193,6 +202,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
 
         # Clean up the session
         cache.delete(_get_connect_cache_key(session_key))
+        request.session.pop("vercel_connect_session", None)
 
         logger.info(
             "Vercel connectable account linked",

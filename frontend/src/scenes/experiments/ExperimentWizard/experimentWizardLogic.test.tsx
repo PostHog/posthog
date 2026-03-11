@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
@@ -15,7 +17,7 @@ import { NEW_EXPERIMENT } from '../constants'
 import { createExperimentLogic } from '../ExperimentForm/createExperimentLogic'
 import { variantsPanelLogic } from '../ExperimentForm/variantsPanelLogic'
 import { experimentsLogic } from '../experimentsLogic'
-import { experimentWizardLogic } from './experimentWizardLogic'
+import { experimentWizardLogic, stepStorageKey } from './experimentWizardLogic'
 import { AboutStep } from './steps/AboutStep'
 import { VariantsStep } from './steps/VariantsStep'
 
@@ -201,6 +203,73 @@ describe('experimentWizardLogic', () => {
             })
         })
 
+        it('shows "Use this flag" button when feature flag key already exists', async () => {
+            // Set validation result with existingFlag BEFORE rendering
+            const vpLogic = variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false, tabId: TAB_ID })
+            vpLogic.actions.validateFeatureFlagKeySuccess({
+                valid: false,
+                error: 'A feature flag with this key already exists.',
+                existingFlag: mockEligibleFlags[0] as FeatureFlagType,
+            })
+
+            // Wait for the value to propagate through the kea connection chain
+            await expectLogic(logic).toMatchValues({
+                featureFlagKeyValidation: partial({
+                    valid: false,
+                    existingFlag: partial({ id: 10 }),
+                }),
+            })
+
+            render(
+                <BindLogic logic={experimentWizardLogic} props={{ tabId: TAB_ID }}>
+                    <AboutStep />
+                </BindLogic>
+            )
+
+            await waitFor(() => {
+                expect(screen.getByText('A feature flag with this key already exists.')).toBeInTheDocument()
+                expect(screen.getByText('Use this flag')).toBeInTheDocument()
+            })
+        })
+
+        it('clicking "Use this flag" links the existing flag', async () => {
+            const flag = mockEligibleFlags[0] as FeatureFlagType
+
+            // Set validation result with existingFlag BEFORE rendering
+            const vpLogic = variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false, tabId: TAB_ID })
+            vpLogic.actions.validateFeatureFlagKeySuccess({
+                valid: false,
+                error: 'A feature flag with this key already exists.',
+                existingFlag: flag,
+            })
+
+            await expectLogic(logic).toMatchValues({
+                featureFlagKeyValidation: partial({
+                    valid: false,
+                    existingFlag: partial({ id: 10 }),
+                }),
+            })
+
+            render(
+                <BindLogic logic={experimentWizardLogic} props={{ tabId: TAB_ID }}>
+                    <AboutStep />
+                </BindLogic>
+            )
+
+            await waitFor(() => {
+                expect(screen.getByText('Use this flag')).toBeInTheDocument()
+            })
+
+            await userEvent.click(screen.getByText('Use this flag'))
+
+            await expectLogic(logic).toMatchValues({
+                linkedFeatureFlag: partial({ id: 10, key: 'existing-flag' }),
+                experiment: partial({
+                    feature_flag_key: 'existing-flag',
+                }),
+            })
+        })
+
         it('removing a linked flag clears the key', async () => {
             logic.actions.setLinkedFeatureFlag(mockEligibleFlags[0] as FeatureFlagType)
             logic.actions.setFeatureFlagConfig({
@@ -292,6 +361,116 @@ describe('experimentWizardLogic', () => {
             await expectLogic(logic).toMatchValues({
                 departedSteps: { about: true },
             })
+        })
+
+        it('preserves current step across unmount/remount', async () => {
+            logic.actions.nextStep()
+            await expectLogic(logic).toMatchValues({ currentStep: 'variants' })
+
+            logic.unmount()
+            createLogic.unmount()
+
+            createLogic = createExperimentLogic({ tabId: TAB_ID })
+            createLogic.mount()
+            logic = experimentWizardLogic({ tabId: TAB_ID })
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({ currentStep: 'variants' })
+        })
+
+        it('two tabs maintain independent step state', async () => {
+            const createLogic1 = createExperimentLogic({ tabId: 'tab-1' })
+            createLogic1.mount()
+            const wizardLogic1 = experimentWizardLogic({ tabId: 'tab-1' })
+            wizardLogic1.mount()
+
+            const createLogic2 = createExperimentLogic({ tabId: 'tab-2' })
+            createLogic2.mount()
+            const wizardLogic2 = experimentWizardLogic({ tabId: 'tab-2' })
+            wizardLogic2.mount()
+
+            // Advance tab 1 to variants, tab 2 to analytics
+            wizardLogic1.actions.setStep('variants')
+            wizardLogic2.actions.setStep('analytics')
+
+            await expectLogic(wizardLogic1).toMatchValues({ currentStep: 'variants' })
+            await expectLogic(wizardLogic2).toMatchValues({ currentStep: 'analytics' })
+
+            // Advancing tab 2 does not affect tab 1
+            wizardLogic2.actions.setStep('about')
+
+            await expectLogic(wizardLogic1).toMatchValues({ currentStep: 'variants' })
+            await expectLogic(wizardLogic2).toMatchValues({ currentStep: 'about' })
+
+            wizardLogic1.unmount()
+            createLogic1.unmount()
+            wizardLogic2.unmount()
+            createLogic2.unmount()
+        })
+
+        it('resets step to about on saveExperimentSuccess', async () => {
+            logic.actions.setStep('analytics')
+            await expectLogic(logic).toMatchValues({ currentStep: 'analytics' })
+
+            logic.actions.saveExperimentSuccess()
+
+            await expectLogic(logic).toMatchValues({
+                currentStep: 'about',
+                linkedFeatureFlag: null,
+                departedSteps: {},
+            })
+            expect(sessionStorage.getItem(stepStorageKey(TAB_ID))).toBeNull()
+        })
+
+        it('clears sessionStorage step on saveExperimentSuccess so remount starts fresh', async () => {
+            logic.actions.setStep('analytics')
+            expect(sessionStorage.getItem(stepStorageKey(TAB_ID))).toBe('analytics')
+
+            logic.actions.saveExperimentSuccess()
+            logic.unmount()
+            createLogic.unmount()
+
+            createLogic = createExperimentLogic({ tabId: TAB_ID })
+            createLogic.mount()
+            logic = experimentWizardLogic({ tabId: TAB_ID })
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({ currentStep: 'about' })
+        })
+
+        it('stale sessionStorage from previous session is cleared on fresh navigation', () => {
+            // Simulate stale state: step saved from a previous experiment session
+            sessionStorage.setItem(stepStorageKey(TAB_ID), 'analytics')
+
+            // Simulate what experimentSceneLogic does on fresh navigation to /experiments/new
+            sessionStorage.removeItem(stepStorageKey(TAB_ID))
+
+            // Now mount the wizard — should start on 'about'
+            logic.unmount()
+            createLogic.unmount()
+
+            createLogic = createExperimentLogic({ tabId: TAB_ID })
+            createLogic.mount()
+            logic = experimentWizardLogic({ tabId: TAB_ID })
+            logic.mount()
+
+            expect(logic.values.currentStep).toBe('about')
+        })
+
+        it('tab switch preserves step when sessionStorage is not cleared', async () => {
+            logic.actions.setStep('variants')
+            await expectLogic(logic).toMatchValues({ currentStep: 'variants' })
+
+            // Simulate tab switch: unmount and remount without clearing sessionStorage
+            logic.unmount()
+            createLogic.unmount()
+
+            createLogic = createExperimentLogic({ tabId: TAB_ID })
+            createLogic.mount()
+            logic = experimentWizardLogic({ tabId: TAB_ID })
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({ currentStep: 'variants' })
         })
     })
 
@@ -399,7 +578,7 @@ describe('experimentWizardLogic', () => {
         it('existing feature flag key shows error when validation fails', async () => {
             // Directly set the validation result on the variantsPanelLogic instance
             // (the same instance createExperimentLogic connects to)
-            const vpLogic = variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false })
+            const vpLogic = variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false, tabId: TAB_ID })
             vpLogic.actions.validateFeatureFlagKeySuccess({
                 valid: false,
                 error: 'A feature flag with this key already exists.',
@@ -411,6 +590,36 @@ describe('experimentWizardLogic', () => {
                     about: ['A feature flag with this key already exists.'],
                 }),
             })
+        })
+
+        it('validation error is kept when switching back to original tab', async () => {
+            // Set up: trigger a duplicate-key validation error
+            const vpLogic = variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false, tabId: TAB_ID })
+            createLogic.actions.setExperimentValue('feature_flag_key', 'existing-flag')
+            vpLogic.actions.validateFeatureFlagKeySuccess({
+                valid: false,
+                error: 'A feature flag with this key already exists.',
+            })
+
+            await expectLogic(logic).toMatchValues({
+                featureFlagKeyValidation: partial({
+                    valid: false,
+                    error: 'A feature flag with this key already exists.',
+                }),
+            })
+
+            // Simulate tab switch: unmount and remount
+            logic.unmount()
+            vpLogic.unmount()
+            createLogic.unmount()
+
+            createLogic = createExperimentLogic({ tabId: TAB_ID })
+            createLogic.mount()
+            logic = experimentWizardLogic({ tabId: TAB_ID })
+            logic.mount()
+
+            // afterMount should re-validate since feature_flag_key is set
+            await expectLogic(logic).toDispatchActions(['validateFeatureFlagKey'])
         })
 
         it('saveExperiment marks all steps as departed, revealing all errors', async () => {
@@ -441,7 +650,7 @@ describe('experimentWizardLogic', () => {
             useMocks({
                 ...apiMocks,
                 post: {
-                    '/api/projects/@current/experiments/': async (req: any) => {
+                    [`/api/projects/${MOCK_TEAM_ID}/experiments/`]: async (req: any) => {
                         capturedPayload = await req.json()
                         return [
                             200,
@@ -612,6 +821,81 @@ describe('experimentWizardLogic', () => {
             renderVariantsStep()
 
             expect(screen.queryByText(/For linked feature flags, this step is read-only/)).not.toBeInTheDocument()
+        })
+    })
+
+    describe('tab isolation of validation state', () => {
+        let createLogic1: ReturnType<typeof createExperimentLogic.build>
+        let createLogic2: ReturnType<typeof createExperimentLogic.build>
+        let wizardLogic1: ReturnType<typeof experimentWizardLogic.build>
+        let wizardLogic2: ReturnType<typeof experimentWizardLogic.build>
+
+        beforeEach(() => {
+            localStorage.clear()
+            sessionStorage.clear()
+            useMocks(apiMocks)
+            initKeaTests()
+
+            featureFlagsLogic.mount()
+            experimentsLogic.mount()
+
+            createLogic1 = createExperimentLogic({ tabId: 'tab-1' })
+            createLogic1.mount()
+            wizardLogic1 = experimentWizardLogic({ tabId: 'tab-1' })
+            wizardLogic1.mount()
+
+            createLogic2 = createExperimentLogic({ tabId: 'tab-2' })
+            createLogic2.mount()
+            wizardLogic2 = experimentWizardLogic({ tabId: 'tab-2' })
+            wizardLogic2.mount()
+        })
+
+        afterEach(() => {
+            wizardLogic1?.unmount()
+            createLogic1?.unmount()
+            wizardLogic2?.unmount()
+            createLogic2?.unmount()
+            experimentsLogic.unmount()
+            featureFlagsLogic.unmount()
+        })
+
+        it('validation error on tab 1 does not leak to tab 2', async () => {
+            // Tab 1: simulate validation result on the per-tab instance
+            const vpLogic = variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false, tabId: 'tab-1' })
+            vpLogic.actions.validateFeatureFlagKeySuccess({
+                valid: false,
+                error: 'A feature flag with this key already exists.',
+                existingFlag: mockEligibleFlags[0] as FeatureFlagType,
+            })
+
+            await expectLogic(wizardLogic1).toMatchValues({
+                featureFlagKeyValidation: partial({
+                    valid: false,
+                    error: 'A feature flag with this key already exists.',
+                }),
+            })
+
+            // Tab 2: should still have no validation state
+            await expectLogic(wizardLogic2).toMatchValues({
+                featureFlagKeyValidation: null,
+            })
+        })
+
+        it('opening tab 2 does not auto-link flag on tab 1', async () => {
+            // Tab 1: set a feature flag key that matches an existing flag
+            createLogic1.actions.setExperimentValue('feature_flag_key', 'existing-flag')
+
+            // Simulate tab 2 mounting (which triggers loadFeatureFlagsForAutocomplete)
+            // This fires loadFeatureFlagsSuccess globally
+            wizardLogic2.actions.loadFeatureFlagsForAutocomplete()
+
+            // Wait for flags to load
+            await expectLogic(wizardLogic2).delay(100)
+
+            // Tab 1 should NOT have auto-linked the flag
+            await expectLogic(wizardLogic1).toMatchValues({
+                linkedFeatureFlag: null,
+            })
         })
     })
 })

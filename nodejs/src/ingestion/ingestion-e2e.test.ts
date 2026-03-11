@@ -149,6 +149,7 @@ const DEFAULT_TEAM: Team = {
     timezone: 'UTC',
     available_features: [],
     drop_events_older_than_seconds: null,
+    extra_settings: null,
 }
 
 let offsetIncrementer = 0
@@ -247,6 +248,7 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
 
             const ingester = new IngestionConsumer(hub, {
                 ...hub,
+                kafkaMetricsProducer: hub.kafkaProducer,
                 hogTransformer: createHogTransformerService(hub, hub),
             })
             // NOTE: We don't actually use kafka so we skip instantiation for faster tests

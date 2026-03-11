@@ -29,6 +29,7 @@ from posthog.sync import database_sync_to_async
 
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 from ee.hogai.context.insight.context import InsightContext
+from ee.hogai.context.notebook.prompts import ROOT_NOTEBOOKS_CONTEXT_PROMPT
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.utils.helpers import find_start_message, find_start_message_idx, insert_messages_before_start
 from ee.hogai.utils.prompt import format_prompt_string
@@ -94,7 +95,7 @@ class AssistantContextManager(AssistantContextMixin):
 
     def has_awaitable_context(self, state: BaseStateWithMessages) -> bool:
         ui_context = self.get_ui_context(state)
-        if ui_context and (ui_context.dashboards or ui_context.insights):
+        if ui_context and (ui_context.dashboards or ui_context.insights or ui_context.notebooks):
             return True
         return False
 
@@ -295,9 +296,28 @@ class AssistantContextManager(AssistantContextMixin):
                 f"</evaluations_context>"
             )
 
+        # Format notebooks context
+        notebooks_context = ""
+        if ui_context.notebooks:
+            from ee.hogai.context.notebook.context import NotebookContext
+
+            notebook_texts = []
+            for nb in ui_context.notebooks:
+                ctx = await NotebookContext.from_short_id(self._team, nb.id)
+                if ctx:
+                    notebook_texts.append(ctx.format())
+            if notebook_texts:
+                joined_notebooks = "\n\n".join(notebook_texts)
+                notebooks_context = (
+                    PromptTemplate.from_template(ROOT_NOTEBOOKS_CONTEXT_PROMPT, template_format="mustache")
+                    .format_prompt(notebooks=joined_notebooks)
+                    .to_string()
+                )
+
         if (
             dashboard_context
             or insights_context
+            or notebooks_context
             or events_context
             or actions_context
             or error_tracking_context
@@ -310,6 +330,7 @@ class AssistantContextManager(AssistantContextMixin):
                 actions_context,
                 error_tracking_context,
                 evaluations_context,
+                notebooks_context,
             )
         return None
 
@@ -411,12 +432,14 @@ class AssistantContextManager(AssistantContextMixin):
         actions_context: str,
         error_tracking_context: str = "",
         evaluations_context: str = "",
+        notebooks_context: str = "",
     ) -> str:
         """Render the user context template with the provided context strings."""
         template = PromptTemplate.from_template(ROOT_UI_CONTEXT_PROMPT, template_format="mustache")
         return template.format_prompt(
             ui_context_dashboard=dashboard_context,
             ui_context_insights=insights_context,
+            ui_context_notebooks=notebooks_context,
             ui_context_events=events_context,
             ui_context_actions=actions_context,
             ui_context_error_tracking=error_tracking_context,

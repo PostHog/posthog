@@ -61,13 +61,15 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
             <div className="flex deprecated-space-x-1">
                 <div>
                     <span className="text-secondary">IDs:</span>{' '}
-                    <CopyToClipboardInline
-                        tooltipMessage={null}
-                        description="person distinct ID"
-                        style={{ justifyContent: 'flex-end' }}
-                    >
-                        {person.distinct_ids[0]}
-                    </CopyToClipboardInline>
+                    <span data-attr="person-distinct-id">
+                        <CopyToClipboardInline
+                            tooltipMessage={null}
+                            description="person distinct ID"
+                            style={{ justifyContent: 'flex-end' }}
+                        >
+                            {person.distinct_ids[0]}
+                        </CopyToClipboardInline>
+                    </span>
                 </div>
                 {person.distinct_ids.length > 1 && (
                     <LemonMenu
@@ -186,7 +188,7 @@ export function PersonScene(): JSX.Element | null {
     const { user } = useValues(userLogic)
 
     if (personError) {
-        throw new Error(personError)
+        return <NotFound object="person" meta={{ urlId }} />
     }
     if (!person) {
         return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="person" meta={{ urlId }} />

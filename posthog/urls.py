@@ -120,7 +120,22 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
         or (redirect_url.hostname not in PERMITTED_FORUM_DOMAINS and is_forum_login)
         or (not is_forum_login and not hostname_in_allowed_url_list(current_team.app_urls, redirect_url.hostname))
     ):
-        return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
+        hostname = redirect_url.hostname or request.GET["redirect"]
+        return render_template(
+            "toolbar_oauth_error.html",
+            request,
+            context={
+                "error_title": "Domain not authorized",
+                "error_message": "The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",
+                "error_detail": (
+                    f"The hostname {hostname} needs to be added to your project's "
+                    "authorized URLs before the toolbar can be used on this site."
+                ),
+                "error_code": "403",
+                "settings_url": f"{settings.SITE_URL}/settings/project-toolbar#authorized-urls",
+            },
+            status_code=403,
+        )
 
     if referer_url.hostname != redirect_url.hostname:
         return HttpResponse(
@@ -189,11 +204,10 @@ urlpatterns = [
     path("", include(tf_urls)),
     opt_slash_path("api/user/prepare_toolbar_preloaded_flags", user.prepare_toolbar_preloaded_flags),
     opt_slash_path("api/user/get_toolbar_preloaded_flags", user.get_toolbar_preloaded_flags),
-    opt_slash_path("api/user/toolbar_oauth_start", user.toolbar_oauth_start),
-    opt_slash_path("api/user/toolbar_oauth_exchange", user.toolbar_oauth_exchange),
     opt_slash_path("api/user/toolbar_oauth_refresh", user.toolbar_oauth_refresh),
     path("toolbar_oauth/authorize/", login_required(user.toolbar_oauth_authorize)),
     path("toolbar_oauth/callback", user.toolbar_oauth_callback),
+    path("toolbar_oauth/check", user.toolbar_oauth_check),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),

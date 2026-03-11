@@ -305,7 +305,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         content: <FeedbackTab featureFlag={featureFlag} />,
     })
 
-    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_FF_CROSS_SELL]) {
+    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_FF_CROSS_SELL] === 'test') {
         tabs.push({
             label: (
                 <div className="flex flex-row">
@@ -868,8 +868,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             <SceneTitleSection
                                 name={featureFlag.key}
                                 description={featureFlag.name}
-                                noSticky
-                                descriptionClassName="max-w-prose"
                                 resourceType={{
                                     type: featureFlag.active ? 'feature_flag' : 'feature_flag_off',
                                 }}

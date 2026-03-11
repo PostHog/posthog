@@ -53,14 +53,14 @@ def get_exposure_config_params_for_builder(
     exposure_config: ExperimentEventExposureConfig | ActionsNode
     if criteria is None:
         exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
-        filter_test_accounts = False
+        filter_test_accounts = True
         multiple_variant_handling = MultipleVariantHandling.EXCLUDE
     else:
         if criteria.exposure_config is None:
             exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
         else:
             exposure_config = criteria.exposure_config
-        filter_test_accounts = bool(criteria.filterTestAccounts) if criteria.filterTestAccounts is not None else False
+        filter_test_accounts = bool(criteria.filterTestAccounts) if criteria.filterTestAccounts is not None else True
         multiple_variant_handling = criteria.multiple_variant_handling or MultipleVariantHandling.EXCLUDE
 
     return (exposure_config, multiple_variant_handling, filter_test_accounts)
@@ -151,6 +151,59 @@ class ExperimentQueryBuilder:
                 "entity_key": parse_expr(self.entity_key),
                 "variant_expr": self._build_variant_expr_for_mean(),
                 "exposure_predicate": self._build_exposure_predicate(),
+            },
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def get_daily_exposures_from_precomputed(self, job_ids: list[str]) -> ast.SelectQuery:
+        """
+        Reads from the precomputed table and aggregates into day/variant/count.
+        Used by the Exposures tab in the experiment UI.
+        """
+        entity_id_expr = (
+            parse_expr("toUUID(t.entity_id)") if self.entity_key == "person_id" else parse_expr("t.entity_id")
+        )
+
+        if self.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
+            variant_expr = parse_expr("argMin(t.variant, t.first_exposure_time)")
+        else:
+            variant_expr = parse_expr(
+                "if(uniqExact(t.variant) > 1, {multiple_key}, argMin(t.variant, t.first_exposure_time))",
+                placeholders={"multiple_key": ast.Constant(value=MULTIPLE_VARIANT_KEY)},
+            )
+
+        query = parse_select(
+            """
+            WITH deduplicated AS (
+                SELECT
+                    {entity_id_expr} AS entity_id,
+                    {variant_expr} AS variant,
+                    min(t.first_exposure_time) AS first_exposure_time
+                FROM experiment_exposures_preaggregated AS t
+                WHERE t.job_id IN {job_ids}
+                    AND t.team_id = {team_id}
+                    AND t.first_exposure_time >= {date_from}
+                    AND t.first_exposure_time <= {date_to}
+                GROUP BY entity_id
+            )
+            SELECT
+                toDate(toString(first_exposure_time)) AS day,
+                variant AS variant,
+                count(entity_id) AS exposed_count
+            FROM deduplicated
+            WHERE notEmpty(variant)
+            GROUP BY day, variant
+            ORDER BY day ASC
+            """,
+            placeholders={
+                "entity_id_expr": entity_id_expr,
+                "variant_expr": variant_expr,
+                "job_ids": ast.Constant(value=job_ids),
+                "team_id": ast.Constant(value=self.team.id),
+                "date_from": self.date_range_query.date_from_as_hogql(),
+                "date_to": self.date_range_query.date_to_as_hogql(),
             },
         )
 

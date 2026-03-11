@@ -30,6 +30,7 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlagDashboards, get_feature_flags_for_team_in_cache
 from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
 from posthog.models.feature_flag.flag_status import FeatureFlagStatus
+from posthog.models.group.group import Group
 from posthog.models.group.util import create_group
 from posthog.models.organization import Organization
 from posthog.models.person import Person
@@ -83,53 +84,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         for key in r.scan_iter("*"):
             r.delete(key)
         return super().setUp()
-
-    def test_cant_create_flag_with_more_than_max_values(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags",
-            {
-                "name": "Beta feature",
-                "key": "beta-x",
-                "filters": {
-                    "groups": [
-                        {
-                            "rollout_percentage": 65,
-                            "properties": [
-                                {
-                                    "key": "email",
-                                    "type": "person",
-                                    "value": [
-                                        "1@gmail.com",
-                                        "2@gmail.com",
-                                        "3@gmail.com",
-                                        "4@gmail.com",
-                                        "5@gmail.com",
-                                        "6@gmail.com",
-                                        "7@gmail.com",
-                                        "8@gmail.com",
-                                        "9@gmail.com",
-                                        "10@gmail.com",
-                                        "11@gmail.com",
-                                        "12@gmail.com",
-                                    ],
-                                    "operator": "exact",
-                                }
-                            ],
-                        }
-                    ]
-                },
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "Property group expressions of type email cannot contain more than 10 values.",
-                "attr": "filters",
-            },
-        )
 
     def test_cant_create_flag_with_duplicate_key(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
@@ -707,7 +661,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # The queryset should be empty (fail safe to prevent IDOR)
         analytics_field = fields["analytics_dashboards"]
-        self.assertEqual(analytics_field.child_relation.queryset.count(), 0)
+        self.assertEqual(analytics_field.child_relation.get_queryset().count(), 0)
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_create_feature_flag_with_evaluation_runtime(self, mock_report_user_action):
@@ -2696,6 +2650,84 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         assert response.status_code == 201
         assert response.json()["key"] == "flag1"
+
+    def test_soft_delete_can_be_reversed_by_patch(self):
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="undo-flag")
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
+        assert response.status_code == 200
+        flag.refresh_from_db()
+        assert flag.deleted is True
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": False})
+        assert response.status_code == 200
+        flag = FeatureFlag.objects_including_soft_deleted.get(pk=flag.pk)
+        assert flag.deleted is False
+        assert flag.key == "undo-flag"
+
+    def test_soft_delete_undo_restores_renamed_key(self):
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="renamed-flag")
+        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
+        exp.deleted = True
+        exp.save()
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
+        assert response.status_code == 200
+        flag.refresh_from_db()
+        assert flag.key == f"renamed-flag:deleted:{flag.id}"
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": False})
+        assert response.status_code == 200
+        flag.refresh_from_db()
+        assert flag.deleted is False
+        assert flag.key == "renamed-flag"
+
+    def test_soft_delete_undo_suffixes_key_when_original_is_taken(self):
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="taken-flag")
+        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
+        exp.deleted = True
+        exp.save()
+
+        # Soft-delete renames the key to free it up
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
+        assert response.status_code == 200
+        flag.refresh_from_db()
+        assert flag.key == f"taken-flag:deleted:{flag.id}"
+
+        # Another flag claims the original key
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="taken-flag")
+
+        # Restoring falls back to a suffixed key instead of crashing
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": False})
+        assert response.status_code == 200
+        flag.refresh_from_db()
+        assert flag.deleted is False
+        assert flag.key == "taken-flag-2"
+
+    def test_soft_delete_undo_suffixes_key_when_original_held_by_soft_deleted_flag(self):
+        """The unique constraint covers all rows including soft-deleted ones,
+        so restoring a flag must check against soft-deleted flags too."""
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="held-flag")
+        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
+        exp.deleted = True
+        exp.save()
+
+        # Soft-delete renames the key
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
+        assert response.status_code == 200
+        flag.refresh_from_db()
+        assert flag.key == f"held-flag:deleted:{flag.id}"
+
+        # Another flag claims the original key and is then soft-deleted itself
+        blocker = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="held-flag")
+        blocker.deleted = True
+        blocker.save()
+
+        # Restoring must still suffix because the DB constraint spans all rows
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": False})
+        assert response.status_code == 200
+        flag.refresh_from_db()
+        assert flag.deleted is False
+        assert flag.key == "held-flag-2"
 
     def test_soft_delete_flag_blocked_with_active_experiment(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="flag2")
@@ -5843,6 +5875,63 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
+    def test_feature_flag_includes_group_key_names(self):
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        Group.objects.create(
+            team=self.team,
+            group_key="org-uuid-1",
+            group_type_index=0,
+            group_properties={"name": "Acme Corp"},
+            version=0,
+        )
+        Group.objects.create(
+            team=self.team,
+            group_key="org-uuid-2",
+            group_type_index=0,
+            group_properties={"name": "Widget Inc"},
+            version=0,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Group flag",
+                "key": "group-flag",
+                "filters": {
+                    "aggregation_group_type_index": 0,
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": "$group_key",
+                                    "type": "group",
+                                    "value": ["org-uuid-1", "org-uuid-2"],
+                                    "operator": "exact",
+                                    "group_type_index": 0,
+                                }
+                            ]
+                        }
+                    ],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/{response.json()['id']}/",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        prop = response.json()["filters"]["groups"][0]["properties"][0]
+        self.assertEqual(prop["key"], "$group_key")
+        self.assertEqual(
+            prop["group_key_names"],
+            {"org-uuid-1": "Acme Corp", "org-uuid-2": "Widget Inc"},
+        )
+
     def test_create_feature_flag_in_specific_folder(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -6985,6 +7074,84 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 f"Request {i + 1} should return 304",
             )
             self.assertEqual(response.headers["ETag"], etag)
+
+    def test_local_evaluation_secret_key_in_body_counter_not_incremented_for_header_auth(self):
+        from posthog.api.feature_flag import LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER
+
+        self.team.secret_api_token = "phs_testtokenforheaderauth"
+        self.team.save()
+
+        FeatureFlag.objects.filter(team=self.team).delete()
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        self.client.logout()
+        before = LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER._value.get()
+
+        response = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
+            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER._value.get(), before)
+
+    def test_local_evaluation_secret_key_in_body_counter_incremented_for_body_auth(self):
+        from posthog.api.feature_flag import LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER
+
+        self.team.secret_api_token = "phs_testtokenforbodyauth"
+        self.team.save()
+
+        FeatureFlag.objects.filter(team=self.team).delete()
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        self.client.logout()
+        before = LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER._value.get()
+
+        response = self.client.generic(
+            "GET",
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
+            data=json.dumps({"secret_api_key": self.team.secret_api_token}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER._value.get(), before + 1)
+
+    def test_local_evaluation_secret_key_in_body_counter_not_incremented_when_header_wins(self):
+        from posthog.api.feature_flag import LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER
+
+        self.team.secret_api_token = "phs_testtokenforheaderwins"
+        self.team.save()
+
+        FeatureFlag.objects.filter(team=self.team).delete()
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        self.client.logout()
+        before = LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER._value.get()
+
+        # Both header AND body have the secret token — header wins, body is ignored
+        response = self.client.generic(
+            "GET",
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
+            data=json.dumps({"secret_api_key": self.team.secret_api_token}),
+            content_type="application/json",
+            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER._value.get(), before)
 
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):

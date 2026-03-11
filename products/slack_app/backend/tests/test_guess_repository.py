@@ -26,6 +26,10 @@ from products.slack_app.backend.api import (
 )
 
 
+def _repo_dict(org: str, name: str, repo_id: int = 1) -> dict:
+    return {"id": repo_id, "name": name, "full_name": f"{org}/{name}"}
+
+
 @patch("products.slack_app.backend.api.GitHubIntegration")
 class TestGetFullRepoNames:
     @pytest.fixture(autouse=True)
@@ -54,8 +58,11 @@ class TestGetFullRepoNames:
         )
 
         mock_github = MagicMock()
-        mock_github.organization.return_value = "posthog"
-        mock_github.list_repositories.return_value = ["posthog", "posthog-js", "plugin-server"]
+        mock_github.list_repositories.return_value = [
+            _repo_dict("posthog", "posthog", 1),
+            _repo_dict("posthog", "posthog-js", 2),
+            _repo_dict("posthog", "plugin-server", 3),
+        ]
         mock_github_class.return_value = mock_github
 
         result = _get_full_repo_names(self.slack_integration)
@@ -69,11 +76,10 @@ class TestGetFullRepoNames:
             sensitive_config={"access_token": "ghp-test"},
         )
 
-        page1 = [f"repo-{i}" for i in range(100)]
-        page2 = [f"repo-{i}" for i in range(100, 120)]
+        page1 = [_repo_dict("org", f"repo-{i}", i) for i in range(100)]
+        page2 = [_repo_dict("org", f"repo-{i}", i) for i in range(100, 120)]
 
         mock_github = MagicMock()
-        mock_github.organization.return_value = "org"
         mock_github.list_repositories.side_effect = [page1, page2]
         mock_github_class.return_value = mock_github
 
@@ -98,12 +104,10 @@ class TestGetFullRepoNames:
         )
 
         gh_a = MagicMock()
-        gh_a.organization.return_value = "orgA"
-        gh_a.list_repositories.return_value = ["repo-1"]
+        gh_a.list_repositories.return_value = [_repo_dict("orgA", "repo-1", 1)]
 
         gh_b = MagicMock()
-        gh_b.organization.return_value = "orgB"
-        gh_b.list_repositories.return_value = ["repo-2"]
+        gh_b.list_repositories.return_value = [_repo_dict("orgB", "repo-2", 2)]
 
         mock_github_class.side_effect = [gh_a, gh_b]
 
@@ -120,8 +124,7 @@ class TestGetFullRepoNames:
         )
 
         mock_github = MagicMock()
-        mock_github.organization.return_value = "org"
-        mock_github.list_repositories.return_value = [f"repo-{i}" for i in range(10)]
+        mock_github.list_repositories.return_value = [_repo_dict("org", f"repo-{i}", i) for i in range(10)]
         mock_github_class.return_value = mock_github
 
         with caplog.at_level(logging.WARNING):
@@ -139,8 +142,11 @@ class TestGetFullRepoNames:
         )
 
         mock_github = MagicMock()
-        mock_github.organization.return_value = "posthog"
-        mock_github.list_repositories.return_value = ["zebra", "alpha", "middle"]
+        mock_github.list_repositories.return_value = [
+            _repo_dict("posthog", "zebra", 1),
+            _repo_dict("posthog", "alpha", 2),
+            _repo_dict("posthog", "middle", 3),
+        ]
         mock_github_class.return_value = mock_github
 
         result = _get_full_repo_names(self.slack_integration)
@@ -172,8 +178,7 @@ class TestGetFullRepoNamesCache:
     def test_cache_miss_populates_cache(self, mock_github_class):
         self._create_github_integration()
         mock_github = MagicMock()
-        mock_github.organization.return_value = "posthog"
-        mock_github.list_repositories.return_value = ["repo-a"]
+        mock_github.list_repositories.return_value = [_repo_dict("posthog", "repo-a")]
         mock_github_class.return_value = mock_github
 
         result = _get_full_repo_names(self.slack_integration)
@@ -184,8 +189,7 @@ class TestGetFullRepoNamesCache:
     def test_cache_hit_avoids_github_api(self, mock_github_class):
         self._create_github_integration()
         mock_github = MagicMock()
-        mock_github.organization.return_value = "posthog"
-        mock_github.list_repositories.return_value = ["repo-a"]
+        mock_github.list_repositories.return_value = [_repo_dict("posthog", "repo-a")]
         mock_github_class.return_value = mock_github
 
         _get_full_repo_names(self.slack_integration)
@@ -209,12 +213,10 @@ class TestGetFullRepoNamesCache:
         self._create_github_integration(team=team_b, name="orgB")
 
         gh_a = MagicMock()
-        gh_a.organization.return_value = "orgA"
-        gh_a.list_repositories.return_value = ["repo-a"]
+        gh_a.list_repositories.return_value = [_repo_dict("orgA", "repo-a")]
 
         gh_b = MagicMock()
-        gh_b.organization.return_value = "orgB"
-        gh_b.list_repositories.return_value = ["repo-b"]
+        gh_b.list_repositories.return_value = [_repo_dict("orgB", "repo-b")]
 
         mock_github_class.side_effect = [gh_a, gh_b]
 
@@ -227,8 +229,7 @@ class TestGetFullRepoNamesCache:
     def test_invalidation_forces_refetch(self, mock_github_class):
         self._create_github_integration()
         mock_github = MagicMock()
-        mock_github.organization.return_value = "posthog"
-        mock_github.list_repositories.return_value = ["repo-a"]
+        mock_github.list_repositories.return_value = [_repo_dict("posthog", "repo-a")]
         mock_github_class.return_value = mock_github
 
         _get_full_repo_names(self.slack_integration)
@@ -236,7 +237,10 @@ class TestGetFullRepoNamesCache:
 
         assert cache.get(_repo_list_cache_key(self.team.id)) is None
 
-        mock_github.list_repositories.return_value = ["repo-a", "repo-b"]
+        mock_github.list_repositories.return_value = [
+            _repo_dict("posthog", "repo-a"),
+            _repo_dict("posthog", "repo-b", 2),
+        ]
         result = _get_full_repo_names(self.slack_integration)
         assert result == ["posthog/repo-a", "posthog/repo-b"]
 
@@ -250,7 +254,6 @@ class TestGetFullRepoNamesCache:
     def test_empty_result_with_github_integrations_not_cached(self, mock_github_class):
         self._create_github_integration()
         mock_github = MagicMock()
-        mock_github.organization.return_value = "posthog"
         mock_github.list_repositories.return_value = []
         mock_github_class.return_value = mock_github
 
@@ -262,8 +265,7 @@ class TestGetFullRepoNamesCache:
     def test_signal_invalidates_on_github_save(self, mock_github_class):
         self._create_github_integration()
         mock_github = MagicMock()
-        mock_github.organization.return_value = "posthog"
-        mock_github.list_repositories.return_value = ["repo-a"]
+        mock_github.list_repositories.return_value = [_repo_dict("posthog", "repo-a")]
         mock_github_class.return_value = mock_github
 
         _get_full_repo_names(self.slack_integration)
@@ -282,8 +284,7 @@ class TestGetFullRepoNamesCache:
     def test_signal_invalidates_on_github_delete(self, mock_github_class):
         gh_record = self._create_github_integration()
         mock_github = MagicMock()
-        mock_github.organization.return_value = "posthog"
-        mock_github.list_repositories.return_value = ["repo-a"]
+        mock_github.list_repositories.return_value = [_repo_dict("posthog", "repo-a")]
         mock_github_class.return_value = mock_github
 
         _get_full_repo_names(self.slack_integration)
@@ -296,8 +297,7 @@ class TestGetFullRepoNamesCache:
     def test_signal_ignores_non_github_integration(self, mock_github_class):
         self._create_github_integration()
         mock_github = MagicMock()
-        mock_github.organization.return_value = "posthog"
-        mock_github.list_repositories.return_value = ["repo-a"]
+        mock_github.list_repositories.return_value = [_repo_dict("posthog", "repo-a")]
         mock_github_class.return_value = mock_github
 
         _get_full_repo_names(self.slack_integration)
@@ -341,8 +341,7 @@ class TestPostRepoPickerPrewarm:
             sensitive_config={"access_token": "ghp-test"},
         )
         mock_github = MagicMock()
-        mock_github.organization.return_value = "posthog"
-        mock_github.list_repositories.return_value = ["repo-a"]
+        mock_github.list_repositories.return_value = [_repo_dict("posthog", "repo-a")]
         mock_github_class.return_value = mock_github
 
         _post_repo_picker_message(

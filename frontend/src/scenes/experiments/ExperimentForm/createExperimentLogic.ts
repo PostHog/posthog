@@ -8,6 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -26,6 +27,7 @@ import { FORM_MODES, experimentLogic } from '../experimentLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
 import type { createExperimentLogicType } from './createExperimentLogicType'
 import { validateExperimentSubmission } from './experimentSubmissionValidation'
+import type { FeatureFlagKeyValidation } from './variantsPanelLogic'
 import { variantsPanelLogic } from './variantsPanelLogic'
 import { validateVariants } from './variantsPanelValidation'
 
@@ -85,12 +87,14 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
     props({} as CreateExperimentLogicProps),
     key((props) => `${props.tabId ?? 'global'}-create-experiment`),
     path((key) => ['scenes', 'experiments', 'create', 'createExperimentLogic', key]),
-    connect(() => ({
+    connect((props: CreateExperimentLogicProps) => ({
         values: [
-            variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false }),
+            variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false, tabId: props.tabId }),
             ['featureFlagKeyValidation', 'featureFlagKeyValidationLoading'],
             featureFlagLogic,
             ['featureFlags'],
+            projectLogic,
+            ['currentProjectId'],
         ],
         actions: [
             eventUsageLogic,
@@ -187,12 +191,12 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             },
         ],
     })),
-    selectors(() => ({
+    selectors(({ props }) => ({
         canSubmitExperiment: [
             (s) => [s.experiment, s.featureFlagKeyValidation, s.mode, s.experimentErrors],
             (
                 experiment: Experiment,
-                featureFlagKeyValidation: { valid: boolean; error: string | null } | null,
+                featureFlagKeyValidation: FeatureFlagKeyValidation | null,
                 mode: 'create' | 'link',
                 experimentErrors: Record<string, string>
             ) => {
@@ -209,7 +213,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             (s) => [s.experiment, s.featureFlagKeyValidation, s.mode, s.experimentErrors],
             (
                 experiment: Experiment,
-                featureFlagKeyValidation: { valid: boolean; error: string | null } | null,
+                featureFlagKeyValidation: FeatureFlagKeyValidation | null,
                 mode: 'create' | 'link',
                 experimentErrors: Record<string, string>
             ): string | undefined => {
@@ -225,7 +229,8 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
         mode: [
             (s) => [s.experiment],
             (): 'create' | 'link' => {
-                return variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false }).values.mode
+                return variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false, tabId: props.tabId })
+                    .values.mode
             },
         ],
     })),
@@ -368,7 +373,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 }
 
                 const response = (await api.create(
-                    `api/projects/@current/experiments`,
+                    `api/projects/${values.currentProjectId}/experiments`,
                     experimentPayload
                 )) as Experiment
 
@@ -383,11 +388,6 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     // This ensures we have the full experiment data including feature_flag, etc.
                     actions.setExperiment(response)
 
-                    const isWizard = !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_WIZARD_CREATION_FORM]
-                    actions.reportExperimentCreated(response, {
-                        creation_source: isWizard ? 'wizard' : 'classic_form',
-                        has_linked_flag: !!response.feature_flag?.id,
-                    })
                     actions.addProductIntent({
                         product_type: ProductKey.EXPERIMENTS,
                         intent_context: ProductIntentContext.EXPERIMENT_CREATED,

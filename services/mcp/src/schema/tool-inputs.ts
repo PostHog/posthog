@@ -1,6 +1,5 @@
 import { z } from 'zod'
 
-import { CreateActionInputSchema, ListActionsInputSchema, UpdateActionInputSchema } from './actions'
 import {
     AddInsightToDashboardSchema,
     CreateDashboardInputSchema,
@@ -433,26 +432,6 @@ export const QueryRunInputSchema = z.object({
 
 export { LogsQueryInputSchema, LogsListAttributesInputSchema, LogsListAttributeValuesInputSchema }
 
-// Actions
-export const ActionCreateSchema = CreateActionInputSchema
-
-export const ActionDeleteSchema = z.object({
-    actionId: z.number().int().positive().describe('The ID of the action to delete'),
-})
-
-export const ActionGetSchema = z.object({
-    actionId: z.number().int().positive().describe('The ID of the action to retrieve'),
-})
-
-export const ActionGetAllSchema = z.object({
-    data: ListActionsInputSchema.optional(),
-})
-
-export const ActionUpdateSchema = z.object({
-    actionId: z.number().int().positive().describe('The ID of the action to update'),
-    data: UpdateActionInputSchema,
-})
-
 // Entity Search
 export const EntitySearchSchema = z.object({
     query: z.string().min(1).describe('Search query to find entities by name or description'),
@@ -476,9 +455,9 @@ export const EntitySearchSchema = z.object({
         ),
 })
 
-// Demo MCP UI Apps
-export const DemoMcpUiAppsSchema = z.object({
-    message: z.string().optional().describe('Optional message to include in the demo data'),
+// Debug MCP UI Apps
+export const DebugMcpUiAppsSchema = z.object({
+    message: z.string().optional().describe('Optional message to include in the debug data'),
 })
 
 // PostHog AI tools
@@ -499,6 +478,8 @@ export const ReadDataWarehouseSchemaSchema = z
 
 const ReadEventsQuerySchema = z.object({
     kind: z.literal('events'),
+    limit: z.number().int().min(1).max(500).default(500).optional().describe('Number of events to return per page.'),
+    offset: z.number().int().min(0).default(0).optional().describe('Number of events to skip for pagination.'),
 })
 
 const ReadEventPropertiesQuerySchema = z.object({

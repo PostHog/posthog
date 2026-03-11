@@ -1,8 +1,10 @@
+import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 
 import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -162,6 +164,38 @@ describe('dashboardsLogic', () => {
             dashboards: truth((dashboards: DashboardType[]) => {
                 return dashboards.length === 1 && dashboards[0].name === 'needle'
             }),
+        })
+    })
+
+    it('syncs search to URL when setSearch is called', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setSearch('needle')
+        })
+
+        expect(router.values.searchParams.search).toBe('needle')
+    })
+
+    it('removes search param from URL when search is cleared', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setSearch('needle')
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.setSearch('')
+        })
+
+        expect(router.values.searchParams.search).toBeUndefined()
+    })
+
+    it('loads search from URL into filters on mount', async () => {
+        // Recreate logic with URL containing a search param
+        logic.unmount()
+        router.actions.push(urls.dashboards(), { search: 'needle' })
+        logic = dashboardsLogic({ tabId: '1' })
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            filters: expect.objectContaining({ search: 'needle' }),
         })
     })
 })

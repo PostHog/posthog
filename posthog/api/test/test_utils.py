@@ -252,6 +252,15 @@ class TestUtils(BaseTest):
             ("needle is not in allowlist", ["http://localhost"], "http://posthog.com:8123", False),
             ("regex needle is not in allowlist", ["http://*.com"], "http://localhost:8123", False),
             ("regex needle is in allowlist", ["http://*.com"], "http://posthog.com:8123", True),
+            ("www needle matches bare domain in allowlist", ["https://example.com"], "https://www.example.com", True),
+            ("bare needle matches www domain in allowlist", ["https://www.example.com"], "https://example.com", True),
+            ("www to www still matches", ["https://www.example.com"], "https://www.example.com", True),
+            (
+                "www equivalence does not match different domains",
+                ["https://example.com"],
+                "https://www.other.com",
+                False,
+            ),
         ]
     )
     def test_unparsed_hostname_in_allowed_url_list(

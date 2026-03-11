@@ -5,8 +5,9 @@ import { expectLogic, truth } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { now } from 'lib/dayjs'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -81,10 +82,10 @@ const uncached = (insight: QueryBasedInsightModel): QueryBasedInsightModel => ({
     last_refresh: null,
 })
 
-export const boxToString = (param: string | readonly string[]): string => {
+export const boxToId = (param: string | readonly string[]): number => {
     //path params from msw can be a string or an array
     if (typeof param === 'string') {
-        return param
+        return parseInt(param)
     }
     throw new Error("this shouldn't be an array")
 }
@@ -194,23 +195,23 @@ describe('dashboardLogic', () => {
                         },
                     },
                 ],
-                '/api/environments/:team_id/dashboards/5/': { ...dashboards['5'] },
-                '/api/environments/:team_id/dashboards/6/': { ...dashboards['6'] },
+                '/api/environments/:team_id/dashboards/5/': { ...dashboards[5] },
+                '/api/environments/:team_id/dashboards/6/': { ...dashboards[6] },
                 '/api/environments/:team_id/dashboards/7/': () => [500, '💣'],
-                '/api/environments/:team_id/dashboards/8/': { ...dashboards['8'] },
-                '/api/environments/:team_id/dashboards/9/': { ...dashboards['9'] },
-                '/api/environments/:team_id/dashboards/10/': { ...dashboards['10'] },
-                '/api/environments/:team_id/dashboards/11/': { ...dashboards['11'] },
+                '/api/environments/:team_id/dashboards/8/': { ...dashboards[8] },
+                '/api/environments/:team_id/dashboards/9/': { ...dashboards[9] },
+                '/api/environments/:team_id/dashboards/10/': { ...dashboards[10] },
+                '/api/environments/:team_id/dashboards/11/': { ...dashboards[11] },
                 '/api/environments/:team_id/dashboards/': {
                     count: 6,
                     next: null,
                     previous: null,
                     results: [
-                        { ...dashboards['5'] },
-                        { ...dashboards['6'] },
-                        { ...dashboards['8'] },
-                        { ...dashboards['9'] },
-                        { ...dashboards['10'] },
+                        { ...dashboards[5] },
+                        { ...dashboards[6] },
+                        { ...dashboards[8] },
+                        { ...dashboards[9] },
+                        { ...dashboards[10] },
                     ],
                 },
                 '/api/environments/:team_id/insights/1001/': () => [200, { ...insights['1001'] }],
@@ -220,7 +221,7 @@ describe('dashboardLogic', () => {
                     if (!dashboard) {
                         throw new Error('the logic must always add this param')
                     }
-                    const matched = insights[boxToString(req.params['id'])]
+                    const matched = insights[boxToId(req.params['id'])]
                     if (!matched) {
                         return [404, null]
                     }
@@ -232,7 +233,10 @@ describe('dashboardLogic', () => {
             },
             patch: {
                 '/api/environments/:team_id/dashboards/:id/': async (req) => {
-                    const dashboardId = typeof req.params['id'] === 'string' ? req.params['id'] : req.params['id'][0]
+                    const dashboardId =
+                        typeof req.params['id'] === 'string'
+                            ? parseInt(req.params['id'])
+                            : parseInt(req.params['id'][0])
                     const payload = await req.json()
                     return [200, { ...dashboards[dashboardId], ...payload }]
                 },
@@ -269,7 +273,7 @@ describe('dashboardLogic', () => {
                         if (typeof updates !== 'object') {
                             return [500, `this update should receive an object body not ${JSON.stringify(updates)}`]
                         }
-                        const insightId = boxToString(req.params.id)
+                        const insightId = boxToId(req.params.id)
 
                         const starting: QueryBasedInsightModel = insights[insightId]
                         insights[insightId] = {
@@ -337,6 +341,40 @@ describe('dashboardLogic', () => {
                 variables: {},
             })
         })
+
+        it('discarding edit mode restores original layouts', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const initialDashboard = logic.values.dashboard
+            expect(initialDashboard).not.toBeNull()
+
+            const firstTile = initialDashboard!.tiles[0]
+            const originalLayouts = logic.values.dashboardLayouts[firstTile.id]
+
+            expect(originalLayouts).not.toBeUndefined()
+
+            const currentLayouts = logic.values.layouts
+            const modifiedLayouts: any = {
+                ...currentLayouts,
+                sm: currentLayouts.sm?.map((layout) =>
+                    layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                ),
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateLayouts(modifiedLayouts)
+            }).toFinishAllListeners()
+
+            const editedTileLayouts = logic.values.dashboard?.tiles.find((t) => t.id === firstTile.id)?.layouts
+            expect(editedTileLayouts).not.toEqual(originalLayouts)
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+            }).toFinishAllListeners()
+
+            const restoredTileLayouts = logic.values.dashboard?.tiles.find((t) => t.id === firstTile.id)?.layouts
+            expect(restoredTileLayouts).toEqual(originalLayouts)
+        })
     })
 
     describe('moving between dashboards', () => {
@@ -355,7 +393,7 @@ describe('dashboardLogic', () => {
             // dashboard 9 has only that 1 insight
             // so moving insight 800 to dashboard 8 means dashboard 9 has no insights
             // and that insight800 is on dashboard 8 and 10
-            const startingDashboard = dashboards['9']
+            const startingDashboard = dashboards[9]
 
             const tiles = startingDashboard.tiles
             const sourceTile = tiles[0]
@@ -500,7 +538,7 @@ describe('dashboardLogic', () => {
                     })
                     .toDispatchActions(['loadDashboardSuccess'])
                     .toMatchValues({
-                        dashboard: expect.objectContaining(dashboards['5']),
+                        dashboard: expect.objectContaining(dashboards[5]),
                         tiles: truth((tiles) => tiles.length === 3),
                         insightTiles: truth((insightTiles) => insightTiles.length === 2),
                         textTiles: truth((textTiles) => textTiles.length === 1),
@@ -571,6 +609,34 @@ describe('dashboardLogic', () => {
                             total: 2,
                         },
                     })
+            })
+
+            it('manual refresh does not update last refresh when insights fail', async () => {
+                const dashboard = dashboards[5]
+                const insight1 = dashboard.tiles[0].insight!
+                const insight2 = dashboard.tiles[1].insight!
+                const refreshError = new Error('Queries are a little too busy right now.')
+                const getInsightWithRetrySpy = jest
+                    .spyOn(dashboardUtils, 'getInsightWithRetry')
+                    .mockRejectedValue(refreshError)
+
+                ;(api.update as jest.Mock).mockClear()
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerDashboardRefresh()
+                })
+                    .toDispatchActions([
+                        'triggerDashboardRefresh',
+                        'refreshDashboardItems',
+                        logic.actionCreators.setRefreshStatuses([insight1.short_id, insight2.short_id], false, true),
+                    ])
+                    .toFinishAllListeners()
+
+                expect(logic.values.lastDashboardRefresh).toBeNull()
+                expect(logic.values.blockRefresh).toBe(false)
+                expect(api.update).not.toHaveBeenCalled()
+
+                getInsightWithRetrySpy.mockRestore()
             })
 
             it('automatic refresh reloads stale insights (but not fresh ones)', async () => {
