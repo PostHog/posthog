@@ -321,19 +321,23 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             {
                 setDatabaseSchemas: (_, { schemas }) => schemas,
                 toggleSchemaShouldSync: (state, { schema, shouldSync }) => {
+                    const schemaKey = schema.name ?? schema.table
                     return state.map((s) => ({
                         ...s,
-                        should_sync: s.table === schema.table ? shouldSync : s.should_sync,
+                        should_sync: (s.name ?? s.table) === schemaKey ? shouldSync : s.should_sync,
                     }))
                 },
                 updateSchemaSyncType: (state, { schema, syncType, incrementalField, incrementalFieldType }) => {
-                    return state.map((s) => ({
-                        ...s,
-                        sync_type: s.table === schema.table ? syncType : s.sync_type,
-                        incremental_field: s.table === schema.table ? incrementalField : s.incremental_field,
-                        incremental_field_type:
-                            s.table === schema.table ? incrementalFieldType : s.incremental_field_type,
-                    }))
+                    const schemaKey = schema.name ?? schema.table
+                    return state.map((s) => {
+                        const matches = (s.name ?? s.table) === schemaKey
+                        return {
+                            ...s,
+                            sync_type: matches ? syncType : s.sync_type,
+                            incremental_field: matches ? incrementalField : s.incremental_field,
+                            incremental_field_type: matches ? incrementalFieldType : s.incremental_field_type,
+                        }
+                    })
                 },
             },
         ],
@@ -600,7 +604,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     actions.updateSource({
                         payload: {
                             schemas: values.databaseSchema.map((schema) => ({
-                                name: schema.table,
+                                name: schema.name ?? schema.table,
                                 should_sync: schema.should_sync,
                                 sync_type: null,
                                 incremental_field: null,
