@@ -323,8 +323,8 @@ class HogQLQueryExecutor:
                     self.team,
                     user=self.user,
                     hogql_ast=self.select_query,
-                    clickhouse_prepared_ast=self.clickhouse_prepared_ast,
-                    clickhouse_sql=self.clickhouse_sql,
+                    prepared_ast=self.clickhouse_prepared_ast,
+                    printed_sql=self.clickhouse_sql,
                 )
 
     @tracer.start_as_current_span("HogQLQueryExecutor.generate_clickhouse_sql")

@@ -397,7 +397,13 @@ export class HogExecutorService {
         options: HogExecutorExecuteOptions = {},
         previousResult: Pick<
             Partial<CyclotronJobInvocationResult>,
-            'finished' | 'capturedPostHogEvents' | 'logs' | 'metrics' | 'error' | 'execResult'
+            | 'finished'
+            | 'capturedPostHogEvents'
+            | 'warehouseWebhookPayloads'
+            | 'logs'
+            | 'metrics'
+            | 'error'
+            | 'execResult'
         > = {}
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const loggingContext = {

@@ -40,6 +40,7 @@ from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
+from posthog.rbac.decorators import field_access_control
 from posthog.security.outbound_proxy import external_requests
 from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
@@ -121,14 +122,18 @@ class Integration(models.Model):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
     # The integration type identifier
-    kind = models.CharField(max_length=20, choices=IntegrationKind.choices)
+    kind = field_access_control(models.CharField(max_length=20, choices=IntegrationKind.choices), "project", "admin")
     # The ID of the integration in the external system
-    integration_id = models.TextField(null=True, blank=True)
+    integration_id = field_access_control(models.TextField(null=True, blank=True), "project", "admin")
     # Any config that COULD be passed to the frontend
-    config = models.JSONField(default=dict)
-    sensitive_config = EncryptedJSONField(
-        default=dict,
-        ignore_decrypt_errors=True,  # allows us to load previously unencrypted data
+    config = field_access_control(models.JSONField(default=dict), "project", "admin")
+    sensitive_config = field_access_control(
+        EncryptedJSONField(
+            default=dict,
+            ignore_decrypt_errors=True,  # allows us to load previously unencrypted data
+        ),
+        "project",
+        "admin",
     )
 
     errors = models.TextField()

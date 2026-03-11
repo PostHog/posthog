@@ -34,6 +34,7 @@ export enum PluginServerMode {
     cdp_cyclotron_shadow_worker = 'cdp-cyclotron-shadow-worker',
     cdp_cyclotron_v2_janitor = 'cdp-cyclotron-v2-janitor',
     recording_api = 'recording-api',
+    ingestion_v2_testing = 'ingestion-v2-testing',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(

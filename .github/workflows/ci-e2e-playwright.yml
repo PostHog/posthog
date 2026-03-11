@@ -290,6 +290,9 @@ jobs:
               with:
                   node-version: 24.13.0
                   cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-e2e-playwright.yml
 
             # tests would intermittently fail in GH actions
             # with exit code 134 _after passing_ all tests

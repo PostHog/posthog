@@ -11,6 +11,7 @@ import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -335,7 +336,21 @@ export function DashboardItems(): JSX.Element {
                                             {commonTileProps.removeFromDashboard && (
                                                 <LemonButton
                                                     status="danger"
-                                                    onClick={() => commonTileProps.removeFromDashboard()}
+                                                    onClick={() =>
+                                                        LemonDialog.open({
+                                                            title: 'Remove text from dashboard',
+                                                            description:
+                                                                'Are you sure you want to remove this text card from the dashboard?',
+                                                            primaryButton: {
+                                                                children: 'Remove from dashboard',
+                                                                status: 'danger',
+                                                                onClick: () => commonTileProps.removeFromDashboard?.(),
+                                                            },
+                                                            secondaryButton: {
+                                                                children: 'Cancel',
+                                                            },
+                                                        })
+                                                    }
                                                     fullWidth
                                                     data-attr="remove-text-tile-from-dashboard"
                                                 >
