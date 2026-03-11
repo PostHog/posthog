@@ -7,6 +7,7 @@ results by trace_id for downstream processing.
 import json
 from dataclasses import dataclass, field
 
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.temporal.llm_analytics.sentiment.constants import (
     GENERATIONS_BY_UUID_QUERY,
     GENERATIONS_QUERY,
@@ -43,19 +44,20 @@ def fetch_generations(
 
     team = Team.objects.get(id=team_id)
     query = parse_select(GENERATIONS_QUERY)
-    result = execute_hogql_query(
-        query_type="SentimentOnDemand",
-        query=query,
-        placeholders={
-            "date_from": ast.Constant(value=date_from),
-            "date_to": ast.Constant(value=date_to),
-            "trace_ids": ast.Tuple(exprs=[ast.Constant(value=tid) for tid in trace_ids]),
-            "max_input_chars": ast.Constant(value=MAX_INPUT_CHARS),
-            "max_gens_per_trace": ast.Constant(value=MAX_GENERATIONS_PER_TRACE),
-        },
-        team=team,
-        limit_context=LimitContext.QUERY_ASYNC,
-    )
+    with tags_context(product=Product.LLM_ANALYTICS, team_id=team_id):
+        result = execute_hogql_query(
+            query_type="SentimentOnDemand",
+            query=query,
+            placeholders={
+                "date_from": ast.Constant(value=date_from),
+                "date_to": ast.Constant(value=date_to),
+                "trace_ids": ast.Tuple(exprs=[ast.Constant(value=tid) for tid in trace_ids]),
+                "max_input_chars": ast.Constant(value=MAX_INPUT_CHARS),
+                "max_gens_per_trace": ast.Constant(value=MAX_GENERATIONS_PER_TRACE),
+            },
+            team=team,
+            limit_context=LimitContext.QUERY_ASYNC,
+        )
 
     fetch = FetchResult()
     for row in result.results or []:
@@ -94,17 +96,18 @@ def fetch_generations_by_uuid(
 
     team = Team.objects.get(id=team_id)
     query = parse_select(GENERATIONS_BY_UUID_QUERY)
-    result = execute_hogql_query(
-        query_type="SentimentOnDemandGeneration",
-        query=query,
-        placeholders={
-            "date_from": ast.Constant(value=date_from),
-            "date_to": ast.Constant(value=date_to),
-            "uuids": ast.Tuple(exprs=[ast.Constant(value=uid) for uid in generation_ids]),
-        },
-        team=team,
-        limit_context=LimitContext.QUERY_ASYNC,
-    )
+    with tags_context(product=Product.LLM_ANALYTICS, team_id=team_id):
+        result = execute_hogql_query(
+            query_type="SentimentOnDemandGeneration",
+            query=query,
+            placeholders={
+                "date_from": ast.Constant(value=date_from),
+                "date_to": ast.Constant(value=date_to),
+                "uuids": ast.Tuple(exprs=[ast.Constant(value=uid) for uid in generation_ids]),
+            },
+            team=team,
+            limit_context=LimitContext.QUERY_ASYNC,
+        )
 
     # Size guard applied post-fetch instead of in SQL — the SQL length()
     # filter forced JSONExtractRaw on every scanned row, 2.4x slower on
