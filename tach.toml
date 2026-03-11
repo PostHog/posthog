@@ -331,3 +331,8 @@ interfaces = [
     "products.visual_review.backend.facade",
     "products.visual_review.backend.presentation.views",
 ]
+
+[[modules]]
+path = "products.tracing"
+depends_on = ["posthog"]
+layer = "products"
