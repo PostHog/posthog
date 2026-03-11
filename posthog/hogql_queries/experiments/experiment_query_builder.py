@@ -160,7 +160,7 @@ class ExperimentQueryBuilder:
     def get_daily_exposures_from_precomputed(self, job_ids: list[str]) -> ast.SelectQuery:
         """
         Reads from the precomputed table and aggregates into day/variant/count.
-        Powers the Exposures tab in the experiment UI.
+        Used by the Exposures tab in the experiment UI.
         """
         entity_id_expr = (
             parse_expr("toUUID(t.entity_id)") if self.entity_key == "person_id" else parse_expr("t.entity_id")
