@@ -904,17 +904,17 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCustomerAnalyticsDashboardEventsSaved: () => true,
         reportCustomerAnalyticsViewed: (delay?: number) => ({ delay }),
         // Customer Journeys
-        reportCustomerJourneyViewed: (
-            journeyId: string,
-            journeyName: string,
-            stepCount: number,
-            delay?: number
-        ) => ({ journeyId, journeyName, stepCount, delay }),
-        reportCustomerJourneyCreated: (
-            journeyName: string,
-            stepCount: number,
-            creationSource: string | null
-        ) => ({ journeyName, stepCount, creationSource }),
+        reportCustomerJourneyViewed: (journeyId: string, journeyName: string, stepCount: number, delay?: number) => ({
+            journeyId,
+            journeyName,
+            stepCount,
+            delay,
+        }),
+        reportCustomerJourneyCreated: (journeyName: string, stepCount: number, creationSource: string | null) => ({
+            journeyName,
+            stepCount,
+            creationSource,
+        }),
         reportCustomerJourneyUpdated: (journeyId: string, journeyName: string, stepCount: number) => ({
             journeyId,
             journeyName,
