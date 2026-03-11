@@ -5,6 +5,7 @@ Wraps a dev process to:
 - Write/update a JSON status file at /tmp/posthog-{name}.json
 - Track process state: starting → running → ready → stopped/crashed
 - Detect the mprocs ready_pattern in output
+- Sample CPU/memory/IO/threads for the whole process tree every 5s
 
 Usage:
   bin/process-monitor --name backend --ready-pattern 'Listening at' -- bash -c '...'
@@ -14,12 +15,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import psutil
 import re
 import signal
 import subprocess
 import sys
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
+
+
+_SAMPLE_INTERVAL = 5  # seconds
 
 
 def _utcnow() -> str:
@@ -33,7 +40,10 @@ class ProcessMonitor:
         self.log_file = log_file
         self.status_file = status_file
         self.proc: subprocess.Popen[str] | None = None
+        self._start_mono = time.monotonic()
+
         self.status: dict = {
+            # Metadata
             "process": name,
             "pid": None,
             "status": "starting",
@@ -41,6 +51,16 @@ class ProcessMonitor:
             "exit_code": None,
             "started_at": _utcnow(),
             "ready_at": None,
+            # Performance metrics
+            "startup_duration_s": None,
+            "mem_rss_mb": None,
+            "peak_mem_rss_mb": None,
+            "cpu_percent": None,
+            "cpu_time_s": None,
+            "thread_count": None,
+            "child_process_count": None,
+            "fd_count": None,
+            "last_sampled_at": None,
         }
 
     def _write_status(self) -> None:
@@ -55,6 +75,52 @@ class ProcessMonitor:
     def _handle_signal(self, signum: int, frame: object) -> None:
         if self.proc and self.proc.poll() is None:
             self.proc.terminate()
+
+    def _sample_metrics(self) -> None:
+        """Background daemon thread: sample metrics every _SAMPLE_INTERVAL seconds.
+
+        Tracks the full process tree (parent + all descendants) so spawned
+        workers are included in the totals.
+        """
+        assert self.proc is not None
+        try:
+            ps = psutil.Process(self.proc.pid)
+            ps.cpu_percent()
+        except psutil.Error:
+            return
+
+        while self.proc.poll() is None:
+            time.sleep(_SAMPLE_INTERVAL)
+            try:
+                procs = [ps] + ps.children(recursive=True)
+
+                rss_mb = round(sum(p.memory_info().rss for p in procs) / 1024 / 1024, 1)
+                cpu_pct = round(sum(p.cpu_percent() for p in procs), 1)
+                cpu_time_s = round(
+                    sum(p.cpu_times().user + p.cpu_times().system for p in procs), 2
+                )
+                thread_count = sum(p.num_threads() for p in procs)
+                child_process_count = len(procs) - 1
+
+                try:
+                    fd_count: int | None = sum(p.num_fds() for p in procs)
+                except AttributeError:
+                    fd_count = None
+
+            except psutil.Error:
+                break
+
+            self.status.update({
+                "mem_rss_mb": rss_mb,
+                "peak_mem_rss_mb": max(self.status["peak_mem_rss_mb"] or 0, rss_mb),
+                "cpu_percent": cpu_pct,
+                "cpu_time_s": cpu_time_s,
+                "thread_count": thread_count,
+                "child_process_count": child_process_count,
+                "fd_count": fd_count,
+                "last_sampled_at": _utcnow(),
+            })
+            self._write_status()
 
     def run(self, command: list[str]) -> int:
         signal.signal(signal.SIGTERM, self._handle_signal)
@@ -76,6 +142,8 @@ class ProcessMonitor:
                 self.status["status"] = "running"
                 self._write_status()
 
+                threading.Thread(target=self._sample_metrics, daemon=True).start()
+
                 assert self.proc.stdout  # always set when stdout=PIPE
                 for line in self.proc.stdout:
                     # Forward to our stdout so phrocs/mprocs TUI still works.
@@ -88,6 +156,9 @@ class ProcessMonitor:
                         if self.ready_re.search(line.rstrip()):
                             self.status["ready"] = True
                             self.status["ready_at"] = _utcnow()
+                            self.status["startup_duration_s"] = round(
+                                time.monotonic() - self._start_mono, 2
+                            )
                             self._write_status()
 
                 self.proc.wait()

@@ -220,6 +220,7 @@ dev = [
     "packaging==24.1",
     "parameterized==0.9.0",
     "prance==23.6.21.0",
+    "psutil~=6.1.0",
     "pyarrow==18.1.0",
     "pyarrow-stubs==17.16",
     "pytest~=8.4.2",
