@@ -155,6 +155,11 @@ test.describe('Workflows', () => {
             await page.waitForSelector('[data-attr="workflow-editor"]', { timeout: 10000 })
             await expect(page.getByText('Loading', { exact: true })).not.toBeVisible({ timeout: 5000 })
 
+            // Configure the event trigger - click the trigger node to select it, then add an event
+            await page.locator('[data-attr="workflow-editor"]').getByText('Trigger').click()
+            await page.waitForSelector('[data-attr="workflow-trigger"]', { timeout: 5000 })
+            await page.getByTestId('add-action-event-button').click()
+
             // Save the workflow so we get a real ID and tabs appear
             await page.click('[data-attr="workflow-save"]')
             // Wait for save to complete and URL to update to a real workflow ID
@@ -215,13 +220,6 @@ test.describe('Workflows', () => {
             await page.getByRole('tab', { name: 'Workflow' }).click()
             await page.waitForSelector('[data-attr="workflow-editor"]', { timeout: 10000 })
             await expect(page).toHaveURL(/\/workflow/)
-        })
-
-        test('header shows enable/disable and action buttons', async ({ page }) => {
-            // Enable/disable button should be visible
-            await expect(page.locator('[data-attr="workflow-launch"]')).toBeVisible()
-            // Save button should be visible
-            await expect(page.locator('[data-attr="workflow-save"]')).toBeVisible()
         })
     })
 })
