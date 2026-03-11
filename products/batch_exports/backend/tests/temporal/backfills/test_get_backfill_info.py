@@ -4,14 +4,12 @@ import datetime as dt
 import pytest
 
 from posthog.batch_exports.models import BatchExport, BatchExportDestination
+
 from products.batch_exports.backend.temporal.backfill_batch_export import (
     _get_backfill_info_for_events,
     _get_backfill_info_for_persons,
 )
-from products.batch_exports.backend.tests.temporal.utils.clickhouse import (
-    truncate_events,
-    truncate_persons,
-)
+from products.batch_exports.backend.tests.temporal.utils.clickhouse import truncate_events, truncate_persons
 from products.batch_exports.backend.tests.temporal.utils.persons import (
     generate_test_person_distinct_id2,
     generate_test_persons_in_clickhouse,

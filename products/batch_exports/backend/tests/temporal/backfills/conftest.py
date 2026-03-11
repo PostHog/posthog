@@ -51,41 +51,27 @@ async def assert_backfill_details_in_workflow_events(
 
         for event in history.events:
             if event.event_type == 1:  # EVENT_TYPE_WORKFLOW_EXECUTION_STARTED
-                args = await workflow.data_converter.decode(
-                    event.workflow_execution_started_event_attributes.input.payloads
-                )
-                backfill_details = args[0]["backfill_details"]
-                if expected_backfill_id is not None:
-                    assert backfill_details["backfill_id"] == expected_backfill_id
-                if expected_start_at is not None:
-                    assert backfill_details["start_at"] == expected_start_at
-                elif "start_at" in backfill_details:
-                    assert backfill_details["start_at"] is None
-                if expected_end_at is not None:
-                    assert backfill_details["end_at"] == expected_end_at
-                elif "end_at" in backfill_details:
-                    assert backfill_details["end_at"] is None
-                if expected_is_earliest_backfill is not None:
-                    assert backfill_details["is_earliest_backfill"] == expected_is_earliest_backfill
-                backfill_ids.append(backfill_details["backfill_id"])
+                payloads = event.workflow_execution_started_event_attributes.input.payloads
             elif event.event_type == 10:  # EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
-                args = await workflow.data_converter.decode(
-                    event.activity_task_scheduled_event_attributes.input.payloads
-                )
-                backfill_details = args[0]["backfill_details"]
-                if expected_backfill_id is not None:
-                    assert backfill_details["backfill_id"] == expected_backfill_id
-                if expected_start_at is not None:
-                    assert backfill_details["start_at"] == expected_start_at
-                elif "start_at" in backfill_details:
-                    assert backfill_details["start_at"] is None
-                if expected_end_at is not None:
-                    assert backfill_details["end_at"] == expected_end_at
-                elif "end_at" in backfill_details:
-                    assert backfill_details["end_at"] is None
-                if expected_is_earliest_backfill is not None:
-                    assert backfill_details["is_earliest_backfill"] == expected_is_earliest_backfill
-                backfill_ids.append(backfill_details["backfill_id"])
+                payloads = event.activity_task_scheduled_event_attributes.input.payloads
+            else:
+                continue
+
+            args = await workflow.data_converter.decode(payloads)
+            backfill_details = args[0]["backfill_details"]
+            if expected_backfill_id is not None:
+                assert backfill_details["backfill_id"] == expected_backfill_id
+            if expected_start_at is not None:
+                assert backfill_details["start_at"] == expected_start_at
+            elif "start_at" in backfill_details:
+                assert backfill_details["start_at"] is None
+            if expected_end_at is not None:
+                assert backfill_details["end_at"] == expected_end_at
+            elif "end_at" in backfill_details:
+                assert backfill_details["end_at"] is None
+            if expected_is_earliest_backfill is not None:
+                assert backfill_details["is_earliest_backfill"] == expected_is_earliest_backfill
+            backfill_ids.append(backfill_details["backfill_id"])
 
     return backfill_ids
 

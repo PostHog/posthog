@@ -105,59 +105,6 @@ async def run_backfill_workflow(
     return handle
 
 
-@pytest.fixture
-def timezone(request) -> ZoneInfo:
-    try:
-        timezone = ZoneInfo(request.param)
-    except AttributeError:
-        timezone = ZoneInfo("UTC")
-    return timezone
-
-
-@pytest.fixture(
-    params=[
-        ("day", "UTC", None, None),
-        ("day", "US/Pacific", None, None),
-        ("day", "UTC", None, 1),  # 1 hour offset
-        ("day", "US/Pacific", None, 2),  # 2 hour offset
-        ("day", "Asia/Kathmandu", None, 3),  # 3 hour offset
-        ("week", "UTC", None, None),
-        ("week", "US/Pacific", None, None),
-        ("week", "UTC", 0, 1),  # Sunday, 1 hour offset
-        ("week", "US/Pacific", 0, 2),  # Sunday, 2 hour offset
-        ("week", "Europe/Berlin", 3, 6),  # Wednesday, 6 hour offset (3 days + 6 hours = 108000 seconds)
-        ("week", "Asia/Kathmandu", 3, 6),  # Wednesday, 6 hour offset (3 days + 6 hours = 108000 seconds)
-    ]
-)
-def schedule_interval_timezone_and_offset(request):
-    """Parametrized fixture for timezone, offset_day, and offset_hour combinations."""
-    return request.param
-
-
-@pytest.fixture
-async def temporal_schedule_with_tz_and_offset(temporal_client, ateam, schedule_interval_timezone_and_offset):
-    """Manage a test Temporal Schedule with parametrized interval, timezone, and offset."""
-    interval, timezone, offset_day, offset_hour = schedule_interval_timezone_and_offset
-    batch_export = await acreate_batch_export(
-        team_id=ateam.pk,
-        name=f"no-op-export-{interval}-{timezone}-{offset_day}-{offset_hour}",
-        destination_data={
-            "type": "NoOp",
-            "config": {},
-        },
-        interval=interval,
-        paused=True,
-        timezone=timezone,
-        offset_day=offset_day,
-        offset_hour=offset_hour,
-    )
-
-    handle = temporal_client.get_schedule_handle(str(batch_export.id))
-    yield handle
-
-    await adelete_batch_export(batch_export, temporal_client)
-
-
 @pytest_asyncio.fixture
 async def failing_s3_batch_export(ateam, temporal_client):
     destination_data = {

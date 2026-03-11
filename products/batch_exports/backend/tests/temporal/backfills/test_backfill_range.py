@@ -127,8 +127,10 @@ from products.batch_exports.backend.temporal.backfill_batch_export import backfi
 def test_backfill_range(start_at, end_at, step, expected):
     """Test the backfill_range function yields expected ranges of dates."""
     generator = backfill_range(start_at, end_at, step)
-    result = []
-    for _ in range(len(expected)):
-        result.append(next(generator))
+
+    if end_at is not None:
+        result = list(generator)
+    else:
+        result = [next(generator) for _ in range(len(expected))]
 
     assert result == expected
