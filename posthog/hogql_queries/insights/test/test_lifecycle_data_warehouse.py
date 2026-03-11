@@ -211,6 +211,7 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
         return sent_messages_table.name
 
     def test_lifecycle_data_warehouse(self):
+        """Data warehouse source matching a person aggregation target."""
         table_name = self._setup_data_warehouse()
 
         with freeze_time("2025-11-07T12:00:00Z"):
@@ -278,6 +279,7 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
                     self.assertEqual([[expected_name]], actors_response.results)
 
     def test_lifecycle_data_warehouse_group_aggregation_target(self):
+        """Data warehouse source matching a group aggregation target."""
         table_name = self._setup_group_data_warehouse()
 
         with freeze_time("2025-11-07T12:00:00Z"):
@@ -331,3 +333,54 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
                     ).calculate()
 
                     self.assertEqual([[expected_name]], actors_response.results)
+
+    def test_lifecycle_data_warehouse_invalid_aggregation_target(self):
+        """Data warehouse source matching no aggregation target. Counts compute, but no actors are returned."""
+        table_name = self._setup_data_warehouse()
+
+        with freeze_time("2025-11-07T12:00:00Z"):
+            query = LifecycleQuery(
+                dateRange=DateRange(date_from="-1d"),
+                interval=IntervalType.DAY,
+                series=[
+                    LifecycleDataWarehouseNode(
+                        id=table_name,
+                        table_name=table_name,
+                        timestamp_field="sent_at",
+                        aggregation_target_field="toUUID(md5(toString(user_id)))",  # create a synthetic uuid from the user_id, which won't match the person_id in the users table
+                        created_at_field="users.signed_up",
+                    )
+                ],
+            )
+            response = LifecycleQueryRunner(team=self.team, query=query).calculate()
+
+        self.assertEqual(
+            ["new", "returning", "resurrecting", "dormant"], [result["status"] for result in response.results]
+        )
+
+        results_by_status = {result["status"]: result for result in response.results}
+
+        self.assertEqual(["2025-11-06", "2025-11-07"], results_by_status["new"]["days"])
+        self.assertEqual([2.0, 1.0], results_by_status["new"]["data"])
+        self.assertEqual([0.0, 1.0], results_by_status["returning"]["data"])
+        self.assertEqual([0.0, 1.0], results_by_status["resurrecting"]["data"])
+        self.assertEqual([0.0, -1.0], results_by_status["dormant"]["data"])
+
+        with freeze_time("2025-11-07T12:00:00Z"):
+            for status in ["new", "returning", "resurrecting", "dormant"]:
+                with self.subTest(status=status):
+                    actors_response = ActorsQueryRunner(
+                        team=self.team,
+                        query=ActorsQuery(
+                            select=["properties.name"],
+                            orderBy=["properties.name ASC"],
+                            source=InsightActorsQuery(
+                                day="2025-11-07",
+                                status=status,
+                                source=query,
+                            ),
+                        ),
+                    ).calculate()
+
+                    # returns an empty actors response
+                    self.assertEqual([], actors_response.results)
