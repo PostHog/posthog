@@ -146,7 +146,26 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
         cloudflare_ips = external_requests.get("https://www.cloudflare.com/ips-v4").text.split("\n")
         is_cloudflare = any(ipaddress.ip_address(ip) in ipaddress.ip_network(cidr) for cidr in cloudflare_ips)
         if is_cloudflare:
-            # the customer has set cloudflare proxying on
+            # Before blaming the customer, check if the IPs match our target
+            # CNAME. Cloudflare CNAME flattening (for domains using Cloudflare
+            # nameservers) replaces the CNAME with A records even when proxy is
+            # off (grey cloud). If the IPs match our target, the setup is
+            # correct — the CNAME is just being flattened.
+            try:
+                target_arecords = dns.resolver.query(inputs.target_cname, "A")
+                target_ips = {r.to_text() for r in target_arecords}
+                customer_ips = {r.to_text() for r in arecords}
+                if customer_ips == target_ips:
+                    logger.info(
+                        "DNS for %s returned flattened A records matching target %s - treating as valid",
+                        inputs.domain,
+                        inputs.target_cname,
+                    )
+                    return
+            except Exception:
+                pass
+            # IPs don't match our target — customer likely has Cloudflare
+            # proxying enabled on their own zone
             await update_record(
                 proxy_record_id=inputs.proxy_record_id,
                 message="The DNS record appears to have Cloudflare proxying enabled - please disable this. For more information see [the docs](https://posthog.com/docs/advanced/proxy/managed-reverse-proxy)",
