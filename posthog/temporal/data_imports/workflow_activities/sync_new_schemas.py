@@ -53,7 +53,7 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
     # TODO: this could cause a race condition where each schema worker creates the missing schema
 
     schemas_created, schemas_deleted = sync_old_schemas_with_new_schemas(
-        {s.name: {**s.metadata, **({"label": s.label} if s.label else {})} for s in schemas},
+        {s.name: s.label for s in schemas},
         source_id=inputs.source_id,
         team_id=inputs.team_id,
     )

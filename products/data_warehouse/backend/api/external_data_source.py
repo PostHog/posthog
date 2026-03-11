@@ -950,7 +950,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 instance.connection_metadata = connection_metadata
                 instance.save(update_fields=["connection_metadata", "updated_at"])
             schemas_created, schemas_deleted = sync_old_schemas_with_new_schemas(
-                {s.name: {**s.metadata, **({"label": s.label} if s.label else {})} for s in schemas},
+                {s.name: s.label for s in schemas},
                 source_id=str(instance.id),
                 team_id=self.team_id,
                 descriptions=descriptions,
