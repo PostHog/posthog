@@ -371,7 +371,12 @@ def get_js_url(request: HttpRequest) -> str:
 
 
 def _safe_preflight_check(request: HttpRequest) -> dict:
-    """Run preflight_check with a fallback so it never blocks page rendering."""
+    """Embed preflight data in the initial page context to avoid an extra API round-trip.
+
+    On failure, returns a minimal fallback dict so the page still renders.
+    The frontend (preflightLogic) checks for this embedded data on mount and
+    falls back to fetching /_preflight/ via API if it's missing or incomplete.
+    """
     from posthog.views import preflight_check
 
     try:
