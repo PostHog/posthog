@@ -184,6 +184,7 @@ describe('the feature flag release conditions logic', () => {
             jest.spyOn(api, 'create')
                 .mockReturnValueOnce(Promise.resolve({ users_affected: 124, total_users: 2000 }))
                 .mockReturnValueOnce(Promise.resolve({ users_affected: 248, total_users: 2000 }))
+                .mockReturnValueOnce(Promise.resolve({ users_affected: 120, total_users: 2000 }))
                 .mockReturnValueOnce(Promise.resolve({ users_affected: 496, total_users: 2000 }))
 
             logic = featureFlagReleaseConditionsLogic({
@@ -246,11 +247,16 @@ describe('the feature flag release conditions logic', () => {
             })
                 .toDispatchActions(['setAffectedUsers'])
                 .toMatchValues({
-                    // expect the new empty condition set to initialize affected users to be same as total users
-                    affectedUsers: { A: 248, B: 2000 },
+                    // first setAffectedUsers clears to undefined (loading state)
+                    affectedUsers: { A: 248, B: undefined },
                     totalUsers: 2000,
                 })
-                .toNotHaveDispatchedActions(['setTotalUsers'])
+                .toDispatchActions(['setAffectedUsers', 'setTotalUsers'])
+                .toMatchValues({
+                    // then the API response sets the actual blast radius
+                    affectedUsers: { A: 248, B: 120 },
+                    totalUsers: 2000,
+                })
 
             // update newly added condition set
             await expectLogic(logic, () => {
@@ -303,7 +309,9 @@ describe('the feature flag release conditions logic', () => {
         })
 
         it('uses explicit sortKey when provided to addConditionSet', async () => {
-            jest.spyOn(api, 'create').mockReturnValueOnce(Promise.resolve({ users_affected: 500, total_users: 1000 }))
+            jest.spyOn(api, 'create')
+                .mockReturnValueOnce(Promise.resolve({ users_affected: 500, total_users: 1000 }))
+                .mockReturnValueOnce(Promise.resolve({ users_affected: 500, total_users: 1000 }))
 
             const testLogic = featureFlagReleaseConditionsLogic({
                 id: 'sortkey-test',

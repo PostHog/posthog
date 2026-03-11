@@ -325,12 +325,23 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             actions.setAffectedUsers(sortKey, response.users_affected)
             actions.setTotalUsers(response.total_users)
         },
-        addConditionSet: () => {
+        addConditionSet: async () => {
             const newGroup = values.filters.groups[values.filters.groups.length - 1]
             if (newGroup.sort_key) {
-                // Use ?? instead of || to properly handle totalUsers = 0
-                actions.setAffectedUsers(newGroup.sort_key, values.totalUsers ?? -1)
+                actions.setAffectedUsers(newGroup.sort_key, undefined)
                 actions.openCondition(newGroup.sort_key)
+
+                // Fire the API call to calculate blast radius for the new empty condition set
+                const response = await api.create(
+                    `api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`,
+                    {
+                        condition: { properties: [] },
+                        group_type_index: values.filters?.aggregation_group_type_index ?? null,
+                    }
+                )
+
+                actions.setAffectedUsers(newGroup.sort_key, response.users_affected)
+                actions.setTotalUsers(response.total_users)
             }
         },
         removeConditionSet: () => {
