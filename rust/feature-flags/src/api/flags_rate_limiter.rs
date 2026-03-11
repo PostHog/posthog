@@ -334,7 +334,8 @@ impl FlagsRateLimiter {
     /// Checks if a request should be allowed based on the rate limit.
     ///
     /// Custom per-token limiters take precedence over the default limiter.
-    /// Custom limiters are enforce-only (return `Allowed` or `Blocked`).
+    /// Custom limiters honor `warn_only` mode — when active, rejections
+    /// become warnings instead of blocks.
     pub fn allow_request(&self, bucket_key: &str) -> RateLimitResult {
         if !self.inner.enabled {
             return RateLimitResult::Allowed;
@@ -344,13 +345,23 @@ impl FlagsRateLimiter {
         if let Some(limiter) = self.custom_limiters.get(bucket_key) {
             let key_string = bucket_key.to_string();
             if limiter.check_key(&key_string).is_err() {
-                counter!(
-                    self.inner.config.metric_name,
-                    self.inner.config.key_label => key_string,
-                    "mode" => "enforced"
-                )
-                .increment(1);
-                return RateLimitResult::Blocked;
+                if self.inner.warn_only {
+                    counter!(
+                        self.inner.config.metric_name,
+                        self.inner.config.key_label => key_string,
+                        "mode" => "warned"
+                    )
+                    .increment(1);
+                    return RateLimitResult::Warned;
+                } else {
+                    counter!(
+                        self.inner.config.metric_name,
+                        self.inner.config.key_label => key_string,
+                        "mode" => "enforced"
+                    )
+                    .increment(1);
+                    return RateLimitResult::Blocked;
+                }
             }
             return RateLimitResult::Allowed;
         }
@@ -597,6 +608,30 @@ mod tests {
         // Request 6+: exceed enforce → still Warned (never Blocked in warn_only mode)
         assert_eq!(limiter.allow_request(token), RateLimitResult::Warned);
         assert_eq!(limiter.allow_request(token), RateLimitResult::Warned);
+    }
+
+    #[test]
+    fn test_warn_only_mode_with_custom_limiter_never_blocks() {
+        let mut custom_rates = HashMap::new();
+        custom_rates.insert("custom_token".to_string(), "1/second".to_string());
+
+        let limiter = FlagsRateLimiter::new(true, 0.1, Some(2), 5, true, custom_rates).unwrap();
+
+        // Custom token: capacity=1, so second request exceeds it
+        assert_eq!(
+            limiter.allow_request("custom_token"),
+            RateLimitResult::Allowed
+        );
+        // In warn_only mode, custom limiter rejection should produce Warned, not Blocked
+        assert_eq!(
+            limiter.allow_request("custom_token"),
+            RateLimitResult::Warned
+        );
+        // Subsequent requests should also be Warned, never Blocked
+        assert_eq!(
+            limiter.allow_request("custom_token"),
+            RateLimitResult::Warned
+        );
     }
 
     #[test]
