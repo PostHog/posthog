@@ -3190,7 +3190,7 @@ export interface LifecycleQueryApi {
      */
     aggregation_group_type_index?: number | null
     /**
-     * Non persons and groups aggregation target for a data warehouse based lifecycle insight.
+     * For data warehouse based lifecycle insights when the aggregation target can't be mapped to persons or groups.
      * @nullable
      */
     customAggregationTarget?: boolean | null
