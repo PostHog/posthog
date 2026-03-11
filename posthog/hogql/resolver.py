@@ -707,14 +707,15 @@ class Resolver(CloningVisitor):
         """Visit function calls."""
 
         # Expand *COLUMNS(...) in function arguments
-        has_spread = any(isinstance(arg, ast.SpreadExpr) for arg in node.args)
+        expanded_args: list[ast.Expr] = []
+        has_spread = False
+        for arg in node.args:
+            if isinstance(arg, ast.SpreadExpr) and isinstance(arg.expr, ast.ColumnsExpr):
+                expanded_args.extend(self._columns_expr_exprs(arg.expr))
+                has_spread = True
+            else:
+                expanded_args.append(arg)
         if has_spread:
-            expanded_args: list[ast.Expr] = []
-            for arg in node.args:
-                if isinstance(arg, ast.SpreadExpr) and isinstance(arg.expr, ast.ColumnsExpr):
-                    expanded_args.extend(self._columns_expr_exprs(arg.expr))
-                else:
-                    expanded_args.append(arg)
             node = ast.Call(
                 name=node.name,
                 args=expanded_args,
