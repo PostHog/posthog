@@ -47,7 +47,7 @@ export function LLMCostsView({ data }: LLMCostsViewProps): ReactElement {
     const rows: ModelRow[] = series.map((s) => ({
         model: s.breakdown_value || s.label || 'Unknown',
         totalCost: s.aggregated_value ?? 0,
-        latestDayCost: s.data?.length ? s.data[s.data.length - 1] : 0,
+        latestDayCost: s.data?.length ? s.data[s.data.length - 1]! : 0,
     }))
 
     const columns: DataTableColumn<ModelRow>[] = [
