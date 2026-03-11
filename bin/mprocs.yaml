@@ -82,7 +82,7 @@ procs:
             bin/wait-for-docker temporal && \
             bin/temporal-recording-rasterizer-worker
         capability: recording_rasterizer
-        ready_pattern: ''
+        ready_pattern: 'Worker started on queue'
         env:
             VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
             VIDEO_EXPORT_OBJECT_STORAGE_REGION: 'us-east-1'
@@ -95,7 +95,7 @@ procs:
             bin/check_ducklake_up && \
             dagster dev --workspace $DAGSTER_HOME/workspace.yaml -p $DAGSTER_UI_PORT
         capability: dagster_pipelines
-        ready_pattern: 'Launching dagster services'
+        ready_pattern: 'Launching Dagster services'
 
     docker-compose:
         shell: 'docker compose -f docker-compose.dev.yml up --pull always -d && echo "docker-compose ready" && docker compose -f docker-compose.dev.yml logs --tail=100 -f'
