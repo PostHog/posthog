@@ -10,6 +10,12 @@ import type { Experiment, FeatureFlagType } from '~/types'
 
 import type { variantsPanelLogicType } from './variantsPanelLogicType'
 
+export type FeatureFlagKeyValidation = {
+    valid: boolean
+    error: string | null
+    existingFlag?: FeatureFlagType
+}
+
 export const variantsPanelLogic = kea<variantsPanelLogicType>({
     key: (props) => props.tabId || props.experiment?.id || 'new',
     path: (key) => ['scenes', 'experiments', 'create', 'panels', 'variantsPanelLogic', key],
@@ -72,7 +78,7 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
     }),
     loaders: ({ values }) => ({
         featureFlagKeyValidation: [
-            null as { valid: boolean; error: string | null; existingFlag?: FeatureFlagType } | null,
+            null as FeatureFlagKeyValidation | null,
             {
                 validateFeatureFlagKey: async ({ key }) => {
                     // First do client-side validation

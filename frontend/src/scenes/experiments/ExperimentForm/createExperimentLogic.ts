@@ -20,13 +20,14 @@ import {
     ProductIntentContext,
     ProductKey,
 } from '~/queries/schema/schema-general'
-import type { Experiment, FeatureFlagFilters, FeatureFlagType, MultivariateFlagVariant } from '~/types'
+import type { Experiment, FeatureFlagFilters, MultivariateFlagVariant } from '~/types'
 
 import { NEW_EXPERIMENT } from '../constants'
 import { FORM_MODES, experimentLogic } from '../experimentLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
 import type { createExperimentLogicType } from './createExperimentLogicType'
 import { validateExperimentSubmission } from './experimentSubmissionValidation'
+import type { FeatureFlagKeyValidation } from './variantsPanelLogic'
 import { variantsPanelLogic } from './variantsPanelLogic'
 import { validateVariants } from './variantsPanelValidation'
 
@@ -195,11 +196,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             (s) => [s.experiment, s.featureFlagKeyValidation, s.mode, s.experimentErrors],
             (
                 experiment: Experiment,
-                featureFlagKeyValidation: {
-                    valid: boolean
-                    error: string | null
-                    existingFlag?: FeatureFlagType
-                } | null,
+                featureFlagKeyValidation: FeatureFlagKeyValidation | null,
                 mode: 'create' | 'link',
                 experimentErrors: Record<string, string>
             ) => {
@@ -216,11 +213,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             (s) => [s.experiment, s.featureFlagKeyValidation, s.mode, s.experimentErrors],
             (
                 experiment: Experiment,
-                featureFlagKeyValidation: {
-                    valid: boolean
-                    error: string | null
-                    existingFlag?: FeatureFlagType
-                } | null,
+                featureFlagKeyValidation: FeatureFlagKeyValidation | null,
                 mode: 'create' | 'link',
                 experimentErrors: Record<string, string>
             ): string | undefined => {
