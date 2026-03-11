@@ -13,7 +13,7 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
-    contents: write
+    contents: read
     pull-requests: write
 
 jobs:
@@ -92,6 +92,9 @@ jobs:
               with:
                   node-version: 24.13.0
                   cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-storybook.yml
 
             - name: Install dependencies
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
@@ -261,6 +264,9 @@ jobs:
               with:
                   node-version: 24.13.0
                   cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-storybook.yml
 
             - name: Install package.json dependencies with pnpm
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
@@ -455,6 +461,9 @@ jobs:
         runs-on: ubuntu-latest
         needs: [visual-regression, detect-snapshot-mode, changes]
         if: always() && needs.detect-snapshot-mode.outputs.mode == 'update' && needs.changes.outputs.frontend == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+        permissions:
+            contents: write
+            pull-requests: write
         steps:
             # Use GitHub app token so Actions run after commiting updated snapshots
             - name: Get app token

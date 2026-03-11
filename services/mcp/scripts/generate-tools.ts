@@ -35,6 +35,9 @@ const DEFINITIONS_DIR = path.resolve(MCP_ROOT, 'definitions')
 const PRODUCTS_DIR = path.resolve(REPO_ROOT, 'products')
 const GENERATED_DIR = path.resolve(MCP_ROOT, 'src/tools/generated')
 const DEFINITIONS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/generated-tool-definitions.json')
+const ALL_DEFINITIONS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions-all.json')
+const TOOL_DEFINITIONS_V1_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions.json')
+const TOOL_DEFINITIONS_V2_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions-v2.json')
 const OPENAPI_PATH = path.resolve(REPO_ROOT, 'frontend/tmp/openapi.json')
 
 interface OpenApiParam {
@@ -798,15 +801,23 @@ ${spreads}
     const definitions = generateDefinitionsJson(allCategories)
     fs.writeFileSync(DEFINITIONS_JSON_PATH, JSON.stringify(definitions, null, 4) + '\n')
 
+    // Combined tool definitions for external consumers (docs site)
+    const v1Definitions = JSON.parse(fs.readFileSync(TOOL_DEFINITIONS_V1_PATH, 'utf-8'))
+    const v2Definitions = JSON.parse(fs.readFileSync(TOOL_DEFINITIONS_V2_PATH, 'utf-8'))
+    const allDefinitions = { ...v1Definitions, ...v2Definitions, ...definitions }
+    fs.writeFileSync(ALL_DEFINITIONS_JSON_PATH, JSON.stringify(allDefinitions, null, 4) + '\n')
+
     const totalTools = allCategories.reduce((sum, c) => sum + c.enabledTools.length, 0)
+    const totalAllTools = Object.keys(allDefinitions).length
     process.stdout.write(`Generated ${totalTools} tool(s) from ${allCategories.length} category file(s)\n`)
+    process.stdout.write(`Combined ${totalAllTools} total tool(s) into tool-definitions-all.json\n`)
 
     const generatedTsFiles = [
         ...generatedModules.map((m) => path.join(GENERATED_DIR, `${m}.ts`)),
         path.join(GENERATED_DIR, 'index.ts'),
     ]
     spawnSync(path.join(REPO_ROOT, 'bin/hogli'), ['format:js', ...generatedTsFiles], { stdio: 'pipe', cwd: REPO_ROOT })
-    spawnSync(path.join(REPO_ROOT, 'bin/hogli'), ['format:yaml', DEFINITIONS_JSON_PATH], {
+    spawnSync(path.join(REPO_ROOT, 'bin/hogli'), ['format:yaml', DEFINITIONS_JSON_PATH, ALL_DEFINITIONS_JSON_PATH], {
         stdio: 'pipe',
         cwd: REPO_ROOT,
     })

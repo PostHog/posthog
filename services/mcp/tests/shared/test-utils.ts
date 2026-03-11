@@ -3,7 +3,7 @@ import { MemoryCache } from '@/lib/cache/MemoryCache'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
 import type { InsightQuery } from '@/schema/query'
-import type { Context } from '@/tools/types'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 export const API_BASE_URL = process.env.TEST_POSTHOG_API_BASE_URL || 'http://localhost:8010'
 export const API_TOKEN = process.env.TEST_POSTHOG_PERSONAL_API_KEY
@@ -133,6 +133,17 @@ export function parseToolResponse(result: any): any {
     // Tool handlers now return plain JSON objects directly
     // The MCP server wraps them with formatResponse, but tests call handlers directly
     return result
+}
+
+export function getToolByName(
+    toolMap: Record<string, () => ToolBase<ZodObjectAny>>,
+    toolName: string
+): ToolBase<ZodObjectAny> {
+    const toolFactory = toolMap[toolName]
+    if (!toolFactory) {
+        throw new Error(`Tool not found in map: ${toolName}`)
+    }
+    return toolFactory()
 }
 
 export function generateUniqueKey(prefix: string): string {

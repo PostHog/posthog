@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 
 import { llmEvaluationLogic } from '../evaluations/llmEvaluationLogic'
 import type { EvaluationConfig } from '../evaluations/types'
-import { llmPromptLogic } from '../prompts/llmPromptLogic'
+import { getApiErrorDetail, llmPromptLogic } from '../prompts/llmPromptLogic'
 import { normalizeLLMProvider } from '../settings/llmProviderKeysLogic'
 import { normalizeRole } from '../utils'
 import type { llmPlaygroundPromptsLogicType } from './llmPlaygroundPromptsLogicType'
@@ -256,15 +256,17 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         toggleCollapsed: (key: string) => ({ key }),
         setToolsJsonError: (promptId: string, error: string | null) => ({ promptId, error }),
         setSourceSetupLoading: (isLoading: boolean) => ({ isLoading }),
-        saveToLinkedPrompt: true,
+        saveToLinkedPrompt: (promptId: string) => ({ promptId }),
         saveToLinkedEvaluation: (
+            promptId: string,
             modelConfig: { model: string; provider: string; provider_key_id: string | null } | null
-        ) => ({ modelConfig }),
-        saveAsNewPrompt: (name: string) => ({ name }),
+        ) => ({ promptId, modelConfig }),
+        saveAsNewPrompt: (promptId: string, name: string) => ({ promptId, name }),
         saveAsNewEvaluation: (
+            promptId: string,
             name: string,
             modelConfig: { model: string; provider: string; provider_key_id: string | null } | null
-        ) => ({ name, modelConfig }),
+        ) => ({ promptId, name, modelConfig }),
         saveComplete: true,
         resetPlayground: true,
     }),
@@ -779,7 +781,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             }
         },
 
-        saveToLinkedPrompt: async () => {
+        saveToLinkedPrompt: async ({ promptId }) => {
             posthog.capture('llma playground saved to source', { action: 'save_to_linked_prompt' })
             const { linkedSource, promptConfigs } = values
             if (!linkedSource.promptName) {
@@ -787,7 +789,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 actions.saveComplete()
                 return
             }
-            const prompt = promptConfigs[0]
+            const prompt = promptConfigs.find((p) => p.id === promptId)
             if (!prompt) {
                 lemonToast.error('No prompt configuration to save')
                 actions.saveComplete()
@@ -823,14 +825,14 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         logic.actions.loadPrompt()
                     }
                 }
-            } catch {
-                lemonToast.error('Failed to update prompt')
+            } catch (error: unknown) {
+                lemonToast.error(getApiErrorDetail(error) || 'Failed to update prompt')
             } finally {
                 actions.saveComplete()
             }
         },
 
-        saveToLinkedEvaluation: async ({ modelConfig }) => {
+        saveToLinkedEvaluation: async ({ promptId, modelConfig }) => {
             posthog.capture('llma playground saved to source', { action: 'save_to_linked_evaluation' })
             const { linkedSource, promptConfigs } = values
             if (!linkedSource.evaluationId) {
@@ -838,7 +840,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 actions.saveComplete()
                 return
             }
-            const prompt = promptConfigs[0]
+            const prompt = promptConfigs.find((p) => p.id === promptId)
             if (!prompt) {
                 lemonToast.error('No prompt configuration to save')
                 actions.saveComplete()
@@ -868,16 +870,16 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         logic.actions.loadEvaluation()
                     }
                 }
-            } catch {
-                lemonToast.error('Failed to update evaluation')
+            } catch (error: unknown) {
+                lemonToast.error(getApiErrorDetail(error) || 'Failed to update evaluation')
             } finally {
                 actions.saveComplete()
             }
         },
 
-        saveAsNewPrompt: async ({ name }) => {
+        saveAsNewPrompt: async ({ promptId, name }) => {
             posthog.capture('llma playground saved to source', { action: 'save_as_new_prompt' })
-            const prompt = values.promptConfigs[0]
+            const prompt = values.promptConfigs.find((p) => p.id === promptId)
             if (!prompt) {
                 lemonToast.error('No prompt configuration to save')
                 actions.saveComplete()
@@ -908,16 +910,16 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         action: () => router.actions.push(urls.llmAnalyticsPrompt(name)),
                     },
                 })
-            } catch {
-                lemonToast.error('Failed to save prompt')
+            } catch (error: unknown) {
+                lemonToast.error(getApiErrorDetail(error) || 'Failed to save prompt')
             } finally {
                 actions.saveComplete()
             }
         },
 
-        saveAsNewEvaluation: async ({ name, modelConfig }) => {
+        saveAsNewEvaluation: async ({ promptId, name, modelConfig }) => {
             posthog.capture('llma playground saved to source', { action: 'save_as_new_evaluation' })
-            const prompt = values.promptConfigs[0]
+            const prompt = values.promptConfigs.find((p) => p.id === promptId)
             if (!prompt) {
                 lemonToast.error('No prompt configuration to save')
                 actions.saveComplete()
@@ -961,8 +963,8 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         action: () => router.actions.push(urls.llmAnalyticsEvaluation(created.id)),
                     },
                 })
-            } catch {
-                lemonToast.error('Failed to save evaluation')
+            } catch (error: unknown) {
+                lemonToast.error(getApiErrorDetail(error) || 'Failed to save evaluation')
             } finally {
                 actions.saveComplete()
             }
