@@ -49,7 +49,7 @@ def get_hogql_metadata(
         return response
 
     database = None
-    if source and source.source_id:
+    if source:
         database = Database.create_for(
             team=team,
             user=user,
