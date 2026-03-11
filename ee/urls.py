@@ -299,5 +299,10 @@ urlpatterns: list[Any] = [
         csrf_exempt(agentic_provisioning_views.deep_links),
         name="agentic_provisioning_deep_links",
     ),
+    path(
+        "login/stripe",
+        agentic_provisioning_views.stripe_login,
+        name="stripe_login",
+    ),
     *admin_urlpatterns,
 ]

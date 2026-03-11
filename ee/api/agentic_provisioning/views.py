@@ -7,6 +7,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 from django.conf import settings
+from django.contrib.auth import login as auth_login
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
 from django.db import IntegrityError
@@ -828,3 +829,35 @@ def _region_to_host(region: str) -> str:
     elif region_lower in ("us", "dev"):
         return "https://us.posthog.com"
     return settings.SITE_URL
+
+
+# ---------------------------------------------------------------------------
+# GET /login/stripe — deep link login for Stripe APP users
+# ---------------------------------------------------------------------------
+
+
+def stripe_login(request: Any) -> HttpResponseBase:
+    token = request.GET.get("token", "")
+    if not token:
+        return HttpResponseRedirect(f"{settings.SITE_URL}/?error=missing_token")
+
+    cache_key = f"{DEEP_LINK_CACHE_PREFIX}{token}"
+    link_data = cache.get(cache_key)
+    if link_data is None:
+        return HttpResponseRedirect(f"{settings.SITE_URL}/?error=expired_or_invalid_token")
+
+    cache.delete(cache_key)
+
+    user_id = link_data.get("user_id")
+    team_id = link_data.get("team_id")
+
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return HttpResponseRedirect(f"{settings.SITE_URL}/?error=user_not_found")
+
+    auth_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+
+    if team_id:
+        return HttpResponseRedirect(f"{settings.SITE_URL}/project/{team_id}")
+    return HttpResponseRedirect(settings.SITE_URL)
