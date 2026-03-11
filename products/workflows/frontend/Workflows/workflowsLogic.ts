@@ -16,9 +16,12 @@ import type { workflowsLogicType } from './workflowsLogicType'
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse extends FuseClass<HogFlow> {}
 
+export type WorkflowStatusFilter = 'all' | 'active' | 'draft' | 'archived'
+
 export interface WorkflowsFilters {
     search: string
     createdBy: string | null
+    status: WorkflowStatusFilter
 }
 
 export const workflowsLogic = kea<workflowsLogicType>([
@@ -35,17 +38,19 @@ export const workflowsLogic = kea<workflowsLogicType>([
         setFilters: (filters: Partial<WorkflowsFilters>) => ({ filters }),
         setSearchTerm: (search: string) => ({ search }),
         setCreatedBy: (createdBy: string | null) => ({ createdBy }),
+        setStatusFilter: (status: WorkflowStatusFilter) => ({ status }),
         toggleArchivedWorkflowSelection: (id: string) => ({ id }),
         selectAllArchivedWorkflows: (ids: string[]) => ({ ids }),
         clearArchivedWorkflowSelection: true,
     }),
     reducers({
         filters: [
-            { search: '', createdBy: null } as WorkflowsFilters,
+            { search: '', createdBy: null, status: 'all' } as WorkflowsFilters,
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
                 setSearchTerm: (state, { search }) => ({ ...state, search }),
                 setCreatedBy: (state, { createdBy }) => ({ ...state, createdBy }),
+                setStatusFilter: (state, { status }) => ({ ...state, status }),
             },
         ],
         selectedArchivedWorkflowIds: [
@@ -222,6 +227,15 @@ export const workflowsLogic = kea<workflowsLogicType>([
             (s) => [s.archivedWorkflows, s.selectedArchivedWorkflowIds],
             (archivedWorkflows, selectedIds): boolean => {
                 return archivedWorkflows.length > 0 && archivedWorkflows.every((w) => selectedIds.has(w.id))
+            },
+        ],
+        visibleStatuses: [
+            (s) => [s.filters],
+            (filters): ('active' | 'draft' | 'archived')[] => {
+                if (filters.status === 'all') {
+                    return ['active', 'draft', 'archived']
+                }
+                return [filters.status]
             },
         ],
         creators: [
