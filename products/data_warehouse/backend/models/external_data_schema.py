@@ -432,11 +432,10 @@ def sync_old_schemas_with_new_schemas(
         if deleted_obj is not None:
             deleted_obj.deleted = False
             deleted_obj.deleted_at = None
-            deleted_obj.should_sync = False
             deleted_obj.description = descriptions.get(schema_name) if descriptions else None
             if label is not None:
                 deleted_obj.label = label
-            update_fields = ["deleted", "deleted_at", "should_sync", "description", "updated_at"]
+            update_fields = ["deleted", "deleted_at", "description", "updated_at"]
             if label is not None:
                 update_fields.append("label")
             deleted_obj.save(update_fields=update_fields)
