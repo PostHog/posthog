@@ -100,7 +100,7 @@ export function Nav({ children }: { children?: React.ReactNode }): JSX.Element {
                     )}
                 >
                     <div
-                        className={cn('flex gap-1 rounded-md w-full px-1', {
+                        className={cn('flex gap-1 rounded-md w-full px-2 pt-2 pb-1', {
                             'flex-col items-center pt-2': isLayoutNavCollapsed,
                         })}
                     >
@@ -124,30 +124,41 @@ export function Nav({ children }: { children?: React.ReactNode }): JSX.Element {
                     className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-hidden"
                     value={navExperimentActiveTab}
                     onValueChange={(value) => setNavExperimentTab(value as NavExperimentTab)}
+                    orientation={isLayoutNavCollapsed ? 'vertical' : 'horizontal'}
                 >
-                    {!isLayoutNavCollapsed && (
-                        <>
-                            <Tabs.List className="relative flex items-center gap-1 px-1 shrink-0 z-0 mb-1">
-                                {TAB_CONFIG.map((tab) => (
-                                    <Tabs.Tab
-                                        key={tab.id}
-                                        value={tab.id}
-                                        render={(props) => (
-                                            <ButtonPrimitive
-                                                {...props}
-                                                className="w-auto hover:bg-transparent group justify-normal"
-                                                data-attr={`nav-tab-${tab.id}`}
+                    <>
+                        <Tabs.List
+                            className={cn(
+                                'relative flex items-center gap-1 shrink-0 z-0 pb-2 pt-1 px-2',
+                                isLayoutNavCollapsed && 'flex-col justify-center'
+                            )}
+                        >
+                            {TAB_CONFIG.map((tab) => (
+                                <Tabs.Tab
+                                    key={tab.id}
+                                    value={tab.id}
+                                    render={(props) => (
+                                        <ButtonPrimitive
+                                            {...props}
+                                            className={cn(
+                                                'group data-[composite-item-active]:bg-fill-button-tertiary-active w-1/2 justify-center',
+                                                isLayoutNavCollapsed && 'w-full'
+                                            )}
+                                            data-attr={`nav-tab-${tab.id}`}
+                                            iconOnly={isLayoutNavCollapsed}
+                                        >
+                                            <span
+                                                className={cn(
+                                                    'flex size-4',
+                                                    navExperimentActiveTab === tab.id
+                                                        ? 'text-primary'
+                                                        : 'text-tertiary group-hover:text-primary'
+                                                )}
                                             >
-                                                <span
-                                                    className={cn(
-                                                        'flex size-4',
-                                                        navExperimentActiveTab === tab.id
-                                                            ? 'text-primary'
-                                                            : 'text-tertiary group-hover:text-primary'
-                                                    )}
-                                                >
-                                                    {tab.icon}
-                                                </span>
+                                                {tab.icon}
+                                            </span>
+
+                                            {!isLayoutNavCollapsed && (
                                                 <span
                                                     className={cn(
                                                         'text-xs',
@@ -158,17 +169,15 @@ export function Nav({ children }: { children?: React.ReactNode }): JSX.Element {
                                                 >
                                                     {tab.label}
                                                 </span>
-                                            </ButtonPrimitive>
-                                        )}
-                                    />
-                                ))}
+                                            )}
+                                        </ButtonPrimitive>
+                                    )}
+                                />
+                            ))}
+                        </Tabs.List>
 
-                                <Tabs.Indicator className="transform-gpu absolute top-1/2 left-0 z-[-1] h-full w-[var(--active-tab-width)] translate-x-[var(--active-tab-left)] -translate-y-1/2 rounded bg-[var(--color-bg-fill-button-tertiary-active)] transition-all duration-200 ease-in-out" />
-                            </Tabs.List>
-
-                            <div className="h-px bg-border-primary w-full" />
-                        </>
-                    )}
+                        <div className="h-px bg-border-primary -mx-1 w-[calc(100%+var(--spacing)*4)]" />
+                    </>
 
                     <div className="flex-1 overflow-hidden relative">
                         <Tabs.Panel value="home" className="absolute inset-0 flex flex-col" keepMounted>
@@ -193,7 +202,9 @@ export function Nav({ children }: { children?: React.ReactNode }): JSX.Element {
 
                     <div className="border-b border-primary h-px" />
 
-                    <NavBarFooter isLayoutNavCollapsed={isLayoutNavCollapsed} />
+                    <div className="p-1">
+                        <NavBarFooter isLayoutNavCollapsed={isLayoutNavCollapsed} />
+                    </div>
                 </Tabs.Root>
                 {!isMobileLayout && (
                     <Resizer

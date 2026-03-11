@@ -5015,6 +5015,7 @@ export namespace Schemas {
     * `day` - day
     * `week` - week
     * `every 5 minutes` - every 5 minutes
+    * `every 15 minutes` - every 15 minutes
      */
     export type IntervalEnum = typeof IntervalEnum[keyof typeof IntervalEnum];
 
@@ -5024,6 +5025,7 @@ export namespace Schemas {
       Day: 'day',
       Week: 'week',
       Every5Minutes: 'every 5 minutes',
+      Every15Minutes: 'every 15 minutes',
     } as const;
 
     /**
@@ -10848,6 +10850,8 @@ export namespace Schemas {
     }
 
     export interface DatabaseSchemaSource {
+      /** @nullable */
+      access_method?: string | null;
       id: string;
       /** @nullable */
       last_synced_at?: string | null;
@@ -11017,6 +11021,11 @@ export namespace Schemas {
     }
 
     export interface DatabaseSchemaQuery {
+      /**
+       * Optional direct external data source id for schema introspection
+       * @nullable
+       */
+      connectionId?: string | null;
       kind?: DatabaseSchemaQueryKind;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -15702,6 +15711,11 @@ export namespace Schemas {
 
     export interface HogQLMetadata {
       /**
+       * Optional direct external data source id for running against a specific source
+       * @nullable
+       */
+      connectionId?: string | null;
+      /**
        * Enable more verbose output, usually run from the /debug page
        * @nullable
        */
@@ -15737,6 +15751,11 @@ export namespace Schemas {
     }
 
     export interface HogQLAutocomplete {
+      /**
+       * Optional direct external data source id for running against a specific source
+       * @nullable
+       */
+      connectionId?: string | null;
       /** End position of the editor word */
       endPosition: number;
       /** Table to validate the expression against */
@@ -15967,6 +15986,7 @@ export namespace Schemas {
     /**
      * * `posthog` - posthog
     * `twig` - twig
+    * `posthog-code` - posthog-code
      */
     export type InstallSourceEnum = typeof InstallSourceEnum[keyof typeof InstallSourceEnum];
 
@@ -15974,6 +15994,7 @@ export namespace Schemas {
     export const InstallSourceEnum = {
       Posthog: 'posthog',
       Twig: 'twig',
+      PosthogCode: 'posthog-code',
     } as const;
 
     export interface InstallCustom {
@@ -16006,8 +16027,12 @@ export namespace Schemas {
 
     export interface LLMPrompt {
       readonly id: string;
-      /** @maxLength 255 */
+      /**
+       * Unique prompt name using letters, numbers, hyphens, and underscores only.
+       * @maxLength 255
+       */
       name: string;
+      /** Prompt payload as JSON or string data. */
       prompt: unknown;
       readonly version: number;
       readonly created_by: UserBasic;
@@ -16117,6 +16142,90 @@ export namespace Schemas {
       group_type_mapping: LocalEvaluationResponseGroupTypeMapping;
       /** Cohort definitions keyed by cohort ID. Each value is a property group structure with 'type' (OR/AND) and 'values' (array of property groups or property filters). */
       cohorts: LocalEvaluationResponseCohorts;
+    }
+
+    /**
+     * * `above` - Above
+    * `below` - Below
+     */
+    export type ThresholdOperatorEnum = typeof ThresholdOperatorEnum[keyof typeof ThresholdOperatorEnum];
+
+
+    export const ThresholdOperatorEnum = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
+    /**
+     * * `not_firing` - Not firing
+    * `firing` - Firing
+    * `pending_resolve` - Pending resolve
+    * `errored` - Errored
+    * `snoozed` - Snoozed
+     */
+    export type LogsAlertConfigurationStateEnum = typeof LogsAlertConfigurationStateEnum[keyof typeof LogsAlertConfigurationStateEnum];
+
+
+    export const LogsAlertConfigurationStateEnum = {
+      NotFiring: 'not_firing',
+      Firing: 'firing',
+      PendingResolve: 'pending_resolve',
+      Errored: 'errored',
+      Snoozed: 'snoozed',
+    } as const;
+
+    export interface LogsAlertConfiguration {
+      readonly id: string;
+      /** @maxLength 255 */
+      name: string;
+      enabled?: boolean;
+      /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). */
+      filters: unknown;
+      /**
+       * @minimum 1
+       * @maximum 2147483647
+       */
+      threshold_count: number;
+      /** Whether the alert fires when the count is above or below the threshold.
+
+    * `above` - Above
+    * `below` - Below */
+      threshold_operator?: ThresholdOperatorEnum;
+      /**
+       * @minimum 0
+       * @maximum 2147483647
+       */
+      window_minutes?: number;
+      readonly check_interval_minutes: number;
+      readonly state: LogsAlertConfigurationStateEnum;
+      /**
+       * Total number of check periods in the sliding evaluation window (M in N-of-M).
+       * @minimum 1
+       */
+      evaluation_periods?: number;
+      /**
+       * How many periods within the evaluation window must breach the threshold to trigger (N in N-of-M).
+       * @minimum 1
+       */
+      datapoints_to_alarm?: number;
+      /**
+       * @minimum 0
+       * @maximum 2147483647
+       */
+      cooldown_minutes?: number;
+      /** @nullable */
+      snooze_until?: string | null;
+      /** @nullable */
+      readonly next_check_at: string | null;
+      /** @nullable */
+      readonly last_notified_at: string | null;
+      /** @nullable */
+      readonly last_checked_at: string | null;
+      readonly consecutive_failures: number;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      /** @nullable */
+      readonly updated_at: string | null;
     }
 
     /**
@@ -17335,6 +17444,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: LiveDebuggerBreakpoint[];
+    }
+
+    export interface PaginatedLogsAlertConfigurationList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: LogsAlertConfiguration[];
     }
 
     export interface PaginatedMCPServerInstallationList {
@@ -20532,8 +20650,12 @@ export namespace Schemas {
     }
 
     export interface PatchedLLMPromptPublish {
+      /** Prompt payload to publish as a new version. */
       prompt?: unknown;
-      /** @minimum 1 */
+      /**
+       * Latest version you are editing from. Used for optimistic concurrency checks.
+       * @minimum 1
+       */
       base_version?: number;
     }
 
@@ -20569,6 +20691,60 @@ export namespace Schemas {
       condition?: string | null;
       readonly created_at?: string;
       readonly updated_at?: string;
+    }
+
+    export interface PatchedLogsAlertConfiguration {
+      readonly id?: string;
+      /** @maxLength 255 */
+      name?: string;
+      enabled?: boolean;
+      /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). */
+      filters?: unknown;
+      /**
+       * @minimum 1
+       * @maximum 2147483647
+       */
+      threshold_count?: number;
+      /** Whether the alert fires when the count is above or below the threshold.
+
+    * `above` - Above
+    * `below` - Below */
+      threshold_operator?: ThresholdOperatorEnum;
+      /**
+       * @minimum 0
+       * @maximum 2147483647
+       */
+      window_minutes?: number;
+      readonly check_interval_minutes?: number;
+      readonly state?: LogsAlertConfigurationStateEnum;
+      /**
+       * Total number of check periods in the sliding evaluation window (M in N-of-M).
+       * @minimum 1
+       */
+      evaluation_periods?: number;
+      /**
+       * How many periods within the evaluation window must breach the threshold to trigger (N in N-of-M).
+       * @minimum 1
+       */
+      datapoints_to_alarm?: number;
+      /**
+       * @minimum 0
+       * @maximum 2147483647
+       */
+      cooldown_minutes?: number;
+      /** @nullable */
+      snooze_until?: string | null;
+      /** @nullable */
+      readonly next_check_at?: string | null;
+      /** @nullable */
+      readonly last_notified_at?: string | null;
+      /** @nullable */
+      readonly last_checked_at?: string | null;
+      readonly consecutive_failures?: number;
+      readonly created_at?: string;
+      readonly created_by?: UserBasic;
+      /** @nullable */
+      readonly updated_at?: string | null;
     }
 
     export interface PatchedMCPServerInstallationUpdate {
@@ -22679,13 +22855,19 @@ export namespace Schemas {
        * @nullable
        */
       error?: string | null;
+      /** @nullable */
+      hasMore?: boolean | null;
       /**
        * Generated HogQL query.
        * @nullable
        */
       hogql?: string | null;
+      /** @nullable */
+      limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** @nullable */
+      offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
@@ -22700,8 +22882,18 @@ export namespace Schemas {
 
     export interface TeamTaxonomyQuery {
       kind?: TeamTaxonomyQueryKind;
+      /**
+       * Number of rows to return
+       * @nullable
+       */
+      limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /**
+       * Number of rows to skip before returning rows
+       * @nullable
+       */
+      offset?: number | null;
       response?: TeamTaxonomyQueryResponse | null;
       tags?: QueryLogTags | null;
       /**
@@ -24816,13 +25008,19 @@ export namespace Schemas {
        * @nullable
        */
       error?: string | null;
+      /** @nullable */
+      hasMore?: boolean | null;
       /**
        * Generated HogQL query.
        * @nullable
        */
       hogql?: string | null;
+      /** @nullable */
+      limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** @nullable */
+      offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
@@ -26793,6 +26991,17 @@ export namespace Schemas {
     repo: string;
     };
 
+    export type EnvironmentsLogsAlertsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsPersistedFolderListParams = {
     /**
      * Number of results to return per page.
@@ -27617,10 +27826,15 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Optional substring filter applied to prompt names and prompt content.
+     */
+    search?: string;
     };
 
     export type LlmPromptsNameRetrieveParams = {
     /**
+     * Specific prompt version to fetch. If omitted, the latest version is returned.
      * @minimum 1
      */
     version?: number;
@@ -27628,22 +27842,29 @@ export namespace Schemas {
 
     export type LlmPromptsResolveNameRetrieveParams = {
     /**
+     * Return versions older than this version number. Mutually exclusive with offset.
      * @minimum 1
      */
     before_version?: number;
     /**
+     * Maximum number of versions to return per page (1-100).
      * @minimum 1
      * @maximum 100
      */
     limit?: number;
     /**
+     * Zero-based offset into version history for pagination. Mutually exclusive with before_version.
      * @minimum 0
      */
     offset?: number;
     /**
+     * Specific prompt version to fetch. If omitted, the latest version is returned.
      * @minimum 1
      */
     version?: number;
+    /**
+     * Exact prompt version UUID to resolve. Can be used together with version for extra safety.
+     */
     version_id?: string;
     };
 
@@ -27673,6 +27894,7 @@ export namespace Schemas {
     /**
      * * `posthog` - posthog
     * `twig` - twig
+    * `posthog-code` - posthog-code
      * @minLength 1
      */
     install_source?: McpServerInstallationsAuthorizeRetrieveInstallSource;
@@ -27686,6 +27908,7 @@ export namespace Schemas {
     export const McpServerInstallationsAuthorizeRetrieveInstallSource = {
       Posthog: 'posthog',
       Twig: 'twig',
+      PosthogCode: 'posthog-code',
     } as const;
 
     export type McpServersListParams = {
@@ -29236,6 +29459,17 @@ export namespace Schemas {
     limit?: number;
     /**
      * Pagination offset for retrieving additional results (default: 0)
+     */
+    offset?: number;
+    };
+
+    export type LogsAlertsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
      */
     offset?: number;
     };

@@ -56,7 +56,7 @@ async def batch_export(
     await destination.adelete()
 
 
-@pytest.fixture(params=["hour", "day", "week", "every 5 minutes"])
+@pytest.fixture(params=["hour", "day", "week", "every 5 minutes", "every 15 minutes"])
 def interval(request):
     return request.param
 

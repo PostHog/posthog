@@ -38,6 +38,7 @@ import {
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
 import { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { IngestionConsumer, IngestionConsumerDeps } from './ingestion/ingestion-consumer'
+import { IngestionTestingConsumer } from './ingestion/ingestion-testing-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { onShutdown } from './lifecycle'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
@@ -127,6 +128,7 @@ export class PluginServer {
         const capabilities = getPluginServerCapabilities(this.config)
 
         const needsIngestion = !!(capabilities.ingestionV2Combined || capabilities.ingestionV2)
+
         const needsCdp = !!(
             capabilities.cdpProcessedEvents ||
             capabilities.cdpDataWarehouseEvents ||
@@ -255,6 +257,23 @@ export class PluginServer {
 
                 serviceLoaders.push(async () => {
                     const consumer = new IngestionConsumer(this.config, ingestionDeps)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
+            if (capabilities.ingestionV2Testing) {
+                serviceLoaders.push(async () => {
+                    // All output (events, overflow, DLQ) writes to WarpStream
+                    const kafkaWarpStreamProducer = await KafkaProducerWrapper.create(
+                        this.config.KAFKA_CLIENT_RACK,
+                        'WARPSTREAM_PRODUCER'
+                    )
+
+                    const consumer = new IngestionTestingConsumer(this.config, {
+                        kafkaProducer: kafkaWarpStreamProducer,
+                        teamManager,
+                    })
                     await consumer.start()
                     return consumer.service
                 })

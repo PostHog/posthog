@@ -69,7 +69,7 @@ describe('Feature Flags', { concurrent: false }, () => {
             expect(flagData.key).toBe(params.key)
             expect(flagData.name).toBe(params.name)
             expect(flagData.active).toBe(params.active)
-            expect(flagData.url).toContain('/feature_flags/')
+            expect(flagData._posthogUrl).toContain('/feature_flags/')
             expect(flagData.updated_at).toBeTruthy()
         })
 
@@ -334,12 +334,12 @@ describe('Feature Flags', { concurrent: false }, () => {
             const result = await getAllTool.handler(context, {})
             const allFlags = parseToolResponse(result)
 
-            expect(Array.isArray(allFlags)).toBe(true)
-            expect(allFlags.length).toBeGreaterThanOrEqual(3)
+            expect(Array.isArray(allFlags.results)).toBe(true)
+            expect(allFlags.results.length).toBeGreaterThanOrEqual(3)
 
             // Verify our test flags are in the list
             for (const testFlag of testFlags) {
-                const found = allFlags.find((f: any) => f.id === testFlag.id)
+                const found = allFlags.results.find((f: any) => f.id === testFlag.id)
                 expect(found).toBeTruthy()
                 expect(found.key).toBe(testFlag.key)
             }
@@ -349,8 +349,8 @@ describe('Feature Flags', { concurrent: false }, () => {
             const result = await getAllTool.handler(context, {})
             const flags = parseToolResponse(result)
 
-            if (flags.length > 0) {
-                const flag = flags[0]
+            if (flags.results.length > 0) {
+                const flag = flags.results[0]
                 expect(flag).toHaveProperty('id')
                 expect(flag).toHaveProperty('key')
                 expect(flag).toHaveProperty('name')
@@ -362,12 +362,12 @@ describe('Feature Flags', { concurrent: false }, () => {
         it('should respect limit parameter', async () => {
             const result = await getAllTool.handler(context, { data: { limit: 2 } })
             const flags = parseToolResponse(result)
-            expect(flags.length).toBeLessThanOrEqual(2)
+            expect(flags.results.length).toBeLessThanOrEqual(2)
         })
 
         it('should respect offset parameter', async () => {
             // Create test flags to ensure we have controlled data
-            const testFlags = []
+            const testFlags = { results: [] as any[] }
             for (let i = 0; i < 3; i++) {
                 const result = await createTool.handler(context, {
                     name: `Offset Test Flag ${i}`,
@@ -384,7 +384,7 @@ describe('Feature Flags', { concurrent: false }, () => {
                     active: true,
                 })
                 const flagData = parseToolResponse(result)
-                testFlags.push(flagData)
+                testFlags.results.push(flagData)
                 createdResources.featureFlags.push(flagData.id)
             }
 
@@ -397,12 +397,12 @@ describe('Feature Flags', { concurrent: false }, () => {
             const offsetFlags = parseToolResponse(offsetResult)
 
             // Extract IDs for comparison
-            const allFlagIds = allFlags.map((f: any) => f.id)
-            const offsetFlagIds = offsetFlags.map((f: any) => f.id)
-            const testFlagIds = testFlags.map((f: any) => f.id)
+            const allFlagIds = allFlags.results.map((f: any) => f.id)
+            const offsetFlagIds = offsetFlags.results.map((f: any) => f.id)
+            const testFlagIds = testFlags.results.map((f: any) => f.id)
 
             // Verify offset is working by checking that offsetFlagIds matches allFlagIds starting from index 1
-            expect(offsetFlags.length).toBeGreaterThan(0)
+            expect(offsetFlags.results.length).toBeGreaterThan(0)
             expect(offsetFlagIds[0]).toBe(allFlagIds[1])
 
             // Verify our test flags appear in the results to ensure we're testing with controlled data
@@ -413,7 +413,7 @@ describe('Feature Flags', { concurrent: false }, () => {
         it('should use default limit when not specified', async () => {
             const result = await getAllTool.handler(context, {})
             const flags = parseToolResponse(result)
-            expect(flags.length).toBeLessThanOrEqual(50)
+            expect(flags.results.length).toBeLessThanOrEqual(50)
         })
     })
 
