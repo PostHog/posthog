@@ -5,6 +5,8 @@ from pydantic import BaseModel, Field, field_validator
 from products.signals.backend.temporal.actionability_judge import ActionabilityChoice, Priority
 from products.signals.backend.temporal.types import SignalData
 
+# TODO: Signals deduplication step before the research
+
 
 class SignalFinding(BaseModel):
     signal_id: str = Field(description="The signal_id from the input signal list")
