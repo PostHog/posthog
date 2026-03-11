@@ -7,11 +7,11 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     ActionsNode,
     CachedLifecycleQueryResponse,
-    DataWarehouseNode,
     DayItem,
     EventsNode,
     InsightActorsQueryOptionsResponse,
     IntervalType,
+    LifecycleDataWarehouseNode,
     LifecycleQuery,
     LifecycleQueryResponse,
     ResolvedDateRangeResponse,
@@ -201,7 +201,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                 custom_name = getattr(self.query.series[0], "custom_name", None)
                 if custom_name is not None:
                     action_object["custom_name"] = custom_name
-            elif isinstance(self.query.series[0], DataWarehouseNode):
+            elif isinstance(self.query.series[0], LifecycleDataWarehouseNode):
                 data_warehouse_node = self.query.series[0]
                 label = "{} - {}".format(data_warehouse_node.table_name, val[2])
                 action_object = {
@@ -211,8 +211,8 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                     "math": "total",
                     "table_name": data_warehouse_node.table_name,
                     "timestamp_field": data_warehouse_node.timestamp_field,
-                    "id_field": data_warehouse_node.id_field,
-                    "distinct_id_field": data_warehouse_node.distinct_id_field,
+                    "aggregation_target_field": data_warehouse_node.aggregation_target_field,
+                    "created_at_field": data_warehouse_node.created_at_field,
                 }
 
             additional_values = {"label": label, "status": val[2]}
@@ -240,10 +240,10 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
 
     @property
     def is_data_warehouse_series(self) -> bool:
-        return isinstance(self.query.series[0], DataWarehouseNode)
+        return isinstance(self.query.series[0], LifecycleDataWarehouseNode)
 
     @property
-    def data_warehouse_series(self) -> DataWarehouseNode:
+    def data_warehouse_series(self) -> LifecycleDataWarehouseNode:
         if not self.is_data_warehouse_series:
             raise ValueError("Expected a data warehouse series")
         return self.query.series[0]
@@ -251,7 +251,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
     @property
     def timestamp_field(self) -> ast.Expr:
         if self.is_data_warehouse_series:
-            return ast.Field(chain=[self.data_warehouse_series.timestamp_field])
+            return parse_expr(self.data_warehouse_series.timestamp_field)
         return ast.Field(chain=["events", "timestamp"])
 
     @cached_property
@@ -323,7 +323,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                                 right=ast.Constant(value=str(series.event)),
                             )
                         )
-                elif isinstance(series, DataWarehouseNode):
+                elif isinstance(series, LifecycleDataWarehouseNode):
                     pass
                 else:
                     raise ValueError(f"Invalid series kind: {series.kind}")
@@ -369,7 +369,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
     @property
     def target_field(self):
         if self.is_data_warehouse_series:
-            return ast.Field(chain=[self.data_warehouse_series.distinct_id_field])
+            return parse_expr(self.data_warehouse_series.aggregation_target_field)
         if self.has_group_type:
             return ast.Field(chain=["events", f"$group_{self.group_type_index}"])
         return ast.Field(chain=["person_id"])
@@ -378,7 +378,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
     def created_at_field(self):
         """Returns the correct created_at field to use based on aggregation type."""
         if self.is_data_warehouse_series:
-            return self.timestamp_field
+            return parse_expr(self.data_warehouse_series.created_at_field)
         if self.has_group_type:
             return ast.Field(chain=["events", f"group_{self.group_type_index}", "created_at"])
         return ast.Field(chain=["events", "person", "created_at"])
