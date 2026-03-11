@@ -69,7 +69,7 @@ interface SDKConfig {
     popular?: boolean
 }
 
-export const SDK_CONFIGS: Record<string, SDKConfig> = {
+export const SDK_CONFIGS: { [key in SDKKey]?: SDKConfig } = {
     // Popular
     [SDKKey.JS_WEB]: {
         Installation: WebInstallation,
@@ -291,11 +291,11 @@ const CATEGORY_TITLES: Record<SDKCategory, string> = {
     integration: 'Integrations',
 }
 
-export function buildSDKSelectOptions(categories?: SDKCategory[]): LemonSelectSection<string>[] {
-    const entries = Object.entries(SDK_CONFIGS)
+export function buildSDKSelectOptions(categories?: SDKCategory[]): LemonSelectSection<SDKKey>[] {
+    const entries = Object.entries(SDK_CONFIGS) as [SDKKey, SDKConfig][]
     const filtered = categories ? entries.filter(([_, c]) => categories.includes(c.category)) : entries
 
-    const groups: LemonSelectSection<string>[] = []
+    const groups: LemonSelectSection<SDKKey>[] = []
 
     const popular = filtered.filter(([_, c]) => c.popular)
     if (popular.length > 0) {
@@ -317,7 +317,7 @@ export function buildSDKSelectOptions(categories?: SDKCategory[]): LemonSelectSe
 
 export function SDKSetupInstructions(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const [selectedSDK, setSelectedSDK] = useState<string>(SDKKey.JS_WEB)
+    const [selectedSDK, setSelectedSDK] = useState<SDKKey>(SDKKey.JS_WEB)
     const [showFullSetup, setShowFullSetup] = useState(false)
 
     const config = useMemo(() => SDK_CONFIGS[selectedSDK], [selectedSDK])

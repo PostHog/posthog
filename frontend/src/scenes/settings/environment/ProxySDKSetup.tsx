@@ -3,7 +3,6 @@ import { useMemo, useState } from 'react'
 
 import { LemonButton, LemonModal, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { JSSnippet } from 'lib/components/JSSnippet'
 import { Link } from 'lib/lemon-ui/Link'
 import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 import SetupWizardBanner from 'scenes/onboarding/sdks/sdk-install-instructions/components/SetupWizardBanner'
@@ -22,7 +21,7 @@ const PROXY_SDK_OPTIONS = buildSDKSelectOptions(['web', 'mobile'])
 
 export function ProxySDKSetup(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const [selectedSDK, setSelectedSDK] = useState<string>(SDKKey.HTML_SNIPPET)
+    const [selectedSDK, setSelectedSDK] = useState<SDKKey>(SDKKey.JS_WEB)
     const [showFullSetup, setShowFullSetup] = useState(false)
 
     const config = useMemo(() => SDK_CONFIGS[selectedSDK], [selectedSDK])
@@ -41,7 +40,6 @@ export function ProxySDKSetup(): JSX.Element {
     }
 
     const { Installation, snippets, wizardIntegrationName, docsLink, name } = config
-    const isHTMLSnippet = selectedSDK === SDKKey.HTML_SNIPPET
 
     return (
         <div className="space-y-4 max-w-200">
@@ -54,13 +52,9 @@ export function ProxySDKSetup(): JSX.Element {
                 options={PROXY_SDK_OPTIONS}
                 className="max-w-80"
             />
-            {isHTMLSnippet ? (
-                <JSSnippet />
-            ) : (
-                <OnboardingDocsContentWrapper snippets={snippets} minimal useReverseProxy>
-                    <Installation modifySteps={filterToFirstRequiredStep} />
-                </OnboardingDocsContentWrapper>
-            )}
+            <OnboardingDocsContentWrapper snippets={snippets} minimal useReverseProxy>
+                <Installation modifySteps={filterToFirstRequiredStep} />
+            </OnboardingDocsContentWrapper>
             <div className="flex items-center gap-2">
                 <LemonButton type="secondary" size="small" onClick={() => setShowFullSetup(true)}>
                     View full setup instructions
