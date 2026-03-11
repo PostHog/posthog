@@ -43,6 +43,7 @@ use kafka_deduplicator::kafka::{
     rebalance_handler::RebalanceHandler, routing_processor::RoutingProcessor, types::Partition,
 };
 use kafka_deduplicator::processor_rebalance_handler::ProcessorRebalanceHandler;
+use kafka_deduplicator::rocksdb::store::RocksDbConfig;
 use kafka_deduplicator::store::{DeduplicationStore, DeduplicationStoreConfig};
 use kafka_deduplicator::store_manager::StoreManager;
 use kafka_deduplicator::test_utils::create_test_tracker;
@@ -227,6 +228,7 @@ async fn test_rebalance_with_checkpoint_import() -> Result<()> {
     let store_config = DeduplicationStoreConfig {
         path: tmp_store_dir.path().to_path_buf(),
         max_capacity: 1_000_000,
+        rocksdb: RocksDbConfig::default(),
     };
     let store = DeduplicationStore::new(store_config, test_topic.clone(), test_partition)?;
 
@@ -298,6 +300,7 @@ async fn test_rebalance_with_checkpoint_import() -> Result<()> {
     let consumer_store_config = DeduplicationStoreConfig {
         path: tmp_consumer_store_dir.path().to_path_buf(),
         max_capacity: 1_000_000,
+        rocksdb: RocksDbConfig::default(),
     };
     let coordinator = create_test_tracker();
     let store_manager = Arc::new(StoreManager::new(
@@ -446,6 +449,7 @@ async fn test_messages_dropped_for_revoked_partition() -> Result<()> {
     let store_config = DeduplicationStoreConfig {
         path: tmp_store_dir.path().to_path_buf(),
         max_capacity: 1_000_000,
+        rocksdb: RocksDbConfig::default(),
     };
     let coordinator = create_test_tracker();
     let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
@@ -534,6 +538,7 @@ async fn test_rapid_revoke_assign_preserves_new_store() -> Result<()> {
     let store_config = DeduplicationStoreConfig {
         path: tmp_store_dir.path().to_path_buf(),
         max_capacity: 1_000_000,
+        rocksdb: RocksDbConfig::default(),
     };
     let coordinator = create_test_tracker();
     let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));

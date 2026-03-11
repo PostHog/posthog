@@ -16,7 +16,16 @@ import {
     EXPERIMENT_LIST_RESOURCE_URI,
     EXPERIMENT_RESOURCE_URI,
     EXPERIMENT_RESULTS_RESOURCE_URI,
+    FEATURE_FLAG_LIST_RESOURCE_URI,
+    FEATURE_FLAG_RESOURCE_URI,
+    LLM_COSTS_RESOURCE_URI,
     QUERY_RESULTS_RESOURCE_URI,
+    SURVEY_GLOBAL_STATS_RESOURCE_URI,
+    SURVEY_LIST_RESOURCE_URI,
+    SURVEY_RESOURCE_URI,
+    SURVEY_STATS_RESOURCE_URI,
+    WORKFLOW_LIST_RESOURCE_URI,
+    WORKFLOW_RESOURCE_URI,
 } from './ui-apps-constants'
 
 // Import bundled HTML at build time (wrangler Text rule)
@@ -32,7 +41,16 @@ import errorIssueHtml from '../../ui-apps-dist/src/ui-apps/apps/error-issue/inde
 import experimentListHtml from '../../ui-apps-dist/src/ui-apps/apps/experiment-list/index.html'
 import experimentResultsHtml from '../../ui-apps-dist/src/ui-apps/apps/experiment-results/index.html'
 import experimentHtml from '../../ui-apps-dist/src/ui-apps/apps/experiment/index.html'
+import featureFlagListHtml from '../../ui-apps-dist/src/ui-apps/apps/feature-flag-list/index.html'
+import featureFlagHtml from '../../ui-apps-dist/src/ui-apps/apps/feature-flag/index.html'
+import llmCostsHtml from '../../ui-apps-dist/src/ui-apps/apps/llm-costs/index.html'
 import queryResultsHtml from '../../ui-apps-dist/src/ui-apps/apps/query-results/index.html'
+import surveyGlobalStatsHtml from '../../ui-apps-dist/src/ui-apps/apps/survey-global-stats/index.html'
+import surveyListHtml from '../../ui-apps-dist/src/ui-apps/apps/survey-list/index.html'
+import surveyStatsHtml from '../../ui-apps-dist/src/ui-apps/apps/survey-stats/index.html'
+import surveyHtml from '../../ui-apps-dist/src/ui-apps/apps/survey/index.html'
+import workflowListHtml from '../../ui-apps-dist/src/ui-apps/apps/workflow-list/index.html'
+import workflowHtml from '../../ui-apps-dist/src/ui-apps/apps/workflow/index.html'
 
 const UI_APPS: Array<{ name: string; uri: string; description: string; html: string }> = [
     // Core
@@ -91,6 +109,49 @@ const UI_APPS: Array<{ name: string; uri: string; description: string; html: str
         uri: EXPERIMENT_RESULTS_RESOURCE_URI,
         description: 'Experiment results visualization',
         html: experimentResultsHtml,
+    },
+    // Feature flags
+    {
+        name: 'Feature flag',
+        uri: FEATURE_FLAG_RESOURCE_URI,
+        description: 'Feature flag detail view',
+        html: featureFlagHtml,
+    },
+    {
+        name: 'Feature flag list',
+        uri: FEATURE_FLAG_LIST_RESOURCE_URI,
+        description: 'Feature flag list view',
+        html: featureFlagListHtml,
+    },
+    // LLM analytics
+    {
+        name: 'LLM costs',
+        uri: LLM_COSTS_RESOURCE_URI,
+        description: 'LLM costs breakdown by model',
+        html: llmCostsHtml,
+    },
+    // Surveys
+    { name: 'Survey', uri: SURVEY_RESOURCE_URI, description: 'Survey detail view', html: surveyHtml },
+    { name: 'Survey list', uri: SURVEY_LIST_RESOURCE_URI, description: 'Survey list view', html: surveyListHtml },
+    {
+        name: 'Survey stats',
+        uri: SURVEY_STATS_RESOURCE_URI,
+        description: 'Survey statistics view',
+        html: surveyStatsHtml,
+    },
+    {
+        name: 'Survey global stats',
+        uri: SURVEY_GLOBAL_STATS_RESOURCE_URI,
+        description: 'Survey global statistics view',
+        html: surveyGlobalStatsHtml,
+    },
+    // Workflows
+    { name: 'Workflow', uri: WORKFLOW_RESOURCE_URI, description: 'Workflow detail view', html: workflowHtml },
+    {
+        name: 'Workflow list',
+        uri: WORKFLOW_LIST_RESOURCE_URI,
+        description: 'Workflow list view',
+        html: workflowListHtml,
     },
 ]
 

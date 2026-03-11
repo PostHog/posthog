@@ -19,6 +19,7 @@ const BREAKDOWN_TYPE_MAP: Partial<Record<WebStatsBreakdown, PropertyFilterType.E
     [WebStatsBreakdown.OS]: PropertyFilterType.Event,
     [WebStatsBreakdown.InitialChannelType]: PropertyFilterType.Session,
     [WebStatsBreakdown.InitialReferringDomain]: PropertyFilterType.Session,
+    [WebStatsBreakdown.InitialReferringURL]: PropertyFilterType.Event,
     [WebStatsBreakdown.InitialUTMSource]: PropertyFilterType.Session,
     [WebStatsBreakdown.InitialUTMCampaign]: PropertyFilterType.Session,
     [WebStatsBreakdown.InitialUTMMedium]: PropertyFilterType.Session,
@@ -40,6 +41,7 @@ const BREAKDOWN_KEY_MAP: Partial<Record<WebStatsBreakdown, string>> = {
     [WebStatsBreakdown.OS]: '$os',
     [WebStatsBreakdown.InitialChannelType]: '$channel_type',
     [WebStatsBreakdown.InitialReferringDomain]: '$entry_referring_domain',
+    [WebStatsBreakdown.InitialReferringURL]: '$session_entry_referrer',
     [WebStatsBreakdown.InitialUTMSource]: '$entry_utm_source',
     [WebStatsBreakdown.InitialUTMCampaign]: '$entry_utm_campaign',
     [WebStatsBreakdown.InitialUTMMedium]: '$entry_utm_medium',
@@ -142,6 +144,36 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
                                 type: PropertyFilterType.Session,
                                 value: [values[2] || ''],
                                 operator: PropertyOperator.Exact,
+                            },
+                        ],
+                    },
+                ],
+            },
+        }
+        return (
+            <div onClick={handleClick}>
+                <ViewRecordingsPlaylistButton filters={filters} type="tertiary" size="xsmall" />
+            </div>
+        )
+    }
+
+    /** Referring URL is displayed with query params stripped, so use regex to match the raw value */
+    if (breakdownBy === WebStatsBreakdown.InitialReferringURL) {
+        const escapedValue = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        const filters: Partial<RecordingUniversalFilters> = {
+            date_from,
+            date_to,
+            filter_group: {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                key: '$session_entry_referrer',
+                                type: PropertyFilterType.Event,
+                                value: [`^${escapedValue}($|\\?|#)`],
+                                operator: PropertyOperator.Regex,
                             },
                         ],
                     },

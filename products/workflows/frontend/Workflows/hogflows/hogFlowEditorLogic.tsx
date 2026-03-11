@@ -763,11 +763,16 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                 'priority',
                                 'ticket_number',
                                 'channel_source',
+                                'distinct_id',
                                 'message_count',
                                 'last_message_at',
                                 'last_message_text',
                                 'unread_team_count',
                                 'unread_customer_count',
+                                'sla_due_at',
+                                'assignee',
+                                'current_url',
+                                'tags',
                             ].map((prop) => `${prefix}_${prop}`)
 
                             const newVars = spreadKeys
