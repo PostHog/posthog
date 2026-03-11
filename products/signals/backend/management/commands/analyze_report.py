@@ -1,14 +1,11 @@
-import json
 import asyncio
 import logging
 
 from django.core.management.base import BaseCommand
 
-from pydantic import BaseModel, Field
-
 from products.signals.backend.report_generation.executor import run_sandbox_agent_get_structured_output
-from products.signals.backend.temporal.actionability_judge import ACTIONABILITY_JUDGE_SYSTEM_PROMPT
-from products.signals.backend.temporal.types import SignalData, render_signals_to_text
+from products.signals.backend.report_generation.research import ReportResearchOutput, build_research_prompt
+from products.signals.backend.temporal.types import SignalData
 
 logger = logging.getLogger(__name__)
 
@@ -83,76 +80,39 @@ TEST_SUMMARY = (
 )
 
 
-def _build_sandbox_prompt(title: str, summary: str, signals: list[SignalData]) -> str:
-    signals_text = render_signals_to_text(signals)
-    return f"""{ACTIONABILITY_JUDGE_SYSTEM_PROMPT}
-
----
-
-REPORT TO ASSESS:
-
-Title: {title}
-Summary: {summary}
-
-UNDERLYING SIGNALS:
-
-<signal_data>
-{signals_text}
-</signal_data>"""
-
-
-test_prompt = """
-## Task
-- Tell me how many signups I had in the last 30 days and what's the insight to track that.
-- Check PostHog MCP to get the data.
-- Check the codebase to find the endpoint/function that tracks that data.
-
-Respond with a JSON object:
-<jsonschema>
-{json_schema}
-</jsonschema>
-"""
-
-
-class TestModel(BaseModel):
-    number_of_signups: int = Field(description="Number of signups I got")
-    insight_name: str = Field(
-        description="The name of Posthog insight or dashboard that displays the number of signups"
-    )
-    code_path: str = Field(description="Path to the endpoint/function that captures the signups")
-
-
-# test_prompt = """
-# Tell me a joke about monkeys.
-
-# Respond with a JSON object:
-# - "answer": The answer to the question I asked.
-# """
-
-
-# class TestModel(BaseModel):
-#     answer: str
-
-
 class Command(BaseCommand):
-    help = "Test the actionability judge via sandbox agent against simulated funnel enhancement signals."
+    help = "Test the report research agent via sandbox against simulated funnel enhancement signals."
 
     def handle(self, *args, **options):
-        json_schema = json.dumps(TestModel.model_json_schema(), indent=2)
-        prompt = test_prompt.format(json_schema=json_schema)
-        # self.stdout.write(f"Report title: {TEST_TITLE}")
-        # self.stdout.write(f"Signals: {len(TEST_SIGNALS)}")
-        # self.stdout.write("")
+        prompt = build_research_prompt(
+            title=TEST_TITLE,
+            summary=TEST_SUMMARY,
+            signals=TEST_SIGNALS,
+        )
+
+        self.stdout.write(f"Report title: {TEST_TITLE}")
+        self.stdout.write(f"Signals: {len(TEST_SIGNALS)}")
+        self.stdout.write("")
 
         result = asyncio.run(
             run_sandbox_agent_get_structured_output(
                 prompt=prompt,
                 branch="master",
-                model_to_validate=TestModel,
-                step_name="analyze_report_actionability",
+                model_to_validate=ReportResearchOutput,
+                step_name="report_research",
             )
         )
 
         self.stdout.write("")
-        self.stdout.write(self.style.SUCCESS("=== Result ==="))
-        self.stdout.write(f"{result.model_dump_json()}")
+        self.stdout.write(self.style.SUCCESS("=== Research Result ==="))
+        self.stdout.write(f"Actionability: {result.actionability}")
+        self.stdout.write(f"Priority: {result.priority}")
+        self.stdout.write(f"Already addressed: {result.already_addressed}")
+        self.stdout.write(f"Explanation: {result.explanation}")
+        self.stdout.write("")
+        for finding in result.findings:
+            self.stdout.write(self.style.WARNING(f"--- Signal: {finding.signal_id} ---"))
+            self.stdout.write(f"  Verified: {finding.verified}")
+            self.stdout.write(f"  Code paths: {finding.relevant_code_paths}")
+            self.stdout.write(f"  Data: {finding.data_queried}")
+            self.stdout.write("")
