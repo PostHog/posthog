@@ -60,6 +60,7 @@ export enum PluginServerMode {
     ingestion_logs = 'ingestion-logs',
     cdp_batch_hogflow_requests = 'cdp-batch-hogflow-requests',
     cdp_cyclotron_shadow_worker = 'cdp-cyclotron-shadow-worker',
+    cdp_cyclotron_v2_janitor = 'cdp-cyclotron-v2-janitor',
     recording_api = 'recording-api',
 }
 
@@ -190,14 +191,24 @@ export type CdpConfig = {
     // Cyclotron (CDP job queue)
     CYCLOTRON_DATABASE_URL: string
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
-    CYCLOTRON_SHADOW_DATABASE_URL: string
+    CYCLOTRON_SHADOW_DATABASE_URL?: string
     CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: boolean
+    CYCLOTRON_NODE_DATABASE_URL?: string
     CDP_CYCLOTRON_TEST_SEEK_LATENCY: boolean // When true, fetches consumed messages via HTTP to measure WarpStream read latency
     CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: number // Max offsets to seek back (e.g. 50000000 ≈ 14 days at current throughput)
     CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT: number // Number of parallel individual single-record fetches (0 to disable)
     CDP_CYCLOTRON_TEST_FETCH_BATCH_COUNT: number // Number of parallel batch fetch requests (0 to disable)
     CDP_CYCLOTRON_TEST_FETCH_BATCH_SIZE: number // Records per batch fetch request
     CDP_CYCLOTRON_WARPSTREAM_HTTP_URL: string // Base URL for WarpStream HTTP fetch endpoint (e.g. 'https://warpstream.example.com')
+
+    // Cyclotron Node (node postgres job queue)
+    CYCLOTRON_NODE_MAX_CONNECTIONS: number
+    CYCLOTRON_NODE_IDLE_TIMEOUT_MS: number
+    CYCLOTRON_NODE_JANITOR_CLEANUP_BATCH_SIZE: number
+    CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS: number
+    CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: number
+    CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT: number
+    CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS: number
 
     // SES (Workflows email sending)
     SES_ENDPOINT: string
@@ -387,9 +398,6 @@ export type SessionRecordingConfig = {
     SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS: number
     /** TTL in milliseconds for the in-memory session filter cache */
     SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS: number
-    /** Rate (0.0–1.0) at which to verify encrypt→decrypt round-trip integrity during ingestion */
-    SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE: number
-
     // Kafka consumer config (overrides hardcoded defaults when set)
     INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC: string
     INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID: string
@@ -529,6 +537,7 @@ export interface PluginsServerConfig
     // Shared between ingestion and CDP (used by hog transformer in both)
     CDP_HOG_WATCHER_SAMPLE_RATE: number
     CDP_BATCH_WORKFLOW_PRODUCER_BATCH_SIZE: number
+    CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: number
 
     // for enablement/sampling of expensive person JSONB sizes; value in [0,1]
     PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
@@ -590,6 +599,7 @@ export interface PluginServerCapabilities {
     appManagementSingleton?: boolean
     evaluationScheduler?: boolean
     cdpCyclotronShadowWorker?: boolean
+    cdpCyclotronV2Janitor?: boolean
     recordingApi?: boolean
 }
 

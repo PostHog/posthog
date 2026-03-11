@@ -167,3 +167,107 @@
         }
     }
 }
+
+.UiHostConfigModal {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgb(0 0 0 / 50%);
+
+    &__content {
+        position: relative;
+        width: calc(100vw - 2rem);
+        max-width: 36rem;
+        padding: 2rem;
+        font-size: 0.9375rem;
+        line-height: 1.6;
+        color: #1d1f27;
+        user-select: text;
+        background: #fff;
+        border-radius: 0.75rem;
+        box-shadow: 0 12px 32px rgb(0 0 0 / 25%);
+    }
+
+    &__branding {
+        display: flex;
+        justify-content: center;
+        margin-bottom: 1.25rem;
+
+        svg {
+            width: auto;
+            height: 2rem;
+        }
+    }
+
+    &__header {
+        margin-bottom: 0.75rem;
+        text-align: center;
+
+        strong {
+            font-size: 1.0625rem;
+        }
+    }
+
+    &__close {
+        position: absolute;
+        top: 1rem;
+        right: 1rem;
+        display: flex;
+        align-items: center;
+        padding: 0.25rem;
+        color: inherit;
+        cursor: pointer;
+        background: none;
+        border: none;
+        opacity: 0.6;
+
+        &:hover {
+            opacity: 1;
+        }
+    }
+
+    &__code {
+        padding: 0.75rem;
+        margin: 0.5rem 0;
+        font-size: 0.8rem;
+        word-break: break-all;
+        white-space: pre-wrap;
+        background: #f5f5f5;
+        border-radius: 0.25rem;
+    }
+
+    &__hint {
+        margin-top: 0.5rem;
+        font-size: 0.8rem;
+        opacity: 0.7;
+    }
+
+    p {
+        margin: 0.5rem 0;
+    }
+
+    code {
+        padding: 0.1em 0.3em;
+        font-size: 0.85em;
+        background: #f5f5f5;
+        border-radius: 0.2rem;
+    }
+}
+
+[theme='dark'] .UiHostConfigModal {
+    &__content {
+        color: #e0e0e8;
+        background: #2c2d35;
+    }
+
+    &__code {
+        background: #1d1f27;
+    }
+
+    code {
+        background: #1d1f27;
+    }
+}

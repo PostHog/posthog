@@ -33,7 +33,7 @@ CACHE_KEY_PREFIX = "llma_sentiment"  # key format: {prefix}:{level}:{team_id}:{i
 
 # API config
 BATCH_MAX_TRACE_IDS = 5
-BATCH_MAX_GENERATION_IDS = 20  # generations tab can send more per batch
+BATCH_MAX_GENERATION_IDS = 5  # keep small to avoid upstream request timeouts
 
 # HogQL query template for fetching $ai_generation events.
 # Uses a window function to cap rows per trace at the ClickHouse level,

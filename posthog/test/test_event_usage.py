@@ -1,10 +1,18 @@
+from types import SimpleNamespace
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework.test import APIRequestFactory
 
-from posthog.event_usage import EventSource, _sanitize_header_value, get_event_source, report_user_action
+from posthog.event_usage import (
+    EventSource,
+    get_event_source,
+    get_mcp_properties,
+    report_user_action,
+    sanitize_header_value,
+)
 
 
 class TestReportUserAction(BaseTest):
@@ -150,6 +158,52 @@ class TestGetEventSource(BaseTest):
         request = factory.get("/fake", HTTP_USER_AGENT=user_agent)
         assert get_event_source(request) == expected
 
+    def test_web_via_session_authentication(self):
+        from rest_framework.authentication import SessionAuthentication
+
+        request = SimpleNamespace(META={}, successful_authenticator=SessionAuthentication())
+        assert get_event_source(request) == EventSource.WEB
+
+    def test_web_via_session_key_fallback(self):
+        request = SimpleNamespace(META={}, session=SimpleNamespace(session_key="abc123"))
+        assert get_event_source(request) == EventSource.WEB
+
+    def test_api_when_session_is_dict(self):
+        request = SimpleNamespace(META={}, session={})
+        assert get_event_source(request) == EventSource.API
+
+    def test_api_when_session_key_is_none(self):
+        request = SimpleNamespace(META={}, session=SimpleNamespace(session_key=None))
+        assert get_event_source(request) == EventSource.API
+
+
+class TestGetMcpProperties(BaseTest):
+    def test_extracts_all_mcp_headers(self):
+        factory = APIRequestFactory()
+        request = factory.get(
+            "/fake",
+            HTTP_X_POSTHOG_MCP_USER_AGENT="posthog/cursor 1.0",
+            HTTP_X_POSTHOG_MCP_CLIENT_NAME="claude-code",
+            HTTP_X_POSTHOG_MCP_CLIENT_VERSION="1.2.3",
+            HTTP_X_POSTHOG_MCP_PROTOCOL_VERSION="2025-03-26",
+        )
+        assert get_mcp_properties(request) == {
+            "mcp_user_agent": "posthog/cursor 1.0",
+            "mcp_client_name": "claude-code",
+            "mcp_client_version": "1.2.3",
+            "mcp_protocol_version": "2025-03-26",
+        }
+
+    def test_returns_none_for_missing_headers(self):
+        factory = APIRequestFactory()
+        request = factory.get("/fake")
+        assert get_mcp_properties(request) == {
+            "mcp_user_agent": None,
+            "mcp_client_name": None,
+            "mcp_client_version": None,
+            "mcp_protocol_version": None,
+        }
+
 
 class TestSanitizeHeaderValue(BaseTest):
     @parameterized.expand(
@@ -164,4 +218,4 @@ class TestSanitizeHeaderValue(BaseTest):
         ]
     )
     def test_sanitize_header_value(self, _name, input_value, expected):
-        assert _sanitize_header_value(input_value) == expected
+        assert sanitize_header_value(input_value) == expected

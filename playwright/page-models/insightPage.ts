@@ -137,11 +137,13 @@ export class InsightPage {
     }
 
     async clickDeleteInsight(): Promise<void> {
-        // The delete button lives inside InsightPanelDangerZone which only
-        // renders once insight data has loaded (isSavedInsight check). After
-        // opening the info panel the button may not be in the DOM yet, so
-        // explicitly wait for it to become visible before clicking.
-        const deleteButton = this.page.getByTestId('insight-delete')
+        // The delete button is rendered via createPortal into scenePanelElement.
+        // There are two portal targets: a hidden inline panel (Navigation.tsx,
+        // display: none for insights) and the visible side panel (SidePanelInfo).
+        // After opening the Info tab the portal content moves from the inline
+        // panel to the side panel via useEffect. Scope the locator to #side-panel
+        // so we wait for the button in the visible container, not the hidden one.
+        const deleteButton = this.page.locator('#side-panel').getByTestId('insight-delete')
         await deleteButton.waitFor({ state: 'visible' })
         await deleteButton.click()
     }

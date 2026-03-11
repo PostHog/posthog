@@ -7,7 +7,7 @@ const schema = ErrorTrackingUpdateIssueStatusSchema
 
 type Params = z.infer<typeof schema>
 
-export const updateIssueStatusHandler: ToolBase<typeof schema>['handler'] = async (
+export const updateIssueStatusHandler: ToolBase<typeof schema, unknown>['handler'] = async (
     context: Context,
     params: Params
 ) => {
