@@ -115,8 +115,7 @@ impl GroupTypeResolver {
                         metrics::counter!(PERSONHOG_RESOLVE_FALLBACKS).increment(1);
                         metrics::counter!(GROUP_TYPE_RESOLVE_SOURCE, &[("source", "db_fallback")])
                             .increment(1);
-                        self.resolve_via_db(&to_resolve, pool, persons_pool)
-                            .await?
+                        self.resolve_via_db(&to_resolve, pool, persons_pool).await?
                     }
                 }
             } else {
@@ -175,12 +174,11 @@ impl GroupTypeResolver {
             .map(|(_, name, team_id)| (name.clone(), *team_id))
             .unzip();
 
-        let resolved_pool =
-            if self.read_groups_from_persons_db {
-                persons_pool.unwrap_or(pool)
-            } else {
-                pool
-            };
+        let resolved_pool = if self.read_groups_from_persons_db {
+            persons_pool.unwrap_or(pool)
+        } else {
+            pool
+        };
 
         let results = sqlx::query!(
             "SELECT group_type, team_id, group_type_index FROM posthog_grouptypemapping
@@ -194,8 +192,7 @@ impl GroupTypeResolver {
         let elapsed_ms = start.elapsed().as_millis() as f64;
         metrics::histogram!(DB_RESOLVE_DURATION).record(elapsed_ms);
 
-        let mut resolved_map: HashMap<(String, i32), i32> =
-            HashMap::with_capacity(results.len());
+        let mut resolved_map: HashMap<(String, i32), i32> = HashMap::with_capacity(results.len());
         for result in results {
             resolved_map.insert((result.group_type, result.team_id), result.group_type_index);
         }
@@ -225,14 +222,11 @@ impl GroupTypeResolver {
             team_ids: unique_team_ids,
             read_options: None,
         });
-        request.metadata_mut().insert(
-            "x-client-name",
-            "property-defs-rs".parse().unwrap(),
-        );
+        request
+            .metadata_mut()
+            .insert("x-client-name", "property-defs-rs".parse().unwrap());
 
-        let response = client
-            .get_group_type_mappings_by_team_ids(request)
-            .await?;
+        let response = client.get_group_type_mappings_by_team_ids(request).await?;
 
         let elapsed_ms = start.elapsed().as_millis() as f64;
         metrics::histogram!(PERSONHOG_RESOLVE_DURATION).record(elapsed_ms);
@@ -241,10 +235,7 @@ impl GroupTypeResolver {
         for team_result in response.into_inner().results {
             let team_id = team_result.key as i32;
             for mapping in team_result.mappings {
-                resolved_map.insert(
-                    (mapping.group_type, team_id),
-                    mapping.group_type_index,
-                );
+                resolved_map.insert((mapping.group_type, team_id), mapping.group_type_index);
             }
         }
 
