@@ -186,7 +186,7 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
         path="/organizations/{organization_slug}/issues/{issue_id}/tags/{tag_key}/values/",
         incremental_fields=LAST_SEEN_INCREMENTAL_FIELD,
         default_incremental_field="lastSeen",
-        partition_key="last_seen",
+        partition_key="first_seen",
         sort_mode="desc",
         primary_key=["issue_id", "tag_key", "value"],
     ),
