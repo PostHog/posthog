@@ -278,6 +278,8 @@ class IntegrationViewSet(
             response = redirect(installation_url)
             # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (OAuth state, short-lived, needed for cross-site redirect)
             response.set_cookie("ph_github_state", token, max_age=60 * 5)
+            # Store server-side so the backend can enforce that the same user who
+            # initiated the flow is the one completing it (not just cookie-validated).
             cache.set(f"github_state:{request.user.id}", token, timeout=60 * 5)
 
             return response
