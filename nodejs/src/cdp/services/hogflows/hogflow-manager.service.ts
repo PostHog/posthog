@@ -107,6 +107,20 @@ export class HogFlowManagerService {
         return await this.lazyLoader.getMany(ids)
     }
 
+    public async disableHogFlow(id: HogFlow['id']): Promise<boolean> {
+        const result = await this.postgres.query<{ id: string }>(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_hogflow SET status = 'draft', updated_at = NOW() WHERE id = $1 AND status = 'active' RETURNING id`,
+            [id],
+            'setHogFlowStatusDraft'
+        )
+        const updated = result.rows.length > 0
+        if (updated) {
+            this.lazyLoader.markForRefresh([id])
+        }
+        return updated
+    }
+
     private onHogFlowsReloaded(teamId: Team['id'], hogFlowIds: HogFlow['id'][]): void {
         this.lazyLoaderByTeam.markForRefresh(teamId.toString())
         this.lazyLoader.markForRefresh(hogFlowIds)

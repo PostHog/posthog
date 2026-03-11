@@ -3,9 +3,11 @@ import express from 'ultimate-express'
 
 import { ModifiedRequest } from '~/api/router'
 import { CyclotronJobInvocationHogFunction, MinimalAppMetric } from '~/cdp/types'
+import { RedisV2 } from '~/common/redis/redis-v2'
 import { defaultConfig } from '~/config/config'
 import { parseJSON } from '~/utils/json-parse'
-import { captureException } from '~/utils/posthog'
+import { captureException, captureTeamEvent } from '~/utils/posthog'
+import { TeamManager } from '~/utils/team-manager'
 
 import { logger } from '../../../utils/logger'
 import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
@@ -53,13 +55,23 @@ export const addTrackingToEmail = (html: string, invocation: CyclotronJobInvocat
     return html
 }
 
+const REPUTATION_REDIS_PREFIX =
+    process.env.NODE_ENV === 'test' ? '@posthog-test/email-reputation' : '@posthog/email-reputation'
+const REPUTATION_TTL_SECONDS = 86400 // 24h sliding window
+
+const BOUNCE_RATE_THRESHOLD = 0.02 // 2% — Google/Yahoo enforcement threshold
+const COMPLAINT_RATE_THRESHOLD = 0.001 // 0.1% — SES suspension threshold
+const MIN_SENDS_FOR_RATE_CHECK = 250 // avoid false positives on low volume
+
 export class EmailTrackingService {
     private sesWebhookHandler: SesWebhookHandler
 
     constructor(
         private hogFunctionManager: HogFunctionManagerService,
         private hogFlowManager: HogFlowManagerService,
-        private hogFunctionMonitoringService: HogFunctionMonitoringService
+        private hogFunctionMonitoringService: HogFunctionMonitoringService,
+        private redis: RedisV2,
+        private teamManager: TeamManager
     ) {
         this.sesWebhookHandler = new SesWebhookHandler()
     }
@@ -126,6 +138,120 @@ export class EmailTrackingService {
         })
     }
 
+    private reputationKey(hogFlowId: string, counter: 'sends' | 'bounces' | 'complaints' | 'alerted'): string {
+        return `${REPUTATION_REDIS_PREFIX}/${hogFlowId}/${counter}`
+    }
+
+
+    private async incrementWithTtl(key: string): Promise<number> {
+        const count = await this.redis.useClient({ name: 'email-reputation-incr', failOpen: true }, async (client) => {
+            // Use Lua script to atomically incr and set expire on first write
+            const script = `
+                local val = redis.call('INCR', KEYS[1])
+                if val == 1 then
+                    redis.call('EXPIRE', KEYS[1], ARGV[1])
+                end
+                return val
+            `
+            return await client.eval(script, 1, key, REPUTATION_TTL_SECONDS)
+        })
+        return count ?? 0
+    }
+
+
+    private async checkAndMaybeDisableWorkflow(hogFlowId: string, teamId: number): Promise<void> {
+        const [sendsRaw, bouncesRaw, complaintsRaw] = (await this.redis.useClient(
+            { name: 'email-reputation-check', failOpen: true },
+            async (client) =>
+                client.mget(
+                    this.reputationKey(hogFlowId, 'sends'),
+                    this.reputationKey(hogFlowId, 'bounces'),
+                    this.reputationKey(hogFlowId, 'complaints')
+                )
+        )) ?? [null, null, null]
+
+        const sends = parseInt(sendsRaw ?? '0', 10)
+        const bounces = parseInt(bouncesRaw ?? '0', 10)
+        const complaints = parseInt(complaintsRaw ?? '0', 10)
+
+        const bounceRate = sends > 0 ? bounces / sends : 0
+        const complaintRate = sends > 0 ? complaints / sends : 0
+
+        const rateBreach =
+            sends >= MIN_SENDS_FOR_RATE_CHECK &&
+            (bounceRate >= BOUNCE_RATE_THRESHOLD || complaintRate >= COMPLAINT_RATE_THRESHOLD)
+
+        if (!rateBreach) {
+            return
+        }
+
+        // Use SETNX as a distributed once-per-window guard — only the first call within the TTL fires the event
+        const alertKey = this.reputationKey(hogFlowId, 'alerted')
+
+        const isFirstAlert = await this.redis.useClient(
+            { name: 'email-reputation-alert', failOpen: true },
+            async (client) => {
+                const script = `
+                    local set = redis.call('SETNX', KEYS[1], ARGV[1])
+                    if set == 1 then
+                        redis.call('EXPIRE', KEYS[1], ARGV[2])
+                    end
+                    return set
+                `
+                return (await client.eval(script, 1, alertKey, '1', REPUTATION_TTL_SECONDS)) === 1
+            }
+        )
+
+
+        if (!isFirstAlert) {
+            return
+        }
+
+        const team = await this.teamManager.getTeam(teamId)
+        if (!team) {
+            logger.error('[EmailTrackingService] checkAndMaybeDisableWorkflow: team not found', { teamId, hogFlowId })
+            return
+        }
+
+        const disabled = await this.hogFlowManager.disableHogFlow(hogFlowId)
+
+        captureTeamEvent(team, 'email_workflow_paused_for_reputation', {
+            workflow_id: hogFlowId,
+            bounce_rate: bounceRate,
+            complaint_rate: complaintRate,
+            bounces,
+            complaints,
+            sends,
+            disabled,
+        })
+
+        logger.info('[EmailTrackingService] Email reputation threshold breached', {
+            hogFlowId,
+            teamId,
+            bounces,
+            complaints,
+            sends,
+            bounceRate,
+            complaintRate,
+        })
+    }
+
+    private async trackReputation(
+        hogFlowId: string,
+        teamId: number,
+        metricName: MinimalAppMetric['metric_name']
+    ): Promise<void> {
+        if (metricName === 'email_sent') {
+            await this.incrementWithTtl(this.reputationKey(hogFlowId, 'sends'))
+        } else if (metricName === 'email_bounced') {
+            await this.incrementWithTtl(this.reputationKey(hogFlowId, 'bounces'))
+            await this.checkAndMaybeDisableWorkflow(hogFlowId, teamId)
+        } else if (metricName === 'email_blocked') {
+            await this.incrementWithTtl(this.reputationKey(hogFlowId, 'complaints'))
+            await this.checkAndMaybeDisableWorkflow(hogFlowId, teamId)
+        }
+    }
+
     public async handleSesWebhook(req: ModifiedRequest): Promise<{ status: number; message?: string }> {
         if (!req.body) {
             return { status: 403, message: 'Missing request body' }
@@ -145,6 +271,13 @@ export class EmailTrackingService {
                     metricName: metric.metricName,
                     source: 'ses',
                 })
+
+                if (metric.functionId) {
+                    const hogFlow = await this.hogFlowManager.getHogFlow(metric.functionId).catch(() => null)
+                    if (hogFlow) {
+                        await this.trackReputation(hogFlow.id, hogFlow.team_id, metric.metricName)
+                    }
+                }
             }
 
             return { status, message: body as string }
