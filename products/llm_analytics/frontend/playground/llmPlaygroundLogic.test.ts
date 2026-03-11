@@ -1214,7 +1214,8 @@ describe('llmPlaygroundLogic', () => {
             })
 
             llmPlaygroundPromptsLogic.actions.setSystemPrompt('My system prompt')
-            llmPlaygroundPromptsLogic.actions.saveAsNewPrompt('saved-prompt')
+            const promptId = llmPlaygroundPromptsLogic.values.promptConfigs[0].id
+            llmPlaygroundPromptsLogic.actions.saveAsNewPrompt(promptId, 'saved-prompt')
 
             await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
 
@@ -1235,7 +1236,8 @@ describe('llmPlaygroundLogic', () => {
             })
 
             llmPlaygroundPromptsLogic.actions.setSystemPrompt('Judge prompt')
-            llmPlaygroundPromptsLogic.actions.saveAsNewEvaluation('saved-eval', {
+            const promptId = llmPlaygroundPromptsLogic.values.promptConfigs[0].id
+            llmPlaygroundPromptsLogic.actions.saveAsNewEvaluation(promptId, 'saved-eval', {
                 model: 'gpt-5',
                 provider: 'openai',
                 provider_key_id: null,
@@ -1275,7 +1277,8 @@ describe('llmPlaygroundLogic', () => {
             await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
 
             llmPlaygroundPromptsLogic.actions.setSystemPrompt('Updated prompt.')
-            llmPlaygroundPromptsLogic.actions.saveToLinkedPrompt()
+            const promptId = llmPlaygroundPromptsLogic.values.promptConfigs[0].id
+            llmPlaygroundPromptsLogic.actions.saveToLinkedPrompt(promptId)
 
             await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
 
@@ -1309,7 +1312,8 @@ describe('llmPlaygroundLogic', () => {
             await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
 
             llmPlaygroundPromptsLogic.actions.setSystemPrompt('New eval prompt.')
-            llmPlaygroundPromptsLogic.actions.saveToLinkedEvaluation({
+            const promptId = llmPlaygroundPromptsLogic.values.promptConfigs[0].id
+            llmPlaygroundPromptsLogic.actions.saveToLinkedEvaluation(promptId, {
                 model: 'gpt-5',
                 provider: 'openai',
                 provider_key_id: null,
