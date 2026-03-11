@@ -290,7 +290,7 @@ class AssistantContextManager(AssistantContextMixin):
             hog_reference = f"\n{HOG_EVALUATION_REFERENCE}" if has_hog_eval else ""
 
             evaluations_context = (
-                f"<evaluations_context>The user is editing the following LLM evaluation:\n"
+                f"<evaluations_context>The user is editing the following LLM evaluation(s):\n"
                 f"{chr(10).join(eval_details)}"
                 f"{hog_reference}\n"
                 f"</evaluations_context>"
