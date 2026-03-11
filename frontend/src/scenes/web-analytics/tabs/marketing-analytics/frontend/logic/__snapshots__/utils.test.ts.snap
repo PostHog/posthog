@@ -98,7 +98,7 @@ exports[`marketing analytics utils createMarketingTile snapshots BingAds - repor
   "id_field": "campaign_id",
   "kind": "DataWarehouseNode",
   "math": "hogql",
-  "math_hogql": "toFloat(convertCurrency(any(coalesce(currency_code, 'USD')), 'USD', SUM(ifNull(toFloat(revenue), 0))))",
+  "math_hogql": "SUM(toFloat(convertCurrency(coalesce(currency_code, 'USD'), 'USD', ifNull(toFloat(revenue), 0))))",
   "name": "bing",
   "table_name": "prefix.campaign_performance_report",
   "timestamp_field": "time_period",
@@ -503,7 +503,7 @@ exports[`marketing analytics utils createMarketingTile snapshots MetaAds - repor
   "id_field": "campaign_id",
   "kind": "DataWarehouseNode",
   "math": "hogql",
-  "math_hogql": "toFloat(convertCurrency(any(coalesce(account_currency, 'USD')), 'USD', SUM(if(arraySum(x -> JSONExtractFloat(x, 'value'), arrayFilter(x -> JSONExtractString(x, 'action_type') IN ('omni_purchase', 'omni_lead', 'omni_complete_registration', 'omni_app_install', 'omni_subscribe'), JSONExtractArrayRaw(coalesce(action_values, '[]')))) > 0, arraySum(x -> JSONExtractFloat(x, 'value'), arrayFilter(x -> JSONExtractString(x, 'action_type') IN ('omni_purchase', 'omni_lead', 'omni_complete_registration', 'omni_app_install', 'omni_subscribe'), JSONExtractArrayRaw(coalesce(action_values, '[]')))), arraySum(x -> JSONExtractFloat(x, 'value'), arrayFilter(x -> JSONExtractString(x, 'action_type') IN ('purchase', 'offsite_conversion.fb_pixel_purchase', 'app_custom_event.fb_mobile_purchase', 'lead', 'offsite_conversion.fb_pixel_lead', 'onsite_conversion.lead_grouped', 'complete_registration', 'offsite_conversion.fb_pixel_complete_registration', 'app_custom_event.fb_mobile_complete_registration', 'offsite_complete_registration_add_meta_leads', 'app_install', 'mobile_app_install', 'subscribe', 'offsite_conversion.fb_pixel_subscribe'), JSONExtractArrayRaw(coalesce(action_values, '[]'))))))))",
+  "math_hogql": "SUM(toFloat(convertCurrency(coalesce(account_currency, 'USD'), 'USD', if(arraySum(x -> JSONExtractFloat(x, 'value'), arrayFilter(x -> JSONExtractString(x, 'action_type') IN ('omni_purchase', 'omni_lead', 'omni_complete_registration', 'omni_app_install', 'omni_subscribe'), JSONExtractArrayRaw(coalesce(action_values, '[]')))) > 0, arraySum(x -> JSONExtractFloat(x, 'value'), arrayFilter(x -> JSONExtractString(x, 'action_type') IN ('omni_purchase', 'omni_lead', 'omni_complete_registration', 'omni_app_install', 'omni_subscribe'), JSONExtractArrayRaw(coalesce(action_values, '[]')))), arraySum(x -> JSONExtractFloat(x, 'value'), arrayFilter(x -> JSONExtractString(x, 'action_type') IN ('purchase', 'offsite_conversion.fb_pixel_purchase', 'app_custom_event.fb_mobile_purchase', 'lead', 'offsite_conversion.fb_pixel_lead', 'onsite_conversion.lead_grouped', 'complete_registration', 'offsite_conversion.fb_pixel_complete_registration', 'app_custom_event.fb_mobile_complete_registration', 'offsite_complete_registration_add_meta_leads', 'app_install', 'mobile_app_install', 'subscribe', 'offsite_conversion.fb_pixel_subscribe'), JSONExtractArrayRaw(coalesce(action_values, '[]'))))))))",
   "name": "meta",
   "table_name": "prefix.campaign_stats",
   "timestamp_field": "date_stop",
@@ -537,6 +537,141 @@ exports[`marketing analytics utils createMarketingTile snapshots MetaAds - roas 
   "name": "meta",
   "table_name": "prefix.campaign_stats",
   "timestamp_field": "date_stop",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots PinterestAds - clicks 1`] = `
+{
+  "custom_name": "prefix.campaign_analytics clicks",
+  "distinct_id_field": "campaign_id",
+  "id": "PinterestAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(ifNull(toFloat(total_clickthrough), 0))",
+  "name": "pinterest",
+  "table_name": "prefix.campaign_analytics",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots PinterestAds - cost 1`] = `
+{
+  "custom_name": "prefix.campaign_analytics cost",
+  "distinct_id_field": "campaign_id",
+  "id": "PinterestAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(toFloat(convertCurrency(coalesce(currency, 'USD'), 'USD', toFloat(spend_in_dollar))))",
+  "name": "pinterest",
+  "table_name": "prefix.campaign_analytics",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots PinterestAds - impressions 1`] = `
+{
+  "custom_name": "prefix.campaign_analytics impressions",
+  "distinct_id_field": "campaign_id",
+  "id": "PinterestAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(ifNull(toFloat(total_impression), 0))",
+  "name": "pinterest",
+  "table_name": "prefix.campaign_analytics",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots PinterestAds - reported_conversion (missing conversion fields) 1`] = `
+{
+  "custom_name": "prefix.campaign_analytics reported_conversion",
+  "distinct_id_field": "campaign_id",
+  "id": "PinterestAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "pinterest",
+  "table_name": "prefix.campaign_analytics",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots PinterestAds - reported_conversion 1`] = `
+{
+  "custom_name": "prefix.campaign_analytics reported_conversion",
+  "distinct_id_field": "campaign_id",
+  "id": "PinterestAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(ifNull(toFloat(total_conversions), 0))",
+  "name": "pinterest",
+  "table_name": "prefix.campaign_analytics",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots PinterestAds - reported_conversion_value (missing conversion fields) 1`] = `
+{
+  "custom_name": "prefix.campaign_analytics reported_conversion_value",
+  "distinct_id_field": "campaign_id",
+  "id": "PinterestAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "pinterest",
+  "table_name": "prefix.campaign_analytics",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots PinterestAds - reported_conversion_value 1`] = `
+{
+  "custom_name": "prefix.campaign_analytics reported_conversion_value",
+  "distinct_id_field": "campaign_id",
+  "id": "PinterestAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(toFloat(convertCurrency(coalesce(currency, 'USD'), 'USD', ifNull(toFloat(total_checkout_value_in_micro_dollar), 0) / 1000000)))",
+  "name": "pinterest",
+  "table_name": "prefix.campaign_analytics",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots PinterestAds - roas (missing conversion fields) 1`] = `
+{
+  "custom_name": "prefix.campaign_analytics roas",
+  "distinct_id_field": "campaign_id",
+  "id": "PinterestAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "pinterest",
+  "table_name": "prefix.campaign_analytics",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots PinterestAds - roas 1`] = `
+{
+  "custom_name": "prefix.campaign_analytics roas",
+  "distinct_id_field": "campaign_id",
+  "id": "PinterestAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(ifNull(toFloat(total_checkout_value_in_micro_dollar), 0) / 1000000) / nullIf(SUM(toFloat(spend_in_dollar)), 0)",
+  "name": "pinterest",
+  "table_name": "prefix.campaign_analytics",
+  "timestamp_field": "date",
 }
 `;
 
@@ -638,7 +773,7 @@ exports[`marketing analytics utils createMarketingTile snapshots RedditAds - rep
   "id_field": "campaign_id",
   "kind": "DataWarehouseNode",
   "math": "hogql",
-  "math_hogql": "toFloat(convertCurrency(any(coalesce(currency, 'USD')), 'USD', SUM(ifNull(toFloat(conversion_purchase_total_value), 0) + ifNull(toFloat(conversion_signup_total_value), 0))))",
+  "math_hogql": "SUM(toFloat(convertCurrency(coalesce(currency, 'USD'), 'USD', ifNull(toFloat(conversion_purchase_total_value), 0) + ifNull(toFloat(conversion_signup_total_value), 0))))",
   "name": "reddit",
   "table_name": "prefix.campaign_report",
   "timestamp_field": "date",
@@ -773,7 +908,7 @@ exports[`marketing analytics utils createMarketingTile snapshots SnapchatAds - r
   "id_field": "id",
   "kind": "DataWarehouseNode",
   "math": "hogql",
-  "math_hogql": "toFloat(convertCurrency(any(coalesce(currency, 'USD')), 'USD', SUM(ifNull(toFloat(conversion_purchases_value), 0) + ifNull(toFloat(conversion_sign_ups_value), 0) + ifNull(toFloat(conversion_subscribe_value), 0))))",
+  "math_hogql": "SUM(toFloat(convertCurrency(coalesce(currency, 'USD'), 'USD', ifNull(toFloat(conversion_purchases_value), 0) + ifNull(toFloat(conversion_sign_ups_value), 0) + ifNull(toFloat(conversion_subscribe_value), 0))))",
   "name": "snapchat",
   "table_name": "prefix.campaign_stats_daily",
   "timestamp_field": "start_time",
@@ -908,7 +1043,7 @@ exports[`marketing analytics utils createMarketingTile snapshots TikTokAds - rep
   "id_field": "campaign_id",
   "kind": "DataWarehouseNode",
   "math": "hogql",
-  "math_hogql": "toFloat(convertCurrency(any(coalesce(currency, 'USD')), 'USD', SUM(ifNull(toFloat(total_complete_payment_value), 0))))",
+  "math_hogql": "SUM(toFloat(convertCurrency(coalesce(currency, 'USD'), 'USD', ifNull(toFloat(total_complete_payment_value), 0))))",
   "name": "tiktok",
   "table_name": "prefix.campaign_report",
   "timestamp_field": "stat_time_day",

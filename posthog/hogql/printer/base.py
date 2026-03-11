@@ -116,8 +116,8 @@ class HogQLPrinter(Visitor[str]):
         if node.cte_type == "subquery":
             if node.columns is not None:
                 raise NotImplementedError("CTE column name lists are not supported in this dialect")
-            return f"{node.name} AS {self.visit(node.expr)}"
-        return f"{self.visit(node.expr)} AS {node.name}"
+            return f"{self._print_identifier(node.name)} AS {self.visit(node.expr)}"
+        return f"{self.visit(node.expr)} AS {self._print_identifier(node.name)}"
 
     def visit_grouping_set(self, node: ast.GroupingSet):
         inner = ", ".join(self.visit(e) for e in node.exprs)
@@ -212,7 +212,7 @@ class HogQLPrinter(Visitor[str]):
                 group_by = [
                     "(" + ", ".join(self.visit(e) for e in gs.exprs) + ")" if gs.exprs else "()"
                     for gs in node.group_by
-                    if isinstance(gs, ast.Tuple)
+                    if isinstance(gs, ast.GroupingSet)
                 ]
             else:
                 group_by = [self.visit(column) for column in node.group_by]

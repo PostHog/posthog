@@ -441,5 +441,28 @@ describe('the property definitions model', () => {
 
             expect(logic.values.options['browser'].values).toEqual(expectedValues)
         })
+
+        it('handles API errors by setting error state and stopping loading', async () => {
+            useMocks({
+                get: {
+                    '/api/event/values/': () => [503, { detail: 'Service Unavailable' }],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadPropertyValues({
+                    endpoint: undefined,
+                    type: PropertyDefinitionType.Event,
+                    propertyKey: 'browser',
+                    eventNames: [],
+                    newInput: undefined,
+                })
+            })
+                .toDispatchActions(['setOptionsLoading', 'setOptionsError'])
+                .toFinishAllListeners()
+
+            expect(logic.values.options['browser'].status).toEqual('error')
+            expect(logic.values.options['browser'].refreshing).toEqual(false)
+        })
     })
 })

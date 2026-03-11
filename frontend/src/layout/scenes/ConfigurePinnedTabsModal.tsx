@@ -30,6 +30,8 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
     const homepageTabForDisplay = homepage ? (tabs.find((tab) => tab.id === homepage.id) ?? homepage) : null
     const isUsingProjectDefault = !homepage
     const isUsingNewTabHomepage = homepage?.sceneId === Scene.NewTab
+    const isUsingDefaultDashboard =
+        homepage?.sceneId === Scene.Dashboard && homepage?.id?.startsWith('homepage-dashboard-')
 
     const projectDefaultDashboardId = currentTeam?.primary_dashboard ?? null
     const projectDefaultDashboard =
@@ -42,11 +44,11 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
     const homepageDisplayTitle = homepageTabForDisplay
         ? homepageTabForDisplay.customTitle || homepageTabForDisplay.title
         : isAIFirst
-          ? 'Search'
+          ? 'Home'
           : "Project's default dashboard"
     const homepageSubtitle = isUsingProjectDefault
         ? isAIFirst
-            ? 'AI-first default'
+            ? 'Default'
             : projectDefaultSubtitle
         : isUsingNewTabHomepage
           ? 'Search'
@@ -183,22 +185,75 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                             </div>
                         </div>
                         <div className="flex flex-wrap gap-2">
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                onClick={() => setHomepage(null)}
-                                disabled={isUsingProjectDefault}
-                            >
-                                Use default dashboard
-                            </LemonButton>
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                onClick={() => setHomepage(newTabHomepage)}
-                                disabled={isUsingNewTabHomepage}
-                            >
-                                Use new tab page
-                            </LemonButton>
+                            {isAIFirst ? (
+                                <>
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        onClick={() => setHomepage(null)}
+                                        disabled={isUsingProjectDefault}
+                                    >
+                                        Home
+                                    </LemonButton>
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        onClick={() => {
+                                            const dashboardId = currentTeam?.primary_dashboard
+                                            if (dashboardId) {
+                                                setHomepage({
+                                                    id: `homepage-dashboard-${dashboardId}`,
+                                                    pathname: urls.dashboard(dashboardId),
+                                                    search: '',
+                                                    hash: '',
+                                                    title: 'Default dashboard',
+                                                    iconType: 'dashboard',
+                                                    active: false,
+                                                    pinned: true,
+                                                    sceneId: Scene.Dashboard,
+                                                    sceneKey: `dashboard-${dashboardId}`,
+                                                    sceneParams: emptySceneParams,
+                                                })
+                                            }
+                                        }}
+                                        disabled={isUsingDefaultDashboard || !currentTeam?.primary_dashboard}
+                                        disabledReason={
+                                            !currentTeam?.primary_dashboard
+                                                ? 'No default dashboard configured'
+                                                : undefined
+                                        }
+                                    >
+                                        Default dashboard
+                                    </LemonButton>
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        onClick={() => setHomepage(newTabHomepage)}
+                                        disabled={isUsingNewTabHomepage}
+                                    >
+                                        Search
+                                    </LemonButton>
+                                </>
+                            ) : (
+                                <>
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        onClick={() => setHomepage(null)}
+                                        disabled={isUsingProjectDefault}
+                                    >
+                                        Use default dashboard
+                                    </LemonButton>
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        onClick={() => setHomepage(newTabHomepage)}
+                                        disabled={isUsingNewTabHomepage}
+                                    >
+                                        Use new tab page
+                                    </LemonButton>
+                                </>
+                            )}
                         </div>
                     </div>
                 </section>

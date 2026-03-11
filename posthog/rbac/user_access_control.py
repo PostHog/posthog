@@ -12,6 +12,7 @@ from rest_framework import serializers
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObject
+from posthog.settings import EE_AVAILABLE
 
 if TYPE_CHECKING:
     from posthog.models.file_system.file_system import FileSystem
@@ -363,6 +364,8 @@ class UserAccessControl:
         )
 
     def _get_access_controls(self, filters: dict) -> list[_AccessControl]:
+        if not EE_AVAILABLE:
+            return []
         key = json.dumps(filters, sort_keys=True)
         if key not in self._cache:
             self._cache[key] = list(AccessControl.objects.filter(self._filter_options(filters)))
@@ -437,6 +440,8 @@ class UserAccessControl:
         """
         Preload access controls for a list of objects
         """
+        if not EE_AVAILABLE:
+            return
 
         filter_groups: list[dict] = []
 
@@ -459,6 +464,9 @@ class UserAccessControl:
         Checking permissions can involve multiple queries to AccessControl e.g. project level, global resource level, and object level
         As we can know this upfront, we can optimize this by loading all the controls we will need upfront.
         """
+        if not EE_AVAILABLE:
+            return
+
         # Question - are we fundamentally loading every access control for the given resource? If so should we accept that fact and just load them all?
         # doing all additional filtering in memory?
 
@@ -887,6 +895,9 @@ class UserAccessControl:
         if user.is_staff or (org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN):
             return queryset
 
+        if not EE_AVAILABLE:
+            return queryset
+
         # Subquery to check if user has "admin" on the FileSystem's team/project
         is_admin_for_project_subquery = (
             AccessControl.objects.filter(
@@ -1048,8 +1059,16 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
             # Get the required resource and access level for this field
             resource, required_level = field_mappings[field_name]
 
-            # Check if user has the required access level
-            if not user_access_control.check_access_level_for_resource(resource, required_level):
+            # Check if user has the required access level.
+            # "project" access is object-level (checked against the Team instance), not resource-level.
+            # For models with a team FK (e.g. Team extensions), use the team for the project check.
+            if resource == "project":
+                obj_for_check = getattr(self.instance, "team", self.instance)
+                has_access = user_access_control.check_access_level_for_object(obj_for_check, required_level)
+            else:
+                has_access = user_access_control.check_access_level_for_resource(resource, required_level)
+
+            if not has_access:
                 display_name = resource_to_display_name(resource)
                 raise serializers.ValidationError(
                     {field_name: f"You need {required_level} access to {display_name} to modify this field."}

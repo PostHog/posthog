@@ -95,7 +95,6 @@ rules:
                               |EnterpriseEventDefinition
                               |EnterprisePropertyDefinition
                               |ErrorTrackingAssignmentRule
-                              |ErrorTrackingAutoCaptureControls
                               |ErrorTrackingGroupingRule
                               |ErrorTrackingIssue
                               |ErrorTrackingIssueFingerprintV2
@@ -127,6 +126,8 @@ rules:
                               |Integration
                               |Link
                               |LiveDebuggerBreakpoint
+                              |LogsAlertCheck
+                              |LogsAlertConfiguration
                               |LLMModelConfiguration
                               |LLMPrompt
                               |LLMProviderKey
@@ -144,6 +145,7 @@ rules:
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
+                              |Repo
                               |RepoRoutingRule
                               |SandboxEnvironment
                               |SavedHeatmap
@@ -262,7 +264,6 @@ rules:
                         |EnterpriseEventDefinition
                         |EnterprisePropertyDefinition
                         |ErrorTrackingAssignmentRule
-                        |ErrorTrackingAutoCaptureControls
                         |ErrorTrackingGroupingRule
                         |ErrorTrackingIssue
                         |ErrorTrackingIssueFingerprintV2
@@ -311,6 +312,7 @@ rules:
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext
+                        |Repo
                         |RepoRoutingRule
                         |SandboxEnvironment
                         |SavedHeatmap
