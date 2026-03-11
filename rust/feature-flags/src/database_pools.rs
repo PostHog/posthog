@@ -271,7 +271,8 @@ impl DatabasePools {
         // Optional behavioral cohorts database pool for realtime cohort membership lookups.
         // Small pool (max 5 connections) with a tight 1s statement timeout for simple key lookups.
         let behavioral_cohorts_reader = if config.is_behavioral_cohorts_db_configured() {
-            let pool_config = Self::build_pool_config(&base_pool_config, 1, Some(5), 1000);
+            let pool_config =
+                Self::build_pool_config(&base_pool_config, 1, Some(5), 1000, "behavioral_cohorts");
             info!("Creating behavioral cohorts reader pool");
             Some(Arc::new(
                 get_pool_with_config(&config.behavioral_cohorts_read_database_url, pool_config)
@@ -307,7 +308,7 @@ mod tests {
     #[test]
     fn test_build_pool_config_sets_pool_name_and_timeout() {
         let base = PoolConfig::default();
-        let config = DatabasePools::build_pool_config(&base, 3, 5000, "persons_reader");
+        let config = DatabasePools::build_pool_config(&base, 3, None, 5000, "persons_reader");
 
         assert_eq!(config.min_connections, 3);
         assert_eq!(config.statement_timeout_ms, Some(5000));
@@ -317,7 +318,7 @@ mod tests {
     #[test]
     fn test_build_pool_config_zero_timeout_is_none() {
         let base = PoolConfig::default();
-        let config = DatabasePools::build_pool_config(&base, 0, 0, "non_persons_writer");
+        let config = DatabasePools::build_pool_config(&base, 0, None, 0, "non_persons_writer");
 
         assert_eq!(config.statement_timeout_ms, None);
         assert_eq!(config.pool_name, Some("non_persons_writer".to_string()));
