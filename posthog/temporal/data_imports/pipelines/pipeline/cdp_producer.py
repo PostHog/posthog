@@ -88,7 +88,7 @@ class CDPProducer:
         def _check():
             schema = ExternalDataSchema.objects.get(id=self.schema_id, team_id=self.team_id)
 
-            raw_table_name = build_table_name(schema.source, schema.name, display_name=schema.display_name)
+            raw_table_name = build_table_name(schema.source, schema.name)
             dot_notated_table_name = get_data_warehouse_table_name(schema.source, raw_table_name)
 
             self.logger.debug(f"Checking if table {dot_notated_table_name} is used in any HogQL functions")
