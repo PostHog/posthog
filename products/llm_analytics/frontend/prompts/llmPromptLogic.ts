@@ -215,7 +215,6 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             {
                 setCompareVersion: (_, { compareVersion }) => compareVersion,
                 loadPromptSuccess: () => null,
-                setPrompt: () => null,
             },
         ],
         comparePrompt: [
@@ -223,7 +222,6 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             {
                 setCompareVersion: (state, { compareVersion }) => (compareVersion === null ? null : state),
                 loadPromptSuccess: () => null,
-                setPrompt: () => null,
             },
         ],
     })),
@@ -711,6 +709,10 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             if (compareVersion !== null) {
                 actions.loadComparePrompt(compareVersion)
             }
+        },
+
+        loadComparePromptFailure: () => {
+            lemonToast.error('Failed to load comparison version')
         },
     })),
 

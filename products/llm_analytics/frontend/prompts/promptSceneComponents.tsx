@@ -82,9 +82,13 @@ export function PromptViewDetails(): JSX.Element {
                                 if (isDiffVisible) {
                                     setCompareVersion(null)
                                 } else {
-                                    const defaultVersion = prompt.version > 1 ? prompt.version - 1 : null
                                     const firstOption = compareVersionOptions[0]?.value
-                                    setCompareVersion(defaultVersion ?? firstOption ?? null)
+                                    const defaultVersion = compareVersionOptions.some(
+                                        (o) => o.value === prompt.version - 1
+                                    )
+                                        ? prompt.version - 1
+                                        : (firstOption ?? null)
+                                    setCompareVersion(defaultVersion)
                                 }
                             }}
                             data-attr="llma-prompt-compare-versions-button"
@@ -155,6 +159,10 @@ function PromptDiffView(): JSX.Element {
                     <LemonSkeleton active className="h-4 w-3/4" />
                     <LemonSkeleton active className="h-4 w-1/2" />
                 </div>
+            ) : !comparePrompt ? (
+                <LemonBanner type="warning">
+                    Failed to load version for comparison. Try selecting a different version.
+                </LemonBanner>
             ) : (
                 <div className="overflow-hidden rounded border">
                     <Suspense
