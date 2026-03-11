@@ -3365,6 +3365,11 @@ export namespace Schemas {
        */
       aggregation_group_type_index?: number | null;
       /**
+       * Non persons and groups aggregation target for a data warehouse based lifecycle insight.
+       * @nullable
+       */
+      customAggregationTarget?: boolean | null;
+      /**
        * Colors used in the insight's visualization
        * @nullable
        */
