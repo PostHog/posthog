@@ -8,6 +8,7 @@ import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
+import { getAggregationTargetPronoun } from 'scenes/insights/filters/aggregationTargetUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -28,9 +29,8 @@ const lifecycleDataWarehousePopoverFields: DataWarehousePopoverField[] = [
 
 export function TrendsSeries(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { querySource, isTrends, isLifecycle, isStickiness, display, hasFormula, series } = useValues(
-        insightVizDataLogic(insightProps)
-    )
+    const { querySource, isTrends, isLifecycle, isStickiness, display, hasFormula, series, aggregationGroupTypeIndex } =
+        useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -83,7 +83,7 @@ export function TrendsSeries(): JSX.Element | null {
                         ) : (
                             <b> Unique users </b>
                         )}
-                        who did
+                        {getAggregationTargetPronoun(aggregationGroupTypeIndex)} did
                     </div>
                 </div>
             )}
