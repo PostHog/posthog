@@ -1,6 +1,7 @@
 package process
 
 import (
+	"os/exec"
 	"sync"
 
 	tea "charm.land/bubbletea/v2"
@@ -61,6 +62,14 @@ func (m *Manager) StopAll() {
 	for _, p := range procs {
 		p.Stop()
 	}
+	// Clean up tmux session if it exists (no-op if tmux wasn't used)
+	cmd := exec.Command("tmux", "kill-session", "-t", "phrocs")
+	_ = cmd.Run() // Ignore errors if session doesn't exist
+}
+
+// Kills all tmux sessions used by managed processes
+func (m *Manager) cleanupTmuxSessions(procs []*Process) {
+	// No-op: cleanup is now done in StopAll()
 }
 
 // Returns the ordered slice of all processes (safe for reading status/lines)

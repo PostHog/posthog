@@ -68,6 +68,11 @@ func New(mgr *process.Manager, mouseScrollSpeed int, logger *log.Logger) Model {
 		keys.Docker.SetEnabled(true)
 	}
 
+	// Enable tmux attach key only if tmux is installed
+	if _, err := exec.LookPath("tmux"); err == nil {
+		keys.TmuxAttach.SetEnabled(true)
+	}
+
 	return Model{
 		mgr:              mgr,
 		procs:            mgr.Procs(),
@@ -277,6 +282,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Docker):
 			m.dbg("docker: launching lazydocker")
 			return m, tea.ExecProcess(exec.Command("lazydocker"), nil)
+
+		case key.Matches(msg, m.keys.TmuxAttach):
+			if p := m.activeProc(); p != nil {
+				// TmuxAttach is enabled only if tmux is globally enabled
+				windowName := p.Name
+				target := fmt.Sprintf("phrocs:%s", windowName)
+				m.dbg("tmux: attaching to %s", target)
+				return m, tea.ExecProcess(exec.Command("tmux", "attach-session", "-t", target), nil)
+			}
 
 		case key.Matches(msg, m.keys.CopyMode):
 			// Enter copy mode

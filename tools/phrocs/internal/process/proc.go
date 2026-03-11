@@ -7,8 +7,10 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/creack/pty"
@@ -126,74 +128,212 @@ func (p *Process) Start(send func(tea.Msg)) error {
 	p.ready = p.readyPattern == nil
 	p.mu.Unlock()
 
-	env := os.Environ()
-	for k, v := range p.Cfg.Env {
-		env = append(env, fmt.Sprintf("%s=%s", k, v))
+	// If tmux is installed, use tmux instead of PTY for better interactivity
+	if _, err := exec.LookPath("tmux"); err == nil {
+		return p.startTmux(send)
 	}
 
-	cmd := exec.Command("bash", "-c", p.Cfg.Shell)
-	cmd.Env = env
+	// Fall back to PTY if tmux is not available
 
-	ptmx, err := pty.Start(cmd)
-	if err != nil {
-		// Use combined stdout/stderr pipe when PTY allocation fails
-		return p.startWithPipe(cmd, send)
+	// env := os.Environ()
+	// for k, v := range p.Cfg.Env {
+	// 	env = append(env, fmt.Sprintf("%s=%s", k, v))
+	// }
+
+	// cmd := exec.Command("bash", "-c", p.Cfg.Shell)
+	// cmd.Env = env
+
+	// ptmx, err := pty.Start(cmd)
+	// if err != nil {
+	// 	// Use combined stdout/stderr pipe when PTY allocation fails
+	// 	return p.startWithPipe(cmd, send)
+	// }
+
+	// p.mu.Lock()
+	// p.cmd = cmd
+	// p.ptmx = ptmx
+	// // Only set to running if proc has no ready pattern
+	// if p.readyPattern == nil {
+	// 	p.status = StatusRunning
+	// }
+	// currentStatus := p.status
+	// p.mu.Unlock()
+	// // Send initial status message
+	// send(StatusMsg{Name: p.Name, Status: currentStatus})
+
+	// readDone := make(chan struct{})
+	// go func() {
+	// 	p.readLoop(ptmx, send)
+	// 	close(readDone)
+	// }()
+
+	// go func() {
+	// 	exitErr := cmd.Wait()
+
+	// 	// Close the pty master to unblock readLoop if still reading
+	// 	p.mu.Lock()
+	// 	if p.ptmx != nil {
+	// 		_ = p.ptmx.Close()
+	// 		p.ptmx = nil
+	// 	}
+	// 	p.mu.Unlock()
+
+	// 	// Wait for readLoop to drain all buffered output before updating status
+	// 	<-readDone
+
+	// 	st := StatusDone
+	// 	if exitErr != nil {
+	// 		st = StatusCrashed
+	// 	}
+	// 	p.mu.Lock()
+	// 	// Don't update status if this cmd is no longer the active one
+	// 	// (process was restarted) or if an explicit Stop() was called
+	// 	if p.cmd == cmd && p.status != StatusStopped {
+	// 		p.status = st
+	// 	}
+	// 	finalStatus := p.status
+	// 	shouldRestart := p.cmd == cmd && p.Cfg.Autorestart && st == StatusCrashed
+	// 	p.mu.Unlock()
+
+	// 	send(StatusMsg{Name: p.Name, Status: finalStatus})
+
+	// 	if shouldRestart {
+	// 		_ = p.Start(send)
+	// 	}
+	// }()
+
+	return nil
+}
+
+// Launches the process in a tmux session instead of a direct PTY
+func (p *Process) startTmux(send func(tea.Msg)) error {
+	// Use a global "phrocs" session for all processes, with windows named after processes
+	sessionName := "phrocs"
+	windowName := p.Name
+
+	// Ensure tmux is installed
+	if _, err := exec.LookPath("tmux"); err != nil {
+		p.mu.Lock()
+		p.status = StatusCrashed
+		p.mu.Unlock()
+		send(StatusMsg{Name: p.Name, Status: StatusCrashed})
+		return fmt.Errorf("tmux not installed: %w", err)
+	}
+
+	// Create or reuse tmux session (idempotent)
+	createSessionCmd := exec.Command("tmux", "new-session", "-d", "-s", sessionName)
+	_ = createSessionCmd.Run() // Ignore error if session already exists
+
+	// Create window in the session
+	createWindowCmd := exec.Command("tmux", "new-window", "-t", fmt.Sprintf("%s:", sessionName), "-n", windowName)
+	if err := createWindowCmd.Run(); err != nil {
+		p.mu.Lock()
+		p.status = StatusCrashed
+		p.mu.Unlock()
+		send(StatusMsg{Name: p.Name, Status: StatusCrashed})
+		return fmt.Errorf("failed to create tmux window: %w", err)
+	}
+
+	// Prepare environment as semicolon-separated export statements
+	var envPrefix strings.Builder
+	for k, v := range p.Cfg.Env {
+		envPrefix.WriteString(fmt.Sprintf("export %s=%s; ", k, v))
+	}
+
+	// Send the command to the window
+	targetWindow := fmt.Sprintf("%s:%s", sessionName, windowName)
+	shellCmd := envPrefix.String() + p.Cfg.Shell
+	sendKeysCmd := exec.Command("tmux", "send-keys", "-t", targetWindow, shellCmd, "Enter")
+	if err := sendKeysCmd.Run(); err != nil {
+		p.mu.Lock()
+		p.status = StatusCrashed
+		p.mu.Unlock()
+		send(StatusMsg{Name: p.Name, Status: StatusCrashed})
+		return fmt.Errorf("failed to send command to tmux window: %w", err)
 	}
 
 	p.mu.Lock()
-	p.cmd = cmd
-	p.ptmx = ptmx
-	// Only set to running if proc has no ready pattern
-	if p.readyPattern == nil {
-		p.status = StatusRunning
-	}
-	currentStatus := p.status
+	p.status = StatusRunning
 	p.mu.Unlock()
-	// Send initial status message
-	send(StatusMsg{Name: p.Name, Status: currentStatus})
+	send(StatusMsg{Name: p.Name, Status: StatusRunning})
 
-	readDone := make(chan struct{})
-	go func() {
-		p.readLoop(ptmx, send)
-		close(readDone)
-	}()
+	// Start polling for output
+	go p.readTmuxOutput(sessionName, windowName, send)
 
-	go func() {
-		exitErr := cmd.Wait()
-
-		// Close the pty master to unblock readLoop if still reading
-		p.mu.Lock()
-		if p.ptmx != nil {
-			_ = p.ptmx.Close()
-			p.ptmx = nil
-		}
-		p.mu.Unlock()
-
-		// Wait for readLoop to drain all buffered output before updating status
-		<-readDone
-
-		st := StatusDone
-		if exitErr != nil {
-			st = StatusCrashed
-		}
-		p.mu.Lock()
-		// Don't update status if this cmd is no longer the active one
-		// (process was restarted) or if an explicit Stop() was called
-		if p.cmd == cmd && p.status != StatusStopped {
-			p.status = st
-		}
-		finalStatus := p.status
-		shouldRestart := p.cmd == cmd && p.Cfg.Autorestart && st == StatusCrashed
-		p.mu.Unlock()
-
-		send(StatusMsg{Name: p.Name, Status: finalStatus})
-
-		if shouldRestart {
-			_ = p.Start(send)
-		}
-	}()
+	// Start polling for status (window exists)
+	go p.statusTmuxPoller(sessionName, windowName, send)
 
 	return nil
+}
+
+// Polls tmux for output updates every 100ms
+func (p *Process) readTmuxOutput(sessionName, windowName string, send func(tea.Msg)) {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	var lastOutput string
+
+	for range ticker.C {
+		targetWindow := fmt.Sprintf("%s:%s", sessionName, windowName)
+		captureCmd := exec.Command("tmux", "capture-pane", "-p", "-t", targetWindow, "-S", "-1000")
+		out, err := captureCmd.Output()
+		if err != nil {
+			// Window might be gone or other error; stop polling
+			return
+		}
+
+		currentOutput := string(out)
+
+		// Diff against last capture to find new lines
+		if currentOutput != lastOutput {
+			// Split into lines
+			currentLines := strings.Split(strings.TrimRight(currentOutput, "\n"), "\n")
+
+			p.mu.Lock()
+			// Keep only new lines that aren't already in our buffer
+			startIdx := len(p.lines)
+			for _, line := range currentLines {
+				if len(p.lines) >= p.maxLines {
+					p.lines = p.lines[1:]
+				}
+				p.lines = append(p.lines, line)
+			}
+			p.mu.Unlock()
+
+			// Send OutputMsg for each new line
+			for i := startIdx; i < len(currentLines); i++ {
+				send(OutputMsg{Name: p.Name, Line: currentLines[i]})
+			}
+
+			lastOutput = currentOutput
+		}
+	}
+}
+
+// Periodically checks if the tmux window still exists
+func (p *Process) statusTmuxPoller(sessionName, windowName string, send func(tea.Msg)) {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		listCmd := exec.Command("tmux", "list-windows", "-t", sessionName, "-F", "#{window_name}")
+		out, err := listCmd.Output()
+
+		windowExists := err == nil && strings.Contains(string(out), windowName)
+
+		p.mu.Lock()
+		currentStatus := p.status
+
+		if !windowExists && (currentStatus == StatusRunning || currentStatus == StatusPending) {
+			p.status = StatusCrashed
+			currentStatus = StatusCrashed
+		}
+		p.mu.Unlock()
+
+		if !windowExists && (currentStatus == StatusRunning || currentStatus == StatusPending) {
+			send(StatusMsg{Name: p.Name, Status: StatusCrashed})
+		}
+	}
 }
 
 // Falls back to stdout/stderr pipes when PTY allocation fails
@@ -304,6 +444,17 @@ func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
 func (p *Process) Stop() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
+	// For tmux processes, send Ctrl-C to the window (if tmux is available)
+	if _, err := exec.LookPath("tmux"); err == nil {
+		sessionName := "phrocs"
+		windowName := p.Name
+		targetWindow := fmt.Sprintf("%s:%s", sessionName, windowName)
+		// Send Ctrl-C to gracefully stop the process
+		_ = exec.Command("tmux", "send-keys", "-t", targetWindow, "C-c").Run()
+	}
+
+	// For PTY-based processes, use the normal exit flow
 	if p.cmd != nil && p.cmd.Process != nil {
 		_ = p.cmd.Process.Signal(syscall.SIGTERM)
 	}

@@ -12,6 +12,7 @@ type keyMap struct {
 	SwapFocus  key.Binding
 	Restart    key.Binding
 	Docker     key.Binding
+	TmuxAttach key.Binding
 	CopyMode   key.Binding
 	CopyEsc    key.Binding
 	Quit       key.Binding
@@ -57,6 +58,11 @@ func defaultKeyMap() keyMap {
 			key.WithHelp("d:", "lazydocker"),
 			key.WithDisabled(),
 		),
+		TmuxAttach: key.NewBinding(
+			key.WithKeys("t"),
+			key.WithHelp("t:", "tmux attach"),
+			key.WithDisabled(),
+		),
 		CopyMode: key.NewBinding(
 			key.WithKeys("c"),
 			key.WithHelp("c:", "copy mode"),
@@ -86,7 +92,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.ScrollUp, k.ScrollDown},
 		{k.GotoTop, k.GotoBottom},
 		{k.Restart, k.SwapFocus, k.Docker},
-		{k.CopyMode, k.CopyEsc},
-		{k.Quit, k.Help},
+		{k.TmuxAttach, k.CopyMode},
+		{k.CopyEsc, k.Quit, k.Help},
 	}
 }
