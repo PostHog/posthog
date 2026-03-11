@@ -1,12 +1,12 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
 
 import { initKeaTests } from '~/test/init'
 
 import { CompatMessage } from '../types'
-import { LLMMessageDisplay } from './ConversationMessagesDisplay'
+import { ConversationMessagesDisplay, LLMMessageDisplay } from './ConversationMessagesDisplay'
 
 describe('LLMMessageDisplay', () => {
     beforeEach(() => {
@@ -52,5 +52,33 @@ describe('LLMMessageDisplay', () => {
             </Provider>
         )
         expect(container.textContent).toContain(expectedSubstring)
+    })
+
+    it('expands only user messages with expand_user_only display option', () => {
+        const inputNormalized: CompatMessage[] = [
+            { role: 'system', content: 'system input content' },
+            { role: 'user', content: 'first user input content' },
+            { role: 'assistant', content: 'assistant input content' },
+            { role: 'user', content: 'second user input content' },
+        ]
+        const outputNormalized: CompatMessage[] = [{ role: 'assistant', content: 'assistant output content' }]
+
+        render(
+            <Provider>
+                <ConversationMessagesDisplay
+                    inputNormalized={inputNormalized}
+                    outputNormalized={outputNormalized}
+                    errorData={null}
+                    raisedError={false}
+                    displayOption="expand_user_only"
+                />
+            </Provider>
+        )
+
+        expect(screen.getByText('first user input content')).toBeInTheDocument()
+        expect(screen.getByText('second user input content')).toBeInTheDocument()
+        expect(screen.queryByText('system input content')).not.toBeInTheDocument()
+        expect(screen.queryByText('assistant input content')).not.toBeInTheDocument()
+        expect(screen.queryByText('assistant output content')).not.toBeInTheDocument()
     })
 })
