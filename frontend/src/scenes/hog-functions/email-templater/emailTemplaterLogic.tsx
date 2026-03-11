@@ -92,6 +92,23 @@ export interface EmailTemplaterLogicProps {
     onChangeTemplating?: (templating: 'hog' | 'liquid') => void
 }
 
+function autoRevealAdvancedFields(
+    actions: { revealAdvancedField: (key: EmailMetaFieldKey) => void },
+    props: EmailTemplaterLogicProps
+): void {
+    if (!props.value) {
+        return
+    }
+    for (const field of EMAIL_TYPE_SUPPORTED_FIELDS[props.type]) {
+        if (field.isAdvancedField) {
+            const value = (props.value as Record<string, any>)[field.key]
+            if (value !== undefined && value !== null && value !== '') {
+                actions.revealAdvancedField(field.key as EmailMetaFieldKey)
+            }
+        }
+    }
+}
+
 export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     props({} as EmailTemplaterLogicProps),
     path(['scenes', 'hog-functions', 'email-templater', 'emailTemplaterLogic']),
@@ -419,22 +436,14 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     propsChanged(({ actions, props }, oldProps) => {
         if (props.value && !objectsEqual(props.value, oldProps.value)) {
             actions.resetEmailTemplate(props.value)
+            autoRevealAdvancedFields(actions, props)
         }
     }),
 
     afterMount(({ actions, props }) => {
         if (props.value) {
             actions.resetEmailTemplate(props.value)
-
-            // Auto-reveal advanced fields that already have values
-            for (const field of EMAIL_TYPE_SUPPORTED_FIELDS[props.type]) {
-                if (field.isAdvancedField) {
-                    const value = (props.value as Record<string, any>)[field.key]
-                    if (value !== undefined && value !== null && value !== '') {
-                        actions.revealAdvancedField(field.key as EmailMetaFieldKey)
-                    }
-                }
-            }
+            autoRevealAdvancedFields(actions, props)
         }
 
         actions.loadTemplates()

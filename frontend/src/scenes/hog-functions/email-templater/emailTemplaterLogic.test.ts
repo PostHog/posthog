@@ -96,4 +96,25 @@ describe('emailTemplaterLogic - advanced fields', () => {
             hiddenAdvancedFields: [expect.objectContaining({ key: 'preheader' })],
         })
     })
+
+    it('auto-reveals advanced fields when props change with new values', async () => {
+        const initialProps = makeProps()
+        logic = emailTemplaterLogic(initialProps)
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            revealedAdvancedFields: [],
+        })
+
+        // Simulate parent updating props with a replyTo value
+        const updatedProps = makeProps({
+            value: { ...DEFAULT_EMAIL_TEMPLATE, replyTo: 'reply@example.com' },
+        })
+        emailTemplaterLogic(updatedProps)
+
+        await expectLogic(logic).toMatchValues({
+            revealedAdvancedFields: ['replyTo'],
+            visibleFields: expect.arrayContaining([expect.objectContaining({ key: 'replyTo' })]),
+        })
+    })
 })
