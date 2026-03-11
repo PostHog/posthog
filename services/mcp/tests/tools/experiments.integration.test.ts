@@ -365,7 +365,7 @@ describe('Experiments', { concurrent: false }, () => {
                 const offsetResult = await getAllTool.handler(context, { data: { limit: 10, offset: 1 } })
                 const offsetExperiments = parseToolResponse(offsetResult)
                 // Verify offset is working by checking first result is different from original first result
-                expect(offsetExperiments.results[0].id).not.toBe(allExperiments[0].id)
+                expect(offsetExperiments.results[0].id).not.toBe(allExperiments.results[0].id)
             }
         })
 
