@@ -5,6 +5,7 @@ from typing import Any, Optional, cast
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import models
 from django.db.models import CharField, Count, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
 from django.db.models.functions import Cast
 from django.http import StreamingHttpResponse
@@ -44,7 +45,7 @@ from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Dashboard, DashboardTile, Insight, Text
+from posthog.models import Dashboard, DashboardFavorite, DashboardTile, Insight, Text
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.alert import AlertConfiguration
 from posthog.models.dashboard_templates import DashboardTemplate
@@ -91,6 +92,7 @@ DASHBOARD_SHARED_FIELDS = [
     "persisted_filters",
     "persisted_variables",
     "team_id",
+    "is_favorited",
 ]
 
 
@@ -220,6 +222,7 @@ class DashboardBasicSerializer(
     access_control_version = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
     last_viewed_at = serializers.DateTimeField(read_only=True, required=False, allow_null=True)
+    is_favorited = serializers.SerializerMethodField()
 
     class Meta:
         model = Dashboard
@@ -228,6 +231,7 @@ class DashboardBasicSerializer(
             "name",
             "description",
             "pinned",
+            "is_favorited",
             "created_at",
             "created_by",
             "last_accessed_at",
@@ -261,6 +265,9 @@ class DashboardBasicSerializer(
         if dashboard.restriction_level > Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT:
             return "v1"
         return "v2"
+
+    def get_is_favorited(self, dashboard: Dashboard) -> bool:
+        return getattr(dashboard, "is_favorited", False)
 
 
 class DashboardMetadataSerializer(DashboardBasicSerializer):
@@ -728,9 +735,19 @@ class DashboardsViewSet(
                         & Q(team__filesystemviewlog__ref=Cast(F("id"), output_field=CharField()))
                     ),
                 )
-            ).annotate(last_viewed_at=F("recent_dashboard_views__viewed_at"))
+            ).annotate(
+                last_viewed_at=F("recent_dashboard_views__viewed_at"),
+                is_favorited=models.Exists(
+                    DashboardFavorite.objects.filter(
+                        team_id=self.team_id, dashboard_id=models.OuterRef("id"), user_id=self.request.user.id
+                    )
+                ),
+            )
         else:
-            queryset = queryset.annotate(last_viewed_at=Value(None, output_field=DateTimeField()))
+            queryset = queryset.annotate(
+                last_viewed_at=Value(None, output_field=DateTimeField()),
+                is_favorited=Value(False, output_field=models.BooleanField()),
+            )
 
         include_deleted = False
         if self.action in ("partial_update", "update") and hasattr(self, "request"):
@@ -849,6 +866,24 @@ class DashboardsViewSet(
 
         response = Response(data)
         return response
+
+    @action(methods=["PATCH"], detail=True)
+    def favorite(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        dashboard = self.get_object()
+        user = request.user
+        favorited = request.data.get("favorited")
+
+        if favorited is None:
+            return Response({"error": "favorited is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if favorited:
+            DashboardFavorite.objects.get_or_create(team=self.team, dashboard=dashboard, user=user)
+        else:
+            DashboardFavorite.objects.filter(team=self.team, dashboard=dashboard, user=user).delete()
+
+        dashboard.is_favorited = favorited
+        serializer = DashboardBasicSerializer(dashboard, context=self.get_serializer_context())
+        return Response(serializer.data)
 
     @action(methods=["POST"], detail=True)
     def snapshot(self, request: Request, *args: Any, **kwargs: Any) -> Response:

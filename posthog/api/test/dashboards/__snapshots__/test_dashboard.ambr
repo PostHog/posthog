@@ -1496,6 +1496,13 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared",
          recent_dashboard_views."viewed_at" AS "last_viewed_at",
+         EXISTS
+    (SELECT 1 AS "a"
+     FROM "posthog_dashboardfavorite" U0
+     WHERE (U0."dashboard_id" = ("posthog_dashboard"."id")
+            AND U0."team_id" = 99999
+            AND U0."user_id" = 99999)
+     LIMIT 1) AS "is_favorited",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -4158,6 +4165,13 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared",
          recent_dashboard_views."viewed_at" AS "last_viewed_at",
+         EXISTS
+    (SELECT 1 AS "a"
+     FROM "posthog_dashboardfavorite" U0
+     WHERE (U0."dashboard_id" = ("posthog_dashboard"."id")
+            AND U0."team_id" = 99999
+            AND U0."user_id" = 99999)
+     LIMIT 1) AS "is_favorited",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -8411,6 +8425,13 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared",
          recent_dashboard_views."viewed_at" AS "last_viewed_at",
+         EXISTS
+    (SELECT 1 AS "a"
+     FROM "posthog_dashboardfavorite" U0
+     WHERE (U0."dashboard_id" = ("posthog_dashboard"."id")
+            AND U0."team_id" = 99999
+            AND U0."user_id" = 99999)
+     LIMIT 1) AS "is_favorited",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -13998,6 +14019,13 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared",
          recent_dashboard_views."viewed_at" AS "last_viewed_at",
+         EXISTS
+    (SELECT 1 AS "a"
+     FROM "posthog_dashboardfavorite" U0
+     WHERE (U0."dashboard_id" = ("posthog_dashboard"."id")
+            AND U0."team_id" = 99999
+            AND U0."user_id" = 99999)
+     LIMIT 1) AS "is_favorited",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -16832,6 +16860,13 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared",
          recent_dashboard_views."viewed_at" AS "last_viewed_at",
+         EXISTS
+    (SELECT 1 AS "a"
+     FROM "posthog_dashboardfavorite" U0
+     WHERE (U0."dashboard_id" = ("posthog_dashboard"."id")
+            AND U0."team_id" = 99999
+            AND U0."user_id" = 99999)
+     LIMIT 1) AS "is_favorited",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",

@@ -2258,6 +2258,7 @@ export interface DashboardBasicType extends WithAccessControl {
     name: string
     description: string
     pinned: boolean
+    is_favorited?: boolean
     created_at: string
     created_by: UserBasicType | null
     last_accessed_at: string | null
