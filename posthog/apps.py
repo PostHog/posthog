@@ -69,6 +69,14 @@ class PostHogConfig(AppConfig):
                     event="development server launched",
                     properties={"git_rev": get_git_commit_short(), "git_branch": get_git_branch()},
                 )
+        # Use HyperCache to provide flag definitions instead of per-process API polling
+        if not posthoganalytics.disabled:
+            from posthog.feature_flags.sdk_cache_provider import HyperCacheFlagProvider
+
+            posthoganalytics.flag_definition_cache_provider = HyperCacheFlagProvider(
+                team_id=int(os.environ.get("POSTHOG_SELF_TEAM_ID", "2"))
+            )
+
         # load feature flag definitions if not already loaded
         if not posthoganalytics.disabled and posthoganalytics.feature_flag_definitions() is None:
             posthoganalytics.load_feature_flags()
