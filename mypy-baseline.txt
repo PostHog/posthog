@@ -755,6 +755,7 @@ posthog/test/activity_logging/test_tag_activity_logging.py:0: error: Value of ty
 posthog/test/base.py:0: error: "MemoryLeakTestMixin" has no attribute "assertLessEqual"  [attr-defined]
 posthog/test/base.py:0: error: "MemoryLeakTestMixin" has no attribute "assertLessEqual"  [attr-defined]
 posthog/test/base.py:0: error: "NonAtomicBaseTest" has no attribute "_databases_names"  [attr-defined]
+posthog/test/base.py:0: error: "NonAtomicBaseTestKeepIdentities" has no attribute "_databases_names"  [attr-defined]
 posthog/test/base.py:0: error: Incompatible types in assignment (expression has type "None", variable has type "Organization")  [assignment]
 posthog/test/base.py:0: error: Incompatible types in assignment (expression has type "None", variable has type "OrganizationMembership")  [assignment]
 posthog/test/base.py:0: error: Incompatible types in assignment (expression has type "None", variable has type "Project")  [assignment]
