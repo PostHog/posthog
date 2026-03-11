@@ -17,7 +17,6 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
     const createdResources = {
         featureFlags: [] as number[],
         insights: [] as number[],
-        dashboards: [] as number[],
         experiments: [] as number[],
     }
 
@@ -67,16 +66,6 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
             }
         }
         createdResources.insights = []
-
-        // Clean up created dashboards
-        for (const dashboardId of createdResources.dashboards) {
-            try {
-                await client.dashboards({ projectId: testProjectId }).delete({ dashboardId })
-            } catch (error) {
-                console.warn(`Failed to cleanup dashboard ${dashboardId}:`, error)
-            }
-        }
-        createdResources.dashboards = []
 
         // Clean up created experiments
         for (const experimentId of createdResources.experiments) {
@@ -958,60 +947,6 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
                     createdResources.insights.push(result.data.id)
                 }
             })
-        })
-    })
-
-    describe('Dashboards API', () => {
-        it('should list dashboards', async () => {
-            const result = await client.dashboards({ projectId: testProjectId }).list()
-
-            expect(result.success).toBe(true)
-
-            if (result.success) {
-                expect(Array.isArray(result.data)).toBe(true)
-                for (const dashboard of result.data) {
-                    expect(dashboard).toHaveProperty('id')
-                    expect(dashboard).toHaveProperty('name')
-                    expect(typeof dashboard.id).toBe('number')
-                    expect(typeof dashboard.name).toBe('string')
-                }
-            }
-        })
-
-        it('should create, get, update, and delete a dashboard', async () => {
-            const createResult = await client.dashboards({ projectId: testProjectId }).create({
-                data: {
-                    name: 'Test Dashboard',
-                    description: 'Test dashboard for API tests',
-                    pinned: false,
-                },
-            })
-
-            expect(createResult.success).toBe(true)
-
-            if (createResult.success) {
-                const dashboardId = createResult.data.id
-                createdResources.dashboards.push(dashboardId)
-
-                // Get
-                const getResult = await client.dashboards({ projectId: testProjectId }).get({ dashboardId })
-                expect(getResult.success).toBe(true)
-
-                if (getResult.success) {
-                    expect(getResult.data.name).toBe('Test Dashboard')
-                }
-
-                // Update
-                const updateResult = await client.dashboards({ projectId: testProjectId }).update({
-                    dashboardId,
-                    data: {
-                        name: 'Updated Test Dashboard',
-                    },
-                })
-                expect(updateResult.success).toBe(true)
-
-                // Delete will be handled by afterEach cleanup
-            }
         })
     })
 

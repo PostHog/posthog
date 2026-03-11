@@ -299,6 +299,96 @@
             "readOnlyHint": false
         }
     },
+    "dashboards-get-all": {
+        "description": "Get all dashboards in the project with optional filtering by pinned status or search term. Returns name, description, pinned status, tags, and creation metadata.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Get all dashboards",
+        "title": "Get all dashboards",
+        "required_scopes": ["dashboard:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "dashboard-create": {
+        "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Create dashboard",
+        "title": "Create dashboard",
+        "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "dashboard-get": {
+        "description": "Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights and layout information.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Get dashboard",
+        "title": "Get dashboard",
+        "required_scopes": ["dashboard:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "dashboard-update": {
+        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Update dashboard",
+        "title": "Update dashboard",
+        "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "dashboard-delete": {
+        "description": "Delete a dashboard by ID. The dashboard will be soft-deleted and no longer appear in lists.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Delete dashboard",
+        "title": "Delete dashboard",
+        "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "dashboard-reorder-tiles": {
+        "description": "Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. Computes a 2-column grid layout (6 columns wide, 5 rows tall per tile). First, use dashboard-get to see current tile IDs.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Reorder dashboard tiles",
+        "title": "Reorder dashboard tiles",
+        "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "error-tracking-issues-list": {
         "description": "List all error tracking issues in the project. Returns issues with status, volume, first/last seen timestamps, and assignee info.",
         "category": "Error tracking",
