@@ -41,7 +41,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { ResizeHandle1D, ResizeHandle2D } from '../handles'
+import { DashboardResizeHandles } from '../handles'
 import { EditModeEdgeOverlay } from './EditModeEdgeOverlay'
 import { InsightMeta } from './InsightMeta'
 
@@ -120,7 +120,6 @@ function InsightCardInternal(
         timedOut,
         highlighted,
         showResizeHandles,
-        canResizeWidth,
         showEditingControls,
         showDetailsControls,
         updateColor,
@@ -298,17 +297,11 @@ function InsightCardInternal(
                         </div>
                     ) : null}
                 </BindLogic>
-                {showResizeHandles && (
-                    <>
-                        {canResizeWidth ? <ResizeHandle1D orientation="vertical" /> : null}
-                        <ResizeHandle1D orientation="horizontal" />
-                        {canResizeWidth ? <ResizeHandle2D /> : null}
-                    </>
-                )}
+                {showResizeHandles && <DashboardResizeHandles />}
                 {canEnterEditModeFromEdge && !showResizeHandles && onEnterEditModeFromEdge && (
                     <EditModeEdgeOverlay onEnterEditMode={onEnterEditModeFromEdge} />
                 )}
-                {children /* Extras, specifically resize handles injected by ReactGridLayout */}
+                {children /* Extras injected by the parent layout (not ReactGridLayout resize handles) */}
             </ErrorBoundary>
         </div>
     )

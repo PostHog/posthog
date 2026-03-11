@@ -35077,6 +35077,7 @@
                 "ScreenName",
                 "InitialChannelType",
                 "InitialReferringDomain",
+                "InitialReferringURL",
                 "InitialUTMSource",
                 "InitialUTMCampaign",
                 "InitialUTMMedium",
