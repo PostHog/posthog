@@ -187,11 +187,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
         ],
         filteredWorkflowsByStatus: [
             (s) => [s.workflows, s.filters, s.workflowsFuse],
-            (
-                workflows,
-                filters,
-                workflowsFuse
-            ): { active: HogFlow[]; draft: HogFlow[]; archived: HogFlow[] } => {
+            (workflows, filters, workflowsFuse): { active: HogFlow[]; draft: HogFlow[]; archived: HogFlow[] } => {
                 let filtered = workflows
 
                 if (filters.search) {
@@ -211,18 +207,9 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 }
             },
         ],
-        activeWorkflows: [
-            (s) => [s.filteredWorkflowsByStatus],
-            (byStatus): HogFlow[] => byStatus.active,
-        ],
-        draftWorkflows: [
-            (s) => [s.filteredWorkflowsByStatus],
-            (byStatus): HogFlow[] => byStatus.draft,
-        ],
-        archivedWorkflows: [
-            (s) => [s.filteredWorkflowsByStatus],
-            (byStatus): HogFlow[] => byStatus.archived,
-        ],
+        activeWorkflows: [(s) => [s.filteredWorkflowsByStatus], (byStatus): HogFlow[] => byStatus.active],
+        draftWorkflows: [(s) => [s.filteredWorkflowsByStatus], (byStatus): HogFlow[] => byStatus.draft],
+        archivedWorkflows: [(s) => [s.filteredWorkflowsByStatus], (byStatus): HogFlow[] => byStatus.archived],
         allArchivedSelected: [
             (s) => [s.archivedWorkflows, s.selectedArchivedWorkflowIds],
             (archivedWorkflows, selectedIds): boolean => {
