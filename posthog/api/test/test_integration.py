@@ -805,7 +805,9 @@ class TestGitHubIntegrationStateValidation:
 
     @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
     def test_create_github_integration_cross_user_state_rejected(self, mock_from_install, client: HttpClient):
-        other_user = User.objects.create_and_join(self.organization, "attacker@posthog.com", "test")
+        other_user = User.objects.create_and_join(
+            self.organization, "attacker@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
         client.force_login(other_user)
         # Token belongs to self.user, not other_user
         cache.set(f"github_state:{self.user.id}", "victim-token", timeout=300)
