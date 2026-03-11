@@ -15,6 +15,8 @@ def _basic_saved_query_with_label(label: str):
 
 
 class LinkedListCycleDetectionTest(BaseTest):
+    ll_dag: DAG
+
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
@@ -73,6 +75,8 @@ class LinkedListCycleDetectionTest(BaseTest):
 
 
 class TreeCycleDetectionTest(BaseTest):
+    bt_dag: DAG
+
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()

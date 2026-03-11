@@ -16,6 +16,9 @@ def _basic_saved_query_with_label(label: str):
 
 
 class DagMismatchTest(BaseTest):
+    dag_a: DAG
+    dag_b: DAG
+
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()

@@ -70,6 +70,7 @@ class TestSyncSavedQueryToDag(BaseTest):
         assert node is not None
         self.assertEqual(node.name, "test_view")
         self.assertEqual(node.team, self.team)
+        assert node.dag_fk is not None
         self.assertEqual(node.dag_fk.name, get_dag_id(self.team.id))
         self.assertEqual(node.type, NodeType.VIEW)
         self.assertEqual(node.saved_query, saved_query)
