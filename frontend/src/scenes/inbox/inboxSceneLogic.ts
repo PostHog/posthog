@@ -20,13 +20,13 @@ const REPORTS_PAGE_SIZE = 200
 
 export type DetailTab = 'overview' | 'signals'
 
-const CLUSTERING_POLL_INTERVAL_MS = 5000
+const ANALYSIS_POLL_INTERVAL_MS = 5000
 
 export const inboxSceneLogic = kea<inboxSceneLogicType>([
     path(['scenes', 'inbox', 'inboxSceneLogic']),
 
     connect({
-        values: [signalSourcesLogic, ['hasNoSources', 'isClusteringRunning']],
+        values: [signalSourcesLogic, ['hasNoSources', 'isAnalysisRunning']],
         actions: [signalSourcesLogic, ['loadSourceConfigs']],
     }),
 
@@ -222,12 +222,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             }
         },
         loadSourceConfigsSuccess: () => {
-            clearInterval(cache.clusteringPollInterval)
-            if (values.isClusteringRunning) {
-                cache.clusteringPollInterval = setInterval(() => {
+            clearInterval(cache.analysisPollInterval)
+            if (values.isAnalysisRunning) {
+                cache.analysisPollInterval = setInterval(() => {
                     actions.loadSourceConfigs()
                     actions.loadReports()
-                }, CLUSTERING_POLL_INTERVAL_MS)
+                }, ANALYSIS_POLL_INTERVAL_MS)
             }
         },
         runSessionAnalysis: async () => {
@@ -251,7 +251,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             actions.loadReports()
         },
         beforeUnmount: () => {
-            clearInterval(cache.clusteringPollInterval)
+            clearInterval(cache.analysisPollInterval)
         },
     })),
 
