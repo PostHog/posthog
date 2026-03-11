@@ -103,7 +103,7 @@ run_persons_migrations() {
 
 run_cyclotron_migrations() {
     local db_type="cyclotron"
-    CYCLOTRON_DATABASE_NAME=${CYCLOTRON_DATABASE_NAME:-cyclotron}
+    CYCLOTRON_DATABASE_NAME=${CYCLOTRON_DATABASE_NAME:-posthog}
     CYCLOTRON_DATABASE_URL=${CYCLOTRON_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/$CYCLOTRON_DATABASE_NAME}
 
     log_json "info" "Starting migrations" "starting" "$db_type" "\"database_name\":\"$CYCLOTRON_DATABASE_NAME\",\"fresh_mode\":$FRESH_MODE"
@@ -141,7 +141,7 @@ run_cyclotron_shadow_migrations() {
 
 run_cyclotron_node_migrations() {
     local db_type="cyclotron-node"
-    CYCLOTRON_NODE_DATABASE_NAME=${CYCLOTRON_NODE_DATABASE_NAME:-cyclotron_node}
+    CYCLOTRON_NODE_DATABASE_NAME=${CYCLOTRON_NODE_DATABASE_NAME:-posthog}
     CYCLOTRON_NODE_DATABASE_URL=${CYCLOTRON_NODE_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/$CYCLOTRON_NODE_DATABASE_NAME}
 
     log_json "info" "Starting migrations" "starting" "$db_type" "\"database_name\":\"$CYCLOTRON_NODE_DATABASE_NAME\",\"fresh_mode\":$FRESH_MODE"
