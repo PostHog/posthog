@@ -78,14 +78,25 @@ export function TrendsSeries(): JSX.Element | null {
             <ActionFilter
                 filters={filters}
                 setFilters={(payload: Partial<FilterType>): void => {
-                    updateQuerySource({
-                        series: actionsAndEventsToSeries(
-                            payload as any,
-                            true,
-                            mathAvailability,
-                            isLifecycle ? NodeKind.LifecycleDataWarehouseNode : NodeKind.DataWarehouseNode
-                        ),
-                    } as TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery)
+                    if (isLifecycle) {
+                        updateQuerySource({
+                            series: actionsAndEventsToSeries(
+                                payload as any,
+                                true,
+                                mathAvailability,
+                                NodeKind.LifecycleDataWarehouseNode
+                            ),
+                        } as LifecycleQuery)
+                    } else {
+                        updateQuerySource({
+                            series: actionsAndEventsToSeries(
+                                payload as any,
+                                true,
+                                mathAvailability,
+                                NodeKind.DataWarehouseNode
+                            ),
+                        } as TrendsQuery | FunnelsQuery | StickinessQuery)
+                    }
                 }}
                 typeKey={keyForInsightLogicProps('new')(insightProps)}
                 buttonCopy={`Add graph ${hasFormula ? 'variable' : 'series'}`}

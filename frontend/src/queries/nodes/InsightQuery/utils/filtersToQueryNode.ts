@@ -37,6 +37,7 @@ import {
     RetentionFilter,
     StickinessFilter,
     TrendsFilter,
+    AnyDataWarehouseNode,
 } from '~/queries/schema/schema-general'
 import {
     isFunnelsQuery,
@@ -268,7 +269,7 @@ export function actionsAndEventsToSeries(
     includeProperties: boolean,
     includeMath: MathAvailability,
     dataWarehouseNodeKind: DataWarehouseNodeKind = NodeKind.DataWarehouseNode
-): (AnyEntityNode | GroupNode)[] {
+): (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<AnyDataWarehouseNode>)[] {
     const series: (AnyEntityNode | GroupNode)[] = [
         ...(actions || []),
         ...(events || []),
@@ -393,12 +394,21 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         }
 
         const { events, actions, data_warehouse, groups } = filters
-        query.series = actionsAndEventsToSeries(
-            { actions, events, data_warehouse, groups } as any,
-            includeProperties,
-            includeMath,
-            isLifecycleQuery(query) ? NodeKind.LifecycleDataWarehouseNode : NodeKind.DataWarehouseNode
-        )
+        if (isLifecycleQuery(query)) {
+            query.series = actionsAndEventsToSeries(
+                { actions, events, data_warehouse, groups } as any,
+                includeProperties,
+                includeMath,
+                NodeKind.LifecycleDataWarehouseNode
+            )
+        } else {
+            query.series = actionsAndEventsToSeries(
+                { actions, events, data_warehouse, groups } as any,
+                includeProperties,
+                includeMath,
+                NodeKind.DataWarehouseNode
+            )
+        }
         query.interval = filters.interval
     }
 
