@@ -1402,9 +1402,14 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             )
 
         elif request.method == "POST":
-            context_name = request.data.get("context_name", "").strip().lower()
+            context_name = request.data.get("context_name", "")
+            if not isinstance(context_name, str):
+                return response.Response({"error": "context_name must be a string"}, status=400)
+            context_name = context_name.strip().lower()
             if not context_name:
                 return response.Response({"error": "context_name is required"}, status=400)
+            if len(context_name) > 255:
+                return response.Response({"error": "context_name must be at most 255 characters"}, status=400)
 
             with transaction.atomic():
                 existing = list(TeamDefaultEvaluationContext.objects.filter(team=team).select_for_update())

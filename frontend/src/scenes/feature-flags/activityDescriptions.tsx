@@ -339,6 +339,32 @@ const featureFlagActionsMapping: Record<
 
         return { description: changes }
     },
+    evaluation_contexts: function onEvaluationContexts(change) {
+        const contextsBefore = (change?.before as string[]) || []
+        const contextsAfter = (change?.after as string[]) || []
+        const addedContexts = contextsAfter.filter((c) => contextsBefore.indexOf(c) === -1)
+        const removedContexts = contextsBefore.filter((c) => contextsAfter.indexOf(c) === -1)
+
+        const changes: Description[] = []
+        if (addedContexts.length) {
+            changes.push(
+                <>
+                    added {pluralize(addedContexts.length, 'evaluation context', 'evaluation contexts', false)}{' '}
+                    <ObjectTags tags={addedContexts} saving={false} style={{ display: 'inline' }} staticOnly />
+                </>
+            )
+        }
+        if (removedContexts.length) {
+            changes.push(
+                <>
+                    removed {pluralize(removedContexts.length, 'evaluation context', 'evaluation contexts', false)}{' '}
+                    <ObjectTags tags={removedContexts} saving={false} style={{ display: 'inline' }} staticOnly />
+                </>
+            )
+        }
+
+        return { description: changes }
+    },
     // Suppressed in favor of evaluation_contexts to avoid duplicate activity entries
     evaluation_tags: () => null,
     // fields that are excluded on the backend

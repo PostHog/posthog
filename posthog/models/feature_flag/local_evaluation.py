@@ -38,9 +38,8 @@ from prometheus_client import Counter
 
 from posthog.models.cohort.cohort import Cohort, CohortOrEmpty
 from posthog.models.cohort.util import get_nested_cohort_ids
-from posthog.models.evaluation_context import FeatureFlagEvaluationContext
+from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from posthog.models.feature_flag import FeatureFlag
-from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
 from posthog.models.feature_flag.flags_cache import _compare_flag_fields, get_teams_with_flags_queryset
 from posthog.models.feature_flag.types import FlagFilters, FlagProperty, PropertyFilterType
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -876,11 +875,10 @@ def evaluation_context_changed(sender, instance: "FeatureFlagEvaluationContext",
     transaction.on_commit(lambda: update_team_flags_cache.delay(team_id))
 
 
-# Keep old signal during dual-write period
-@receiver(post_save, sender=FeatureFlagEvaluationTag)
-@receiver(post_delete, sender=FeatureFlagEvaluationTag)
-def evaluation_tag_changed(sender, instance: "FeatureFlagEvaluationTag", **kwargs):
+@receiver(post_save, sender=EvaluationContext)
+def evaluation_context_name_changed(sender, instance: "EvaluationContext", **kwargs):
+    """Invalidate cache when an EvaluationContext's name changes, so flags
+    referencing it pick up the new name on the next evaluation."""
     from posthog.tasks.feature_flags import update_team_flags_cache
 
-    team_id = instance.feature_flag.team_id
-    transaction.on_commit(lambda: update_team_flags_cache.delay(team_id))
+    transaction.on_commit(lambda: update_team_flags_cache.delay(instance.team_id))

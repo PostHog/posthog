@@ -127,8 +127,8 @@ export function FeatureFlagEvaluationTags({
                                     variant="outline"
                                     onClick={handleSaveTags}
                                     disabled={featureFlagLoading}
-                                    tooltip="Save"
-                                    aria-label="Save"
+                                    tooltip="Save tags"
+                                    aria-label="Save tags"
                                 >
                                     <IconCheck />
                                 </ButtonPrimitive>
@@ -136,8 +136,8 @@ export function FeatureFlagEvaluationTags({
                                     type="button"
                                     variant="outline"
                                     onClick={handleCancelTags}
-                                    tooltip="Cancel editing"
-                                    aria-label="Cancel editing"
+                                    tooltip="Cancel editing tags"
+                                    aria-label="Cancel editing tags"
                                 >
                                     <IconX />
                                 </ButtonPrimitive>
@@ -220,8 +220,8 @@ export function FeatureFlagEvaluationTags({
                                     variant="outline"
                                     onClick={handleSaveContexts}
                                     disabled={featureFlagLoading}
-                                    tooltip="Save"
-                                    aria-label="Save"
+                                    tooltip="Save evaluation contexts"
+                                    aria-label="Save evaluation contexts"
                                 >
                                     <IconCheck />
                                 </ButtonPrimitive>
@@ -229,8 +229,8 @@ export function FeatureFlagEvaluationTags({
                                     type="button"
                                     variant="outline"
                                     onClick={handleCancelContexts}
-                                    tooltip="Cancel editing"
-                                    aria-label="Cancel editing"
+                                    tooltip="Cancel editing evaluation contexts"
+                                    aria-label="Cancel editing evaluation contexts"
                                 >
                                     <IconX />
                                 </ButtonPrimitive>
