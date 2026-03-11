@@ -259,12 +259,6 @@ export function getDefaultConfig(): PluginsServerConfig {
             : 'postgres://posthog:posthog@localhost:5432/cyclotron',
 
         CYCLOTRON_SHARD_DEPTH_LIMIT: 1000000,
-        CYCLOTRON_SHADOW_DATABASE_URL: isTestEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_shadow'
-            : isDevEnv()
-              ? 'postgres://posthog:posthog@localhost:5432/cyclotron_shadow'
-              : undefined,
-        CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: false,
         CYCLOTRON_NODE_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
             : isDevEnv()
@@ -276,15 +270,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_CYCLOTRON_TEST_FETCH_BATCH_COUNT: 10,
         CDP_CYCLOTRON_TEST_FETCH_BATCH_SIZE: 50,
         CDP_CYCLOTRON_WARPSTREAM_HTTP_URL: '',
-
-        // Cyclotron Node
-        CYCLOTRON_NODE_MAX_CONNECTIONS: 10,
-        CYCLOTRON_NODE_IDLE_TIMEOUT_MS: 30000,
-        CYCLOTRON_NODE_JANITOR_CLEANUP_BATCH_SIZE: 10000,
-        CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS: 10000,
-        CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: 30000,
-        CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT: 3,
-        CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS: 10000,
 
         // New IngestionConsumer config
         INGESTION_CONSUMER_GROUP_ID: 'events-ingestion-consumer',
