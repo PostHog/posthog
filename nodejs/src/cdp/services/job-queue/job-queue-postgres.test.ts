@@ -85,4 +85,3 @@ describe('CyclotronJobQueue - postgres', () => {
         })
     })
 })
-

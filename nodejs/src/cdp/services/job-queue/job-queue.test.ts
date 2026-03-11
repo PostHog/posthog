@@ -145,7 +145,6 @@ describe('CyclotronJobQueue', () => {
             expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith(invocations)
         })
     })
-
 })
 
 describe('getProducerMapping', () => {

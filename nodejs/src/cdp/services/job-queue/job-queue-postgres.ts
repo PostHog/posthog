@@ -7,7 +7,13 @@ import { chunk } from 'lodash'
 import { DateTime } from 'luxon'
 import { validate as isUuid } from 'uuid'
 
-import { CyclotronJob, CyclotronJobInit, CyclotronJobUpdate, CyclotronManager, CyclotronWorker } from '@posthog/cyclotron'
+import {
+    CyclotronJob,
+    CyclotronJobInit,
+    CyclotronJobUpdate,
+    CyclotronManager,
+    CyclotronWorker,
+} from '@posthog/cyclotron'
 
 import { CyclotronInvocationQueueParametersType } from '~/schema/cyclotron'
 
@@ -287,4 +293,3 @@ function cyclotronJobToInvocation(job: CyclotronJob): CyclotronJobInvocation {
 
     return invocation
 }
-
