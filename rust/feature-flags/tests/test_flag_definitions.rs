@@ -1716,8 +1716,8 @@ async fn test_flag_definitions_billing_limited_returns_402() {
         status, 402,
         "Should return 402 when billing quota is exceeded. Body: {body_text}"
     );
-    assert_eq!(
-        body_text,
-        "Billing limit reached. Please upgrade your plan."
-    );
+    // Response body matches Django's JSON format for SDK compatibility
+    let body: serde_json::Value = serde_json::from_str(&body_text).unwrap();
+    assert_eq!(body["type"], "quota_limited");
+    assert_eq!(body["code"], "payment_required");
 }
