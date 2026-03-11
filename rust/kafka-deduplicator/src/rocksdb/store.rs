@@ -131,7 +131,10 @@ fn rocksdb_options() -> Options {
 
     // Parallelism - limit background jobs to reduce I/O contention
     // With many partitions, too many background jobs can overwhelm disk
-    let max_bg_jobs = std::cmp::min(num_threads as i32, 2);
+    let max_bg_jobs = std::env::var("ROCKSDB_MAX_BACKGROUND_JOBS")
+        .ok()
+        .and_then(|s| s.parse::<i32>().ok())
+        .unwrap_or(std::cmp::min(num_threads as i32, 2));
     opts.increase_parallelism(max_bg_jobs);
     opts.set_max_background_jobs(max_bg_jobs);
 
