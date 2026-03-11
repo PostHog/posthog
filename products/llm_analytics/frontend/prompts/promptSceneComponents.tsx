@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 import { lazy, Suspense } from 'react'
 
-import { IconGitBranch, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
+import { IconColumns, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -77,7 +77,7 @@ export function PromptViewDetails(): JSX.Element {
                         <LemonButton
                             size="xsmall"
                             type={isDiffVisible ? 'primary' : 'secondary'}
-                            icon={<IconGitBranch />}
+                            icon={<IconColumns />}
                             onClick={() => {
                                 if (isDiffVisible) {
                                     setCompareVersion(null)
@@ -87,7 +87,7 @@ export function PromptViewDetails(): JSX.Element {
                                     setCompareVersion(defaultVersion ?? firstOption ?? null)
                                 }
                             }}
-                            data-attr="prompt-compare-versions-button"
+                            data-attr="llma-prompt-compare-versions-button"
                         >
                             Compare versions
                         </LemonButton>
@@ -137,7 +137,7 @@ function PromptDiffView(): JSX.Element {
     const modified = prompt.prompt
 
     return (
-        <div className="mt-2 space-y-3" data-attr="prompt-diff-view">
+        <div className="mt-2 space-y-3" data-attr="llma-prompt-diff-view">
             <div className="flex items-center gap-2">
                 <span className="text-sm text-secondary">Comparing</span>
                 <LemonSelect
@@ -145,7 +145,7 @@ function PromptDiffView(): JSX.Element {
                     value={compareVersion}
                     options={compareVersionOptions}
                     onChange={(value) => setCompareVersion(value)}
-                    data-attr="prompt-diff-version-select"
+                    data-attr="llma-prompt-diff-version-select"
                 />
                 <span className="text-sm text-secondary">with v{currentVersion} (current)</span>
             </div>
@@ -197,7 +197,7 @@ export function PromptRelatedTraces(): JSX.Element {
     }
 
     return (
-        <div className="mt-8" data-attr="prompt-related-traces-section">
+        <div className="mt-8" data-attr="llma-prompt-related-traces-section">
             <div className="mb-4 flex flex-col gap-3">
                 <div className="min-w-0 flex-1">
                     <h3 className="text-lg font-semibold">Related traces</h3>
@@ -217,7 +217,7 @@ export function PromptRelatedTraces(): JSX.Element {
                         type="secondary"
                         to={viewAllTracesUrl}
                         size="small"
-                        data-attr="prompt-view-all-traces-button"
+                        data-attr="llma-prompt-view-all-traces-button"
                     >
                         View all traces
                     </LemonButton>
@@ -250,7 +250,7 @@ export function PromptUsage({ prompt }: { prompt: LLMPrompt }): JSX.Element {
     const { setAnalyticsScope } = useActions(llmPromptLogic)
 
     return (
-        <div data-attr="prompt-usage-container">
+        <div data-attr="llma-prompt-usage-container">
             <LemonBanner type="info" className="mb-4">
                 During the beta period, each prompt fetch is currently charged as a Product analytics event. See the{' '}
                 <Link to="https://posthog.com/pricing" target="_blank">
@@ -418,7 +418,7 @@ export function PromptVersionSidebar({
                                           ? 'border-warning bg-warning-highlight'
                                           : 'border-primary/10 hover:bg-fill-secondary'
                                 }`}
-                                data-attr={`prompt-version-link-${versionPrompt.version}`}
+                                data-attr={`llma-prompt-version-link-${versionPrompt.version}`}
                             >
                                 <div className="mb-1 flex items-center justify-between">
                                     <div className="flex items-center gap-2">
@@ -438,7 +438,7 @@ export function PromptVersionSidebar({
                                         <LemonButton
                                             size="xsmall"
                                             noPadding
-                                            icon={<IconGitBranch />}
+                                            icon={<IconColumns />}
                                             tooltip={
                                                 isCompareTarget
                                                     ? 'Stop comparing'
@@ -449,7 +449,7 @@ export function PromptVersionSidebar({
                                                 e.stopPropagation()
                                                 setCompareVersion(isCompareTarget ? null : versionPrompt.version)
                                             }}
-                                            data-attr={`prompt-compare-version-${versionPrompt.version}`}
+                                            data-attr={`llma-prompt-compare-version-${versionPrompt.version}`}
                                         />
                                     )}
                                 </div>
@@ -470,7 +470,7 @@ export function PromptVersionSidebar({
                         type="secondary"
                         onClick={loadMoreVersions}
                         loading={versionsLoading}
-                        data-attr="prompt-load-more-versions"
+                        data-attr="llma-prompt-load-more-versions"
                     >
                         Load more versions
                     </LemonButton>

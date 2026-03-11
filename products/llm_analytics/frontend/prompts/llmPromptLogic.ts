@@ -218,6 +218,14 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 setPrompt: () => null,
             },
         ],
+        comparePrompt: [
+            null as LLMPrompt | null,
+            {
+                setCompareVersion: (state, { compareVersion }) => (compareVersion === null ? null : state),
+                loadPromptSuccess: () => null,
+                setPrompt: () => null,
+            },
+        ],
     })),
 
     loaders(({ props }) => ({
