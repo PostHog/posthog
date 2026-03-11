@@ -11,7 +11,7 @@ export function IntegrationScopesWarning({
     schema,
 }: {
     integration: IntegrationType
-    schema?: Pick<{ requiredScopes?: string }, 'requiredScopes'>
+    schema?: { requiredScopes?: string }
 }): JSX.Element {
     const getScopes = useMemo((): string[] => {
         const scopes: any[] = []
