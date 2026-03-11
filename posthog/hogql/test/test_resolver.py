@@ -574,43 +574,27 @@ class TestResolver(BaseTest):
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(node) == self.snapshot
 
-    def test_columns_expr_regex(self):
-        node = self._select("select COLUMNS('time') from events")
+    @parameterized.expand(
+        [
+            ("regex", "select COLUMNS('time') from events", ["timestamp"]),
+            ("regex_caret", "select COLUMNS('^event$') from events", ["event"]),
+            ("list", "select COLUMNS(event, timestamp) from events", ["event", "timestamp"]),
+            ("subquery", "select COLUMNS('a') from (select 1 as a1, 2 as a2, 3 as b1)", ["a1", "a2"]),
+        ]
+    )
+    def test_columns_expr_resolves(self, _name: str, query: str, expected_names: list[str]):
+        node = self._select(query)
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         column_names = [
             col.type.name if isinstance(col.type, ast.FieldType) else cast(ast.Alias, col).alias for col in node.select
         ]
-        assert "timestamp" in column_names
-
-    def test_columns_expr_regex_caret(self):
-        node = self._select("select COLUMNS('^event$') from events")
-        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
-        column_names = [
-            col.type.name if isinstance(col.type, ast.FieldType) else cast(ast.Alias, col).alias for col in node.select
-        ]
-        assert column_names == ["event"]
-
-    def test_columns_expr_list(self):
-        node = self._select("select COLUMNS(event, timestamp) from events")
-        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
-        column_names = [
-            col.type.name if isinstance(col.type, ast.FieldType) else cast(ast.Alias, col).alias for col in node.select
-        ]
-        assert column_names == ["event", "timestamp"]
+        assert sorted(column_names) == sorted(expected_names)
 
     def test_columns_expr_no_match_raises(self):
         node = self._select("select COLUMNS('^nonexistent_xyz$') from events")
         with self.assertRaises(QueryError) as e:
             resolve_types(node, self.context, dialect="clickhouse")
         assert "No columns matched" in str(e.exception)
-
-    def test_columns_expr_subquery(self):
-        node = self._select("select COLUMNS('a') from (select 1 as a1, 2 as a2, 3 as b1)")
-        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
-        column_names = [
-            col.type.name if isinstance(col.type, ast.FieldType) else cast(ast.Alias, col).alias for col in node.select
-        ]
-        assert sorted(column_names) == ["a1", "a2"]
 
     def test_lambda_parent_scope(self):
         # does not raise
