@@ -14,13 +14,28 @@ import type { SignalNode } from 'scenes/debug/signals/types'
 import type {
     GithubIssueSignalExtra,
     LlmEvalSignalExtra,
+    SessionProblemSignalExtra,
     SessionSegmentClusterSignalExtra,
     ZendeskTicketSignalExtra,
 } from '~/queries/schema/schema-signals'
 
+const PROBLEM_TYPE_LABELS: Record<
+    SessionProblemSignalExtra['problem_type'],
+    { label: string; type: 'danger' | 'warning' }
+> = {
+    blocking_exception: { label: 'Blocking exception', type: 'danger' },
+    non_blocking_exception: { label: 'Non-blocking exception', type: 'warning' },
+    abandonment: { label: 'Abandonment', type: 'danger' },
+    confusion: { label: 'Confusion', type: 'warning' },
+    failure: { label: 'Failure', type: 'danger' },
+}
+
 export function SignalCard({ signal }: { signal: SignalNode }): JSX.Element {
+    if (isSessionProblemExtra(signal.extra)) {
+        return <SessionProblemSignalCard signal={signal} extra={signal.extra} />
+    }
     if (isSessionReplayExtra(signal.extra)) {
-        return <SessionReplaySignalCard signal={signal} extra={signal.extra} />
+        return <SessionSegmentClusterSignalCard signal={signal} extra={signal.extra} />
     }
     if (isGithubIssueExtra(signal.extra)) {
         return <GithubIssueSignalCard signal={signal} extra={signal.extra} />
@@ -34,7 +49,7 @@ export function SignalCard({ signal }: { signal: SignalNode }): JSX.Element {
     return <GenericSignalCard signal={signal} />
 }
 
-function SessionReplaySignalCard({
+function SessionSegmentClusterSignalCard({
     signal,
     extra,
 }: {
@@ -113,6 +128,55 @@ function SessionReplaySignalCard({
                     )}
                 </>
             )}
+        </div>
+    )
+}
+
+function SessionProblemSignalCard({
+    signal,
+    extra,
+}: {
+    signal: SignalNode
+    extra: SessionProblemSignalExtra
+}): JSX.Element {
+    const problemInfo = PROBLEM_TYPE_LABELS[extra.problem_type] ?? {
+        label: extra.problem_type,
+        type: 'warning' as const,
+    }
+
+    return (
+        <div className="border rounded p-3 bg-surface-primary">
+            <SignalCardHeader signal={signal} label={extra.segment_title} />
+
+            {signal.content && <LemonMarkdown className="text-sm text-secondary mb-2">{signal.content}</LemonMarkdown>}
+
+            <div className="flex items-center gap-2 text-xs text-tertiary mb-2">
+                <LemonTag size="small" type={problemInfo.type}>
+                    {problemInfo.label}
+                </LemonTag>
+            </div>
+
+            <div className="border rounded p-2 bg-surface-secondary">
+                <div className="flex items-start gap-2">
+                    <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 text-xs text-tertiary">
+                            <span className="font-mono">{extra.distinct_id.slice(0, 10)}...</span>
+                            <span>·</span>
+                            <span>
+                                {extra.start_time} – {extra.end_time}
+                            </span>
+                        </div>
+                    </div>
+                    <ViewRecordingButton
+                        sessionId={extra.session_id}
+                        timestamp={extra.session_start_time}
+                        openPlayerIn={RecordingPlayerType.Modal}
+                        size="xsmall"
+                        type="secondary"
+                        label="Play"
+                    />
+                </div>
+            </div>
         </div>
     )
 }
@@ -244,6 +308,12 @@ function SignalCardHeader({ signal, label }: { signal: SignalNode; label?: strin
             </LemonTag>
         </div>
     )
+}
+
+function isSessionProblemExtra(
+    extra: Record<string, unknown>
+): extra is Record<string, unknown> & SessionProblemSignalExtra {
+    return 'session_id' in extra && 'problem_type' in extra && 'segment_title' in extra
 }
 
 function isSessionReplayExtra(

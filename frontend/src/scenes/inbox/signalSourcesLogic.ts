@@ -107,7 +107,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         c.source_type === SignalSourceType.SESSION_ANALYSIS_CLUSTER
                 ) ?? null,
         ],
-        isClusteringRunning: [
+        isAnalysisRunning: [
             (s) => [s.sessionAnalysisConfig],
             (config: SignalSourceConfig | null): boolean => config?.status === SignalSourceConfigStatus.RUNNING,
         ],
