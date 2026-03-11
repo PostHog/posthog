@@ -105,6 +105,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Workflows: () => import('../../products/workflows/frontend/WorkflowsScene'),
     Workflow: () => import('../../products/workflows/frontend/Workflows/WorkflowScene'),
     WorkflowsLibraryTemplate: () => import('../../products/workflows/frontend/TemplateLibrary/MessageTemplate'),
+    CustomerJourneyTemplates: () =>
+        import('../../products/customer_analytics/frontend/scenes/CustomerJourneyTemplatesScene/CustomerJourneyTemplatesScene'),
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -187,6 +189,7 @@ export const productRoutes: Record<string, [string, string]> = {
         'WorkflowsLibraryTemplate',
         'workflowsLibraryTemplateFromMessage',
     ],
+    '/customer_analytics/journeys/templates': ['CustomerJourneyTemplates', 'customerJourneyTemplates'],
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -512,6 +515,7 @@ export const productConfiguration: Record<string, any> = {
     },
     Workflow: { name: 'Workflows', iconType: 'workflows', projectBased: true },
     WorkflowsLibraryTemplate: { name: 'Workflows', iconType: 'workflows', projectBased: true },
+    CustomerJourneyTemplates: { projectBased: true, name: 'New journey' },
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -841,6 +845,7 @@ export const productUrls = {
     workflowsLibraryTemplate: (id?: string): string => `/workflows/library/templates/${id}`,
     workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',
     workflowsLibraryTemplateFromMessage: (id?: string): string => `/workflows/library/templates/new?messageId=${id}`,
+    customerJourneyTemplates: (): string => '/customer_analytics/journeys/templates',
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -1175,7 +1180,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         tags: ['beta'],
         flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS,
         sceneKey: 'CustomerAnalytics',
-        sceneKeys: ['CustomerAnalytics', 'CustomerJourneyBuilder'],
+        sceneKeys: ['CustomerAnalytics', 'CustomerJourneyTemplates', 'CustomerJourneyBuilder'],
     },
     {
         path: 'Dashboards',

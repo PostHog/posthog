@@ -135,7 +135,6 @@ export enum Scene {
     SessionProfile = 'SessionProfile',
     Settings = 'Settings',
     Signup = 'Signup',
-
     Site = 'Site',
     Coupons = 'Coupons',
     Sources = 'Sources',
@@ -185,6 +184,7 @@ export enum Scene {
     TaskDetail = 'TaskDetail',
     TaskTracker = 'TaskTracker',
     OrganizationDeactivated = 'OrganizationDeactivated',
+    CustomerJourneyTemplates = 'CustomerJourneyTemplates',
 }
 
 export type SceneComponent<T> = (props: T) => JSX.Element | null
