@@ -369,7 +369,7 @@ def get_resource(
     incremental_field: str | None = None,
 ) -> EndpointResource:
     config = SENTRY_ENDPOINTS[endpoint]
-    if config.fanout:
+    if config.fanout or endpoint == "issue_tag_values":
         raise ValueError(f"Fan-out endpoint '{endpoint}' must use the fan-out path")
 
     params: dict[str, Any] = {"limit": config.page_size}

@@ -291,7 +291,7 @@ class TestSentrySourceValidation:
             ("project_service_hooks", {"id": "hook-1", "_projects_id": "1", "_projects_slug": "web"}),
         ]
     )
-    @patch("posthog.temporal.data_imports.sources.sentry.sentry.rest_api_resources")
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
     def test_project_fanout_row_format(self, endpoint, child_row, mock_rest_api_resources) -> None:
         mock_rest_api_resources.return_value = [
             _FakeDltResource("projects", [{"id": "1", "slug": "web"}]),
@@ -323,7 +323,7 @@ class TestSentrySourceValidation:
             ("issue_hashes", {"id": "hash-1", "hash": "abc", "_issues_id": "100"}),
         ]
     )
-    @patch("posthog.temporal.data_imports.sources.sentry.sentry.rest_api_resources")
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
     def test_issue_fanout_dependent_resource_row_format(self, endpoint, child_row, mock_rest_api_resources) -> None:
         mock_rest_api_resources.return_value = [
             _FakeDltResource("issues", [{"id": "100"}]),
