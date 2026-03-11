@@ -192,11 +192,9 @@ describe('Hog Functions', { concurrent: false }, () => {
     })
 
     describe('hog-functions-invocations-create tool', () => {
-        // The OpenAPI spec for this action uses the viewset's default HogFunctionSerializer
-        // for the request body, but the actual endpoint expects a HogFunctionInvocationSerializer
-        // with a nested `configuration` field. The generated tool body therefore does not match
-        // what the Django endpoint requires, so invocation calls result in validation errors.
-        // This test documents the current behaviour so regressions are caught.
+        // The tool schema correctly uses HogFunctionInvocationSerializer (configuration, globals, etc.).
+        // This test verifies that omitting the required `configuration` field causes the backend to
+        // reject the call with a 400, as expected.
         it('should reject an invocation with the generated schema (missing configuration)', async () => {
             const created = await createTool.handler(context, {
                 name: `test-fn-${generateUniqueKey('invoke')}`,
@@ -220,11 +218,9 @@ describe('Hog Functions', { concurrent: false }, () => {
     })
 
     describe('hog-functions-rearrange-partial-update tool', () => {
-        // The OpenAPI spec for this action uses the viewset's default HogFunctionSerializer
-        // for the request body, but the actual endpoint expects an `orders` object mapping
-        // function UUIDs to integers. The generated schema does not include an `orders` field,
-        // so rearrange calls always result in a "No orders provided" validation error from Django.
-        // This test documents the current behaviour so regressions are caught.
+        // The tool schema correctly includes the `orders` field from HogFunctionRearrangeSerializer.
+        // This test verifies that omitting `orders` causes the backend to reject with 400
+        // ("No orders provided"), as expected.
         it('should reject when called without orders (schema mismatch)', async () => {
             // Passing no fields produces an empty body — Django rejects with 400 "No orders provided"
             await expect(rearrangeTool.handler(context, {})).rejects.toThrow()
