@@ -8,7 +8,7 @@ category: Function templates
 feature: hog_function_templates
 url_prefix: /pipeline/templates
 tools:
-    function-templates-list:
+    cdp-function-templates-list:
         operation: hog_function_templates_list
         enabled: true
         scopes:
@@ -25,7 +25,7 @@ tools:
             site_destination, site_app, transformation, etc.) via the 'type' query parameter. Results are sorted by
             popularity (number of active functions using each template).
         mcp_version: 1
-    function-templates-retrieve:
+    cdp-function-templates-retrieve:
         operation: hog_function_templates_retrieve
         enabled: true
         scopes:

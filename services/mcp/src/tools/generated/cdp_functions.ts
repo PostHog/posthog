@@ -1,4 +1,4 @@
-// AUTO-GENERATED from products/cdp/mcp/functions.yaml + OpenAPI — do not edit
+// AUTO-GENERATED from products/cdp/mcp/cdp_functions.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
@@ -12,18 +12,18 @@ import {
     HogFunctionsPartialUpdateParams,
     HogFunctionsRearrangePartialUpdateBody,
     HogFunctionsRetrieveParams,
-} from '@/generated/functions/api'
+} from '@/generated/cdp_functions/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const FunctionsListSchema = HogFunctionsListQueryParams
+const CdpFunctionsListSchema = HogFunctionsListQueryParams
 
-const functionsList = (): ToolBase<
-    typeof FunctionsListSchema,
+const cdpFunctionsList = (): ToolBase<
+    typeof CdpFunctionsListSchema,
     Schemas.PaginatedHogFunctionMinimalList & { _posthogUrl: string }
 > => ({
-    name: 'functions-list',
-    schema: FunctionsListSchema,
-    handler: async (context: Context, params: z.infer<typeof FunctionsListSchema>) => {
+    name: 'cdp-functions-list',
+    schema: CdpFunctionsListSchema,
+    handler: async (context: Context, params: z.infer<typeof CdpFunctionsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedHogFunctionMinimalList>({
             method: 'GET',
@@ -47,12 +47,12 @@ const functionsList = (): ToolBase<
     },
 })
 
-const FunctionsCreateSchema = HogFunctionsCreateBody.omit({ _create_in_folder: true })
+const CdpFunctionsCreateSchema = HogFunctionsCreateBody.omit({ _create_in_folder: true })
 
-const functionsCreate = (): ToolBase<typeof FunctionsCreateSchema, Schemas.HogFunction> => ({
-    name: 'functions-create',
-    schema: FunctionsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof FunctionsCreateSchema>) => {
+const cdpFunctionsCreate = (): ToolBase<typeof CdpFunctionsCreateSchema, Schemas.HogFunction> => ({
+    name: 'cdp-functions-create',
+    schema: CdpFunctionsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof CdpFunctionsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.type !== undefined) {
@@ -106,12 +106,12 @@ const functionsCreate = (): ToolBase<typeof FunctionsCreateSchema, Schemas.HogFu
     },
 })
 
-const FunctionsRetrieveSchema = HogFunctionsRetrieveParams.omit({ project_id: true })
+const CdpFunctionsRetrieveSchema = HogFunctionsRetrieveParams.omit({ project_id: true })
 
-const functionsRetrieve = (): ToolBase<typeof FunctionsRetrieveSchema, Schemas.HogFunction> => ({
-    name: 'functions-retrieve',
-    schema: FunctionsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof FunctionsRetrieveSchema>) => {
+const cdpFunctionsRetrieve = (): ToolBase<typeof CdpFunctionsRetrieveSchema, Schemas.HogFunction> => ({
+    name: 'cdp-functions-retrieve',
+    schema: CdpFunctionsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof CdpFunctionsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HogFunction>({
             method: 'GET',
@@ -121,14 +121,14 @@ const functionsRetrieve = (): ToolBase<typeof FunctionsRetrieveSchema, Schemas.H
     },
 })
 
-const FunctionsPartialUpdateSchema = HogFunctionsPartialUpdateParams.omit({ project_id: true }).extend(
+const CdpFunctionsPartialUpdateSchema = HogFunctionsPartialUpdateParams.omit({ project_id: true }).extend(
     HogFunctionsPartialUpdateBody.omit({ deleted: true, _create_in_folder: true }).shape
 )
 
-const functionsPartialUpdate = (): ToolBase<typeof FunctionsPartialUpdateSchema, Schemas.HogFunction> => ({
-    name: 'functions-partial-update',
-    schema: FunctionsPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof FunctionsPartialUpdateSchema>) => {
+const cdpFunctionsPartialUpdate = (): ToolBase<typeof CdpFunctionsPartialUpdateSchema, Schemas.HogFunction> => ({
+    name: 'cdp-functions-partial-update',
+    schema: CdpFunctionsPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof CdpFunctionsPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.type !== undefined) {
@@ -179,12 +179,12 @@ const functionsPartialUpdate = (): ToolBase<typeof FunctionsPartialUpdateSchema,
     },
 })
 
-const FunctionsDeleteSchema = HogFunctionsDestroyParams.omit({ project_id: true })
+const CdpFunctionsDeleteSchema = HogFunctionsDestroyParams.omit({ project_id: true })
 
-const functionsDelete = (): ToolBase<typeof FunctionsDeleteSchema, unknown> => ({
-    name: 'functions-delete',
-    schema: FunctionsDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof FunctionsDeleteSchema>) => {
+const cdpFunctionsDelete = (): ToolBase<typeof CdpFunctionsDeleteSchema, unknown> => ({
+    name: 'cdp-functions-delete',
+    schema: CdpFunctionsDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof CdpFunctionsDeleteSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'PATCH',
@@ -195,17 +195,17 @@ const functionsDelete = (): ToolBase<typeof FunctionsDeleteSchema, unknown> => (
     },
 })
 
-const FunctionsInvocationsCreateSchema = HogFunctionsInvocationsCreateParams.omit({ project_id: true }).extend(
+const CdpFunctionsInvocationsCreateSchema = HogFunctionsInvocationsCreateParams.omit({ project_id: true }).extend(
     HogFunctionsInvocationsCreateBody.shape
 )
 
-const functionsInvocationsCreate = (): ToolBase<
-    typeof FunctionsInvocationsCreateSchema,
+const cdpFunctionsInvocationsCreate = (): ToolBase<
+    typeof CdpFunctionsInvocationsCreateSchema,
     Schemas.HogFunctionInvocation
 > => ({
-    name: 'functions-invocations-create',
-    schema: FunctionsInvocationsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof FunctionsInvocationsCreateSchema>) => {
+    name: 'cdp-functions-invocations-create',
+    schema: CdpFunctionsInvocationsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof CdpFunctionsInvocationsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.configuration !== undefined) {
@@ -232,12 +232,12 @@ const functionsInvocationsCreate = (): ToolBase<
     },
 })
 
-const FunctionsRearrangePartialUpdateSchema = HogFunctionsRearrangePartialUpdateBody
+const CdpFunctionsRearrangePartialUpdateSchema = HogFunctionsRearrangePartialUpdateBody
 
-const functionsRearrangePartialUpdate = (): ToolBase<typeof FunctionsRearrangePartialUpdateSchema, unknown> => ({
-    name: 'functions-rearrange-partial-update',
-    schema: FunctionsRearrangePartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof FunctionsRearrangePartialUpdateSchema>) => {
+const cdpFunctionsRearrangePartialUpdate = (): ToolBase<typeof CdpFunctionsRearrangePartialUpdateSchema, unknown> => ({
+    name: 'cdp-functions-rearrange-partial-update',
+    schema: CdpFunctionsRearrangePartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof CdpFunctionsRearrangePartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.orders !== undefined) {
@@ -253,11 +253,11 @@ const functionsRearrangePartialUpdate = (): ToolBase<typeof FunctionsRearrangePa
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'functions-list': functionsList,
-    'functions-create': functionsCreate,
-    'functions-retrieve': functionsRetrieve,
-    'functions-partial-update': functionsPartialUpdate,
-    'functions-delete': functionsDelete,
-    'functions-invocations-create': functionsInvocationsCreate,
-    'functions-rearrange-partial-update': functionsRearrangePartialUpdate,
+    'cdp-functions-list': cdpFunctionsList,
+    'cdp-functions-create': cdpFunctionsCreate,
+    'cdp-functions-retrieve': cdpFunctionsRetrieve,
+    'cdp-functions-partial-update': cdpFunctionsPartialUpdate,
+    'cdp-functions-delete': cdpFunctionsDelete,
+    'cdp-functions-invocations-create': cdpFunctionsInvocationsCreate,
+    'cdp-functions-rearrange-partial-update': cdpFunctionsRearrangePartialUpdate,
 }

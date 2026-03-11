@@ -9,14 +9,14 @@ import {
     setActiveProjectAndOrg,
     validateEnvironmentVariables,
 } from '@/shared/test-utils'
-import { GENERATED_TOOLS } from '@/tools/generated/function_templates'
+import { GENERATED_TOOLS } from '@/tools/generated/cdp_function_templates'
 import type { Context } from '@/tools/types'
 
 describe('Hog Function Templates', { concurrent: false }, () => {
     let context: Context
 
-    const listTool = GENERATED_TOOLS['function-templates-list']!()
-    const retrieveTool = GENERATED_TOOLS['function-templates-retrieve']!()
+    const listTool = GENERATED_TOOLS['cdp-function-templates-list']!()
+    const retrieveTool = GENERATED_TOOLS['cdp-function-templates-retrieve']!()
 
     beforeAll(async () => {
         validateEnvironmentVariables()
@@ -25,7 +25,7 @@ describe('Hog Function Templates', { concurrent: false }, () => {
         await setActiveProjectAndOrg(context, TEST_PROJECT_ID!, TEST_ORG_ID!)
     })
 
-    describe('function-templates-list tool', () => {
+    describe('cdp-function-templates-list tool', () => {
         it('should return paginated structure with results', async () => {
             const result = await listTool.handler(context, {})
             const data = parseToolResponse(result)
@@ -95,7 +95,7 @@ describe('Hog Function Templates', { concurrent: false }, () => {
         })
     })
 
-    describe('function-templates-retrieve tool', () => {
+    describe('cdp-function-templates-retrieve tool', () => {
         it('should retrieve a template by template_id', async () => {
             const listResult = await listTool.handler(context, { limit: 1 })
             const { results } = parseToolResponse(listResult)

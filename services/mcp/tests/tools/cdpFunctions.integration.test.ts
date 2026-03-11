@@ -10,20 +10,20 @@ import {
     setActiveProjectAndOrg,
     validateEnvironmentVariables,
 } from '@/shared/test-utils'
-import { GENERATED_TOOLS } from '@/tools/generated/functions'
+import { GENERATED_TOOLS } from '@/tools/generated/cdp_functions'
 import type { Context } from '@/tools/types'
 
 describe('Hog Functions', { concurrent: false }, () => {
     let context: Context
     const createdFunctionIds: string[] = []
 
-    const listTool = GENERATED_TOOLS['functions-list']!()
-    const createTool = GENERATED_TOOLS['functions-create']!()
-    const retrieveTool = GENERATED_TOOLS['functions-retrieve']!()
-    const partialUpdateTool = GENERATED_TOOLS['functions-partial-update']!()
-    const deleteTool = GENERATED_TOOLS['functions-delete']!()
-    const invocationsTool = GENERATED_TOOLS['functions-invocations-create']!()
-    const rearrangeTool = GENERATED_TOOLS['functions-rearrange-partial-update']!()
+    const listTool = GENERATED_TOOLS['cdp-functions-list']!()
+    const createTool = GENERATED_TOOLS['cdp-functions-create']!()
+    const retrieveTool = GENERATED_TOOLS['cdp-functions-retrieve']!()
+    const partialUpdateTool = GENERATED_TOOLS['cdp-functions-partial-update']!()
+    const deleteTool = GENERATED_TOOLS['cdp-functions-delete']!()
+    const invocationsTool = GENERATED_TOOLS['cdp-functions-invocations-create']!()
+    const rearrangeTool = GENERATED_TOOLS['cdp-functions-rearrange-partial-update']!()
 
     beforeAll(async () => {
         validateEnvironmentVariables()
@@ -43,7 +43,7 @@ describe('Hog Functions', { concurrent: false }, () => {
         createdFunctionIds.length = 0
     })
 
-    describe('functions-list tool', () => {
+    describe('cdp-functions-list tool', () => {
         it('should return paginated structure', async () => {
             const result = await listTool.handler(context, {})
             const data = parseToolResponse(result)
@@ -73,7 +73,7 @@ describe('Hog Functions', { concurrent: false }, () => {
         })
     })
 
-    describe('functions-create tool', () => {
+    describe('cdp-functions-create tool', () => {
         it('should create a destination hog function', async () => {
             const params = {
                 name: `test-fn-${generateUniqueKey('destination')}`,
@@ -111,7 +111,7 @@ describe('Hog Functions', { concurrent: false }, () => {
         })
     })
 
-    describe('functions-retrieve tool', () => {
+    describe('cdp-functions-retrieve tool', () => {
         it('should retrieve a specific hog function by ID', async () => {
             const created = await createTool.handler(context, {
                 name: `test-fn-${generateUniqueKey('retrieve')}`,
@@ -137,7 +137,7 @@ describe('Hog Functions', { concurrent: false }, () => {
         })
     })
 
-    describe('functions-partial-update tool', () => {
+    describe('cdp-functions-partial-update tool', () => {
         it('should enable and disable a hog function', async () => {
             const created = await createTool.handler(context, {
                 name: `test-fn-${generateUniqueKey('update')}`,
@@ -191,7 +191,7 @@ describe('Hog Functions', { concurrent: false }, () => {
         })
     })
 
-    describe('functions-invocations-create tool', () => {
+    describe('cdp-functions-invocations-create tool', () => {
         // The tool schema correctly uses HogFunctionInvocationSerializer (configuration, globals, etc.).
         // This test verifies that omitting the required `configuration` field causes the backend to
         // reject the call with a 400, as expected.
@@ -217,7 +217,7 @@ describe('Hog Functions', { concurrent: false }, () => {
         })
     })
 
-    describe('functions-rearrange-partial-update tool', () => {
+    describe('cdp-functions-rearrange-partial-update tool', () => {
         // The tool schema correctly includes the `orders` field from HogFunctionRearrangeSerializer.
         // This test verifies that omitting `orders` causes the backend to reject with 400
         // ("No orders provided"), as expected.
