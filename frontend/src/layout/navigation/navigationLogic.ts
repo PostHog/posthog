@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { windowValues } from 'kea-window-values'
 
@@ -45,7 +45,7 @@ export const navigationLogic = kea<navigationLogicType>([
     }),
     loaders(({ values }) => ({
         proxyRecords: {
-            __default: [] as ProxyRecord[],
+            __default: null as null | ProxyRecord[],
             loadRecords: async () => {
                 const response = await api.get(`api/organizations/${values.currentOrganization?.id}/proxy_records`)
                 return response.results
@@ -156,7 +156,11 @@ export const navigationLogic = kea<navigationLogicType>([
                     return 'real_project_with_no_events'
                 } else if (hasEventIngestionRestriction) {
                     return 'event_ingestion_restriction'
-                } else if (!projectNoticesAcknowledged['missing_reverse_proxy'] && proxyRecords.length === 0) {
+                } else if (
+                    !projectNoticesAcknowledged['missing_reverse_proxy'] &&
+                    proxyRecords !== null &&
+                    proxyRecords.length === 0
+                ) {
                     return 'missing_reverse_proxy'
                 } else if (!projectNoticesAcknowledged['invite_teammates'] && memberCount === 1) {
                     return 'invite_teammates'
@@ -171,4 +175,7 @@ export const navigationLogic = kea<navigationLogicType>([
             actions.reportProjectNoticeDismissed(projectNoticeVariant)
         },
     })),
+    afterMount(({ actions }) => {
+        actions.loadRecords()
+    }),
 ])
