@@ -9,7 +9,12 @@ from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.person import READ_DB_FOR_PERSONS, Person
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
-from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
+from posthog.personhog_client.metrics import (
+    PERSONHOG_ROUTING_ERRORS_TOTAL,
+    PERSONHOG_ROUTING_TOTAL,
+    PERSONHOG_TEAM_MISMATCH_TOTAL,
+    get_client_name,
+)
 from posthog.session_recordings.models.metadata import RecordingMatchingEvents, RecordingMetadata
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
@@ -27,11 +32,14 @@ def _fetch_person_by_distinct_id_via_personhog(team_id: int, distinct_id: str) -
         raise RuntimeError("personhog client not configured")
 
     resp = client.get_person_by_distinct_id(GetPersonByDistinctIdRequest(team_id=team_id, distinct_id=distinct_id))
-    if resp.person and resp.person.id:
+    if resp.person and resp.person.id and resp.person.team_id == team_id:
         # Only pass the queried distinct_id — the list endpoint also intentionally
         # sets a single distinct_id to avoid expensive all-distinct-ids lookups.
         # The MinimalPersonSerializer truncates to 10 anyway.
         return proto_person_to_model(resp.person, distinct_ids=[distinct_id])
+    if resp.person and resp.person.id and resp.person.team_id != team_id:
+        PERSONHOG_TEAM_MISMATCH_TOTAL.labels(operation="load_person", client_name=get_client_name()).inc()
+        logger.warning("personhog_team_mismatch", operation="load_person", team_id=team_id, dropped=1)
     return None
 
 
@@ -166,9 +174,7 @@ class SessionRecording(UUIDTModel):
                 PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
                     operation="load_person", source="personhog", error_type="grpc_error", client_name=get_client_name()
                 ).inc()
-                logger.warning(
-                    "personhog_load_person_failure", team_id=self.team.pk, distinct_id=self.distinct_id, exc_info=True
-                )
+                logger.warning("personhog_load_person_failure", team_id=self.team.pk, exc_info=True)
 
         try:
             self.person = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(

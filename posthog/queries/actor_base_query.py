@@ -19,7 +19,12 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.group import Group
 from posthog.models.person import Person
 from posthog.models.person.person import READ_DB_FOR_PERSONS
-from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
+from posthog.personhog_client.metrics import (
+    PERSONHOG_ROUTING_ERRORS_TOTAL,
+    PERSONHOG_ROUTING_TOTAL,
+    PERSONHOG_TEAM_MISMATCH_TOTAL,
+    get_client_name,
+)
 from posthog.queries.insight import insight_sync_execute
 
 logger = structlog.get_logger(__name__)
@@ -272,7 +277,14 @@ def _fetch_people_via_personhog(
     uuids = [str(pid) for pid in people_ids]
     resp = client.get_persons_by_uuids(GetPersonsByUuidsRequest(team_id=team_id, uuids=uuids))
 
-    person_ids = [p.id for p in resp.persons]
+    valid_persons = [p for p in resp.persons if p.id and p.team_id == team_id]
+
+    mismatched = len(resp.persons) - len(valid_persons)
+    if mismatched:
+        PERSONHOG_TEAM_MISMATCH_TOTAL.labels(operation="get_people", client_name=get_client_name()).inc(mismatched)
+        logger.warning("personhog_team_mismatch", operation="get_people", team_id=team_id, dropped=mismatched)
+
+    person_ids = [p.id for p in valid_persons]
     distinct_ids_resp = client.get_distinct_ids_for_persons(
         GetDistinctIdsForPersonsRequest(team_id=team_id, person_ids=person_ids)
     )
@@ -284,7 +296,7 @@ def _fetch_people_via_personhog(
             dids = dids[:distinct_id_limit]
         distinct_ids_by_person[pd.person_id] = dids
 
-    persons = [proto_person_to_model(p, distinct_ids=distinct_ids_by_person.get(p.id, [])) for p in resp.persons]
+    persons = [proto_person_to_model(p, distinct_ids=distinct_ids_by_person.get(p.id, [])) for p in valid_persons]
     persons.sort(key=lambda p: (-(p.created_at.timestamp() if p.created_at else 0), str(p.uuid)))
 
     return persons

@@ -27,7 +27,12 @@ from posthog.models.person.sql import (
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
+from posthog.personhog_client.metrics import (
+    PERSONHOG_ROUTING_ERRORS_TOTAL,
+    PERSONHOG_ROUTING_TOTAL,
+    PERSONHOG_TEAM_MISMATCH_TOTAL,
+    get_client_name,
+)
 from posthog.settings import TEST
 
 logger = structlog.get_logger(__name__)
@@ -218,7 +223,16 @@ def _fetch_persons_by_distinct_ids_via_personhog(team_id: int, distinct_ids: lis
         GetPersonsByDistinctIdsInTeamRequest(team_id=team_id, distinct_ids=distinct_ids)
     )
 
-    valid_results = [r for r in resp.results if r.person and r.person.id]
+    valid_results = [r for r in resp.results if r.person and r.person.id and r.person.team_id == team_id]
+
+    mismatched = len(resp.results) - len(valid_results)
+    if mismatched:
+        PERSONHOG_TEAM_MISMATCH_TOTAL.labels(
+            operation="get_persons_by_distinct_ids", client_name=get_client_name()
+        ).inc(mismatched)
+        logger.warning(
+            "personhog_team_mismatch", operation="get_persons_by_distinct_ids", team_id=team_id, dropped=mismatched
+        )
 
     person_ids = [r.person.id for r in valid_results]
     distinct_ids_resp = client.get_distinct_ids_for_persons(
@@ -289,7 +303,16 @@ def _fetch_persons_by_uuids_via_personhog(team_id: int, uuids: list[str]) -> lis
 
     resp = client.get_persons_by_uuids(GetPersonsByUuidsRequest(team_id=team_id, uuids=uuids))
 
-    person_ids = [p.id for p in resp.persons]
+    valid_persons = [p for p in resp.persons if p.id and p.team_id == team_id]
+
+    mismatched = len(resp.persons) - len(valid_persons)
+    if mismatched:
+        PERSONHOG_TEAM_MISMATCH_TOTAL.labels(operation="get_persons_by_uuids", client_name=get_client_name()).inc(
+            mismatched
+        )
+        logger.warning("personhog_team_mismatch", operation="get_persons_by_uuids", team_id=team_id, dropped=mismatched)
+
+    person_ids = [p.id for p in valid_persons]
     distinct_ids_resp = client.get_distinct_ids_for_persons(
         GetDistinctIdsForPersonsRequest(team_id=team_id, person_ids=person_ids)
     )
@@ -298,7 +321,7 @@ def _fetch_persons_by_uuids_via_personhog(team_id: int, uuids: list[str]) -> lis
     for pd in distinct_ids_resp.person_distinct_ids:
         distinct_ids_by_person[pd.person_id] = [d.distinct_id for d in pd.distinct_ids]
 
-    return [proto_person_to_model(p, distinct_ids=distinct_ids_by_person.get(p.id, [])) for p in resp.persons]
+    return [proto_person_to_model(p, distinct_ids=distinct_ids_by_person.get(p.id, [])) for p in valid_persons]
 
 
 def get_persons_by_uuids(team: Team, uuids: list[str]) -> QuerySet | list[Person]:
