@@ -31,7 +31,7 @@ describe('GeoIp', () => {
         })
 
         it('should return null for lookups if MMDB file is missing', async () => {
-            config.MMDB_FILE_LOCATION = 'non-existent-file.mmdb'
+            service = new GeoIPService('non-existent-file.mmdb')
             const geoip = await service.get()
             expect(geoip).toBeTruthy()
             expect(geoip.city('12.87.118.0')).toBeNull()
