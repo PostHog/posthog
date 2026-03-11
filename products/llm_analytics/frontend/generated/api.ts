@@ -615,7 +615,7 @@ export const getLlmAnalyticsScoreDefinitionsCreateUrl = (projectId: string) => {
 
 export const llmAnalyticsScoreDefinitionsCreate = async (
     projectId: string,
-    scoreDefinitionCreateApi: NonReadonly<ScoreDefinitionCreateApi>,
+    scoreDefinitionCreateApi: ScoreDefinitionCreateApi,
     options?: RequestInit
 ): Promise<ScoreDefinitionApi> => {
     return apiMutator<ScoreDefinitionApi>(getLlmAnalyticsScoreDefinitionsCreateUrl(projectId), {
@@ -648,7 +648,7 @@ export const getLlmAnalyticsScoreDefinitionsPartialUpdateUrl = (projectId: strin
 export const llmAnalyticsScoreDefinitionsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedScoreDefinitionMetadataApi: NonReadonly<PatchedScoreDefinitionMetadataApi>,
+    patchedScoreDefinitionMetadataApi: PatchedScoreDefinitionMetadataApi,
     options?: RequestInit
 ): Promise<ScoreDefinitionApi> => {
     return apiMutator<ScoreDefinitionApi>(getLlmAnalyticsScoreDefinitionsPartialUpdateUrl(projectId, id), {
@@ -666,7 +666,7 @@ export const getLlmAnalyticsScoreDefinitionsNewVersionCreateUrl = (projectId: st
 export const llmAnalyticsScoreDefinitionsNewVersionCreate = async (
     projectId: string,
     id: string,
-    scoreDefinitionNewVersionApi: NonReadonly<ScoreDefinitionNewVersionApi>,
+    scoreDefinitionNewVersionApi: ScoreDefinitionNewVersionApi,
     options?: RequestInit
 ): Promise<ScoreDefinitionApi> => {
     return apiMutator<ScoreDefinitionApi>(getLlmAnalyticsScoreDefinitionsNewVersionCreateUrl(projectId, id), {
