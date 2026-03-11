@@ -1,12 +1,10 @@
 from freezegun import freeze_time
 from posthog.test.base import (
     ClickhouseTestMixin,
-    NonAtomicBaseTest,
+    NonAtomicBaseTestKeepIdentities,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-
-from django.db import connections
 
 from products.error_tracking.backend.hogql_queries.test.test_error_tracking_query_runner import (
     ErrorTrackingQueryRunnerTestsMixin,
@@ -16,40 +14,11 @@ from products.error_tracking.backend.models import ErrorTrackingIssueAssignment
 from ee.models.rbac.role import Role
 
 
-class TestErrorTrackingQueryRunnerV2(ErrorTrackingQueryRunnerTestsMixin, ClickhouseTestMixin, NonAtomicBaseTest):
+class TestErrorTrackingQueryRunnerV2(
+    ErrorTrackingQueryRunnerTestsMixin, ClickhouseTestMixin, NonAtomicBaseTestKeepIdentities
+):
     __test__ = True
     use_v2 = True
-
-    def _fixture_teardown(self):
-        # Use TRUNCATE without RESTART IDENTITY to avoid resetting PG sequences.
-        # Other NonAtomicBaseTest subclasses (e.g. search_issues tests) rely on
-        # incrementing team_ids to isolate their CH data from earlier test runs.
-        for db_name in self._databases_names(include_mirrors=False):  # type: ignore[attr-defined]
-            if db_name in ("persons_db_writer", "persons_db_reader"):
-                conn = connections[db_name]
-                with conn.cursor() as cursor:
-                    cursor.execute("""
-                        SELECT tablename FROM pg_tables
-                        WHERE schemaname = 'public'
-                        AND tablename NOT LIKE 'pg_%'
-                        AND tablename NOT LIKE '_sqlx_%'
-                        AND tablename NOT LIKE '_persons_migrations'
-                    """)
-                    tables = [row[0] for row in cursor.fetchall()]
-                    if tables:
-                        cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} CASCADE")
-            else:
-                conn = connections[db_name]
-                with conn.cursor() as cursor:
-                    cursor.execute("""
-                        SELECT tablename FROM pg_tables
-                        WHERE schemaname = 'public'
-                        AND tablename NOT LIKE 'pg_%'
-                        AND tablename NOT LIKE 'django_%'
-                    """)
-                    tables = [row[0] for row in cursor.fetchall()]
-                    if tables:
-                        cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} CASCADE")
 
     @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
