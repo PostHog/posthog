@@ -172,7 +172,7 @@ export class HogFlowExecutorService {
 
             if (result.finished) {
                 if (result.error) {
-                    this.log(result, 'error', this.logExecutionErrorInfo(result, new Error(result.error)))
+                    this.log(result, 'error', this.logExecutionErrorInfo(result, result.error))
                 } else {
                     this.log(result, 'info', `Workflow completed`)
                 }
