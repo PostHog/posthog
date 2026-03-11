@@ -28,8 +28,9 @@ function QuestionTitle({
     question,
     questionIndex,
     totalResponses = 0,
+    noResponseCount = 0,
     displayedResponsesCount,
-}: Props & { totalResponses?: number; displayedResponsesCount?: number }): JSX.Element {
+}: Props & { totalResponses?: number; noResponseCount?: number; displayedResponsesCount?: number }): JSX.Element {
     const shouldShowAnalyzeButton =
         question.type === SurveyQuestionType.Open ||
         (question.type === SurveyQuestionType.SingleChoice && question.hasOpenChoice) ||
@@ -47,6 +48,12 @@ function QuestionTitle({
         metaParts.push({
             text: `${humanFriendlyNumber(totalResponses)} ${pluralize(totalResponses, 'response', 'responses', false)}`,
             className: 'text-text-secondary',
+        })
+    }
+    if (noResponseCount > 0) {
+        metaParts.push({
+            text: `${humanFriendlyNumber(noResponseCount)} skipped`,
+            className: 'text-muted',
         })
     }
     if (question.type === SurveyQuestionType.Open && displayedResponsesCount !== undefined && totalResponses > 0) {
@@ -231,9 +238,10 @@ export function SurveyQuestionVisualization({ question, questionIndex, demoData 
     }
 
     if (processedData.totalResponses === 0 || processedData.data.length === 0) {
+        const skipCount = 'noResponseCount' in processedData ? processedData.noResponseCount : 0
         return (
             <div className="flex flex-col gap-2">
-                <QuestionTitle question={question} questionIndex={questionIndex} />
+                <QuestionTitle question={question} questionIndex={questionIndex} noResponseCount={skipCount} />
 
                 <SurveyNoResponsesBanner type="question" />
             </div>
@@ -246,6 +254,7 @@ export function SurveyQuestionVisualization({ question, questionIndex, demoData 
                 question={question}
                 questionIndex={questionIndex}
                 totalResponses={processedData.totalResponses}
+                noResponseCount={'noResponseCount' in processedData ? processedData.noResponseCount : 0}
                 displayedResponsesCount={
                     processedData.type === SurveyQuestionType.Open ? processedData.data.length : undefined
                 }

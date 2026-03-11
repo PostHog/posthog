@@ -381,6 +381,65 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             expect(mockGetBlastRadiusPersons).toHaveBeenNthCalledWith(2, team, batchRequest.filters, 5, 'cursor-1')
         })
 
+        it('should stop processing when exceeding max audience size', async () => {
+            const hogFlow = await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'batch',
+                            filters: { properties: [] },
+                        },
+                    })
+                    .build()
+            )
+
+            // Set a low max audience size for testing
+            processor['config'] = { ...processor['config'], CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: 3 }
+
+            // Mock paginated responses that would exceed the limit
+            const mockGetBlastRadiusPersons = jest
+                .fn()
+                .mockResolvedValueOnce({
+                    users_affected: ['person-1', 'person-2'],
+                    cursor: 'cursor-1',
+                    has_more: true,
+                })
+                .mockResolvedValueOnce({
+                    users_affected: ['person-3', 'person-4'],
+                    cursor: 'cursor-2',
+                    has_more: true,
+                })
+                .mockResolvedValueOnce({
+                    users_affected: ['person-5'],
+                    cursor: null,
+                    has_more: false,
+                })
+
+            processor['hogFlowBatchPersonQueryService'].getBlastRadiusPersons = mockGetBlastRadiusPersons
+
+            const batchRequest: BatchHogFlowRequest = {
+                teamId: team.id,
+                hogFlowId: hogFlow.id,
+                parentRunId: new UUIDT().toString(),
+                filters: {
+                    properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
+                },
+            }
+
+            const result = await processor['createHogFlowInvocations']({
+                batchHogFlowRequest: batchRequest,
+                team,
+                hogFlow,
+            })
+
+            // Should have stopped after 2nd batch (4 total > 3 limit), not fetching the 3rd
+            expect(mockGetBlastRadiusPersons).toHaveBeenCalledTimes(2)
+            // Only invocations from the first batch (before exceeding limit) should be included
+            expect(result).toHaveLength(2)
+            expect(result.map((item) => (item as any).person?.id)).toEqual(['person-1', 'person-2'])
+        })
+
         it('should include default variables from hogFlow', async () => {
             const hogFlow = await insertHogFlow(
                 new FixtureHogFlowBuilder()

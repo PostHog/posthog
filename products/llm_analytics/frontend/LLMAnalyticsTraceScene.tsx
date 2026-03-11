@@ -7,12 +7,12 @@ import { useDebouncedCallback } from 'use-debounce'
 
 import {
     IconAIText,
-    IconChat,
     IconChevronLeft,
     IconChevronRight,
     IconComment,
     IconCopy,
     IconMessage,
+    IconPlay,
     IconReceipt,
     IconSearch,
 } from '@posthog/icons'
@@ -864,6 +864,7 @@ const EventContent = React.memo(
         const isGenerationEvent = event && isLLMEvent(event) && event.event === '$ai_generation'
 
         const promptName = event && isLLMEvent(event) ? event.properties['$ai_prompt_name'] : null
+        const promptVersion = event && isLLMEvent(event) ? event.properties['$ai_prompt_version'] : null
         const showPromptButton = !!promptName
 
         const showPlaygroundButton = isGenerationEvent
@@ -875,10 +876,6 @@ const EventContent = React.memo(
         const showSummaryTab =
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-
-        const showClustersTab =
-            !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB] ||
-            !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
         const showFeedbackTab = true
 
@@ -896,7 +893,7 @@ const EventContent = React.memo(
             : undefined
         const { input: loadedInput, output: loadedOutput } = useAIData(eventData)
 
-        const handleTryInPlayground = (): void => {
+        const handleOpenInPlayground = (): void => {
             if (!event || !isLLMEvent(event)) {
                 return
             }
@@ -983,7 +980,14 @@ const EventContent = React.memo(
                                             type="secondary"
                                             size="xsmall"
                                             icon={<IconAIText />}
-                                            to={urls.llmAnalyticsPrompt(promptName)}
+                                            to={
+                                                promptVersion
+                                                    ? combineUrl(
+                                                          urls.llmAnalyticsPrompt(promptName),
+                                                          promptVersion ? { version: String(promptVersion) } : {}
+                                                      ).url
+                                                    : urls.llmAnalyticsPrompt(promptName)
+                                            }
                                             tooltip="View the prompt used for this generation"
                                             data-attr="view-prompt-trace"
                                         >
@@ -994,12 +998,12 @@ const EventContent = React.memo(
                                         <LemonButton
                                             type="secondary"
                                             size="xsmall"
-                                            icon={<IconChat />}
-                                            onClick={handleTryInPlayground}
-                                            tooltip="Try this prompt in the playground"
-                                            data-attr="try-in-playground-trace"
+                                            icon={<IconPlay />}
+                                            onClick={handleOpenInPlayground}
+                                            tooltip="Open in Playground"
+                                            data-attr="llma-playground-open-from-trace"
                                         >
-                                            Try in Playground
+                                            Open in Playground
                                         </LemonButton>
                                     )}
                                     {showSaveToDatasetButton && (
@@ -1167,22 +1171,11 @@ const EventContent = React.memo(
                                           },
                                       ]
                                     : []),
-                                ...(showClustersTab
-                                    ? [
-                                          {
-                                              key: TraceViewMode.Clusters,
-                                              label: (
-                                                  <>
-                                                      Clusters{' '}
-                                                      <LemonTag className="ml-1" type="completion">
-                                                          Alpha
-                                                      </LemonTag>
-                                                  </>
-                                              ),
-                                              content: <ClustersTabContent />,
-                                          },
-                                      ]
-                                    : []),
+                                {
+                                    key: TraceViewMode.Clusters,
+                                    label: 'Clusters',
+                                    content: <ClustersTabContent />,
+                                },
                                 ...(showFeedbackTab
                                     ? [
                                           {

@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-03-04 20:05:41 UTC
+// Generated at: 2026-03-10 20:05:53 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -25,7 +25,6 @@ export type CanonicalProvider =
     | 'chutes-fp8'
     | 'chutes-int4'
     | 'cirrascale'
-    | 'clarifai'
     | 'clarifai-bf16'
     | 'clarifai-fp4'
     | 'cloudflare'
@@ -62,7 +61,7 @@ export type CanonicalProvider =
     | 'infermatic-bf16'
     | 'inflection'
     | 'io-net-bf16'
-    | 'ionstream-bf16'
+    | 'io-net-fp16'
     | 'ionstream-fp8'
     | 'liquid'
     | 'mancer-fp8'

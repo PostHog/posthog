@@ -15,10 +15,8 @@ import {
     FramerInstallation,
     GoInstallation,
     GoogleTagManagerInstallation,
-    HTMLSnippetInstallation,
     IOSInstallation,
     JSEventCapture,
-    JSWebInstallation,
     LaravelInstallation,
     NextJSInstallation,
     NodeEventCapture,
@@ -35,11 +33,11 @@ import {
     SvelteInstallation,
     TanStackInstallation,
     VueInstallation,
+    WebInstallation,
     WebflowInstallation,
 } from '@posthog/shared-onboarding/product-analytics'
 import type { StepDefinition } from '@posthog/shared-onboarding/steps'
 
-import { JSSnippet } from 'lib/components/JSSnippet'
 import { Link } from 'lib/lemon-ui/Link'
 import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 import SetupWizardBanner from 'scenes/onboarding/sdks/sdk-install-instructions/components/SetupWizardBanner'
@@ -68,16 +66,10 @@ interface SDKConfig {
 
 const SDK_CONFIGS: Record<string, SDKConfig> = {
     // Popular
-    [SDKKey.HTML_SNIPPET]: {
-        Installation: HTMLSnippetInstallation,
-        snippets: JS_WEB_SNIPPETS,
-        name: 'HTML snippet',
-        docsLink: 'https://posthog.com/docs/libraries/js',
-    },
     [SDKKey.JS_WEB]: {
-        Installation: JSWebInstallation,
+        Installation: WebInstallation,
         snippets: JS_WEB_SNIPPETS,
-        name: 'JavaScript web',
+        name: 'Web',
         docsLink: 'https://posthog.com/docs/libraries/js',
     },
     [SDKKey.REACT]: {
@@ -256,8 +248,7 @@ const SDK_SELECT_OPTIONS: LemonSelectOptions<string> = [
     {
         title: 'Popular',
         options: [
-            { value: SDKKey.HTML_SNIPPET, label: 'HTML snippet' },
-            { value: SDKKey.JS_WEB, label: 'JavaScript web' },
+            { value: SDKKey.JS_WEB, label: 'Web' },
             { value: SDKKey.REACT, label: 'React' },
             { value: SDKKey.NEXT_JS, label: 'Next.js' },
             { value: SDKKey.PYTHON, label: 'Python' },
@@ -312,7 +303,7 @@ const SDK_SELECT_OPTIONS: LemonSelectOptions<string> = [
 
 export function SDKSetupInstructions(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const [selectedSDK, setSelectedSDK] = useState<string>(SDKKey.HTML_SNIPPET)
+    const [selectedSDK, setSelectedSDK] = useState<string>(SDKKey.JS_WEB)
     const [showFullSetup, setShowFullSetup] = useState(false)
 
     const config = useMemo(() => SDK_CONFIGS[selectedSDK], [selectedSDK])
@@ -331,7 +322,6 @@ export function SDKSetupInstructions(): JSX.Element {
     }
 
     const { Installation, snippets, wizardIntegrationName, docsLink, name } = config
-    const isHTMLSnippet = selectedSDK === SDKKey.HTML_SNIPPET
 
     return (
         <div className="space-y-4 max-w-200">
@@ -344,13 +334,9 @@ export function SDKSetupInstructions(): JSX.Element {
                 options={SDK_SELECT_OPTIONS}
                 className="max-w-80"
             />
-            {isHTMLSnippet ? (
-                <JSSnippet />
-            ) : (
-                <OnboardingDocsContentWrapper snippets={snippets} minimal>
-                    <Installation modifySteps={filterToFirstRequiredStep} />
-                </OnboardingDocsContentWrapper>
-            )}
+            <OnboardingDocsContentWrapper snippets={snippets} minimal>
+                <Installation modifySteps={filterToFirstRequiredStep} />
+            </OnboardingDocsContentWrapper>
             <div className="flex items-center gap-2">
                 <LemonButton type="secondary" size="small" onClick={() => setShowFullSetup(true)}>
                     View full setup instructions

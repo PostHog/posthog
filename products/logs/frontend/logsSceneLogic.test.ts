@@ -90,4 +90,58 @@ describe('logsSceneLogic', () => {
             expect(logic.values.filters.severityLevels).toEqual(expected)
         })
     })
+
+    describe('activeTab URL sync', () => {
+        it('defaults to viewer', () => {
+            expect(logic.values.activeTab).toEqual('viewer')
+        })
+
+        it.each([
+            ['viewer', 'viewer'],
+            ['configuration', 'configuration'],
+        ])('parses valid activeTab "%s" from URL', async (urlValue, expected) => {
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { activeTab: urlValue })
+            }).toFinishAllListeners()
+
+            expect(logic.values.activeTab).toEqual(expected)
+        })
+
+        it.each([
+            ['unknown string', 'invalid'],
+            ['array', ['viewer']],
+            ['object', { key: 'viewer' }],
+            ['number', 42],
+        ])('ignores invalid activeTab (%s)', async (_, urlValue) => {
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { activeTab: urlValue })
+            }).toFinishAllListeners()
+
+            expect(logic.values.activeTab).toEqual('viewer')
+        })
+
+        it('syncs activeTab to URL on setActiveTab', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setActiveTab('configuration')
+            }).toFinishAllListeners()
+
+            expect(logic.values.activeTab).toEqual('configuration')
+            expect(router.values.searchParams).toHaveProperty('activeTab', 'configuration')
+        })
+
+        it('removes activeTab from URL when set to default', async () => {
+            // First set to non-default
+            await expectLogic(logic, () => {
+                logic.actions.setActiveTab('configuration')
+            }).toFinishAllListeners()
+
+            // Then set back to default
+            await expectLogic(logic, () => {
+                logic.actions.setActiveTab('viewer')
+            }).toFinishAllListeners()
+
+            expect(logic.values.activeTab).toEqual('viewer')
+            expect(router.values.searchParams).not.toHaveProperty('activeTab')
+        })
+    })
 })
