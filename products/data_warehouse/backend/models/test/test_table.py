@@ -2,6 +2,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
@@ -596,3 +597,51 @@ class TestTable(BaseTest):
 
         with self.assertRaises(Exception):
             table.hogql_definition()
+
+    @parameterized.expand(
+        [
+            (
+                "credential_error",
+                "DB::Exception: The AWS Access Key Id you provided does not exist in our records.",
+                499,
+                "The Access Key you provided does not exist",
+            ),
+            (
+                "archived_storage_class",
+                "DB::Exception: The operation is not valid for the object's storage class. (S3_ERROR)",
+                499,
+                "Some files in the bucket are archived",
+            ),
+            (
+                "access_denied",
+                "DB::Exception: Access Denied: while reading key: some/path/file.parquet",
+                499,
+                "Access was denied when reading the provided file",
+            ),
+            (
+                "no_such_bucket",
+                "DB::Exception: S3 exception: `NoSuchBucket`, message: 'The specified bucket does not exist.'",
+                499,
+                "The provided bucket doesn't exist",
+            ),
+            (
+                "empty_csv",
+                "Cannot extract table structure from CSV format file, because there are no files with provided path in S3 or all files are empty",
+                499,
+                "The provided file doesn't exist in the bucket",
+            ),
+        ]
+    )
+    def test_safe_expose_ch_error(self, _name, error_message, error_code, expected_message):
+        credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_table",
+            url_pattern="https://example.com/test.parquet",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+            credential=credential,
+        )
+
+        with pytest.raises(Exception, match=expected_message):
+            table._safe_expose_ch_error(ServerException(message=error_message, code=error_code))

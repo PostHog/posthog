@@ -157,6 +157,59 @@ class ExperimentQueryBuilder:
         assert isinstance(query, ast.SelectQuery)
         return query
 
+    def get_daily_exposures_from_precomputed(self, job_ids: list[str]) -> ast.SelectQuery:
+        """
+        Reads from the precomputed table and aggregates into day/variant/count.
+        Used by the Exposures tab in the experiment UI.
+        """
+        entity_id_expr = (
+            parse_expr("toUUID(t.entity_id)") if self.entity_key == "person_id" else parse_expr("t.entity_id")
+        )
+
+        if self.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
+            variant_expr = parse_expr("argMin(t.variant, t.first_exposure_time)")
+        else:
+            variant_expr = parse_expr(
+                "if(uniqExact(t.variant) > 1, {multiple_key}, argMin(t.variant, t.first_exposure_time))",
+                placeholders={"multiple_key": ast.Constant(value=MULTIPLE_VARIANT_KEY)},
+            )
+
+        query = parse_select(
+            """
+            WITH deduplicated AS (
+                SELECT
+                    {entity_id_expr} AS entity_id,
+                    {variant_expr} AS variant,
+                    min(t.first_exposure_time) AS first_exposure_time
+                FROM experiment_exposures_preaggregated AS t
+                WHERE t.job_id IN {job_ids}
+                    AND t.team_id = {team_id}
+                    AND t.first_exposure_time >= {date_from}
+                    AND t.first_exposure_time <= {date_to}
+                GROUP BY entity_id
+            )
+            SELECT
+                toDate(toString(first_exposure_time)) AS day,
+                variant AS variant,
+                count(entity_id) AS exposed_count
+            FROM deduplicated
+            WHERE notEmpty(variant)
+            GROUP BY day, variant
+            ORDER BY day ASC
+            """,
+            placeholders={
+                "entity_id_expr": entity_id_expr,
+                "variant_expr": variant_expr,
+                "job_ids": ast.Constant(value=job_ids),
+                "team_id": ast.Constant(value=self.team.id),
+                "date_from": self.date_range_query.date_from_as_hogql(),
+                "date_to": self.date_range_query.date_to_as_hogql(),
+            },
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
     def _get_conversion_window_seconds(self) -> int:
         """
         Returns the conversion window in seconds for the current metric.

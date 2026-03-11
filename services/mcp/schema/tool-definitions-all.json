@@ -867,66 +867,6 @@
             "readOnlyHint": true
         }
     },
-    "prompt-list": {
-        "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns summary info (id, name, version, timestamps) without full prompt content.",
-        "category": "Prompts",
-        "feature": "prompts",
-        "summary": "List all team prompts.",
-        "title": "List prompts",
-        "required_scopes": ["llm_prompt:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "prompt-get": {
-        "description": "Get a specific LLM prompt by name, including its full content. Uses the cached endpoint for fast retrieval.",
-        "category": "Prompts",
-        "feature": "prompts",
-        "summary": "Get a prompt by name.",
-        "title": "Get prompt",
-        "required_scopes": ["llm_prompt:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "prompt-create": {
-        "description": "Create a new LLM prompt for the current team. Requires a unique name and prompt content (string or JSON object).",
-        "category": "Prompts",
-        "feature": "prompts",
-        "summary": "Create a new prompt.",
-        "title": "Create prompt",
-        "required_scopes": ["llm_prompt:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "prompt-update": {
-        "description": "Update the content of an existing LLM prompt by name. Looks up the prompt by name, then patches its content. Name is immutable after creation.",
-        "category": "Prompts",
-        "feature": "prompts",
-        "summary": "Update an existing prompt.",
-        "title": "Update prompt",
-        "required_scopes": ["llm_prompt:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "execute-sql": {
         "description": "Use this tool to execute an SQL query (or HogQL, which is PostHog's variant of SQL that supports most of ClickHouse SQL). We're going to use terms \"HogQL\" and \"SQL\" interchangeably. For more information, see the posthog-query-data skill.\nBEFORE writing any query, you should follow these steps:\n1. Call posthog:read-data-warehouse-schema to discover available tables, views, columns, and their types. Do NOT guess table or column names.\n2. Call posthog:read-data-schema to discover available events, properties, and property values. Do NOT rely on training data or PostHog defaults.\n3. Only after completing steps 1 and 2, write and execute your SQL query using verified table and column names.\nAn example query to retrieve columns of a custom data warehouse table:\n```sql\nSELECT columns FROM system.data_warehouse_tables WHERE name = 'my_table'\n```\nIMPORTANT: By default, large JSON values in results (like full `properties` objects) are truncated. If you anticipate that results might be large or you are selecting the full `properties` object (e.g., `SELECT properties FROM events`), you should dump the results to a file instead of outputting them directly. Use bash commands to process the file. Alternatively, cherry-pick only the specific properties you need (e.g., `properties.$browser`) instead of selecting the entire object.",
         "category": "SQL",
@@ -1182,10 +1122,70 @@
             "readOnlyHint": false
         }
     },
+    "prompt-list": {
+        "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt summaries.",
+        "category": "Prompts",
+        "feature": "prompts",
+        "summary": "List prompts",
+        "title": "List prompts",
+        "required_scopes": ["llm_prompt:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "prompt-get": {
+        "description": "Get a specific LLM prompt by name, including its full content. Uses the cached endpoint for fast retrieval.",
+        "category": "Prompts",
+        "feature": "prompts",
+        "summary": "Get prompt",
+        "title": "Get prompt",
+        "required_scopes": ["llm_prompt:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "prompt-create": {
+        "description": "Create a new LLM prompt for the current team. Requires a unique name and prompt content (string or JSON object).",
+        "category": "Prompts",
+        "feature": "prompts",
+        "summary": "Create prompt",
+        "title": "Create prompt",
+        "required_scopes": ["llm_prompt:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "prompt-update": {
+        "description": "Publish a new version of an existing LLM prompt by name. Name is immutable after creation.",
+        "category": "Prompts",
+        "feature": "prompts",
+        "summary": "Update prompt",
+        "title": "Update prompt",
+        "required_scopes": ["llm_prompt:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "workflows-list": {
         "description": "List all workflows in the project. Returns workflows with their name, description, status (draft/active/archived), version, trigger configuration, and timestamps.",
         "category": "Workflows",
-        "feature": "hog_flows",
+        "feature": "workflows",
         "summary": "List workflows",
         "title": "List workflows",
         "required_scopes": ["hog_flow:read"],
@@ -1200,7 +1200,7 @@
     "workflows-get": {
         "description": "Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit condition, and variables.",
         "category": "Workflows",
-        "feature": "hog_flows",
+        "feature": "workflows",
         "summary": "Get workflow",
         "title": "Get workflow",
         "required_scopes": ["hog_flow:read"],
