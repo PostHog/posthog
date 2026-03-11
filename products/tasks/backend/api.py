@@ -931,7 +931,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 async for event in redis_stream.read_stream():
                     yield f"data: {json.dumps(event)}\n\n".encode()
             except TaskRunStreamError as e:
-                yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n".encode()
+                logger.error("TaskRunRedisStream error for stream %s: %s", stream_key, e, exc_info=True)
+                yield b'event: error\ndata: {"error": "Stream error"}\n\n'
 
         return StreamingHttpResponse(
             async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_to_sync(lambda: async_stream()),
