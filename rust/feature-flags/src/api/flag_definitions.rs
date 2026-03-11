@@ -398,60 +398,19 @@ fn has_billable_flags(response: &Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
     use serde_json::json;
 
-    #[test]
-    fn test_has_billable_flags_regular_flags() {
-        let response = json!({"flags": [{"key": "my-feature"}, {"key": "another-flag"}]});
-        assert!(has_billable_flags(&response));
-    }
-
-    #[test]
-    fn test_has_billable_flags_only_survey_flags() {
-        let response = json!({"flags": [
-            {"key": "survey-targeting-abc"},
-            {"key": "survey-targeting-xyz"},
-        ]});
-        assert!(!has_billable_flags(&response));
-    }
-
-    #[test]
-    fn test_has_billable_flags_only_product_tour_flags() {
-        let response = json!({"flags": [
-            {"key": "product-tour-targeting-abc"},
-            {"key": "product-tour-targeting-xyz"},
-        ]});
-        assert!(!has_billable_flags(&response));
-    }
-
-    #[test]
-    fn test_has_billable_flags_mixed_survey_and_regular() {
-        let response = json!({"flags": [
-            {"key": "survey-targeting-abc"},
-            {"key": "my-feature"},
-        ]});
-        assert!(has_billable_flags(&response));
-    }
-
-    #[test]
-    fn test_has_billable_flags_empty_flags_array() {
-        let response = json!({"flags": []});
-        assert!(!has_billable_flags(&response));
-    }
-
-    #[test]
-    fn test_has_billable_flags_no_flags_key() {
-        let response = json!({"cohorts": {}});
-        assert!(!has_billable_flags(&response));
-    }
-
-    #[test]
-    fn test_has_billable_flags_only_survey_and_tour_flags() {
-        let response = json!({"flags": [
-            {"key": "survey-targeting-abc"},
-            {"key": "product-tour-targeting-xyz"},
-        ]});
-        assert!(!has_billable_flags(&response));
+    #[rstest]
+    #[case::regular_flags(json!({"flags": [{"key": "my-feature"}, {"key": "another-flag"}]}), true)]
+    #[case::only_survey_flags(json!({"flags": [{"key": "survey-targeting-abc"}, {"key": "survey-targeting-xyz"}]}), false)]
+    #[case::only_product_tour_flags(json!({"flags": [{"key": "product-tour-targeting-abc"}]}), false)]
+    #[case::mixed_survey_and_regular(json!({"flags": [{"key": "survey-targeting-abc"}, {"key": "my-feature"}]}), true)]
+    #[case::empty_flags_array(json!({"flags": []}), false)]
+    #[case::no_flags_key(json!({"cohorts": {}}), false)]
+    #[case::only_survey_and_tour_flags(json!({"flags": [{"key": "survey-targeting-abc"}, {"key": "product-tour-targeting-xyz"}]}), false)]
+    fn test_has_billable_flags(#[case] response: Value, #[case] expected: bool) {
+        assert_eq!(has_billable_flags(&response), expected);
     }
 
     #[test]
