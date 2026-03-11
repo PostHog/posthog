@@ -6,7 +6,6 @@ import { useMemo, useState } from 'react'
 import { IconGear, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 
@@ -47,7 +46,7 @@ export const MarketingAnalyticsTable = ({
     const { setQuery } = useActions(marketingAnalyticsTableLogic)
     const { showColumnConfigModal, setDrillDownLevel } = useActions(marketingAnalyticsLogic)
     const { drillDownLevel } = useValues(marketingAnalyticsLogic)
-    const hasDrillDown = useFeatureFlag(FEATURE_FLAGS.MARKETING_ANALYTICS_DRILL_DOWN)
+    const hasDrillDown = useFeatureFlag('MARKETING_ANALYTICS_DRILL_DOWN')
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
 
     const [searchTerm, setSearchTerm] = useState('')
