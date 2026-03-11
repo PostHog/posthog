@@ -398,10 +398,10 @@ func (m Model) applySize() Model {
 	if ptyW < 1 {
 		ptyW = 1
 	}
-	// Reduce the viewport width by 3 chars to account for the borders
-	vpW := ptyW - 3
+	// Reduce the viewport width by 2 chars for left/right borders, plus 1 for right border overlap
+	vpW := ptyW - horizontalBorderCount
 	if m.copyMode {
-		vpW = m.width - 3
+		vpW = m.width - horizontalBorderCount
 	}
 
 	if !m.ready {
@@ -679,7 +679,37 @@ func (m Model) renderOutput() string {
 	} else {
 		style = borderStyle
 	}
-	return style.Render(m.viewport.View())
+	content := lipgloss.JoinHorizontal(lipgloss.Top, m.viewportWithIndicator())
+	return style.Render(content)
+}
+
+// Overlays a -line counter in the top-right corner of the viewport
+func (m Model) viewportWithIndicator() string {
+	view := m.viewport.View()
+	total := m.viewport.TotalLineCount()
+	if total <= m.viewport.Height() {
+		return view
+	}
+
+	scrollLines := total - m.viewport.YOffset() - m.viewport.Height()
+	if scrollLines <= 0 {
+		return view
+	}
+
+	indicator := scrollIndicatorStyle.Render(fmt.Sprintf("-%d", scrollLines))
+	indicatorW := lipgloss.Width(indicator)
+
+	lines := strings.Split(view, "\n")
+	if len(lines) == 0 {
+		return view
+	}
+	firstLine := lines[0]
+	firstLineW := lipgloss.Width(firstLine)
+	if firstLineW >= indicatorW {
+		// Tuncate the first line to make room for the indicator
+		lines[0] = ansi.Truncate(firstLine, firstLineW-indicatorW, "") + indicator
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m Model) renderFooter() string {
