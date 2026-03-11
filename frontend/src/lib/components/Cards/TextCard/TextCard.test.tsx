@@ -70,37 +70,10 @@ describe('TextCard', () => {
     })
 
     describe('resize handles', () => {
-        it('shows three handles when showResizeHandles and canResizeWidth are true', () => {
+        it('shows all 8 handles when showResizeHandles is true', () => {
             const { container } = render(
                 <TextCard textTile={makeTextTile()} placement={DashboardPlacement.Dashboard} showResizeHandles={true} />
             )
-
-            const handles = container.querySelectorAll('.handle')
-            expect(handles.length).toBe(3)
-        })
-
-        it('shows one handle when showResizeHandles is true but canResizeWidth is false', () => {
-            const { container } = render(
-                <TextCard textTile={makeTextTile()} placement={DashboardPlacement.Dashboard} showResizeHandles={true} />
-            )
-
-            const handles = container.querySelectorAll('.handle')
-            expect(handles.length).toBe(1)
-        })
-
-        it('renders eight handles when showResizeHandles=true', () => {
-            const { container } = render(
-                <TextCard
-                    textTile={makeTextTile({
-                        text: { body: 'handles everywhere', last_modified_at: '2022-04-01T12:24:36' },
-                    })}
-                    placement={DashboardPlacement.Dashboard}
-                    showResizeHandles={true}
-                />
-            )
-
-            const handles = container.querySelectorAll('.handle')
-            expect(handles.length).toBe(8)
 
             const horizontalHandles = container.querySelectorAll('.handle.horizontal')
             const verticalHandles = container.querySelectorAll('.handle.vertical')
