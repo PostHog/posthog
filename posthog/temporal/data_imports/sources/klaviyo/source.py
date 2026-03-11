@@ -8,11 +8,13 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import KlaviyoSourceConfig
 from posthog.temporal.data_imports.sources.klaviyo.klaviyo import (
+    KlaviyoResumeConfig,
     klaviyo_source,
     validate_credentials as validate_klaviyo_credentials,
 )
@@ -22,7 +24,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class KlaviyoSource(SimpleSource[KlaviyoSourceConfig]):
+class KlaviyoSource(ResumableSource[KlaviyoSourceConfig, KlaviyoResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.KLAVIYO
@@ -86,12 +88,20 @@ Make sure to grant the following read permissions:
 
         return False, "Invalid Klaviyo API key"
 
-    def source_for_pipeline(self, config: KlaviyoSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[KlaviyoResumeConfig]:
+        return ResumableSourceManager[KlaviyoResumeConfig](inputs, KlaviyoResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: KlaviyoSourceConfig,
+        resumable_source_manager: ResumableSourceManager[KlaviyoResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         return klaviyo_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            team_id=inputs.team_id,
-            job_id=inputs.job_id,
+            logger=inputs.logger,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
