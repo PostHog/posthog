@@ -13,7 +13,6 @@ Run via Claude Code's .mcp.json (invoked automatically by the MCP client):
 
 from __future__ import annotations
 
-import glob
 import json
 import re
 from pathlib import Path
@@ -29,21 +28,16 @@ mcp = FastMCP(
     ),
 )
 
-_LOG_GLOB = "/tmp/posthog-*.log"
-_STATUS_GLOB = "/tmp/posthog-*.json"
 _STATUS_DIR = Path("/tmp")
 
 
 def _process_names_from_status() -> list[str]:
     """Return process names that have a status file."""
-    files = sorted(glob.glob(_STATUS_GLOB))
-    names = []
-    for f in files:
-        stem = Path(f).stem  # e.g. "posthog-backend"
-        name = stem.removeprefix("posthog-")
-        if name:
-            names.append(name)
-    return names
+    return [
+        name
+        for p in sorted(_STATUS_DIR.glob("posthog-*.json"))
+        if (name := p.stem.removeprefix("posthog-"))
+    ]
 
 
 def _read_status(process_name: str) -> dict[str, Any]:

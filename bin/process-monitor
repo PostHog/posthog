@@ -76,7 +76,7 @@ class ProcessMonitor:
                 self.status["status"] = "running"
                 self._write_status()
 
-                assert self.proc.stdout
+                assert self.proc.stdout  # always set when stdout=PIPE
                 for line in self.proc.stdout:
                     # Forward to our stdout so phrocs/mprocs TUI still works.
                     sys.stdout.write(line)

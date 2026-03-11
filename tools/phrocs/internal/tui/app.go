@@ -554,12 +554,19 @@ func (m Model) renderHeader() string {
 		}
 	}
 
-	spacerW := m.width - lipgloss.Width(stripesStyle) - lipgloss.Width(brand) - lipgloss.Width(meta)
+	var procInfo string
+	if p := m.activeProc(); p != nil {
+		if pid := p.PID(); pid > 0 {
+			procInfo = headerMetaStyle.Render(fmt.Sprintf("PID %d", pid))
+		}
+	}
+
+	spacerW := m.width - lipgloss.Width(stripesStyle) - lipgloss.Width(brand) - lipgloss.Width(procInfo) - lipgloss.Width(meta)
 	if spacerW < 0 {
 		spacerW = 0
 	}
 	spacer := lipgloss.NewStyle().Width(spacerW).Render("")
-	return lipgloss.JoinHorizontal(lipgloss.Top, stripesStyle, brand, spacer, meta)
+	return lipgloss.JoinHorizontal(lipgloss.Top, stripesStyle, brand, spacer, procInfo, "•", meta)
 }
 
 func (m Model) renderSidebar() string {

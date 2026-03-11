@@ -321,6 +321,16 @@ func (p *Process) Restart(send func(tea.Msg)) {
 	_ = p.Start(send)
 }
 
+// PID returns the OS PID of the running process, or 0 if not started.
+func (p *Process) PID() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.cmd != nil && p.cmd.Process != nil {
+		return p.cmd.Process.Pid
+	}
+	return 0
+}
+
 // Updates the pty window size to keep output correctly reflowed
 func (p *Process) Resize(cols, rows uint16) {
 	p.mu.Lock()
