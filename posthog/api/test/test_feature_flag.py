@@ -24,7 +24,7 @@ from rest_framework import status
 from posthog import redis
 from posthog.api.cohort import get_cohort_actors_for_feature_flag
 from posthog.api.feature_flag import FeatureFlagSerializer, extract_etag_from_header
-from posthog.models import Experiment, FeatureFlag, GroupTypeMapping, Tag, TaggedItem, User
+from posthog.models import Experiment, FeatureFlag, GroupTypeMapping, TaggedItem, User
 from posthog.models.cohort import Cohort
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlagDashboards, get_feature_flags_for_team_in_cache
@@ -9096,13 +9096,13 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         tag_names = sorted([item.tag.name for item in tagged_items])
         self.assertEqual(tag_names, ["app", "docs", "marketing"])
 
-        # Check that evaluation tags are created
-        from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
+        # Check that evaluation contexts are created (using new model)
+        from posthog.models.evaluation_context import FeatureFlagEvaluationContext
 
-        eval_tags = FeatureFlagEvaluationTag.objects.filter(feature_flag=flag)
-        self.assertEqual(eval_tags.count(), 2)
-        eval_tag_names = sorted([tag.tag.name for tag in eval_tags])
-        self.assertEqual(eval_tag_names, ["app", "docs"])
+        eval_contexts = FeatureFlagEvaluationContext.objects.filter(feature_flag=flag)
+        self.assertEqual(eval_contexts.count(), 2)
+        eval_context_names = sorted([ctx.evaluation_context.name for ctx in eval_contexts])
+        self.assertEqual(eval_context_names, ["app", "docs"])
 
     @pytest.mark.ee
     def test_update_feature_flag_evaluation_tags(self):
@@ -9125,13 +9125,13 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
+        from posthog.models.evaluation_context import FeatureFlagEvaluationContext
 
-        eval_tags = FeatureFlagEvaluationTag.objects.filter(feature_flag=flag)
-        self.assertEqual(eval_tags.count(), 1)
-        first_tag = eval_tags.first()
-        assert first_tag is not None
-        self.assertEqual(first_tag.tag.name, "app")
+        eval_contexts = FeatureFlagEvaluationContext.objects.filter(feature_flag=flag)
+        self.assertEqual(eval_contexts.count(), 1)
+        first_context = eval_contexts.first()
+        assert first_context is not None
+        self.assertEqual(first_context.evaluation_context.name, "app")
 
         # Update evaluation tags
         response = self.client.patch(
@@ -9144,11 +9144,10 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        eval_tags = FeatureFlagEvaluationTag.objects.filter(feature_flag=flag)
-        self.assertEqual(eval_tags.count(), 2)
-        # eval_tags is a QuerySet[FeatureFlagEvaluationTag]; materialize to list for mypy
-        eval_tag_names = sorted([tag.tag.name for tag in list(eval_tags)])
-        self.assertEqual(eval_tag_names, ["docs", "marketing"])
+        eval_contexts = FeatureFlagEvaluationContext.objects.filter(feature_flag=flag)
+        self.assertEqual(eval_contexts.count(), 2)
+        eval_context_names = sorted([ctx.evaluation_context.name for ctx in list(eval_contexts)])
+        self.assertEqual(eval_context_names, ["docs", "marketing"])
 
     @pytest.mark.ee
     def test_remove_all_evaluation_tags(self):
@@ -9170,9 +9169,9 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
             format="json",
         )
 
-        from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
+        from posthog.models.evaluation_context import FeatureFlagEvaluationContext
 
-        self.assertEqual(FeatureFlagEvaluationTag.objects.filter(feature_flag=flag).count(), 2)
+        self.assertEqual(FeatureFlagEvaluationContext.objects.filter(feature_flag=flag).count(), 2)
 
         # Remove all evaluation tags but keep regular tags
         response = self.client.patch(
@@ -9185,8 +9184,8 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        # Evaluation tags should be removed
-        self.assertEqual(FeatureFlagEvaluationTag.objects.filter(feature_flag=flag).count(), 0)
+        # Evaluation contexts should be removed
+        self.assertEqual(FeatureFlagEvaluationContext.objects.filter(feature_flag=flag).count(), 0)
 
         # Regular tags should still exist
         tagged_items = TaggedItem.objects.filter(feature_flag=flag)
@@ -9195,7 +9194,7 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
     @pytest.mark.ee
     def test_evaluation_tags_in_minimal_serializer(self):
         from posthog.api.feature_flag import MinimalFeatureFlagSerializer
-        from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
+        from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -9205,12 +9204,12 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
             created_by=self.user,
         )
 
-        # Create tags and evaluation tags
-        app_tag = Tag.objects.create(name="app", team_id=self.team.id)
-        docs_tag = Tag.objects.create(name="docs", team_id=self.team.id)
+        # Create evaluation contexts (using new model)
+        app_context = EvaluationContext.objects.create(name="app", team=self.team)
+        docs_context = EvaluationContext.objects.create(name="docs", team=self.team)
 
-        FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=app_tag)
-        FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=docs_tag)
+        FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=app_context)
+        FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=docs_context)
 
         serializer = MinimalFeatureFlagSerializer(flag)
         data = serializer.data

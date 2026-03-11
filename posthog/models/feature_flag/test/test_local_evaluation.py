@@ -7,7 +7,7 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagEvaluationTag
+from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.feature_flag.local_evaluation import (
     FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
     FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG,
@@ -214,42 +214,8 @@ class TestLocalEvaluationCache(BaseTest):
 class TestLocalEvaluationSignals(BaseTest):
     @patch("posthog.tasks.feature_flags.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())
-    def test_signal_fired_on_evaluation_tag_create(self, mock_task):
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            key="test-flag",
-            created_by=self.user,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        mock_task.reset_mock()
-
-        tag = Tag.objects.create(team=self.team, name="docs-page")
-        FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=tag)
-
-        mock_task.delay.assert_called_once_with(self.team.id)
-
-    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
-    @patch("django.db.transaction.on_commit", lambda fn: fn())
-    def test_signal_fired_on_evaluation_tag_delete(self, mock_task):
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            key="test-flag",
-            created_by=self.user,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-        tag = Tag.objects.create(team=self.team, name="docs-page")
-        eval_tag = FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=tag)
-
-        mock_task.reset_mock()
-
-        eval_tag.delete()
-
-        mock_task.delay.assert_called_once_with(self.team.id)
-
-    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
-    @patch("django.db.transaction.on_commit", lambda fn: fn())
-    def test_signal_fired_on_evaluation_context_create(self, mock_task):
+    def test_signal_fired_on_evaluation_context_association_create(self, mock_task):
+        """Creating a FeatureFlagEvaluationContext fires the cache update signal."""
         from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 
         flag = FeatureFlag.objects.create(
@@ -258,17 +224,20 @@ class TestLocalEvaluationSignals(BaseTest):
             created_by=self.user,
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
+        # Create the context first (this will fire a signal for EvaluationContext.post_save)
+        ctx = EvaluationContext.objects.create(team=self.team, name="production")
 
         mock_task.reset_mock()
 
-        ctx = EvaluationContext.objects.create(team=self.team, name="production")
+        # Creating the association should fire the signal
         FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=ctx)
 
         mock_task.delay.assert_called_once_with(self.team.id)
 
     @patch("posthog.tasks.feature_flags.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())
-    def test_signal_fired_on_evaluation_context_delete(self, mock_task):
+    def test_signal_fired_on_evaluation_context_association_delete(self, mock_task):
+        """Deleting a FeatureFlagEvaluationContext fires the cache update signal."""
         from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 
         flag = FeatureFlag.objects.create(
@@ -288,16 +257,36 @@ class TestLocalEvaluationSignals(BaseTest):
 
     @patch("posthog.tasks.feature_flags.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_signal_fired_on_evaluation_context_create(self, mock_task):
+        """Creating an EvaluationContext fires the cache update signal."""
+        from posthog.models.evaluation_context import EvaluationContext
+
+        # Creating a flag first
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        mock_task.reset_mock()
+
+        # Creating an EvaluationContext fires the signal
+        EvaluationContext.objects.create(team=self.team, name="production")
+
+        mock_task.delay.assert_called_once_with(self.team.id)
+
+    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_tag_rename_does_not_fire_signal(self, mock_task):
         """Tag renames no longer affect evaluation contexts, so no cache invalidation needed."""
-        flag = FeatureFlag.objects.create(
+        FeatureFlag.objects.create(
             team=self.team,
             key="test-flag",
             created_by=self.user,
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
         tag = Tag.objects.create(team=self.team, name="docs-page")
-        FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=tag)
 
         mock_task.reset_mock()
 

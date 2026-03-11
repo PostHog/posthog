@@ -388,32 +388,6 @@ const featureFlagActionsMapping: Record<
     is_used_in_replay_settings: () => null,
     _create_in_folder: () => null,
     _should_create_usage_dashboard: () => null,
-    evaluation_contexts: function onEvaluationContexts(change) {
-        const contextsBefore = (change?.before as string[]) || []
-        const contextsAfter = (change?.after as string[]) || []
-        const added = contextsAfter.filter((c) => contextsBefore.indexOf(c) === -1)
-        const removed = contextsBefore.filter((c) => contextsAfter.indexOf(c) === -1)
-
-        const changes: Description[] = []
-        if (added.length) {
-            changes.push(
-                <>
-                    added {pluralize(added.length, 'evaluation context', 'evaluation contexts', false)}{' '}
-                    <ObjectTags tags={added} saving={false} style={{ display: 'inline' }} staticOnly />
-                </>
-            )
-        }
-        if (removed.length) {
-            changes.push(
-                <>
-                    removed {pluralize(removed.length, 'evaluation context', 'evaluation contexts', false)}{' '}
-                    <ObjectTags tags={removed} saving={false} style={{ display: 'inline' }} staticOnly />
-                </>
-            )
-        }
-
-        return { description: changes }
-    },
 }
 
 const getActorName = (logItem: ActivityLogItem): JSX.Element => {
