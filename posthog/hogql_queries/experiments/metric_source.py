@@ -13,8 +13,6 @@ from posthog.schema import ActionsNode, EventsNode, ExperimentDataWarehouseNode
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
-from posthog.models.team.team import Team
-
 
 @dataclass
 class MetricSourceInfo:
@@ -45,7 +43,6 @@ class MetricSourceInfo:
     def from_source(
         cls,
         source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode],
-        team: Team,
         entity_key: str | None = None,
     ) -> "MetricSourceInfo":
         """
@@ -56,7 +53,6 @@ class MetricSourceInfo:
 
         Args:
             source: The metric source (EventsNode, ActionsNode, or ExperimentDataWarehouseNode)
-            team: Team context for entity resolution
             entity_key: Entity key from experiment context (e.g., "person_id" or "$group_0").
                        Required for events/actions sources to support group aggregation.
                        Ignored for datawarehouse sources (uses data_warehouse_join_key instead).
@@ -69,7 +65,7 @@ class MetricSourceInfo:
 
         Example:
             >>> source = EventsNode(event="purchase")
-            >>> info = MetricSourceInfo.from_source(source, team, entity_key="person_id")
+            >>> info = MetricSourceInfo.from_source(source, entity_key="person_id")
             >>> info.kind
             'events'
             >>> info.has_uuid

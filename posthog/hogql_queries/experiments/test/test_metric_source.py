@@ -13,7 +13,7 @@ class TestMetricSourceInfo(BaseTest):
     def test_from_events_node(self):
         """EventsNode creates correct MetricSourceInfo."""
         source = EventsNode(event="purchase")
-        info = MetricSourceInfo.from_source(source, self.team, entity_key="person_id")
+        info = MetricSourceInfo.from_source(source, entity_key="person_id")
 
         assert info.kind == "events"
         assert info.table_name == "events"
@@ -26,7 +26,7 @@ class TestMetricSourceInfo(BaseTest):
     def test_from_actions_node(self):
         """ActionsNode creates correct MetricSourceInfo."""
         source = ActionsNode(id=123)
-        info = MetricSourceInfo.from_source(source, self.team, entity_key="person_id")
+        info = MetricSourceInfo.from_source(source, entity_key="person_id")
 
         assert info.kind == "actions"
         assert info.table_name == "events"
@@ -43,7 +43,7 @@ class TestMetricSourceInfo(BaseTest):
             data_warehouse_join_key="customer_id",
             events_join_key="properties.$user_id",
         )
-        info = MetricSourceInfo.from_source(source, self.team, entity_key="person_id")
+        info = MetricSourceInfo.from_source(source, entity_key="person_id")
 
         assert info.kind == "datawarehouse"
         assert info.table_name == "revenue_table"
@@ -56,7 +56,7 @@ class TestMetricSourceInfo(BaseTest):
     def test_build_select_fields_events_without_string_conversion(self):
         """Events source builds full SELECT fields without toString conversion."""
         source = EventsNode(event="purchase")
-        info = MetricSourceInfo.from_source(source, self.team, entity_key="person_id")
+        info = MetricSourceInfo.from_source(source, entity_key="person_id")
         fields = info.build_select_fields(convert_entity_id_to_string=False)
 
         # Verify we got all expected fields
@@ -86,7 +86,7 @@ class TestMetricSourceInfo(BaseTest):
     def test_build_select_fields_events_with_string_conversion(self):
         """Events source with toString conversion for UNION compatibility."""
         source = EventsNode(event="purchase")
-        info = MetricSourceInfo.from_source(source, self.team, entity_key="person_id")
+        info = MetricSourceInfo.from_source(source, entity_key="person_id")
         fields = info.build_select_fields(convert_entity_id_to_string=True)
 
         # Verify entity_id is wrapped in toString for UNION compatibility
@@ -103,7 +103,7 @@ class TestMetricSourceInfo(BaseTest):
             data_warehouse_join_key="customer_id",
             events_join_key="properties.$user_id",
         )
-        info = MetricSourceInfo.from_source(source, self.team, entity_key="person_id")
+        info = MetricSourceInfo.from_source(source, entity_key="person_id")
         fields = info.build_select_fields(convert_entity_id_to_string=False)
 
         field_names = [f.alias for f in fields]
@@ -140,7 +140,7 @@ class TestMetricSourceInfo(BaseTest):
             data_warehouse_join_key="customer_id",
             events_join_key="properties.$user_id",
         )
-        info = MetricSourceInfo.from_source(source, self.team, entity_key="person_id")
+        info = MetricSourceInfo.from_source(source, entity_key="person_id")
         fields = info.build_select_fields(convert_entity_id_to_string=True)
 
         # Entity ID should be wrapped in toString
@@ -151,7 +151,7 @@ class TestMetricSourceInfo(BaseTest):
     def test_get_timestamp_field_expr_events(self):
         """Events source returns correct timestamp field expression."""
         source = EventsNode(event="purchase")
-        info = MetricSourceInfo.from_source(source, self.team, entity_key="person_id")
+        info = MetricSourceInfo.from_source(source, entity_key="person_id")
         timestamp_expr = info.get_timestamp_field_expr()
 
         assert isinstance(timestamp_expr, ast.Field)
@@ -165,7 +165,7 @@ class TestMetricSourceInfo(BaseTest):
             data_warehouse_join_key="customer_id",
             events_join_key="properties.$user_id",
         )
-        info = MetricSourceInfo.from_source(source, self.team, entity_key="person_id")
+        info = MetricSourceInfo.from_source(source, entity_key="person_id")
         timestamp_expr = info.get_timestamp_field_expr()
 
         assert isinstance(timestamp_expr, ast.Field)
@@ -174,7 +174,7 @@ class TestMetricSourceInfo(BaseTest):
     def test_actions_node_behavior(self):
         """ActionsNode behaves same as EventsNode for field building."""
         source = ActionsNode(id=456)
-        info = MetricSourceInfo.from_source(source, self.team, entity_key="person_id")
+        info = MetricSourceInfo.from_source(source, entity_key="person_id")
         fields = info.build_select_fields()
 
         # Should have same structure as EventsNode
@@ -195,8 +195,8 @@ class TestMetricSourceInfo(BaseTest):
             events_join_key="properties.$user_id",
         )
 
-        event_info = MetricSourceInfo.from_source(event_source, self.team, entity_key="person_id")
-        dw_info = MetricSourceInfo.from_source(dw_source, self.team, entity_key="person_id")
+        event_info = MetricSourceInfo.from_source(event_source, entity_key="person_id")
+        dw_info = MetricSourceInfo.from_source(dw_source, entity_key="person_id")
 
         # Both with string conversion should have compatible types
         event_fields = event_info.build_select_fields(convert_entity_id_to_string=True)
@@ -219,7 +219,7 @@ class TestMetricSourceInfo(BaseTest):
             data_warehouse_join_key="user_id",
             events_join_key="properties.$user_id",
         )
-        info = MetricSourceInfo.from_source(source, self.team, entity_key="person_id")
+        info = MetricSourceInfo.from_source(source, entity_key="person_id")
 
         assert info.table_name == "bigquery.revenue_events"
 
@@ -235,7 +235,7 @@ class TestMetricSourceInfo(BaseTest):
             data_warehouse_join_key="customer.external_id",  # Nested field
             events_join_key="properties.$user_id",
         )
-        info = MetricSourceInfo.from_source(source, self.team, entity_key="person_id")
+        info = MetricSourceInfo.from_source(source, entity_key="person_id")
 
         # entity_key should be parsed expression
         assert isinstance(info.entity_key, ast.Field)
@@ -260,7 +260,7 @@ class TestMetricSourceInfo(BaseTest):
         expected_order = ["entity_id", "timestamp", "uuid", "session_id"]
 
         for source in sources:
-            info = MetricSourceInfo.from_source(source, self.team, entity_key="person_id")
+            info = MetricSourceInfo.from_source(source, entity_key="person_id")
             fields = info.build_select_fields()
             field_names = [f.alias for f in fields]
             assert field_names == expected_order, f"Field order mismatch for {type(source).__name__}"
@@ -273,7 +273,7 @@ class TestMetricSourceInfo(BaseTest):
             data_warehouse_join_key="id",
             events_join_key="properties.$id",
         )
-        info = MetricSourceInfo.from_source(source, self.team, entity_key="person_id")
+        info = MetricSourceInfo.from_source(source, entity_key="person_id")
         fields = info.build_select_fields()
 
         uuid_field = next(f for f in fields if f.alias == "uuid")
@@ -293,7 +293,7 @@ class TestMetricSourceInfo(BaseTest):
             data_warehouse_join_key="id",
             events_join_key="properties.$id",
         )
-        info = MetricSourceInfo.from_source(source, self.team, entity_key="person_id")
+        info = MetricSourceInfo.from_source(source, entity_key="person_id")
         fields = info.build_select_fields()
 
         session_id_field = next(f for f in fields if f.alias == "session_id")
