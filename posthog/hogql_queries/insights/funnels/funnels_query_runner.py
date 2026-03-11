@@ -1,6 +1,9 @@
 from datetime import datetime, timedelta
 from math import ceil
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from rest_framework.request import Request
 
 from posthog.schema import (
     CachedFunnelsQueryResponse,
@@ -39,14 +42,17 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
-        **kwargs,
+        request: Optional["Request"] = None,
+        just_summarize: bool = False,
     ):
-        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+        super().__init__(
+            query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, request=request
+        )
 
+        self.just_summarize = just_summarize
         self.context = FunnelQueryContext(
             query=self.query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context
         )
-        self.kwargs = kwargs
 
     def _refresh_frequency(self):
         date_to = self.query_date_range.date_to()
@@ -117,7 +123,7 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         funnelVizType = self.context.funnelsFilter.funnelVizType
 
         if funnelVizType == FunnelVizType.TRENDS:
-            return FunnelTrendsUDF(context=self.context, **self.kwargs)
+            return FunnelTrendsUDF(context=self.context, just_summarize=self.just_summarize)
         elif funnelVizType == FunnelVizType.TIME_TO_CONVERT:
             return FunnelTimeToConvertUDF(context=self.context)
         else:

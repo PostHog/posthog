@@ -29,7 +29,7 @@ import { FunnelDataWarehouseStepDefinitionPopover } from './FunnelDataWarehouseS
 export const FUNNEL_STEP_COUNT_LIMIT = 30
 
 export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Element | null {
-    const { series, querySource } = useValues(insightVizDataLogic(insightProps))
+    const { series, querySource, hasOnlyDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
     const supportsDwhFunnels = featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNEL_DWH_SUPPORT]
@@ -107,13 +107,36 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                     definitionPopoverRenderer={
                         isFunnelDwhStepPopoverVariant ? FunnelDataWarehouseStepDefinitionPopover : undefined
                     }
+                    dataWarehousePopoverFields={[
+                        {
+                            key: 'id_field',
+                            label: 'Unique ID',
+                        },
+                        {
+                            key: 'timestamp_field',
+                            label: 'Timestamp',
+                        },
+                        {
+                            key: 'distinct_id_field',
+                            label: 'Aggregation target',
+                            allowHogQL: true,
+                        },
+                    ]}
                 />
             </div>
             <div className="mt-4 deprecated-space-y-4">
                 {showGroupsOptions && (
                     <div className="flex items-center w-full gap-2" data-attr="funnel-aggregation-filter">
                         <span>Aggregating by</span>
-                        <AggregationSelect insightProps={insightProps} hogqlAvailable />
+                        <AggregationSelect
+                            insightProps={insightProps}
+                            hogqlAvailable
+                            disabledReason={
+                                hasOnlyDataWarehouseSeries
+                                    ? 'For data warehouse steps, aggregation is configured per step. Please configure the aggregation target in the individual step settings.'
+                                    : undefined
+                            }
+                        />
                     </div>
                 )}
 

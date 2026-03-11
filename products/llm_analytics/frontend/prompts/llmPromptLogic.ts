@@ -129,7 +129,7 @@ function buildPromptVersionSummary(prompt: LLMPrompt, isLatest: boolean): LLMPro
     }
 }
 
-function getApiErrorDetail(error: unknown): string | undefined {
+export function getApiErrorDetail(error: unknown): string | undefined {
     if (error !== null && typeof error === 'object' && 'detail' in error && typeof error.detail === 'string') {
         return error.detail
     }
@@ -166,6 +166,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         setMode: (mode: PromptMode) => ({ mode }),
         setAnalyticsScope: (analyticsScope: PromptAnalyticsScope) => ({ analyticsScope }),
         setRelatedTracesQuery: (query: DataTableNode) => ({ query }),
+        toggleMarkdownRendering: true,
     }),
 
     reducers(({ props }) => ({
@@ -200,6 +201,12 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             null as DataTableNode | null,
             {
                 setRelatedTracesQuery: (_, { query }) => query,
+            },
+        ],
+        isRenderingMarkdown: [
+            false,
+            {
+                toggleMarkdownRendering: (state) => !state,
             },
         ],
     })),

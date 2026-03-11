@@ -14,7 +14,7 @@ use axum::extract::State;
 use common_types::TeamId;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 use super::{evaluation, types::FeatureFlagEvaluationContext, with_canonical_log};
@@ -102,17 +102,12 @@ fn detect_evaluation_runtime_from_request(
     None
 }
 
-/// Filters flags to only include those that can be evaluated in the current runtime.
-/// If no runtime is specified for a flag (evaluation_runtime is None), it's included
-/// to maintain backward compatibility.
-///
-/// Note: When specific flags are requested via flag_keys, they will be evaluated
-/// after this runtime filtering step. The runtime filter helps prevent unnecessary
-/// evaluation of flags that don't match the current runtime environment.
-fn filter_flags_by_runtime(
-    flags: Vec<FeatureFlag>,
+/// Returns the set of flag IDs that don't match the current runtime.
+/// Flags with no runtime or runtime "all" are never filtered out.
+fn collect_excluded_by_runtime(
+    flags: &[FeatureFlag],
     current_runtime: Option<EvaluationRuntime>,
-) -> Vec<FeatureFlag> {
+) -> HashSet<i32> {
     #[inline]
     fn flag_runtime(flag: &FeatureFlag) -> Option<EvaluationRuntime> {
         flag.evaluation_runtime
@@ -121,23 +116,16 @@ fn filter_flags_by_runtime(
     }
 
     match current_runtime {
-        Some(EvaluationRuntime::All) => {
-            // All runtime can evaluate any flag
-            flags
-        }
+        Some(EvaluationRuntime::All) => HashSet::new(),
         runtime_opt => flags
-            .into_iter()
-            .filter(|flag| match flag_runtime(flag) {
-                // Include flags that:
-                // 1. Have no specific runtime requirement (backward compatibility)
-                // 2. Are configured for "all" runtimes
-                None | Some(EvaluationRuntime::All) => true,
-                // 3. Are specifically configured for the current runtime
-                Some(flag_rt) => match runtime_opt {
-                    Some(current_rt) => flag_rt == current_rt,
-                    None => false,
-                },
+            .iter()
+            .filter(|flag| match (runtime_opt, flag_runtime(flag)) {
+                // Flags with no runtime or "all" are never filtered
+                (_, None | Some(EvaluationRuntime::All)) => false,
+                (Some(current_rt), Some(flag_rt)) => flag_rt != current_rt,
+                (None, Some(_)) => true,
             })
+            .map(|flag| flag.id)
             .collect(),
     }
 }
@@ -155,66 +143,86 @@ pub async fn fetch_and_filter(
     // Record cache source in canonical log for observability
     with_canonical_log(|log| log.flags_cache_source = Some(flag_result.cache_source.as_log_str()));
 
-    // First filter by survey flags if requested
-    let flags_after_survey_filter = filter_survey_flags(
-        flag_result.flag_list.flags,
+    let flags = flag_result.flag_list.flags;
+
+    // Build the filtered-out set: user-disabled, deleted, survey filter, runtime/tag mismatches.
+    // This is the single source of truth for "should this flag be skipped during evaluation."
+    let mut filtered_out_flag_ids: HashSet<i32> = flags
+        .iter()
+        .filter(|f| !f.active || f.deleted)
+        .map(|f| f.id)
+        .collect();
+
+    filtered_out_flag_ids.extend(collect_excluded_by_survey_filter(
+        &flags,
         query_params
             .only_evaluate_survey_feature_flags
             .unwrap_or(false),
-    );
-
-    // Then filter by evaluation runtime using request analysis
+    ));
     let current_runtime = detect_evaluation_runtime_from_request(headers, explicit_runtime);
-    let flags_after_runtime_filter =
-        filter_flags_by_runtime(flags_after_survey_filter, current_runtime);
+    filtered_out_flag_ids.extend(collect_excluded_by_runtime(&flags, current_runtime));
+    filtered_out_flag_ids.extend(collect_excluded_by_tags(&flags, environment_tags));
 
-    // Finally filter by evaluation tags
-    let flags_after_tag_filter =
-        filter_flags_by_evaluation_tags(flags_after_runtime_filter, environment_tags);
+    if tracing::enabled!(tracing::Level::DEBUG) {
+        let active_count = flags
+            .iter()
+            .filter(|f| !filtered_out_flag_ids.contains(&f.id))
+            .count();
+        tracing::debug!(
+            "Flag filtering: detected_runtime={:?}, environment_tags={:?}, total={}, active={}",
+            current_runtime,
+            environment_tags,
+            flags.len(),
+            active_count,
+        );
+    }
 
-    tracing::debug!(
-        "Flag filtering: detected_runtime={:?}, environment_tags={:?}, final_count={}",
-        current_runtime,
-        environment_tags,
-        flags_after_tag_filter.len()
-    );
-
-    Ok(FeatureFlagList::new(flags_after_tag_filter))
+    Ok(FeatureFlagList {
+        flags,
+        filtered_out_flag_ids,
+    })
 }
 
-/// Filters flags to only include survey flags if requested
-/// This field is optional, passed in as a query param, and defaults to false
-fn filter_survey_flags(flags: Vec<FeatureFlag>, only_survey_flags: bool) -> Vec<FeatureFlag> {
+/// Returns flag IDs that should be excluded when only survey flags are requested.
+/// When `only_survey_flags` is true, all non-survey flags are excluded.
+fn collect_excluded_by_survey_filter(
+    flags: &[FeatureFlag],
+    only_survey_flags: bool,
+) -> HashSet<i32> {
     if only_survey_flags {
         flags
-            .into_iter()
-            .filter(|flag| flag.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX))
+            .iter()
+            .filter(|flag| !flag.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX))
+            .map(|f| f.id)
             .collect()
     } else {
-        flags
+        HashSet::new()
     }
 }
 
-/// Filters flags based on evaluation tags.
-/// Only includes flags that either:
-/// 1. Have no evaluation tags (backward compatibility)
-/// 2. Have at least one evaluation tag that matches the provided environment tags
-fn filter_flags_by_evaluation_tags(
-    flags: Vec<FeatureFlag>,
+/// Returns the set of flag IDs that don't match the provided evaluation tags.
+/// Flags with no tags or matching tags are never filtered out.
+fn collect_excluded_by_tags(
+    flags: &[FeatureFlag],
     environment_tags: Option<&Vec<String>>,
-) -> Vec<FeatureFlag> {
+) -> HashSet<i32> {
     let env_tags = match environment_tags {
         Some(t) if !t.is_empty() => t,
-        _ => return flags,
+        _ => return HashSet::new(),
     };
 
+    let env_tag_set: HashSet<&str> = env_tags.iter().map(|s| s.as_str()).collect();
+
     flags
-        .into_iter()
+        .iter()
         .filter(|flag| match &flag.evaluation_tags {
-            None => true,
-            Some(flag_tags) if flag_tags.is_empty() => true,
-            Some(flag_tags) => flag_tags.iter().any(|tag| env_tags.contains(tag)),
+            None => false,
+            Some(flag_tags) if flag_tags.is_empty() => false,
+            Some(flag_tags) => !flag_tags
+                .iter()
+                .any(|tag| env_tag_set.contains(tag.as_str())),
         })
+        .map(|flag| flag.id)
         .collect()
 }
 
@@ -232,14 +240,20 @@ pub async fn evaluate_for_request(
     request_id: Uuid,
     disable_flags: bool,
     flag_keys: Option<Vec<String>>,
-) -> FlagsResponse {
+) -> Result<FlagsResponse, FlagError> {
     // If flags are disabled, return empty FlagsResponse
     if disable_flags {
-        return FlagsResponse::new(false, HashMap::new(), None, request_id);
+        return Ok(FlagsResponse::new(false, HashMap::new(), None, request_id));
     }
 
     if filtered_flags.flags.is_empty() {
-        return FlagsResponse::new(false, HashMap::new(), None, request_id);
+        return Ok(FlagsResponse::new(false, HashMap::new(), None, request_id));
+    }
+
+    // Every flag is in the filter set (inactive, deleted, runtime/tag mismatch) — nothing to evaluate.
+    // This is O(1) since the filter set includes deleted flags.
+    if filtered_flags.filtered_out_flag_ids.len() >= filtered_flags.flags.len() {
+        return Ok(FlagsResponse::new(false, HashMap::new(), None, request_id));
     }
 
     let ctx = FeatureFlagEvaluationContext {
@@ -275,20 +289,7 @@ mod tests {
     use crate::flags::flag_models::{FeatureFlag, FlagFilters};
 
     fn create_test_flag(id: i32, key: &str, evaluation_runtime: Option<String>) -> FeatureFlag {
-        FeatureFlag {
-            id,
-            team_id: 1,
-            name: Some(format!("Test Flag {id}")),
-            key: key.to_string(),
-            filters: FlagFilters::default(),
-            deleted: false,
-            active: true,
-            ensure_experience_continuity: None,
-            version: None,
-            evaluation_runtime,
-            evaluation_tags: None,
-            bucketing_identifier: None,
-        }
+        create_test_flag_with_tags(id, key, evaluation_runtime, None)
     }
 
     fn create_test_flag_with_tags(
@@ -313,8 +314,21 @@ mod tests {
         }
     }
 
+    fn assert_filtered(filtered: &HashSet<i32>, flags: &[FeatureFlag], key: &str, expected: bool) {
+        let flag = flags
+            .iter()
+            .find(|f| f.key == key)
+            .unwrap_or_else(|| panic!("flag '{key}' not found"));
+        let is_filtered = filtered.contains(&flag.id);
+        assert_eq!(
+            is_filtered, expected,
+            "flag '{key}' (id={}) expected filtered_out={expected}, got filtered_out={is_filtered}",
+            flag.id
+        );
+    }
+
     #[test]
-    fn test_filter_flags_by_runtime_with_no_runtime() {
+    fn test_collect_excluded_by_runtime_with_no_runtime() {
         let flags = vec![
             create_test_flag(1, "flag1", None),
             create_test_flag(2, "flag2", Some("client".to_string())),
@@ -322,16 +336,17 @@ mod tests {
             create_test_flag(4, "flag4", Some("all".to_string())),
         ];
 
-        let filtered = filter_flags_by_runtime(flags, None);
+        let filtered = collect_excluded_by_runtime(&flags, None);
 
-        // Should only return flags with no runtime requirement or "all"
-        assert_eq!(filtered.len(), 2);
-        assert!(filtered.iter().any(|f| f.key == "flag1"));
-        assert!(filtered.iter().any(|f| f.key == "flag4"));
+        // client/server-specific ones are filtered out
+        assert_filtered(&filtered, &flags, "flag1", false);
+        assert_filtered(&filtered, &flags, "flag2", true);
+        assert_filtered(&filtered, &flags, "flag3", true);
+        assert_filtered(&filtered, &flags, "flag4", false);
     }
 
     #[test]
-    fn test_filter_flags_by_runtime_with_client() {
+    fn test_collect_excluded_by_runtime_with_client() {
         let flags = vec![
             create_test_flag(1, "flag1", None),
             create_test_flag(2, "flag2", Some("client".to_string())),
@@ -339,18 +354,17 @@ mod tests {
             create_test_flag(4, "flag4", Some("all".to_string())),
         ];
 
-        let filtered = filter_flags_by_runtime(flags, Some(EvaluationRuntime::Client));
+        let filtered = collect_excluded_by_runtime(&flags, Some(EvaluationRuntime::Client));
 
-        // Should return flags with no runtime requirement + client flags + all flags
-        assert_eq!(filtered.len(), 3);
-        assert!(filtered.iter().any(|f| f.key == "flag1"));
-        assert!(filtered.iter().any(|f| f.key == "flag2"));
-        assert!(filtered.iter().any(|f| f.key == "flag4"));
-        assert!(!filtered.iter().any(|f| f.key == "flag3"));
+        // Server-only flag filtered out
+        assert_filtered(&filtered, &flags, "flag1", false);
+        assert_filtered(&filtered, &flags, "flag2", false);
+        assert_filtered(&filtered, &flags, "flag3", true);
+        assert_filtered(&filtered, &flags, "flag4", false);
     }
 
     #[test]
-    fn test_filter_flags_by_runtime_with_server() {
+    fn test_collect_excluded_by_runtime_with_server() {
         let flags = vec![
             create_test_flag(1, "flag1", None),
             create_test_flag(2, "flag2", Some("client".to_string())),
@@ -358,18 +372,17 @@ mod tests {
             create_test_flag(4, "flag4", Some("all".to_string())),
         ];
 
-        let filtered = filter_flags_by_runtime(flags, Some(EvaluationRuntime::Server));
+        let filtered = collect_excluded_by_runtime(&flags, Some(EvaluationRuntime::Server));
 
-        // Should return flags with no runtime requirement + server flags + all flags
-        assert_eq!(filtered.len(), 3);
-        assert!(filtered.iter().any(|f| f.key == "flag1"));
-        assert!(filtered.iter().any(|f| f.key == "flag3"));
-        assert!(filtered.iter().any(|f| f.key == "flag4"));
-        assert!(!filtered.iter().any(|f| f.key == "flag2"));
+        // Client-only flag filtered out
+        assert_filtered(&filtered, &flags, "flag1", false);
+        assert_filtered(&filtered, &flags, "flag2", true);
+        assert_filtered(&filtered, &flags, "flag3", false);
+        assert_filtered(&filtered, &flags, "flag4", false);
     }
 
     #[test]
-    fn test_filter_flags_by_runtime_with_all() {
+    fn test_collect_excluded_by_runtime_with_all() {
         let flags = vec![
             create_test_flag(1, "flag1", None),
             create_test_flag(2, "flag2", Some("client".to_string())),
@@ -377,18 +390,14 @@ mod tests {
             create_test_flag(4, "flag4", Some("all".to_string())),
         ];
 
-        let filtered = filter_flags_by_runtime(flags, Some(EvaluationRuntime::All));
+        let filtered = collect_excluded_by_runtime(&flags, Some(EvaluationRuntime::All));
 
-        // Should return all flags since All runtime should include everything
-        assert_eq!(filtered.len(), 4);
-        assert!(filtered.iter().any(|f| f.key == "flag1"));
-        assert!(filtered.iter().any(|f| f.key == "flag2"));
-        assert!(filtered.iter().any(|f| f.key == "flag3"));
-        assert!(filtered.iter().any(|f| f.key == "flag4"));
+        // All runtime includes everything, nothing filtered
+        assert!(filtered.is_empty());
     }
 
     #[test]
-    fn test_filter_flags_by_runtime_with_unknown_value() {
+    fn test_collect_excluded_by_runtime_with_unknown_value() {
         let flags = vec![
             create_test_flag(1, "flag1", None),
             create_test_flag(2, "flag2", Some("client".to_string())),
@@ -396,14 +405,13 @@ mod tests {
             create_test_flag(4, "flag4", Some("all".to_string())),
         ];
 
-        let filtered = filter_flags_by_runtime(flags, Some(EvaluationRuntime::Client));
+        let filtered = collect_excluded_by_runtime(&flags, Some(EvaluationRuntime::Client));
 
-        // Unknown runtime values default to "all", so "unknown_runtime" flag should be included
-        assert_eq!(filtered.len(), 4);
-        assert!(filtered.iter().any(|f| f.key == "flag1"));
-        assert!(filtered.iter().any(|f| f.key == "flag2"));
-        assert!(filtered.iter().any(|f| f.key == "flag3")); // unknown_runtime -> all
-        assert!(filtered.iter().any(|f| f.key == "flag4"));
+        // Unknown runtime values default to "all", so not filtered
+        assert_filtered(&filtered, &flags, "flag1", false);
+        assert_filtered(&filtered, &flags, "flag2", false);
+        assert_filtered(&filtered, &flags, "flag3", false); // unknown_runtime -> all
+        assert_filtered(&filtered, &flags, "flag4", false);
     }
 
     #[test]
@@ -568,34 +576,20 @@ mod tests {
 
     #[test]
     fn test_filter_flags_with_explicit_flag_keys_should_respect_runtime() {
-        // Test scenario from @haacked's comment:
-        // When specific flags are requested via flag_keys (flags_to_evaluate),
-        // they still need to respect runtime filtering for security/correctness.
-        // Only flags that match the runtime should be evaluated.
-
         let flags = vec![
             create_test_flag(1, "client-flag", Some("client".to_string())),
             create_test_flag(2, "server-flag", Some("server".to_string())),
             create_test_flag(3, "all-flag", Some("all".to_string())),
         ];
 
-        // Client runtime should only get client and all flags
-        let filtered = filter_flags_by_runtime(flags, Some(EvaluationRuntime::Client));
-        assert_eq!(filtered.len(), 2);
-        assert!(filtered.iter().any(|f| f.key == "client-flag"));
-        assert!(filtered.iter().any(|f| f.key == "all-flag"));
-        assert!(!filtered.iter().any(|f| f.key == "server-flag"));
-
-        // Note: The actual flag_keys filtering happens later in the evaluation pipeline
-        // after runtime filtering, so explicitly requested flags still go through runtime checks
+        let filtered = collect_excluded_by_runtime(&flags, Some(EvaluationRuntime::Client));
+        assert_filtered(&filtered, &flags, "client-flag", false);
+        assert_filtered(&filtered, &flags, "server-flag", true);
+        assert_filtered(&filtered, &flags, "all-flag", false);
     }
 
     #[test]
     fn test_runtime_filtering_takes_precedence_over_flag_keys() {
-        // This test verifies that runtime filtering happens BEFORE flag_keys filtering
-        // So if a client explicitly requests a server-only flag, they won't get it
-
-        // Create flags with different runtime requirements
         let all_flags = vec![
             create_test_flag(1, "client-only-flag", Some("client".to_string())),
             create_test_flag(2, "server-only-flag", Some("server".to_string())),
@@ -603,37 +597,23 @@ mod tests {
             create_test_flag(4, "no-runtime-flag", None),
         ];
 
-        // Simulate a client runtime
-        let client_runtime = Some(EvaluationRuntime::Client);
-        let client_filtered = filter_flags_by_runtime(all_flags.clone(), client_runtime);
+        let client_filtered =
+            collect_excluded_by_runtime(&all_flags, Some(EvaluationRuntime::Client));
+        assert_filtered(&client_filtered, &all_flags, "client-only-flag", false);
+        assert_filtered(&client_filtered, &all_flags, "server-only-flag", true);
+        assert_filtered(&client_filtered, &all_flags, "all-flag", false);
+        assert_filtered(&client_filtered, &all_flags, "no-runtime-flag", false);
 
-        // Client should get: client-only-flag, all-flag, no-runtime-flag
-        // But NOT server-only-flag
-        assert_eq!(client_filtered.len(), 3);
-        assert!(client_filtered.iter().any(|f| f.key == "client-only-flag"));
-        assert!(client_filtered.iter().any(|f| f.key == "all-flag"));
-        assert!(client_filtered.iter().any(|f| f.key == "no-runtime-flag"));
-        assert!(!client_filtered.iter().any(|f| f.key == "server-only-flag"));
-
-        // Simulate a server runtime
-        let server_runtime = Some(EvaluationRuntime::Server);
-        let filtered = filter_flags_by_runtime(all_flags, server_runtime);
-
-        // Server should get: server-only-flag, all-flag, no-runtime-flag
-        // But NOT client-only-flag
-        assert_eq!(filtered.len(), 3);
-        assert!(filtered.iter().any(|f| f.key == "server-only-flag"));
-        assert!(filtered.iter().any(|f| f.key == "all-flag"));
-        assert!(filtered.iter().any(|f| f.key == "no-runtime-flag"));
-        assert!(!filtered.iter().any(|f| f.key == "client-only-flag"));
-
-        // Note: Even if flag_keys explicitly requests a server-only flag from a client,
-        // the runtime filter will prevent it from being evaluated
+        let server_filtered =
+            collect_excluded_by_runtime(&all_flags, Some(EvaluationRuntime::Server));
+        assert_filtered(&server_filtered, &all_flags, "client-only-flag", true);
+        assert_filtered(&server_filtered, &all_flags, "server-only-flag", false);
+        assert_filtered(&server_filtered, &all_flags, "all-flag", false);
+        assert_filtered(&server_filtered, &all_flags, "no-runtime-flag", false);
     }
 
     #[test]
-    fn test_filter_flags_by_evaluation_tags_no_environment_tags() {
-        // When no environment tags are provided, all flags should be returned
+    fn test_collect_excluded_by_tags_no_environment_tags() {
         let flags = vec![
             create_test_flag_with_tags(1, "flag1", None, None),
             create_test_flag_with_tags(2, "flag2", None, Some(vec!["app".to_string()])),
@@ -645,15 +625,12 @@ mod tests {
             ),
         ];
 
-        let filtered = filter_flags_by_evaluation_tags(flags.clone(), None);
-        assert_eq!(filtered.len(), 3);
-
-        let filtered = filter_flags_by_evaluation_tags(flags.clone(), Some(&vec![]));
-        assert_eq!(filtered.len(), 3);
+        assert!(collect_excluded_by_tags(&flags, None).is_empty());
+        assert!(collect_excluded_by_tags(&flags, Some(&vec![])).is_empty());
     }
 
     #[test]
-    fn test_filter_flags_by_evaluation_tags_with_matching_tags() {
+    fn test_collect_excluded_by_tags_with_matching_tags() {
         let flags = vec![
             create_test_flag_with_tags(1, "no-tags", None, None),
             create_test_flag_with_tags(2, "app-only", None, Some(vec!["app".to_string()])),
@@ -666,55 +643,51 @@ mod tests {
             ),
         ];
 
-        // Test with "app" environment
+        // "app" environment — docs-only filtered out
         let app_env = vec!["app".to_string()];
-        let filtered = filter_flags_by_evaluation_tags(flags.clone(), Some(&app_env));
-        assert_eq!(filtered.len(), 3); // no-tags, app-only, multi-env
-        assert!(filtered.iter().any(|f| f.key == "no-tags"));
-        assert!(filtered.iter().any(|f| f.key == "app-only"));
-        assert!(filtered.iter().any(|f| f.key == "multi-env"));
-        assert!(!filtered.iter().any(|f| f.key == "docs-only"));
+        let filtered = collect_excluded_by_tags(&flags, Some(&app_env));
+        assert_filtered(&filtered, &flags, "no-tags", false);
+        assert_filtered(&filtered, &flags, "app-only", false);
+        assert_filtered(&filtered, &flags, "docs-only", true);
+        assert_filtered(&filtered, &flags, "multi-env", false);
 
-        // Test with "docs" environment
+        // "docs" environment — app-only filtered out
         let docs_env = vec!["docs".to_string()];
-        let filtered = filter_flags_by_evaluation_tags(flags.clone(), Some(&docs_env));
-        assert_eq!(filtered.len(), 3); // no-tags, docs-only, multi-env
-        assert!(filtered.iter().any(|f| f.key == "no-tags"));
-        assert!(filtered.iter().any(|f| f.key == "docs-only"));
-        assert!(filtered.iter().any(|f| f.key == "multi-env"));
-        assert!(!filtered.iter().any(|f| f.key == "app-only"));
+        let filtered = collect_excluded_by_tags(&flags, Some(&docs_env));
+        assert_filtered(&filtered, &flags, "no-tags", false);
+        assert_filtered(&filtered, &flags, "app-only", true);
+        assert_filtered(&filtered, &flags, "docs-only", false);
+        assert_filtered(&filtered, &flags, "multi-env", false);
     }
 
     #[test]
-    fn test_filter_flags_by_evaluation_tags_no_matching_tags() {
+    fn test_collect_excluded_by_tags_no_matching_tags() {
         let flags = vec![
             create_test_flag_with_tags(1, "app-only", None, Some(vec!["app".to_string()])),
             create_test_flag_with_tags(2, "docs-only", None, Some(vec!["docs".to_string()])),
         ];
 
-        // Test with unmatched environment
         let marketing_env = vec!["marketing".to_string()];
-        let filtered = filter_flags_by_evaluation_tags(flags.clone(), Some(&marketing_env));
-        assert_eq!(filtered.len(), 0);
+        let filtered = collect_excluded_by_tags(&flags, Some(&marketing_env));
+        assert_filtered(&filtered, &flags, "app-only", true);
+        assert_filtered(&filtered, &flags, "docs-only", true);
     }
 
     #[test]
-    fn test_filter_flags_by_evaluation_tags_empty_flag_tags() {
-        // Flags with empty evaluation_tags should be included (backward compatibility)
+    fn test_collect_excluded_by_tags_empty_flag_tags() {
         let flags = vec![
             create_test_flag_with_tags(1, "empty-tags", None, Some(vec![])),
             create_test_flag_with_tags(2, "app-only", None, Some(vec!["app".to_string()])),
         ];
 
         let app_env = vec!["app".to_string()];
-        let filtered = filter_flags_by_evaluation_tags(flags.clone(), Some(&app_env));
-        assert_eq!(filtered.len(), 2);
-        assert!(filtered.iter().any(|f| f.key == "empty-tags"));
-        assert!(filtered.iter().any(|f| f.key == "app-only"));
+        let filtered = collect_excluded_by_tags(&flags, Some(&app_env));
+        assert_filtered(&filtered, &flags, "empty-tags", false);
+        assert_filtered(&filtered, &flags, "app-only", false);
     }
 
     #[test]
-    fn test_filter_flags_by_evaluation_tags_multiple_environment_tags() {
+    fn test_collect_excluded_by_tags_multiple_environment_tags() {
         let flags = vec![
             create_test_flag_with_tags(1, "app-only", None, Some(vec!["app".to_string()])),
             create_test_flag_with_tags(2, "docs-only", None, Some(vec!["docs".to_string()])),
@@ -727,14 +700,59 @@ mod tests {
             create_test_flag_with_tags(4, "no-tags", None, None),
         ];
 
-        // Test with multiple environment tags - should match ANY of them
         let multi_env = vec!["app".to_string(), "docs".to_string()];
-        let filtered = filter_flags_by_evaluation_tags(flags.clone(), Some(&multi_env));
-        assert_eq!(filtered.len(), 3); // app-only, docs-only, no-tags
-        assert!(filtered.iter().any(|f| f.key == "app-only"));
-        assert!(filtered.iter().any(|f| f.key == "docs-only"));
-        assert!(filtered.iter().any(|f| f.key == "no-tags"));
-        assert!(!filtered.iter().any(|f| f.key == "marketing-only"));
+        let filtered = collect_excluded_by_tags(&flags, Some(&multi_env));
+        assert_filtered(&filtered, &flags, "app-only", false);
+        assert_filtered(&filtered, &flags, "docs-only", false);
+        assert_filtered(&filtered, &flags, "marketing-only", true);
+        assert_filtered(&filtered, &flags, "no-tags", false);
+    }
+
+    #[test]
+    fn test_runtime_and_tag_filtering_stacks() {
+        let flags = vec![
+            create_test_flag_with_tags(
+                1,
+                "server-app",
+                Some("server".to_string()),
+                Some(vec!["app".to_string()]),
+            ),
+            create_test_flag_with_tags(
+                2,
+                "client-app",
+                Some("client".to_string()),
+                Some(vec!["app".to_string()]),
+            ),
+            create_test_flag_with_tags(
+                3,
+                "server-docs",
+                Some("server".to_string()),
+                Some(vec!["docs".to_string()]),
+            ),
+        ];
+
+        let mut combined = collect_excluded_by_runtime(&flags, Some(EvaluationRuntime::Server));
+        let app_env = vec!["app".to_string()];
+        combined.extend(collect_excluded_by_tags(&flags, Some(&app_env)));
+
+        assert_filtered(&combined, &flags, "server-app", false);
+        assert_filtered(&combined, &flags, "client-app", true);
+        assert_filtered(&combined, &flags, "server-docs", true);
+    }
+
+    #[test]
+    fn test_all_flags_filtered_after_runtime_mismatch() {
+        let flags = vec![
+            create_test_flag(1, "client-only", Some("client".to_string())),
+            create_test_flag(2, "also-client", Some("client".to_string())),
+        ];
+
+        let filtered = collect_excluded_by_runtime(&flags, Some(EvaluationRuntime::Server));
+        assert_eq!(
+            filtered.len(),
+            2,
+            "All client-only flags should be filtered when requesting server runtime"
+        );
     }
 
     #[test]

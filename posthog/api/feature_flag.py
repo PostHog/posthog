@@ -17,7 +17,6 @@ from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiRespo
 from prometheus_client import Counter
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.permissions import BasePermission
-from rest_framework.relations import ManyRelatedField
 from rest_framework.response import Response
 
 from posthog.schema import ProductKey, PropertyOperator
@@ -30,6 +29,7 @@ from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin, tagify
@@ -70,6 +70,7 @@ from posthog.models.feature_flag.local_evaluation import (
     get_flags_response_if_none_match,
 )
 from posthog.models.feature_flag.types import PropertyFilterType
+from posthog.models.group.group import Group
 from posthog.models.property import Property
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.surveys.survey import Survey
@@ -84,8 +85,6 @@ from posthog.views import format_bytes
 from products.product_tours.backend.models import ProductTour
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
-
-MAX_PROPERTY_VALUES = 1000
 
 # Operators the Rust feature-flag evaluation service supports (OperatorType in property_models.rs).
 # None means "no operator specified" which defaults to exact.
@@ -139,6 +138,11 @@ LOCAL_EVALUATION_ETAG_COUNTER = Counter(
     "posthog_local_evaluation_etag_total",
     "Local evaluation ETag cache results",
     labelnames=["result"],  # "hit" (304), "miss" (200), "none" (no client etag)
+)
+
+LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER = Counter(
+    "posthog_local_evaluation_secret_api_key_in_body_total",
+    "Local evaluation requests where secret_api_key was passed in request body instead of Authorization header",
 )
 
 
@@ -538,7 +542,7 @@ class FeatureFlagSerializer(
     surveys: serializers.SerializerMethodField = serializers.SerializerMethodField()
     features: serializers.SerializerMethodField = serializers.SerializerMethodField()
     usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)
-    analytics_dashboards = serializers.PrimaryKeyRelatedField(
+    analytics_dashboards = TeamScopedPrimaryKeyRelatedField(
         many=True,
         required=False,
         queryset=Dashboard.objects.all(),
@@ -607,16 +611,6 @@ class FeatureFlagSerializer(
             "_should_create_usage_dashboard",
             "is_used_in_replay_settings",
         ]
-
-    def get_fields(self):
-        fields = super().get_fields()
-        analytics_dashboards_field = cast(ManyRelatedField, fields["analytics_dashboards"])
-        if team_id := self.context.get("team_id"):
-            analytics_dashboards_field.child_relation.queryset = Dashboard.objects.filter(team_id=team_id)
-        else:
-            # Fail safe: if no team context, allow no dashboards to prevent IDOR
-            analytics_dashboards_field.child_relation.queryset = Dashboard.objects.none()
-        return fields
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
         from typing import cast
@@ -838,16 +832,6 @@ class FeatureFlagSerializer(
                         code="unsupported_operator",
                     )
 
-                if isinstance(prop.value, list):
-                    upper_limit = MAX_PROPERTY_VALUES
-                    if settings.TEST:
-                        upper_limit = 10
-
-                    if len(prop.value) > upper_limit:
-                        raise serializers.ValidationError(
-                            f"Property group expressions of type {prop.key} cannot contain more than {upper_limit} values."
-                        )
-
                 if prop.type == "cohort":
                     try:
                         initial_cohort: Cohort = Cohort.objects.get(
@@ -1047,6 +1031,14 @@ class FeatureFlagSerializer(
     def _get_cohort_properties_from_filters(self, filters: dict):
         """Extract cohort properties from filters."""
         return list(self._get_properties_from_filters(filters, PropertyFilterType.COHORT))
+
+    def _get_group_key_properties_from_filters(self, filters: dict):
+        """Extract $group_key properties from group-type filters."""
+        return [
+            prop
+            for prop in self._get_properties_from_filters(filters, PropertyFilterType.GROUP)
+            if prop.get("key") == "$group_key"
+        ]
 
     def _extract_flag_dependencies(self, filters):
         """Extract flag dependencies from filters."""
@@ -1469,6 +1461,32 @@ class FeatureFlagSerializer(
         # Add cohort names to the response
         for cohort_prop in self._get_cohort_properties_from_filters(filters):
             cohort_prop["cohort_name"] = cohorts.get(str(cohort_prop.get("value")))
+
+        # Resolve group key display names for $group_key filters
+        group_key_props = self._get_group_key_properties_from_filters(filters)
+        if group_key_props:
+            group_type_index = filters.get("aggregation_group_type_index")
+            if group_type_index is not None:
+                group_keys: set[str] = set()
+                for prop in group_key_props:
+                    prop_value = prop.get("value")
+                    if isinstance(prop_value, list):
+                        group_keys.update(str(v) for v in prop_value)
+                    elif prop_value is not None:
+                        group_keys.add(str(prop_value))
+
+                if group_keys:
+                    group_names: dict[str, str] = {}
+                    for group in Group.objects.filter(
+                        team_id=instance.team_id,
+                        group_type_index=group_type_index,
+                        group_key__in=group_keys,
+                    ).only("group_key", "group_properties"):
+                        name = group.group_properties.get("name")
+                        group_names[group.group_key] = str(name) if name else group.group_key
+
+                    for prop in group_key_props:
+                        prop["group_key_names"] = group_names
 
         representation["filters"] = filters
         return representation
@@ -2530,6 +2548,17 @@ class FeatureFlagViewSet(
         # **kwargs is required because DRF passes parent_lookup_project_id from nested router
         start_time = time.time()
         logger = logging.getLogger(__name__)
+
+        # Track if secret_api_key was passed in request body AND was the actual auth mechanism.
+        # If the header also has a phs_ token, the header wins and the body value is ignored,
+        # so Rust (header-only) would still authenticate fine — no need to count those.
+        auth_header = request.headers.get("authorization", "")
+        if (
+            request.data.get("secret_api_key")
+            and isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication)
+            and not re.match(r"^Bearer\s+phs_[a-zA-Z0-9]+$", auth_header)
+        ):
+            LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER.inc()
 
         # Use validated boolean value from serializer
         include_cohorts = request.validated_query_data.get("send_cohorts", False)

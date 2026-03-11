@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import { ExperimentMetric, isExperimentRatioMetric } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
+import { hasEnded, isLaunched } from '../../experimentsLogic'
 import { experimentTimeseriesLogic } from '../../experimentTimeseriesLogic'
 import { VariantTag } from '../../ExperimentView/components'
 import { MetricTitle } from '../shared/MetricTitle'
@@ -44,9 +45,9 @@ export function TimeseriesModal({
     }, [chartData, variantResult.key])
 
     const isStaleExperiment =
-        !experiment.start_date || experiment.end_date
-            ? false
-            : dayjs(experiment.start_date).isBefore(dayjs().subtract(30, 'days'))
+        isLaunched(experiment) && !hasEnded(experiment)
+            ? dayjs(experiment.start_date).isBefore(dayjs().subtract(30, 'days'))
+            : false
 
     const handleRecalculate = (): void => {
         LemonDialog.open({

@@ -7,12 +7,12 @@ import { useDebouncedCallback } from 'use-debounce'
 
 import {
     IconAIText,
-    IconChat,
     IconChevronLeft,
     IconChevronRight,
     IconComment,
     IconCopy,
     IconMessage,
+    IconPlay,
     IconReceipt,
     IconSearch,
 } from '@posthog/icons'
@@ -877,10 +877,6 @@ const EventContent = React.memo(
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
-        const showClustersTab =
-            !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB] ||
-            !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-
         const showFeedbackTab = true
 
         // Check if we're viewing a trace with actual content vs. a pseudo-trace (grouping of generations w/o input/output state)
@@ -897,7 +893,7 @@ const EventContent = React.memo(
             : undefined
         const { input: loadedInput, output: loadedOutput } = useAIData(eventData)
 
-        const handleTryInPlayground = (): void => {
+        const handleOpenInPlayground = (): void => {
             if (!event || !isLLMEvent(event)) {
                 return
             }
@@ -1002,12 +998,12 @@ const EventContent = React.memo(
                                         <LemonButton
                                             type="secondary"
                                             size="xsmall"
-                                            icon={<IconChat />}
-                                            onClick={handleTryInPlayground}
-                                            tooltip="Try this prompt in the playground"
-                                            data-attr="try-in-playground-trace"
+                                            icon={<IconPlay />}
+                                            onClick={handleOpenInPlayground}
+                                            tooltip="Open in Playground"
+                                            data-attr="llma-playground-open-from-trace"
                                         >
-                                            Try in Playground
+                                            Open in Playground
                                         </LemonButton>
                                     )}
                                     {showSaveToDatasetButton && (
@@ -1175,22 +1171,11 @@ const EventContent = React.memo(
                                           },
                                       ]
                                     : []),
-                                ...(showClustersTab
-                                    ? [
-                                          {
-                                              key: TraceViewMode.Clusters,
-                                              label: (
-                                                  <>
-                                                      Clusters{' '}
-                                                      <LemonTag className="ml-1" type="completion">
-                                                          Alpha
-                                                      </LemonTag>
-                                                  </>
-                                              ),
-                                              content: <ClustersTabContent />,
-                                          },
-                                      ]
-                                    : []),
+                                {
+                                    key: TraceViewMode.Clusters,
+                                    label: 'Clusters',
+                                    content: <ClustersTabContent />,
+                                },
                                 ...(showFeedbackTab
                                     ? [
                                           {
