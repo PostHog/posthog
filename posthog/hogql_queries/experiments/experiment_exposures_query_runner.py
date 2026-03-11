@@ -146,7 +146,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                 result = self._ensure_exposures_precomputed(builder)
                 if result.ready:
                     job_ids = [str(job_id) for job_id in result.job_ids]
-                    return builder.get_exposure_timeseries_from_precomputed(job_ids)
+                    return builder.get_daily_exposures_from_precomputed(job_ids)
                 else:
                     logger.warning("exposure_lazy_computation_not_ready", experiment_id=self.experiment.id)
             except Exception:
