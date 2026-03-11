@@ -149,8 +149,6 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
         },
     }),
     selectors({
-        aggregationGroupTypeIndex: [(s) => [s.querySource], (querySource) => querySource?.aggregation_group_type_index],
-
         // event correlation
         correlationValues: [
             (s) => [s.correlations, s.correlationTypes, s.excludedEventNames],

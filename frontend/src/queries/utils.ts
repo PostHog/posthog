@@ -503,6 +503,13 @@ export const getCompareFilter = (query: InsightQueryNode): CompareFilter | undef
     return undefined
 }
 
+export const getAggregationGroupTypeIndex = (query: InsightQueryNode): number | null | undefined => {
+    if (!isStickinessQuery(query)) {
+        return query.aggregation_group_type_index
+    }
+    return undefined
+}
+
 export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
     if (isStickinessQuery(query)) {
         return query.stickinessFilter?.showLegend

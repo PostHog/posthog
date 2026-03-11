@@ -7,7 +7,6 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
 import { LifecycleFilter } from '~/queries/schema/schema-general'
-import { isLifecycleQuery } from '~/queries/utils'
 import { EditorFilterProps, LifecycleToggle } from '~/types'
 
 const lifecycles: { name: LifecycleToggle; color: string }[] = [
@@ -59,14 +58,11 @@ export function getLifecycleTooltip(
 }
 
 export function LifecycleToggles({ insightProps }: EditorFilterProps): JSX.Element {
-    const { insightFilter, querySource } = useValues(insightVizDataLogic(insightProps))
+    const { insightFilter, aggregationGroupTypeIndex } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
     const { aggregationLabel } = useValues(groupsModel)
 
     const toggledLifecycles = (insightFilter as LifecycleFilter)?.toggledLifecycles || DEFAULT_LIFECYCLE_TOGGLES
-    const aggregationGroupTypeIndex = isLifecycleQuery(querySource)
-        ? querySource.aggregation_group_type_index
-        : undefined
     const aggregationTargetLabel = aggregationLabel(aggregationGroupTypeIndex)
 
     const toggleLifecycle = (name: LifecycleToggle): void => {

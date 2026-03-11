@@ -50,6 +50,7 @@ import {
 import {
     filterForQuery,
     filterKeyForQuery,
+    getAggregationGroupTypeIndex,
     getBreakdown,
     getCompareFilter,
     getDisplay,
@@ -257,6 +258,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         yAxisScaleType: [(s) => [s.querySource], (q) => (q ? getYAxisScaleType(q) : null)],
         showMultipleYAxes: [(s) => [s.querySource], (q) => (q ? getShowMultipleYAxes(q) : null)],
         resultCustomizationBy: [(s) => [s.querySource], (q) => (q ? getResultCustomizationBy(q) : null)],
+        aggregationGroupTypeIndex: [(s) => [s.querySource], (q) => (q ? getAggregationGroupTypeIndex(q) : null)],
+        labelGroupType: [
+            (s) => [s.aggregationGroupTypeIndex],
+            (aggregationGroupTypeIndex) => aggregationGroupTypeIndex ?? 'people',
+        ],
         goalLines: [
             (s) => [s.querySource],
             (q) => (isTrendsQuery(q) || isFunnelsQuery(q) || isRetentionQuery(q) ? getGoalLines(q) : null),
