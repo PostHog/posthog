@@ -202,7 +202,7 @@ async def validate_schema_and_update_table(
                 db_columns = {key: column.get("clickhouse", "") for key, column in raw_db_columns.items()}
 
                 existing_columns: dict[str, dict[str, str]] = table_created.columns or {}
-                columns = merge_columns(db_columns, table_schema_dict, existing_columns)
+                columns = merge_columns(db_columns, table_schema_dict or {}, existing_columns)
                 table_created.columns = columns
                 table_created.save()
 
