@@ -1,0 +1,134 @@
+.LemonDrawer__overlay {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-modal);
+    display: flex;
+    align-items: stretch;
+    justify-content: flex-end;
+    transition:
+        background-color var(--modal-transition-time) ease-out,
+        backdrop-filter var(--modal-transition-time) ease-out;
+
+    &.LemonDrawer__overlay--force-above-popovers {
+        z-index: var(--z-force-modal-above-popovers);
+    }
+
+    &.ReactModal__Overlay--after-open {
+        background-color: var(--modal-backdrop-color);
+        backdrop-filter: blur(var(--modal-backdrop-blur));
+    }
+
+    &.ReactModal__Overlay--before-close {
+        background-color: transparent;
+        backdrop-filter: blur(0);
+    }
+
+    &.LemonDrawer__overlay--transparent {
+        background-color: transparent !important;
+        backdrop-filter: none !important;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        transition: none;
+    }
+}
+
+.LemonDrawer {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    width: 40rem;
+    height: 100vh;
+    height: 100dvh;
+    background-color: var(--color-bg-surface-primary);
+    border-left: 1px solid var(--border-bold);
+    box-shadow: var(--modal-shadow-elevation);
+    opacity: 0;
+    transition:
+        opacity var(--modal-transition-time) ease-out,
+        transform var(--modal-transition-time) ease-out;
+    transform: translateX(100%);
+    will-change: transform;
+
+    &.ReactModal__Content--after-open {
+        opacity: 1;
+        transform: translateX(0);
+    }
+
+    &.ReactModal__Content--before-close {
+        opacity: 0;
+        transform: translateX(100%);
+    }
+
+    .LemonDrawer__container {
+        display: flex;
+        height: 100%;
+        overflow: hidden;
+    }
+
+    .LemonDrawer__close {
+        position: absolute;
+        top: 0.75rem;
+        right: 1rem;
+        z-index: 1;
+    }
+
+    .LemonDrawer__layout {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        overflow-y: hidden;
+    }
+
+    .LemonDrawer__content {
+        flex: 1;
+        padding: 1rem;
+        overflow-y: auto;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        transition: none;
+    }
+
+    @media screen and (max-width: 768px) {
+        width: 100vw !important;
+        max-width: 100vw;
+        border-left: none;
+    }
+}
+
+.LemonDrawer__header {
+    padding-bottom: 1rem;
+    margin: 1rem;
+    margin-bottom: 0;
+    border-bottom: 1px solid var(--color-border-primary);
+
+    h3 {
+        margin-right: 2.5rem;
+        margin-bottom: 0;
+        font-size: 1.125rem;
+        font-weight: 700;
+        line-height: 1.5rem;
+    }
+
+    p {
+        margin: 0.5rem 0 -0.25rem;
+    }
+}
+
+.LemonDrawer__footer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    justify-content: flex-end;
+    padding-top: 1rem;
+    margin: 1rem;
+    margin-top: 0;
+    white-space: nowrap;
+    border-top: 1px solid var(--color-border-primary);
+}
+
+.LemonDrawer__header + .LemonDrawer__footer {
+    border-top: none;
+}
