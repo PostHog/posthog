@@ -633,7 +633,19 @@ async def initialize_self_capture_api_token():
         posthoganalytics.host = settings.SITE_URL
 
 
-DEFAULT_EVENT_INFO_CACHE_TTL = 300  # 5 minutes — rarely changes
+# Cache TTL is team-age-aware: new teams are actively onboarding and ingesting
+# their first events, so stale cache causes confusing UI (e.g. showing "no events"
+# right after the first $pageview lands). After the first day event definitions
+# rarely change, so we can cache aggressively.
+_EVENT_INFO_CACHE_TTL_NEW_TEAM = 0  # no cache — team < 1 day old
+_EVENT_INFO_CACHE_TTL_ESTABLISHED_TEAM = 900  # 15 minutes — team >= 1 day old
+
+
+def _event_info_cache_ttl(team: "Team") -> int:
+    team_age = timezone.now() - team.created_at
+    if team_age < dt.timedelta(days=1):
+        return _EVENT_INFO_CACHE_TTL_NEW_TEAM
+    return _EVENT_INFO_CACHE_TTL_ESTABLISHED_TEAM
 
 
 def get_default_event_info(team: "Team") -> dict:
@@ -641,14 +653,17 @@ def get_default_event_info(team: "Team") -> dict:
 
     from posthog.models import EventDefinition
 
+    ttl = _event_info_cache_ttl(team)
     cache_key = f"default_event_info_{team.pk}"
-    try:
-        cached = cache.get(cache_key)
-    except Exception:
-        cached = None
 
-    if cached is not None:
-        return cached
+    if ttl > 0:
+        try:
+            cached = cache.get(cache_key)
+        except Exception:
+            cached = None
+
+        if cached is not None:
+            return cached
 
     existing_names = set(
         EventDefinition.objects.filter(team=team, name__in=["$pageview", "$screen"]).values_list("name", flat=True)
@@ -671,10 +686,11 @@ def get_default_event_info(team: "Team") -> dict:
         "has_screen": has_screen,
     }
 
-    try:
-        cache.set(cache_key, result, DEFAULT_EVENT_INFO_CACHE_TTL)
-    except Exception:
-        pass
+    if ttl > 0:
+        try:
+            cache.set(cache_key, result, ttl)
+        except Exception:
+            pass
 
     return result
 
