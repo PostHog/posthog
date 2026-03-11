@@ -478,6 +478,8 @@ export const ReadDataWarehouseSchemaSchema = z
 
 const ReadEventsQuerySchema = z.object({
     kind: z.literal('events'),
+    limit: z.number().int().min(1).max(500).default(500).optional().describe('Number of events to return per page.'),
+    offset: z.number().int().min(0).default(0).optional().describe('Number of events to skip for pagination.'),
 })
 
 const ReadEventPropertiesQuerySchema = z.object({
