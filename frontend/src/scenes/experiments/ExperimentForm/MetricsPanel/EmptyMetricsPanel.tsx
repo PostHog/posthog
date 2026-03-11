@@ -31,32 +31,26 @@ export const EmptyMetricsPanel = ({
                 <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-start w-full sm:w-auto">
                     <LemonButton
                         type="secondary"
+                        icon={<IconPlus />}
                         onClick={() => openMetricSourceModal(METRIC_CONTEXTS.primary)}
                         className="!h-[80px] flex-1 sm:w-[280px] sm:flex-none"
                     >
-                        <div className="flex items-start gap-3 w-full text-left">
-                            <IconPlus className="text-xl shrink-0" />
-                            <div className="flex flex-col gap-0.5">
-                                <span className="font-medium text-sm">Add primary metric</span>
-                                <span className="text-xs text-muted block min-h-[2.5rem]">
-                                    Tracks your main hypothesis
-                                </span>
-                            </div>
+                        <div className="flex flex-col gap-0.5 text-left">
+                            <span className="font-medium text-sm">Add primary metric</span>
+                            <span className="text-xs text-muted">Tracks your main hypothesis</span>
                         </div>
                     </LemonButton>
                     <LemonButton
                         type="secondary"
+                        icon={<IconPlus />}
                         onClick={() => openMetricSourceModal(METRIC_CONTEXTS.secondary)}
                         className="!h-[80px] flex-1 sm:w-[280px] sm:flex-none"
                     >
-                        <div className="flex items-start gap-3 w-full text-left">
-                            <IconPlus className="text-xl shrink-0" />
-                            <div className="flex flex-col gap-0.5">
-                                <span className="font-medium text-sm">Add secondary metric</span>
-                                <span className="text-xs text-muted block min-h-[2.5rem]">
-                                    Provide additional context and detect side effects
-                                </span>
-                            </div>
+                        <div className="flex flex-col gap-0.5 text-left">
+                            <span className="font-medium text-sm">Add secondary metric</span>
+                            <span className="text-xs text-muted">
+                                Provide additional context and detect side effects
+                            </span>
                         </div>
                     </LemonButton>
                 </div>

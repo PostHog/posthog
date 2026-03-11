@@ -1,7 +1,6 @@
 import type { CSSProperties, ReactElement } from 'react'
 
 import { FunnelVisualizer } from './FunnelVisualizer'
-import { PostHogLink } from './PostHogLink'
 import { TableVisualizer } from './TableVisualizer'
 import { TrendsVisualizer } from './TrendsVisualizer'
 import type { FunnelResult, FunnelsQuery, HogQLResult, TrendsQuery, TrendsResult } from './types'
@@ -108,10 +107,9 @@ interface DataPayload {
 
 export interface ComponentProps {
     data: unknown
-    onOpenLink?: (url: string) => void
 }
 
-export function Component({ data, onOpenLink }: ComponentProps): ReactElement {
+export function Component({ data }: ComponentProps): ReactElement {
     const containerStyle: CSSProperties = {
         fontFamily:
             'var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif)',
@@ -145,10 +143,7 @@ export function Component({ data, onOpenLink }: ComponentProps): ReactElement {
                         color: 'var(--color-text-secondary, #6b7280)',
                     }}
                 >
-                    <div style={{ marginBottom: '0.5rem' }}>
-                        This visualization type isn't supported in this view yet.
-                    </div>
-                    {payload._posthogUrl && <PostHogLink url={payload._posthogUrl} onOpen={onOpenLink} />}
+                    <div>This visualization type isn't supported in this view yet.</div>
                 </div>
             </div>
         )
@@ -195,7 +190,6 @@ export function Component({ data, onOpenLink }: ComponentProps): ReactElement {
         <div style={containerStyle}>
             <div style={titleStyle}>{getTitle()}</div>
             {renderVisualization()}
-            {payload._posthogUrl && <PostHogLink url={payload._posthogUrl} onOpen={onOpenLink} />}
         </div>
     )
 }

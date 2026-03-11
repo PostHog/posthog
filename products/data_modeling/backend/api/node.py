@@ -37,6 +37,7 @@ class NodeSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "type",
+            "description",
             "dag_id_text",
             "saved_query_id",
             "created_at",

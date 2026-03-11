@@ -143,6 +143,48 @@ export interface PaginatedEvaluationListApi {
     results: EvaluationApi[]
 }
 
+/**
+ * * `trace` - trace
+ * `generation` - generation
+ */
+export type AnalysisLevelEnumApi = (typeof AnalysisLevelEnumApi)[keyof typeof AnalysisLevelEnumApi]
+
+export const AnalysisLevelEnumApi = {
+    Trace: 'trace',
+    Generation: 'generation',
+} as const
+
+export interface ClusteringJobApi {
+    readonly id: string
+    /** @maxLength 100 */
+    name: string
+    analysis_level: AnalysisLevelEnumApi
+    event_filters?: unknown
+    enabled?: boolean
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedClusteringJobListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ClusteringJobApi[]
+}
+
+export interface PatchedClusteringJobApi {
+    readonly id?: string
+    /** @maxLength 100 */
+    name?: string
+    analysis_level?: AnalysisLevelEnumApi
+    event_filters?: unknown
+    enabled?: boolean
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
 export type ClusteringRunRequestApiEventFiltersItem = { [key: string]: unknown }
 
 /**
@@ -270,6 +312,11 @@ export interface ClusteringRunRequestApi {
     visualization_method?: VisualizationMethodEnumApi
     /** Property filters to scope which traces are included in clustering (PostHog standard format) */
     event_filters?: ClusteringRunRequestApiEventFiltersItem[]
+    /**
+     * If provided, use this clustering job's analysis_level and event_filters instead of request params
+     * @nullable
+     */
+    clustering_job_id?: string | null
 }
 
 /**
@@ -395,7 +442,8 @@ export interface SentimentRequestApi {
      * @minItems 1
      * @maxItems 5
      */
-    trace_ids: string[]
+    ids: string[]
+    analysis_level?: AnalysisLevelEnumApi
     force_refresh?: boolean
     /** @nullable */
     date_from?: string | null
@@ -411,32 +459,19 @@ export interface MessageSentimentApi {
     scores: MessageSentimentApiScores
 }
 
-export type GenerationSentimentApiScores = { [key: string]: number }
+export type SentimentResultApiScores = { [key: string]: number }
 
-export type GenerationSentimentApiMessages = { [key: string]: MessageSentimentApi }
+export type SentimentResultApiMessages = { [key: string]: MessageSentimentApi }
 
-export interface GenerationSentimentApi {
+export interface SentimentResultApi {
     label: string
     score: number
-    scores: GenerationSentimentApiScores
-    messages: GenerationSentimentApiMessages
-}
-
-export type SentimentResponseApiScores = { [key: string]: number }
-
-export type SentimentResponseApiGenerations = { [key: string]: GenerationSentimentApi }
-
-export interface SentimentResponseApi {
-    trace_id: string
-    label: string
-    score: number
-    scores: SentimentResponseApiScores
-    generations: SentimentResponseApiGenerations
-    generation_count: number
+    scores: SentimentResultApiScores
+    messages: SentimentResultApiMessages
     message_count: number
 }
 
-export type SentimentBatchResponseApiResults = { [key: string]: SentimentResponseApi }
+export type SentimentBatchResponseApiResults = { [key: string]: SentimentResultApi }
 
 export interface SentimentBatchResponseApi {
     results: SentimentBatchResponseApiResults
@@ -613,6 +648,73 @@ export interface TextReprResponseApi {
     metadata: TextReprMetadataApi
 }
 
+export interface LLMPromptApi {
+    readonly id: string
+    /**
+     * Unique prompt name using letters, numbers, hyphens, and underscores only.
+     * @maxLength 255
+     */
+    name: string
+    /** Prompt payload as JSON or string data. */
+    prompt: unknown
+    readonly version: number
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+    readonly deleted: boolean
+    readonly is_latest: boolean
+    readonly latest_version: number
+    readonly version_count: number
+    readonly first_version_created_at: string
+}
+
+export interface PaginatedLLMPromptListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LLMPromptApi[]
+}
+
+export interface LLMPromptPublicApi {
+    id: string
+    name: string
+    prompt: unknown
+    version: number
+    created_at: string
+    updated_at: string
+    deleted: boolean
+    is_latest: boolean
+    latest_version: number
+    version_count: number
+    first_version_created_at: string
+}
+
+export interface PatchedLLMPromptPublishApi {
+    /** Prompt payload to publish as a new version. */
+    prompt?: unknown
+    /**
+     * Latest version you are editing from. Used for optimistic concurrency checks.
+     * @minimum 1
+     */
+    base_version?: number
+}
+
+export interface LLMPromptVersionSummaryApi {
+    readonly id: string
+    readonly version: number
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly is_latest: boolean
+}
+
+export interface LLMPromptResolveResponseApi {
+    prompt: LLMPromptApi
+    versions: LLMPromptVersionSummaryApi[]
+    has_more: boolean
+}
+
 export interface DatasetItemApi {
     readonly id: string
     dataset: string
@@ -751,6 +853,17 @@ export type EvaluationsListParams = {
     search?: string
 }
 
+export type LlmAnalyticsClusteringJobsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type LlmAnalyticsEvaluationSummaryCreate400 = { [key: string]: unknown }
 
 export type LlmAnalyticsEvaluationSummaryCreate403 = { [key: string]: unknown }
@@ -789,6 +902,57 @@ export type LlmAnalyticsTextReprCreate400 = { [key: string]: unknown }
 export type LlmAnalyticsTextReprCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsTextReprCreate503 = { [key: string]: unknown }
+
+export type LlmPromptsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Optional substring filter applied to prompt names and prompt content.
+     */
+    search?: string
+}
+
+export type LlmPromptsNameRetrieveParams = {
+    /**
+     * Specific prompt version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number
+}
+
+export type LlmPromptsResolveNameRetrieveParams = {
+    /**
+     * Return versions older than this version number. Mutually exclusive with offset.
+     * @minimum 1
+     */
+    before_version?: number
+    /**
+     * Maximum number of versions to return per page (1-100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Zero-based offset into version history for pagination. Mutually exclusive with before_version.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Specific prompt version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number
+    /**
+     * Exact prompt version UUID to resolve. Can be used together with version for extra safety.
+     */
+    version_id?: string
+}
 
 export type DatasetItemsListParams = {
     /**

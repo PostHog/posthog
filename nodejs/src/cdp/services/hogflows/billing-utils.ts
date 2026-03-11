@@ -1,7 +1,7 @@
-import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '~/cdp/types'
+import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '~/cdp/types'
 
 type HogFlowBillingMetricData = {
-    invocation: CyclotronJobInvocation
+    invocation: CyclotronJobInvocationHogFunction
     billingMetricType: 'fetch' | 'email' | 'sms' | 'push'
 }
 
@@ -18,7 +18,7 @@ export const trackHogFlowBillableInvocation = (
     result.metrics.push({
         team_id: data.invocation.teamId,
         app_source_id: data.invocation.functionId,
-        instance_id: data.invocation.id,
+        instance_id: data.invocation.state.actionId || data.invocation.id,
         metric_kind: data.billingMetricType,
         metric_name: 'billable_invocation',
         count: 1,

@@ -53,10 +53,10 @@ export function FeatureFlagVariantsSection({ featureFlag, variants }: FeatureFla
                                 </div>
                             )}
 
-                            {payloads[variant.key] && (
+                            {payloads[index] && (
                                 <div className="flex flex-col gap-1">
                                     <label className="text-xs font-medium text-muted">Payload</label>
-                                    <JSONEditorInput readOnly value={payloads[variant.key]} />
+                                    <JSONEditorInput readOnly value={payloads[index]} />
                                 </div>
                             )}
                         </div>

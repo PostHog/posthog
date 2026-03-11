@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 import express from 'ultimate-express'
 
 import { ModifiedRequest } from '~/api/router'
-import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS, KAFKA_WAREHOUSE_SOURCE_WEBHOOKS } from '~/config/kafka-topics'
+import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS } from '~/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/kafka/producer'
 import { PluginEvent } from '~/plugin-scaffold'
 
@@ -29,6 +29,7 @@ import { BatchExportHogFunctionService, NotFoundError, ParseError } from './serv
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
+import { GroupsManagerService } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
@@ -84,11 +85,13 @@ export class CdpApi {
         this.emailTrackingService = new EmailTrackingService(
             this.hogFunctionManager,
             this.hogFlowManager,
-            this.hogFunctionMonitoringService
+            this.hogFunctionMonitoringService,
+            services.recipientsManager
         )
         this.batchExportHogFunctionService = new BatchExportHogFunctionService(
             config.SITE_URL,
             deps.teamManager,
+            new GroupsManagerService(deps.teamManager, deps.groupRepository),
             this.hogFunctionManager,
             this.hogExecutor,
             this.hogWatcher,
@@ -109,6 +112,7 @@ export class CdpApi {
             this.config.KAFKA_CLIENT_RACK,
             'WAREHOUSE_PRODUCER'
         )
+        this.hogFunctionMonitoringService.setWarehouseKafkaProducer(this.cdpWarehouseKafkaProducer)
         await this.cdpSourceWebhooksConsumer.start()
     }
 
@@ -615,31 +619,13 @@ export class CdpApi {
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             const { webhook_id } = req.params
-            return this.processAndRespondToWebhook(webhook_id, req, res, async (result) => {
+            return this.processAndRespondToWebhook(webhook_id, req, res, (result) => {
                 if (result.error) {
                     return res.status(500).json({ error: 'Internal error' })
                 }
-                if (!result.execResult || typeof result.execResult !== 'object') {
-                    return res.status(500).json({ error: 'Template did not return a payload' })
+                if (!result.finished) {
+                    return res.status(201).json({ status: 'queued' })
                 }
-
-                const hogFunction = result.invocation.hogFunction
-                const schemaId = hogFunction.inputs?.schema_id?.value
-                if (!schemaId) {
-                    return res.status(500).json({ error: 'Missing schema_id on hog function' })
-                }
-
-                const kafkaProducer = this.cdpWarehouseKafkaProducer
-                if (!kafkaProducer) {
-                    return res.status(500).json({ error: 'Kafka producer not available' })
-                }
-
-                await kafkaProducer.produce({
-                    topic: KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
-                    key: `${hogFunction.team_id}:${schemaId}`,
-                    value: Buffer.from(JSON.stringify(result.execResult)),
-                })
-
                 return res.status(200).json({ status: 'ok' })
             })
         }

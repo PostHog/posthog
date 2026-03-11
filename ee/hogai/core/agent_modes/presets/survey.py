@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 
 from posthog.schema import AgentMode
 
+from ee.hogai.chat_agent.executables import ChatAgentPlanExecutable, ChatAgentPlanToolsExecutable
 from ee.hogai.core.agent_modes.factory import AgentModeDefinition
 from ee.hogai.core.agent_modes.toolkit import AgentToolkit
 from ee.hogai.tools.todo_write import TodoWriteExample
@@ -67,7 +68,7 @@ Assistant: I'll first search for the NPS survey, then stop and archive it.
 1. Search for the NPS survey to get its ID
 2. Stop and archive the survey
 *Uses search with kind: "surveys" and query: "NPS"*
-After getting the survey ID, the assistant uses edit_survey with survey_id and updates: {end_date: "now", archived: true}
+After getting the survey ID, the assistant uses edit_survey with survey_id, stop=true, and archive=true.
 """.strip()
 
 POSITIVE_EXAMPLE_EDIT_SURVEY_REASONING = """
@@ -75,7 +76,7 @@ The assistant used the todo list because:
 1. The user wants to modify an existing survey (stop and archive)
 2. This requires multiple steps: first find the survey ID, then apply the updates
 3. The search tool with surveys kind retrieves the survey information
-4. The edit_survey tool is used with end_date="now" to stop and archived=true to archive
+4. The edit_survey tool is used with stop=true and archive=true to stop and archive the survey
 """.strip()
 
 
@@ -114,7 +115,7 @@ survey_agent = AgentModeDefinition(
 )
 
 
-class SubagentSurveyAgentToolkit(AgentToolkit):
+class ReadOnlySurveyAgentToolkit(AgentToolkit):
     """Survey toolkit for subagents — only includes SurveyAnalysisTool (read-only)."""
 
     @property
@@ -124,8 +125,16 @@ class SubagentSurveyAgentToolkit(AgentToolkit):
         return [SurveyAnalysisTool]
 
 
-SUBAGENT_MODE_DESCRIPTION = "Specialized mode for analyzing surveys. Analyze survey responses to extract themes, sentiment, and actionable insights."
+READ_ONLY_SURVEY_MODE_DESCRIPTION = "Specialized mode for analyzing surveys. Analyze survey responses to extract themes, sentiment, and actionable insights."
 
 subagent_survey_agent = replace(
-    survey_agent, toolkit_class=SubagentSurveyAgentToolkit, mode_description=SUBAGENT_MODE_DESCRIPTION
+    survey_agent, toolkit_class=ReadOnlySurveyAgentToolkit, mode_description=READ_ONLY_SURVEY_MODE_DESCRIPTION
+)
+
+chat_agent_plan_survey_agent = AgentModeDefinition(
+    mode=AgentMode.FLAGS,
+    mode_description=READ_ONLY_SURVEY_MODE_DESCRIPTION,
+    toolkit_class=ReadOnlySurveyAgentToolkit,
+    node_class=ChatAgentPlanExecutable,
+    tools_node_class=ChatAgentPlanToolsExecutable,
 )

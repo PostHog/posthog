@@ -15,7 +15,7 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.storage import object_storage
 
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import CodeInvite, CodeInviteRedemption, Task, TaskRun
 from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
 
 # Test RSA private key for JWT tests (RS256)
@@ -635,9 +635,25 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @patch("products.tasks.backend.api.execute_twig_agent_relay_workflow")
     def test_relay_message_enqueues_slack_relay_workflow(self, mock_execute_relay):
+        from posthog.models.integration import Integration
+
+        from products.slack_app.backend.models import SlackThreadTaskMapping
+
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         mock_execute_relay.return_value = "relay-1"
+
+        integration = Integration.objects.create(team=self.team, kind="slack-twig", integration_id="T_SLACK", config={})
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T_SLACK",
+            channel="C123",
+            thread_ts="1234.5678",
+            task=task,
+            task_run=run,
+            mentioning_slack_user_id="U123",
+        )
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
@@ -684,8 +700,24 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @patch("products.tasks.backend.api.execute_twig_agent_relay_workflow", side_effect=Exception("temporal down"))
     def test_relay_message_returns_503_on_enqueue_failure(self, mock_execute_relay):
+        from posthog.models.integration import Integration
+
+        from products.slack_app.backend.models import SlackThreadTaskMapping
+
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        integration = Integration.objects.create(team=self.team, kind="slack-twig", integration_id="T_SLACK", config={})
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T_SLACK",
+            channel="C456",
+            thread_ts="5678.1234",
+            task=task,
+            task_run=run,
+            mentioning_slack_user_id="U456",
+        )
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
@@ -1205,6 +1237,20 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
         for url, method in endpoints:
             response = getattr(self.client, method.lower())(url, format="json")
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, f"Failed for {method} {url}")
+
+    def test_invite_redemption_grants_access_when_flag_disabled(self):
+        self.set_tasks_feature_flag(False)
+        invite = CodeInvite.objects.create(code="TESTCODE", max_redemptions=0, is_active=True)
+        CodeInviteRedemption.objects.create(invite_code=invite, user=self.user)
+
+        response = self.client.get("/api/projects/@current/tasks/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_no_flag_no_redemption_blocked(self):
+        self.set_tasks_feature_flag(False)
+
+        response = self.client.get("/api/projects/@current/tasks/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_authentication_required(self):
         task = self.create_task()

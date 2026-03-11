@@ -10,14 +10,19 @@ from posthog.approvals.models import ApprovalPolicy, ChangeRequest
 from posthog.approvals.policies import PolicyEngine
 from posthog.models import FeatureFlag
 
+SINGLE_DICT_PATHS = {"holdout"}
+
 
 def _build_filters_for_path(path_spec: tuple, rollout_percentage: int) -> dict[str, Any]:
     """Build a filters dict with the rollout_percentage at the specified path."""
     array_path, field_name = path_spec[:-1], path_spec[-1]
     item = {"properties": [], field_name: rollout_percentage}
 
-    # Build nested structure from inside out
-    current: Any = [item]
+    # holdout is a single dict, not a list of dicts
+    if array_path and array_path[0] in SINGLE_DICT_PATHS:
+        current: Any = item
+    else:
+        current = [item]
     for key in reversed(array_path):
         current = {key: current}
 
@@ -120,6 +125,7 @@ class TestUpdateFeatureFlagActionExtractIntent(APIBaseTest):
             "groups": [{"properties": [], "rollout_percentage": 50}],
             "super_groups": [{"properties": [], "rollout_percentage": 100}],
             "holdout_groups": [{"properties": [], "rollout_percentage": 70}],
+            "holdout": {"id": 1, "exclusion_percentage": 70},
             "multivariate": {"variants": [{"key": "control", "rollout_percentage": 50}]},
         }
         flag = self._create_flag(old_filters)
@@ -128,6 +134,7 @@ class TestUpdateFeatureFlagActionExtractIntent(APIBaseTest):
             "groups": [{"properties": [], "rollout_percentage": 80}],
             "super_groups": [{"properties": [], "rollout_percentage": 100}],
             "holdout_groups": [{"properties": [], "rollout_percentage": 70}],
+            "holdout": {"id": 1, "exclusion_percentage": 70},
             "multivariate": {"variants": [{"key": "control", "rollout_percentage": 60}]},
         }
         request = self._mock_request("PATCH", {"filters": new_filters})
@@ -140,7 +147,9 @@ class TestUpdateFeatureFlagActionExtractIntent(APIBaseTest):
         assert "triggered_paths" in intent
         assert "full_request_data" in intent
         assert "preconditions" in intent
-        assert intent["current_state"]["rollout_percentage"] is not None
+        current_rollouts = intent["current_state"]["rollout_percentage"]
+        assert current_rollouts is not None
+        assert any(r["path"] == "holdout.exclusion_percentage" for r in current_rollouts)
         assert intent["gated_changes"]["rollout_percentage"] is not None
 
     def test_extract_intent_includes_triggered_paths(self):
@@ -169,6 +178,84 @@ class TestUpdateFeatureFlagActionDisplayData(APIBaseTest):
         assert "before" in display_data
         assert "after" in display_data
         assert "rollout percentage" in display_data["description"].lower()
+
+
+class TestCheckStaleness(APIBaseTest):
+    def _create_flag(self) -> FeatureFlag:
+        return FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+            created_by=self.user,
+        )
+
+    @parameterized.expand(
+        [
+            ("matching_version", 1, 1, False),
+            ("mismatched_version", 1, 2, True),
+        ]
+    )
+    def test_staleness_by_version(self, _name, stored_version, current_version, expected_stale):
+        flag = self._create_flag()
+        flag.version = current_version
+
+        intent = {"preconditions": {"version": stored_version}}
+        context = {"instance": flag}
+
+        from posthog.approvals.actions.feature_flags import EnableFeatureFlagAction
+
+        result = EnableFeatureFlagAction.check_staleness(intent, context)
+
+        assert result is expected_stale
+
+    def test_stale_when_no_instance_in_context(self):
+        from posthog.approvals.actions.feature_flags import EnableFeatureFlagAction
+
+        intent = {"preconditions": {"version": 1}}
+        result = EnableFeatureFlagAction.check_staleness(intent, {})
+
+        assert result is True
+
+    def test_not_stale_when_no_stored_version(self):
+        from posthog.approvals.actions.feature_flags import EnableFeatureFlagAction
+
+        flag = self._create_flag()
+        intent: dict[str, Any] = {"preconditions": {}}
+        context = {"instance": flag}
+
+        result = EnableFeatureFlagAction.check_staleness(intent, context)
+
+        assert result is False
+
+    @parameterized.expand(
+        [
+            ("matching_version", 1, 1, False),
+            ("mismatched_version", 1, 2, True),
+        ]
+    )
+    def test_update_action_staleness_by_version(self, _name, stored_version, current_version, expected_stale):
+        flag = self._create_flag()
+        flag.version = current_version
+
+        intent = {"preconditions": {"version": stored_version}}
+        context = {"instance": flag}
+
+        result = UpdateFeatureFlagAction.check_staleness(intent, context)
+
+        assert result is expected_stale
+
+    def test_update_action_stale_when_no_instance(self):
+        intent = {"preconditions": {"version": 1}}
+        result = UpdateFeatureFlagAction.check_staleness(intent, {})
+
+        assert result is True
+
+    def test_base_action_check_staleness_always_returns_false(self):
+        from posthog.approvals.actions.base import BaseAction
+
+        result = BaseAction.check_staleness({"preconditions": {"version": 1}}, {})
+
+        assert result is False
 
 
 class TestPolicyConditionEvaluation(APIBaseTest):

@@ -4,6 +4,8 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
+import { ViewportResolution } from '@posthog/replay-shared'
+
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { chainToElements } from 'lib/utils/elements-chain'
@@ -14,7 +16,6 @@ import { RecordingEventType } from '~/types'
 
 import type { sessionEventsDataLogicType } from './sessionEventsDataLogicType'
 import { SessionRecordingMetaLogicProps, sessionRecordingMetaLogic } from './sessionRecordingMetaLogic'
-import { ViewportResolution } from './snapshot-processing/patch-meta-event'
 
 const TWENTY_FOUR_HOURS_IN_MS = 24 * 60 * 60 * 1000 // +- before and after start and end of a recording to query for session linked events.
 const FIVE_MINUTES_IN_MS = 5 * 60 * 1000 // +- before and after start and end of a recording to query for events related by person.
@@ -39,7 +40,7 @@ export const sessionEventsDataLogic = kea<sessionEventsDataLogicType>([
         sessionEventsData: [
             null as null | RecordingEventType[],
             {
-                loadEvents: async () => {
+                loadEvents: async (_, breakpoint) => {
                     const meta = values.sessionPlayerMetaData
                     if (!meta) {
                         return null
@@ -96,6 +97,8 @@ AND properties.$lib != 'web'`
                         api.queryHogQL(relatedEventsQuery, tags),
                     ])
 
+                    breakpoint()
+
                     return [...sessionEvents.results, ...relatedEvents.results].map(
                         (event: any): RecordingEventType => {
                             const currentUrl = event[5]
@@ -132,16 +135,19 @@ AND properties.$lib != 'web'`
                     )
                 },
 
-                loadFullEventData: async ({ event }) => {
+                loadFullEventData: async ({ event }, breakpoint) => {
                     // box so we're always dealing with a list
                     const events = Array.isArray(event) ? event : [event]
 
-                    let existingEvents = values.sessionEventsData?.filter((x) => events.some((e) => e.id === x.id))
+                    // Cache before awaits — the logic may unmount during the API call
+                    const cachedSessionEventsData = values.sessionEventsData
+
+                    let existingEvents = cachedSessionEventsData?.filter((x) => events.some((e) => e.id === x.id))
 
                     const allEventsAreFullyLoaded =
                         existingEvents?.every((e) => e.fullyLoaded) && existingEvents.length === events.length
                     if (!existingEvents || allEventsAreFullyLoaded) {
-                        return values.sessionEventsData
+                        return cachedSessionEventsData
                     }
 
                     existingEvents = existingEvents.filter((e) => !e.fullyLoaded)
@@ -168,6 +174,7 @@ AND properties.$lib != 'web'`
                             scene: 'ReplaySingle',
                             productKey: 'session_replay',
                         })
+                        breakpoint()
                         if (response.error) {
                             throw new Error(response.error)
                         }
@@ -189,9 +196,9 @@ AND properties.$lib != 'web'`
                     }
 
                     // here we map the events list because we want the result to be a new instance to trigger downstream recalculation
-                    return !values.sessionEventsData
-                        ? values.sessionEventsData
-                        : values.sessionEventsData.map((x) => {
+                    return !cachedSessionEventsData
+                        ? cachedSessionEventsData
+                        : cachedSessionEventsData.map((x) => {
                               const event = existingEvents?.find((ee) => ee.id === x.id)
                               return event
                                   ? ({

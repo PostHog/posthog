@@ -84,6 +84,9 @@ metadata:
             name: mprocs
             about: Process orchestrator that runs all dev services in parallel with live
                 output and easy process management.
+        phrocs:
+            name: phrocs
+            about: PostHog's custom process runner (replaces mprocs).
 devenv:
     dev:setup: null
     dev:generate: null
@@ -159,8 +162,9 @@ health_checks:
 start:
     start:
         bin_script: start
-        description: Main entry point that launches all dev services via mprocs orchestrator
+        description: Main entry point that launches all dev services via phrocs/mprocs
         services:
+            - phrocs
             - mprocs
             - docker
             - django
@@ -272,10 +276,9 @@ build:
             - build:schema-latest-versions
         description: Generate all schema definitions (frontend JSON, Python, latest versions)
     build:openapi-schema:
-        cmd:
-            'mkdir -p frontend/tmp && DEBUG=1 OPENAPI_INCLUDE_INTERNAL=1 OPENAPI_MOCK_INTERNAL_API_SECRET=1 python manage.py
-            spectacular --file frontend/tmp/openapi.json --format openapi-json && echo "OpenAPI
-            schema written to frontend/tmp/openapi.json"
+        cmd: 'mkdir -p frontend/tmp && DEBUG=1 OPENAPI_INCLUDE_INTERNAL=1 OPENAPI_MOCK_INTERNAL_API_SECRET=1
+            python manage.py spectacular --file frontend/tmp/openapi.json --format openapi-json
+            && echo "OpenAPI schema written to frontend/tmp/openapi.json"
 
             '
         description: Generate OpenAPI schema from Django backend (writes to gitignored
@@ -285,11 +288,15 @@ build:
             - clickhouse
             - django
     build:schema-mcp:
-        cmd: cd services/mcp && npx tsx scripts/generate-tool-schema.ts && pnpm exec oxfmt schema/tool-inputs.json
+        cmd: cd services/mcp && npx tsx scripts/generate-tool-schema.ts && pnpm exec oxfmt
+            schema/tool-inputs.json
         description: Generate MCP tool-inputs.json schema from Zod definitions
     build:openapi-types:
         cmd: pnpm --filter=@posthog/frontend run openapi:types
         description: Generate TypeScript API types from the backend OpenAPI schema
+    build:openapi-mcp-types:
+        cmd: pnpm --filter=@posthog/mcp run generate-mcp-types
+        description: Generate full TypeScript type namespace for MCP from OpenAPI schema
     build:openapi-mcp:
         cmd: pnpm --filter=@posthog/mcp run generate-orval-schemas
         description: Generate Orval Zod schemas for MCP tool handlers
@@ -300,6 +307,7 @@ build:
         steps:
             - build:openapi-schema
             - build:openapi-types
+            - build:openapi-mcp-types
             - build:openapi-mcp
             - build:openapi-mcp-tools
         description: Generate OpenAPI schema and TypeScript types from the backend
@@ -316,6 +324,12 @@ build:
     init:skill:
         cmd: python products/posthog_ai/scripts/build_skills.py --init
         description: Scaffold a new agent skill directory with SKILL.md boilerplate
+    sync:skill:
+        cmd: python products/posthog_ai/scripts/build_skills.py --sync
+        description: Build a product skill and sync to .agents/skills/ for local testing
+    unsync:skill:
+        cmd: python products/posthog_ai/scripts/build_skills.py --sync --clean
+        description: Remove a previously synced skill from .agents/skills/
 docker:
     docker:services:down:
         cmd: docker compose -f docker-compose.dev.yml down
@@ -484,10 +498,12 @@ quality:
         cmd: pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
         description: Format JSON, YAML files
     format:css:
-        cmd: pnpm stylelint --fix --allow-empty-input "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
+        cmd: pnpm stylelint --fix --allow-empty-input "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern
+            "$@"
         description: Format CSS/SCSS files
     format:js:
-        cmd: pnpm oxlint --fix --fix-suggestions --quiet "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
+        cmd: pnpm oxlint --fix --fix-suggestions --quiet "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern
+            "$@"
         description: Format JavaScript/TypeScript files (frontend)
     format:nodejs:
         cmd: pnpm --dir nodejs exec eslint --fix "$@" && pnpm --dir nodejs exec prettier
@@ -509,10 +525,17 @@ quality:
         cmd: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc --fix
             "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
         description: Format Markdown files
+    format:mcp:
+        cmd: pnpm run --filter @posthog/mcp format
+        description: Format MCP files
 tools:
     tool:temporal-django-worker:
         bin_script: temporal-django-worker
         description: Start Temporal worker with graceful shutdown handling
+    tool:temporal-recording-rasterizer-worker:
+        bin_script: temporal-recording-rasterizer-worker
+        description: Start recording rasterizer Temporal worker (Puppeteer + Chromium)
+        hidden: true
     tool:nodejs:
         bin_script: nodejs
         description: Start nodejs with optional restart loop
@@ -603,6 +626,9 @@ tools:
         bin_script: start-mcp-server
         description: Start the MCP server
         hidden: true
+    start:stripe:app:
+        bin_script: start-stripe-app
+        description: Start the Stripe app dev server (requires Stripe CLI)
     posthog:hobby:
         bin_script: posthog-hobby
         description: 'TODO: add description for posthog-hobby'
@@ -610,6 +636,18 @@ tools:
     start:custom:
         bin_script: start-custom
         description: 'TODO: add description for start-custom'
+        hidden: true
+    generate_personhog_proto:
+        bin_script: generate_personhog_proto.sh
+        description: 'TODO: add description for generate_personhog_proto.sh'
+        hidden: true
+    phrocs:build:
+        cmd: cd tools/phrocs && go build -o ../../bin/phrocs .
+        description: Build the phrocs binary from source (Go required; run once or after
+            changing tools/phrocs/)
+    phrocs:
+        bin_script: phrocs
+        description: Run phrocs directly with a custom mprocs-format YAML config
         hidden: true
 utilities:
     nuke:
