@@ -221,10 +221,11 @@ def cache_all_team_sdk_versions_job():
     aggregate_results_op(results.collect())
 
 
-@skip_if_already_running(
+@dagster.schedule(
     cron_schedule="0 0 * * *",  # Every day at midnight
     job=cache_all_team_sdk_versions_job,
     execution_timezone="UTC",
 )
+@skip_if_already_running
 def cache_all_team_sdk_versions_schedule(context: dagster.ScheduleEvaluationContext):
     return dagster.RunRequest()

@@ -82,24 +82,22 @@ def check_for_concurrent_runs(
     return None
 
 
-def skip_if_already_running(**schedule_kwargs) -> Callable:
+def skip_if_already_running(fn: Callable) -> Callable:
     """
-    Decorator that combines @dagster.schedule with concurrent run protection.
+    Decorator that skips schedule execution if a previous run is still active.
 
     Usage:
-        @skip_if_already_running(cron_schedule="0 0 * * *", job=my_job, execution_timezone="UTC")
+        @dagster.schedule(cron_schedule="0 0 * * *", job=my_job, execution_timezone="UTC")
+        @skip_if_already_running
         def my_schedule(context: dagster.ScheduleEvaluationContext):
             return dagster.RunRequest()
     """
 
-    def decorator(fn: Callable) -> dagster.ScheduleDefinition:
-        @wraps(fn)
-        def wrapper(context: dagster.ScheduleEvaluationContext):
-            skip_reason = check_for_concurrent_runs(context, tags={})
-            if skip_reason:
-                return skip_reason
-            return fn(context)
+    @wraps(fn)
+    def wrapper(context: dagster.ScheduleEvaluationContext):
+        skip_reason = check_for_concurrent_runs(context, tags={})
+        if skip_reason:
+            return skip_reason
+        return fn(context)
 
-        return dagster.schedule(**schedule_kwargs)(wrapper)
-
-    return decorator
+    return wrapper
