@@ -15,7 +15,7 @@ from django.http.response import HttpResponseBase
 from django.utils import timezone
 
 import structlog
-from rest_framework.decorators import api_view, authentication_classes, permission_classes, throttle_classes
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -179,7 +179,6 @@ VALID_SERVICE_IDS: set[str] = {POSTHOG_SERVICE_ID} | set(_CATEGORY_MAP.keys())
 @api_view(["GET"])
 @authentication_classes([])
 @permission_classes([])
-@throttle_classes([])
 def provisioning_health(request: Request) -> Response:
     error = verify_stripe_signature(request)
     if error:
@@ -196,7 +195,6 @@ def provisioning_health(request: Request) -> Response:
 @api_view(["GET"])
 @authentication_classes([])
 @permission_classes([])
-@throttle_classes([])
 def provisioning_services(request: Request) -> Response:
     error = verify_stripe_signature(request)
     if error:
@@ -214,7 +212,6 @@ def provisioning_services(request: Request) -> Response:
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
-@throttle_classes([])
 @stripe_region_proxy(strategy="body_region")
 def account_requests(request: Request) -> Response:
     data = request.data
@@ -412,7 +409,6 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
-@throttle_classes([])
 @stripe_region_proxy(strategy="token_lookup")
 def oauth_token(request: Request) -> Response:
     grant_type = request.data.get("grant_type", "")
@@ -548,7 +544,6 @@ def _exchange_refresh_token(request: Request) -> Response:
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
-@throttle_classes([])
 def provisioning_resources_create(request: Request) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
@@ -602,7 +597,6 @@ def provisioning_resources_create(request: Request) -> Response:
 @api_view(["GET"])
 @authentication_classes([])
 @permission_classes([])
-@throttle_classes([])
 def provisioning_resource_detail(request: Request, resource_id: str) -> Response:
     return _resolve_resource_response(request, resource_id)
 
@@ -615,7 +609,6 @@ def provisioning_resource_detail(request: Request, resource_id: str) -> Response
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
-@throttle_classes([])
 def provisioning_rotate_credentials(request: Request, resource_id: str) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
@@ -737,7 +730,6 @@ def _resolve_resource_response(request: Request, resource_id: str) -> Response:
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
-@throttle_classes([])
 def deep_links(request: Request) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:

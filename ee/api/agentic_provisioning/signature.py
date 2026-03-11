@@ -60,6 +60,17 @@ def verify_stripe_signature(request: Request) -> Response | None:
         )
 
     body = _get_raw_body(request)
+    if body is None:
+        return Response(
+            {
+                "error": {
+                    "code": "server_error",
+                    "message": "Unable to read request body for signature verification",
+                }
+            },
+            status=500,
+        )
+
     expected_hex = _compute_hmac(secret, timestamp_str, body)
 
     if not hmac.compare_digest(expected_hex.lower(), signature_hex.lower()):
@@ -82,7 +93,7 @@ def _compute_hmac(secret: str, timestamp_str: str, body: bytes) -> str:
     return mac.digest().hex()
 
 
-def _get_raw_body(request: Request) -> bytes:
+def _get_raw_body(request: Request) -> bytes | None:
     """Get raw request body, resilient to DRF stream consumption.
 
     DRF's default throttle classes can access request.data (via
@@ -101,7 +112,7 @@ def _get_raw_body(request: Request) -> bytes:
         return django_request.body
     except RawPostDataException:
         logger.warning("agentic_provisioning.signature.stream_consumed: request body unavailable for HMAC verification")
-        return b""
+        return None
 
 
 _SIG_RE = re.compile(r"t=(\d+),v1=([0-9a-fA-F]{64})")
