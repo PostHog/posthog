@@ -4,14 +4,15 @@ from pathlib import Path
 from uuid import uuid4
 
 from freezegun import freeze_time
-from parameterized import parameterized
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActorsQuery,
     DateRange,
+    EventsNode,
     InsightActorsQuery,
     IntervalType,
     LifecycleDataWarehouseNode,
@@ -392,16 +393,24 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             (
-                "global_properties",
+                "filters",
                 {"properties": clean_entity_properties([{"key": "text", "value": "new", "type": "data_warehouse"}])},
-                "Global properties are not supported",
+                "Filters are not supported",
             ),
             ("test_account_filters", {"filterTestAccounts": True}, "Test account filters are not supported"),
             ("sampling", {"samplingFactor": 0.1}, "Sampling is not supported"),
             (
-                "both",
+                "test_account_filters_and_sampling",
                 {"filterTestAccounts": True, "samplingFactor": 0.1},
                 "Test account filters and sampling are not supported",
+            ),
+            (
+                "custom_aggregation_target_without_data_warehouse",
+                {
+                    "customAggregationTarget": True,
+                    "series": [EventsNode(event="$pageview")],
+                },
+                "Custom entity aggregation target is not supported for lifecycle insights without a data warehouse series",
             ),
         ]
     )
@@ -410,24 +419,27 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
     ) -> None:
         table_name = self._setup_data_warehouse()
 
+        default_series = [
+            LifecycleDataWarehouseNode(
+                id=table_name,
+                table_name=table_name,
+                timestamp_field="sent_at",
+                aggregation_target_field="users.person_id",
+                created_at_field="users.signed_up",
+            )
+        ]
+        query_kwargs = {
+            "dateRange": DateRange(date_from="-1d"),
+            "interval": IntervalType.DAY,
+            "series": default_series,
+            **extra_query_kwargs,
+        }
+
         with freeze_time("2025-11-07T12:00:00Z"):
             with self.assertRaises(ValidationError) as context:
                 LifecycleQueryRunner(
                     team=self.team,
-                    query=LifecycleQuery(
-                        dateRange=DateRange(date_from="-1d"),
-                        interval=IntervalType.DAY,
-                        series=[
-                            LifecycleDataWarehouseNode(
-                                id=table_name,
-                                table_name=table_name,
-                                timestamp_field="sent_at",
-                                aggregation_target_field="users.person_id",
-                                created_at_field="users.signed_up",
-                            )
-                        ],
-                        **extra_query_kwargs,
-                    ),
+                    query=LifecycleQuery(**query_kwargs),
                 )
 
         self.assertIn(expected_error, str(context.exception))

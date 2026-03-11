@@ -823,9 +823,11 @@ const handleQuerySourceUpdateSideEffects = (
     if (
         maybeChangedSeries &&
         isLifecycleQuery(currentState) &&
-        currentState.customAggregationTarget &&
         !maybeChangedSeries.some((series) => isLifecycleDataWarehouseNode(series))
     ) {
+        ;(mergedUpdate as LifecycleQuery).properties = undefined
+        ;(mergedUpdate as LifecycleQuery).filterTestAccounts = undefined
+        ;(mergedUpdate as LifecycleQuery).samplingFactor = undefined
         ;(mergedUpdate as LifecycleQuery).customAggregationTarget = undefined
     }
 

@@ -42,6 +42,10 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
 
     def _validate_data_warehouse_settings(self) -> None:
         if not self.is_data_warehouse_series:
+            if self.query.customAggregationTarget:
+                raise ValidationError(
+                    "Custom entity aggregation target is not supported for lifecycle insights without a data warehouse series."
+                )
             return
 
         unsupported_settings: list[str] = []

@@ -174,6 +174,64 @@ describe('insightVizDataLogic', () => {
                 },
             })
         })
+
+        it('clears unsupported lifecycle globals when switching to a data warehouse series', () => {
+            const lifecycleQuery: LifecycleQuery = {
+                kind: NodeKind.LifecycleQuery,
+                filterTestAccounts: true,
+                samplingFactor: 0.1,
+                properties: [{ key: '$browser', value: 'Chrome', type: 'event', operator: 'exact' }],
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        name: '$pageview',
+                        event: '$pageview',
+                    },
+                ],
+            }
+
+            builtInsightVizDataLogic.actions.updateQuerySource(lifecycleQuery)
+
+            expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    kind: NodeKind.LifecycleQuery,
+                    series: [
+                        {
+                            kind: NodeKind.LifecycleDataWarehouseNode,
+                            id: 'warehouse_orders',
+                            table_name: 'warehouse_orders',
+                            name: 'Orders',
+                            timestamp_field: 'created_at',
+                            aggregation_target_field: 'order_id',
+                            created_at_field: 'created_at',
+                        },
+                    ],
+                } as LifecycleQuery)
+            }).toMatchValues({
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.LifecycleQuery,
+                        properties: undefined,
+                        filterTestAccounts: undefined,
+                        samplingFactor: undefined,
+                        series: [
+                            {
+                                kind: NodeKind.LifecycleDataWarehouseNode,
+                                id: 'warehouse_orders',
+                                table_name: 'warehouse_orders',
+                                name: 'Orders',
+                                timestamp_field: 'created_at',
+                                aggregation_target_field: 'order_id',
+                                created_at_field: 'created_at',
+                            },
+                        ],
+                        trendsFilter: {},
+                        version: 2,
+                    },
+                },
+            })
+        })
     })
 
     describe('updateDateRange', () => {
