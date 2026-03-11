@@ -40,12 +40,18 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
     const showDebugLogs = user?.is_staff || user?.is_impersonated
 
     const schemaOptions = (source?.schemas ?? [])
-        .map((schema) => schema.name)
+        .map((schema) => schema.label ?? schema.name)
         .sort()
         .map((schemaName) => ({
             key: schemaName,
             label: schemaName,
         }))
+
+    const filteredJobs =
+        selectedSchemas.length > 0
+            ? jobs.filter((job) => selectedSchemas.includes(job.schema.label ?? job.schema.name))
+            : jobs
+
 
     return (
         <>
@@ -70,7 +76,7 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
             )}
             <LemonTable
                 hideScrollbar
-                dataSource={jobs}
+                dataSource={filteredJobs}
                 rowKey="id"
                 loading={jobsLoading}
                 disableTableWhileLoading={false}
@@ -78,7 +84,7 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
                     {
                         title: 'Schema',
                         render: (_, job) => {
-                            return job.schema.name
+                            return job.schema.label ?? job.schema.name
                         },
                     },
                     {

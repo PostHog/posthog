@@ -15,3 +15,5 @@ class SourceSchema:
     foreign_keys: list[tuple[str, str, str]] = field(default_factory=list)
     description: str | None = None
     should_sync_default: bool = True
+    metadata: dict = field(default_factory=dict)
+    label: str | None = None

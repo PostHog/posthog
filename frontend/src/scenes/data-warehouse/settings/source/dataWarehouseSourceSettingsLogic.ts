@@ -469,7 +469,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 await api.externalDataSchemas.delete_data(schema.id)
 
                 posthog.capture('schema data deleted', { sourceType: clonedSource.source_type })
-                lemonToast.success(`Data for ${schema.name} has been deleted`)
+                lemonToast.success(`Data for ${schema.label ?? schema.name} has been deleted`)
             } catch (e: any) {
                 if (e.message) {
                     lemonToast.error(e.message)
