@@ -214,8 +214,6 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             '',
             {
                 setJourneyName: (_, { name }) => name,
-                addJourneySuccess: () => '',
-                updateJourneySuccess: () => '',
                 resetBuilder: () => '',
             },
         ],
@@ -223,8 +221,6 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             '',
             {
                 setJourneyDescription: (_, { description }) => description,
-                addJourneySuccess: () => '',
-                updateJourneySuccess: () => '',
                 resetBuilder: () => '',
             },
         ],
@@ -232,9 +228,8 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             false,
             {
                 saveJourney: () => true,
-                addJourneySuccess: () => false,
+                resetBuilder: () => false,
                 addJourneyFailure: () => false,
-                updateJourneySuccess: () => false,
                 updateJourneyFailure: () => false,
                 saveJourneyFailure: () => false,
             },
@@ -556,14 +551,21 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
                     })
                     actions.reportCustomerJourneyCreated(name, series.length, values.creationSource)
                 }
-
-                actions.resetBuilder()
-                router.actions.push(urls.customerAnalyticsJourneys())
             } catch (e) {
                 const message = e instanceof Error ? e.message : 'Failed to save journey'
                 actions.saveJourneyFailure(message)
                 lemonToast.error(message)
             }
+        },
+
+        updateJourneySuccess: () => {
+            actions.resetBuilder()
+            router.actions.push(urls.customerAnalyticsJourneys())
+        },
+
+        addJourneySuccess: () => {
+            actions.resetBuilder()
+            router.actions.push(urls.customerAnalyticsJourneys())
         },
     })),
 

@@ -175,9 +175,7 @@ export const journeyEditorLogic = kea<journeyEditorLogicType>([
                 customerJourneysLogic.actions.loadActiveInsight()
                 actions.saveChangesSuccess()
                 actions.reportCustomerJourneyStepsSavedFromEditor(stepsAdded, activeJourney?.id ?? null)
-                lemonToast.success(
-                    `Added ${stepsAdded} step${stepsAdded > 1 ? 's' : ''} to funnel`
-                )
+                lemonToast.success(`Added ${stepsAdded} step${stepsAdded > 1 ? 's' : ''} to funnel`)
             } catch (e) {
                 const message = e instanceof Error ? e.message : 'Failed to save changes'
                 actions.saveChangesFailure(message)
