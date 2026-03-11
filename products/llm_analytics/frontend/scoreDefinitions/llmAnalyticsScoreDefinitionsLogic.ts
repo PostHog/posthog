@@ -175,8 +175,12 @@ export const llmAnalyticsScoreDefinitionsLogic = kea<llmAnalyticsScoreDefinition
         ],
 
         scoreDefinitionCountLabel: [
-            (s) => [s.filters, s.count],
-            (filters: ScoreDefinitionFilters, count: number): string => {
+            (s) => [s.filters, s.count, s.scoreDefinitionsLoading],
+            (filters: ScoreDefinitionFilters, count: number, loading: boolean): string => {
+                if (loading) {
+                    return ''
+                }
+
                 const start = (filters.page - 1) * SCORE_DEFINITIONS_PER_PAGE + 1
                 const end = Math.min(filters.page * SCORE_DEFINITIONS_PER_PAGE, count)
 

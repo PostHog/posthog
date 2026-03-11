@@ -231,7 +231,7 @@ function validateDraft(mode: ScoreDefinitionModalMode, draft: ScoreDefinitionDra
                 return 'Categorical option labels must include letters or numbers.'
             }
             if (optionKeys.has(normalizedKey)) {
-                return 'Categorical option labels must be unique.'
+                return 'Some option labels are too similar and would generate duplicate IDs. Please use more distinct labels.'
             }
             optionKeys.add(normalizedKey)
         }

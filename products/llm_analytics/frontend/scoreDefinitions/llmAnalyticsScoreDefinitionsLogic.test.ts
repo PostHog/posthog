@@ -94,4 +94,31 @@ describe('llmAnalyticsScoreDefinitionsLogic', () => {
             limit: SCORE_DEFINITIONS_PER_PAGE,
         })
     })
+
+    it('does not show the empty count label while loading', async () => {
+        let resolveRequest: ((value: Awaited<ReturnType<typeof llmAnalyticsScoreDefinitionsList>>) => void) | undefined
+        mockLlmAnalyticsScoreDefinitionsList.mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveRequest = resolve
+                })
+        )
+
+        const logic = llmAnalyticsScoreDefinitionsLogic()
+        logic.mount()
+
+        expect(logic.values.scoreDefinitionsLoading).toBe(true)
+        expect(logic.values.scoreDefinitionCountLabel).toBe('')
+
+        resolveRequest?.({
+            results: [],
+            count: 0,
+            next: null,
+            previous: null,
+        })
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.scoreDefinitionCountLabel).toBe('0 scorers')
+    })
 })
