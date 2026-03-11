@@ -1,11 +1,7 @@
 import { loadAllSources } from '../data-loader'
-import type { PlayerConfig } from '../types'
+import type { PlayerConfig, RecordingBlock } from '../types'
 
 const makeConfig = (overrides?: Partial<PlayerConfig>): PlayerConfig => ({
-    blocks: [
-        { key: 'session_recordings/30d/1000-abc123', start: 0, end: 5000 },
-        { key: 'session_recordings/30d/2000-def456', start: 100, end: 6000 },
-    ],
     recordingApiBaseUrl: 'https://recording.example.com',
     recordingApiSecret: 'test-secret',
     teamId: 1,
@@ -14,15 +10,21 @@ const makeConfig = (overrides?: Partial<PlayerConfig>): PlayerConfig => ({
     ...overrides,
 })
 
+const blocks: RecordingBlock[] = [
+    { key: 'session_recordings/30d/1000-abc123', start: 0, end: 5000 },
+    { key: 'session_recordings/30d/2000-def456', start: 100, end: 6000 },
+]
+
 const mockResponse = (
-    body: string,
+    body: string | object,
     status = 200,
     statusText = 'OK'
-): { ok: boolean; status: number; statusText: string; text: () => Promise<string> } => ({
+): { ok: boolean; status: number; statusText: string; text: () => Promise<string>; json: () => Promise<unknown> } => ({
     ok: status >= 200 && status < 300,
     status,
     statusText,
-    text: async () => body,
+    text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
+    json: async () => (typeof body === 'string' ? JSON.parse(body) : body),
 })
 
 // JSONL lines as recording-api would return them (already decompressed)
@@ -43,9 +45,12 @@ describe('data-loader', () => {
         delete globalThis.fetch
     })
 
-    it('fetches all blocks via the recording-api and returns sources with parsed snapshots', async () => {
+    it('fetches block listing then fetches each block', async () => {
         const fetchMock = (globalThis.fetch = jest.fn(async (input: RequestInfo | URL) => {
             const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+            if (url.endsWith('/blocks')) {
+                return mockResponse({ blocks })
+            }
             if (url.includes('key=session_recordings%2F30d%2F1000-abc123')) {
                 return mockResponse(jsonlBlock('win-1', [1000, 2000]))
             }
@@ -58,16 +63,23 @@ describe('data-loader', () => {
         const config = makeConfig()
         const { sources, snapshotsBySource } = await loadAllSources(config)
 
-        expect(fetchMock).toHaveBeenCalledTimes(2)
+        // 1 listing call + 2 block fetches
+        expect(fetchMock).toHaveBeenCalledTimes(3)
 
-        // Verify recording-api URL format and auth header
-        const firstCall = fetchMock.mock.calls[0]
-        const firstUrl = typeof firstCall[0] === 'string' ? firstCall[0] : ''
-        expect(firstUrl).toContain('/api/projects/1/recordings/sess-123/block?')
-        expect(firstUrl).toContain('start=0')
-        expect(firstUrl).toContain('end=5000')
-        expect(firstUrl).toContain('decompress=true')
-        expect(firstCall[1]?.headers?.['X-Internal-Api-Secret']).toBe('test-secret')
+        // Verify listing URL and auth header
+        const listingCall = fetchMock.mock.calls[0]
+        const listingUrl = typeof listingCall[0] === 'string' ? listingCall[0] : ''
+        expect(listingUrl).toBe('https://recording.example.com/api/projects/1/recordings/sess-123/blocks')
+        expect(listingCall[1]?.headers?.['X-Internal-Api-Secret']).toBe('test-secret')
+
+        // Verify block fetch URL format
+        const blockCall = fetchMock.mock.calls.find((c) => {
+            const u = typeof c[0] === 'string' ? c[0] : ''
+            return u.includes('/block?')
+        })
+        const blockUrl = typeof blockCall![0] === 'string' ? blockCall![0] : ''
+        expect(blockUrl).toContain('decompress=true')
+        expect(blockCall![1]?.headers?.['X-Internal-Api-Secret']).toBe('test-secret')
 
         expect(sources).toHaveLength(2)
 
@@ -84,13 +96,32 @@ describe('data-loader', () => {
         }
     })
 
-    it('throws on HTTP error with response body', async () => {
+    it('returns empty sources when block listing is empty', async () => {
+        globalThis.fetch = jest.fn().mockResolvedValue(mockResponse({ blocks: [] }))
+
+        const { sources, snapshotsBySource } = await loadAllSources(makeConfig())
+
+        expect(sources).toHaveLength(0)
+        expect(Object.keys(snapshotsBySource)).toHaveLength(0)
+    })
+
+    it('throws on block listing HTTP error', async () => {
         globalThis.fetch = jest.fn().mockResolvedValue(mockResponse('forbidden', 403, 'Forbidden'))
 
-        const config = makeConfig({
-            blocks: [{ key: 'session_recordings/30d/bad-block', start: 0, end: 100 }],
-        })
+        await expect(loadAllSources(makeConfig())).rejects.toThrow(
+            'Failed to fetch block listing: 403 Forbidden - forbidden'
+        )
+    })
 
-        await expect(loadAllSources(config)).rejects.toThrow('Failed to fetch block: 403 Forbidden - forbidden')
+    it('throws on individual block fetch HTTP error', async () => {
+        globalThis.fetch = jest.fn(async (input: RequestInfo | URL) => {
+            const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+            if (url.endsWith('/blocks')) {
+                return mockResponse({ blocks: [blocks[0]] })
+            }
+            return mockResponse('not found', 404, 'Not Found')
+        }) as jest.Mock
+
+        await expect(loadAllSources(makeConfig())).rejects.toThrow('Failed to fetch block: 404 Not Found - not found')
     })
 })

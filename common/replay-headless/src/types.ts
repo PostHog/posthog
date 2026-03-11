@@ -4,14 +4,13 @@ export interface ViewportEvent {
     height: number
 }
 
-export interface SnapshotBlock {
+export interface RecordingBlock {
     key: string
     start: number
     end: number
 }
 
 export interface PlayerConfig {
-    blocks: SnapshotBlock[]
     recordingApiBaseUrl: string
     recordingApiSecret: string
     teamId: number

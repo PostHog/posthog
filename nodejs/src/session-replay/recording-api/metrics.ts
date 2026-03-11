@@ -49,6 +49,17 @@ export class RecordingApiMetrics {
         this.recordingsDeleted.labels({ status }).inc(count)
     }
 
+    private static readonly listBlocksDuration = new Histogram({
+        name: 'recording_api_list_blocks_duration_seconds',
+        help: 'Time taken to list blocks for a session from ClickHouse',
+        labelNames: ['result'],
+        buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+    })
+
+    public static observeListBlocks(result: 'success' | 'empty' | 'error', seconds: number): void {
+        this.listBlocksDuration.labels({ result }).observe(seconds)
+    }
+
     public static incrementCleanupFailure(step: 'kafka' | 'postgres' | 'activity_log'): void {
         this.cleanupFailures.labels({ step }).inc()
     }

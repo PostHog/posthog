@@ -141,7 +141,7 @@ window.addEventListener('posthog-player-init', () => {
     }
 
     init(config).catch((err) => {
-        console.error('[headless-player] Fatal error:', err)
+        console.error('[headless-player] Fatal error:', err instanceof Error ? err.message : JSON.stringify(err))
         signalRecordingEnded()
     })
 })

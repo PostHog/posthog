@@ -11,6 +11,13 @@ import { RecordingApi } from './recording-api'
 import { RecordingService } from './recording-service'
 import { KeyStore, RecordingApiConfig, RecordingDecryptor } from './types'
 
+jest.mock('@clickhouse/client', () => ({
+    createClient: jest.fn().mockReturnValue({
+        query: jest.fn(),
+        close: jest.fn().mockResolvedValue(undefined),
+    }),
+}))
+
 jest.mock('@aws-sdk/client-s3', () => ({
     S3Client: jest.fn().mockImplementation(() => ({
         send: jest.fn(),
@@ -71,6 +78,11 @@ describe('RecordingApi', () => {
             SESSION_RECORDING_API_REDIS_PORT: 6379,
             REDIS_POOL_MIN_SIZE: 1,
             REDIS_POOL_MAX_SIZE: 10,
+            CLICKHOUSE_HOST: 'localhost',
+            CLICKHOUSE_DATABASE: 'default',
+            CLICKHOUSE_USER: 'default',
+            CLICKHOUSE_PASSWORD: undefined,
+            CLICKHOUSE_SECURE: false,
         }
 
         mockKeyStore = {
@@ -90,11 +102,12 @@ describe('RecordingApi', () => {
             validateS3Key: jest.fn().mockReturnValue(true),
             formatS3KeyError: jest.fn().mockReturnValue('Invalid key format'),
             getBlock: jest.fn(),
+            listBlocks: jest.fn(),
             deleteRecordings: jest.fn(),
         } as unknown as jest.Mocked<RecordingService>
         ;(getKeyStore as jest.Mock).mockReturnValue(mockKeyStore)
         ;(getBlockDecryptor as jest.Mock).mockReturnValue(mockDecryptor)
-        ;(RecordingService as jest.Mock).mockImplementation(() => mockService)
+        ;(RecordingService as unknown as jest.Mock).mockImplementation(() => mockService)
     })
 
     describe('service', () => {
@@ -352,6 +365,81 @@ describe('RecordingApi', () => {
                 expect(res.status).toBe(500)
                 expect(res.body).toEqual({ error: 'Failed to fetch block from S3' })
             })
+        })
+    })
+
+    describe('listBlocks endpoint', () => {
+        let app: express.Application
+        let server: Server
+
+        beforeEach(async () => {
+            const recordingApi = new RecordingApi({} as RecordingApiConfig, mockPostgres)
+            await recordingApi.start(mockService)
+            app = express()
+            app.use('/', recordingApi.router())
+            server = app.listen(0, () => {})
+        })
+
+        afterEach(() => {
+            server.close()
+        })
+
+        it('should return blocks from service', async () => {
+            mockService.listBlocks.mockResolvedValue([
+                { key: 'session_recordings/30d/1000-aaa', start: 0, end: 100 },
+                { key: 'session_recordings/30d/2000-bbb', start: 0, end: 200 },
+            ])
+
+            const res = await supertest(app).get('/api/projects/1/recordings/session-123/blocks')
+
+            expect(res.status).toBe(200)
+            expect(res.body).toEqual({
+                blocks: [
+                    { key: 'session_recordings/30d/1000-aaa', start: 0, end: 100 },
+                    { key: 'session_recordings/30d/2000-bbb', start: 0, end: 200 },
+                ],
+            })
+            expect(mockService.listBlocks).toHaveBeenCalledWith('session-123', 1)
+        })
+
+        it('should return empty blocks when session not found', async () => {
+            mockService.listBlocks.mockResolvedValue([])
+
+            const res = await supertest(app).get('/api/projects/1/recordings/session-123/blocks')
+
+            expect(res.status).toBe(200)
+            expect(res.body).toEqual({ blocks: [] })
+        })
+
+        it('should return 400 for invalid team_id', async () => {
+            const res = await supertest(app).get('/api/projects/abc/recordings/session-123/blocks')
+
+            expect(res.status).toBe(400)
+        })
+
+        it('should return 500 when service throws', async () => {
+            mockService.listBlocks.mockRejectedValue(new Error('ClickHouse error'))
+
+            const res = await supertest(app).get('/api/projects/1/recordings/session-123/blocks')
+
+            expect(res.status).toBe(500)
+            expect(res.body).toEqual({ error: 'Failed to list blocks' })
+        })
+
+        it('should return 503 if service not initialized', async () => {
+            const uninitializedApi = new RecordingApi({} as RecordingApiConfig, mockPostgres)
+            const uninitializedApp = express()
+            uninitializedApp.use('/', uninitializedApi.router())
+            const uninitializedServer = uninitializedApp.listen(0, () => {})
+
+            try {
+                const res = await supertest(uninitializedApp).get('/api/projects/1/recordings/session-123/blocks')
+
+                expect(res.status).toBe(503)
+                expect(res.body).toEqual({ error: 'Service not initialized' })
+            } finally {
+                uninitializedServer.close()
+            }
         })
     })
 

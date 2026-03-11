@@ -1,4 +1,5 @@
 import { GetObjectCommand, NoSuchKey, S3Client } from '@aws-sdk/client-s3'
+import { ClickHouseClient } from '@clickhouse/client'
 import snappy from 'snappy'
 
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
@@ -7,7 +8,7 @@ import { ValidRetentionPeriods } from '../shared/constants'
 import { createDeletionBlockMetadata } from '../shared/metadata/session-block-metadata'
 import { SessionMetadataStore } from '../shared/metadata/session-metadata-store'
 import { RecordingApiMetrics } from './metrics'
-import { KeyStore, RecordingDecryptor, SessionKeyDeletedError } from './types'
+import { KeyStore, RecordingBlock, RecordingDecryptor, SessionKeyDeletedError } from './types'
 
 export interface GetBlockParams {
     sessionId: string
@@ -28,6 +29,13 @@ export type DeleteRecordingResult =
     | { sessionId: string; ok: true; status: 'already_deleted'; deletedAt: number; deletedBy: string }
     | { sessionId: string; ok: false; status: 'delete_failed' }
 
+interface BlockListingRow {
+    start_time: string
+    block_first_timestamps: string[]
+    block_last_timestamps: string[]
+    block_urls: string[]
+}
+
 export class RecordingService {
     constructor(
         private s3Client: S3Client,
@@ -36,7 +44,8 @@ export class RecordingService {
         private keyStore: KeyStore,
         private decryptor: RecordingDecryptor,
         private metadataStore?: SessionMetadataStore,
-        private postgres?: PostgresRouter
+        private postgres?: PostgresRouter,
+        private clickhouse?: ClickHouseClient
     ) {}
 
     validateS3Key(key: string): boolean {
@@ -148,6 +157,120 @@ export class RecordingService {
 
             RecordingApiMetrics.observeGetBlock('error', (performance.now() - startTime) / 1000, 'unknown')
             throw error
+        }
+    }
+
+    async listBlocks(sessionId: string, teamId: number): Promise<RecordingBlock[]> {
+        if (!this.clickhouse) {
+            throw new Error('ClickHouse client not initialized')
+        }
+
+        const startTime = performance.now()
+
+        logger.debug('[RecordingService] listBlocks request', { teamId, sessionId })
+
+        try {
+            const result = await this.clickhouse.query({
+                query: `
+                    SELECT
+                        min(min_first_timestamp) as start_time,
+                        groupArrayArray(block_first_timestamps) as block_first_timestamps,
+                        groupArrayArray(block_last_timestamps) as block_last_timestamps,
+                        groupArrayArray(block_urls) as block_urls,
+                        max(retention_period_days) as retention_period_days,
+                        dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time
+                    FROM session_replay_events
+                    PREWHERE
+                        team_id = {team_id:Int32}
+                        AND session_id = {session_id:String}
+                        AND min_first_timestamp <= now()
+                    GROUP BY session_id
+                    HAVING
+                        expiry_time >= now()
+                        AND max(is_deleted) = 0
+                `,
+                query_params: {
+                    team_id: teamId,
+                    session_id: sessionId,
+                },
+                format: 'JSONEachRow',
+            })
+
+            const rows = await result.json<BlockListingRow>()
+            if (rows.length === 0) {
+                RecordingApiMetrics.observeListBlocks('empty', (performance.now() - startTime) / 1000)
+                return []
+            }
+
+            const blocks = RecordingService.buildBlockList(sessionId, teamId, rows[0])
+
+            RecordingApiMetrics.observeListBlocks(
+                blocks.length > 0 ? 'success' : 'empty',
+                (performance.now() - startTime) / 1000
+            )
+            logger.debug('[RecordingService] listBlocks complete', {
+                teamId,
+                sessionId,
+                blockCount: blocks.length,
+            })
+
+            return blocks
+        } catch (error) {
+            RecordingApiMetrics.observeListBlocks('error', (performance.now() - startTime) / 1000)
+            throw error
+        }
+    }
+
+    static buildBlockList(sessionId: string, teamId: number, row: BlockListingRow): RecordingBlock[] {
+        const { start_time, block_first_timestamps, block_last_timestamps, block_urls } = row
+
+        if (
+            !block_first_timestamps?.length ||
+            !block_last_timestamps?.length ||
+            !block_urls?.length ||
+            block_first_timestamps.length !== block_last_timestamps.length ||
+            block_first_timestamps.length !== block_urls.length
+        ) {
+            logger.error('[RecordingService] Block listing arrays length mismatch', {
+                sessionId,
+                teamId,
+                firstTimestampsLength: block_first_timestamps?.length ?? 0,
+                lastTimestampsLength: block_last_timestamps?.length ?? 0,
+                urlsLength: block_urls?.length ?? 0,
+            })
+            return []
+        }
+
+        const blocks: { startTime: string; block: RecordingBlock }[] = []
+        for (let i = 0; i < block_urls.length; i++) {
+            const parsed = RecordingService.parseBlockUrl(block_urls[i])
+            if (parsed) {
+                blocks.push({ startTime: block_first_timestamps[i], block: parsed })
+            }
+        }
+
+        blocks.sort((a, b) => a.startTime.localeCompare(b.startTime))
+
+        if (blocks.length === 0 || blocks[0].startTime !== start_time) {
+            return []
+        }
+
+        return blocks.map((b) => b.block)
+    }
+
+    static parseBlockUrl(blockUrl: string): RecordingBlock | null {
+        try {
+            const url = new URL(blockUrl)
+            const key = url.pathname.replace(/^\//, '')
+            const match = url.search.match(/range=bytes=(\d+)-(\d+)/)
+            if (!match) {
+                logger.warn('[RecordingService] Invalid block URL range', { blockUrl })
+                return null
+            }
+            return { key, start: parseInt(match[1]), end: parseInt(match[2]) }
+        } catch {
+            logger.warn('[RecordingService] Failed to parse block URL', { blockUrl })
+            return null
         }
     }
 

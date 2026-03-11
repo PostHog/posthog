@@ -10,9 +10,27 @@ import {
     type SourceKey,
 } from '@posthog/replay-shared'
 
-import type { PlayerConfig, SnapshotBlock } from './types'
+import type { PlayerConfig, RecordingBlock } from './types'
 
-async function fetchBlock(config: PlayerConfig, block: SnapshotBlock): Promise<string> {
+async function fetchBlocks(config: PlayerConfig): Promise<RecordingBlock[]> {
+    const url = `${config.recordingApiBaseUrl}/api/projects/${config.teamId}/recordings/${config.sessionId}/blocks`
+
+    const response = await fetch(url, {
+        headers: {
+            'X-Internal-Api-Secret': config.recordingApiSecret,
+        },
+    })
+
+    if (!response.ok) {
+        const body = await response.text()
+        throw new Error(`Failed to fetch block listing: ${response.status} ${response.statusText} - ${body}`)
+    }
+
+    const data: { blocks: RecordingBlock[] } = await response.json()
+    return data.blocks
+}
+
+async function fetchBlock(config: PlayerConfig, block: RecordingBlock): Promise<string> {
     const url = `${config.recordingApiBaseUrl}/api/projects/${config.teamId}/recordings/${config.sessionId}/block`
     const params = new URLSearchParams({
         key: block.key,
@@ -40,12 +58,18 @@ export interface LoadedSources {
 }
 
 export async function loadAllSources(config: PlayerConfig): Promise<LoadedSources> {
+    const blocks = await fetchBlocks(config)
+
+    if (blocks.length === 0) {
+        return { sources: [], snapshotsBySource: {} }
+    }
+
     const registerWindowId = createWindowIdRegistry()
     const sources: SessionRecordingSnapshotSource[] = []
     const snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> = {}
 
     const results = await Promise.all(
-        config.blocks.map(async (block, index) => {
+        blocks.map(async (block, index) => {
             const text = await fetchBlock(config, block)
             const lines = text.split('\n').filter(Boolean)
             const snapshots: RecordingSnapshot[] = parseJsonSnapshots(
