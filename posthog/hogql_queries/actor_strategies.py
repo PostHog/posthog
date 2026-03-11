@@ -258,7 +258,28 @@ class SessionStrategy(ActorStrategy):
             return {}
 
         query = parse_select(
-            "SELECT session_id, `$start_timestamp`, `$session_duration` FROM sessions WHERE session_id IN {session_ids}",
+            """
+            SELECT
+                session_id,
+                `$start_timestamp`,
+                `$end_timestamp`,
+                `$session_duration`,
+                `$channel_type`,
+                `$entry_pathname`,
+                `$entry_referring_domain`,
+                `$entry_utm_source`,
+                `$entry_utm_medium`,
+                `$entry_utm_campaign`,
+                `$entry_utm_term`,
+                `$entry_utm_content`,
+                `$num_uniq_urls`,
+                `$autocapture_count`,
+                `$exit_pathname`,
+                `$last_external_click_url`,
+                `$pageview_count`
+            FROM sessions
+            WHERE session_id IN {session_ids}
+            """,
             {"session_ids": ast.Constant(value=session_ids)},
         )
 
@@ -273,3 +294,16 @@ class SessionStrategy(ActorStrategy):
 
     def input_columns(self) -> list[str]:
         return ["session"]
+
+    def filter_conditions(self) -> list[ast.Expr]:
+        where_exprs: list[ast.Expr] = []
+
+        search = self.query.search.strip() if self.query.search else None
+        if search:
+            where_exprs.append(
+                parse_expr(
+                    "person_id in (select id from persons where ilike(properties.email, {search}) or ilike(properties.name, {search}))",
+                    {"search": ast.Constant(value=f"%{search}%")},
+                )
+            )
+        return where_exprs

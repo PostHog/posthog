@@ -44,6 +44,11 @@ export class HogFunctionHandler implements ActionHandler {
 
         // Collect captured PostHog events and metrics from the function execution
         result.capturedPostHogEvents = [...result.capturedPostHogEvents, ...functionResult.capturedPostHogEvents]
+        // Collect warehouse webhook payloads
+        result.warehouseWebhookPayloads = [
+            ...result.warehouseWebhookPayloads,
+            ...functionResult.warehouseWebhookPayloads,
+        ]
         result.metrics = [...result.metrics, ...functionResult.metrics]
 
         if (!functionResult.finished) {
@@ -101,6 +106,7 @@ export class HogFunctionHandler implements ActionHandler {
                 ],
                 metrics: [],
                 capturedPostHogEvents: [],
+                warehouseWebhookPayloads: [],
             }
         }
 

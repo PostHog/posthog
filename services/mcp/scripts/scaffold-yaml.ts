@@ -2,8 +2,8 @@
 /**
  * Scaffolds YAML tool definitions from the OpenAPI schema.
  *
- * Discovers operations by matching URL paths containing /{product}/,
- * same approach as frontend/bin/generate-openapi-types.mjs.
+ * Discovers operations using x-explicit-tags (priority 1) and URL path
+ * substring matching (fallback), same approach as generate-openapi-types.mjs.
  *
  * Idempotent: re-running on an existing file only adds newly discovered
  * operations and removes stale ones. All hand-authored config is preserved.
@@ -36,6 +36,8 @@ interface OpenApiOperation {
     parameters?: Array<{ in: string; name: string }>
     summary?: string
     description?: string
+    deprecated?: boolean
+    'x-explicit-tags'?: string[]
 }
 
 interface OpenApiSpec {
@@ -88,10 +90,41 @@ function operationIdToToolName(operationId: string): string {
 }
 
 /**
- * Find operations whose URL path contains /{product}/ — same approach
- * as frontend/bin/generate-openapi-types.mjs matchUrlToProduct().
+ * Find operations by x-explicit-tags — same priority-1 approach as
+ * frontend/bin/generate-openapi-types.mjs resolveTagToProduct().
+ * Tags are set via @extend_schema(tags=[...]) or auto-derived from
+ * the ViewSet module path (products/<name>/backend/ → tag "<name>").
  */
-function findOperationsByProduct(spec: OpenApiSpec, product: string): DiscoveredOperation[] {
+function findOperationsByTag(spec: OpenApiSpec, product: string): DiscoveredOperation[] {
+    const ops: DiscoveredOperation[] = []
+    const httpMethods = new Set(['get', 'post', 'put', 'patch', 'delete'])
+
+    for (const [urlPath, methods] of Object.entries(spec.paths)) {
+        for (const [method, op] of Object.entries(methods)) {
+            if (!httpMethods.has(method) || !op?.operationId || op.deprecated) {
+                continue
+            }
+            const tags = op['x-explicit-tags'] ?? []
+            if (tags.includes(product)) {
+                ops.push({
+                    operationId: op.operationId,
+                    method: method.toUpperCase(),
+                    path: urlPath,
+                    description: op.summary || op.description,
+                })
+            }
+        }
+    }
+
+    return ops
+}
+
+/**
+ * Find operations whose URL path contains /{product}/ — fallback when
+ * x-explicit-tags doesn't match, same as generate-openapi-types.mjs
+ * matchUrlToProduct().
+ */
+function findOperationsByUrl(spec: OpenApiSpec, product: string): DiscoveredOperation[] {
     const ops: DiscoveredOperation[] = []
     const httpMethods = new Set(['get', 'post', 'put', 'patch', 'delete'])
     const needle = `/${product}/`
@@ -102,7 +135,7 @@ function findOperationsByProduct(spec: OpenApiSpec, product: string): Discovered
         }
 
         for (const [method, op] of Object.entries(methods)) {
-            if (!httpMethods.has(method) || !op?.operationId) {
+            if (!httpMethods.has(method) || !op?.operationId || op.deprecated) {
                 continue
             }
 
@@ -118,6 +151,30 @@ function findOperationsByProduct(spec: OpenApiSpec, product: string): Discovered
     return ops
 }
 
+/**
+ * Find operations for a product. Uses the same priority as
+ * frontend/bin/generate-openapi-types.mjs:
+ * 1. x-explicit-tags match (covers ViewSets with @extend_schema(tags=[...])
+ *    and ViewSets in products/<name>/backend/)
+ * 2. URL path substring match (fallback for legacy endpoints)
+ */
+function findOperationsByProduct(spec: OpenApiSpec, product: string): DiscoveredOperation[] {
+    const byTag = findOperationsByTag(spec, product)
+    const byUrl = findOperationsByUrl(spec, product)
+
+    // Merge, preferring tag-matched ops and deduping by operationId
+    const seen = new Set(byTag.map((op) => op.operationId))
+    const merged = [...byTag]
+    for (const op of byUrl) {
+        if (!seen.has(op.operationId)) {
+            merged.push(op)
+            seen.add(op.operationId)
+        }
+    }
+
+    return merged
+}
+
 function findOperationsByPath(spec: OpenApiSpec, pathPrefix: string): DiscoveredOperation[] {
     const ops: DiscoveredOperation[] = []
     const httpMethods = new Set(['get', 'post', 'put', 'patch', 'delete'])
@@ -128,7 +185,7 @@ function findOperationsByPath(spec: OpenApiSpec, pathPrefix: string): Discovered
         }
 
         for (const [method, op] of Object.entries(methods)) {
-            if (!httpMethods.has(method) || !op?.operationId) {
+            if (!httpMethods.has(method) || !op?.operationId || op.deprecated) {
                 continue
             }
 
@@ -370,8 +427,8 @@ function main(): void {
         console.error('       scaffold-yaml --path <prefix> [--output <file>]')
         console.error('       scaffold-yaml --sync-all')
         console.error('')
-        console.error('--product is a substring match: selects endpoints whose path contains /<name>/')
-        console.error('(hyphens normalized to underscores). Can be a product name or any path segment.')
+        console.error('--product discovers endpoints by x-explicit-tags first, then URL path fallback.')
+        console.error('Uses the product folder name (underscores), e.g. error_tracking, workflows.')
         process.exit(1)
     }
 

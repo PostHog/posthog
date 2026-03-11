@@ -129,6 +129,79 @@ describe('logsViewerFiltersLogic', () => {
         })
     })
 
+    describe('initialFilters', () => {
+        it('applies initialFilters on mount', async () => {
+            const initialLogic = logsViewerFiltersLogic({
+                id: 'with-initial',
+                initialFilters: { searchTerm: 'session_id:abc', severityLevels: ['error'] },
+            })
+            initialLogic.mount()
+            await expectLogic(initialLogic).toFinishAllListeners()
+
+            expect(initialLogic.values.filters.searchTerm).toBe('session_id:abc')
+            expect(initialLogic.values.filters.severityLevels).toEqual(['error'])
+            // other filters remain at defaults
+            expect(initialLogic.values.filters.dateRange).toEqual({ date_from: '-1h', date_to: null })
+
+            initialLogic.unmount()
+        })
+
+        it('does not call setFilters when no initialFilters provided', async () => {
+            const plainLogic = logsViewerFiltersLogic({ id: 'no-initial' })
+            plainLogic.mount()
+            await expectLogic(plainLogic).toFinishAllListeners()
+
+            expect(plainLogic.values.filters.searchTerm).toBe('')
+            expect(plainLogic.values.filters.severityLevels).toEqual([])
+
+            plainLogic.unmount()
+        })
+
+        it('applies new initialFilters when props change', async () => {
+            const initialProps = {
+                id: 'props-changed',
+                initialFilters: { searchTerm: 'first' },
+            }
+            const builtLogic = logsViewerFiltersLogic.build(initialProps)
+            builtLogic.mount()
+            await expectLogic(builtLogic).toFinishAllListeners()
+
+            expect(builtLogic.values.filters.searchTerm).toBe('first')
+
+            // Simulate props change (as BindLogic would do when parent re-renders with new props)
+            logsViewerFiltersLogic.build({
+                id: 'props-changed',
+                initialFilters: { searchTerm: 'second', severityLevels: ['warn'] },
+            })
+            await expectLogic(builtLogic).toFinishAllListeners()
+
+            expect(builtLogic.values.filters.searchTerm).toBe('second')
+            expect(builtLogic.values.filters.severityLevels).toEqual(['warn'])
+
+            builtLogic.unmount()
+        })
+
+        it('resets filters when initialFilters is removed', async () => {
+            const builtLogic = logsViewerFiltersLogic.build({
+                id: 'props-cleared',
+                initialFilters: { searchTerm: 'session_id:abc' },
+            })
+            builtLogic.mount()
+            await expectLogic(builtLogic).toFinishAllListeners()
+            expect(builtLogic.values.filters.searchTerm).toBe('session_id:abc')
+
+            // Simulate reopening without initialFilters
+            logsViewerFiltersLogic.build({ id: 'props-cleared', initialFilters: undefined })
+            await expectLogic(builtLogic).toFinishAllListeners()
+
+            expect(builtLogic.values.filters.searchTerm).toBe('')
+            expect(builtLogic.values.filters.severityLevels).toEqual([])
+            expect(builtLogic.values.filters.serviceNames).toEqual([])
+
+            builtLogic.unmount()
+        })
+    })
+
     describe('keyed instances', () => {
         it('maintains separate state for different keys', async () => {
             const logic1 = logsViewerFiltersLogic({ id: 'tab-1' })

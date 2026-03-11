@@ -13,6 +13,14 @@ pub fn fetch_partition_count(
     topic: &str,
     timeout: Duration,
 ) -> Result<u32, String> {
+    tracing::info!(
+        kafka_hosts,
+        tls,
+        topic,
+        timeout_secs = timeout.as_secs(),
+        "fetching partition count from Kafka"
+    );
+
     let mut config = ClientConfig::new();
     config.set("bootstrap.servers", kafka_hosts);
 
@@ -22,13 +30,15 @@ pub fn fetch_partition_count(
             .set("enable.ssl.certificate.verification", "false");
     }
 
-    let consumer: BaseConsumer = config
-        .create()
-        .map_err(|e| format!("failed to create Kafka client: {e}"))?;
+    let consumer: BaseConsumer = config.create().map_err(|e| {
+        format!("failed to create Kafka client (hosts={kafka_hosts}, tls={tls}): {e}")
+    })?;
 
-    let metadata = consumer
-        .fetch_metadata(Some(topic), timeout)
-        .map_err(|e| format!("failed to fetch metadata for topic '{topic}': {e}"))?;
+    let metadata = consumer.fetch_metadata(Some(topic), timeout).map_err(|e| {
+        format!(
+            "failed to fetch metadata for topic '{topic}' (hosts={kafka_hosts}, tls={tls}): {e}"
+        )
+    })?;
 
     let topic_metadata = metadata
         .topics()

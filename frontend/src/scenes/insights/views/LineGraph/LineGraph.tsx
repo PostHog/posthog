@@ -27,6 +27,8 @@ import {
     TooltipModel,
     TooltipOptions,
 } from 'lib/Chart'
+import { resolveVariableColor } from 'lib/charts/utils/color'
+import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
@@ -42,9 +44,9 @@ import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
-import { createXAxisTickCallback } from 'scenes/insights/views/LineGraph/formatXAxisTick'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
+import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
@@ -62,30 +64,7 @@ function truncateString(str: string, num: number): string {
     return str
 }
 
-const RESOLVED_COLOR_MAP = new Map<string, string>()
 const INCOMPLETE_SEGMENT_BORDER_DASH = [10, 10]
-export function resolveVariableColor(color: string | undefined): string | undefined {
-    if (!color) {
-        return color
-    }
-
-    if (RESOLVED_COLOR_MAP.has(color)) {
-        return RESOLVED_COLOR_MAP.get(color)
-    }
-
-    // Cache complex variables to avoid the `getComputedStyle` call on every call
-    if (color.startsWith('var(--')) {
-        const replaced = color.replace('var(', '').replace(')', '')
-        const computedColor = getComputedStyle(document.documentElement).getPropertyValue(replaced)
-        RESOLVED_COLOR_MAP.set(color, computedColor)
-        return computedColor
-    }
-
-    // Optimize to avoid the `startsWith` check on every call
-    RESOLVED_COLOR_MAP.set(color, color)
-
-    return color
-}
 
 export function onChartClick(
     event: ChartEvent,
@@ -294,6 +273,7 @@ export function LineGraph_({
     const { aggregationLabel } = useValues(groupsModel)
     const { isDarkModeOn } = useValues(themeLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { baseCurrency } = useValues(teamLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
     const { timezone, isTrends, isFunnels, breakdownFilter, interval, insightData } = useValues(
@@ -456,7 +436,7 @@ export function LineGraph_({
         if (showPercentView) {
             return `${Number(value).toFixed(1)}%`
         }
-        return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
+        return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView, baseCurrency)
     }
 
     function generateYaxesForLineGraph(
@@ -671,7 +651,8 @@ export function LineGraph_({
                             return formatPercentStackAxisValue(
                                 trendsFilter,
                                 percentageValue || value,
-                                isPercentStackView
+                                isPercentStackView,
+                                baseCurrency
                             )
                         },
                         borderWidth: 2,
@@ -810,14 +791,15 @@ export function LineGraph_({
                                                         if (originalValue !== undefined && originalValue !== null) {
                                                             return `${value.toFixed(1)}% (${formatAggregationAxisValue(
                                                                 trendsFilter,
-                                                                originalValue
+                                                                originalValue,
+                                                                baseCurrency
                                                             )})`
                                                         }
                                                     }
                                                 }
 
                                                 if (!isPercentStackView) {
-                                                    return formatAggregationAxisValue(trendsFilter, value)
+                                                    return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
                                                 }
 
                                                 const total = seriesData.reduce((a, b) => a + b.count, 0)
@@ -828,12 +810,13 @@ export function LineGraph_({
                                                 const isNaN = Number.isNaN(percentageLabel)
 
                                                 if (isNaN) {
-                                                    return formatAggregationAxisValue(trendsFilter, value)
+                                                    return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
                                                 }
 
                                                 return `${formatAggregationAxisValue(
                                                     trendsFilter,
-                                                    value
+                                                    value,
+                                                    baseCurrency
                                                 )} (${percentageLabel}%)`
                                             })
                                         }
@@ -939,7 +922,12 @@ export function LineGraph_({
                             display: !hideYAxis,
                             precision,
                             callback: (value) => {
-                                return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
+                                return formatPercentStackAxisValue(
+                                    trendsFilter,
+                                    value,
+                                    isPercentStackView,
+                                    baseCurrency
+                                )
                             },
                         },
                         grid: gridOptions,
@@ -996,7 +984,12 @@ export function LineGraph_({
                             ...tickOptions,
                             precision,
                             callback: (value) => {
-                                return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
+                                return formatPercentStackAxisValue(
+                                    trendsFilter,
+                                    value,
+                                    isPercentStackView,
+                                    baseCurrency
+                                )
                             },
                         },
                         grid: gridOptions,

@@ -59,6 +59,7 @@ PRODUCTS_APPS = [
     "products.visual_review.backend.apps.VisualReviewConfig",
     "products.mcp_store.backend.apps.McpStoreConfig",
     "products.event_definitions.backend.apps.EventDefinitionsConfig",
+    "products.logs.backend.apps.LogsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -606,6 +607,8 @@ TOOLBAR_OAUTH_SCOPES = [
     "element:read",
     "uploaded_media:write",
 ]
+
+ELEMENT_STATS_DEFAULT_LIMIT = get_from_env("ELEMENT_STATS_DEFAULT_LIMIT", 50_000, type_cast=int)
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes
