@@ -37,7 +37,7 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.data_color_theme import DataColorTheme
-from posthog.models.evaluation_context import EvaluationContext, TeamDefaultEvaluationContext
+from posthog.models.evaluation_context import EvaluationContext, TeamDefaultEvaluationContext, normalize_context_name
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.feature_flag import TeamDefaultEvaluationTag
 from posthog.models.group_type_mapping import get_group_types_for_project
@@ -1405,7 +1405,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             context_name = request.data.get("context_name", "")
             if not isinstance(context_name, str):
                 return response.Response({"error": "context_name must be a string"}, status=400)
-            context_name = context_name.strip().lower()
+            context_name = normalize_context_name(context_name)
             if not context_name:
                 return response.Response({"error": "context_name is required"}, status=400)
             if len(context_name) > 255:
@@ -1434,7 +1434,9 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
         else:  # DELETE
             context_name = request.data.get("context_name", "") or request.GET.get("context_name", "")
-            context_name = context_name.strip().lower()
+            if not isinstance(context_name, str):
+                return response.Response({"error": "context_name must be a string"}, status=400)
+            context_name = normalize_context_name(context_name)
             if not context_name:
                 return response.Response({"error": "context_name is required"}, status=400)
 

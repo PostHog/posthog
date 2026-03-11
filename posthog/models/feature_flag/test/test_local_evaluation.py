@@ -257,11 +257,13 @@ class TestLocalEvaluationSignals(BaseTest):
 
     @patch("posthog.tasks.feature_flags.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())
-    def test_signal_fired_on_evaluation_context_create(self, mock_task):
-        """Creating an EvaluationContext fires the cache update signal."""
+    def test_signal_not_fired_on_evaluation_context_create(self, mock_task):
+        """Creating an EvaluationContext does NOT fire the cache update signal.
+
+        New contexts can't be referenced by any flags yet, so invalidation is a no-op.
+        """
         from posthog.models.evaluation_context import EvaluationContext
 
-        # Creating a flag first
         FeatureFlag.objects.create(
             team=self.team,
             key="test-flag",
@@ -271,8 +273,32 @@ class TestLocalEvaluationSignals(BaseTest):
 
         mock_task.reset_mock()
 
-        # Creating an EvaluationContext fires the signal
         EvaluationContext.objects.create(team=self.team, name="production")
+
+        mock_task.delay.assert_not_called()
+
+    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_signal_fired_on_evaluation_context_rename(self, mock_task):
+        """Renaming an EvaluationContext fires the cache update signal.
+
+        Flags referencing the context need to pick up the new name.
+        """
+        from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        ctx = EvaluationContext.objects.create(team=self.team, name="production")
+        FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=ctx)
+
+        mock_task.reset_mock()
+
+        ctx.name = "staging"
+        ctx.save()
 
         mock_task.delay.assert_called_once_with(self.team.id)
 

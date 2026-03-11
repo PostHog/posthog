@@ -3,6 +3,14 @@ from django.db import models
 from posthog.models.utils import UUIDModel
 
 
+def normalize_context_name(name: str) -> str:
+    """Normalize an evaluation context name for storage and comparison.
+
+    Context names are case-insensitive and whitespace-trimmed.
+    """
+    return name.strip().lower()
+
+
 class EvaluationContext(UUIDModel):
     """
     A named evaluation context scoped to a team.

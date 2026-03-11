@@ -876,9 +876,12 @@ def evaluation_context_changed(sender, instance: "FeatureFlagEvaluationContext",
 
 
 @receiver(post_save, sender=EvaluationContext)
-def evaluation_context_name_changed(sender, instance: "EvaluationContext", **kwargs):
+def evaluation_context_name_changed(sender, instance: "EvaluationContext", created: bool, **kwargs):
     """Invalidate cache when an EvaluationContext's name changes, so flags
     referencing it pick up the new name on the next evaluation."""
+    if created:
+        return  # New contexts can't be referenced by any flags yet
+
     from posthog.tasks.feature_flags import update_team_flags_cache
 
     transaction.on_commit(lambda: update_team_flags_cache.delay(instance.team_id))

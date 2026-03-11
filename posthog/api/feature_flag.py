@@ -32,7 +32,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin, tagify
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.approvals.decorators import approval_gate
 from posthog.approvals.mixins import ApprovalHandlingMixin
@@ -54,6 +54,7 @@ from posthog.models.activity_logging.activity_page import ActivityLogPaginatedRe
 from posthog.models.activity_logging.model_activity import ImpersonatedContext, is_impersonated_session
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import get_all_cohort_dependencies
+from posthog.models.evaluation_context import normalize_context_name
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import (
     FeatureFlagDashboards,
@@ -427,7 +428,7 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
 
         from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 
-        deduped_names = list({tagify(t) for t in evaluation_tags or []})
+        deduped_names = list({normalize_context_name(t) for t in evaluation_tags or []})
         deduped_set = set(deduped_names)
 
         current_context_names = set(
