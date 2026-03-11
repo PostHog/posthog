@@ -64,4 +64,4 @@ class TestProvisioningHealth(StripeProvisioningTestBase):
             "/api/agentic/provisioning/account-requests",
             data={"email": "test@example.com", "account_name": "Test"},
         )
-        assert res.status_code != 400 or res.json().get("error", {}).get("code") != "body_not_readable"
+        assert res.status_code not in (400, 500), f"Unexpected error: {res.json()}"
