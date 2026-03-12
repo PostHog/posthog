@@ -14,13 +14,12 @@ import {
 } from '@/generated/proxy-records/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const ProxyListSchema = ProxyRecordsListParams.omit({ project_id: true }).extend(ProxyRecordsListQueryParams.shape)
+const ProxyListSchema = ProxyRecordsListParams.extend(ProxyRecordsListQueryParams.shape)
 
 const proxyList = (): ToolBase<typeof ProxyListSchema, Schemas.PaginatedProxyRecordList & { _posthogUrl: string }> => ({
     name: 'proxy-list',
     schema: ProxyListSchema,
     handler: async (context: Context, params: z.infer<typeof ProxyListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedProxyRecordList>({
             method: 'GET',
             path: `/api/organizations/${params.organization_id}/proxy_records/`,
@@ -31,12 +30,12 @@ const proxyList = (): ToolBase<typeof ProxyListSchema, Schemas.PaginatedProxyRec
         })
         return {
             ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/organization-proxy`,
+            _posthogUrl: `${context.api.getProjectBaseUrl('@current')}/organization-proxy`,
         }
     },
 })
 
-const ProxyGetSchema = ProxyRecordsRetrieveParams.omit({ project_id: true })
+const ProxyGetSchema = ProxyRecordsRetrieveParams
 
 const proxyGet = (): ToolBase<typeof ProxyGetSchema, Schemas.ProxyRecord> => ({
     name: 'proxy-get',
@@ -50,7 +49,7 @@ const proxyGet = (): ToolBase<typeof ProxyGetSchema, Schemas.ProxyRecord> => ({
     },
 })
 
-const ProxyCreateSchema = ProxyRecordsCreateParams.omit({ project_id: true }).extend(ProxyRecordsCreateBody.shape)
+const ProxyCreateSchema = ProxyRecordsCreateParams.extend(ProxyRecordsCreateBody.shape)
 
 const proxyCreate = (): ToolBase<typeof ProxyCreateSchema, Schemas.ProxyRecord> => ({
     name: 'proxy-create',
@@ -69,9 +68,7 @@ const proxyCreate = (): ToolBase<typeof ProxyCreateSchema, Schemas.ProxyRecord> 
     },
 })
 
-const ProxyRetrySchema = ProxyRecordsRetryCreateParams.omit({ project_id: true }).extend(
-    ProxyRecordsRetryCreateBody.shape
-)
+const ProxyRetrySchema = ProxyRecordsRetryCreateParams.extend(ProxyRecordsRetryCreateBody.shape)
 
 const proxyRetry = (): ToolBase<typeof ProxyRetrySchema, Schemas.ProxyRecord> => ({
     name: 'proxy-retry',
@@ -90,7 +87,7 @@ const proxyRetry = (): ToolBase<typeof ProxyRetrySchema, Schemas.ProxyRecord> =>
     },
 })
 
-const ProxyDeleteSchema = ProxyRecordsDestroyParams.omit({ project_id: true })
+const ProxyDeleteSchema = ProxyRecordsDestroyParams
 
 const proxyDelete = (): ToolBase<typeof ProxyDeleteSchema, unknown> => ({
     name: 'proxy-delete',

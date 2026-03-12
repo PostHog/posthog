@@ -241,12 +241,14 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
     const excludeSet = new Set(config.exclude_params ?? [])
     const includeSet = config.include_params ? new Set(config.include_params) : undefined
 
-    // Path params (always omit project_id)
-    const pathParams = (resolved.operation.parameters ?? []).filter((p) => p.in === 'path' && p.name !== 'project_id')
+    // Path params (omit project_id when present in the operation's path params)
+    const allPathParams = (resolved.operation.parameters ?? []).filter((p) => p.in === 'path')
+    const hasProjectId = allPathParams.some((p) => p.name === 'project_id')
+    const pathParams = allPathParams.filter((p) => p.name !== 'project_id')
     if (pathParams.length > 0) {
         const importName = `${pascal}Params`
         orvalImports.push(importName)
-        schemaParts.push(`${importName}.omit({ project_id: true })`)
+        schemaParts.push(hasProjectId ? `${importName}.omit({ project_id: true })` : importName)
         for (const p of pathParams) {
             pathParamNames.push(p.name)
         }
@@ -402,8 +404,9 @@ function buildPathExpr(urlPath: string, pathParamNames: string[], paramAccessPre
 // Response enrichment templates
 // ------------------------------------------------------------------
 
-function buildEnrichment(config: ToolConfig, category: CategoryConfig): string {
-    const baseUrl = `\${context.api.getProjectBaseUrl(projectId)}${category.url_prefix}`
+function buildEnrichment(config: ToolConfig, category: CategoryConfig, needsProjectId: boolean): string {
+    const projectIdExpr = needsProjectId ? 'projectId' : `'@current'`
+    const baseUrl = `\${context.api.getProjectBaseUrl(${projectIdExpr})}${category.url_prefix}`
 
     if (config.list && config.enrich_url) {
         const { prefix, field } = parseEnrichUrl(config.enrich_url)
@@ -472,9 +475,14 @@ function generateToolCode(
 
     const pathExpr = buildPathExpr(resolved.path, composition.pathParamNames, 'params.')
 
+    // Determine if this operation is project-scoped (has {project_id} in the path)
+    const needsProjectId = resolved.path.includes('{project_id}')
+
     // Build handler body
     let handlerBody = ''
-    handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
+    if (needsProjectId) {
+        handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
+    }
 
     // Soft-delete overrides the HTTP method: use PATCH { deleted: true } instead of DELETE.
     // This is necessary for endpoints backed by ForbidDestroyModel (e.g. actions).
@@ -508,7 +516,7 @@ function generateToolCode(
     handlerBody += `        })\n`
 
     // Response enrichment — adds _posthogUrl for "View in PostHog" links
-    handlerBody += buildEnrichment(config, category)
+    handlerBody += buildEnrichment(config, category, needsProjectId)
 
     // Compute the result type for the ToolBase generic parameter
     let resultType: string
@@ -564,8 +572,12 @@ function generateCustomSchemaToolCode(
     const useBody = ['POST', 'PATCH', 'PUT'].includes(resolved.method)
     const responseType = resolveResponseType(resolved.operation, knownTypes)
 
+    const needsProjectId = resolved.path.includes('{project_id}')
+
     let handlerBody = ''
-    handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
+    if (needsProjectId) {
+        handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
+    }
 
     if (pathParamNames.length > 0) {
         const destructured = pathParamNames.map((p) => `${p}, `).join('')
@@ -592,7 +604,7 @@ function generateCustomSchemaToolCode(
     }
     handlerBody += `        })\n`
 
-    handlerBody += buildEnrichment(config, category)
+    handlerBody += buildEnrichment(config, category, needsProjectId)
 
     const code = `
 const ${schemaName} = ${config.input_schema}

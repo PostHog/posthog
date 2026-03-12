@@ -8,6 +8,7 @@ import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
@@ -129,7 +130,10 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         "Returns the full configuration including domain, CNAME target, and current provisioning status.",
     )
     def retrieve(self, request, *args, pk=None, **kwargs):
-        record = self.organization.proxy_records.get(id=pk)
+        try:
+            record = self.organization.proxy_records.get(id=pk)
+        except ProxyRecord.DoesNotExist:
+            raise NotFound()
         serializer = self.get_serializer(record)
         return Response(serializer.data)
 
