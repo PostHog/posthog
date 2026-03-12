@@ -16,10 +16,12 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { parse as parseYaml } from 'yaml'
 
 import { filterSchemaByOperationIds } from '@posthog/openapi-codegen'
 
 import { discoverDefinitions, resolveSchemaPath } from './lib/definitions.mjs'
+import { applyNestedExclusions } from './lib/schema-exclusions.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const mcpRoot = path.resolve(__dirname, '..')
@@ -35,13 +37,29 @@ if (!fs.existsSync(schemaPath)) {
     process.exit(1)
 }
 
-function collectOperationIdsFromFile(filePath) {
-    const operationIds = new Set()
+/**
+ * Parse a YAML tool definition and return operationIds plus all exclude_params
+ * grouped by operationId for schema-level exclusion before Orval runs.
+ */
+function parseToolDefinition(filePath) {
     const content = fs.readFileSync(filePath, 'utf-8')
-    for (const match of content.matchAll(/^\s+operation:\s+(\S+)/gm)) {
-        operationIds.add(match[1])
+    const parsed = parseYaml(content)
+    const operationIds = new Set()
+    /** @type {Map<string, string[]>} */
+    const schemaExclusions = new Map()
+
+    if (parsed?.tools) {
+        for (const tool of Object.values(parsed.tools)) {
+            if (tool?.operation) {
+                operationIds.add(tool.operation)
+                const excludeParams = tool.exclude_params ?? []
+                if (excludeParams.length > 0) {
+                    schemaExclusions.set(tool.operation, excludeParams)
+                }
+            }
+        }
     }
-    return operationIds
+    return { operationIds, schemaExclusions }
 }
 
 // ------------------------------------------------------------------
@@ -154,7 +172,7 @@ const outputDirs = []
 let totalOps = 0
 
 for (const def of definitions) {
-    const operationIds = collectOperationIdsFromFile(def.filePath)
+    const { operationIds, schemaExclusions } = parseToolDefinition(def.filePath)
     if (operationIds.size === 0) {
         continue
     }
@@ -167,6 +185,7 @@ for (const def of definitions) {
 
     filtered = stripNullDefaults(filtered)
     stripUuidFormat(filtered)
+    applyNestedExclusions(filtered, schemaExclusions)
     const pathCount = Object.keys(filtered.paths).length
     const schemaCount = Object.keys(filtered.components.schemas).length
 

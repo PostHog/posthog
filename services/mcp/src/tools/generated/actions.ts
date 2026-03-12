@@ -44,7 +44,7 @@ const actionsGetAll = (): ToolBase<typeof ActionsGetAllSchema, unknown> => ({
     },
 })
 
-const ActionCreateSchema = ActionsCreateBody.omit({ deleted: true, last_calculated_at: true, _create_in_folder: true })
+const ActionCreateSchema = ActionsCreateBody.omit({ _create_in_folder: true })
 
 const actionCreate = (): ToolBase<typeof ActionCreateSchema, Schemas.Action & { _posthogUrl: string }> => ({
     name: 'action-create',
@@ -114,7 +114,7 @@ const actionGet = (): ToolBase<typeof ActionGetSchema, Schemas.Action & { _posth
 })
 
 const ActionUpdateSchema = ActionsPartialUpdateParams.omit({ project_id: true }).extend(
-    ActionsPartialUpdateBody.omit({ deleted: true, last_calculated_at: true, _create_in_folder: true }).shape
+    ActionsPartialUpdateBody.omit({ _create_in_folder: true }).shape
 )
 
 const actionUpdate = (): ToolBase<typeof ActionUpdateSchema, Schemas.Action & { _posthogUrl: string }> => ({
