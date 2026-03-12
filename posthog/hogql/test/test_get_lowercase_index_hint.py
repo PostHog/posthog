@@ -250,7 +250,7 @@ class TestGetLowercaseIndexHintClickhouse(ClickhouseTestMixin, APIBaseTest):
         index_info = get_index_from_explain(
             clickhouse_sql,
             "idx_body_ngram3",
-            placeholder_values=cast(values, dict[str, str]),
+            placeholder_values=cast(dict[str, str], values),
         )
         assert index_info is not None, (
             f"Expected idx_body_ngram3 to be used in EXPLAIN output for query:\n{clickhouse_sql}"
