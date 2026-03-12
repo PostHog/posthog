@@ -3191,8 +3191,8 @@ async def test_non_retryable_error_short_circuiting(team, stripe_customer, mock_
                 ignore_assertions=True,
             )
 
-    # Incremental and resumable source syncs retry up to 9 times
-    assert mock_get_rows.call_count == 9
+    # Resumable source syncs retry up to 15 times
+    assert mock_get_rows.call_count == 15
 
     source_cls = SourceRegistry.get_source(ExternalDataSourceType.STRIPE)
     non_retryable_errors = source_cls.get_non_retryable_errors()
@@ -3355,13 +3355,17 @@ async def test_stripe_webhook_s3_charges(team, stripe_charge, mock_stripe_client
 
     # Create a webhook HogFunction linked to this schema via inputs
     schema = await sync_to_async(ExternalDataSchema.objects.get)(id=inputs.external_data_schema_id)
+    schema_id_str = str(schema.id)
     await sync_to_async(HogFunction.objects.create)(
         team=team,
         enabled=True,
         deleted=False,
         type="warehouse_source_webhook",
-        inputs_schema=[{"key": "schema_id", "type": "string"}],
-        inputs={"schema_id": {"value": str(schema.id)}},
+        inputs_schema=[{"key": "schema_mapping", "type": "json"}, {"key": "schema_ids", "type": "json"}],
+        inputs={
+            "schema_mapping": {"value": {"charge": schema_id_str}},
+            "schema_ids": {"value": [schema_id_str]},
+        },
     )
 
     assert schema.initial_sync_complete is True

@@ -92,7 +92,6 @@ export function DashboardItems(): JSX.Element {
     })
 
     const { width: gridWrapperWidth, ref: gridWrapperRef } = useResizeObserver()
-    const canResizeWidth = !gridWrapperWidth || gridWrapperWidth > BREAKPOINTS['sm']
     const isMobileView = gridWrapperWidth && gridWrapperWidth <= BREAKPOINTS['sm']
     const isEditablePlacement = [
         DashboardPlacement.Dashboard,
@@ -131,7 +130,7 @@ export function DashboardItems(): JSX.Element {
                         updateContainerWidth(containerWidth, newCols)
                     }}
                     breakpoints={BREAKPOINTS}
-                    resizeHandles={canResizeWidth ? ['s', 'e', 'se'] : ['s']}
+                    resizeHandles={['s', 'e', 'se', 'n', 'w', 'nw', 'ne', 'sw']}
                     cols={BREAKPOINT_COLUMN_COUNTS}
                     onResize={(_layout: any, _oldItem: any, newItem: any) => {
                         if (!resizingItem || resizingItem.w !== newItem.w || resizingItem.h !== newItem.h) {
@@ -216,11 +215,36 @@ export function DashboardItems(): JSX.Element {
 
                         const commonTileProps = {
                             dashboardId: dashboard?.id,
-                            showResizeHandles: dashboardMode === DashboardMode.Edit && !isMobileView,
-                            canResizeWidth: canResizeWidth,
+                            showResizeHandles:
+                                dashboardMode === DashboardMode.Edit && !isMobileView && isEditablePlacement,
                             canEnterEditModeFromEdge,
                             onEnterEditModeFromEdge: canEnterEditModeFromEdge
                                 ? () => setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardEdgeHover)
+                                : undefined,
+                            onDragHandleMouseDown: canEnterEditModeFromEdge
+                                ? (e: React.MouseEvent) => {
+                                      const target = e.target as Element | null
+                                      if (!target) {
+                                          return
+                                      }
+
+                                      const gridItem = target.closest('.react-grid-item')
+                                      if (!gridItem) {
+                                          return
+                                      }
+
+                                      // Don't trigger when clicking obvious interactive controls
+                                      if (
+                                          target.closest(
+                                              'input,textarea,button,select,a,p,h4,[contenteditable="true"],[role="textbox"]'
+                                          )
+                                      ) {
+                                          return
+                                      }
+                                      e.preventDefault()
+                                      e.stopPropagation()
+                                      setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardDragHandle)
+                                  }
                                 : undefined,
                             showEditingControls: isEditablePlacement,
                             moveToDashboard: ({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {

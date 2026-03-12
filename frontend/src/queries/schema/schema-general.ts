@@ -470,6 +470,8 @@ export interface HogQLVariable {
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     kind: NodeKind.HogQLQuery
     query: string
+    /** Optional direct external data source id for running against a specific source */
+    connectionId?: string
     filters?: HogQLFilters
     /** Variables to be substituted into the query */
     variables?: Record<string, HogQLVariable>
@@ -2194,6 +2196,7 @@ export enum WebStatsBreakdown {
     ScreenName = 'ScreenName',
     InitialChannelType = 'InitialChannelType',
     InitialReferringDomain = 'InitialReferringDomain',
+    InitialReferringURL = 'InitialReferringURL',
     InitialUTMSource = 'InitialUTMSource',
     InitialUTMCampaign = 'InitialUTMCampaign',
     InitialUTMMedium = 'InitialUTMMedium',
@@ -5052,9 +5055,9 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         sourceType: 'LinkedinAds' as const,
         nameField: 'name',
         idField: 'id',
-        campaignTableName: 'campaigns',
-        statsTableName: 'campaign_stats',
-        tableKeywords: ['campaigns'] as const,
+        campaignTableName: 'campaign_groups',
+        statsTableName: 'campaign_group_stats',
+        tableKeywords: ['campaign_groups'] as const,
         tableExclusions: ['stats'] as const,
         defaultSources: ['linkedin', 'li'] as const,
         primarySource: 'linkedin',

@@ -19,6 +19,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.schema import EmbeddingModelName
 
@@ -32,6 +33,8 @@ from posthog.temporal.ai.video_segment_clustering.constants import clustering_wo
 from posthog.temporal.ai.video_segment_clustering.models import ClusteringWorkflowInputs
 from posthog.temporal.common.client import sync_connect
 
+from products.data_warehouse.backend.data_load.service import trigger_external_data_workflow
+from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.signals.backend.api import emit_signal
 from products.signals.backend.models import (
     InvalidStatusTransition,
@@ -128,12 +131,69 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             logger.exception(f"Failed to start initial clustering workflow for team {self.team_id}")
 
     def perform_update(self, serializer):
+        instance = cast(SignalSourceConfig, serializer.instance)
+        was_enabled = instance.enabled
         try:
-            serializer.save()
+            instance = serializer.save()
         except IntegrityError:
             raise serializers.ValidationError(
                 {"source_product": "A configuration for this source product and type already exists for this team."}
             )
+
+        if instance.enabled and not was_enabled:
+            if instance.source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER:
+                self._trigger_initial_clustering(instance)
+            else:
+                self._trigger_data_import_sync(instance)
+        elif not instance.enabled and was_enabled:
+            if instance.source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER:
+                self._cancel_clustering_workflow(instance)
+
+    def _cancel_clustering_workflow(self, config: SignalSourceConfig) -> None:
+        """Cancel the running clustering workflow for the team, if any."""
+        workflow_id = clustering_workflow_id(self.team_id, config.id)
+        try:
+            client = sync_connect()
+            handle = client.get_workflow_handle(workflow_id)
+            async_to_sync(handle.cancel)()
+            logger.info("Cancelled clustering workflow for team %s", self.team_id)
+        except RPCError as e:
+            if e.status == RPCStatusCode.NOT_FOUND:
+                return
+            logger.exception("Failed to cancel clustering workflow for team %s", self.team_id)
+        except Exception:
+            logger.exception("Failed to cancel clustering workflow for team %s", self.team_id)
+
+    # Maps source_product to ExternalDataSourceType value for data import sources
+    _DATA_IMPORT_SOURCE_TYPE_MAP: dict[str, str] = {
+        SignalSourceConfig.SourceProduct.GITHUB: "Github",
+        SignalSourceConfig.SourceProduct.LINEAR: "Linear",
+        SignalSourceConfig.SourceProduct.ZENDESK: "Zendesk",
+    }
+
+    def _trigger_data_import_sync(self, config: SignalSourceConfig) -> None:
+        """Fire-and-forget sync trigger for data import signal sources."""
+        ext_source_type = self._DATA_IMPORT_SOURCE_TYPE_MAP.get(config.source_product)
+        if ext_source_type is None:
+            return
+
+        schemas = (
+            ExternalDataSchema.objects.filter(
+                team_id=self.team_id,
+                source__source_type=ext_source_type,
+                should_sync=True,
+            )
+            .exclude(source__deleted=True)
+            .select_related("source")
+        )
+        for schema in schemas:
+            try:
+                trigger_external_data_workflow(schema)
+                logger.info("Triggered data import sync for %s schema %s", config.source_product, schema.id)
+            except Exception:
+                logger.exception(
+                    "Failed to trigger data import sync for %s schema %s", config.source_product, schema.id
+                )
 
 
 @extend_schema_view(

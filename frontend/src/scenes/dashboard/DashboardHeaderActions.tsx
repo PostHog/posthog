@@ -25,26 +25,38 @@ export function EditModeActions(): JSX.Element {
 
     return (
         <>
-            <LemonButton
-                data-attr="dashboard-edit-mode-discard"
-                type="secondary"
-                onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)}
-                size="small"
+            <AppShortcut
+                name="CancelDashboardEdit"
+                keybind={[keyBinds.escape]}
+                intent="Cancel edit mode"
+                interaction="click"
+                scope={Scene.Dashboard}
             >
-                Cancel
-            </LemonButton>
+                <LemonButton
+                    data-attr="dashboard-edit-mode-discard"
+                    type="secondary"
+                    onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)}
+                    size="small"
+                    tooltip="Discard changes and exit edit mode"
+                >
+                    Cancel
+                </LemonButton>
+            </AppShortcut>
             <AppShortcut
                 name="SaveDashboard"
-                keybind={[keyBinds.save]}
+                keybind={[keyBinds.edit, keyBinds.save]}
                 intent="Save dashboard"
                 interaction="click"
                 scope={Scene.Dashboard}
+                disabled={!canEditDashboard}
             >
                 <LemonButton
                     data-attr="dashboard-edit-mode-save"
                     type="primary"
                     onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderSaveDashboard)}
                     size="small"
+                    tooltip="Save dashboard"
+                    tooltipPlacement="bottom"
                     disabledReason={
                         dashboardLoading
                             ? 'Wait for dashboard to finish loading'
