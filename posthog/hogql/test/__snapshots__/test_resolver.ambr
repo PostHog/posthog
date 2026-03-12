@@ -3122,6 +3122,9 @@
                           $entry_pathname: {
                             hidden: False
                           },
+                          $entry_referrer: {
+                            hidden: False
+                          },
                           $entry_referring_domain: {
                             hidden: False
                           },
