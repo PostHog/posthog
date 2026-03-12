@@ -52,7 +52,7 @@ export const ActionsListResponse = zod.object({
     results: zod.array(
         zod
             .object({
-                id: zod.number(),
+                id: zod.number().optional(),
                 name: zod
                     .string()
                     .max(actionsListResponseResultsItemNameMax)
@@ -392,7 +392,7 @@ export const ActionsListResponse = zod.object({
                                 .string()
                                 .nullish()
                                 .describe("CSS selector to match the target element (e.g. 'div > button.cta')."),
-                            selector_regex: zod.string().nullable(),
+                            selector_regex: zod.string().nullish(),
                             tag_name: zod
                                 .string()
                                 .nullish()
@@ -439,39 +439,44 @@ export const ActionsListResponse = zod.object({
                     .describe(
                         'Action steps defining trigger conditions. Each step matches events by name, properties, URL, or element attributes. Multiple steps are OR-ed together.'
                     ),
-                created_at: zod.string().datetime({}),
-                created_by: zod.object({
-                    id: zod.number(),
-                    uuid: zod.string(),
-                    distinct_id: zod.string().max(actionsListResponseResultsItemCreatedByOneDistinctIdMax).nullish(),
-                    first_name: zod.string().max(actionsListResponseResultsItemCreatedByOneFirstNameMax).optional(),
-                    last_name: zod.string().max(actionsListResponseResultsItemCreatedByOneLastNameMax).optional(),
-                    email: zod.string().email().max(actionsListResponseResultsItemCreatedByOneEmailMax),
-                    is_email_verified: zod.boolean().nullish(),
-                    hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-                    role_at_organization: zod
-                        .union([
-                            zod
-                                .enum([
-                                    'engineering',
-                                    'data',
-                                    'product',
-                                    'founder',
-                                    'leadership',
-                                    'marketing',
-                                    'sales',
-                                    'other',
-                                ])
-                                .describe(
-                                    '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                                ),
-                            zod.enum(['']),
-                            zod.literal(null),
-                        ])
-                        .nullish(),
-                }),
-                team_id: zod.number(),
-                is_action: zod.boolean(),
+                created_at: zod.string().datetime({}).optional(),
+                created_by: zod
+                    .object({
+                        id: zod.number().optional(),
+                        uuid: zod.string().optional(),
+                        distinct_id: zod
+                            .string()
+                            .max(actionsListResponseResultsItemCreatedByOneDistinctIdMax)
+                            .nullish(),
+                        first_name: zod.string().max(actionsListResponseResultsItemCreatedByOneFirstNameMax).optional(),
+                        last_name: zod.string().max(actionsListResponseResultsItemCreatedByOneLastNameMax).optional(),
+                        email: zod.string().email().max(actionsListResponseResultsItemCreatedByOneEmailMax),
+                        is_email_verified: zod.boolean().nullish(),
+                        hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                        role_at_organization: zod
+                            .union([
+                                zod
+                                    .enum([
+                                        'engineering',
+                                        'data',
+                                        'product',
+                                        'founder',
+                                        'leadership',
+                                        'marketing',
+                                        'sales',
+                                        'other',
+                                    ])
+                                    .describe(
+                                        '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                                    ),
+                                zod.enum(['']),
+                                zod.literal(null),
+                            ])
+                            .nullish(),
+                    })
+                    .optional(),
+                team_id: zod.number().optional(),
+                is_action: zod.boolean().default(actionsListResponseResultsItemIsActionDefault),
                 pinned_at: zod
                     .string()
                     .datetime({})
@@ -482,7 +487,7 @@ export const ActionsListResponse = zod.object({
                 _create_in_folder: zod.string().optional(),
                 user_access_level: zod
                     .string()
-                    .nullable()
+                    .nullish()
                     .describe('The effective access level the user has for this object'),
             })
             .describe('Serializer mixin that handles tags for objects.')
@@ -831,7 +836,7 @@ export const ActionsCreateBody = zod
                         .string()
                         .nullish()
                         .describe("CSS selector to match the target element (e.g. 'div > button.cta')."),
-                    selector_regex: zod.string().nullable(),
+                    selector_regex: zod.string().nullish(),
                     tag_name: zod.string().nullish().describe('HTML tag name to match (e.g. "button", "a", "input").'),
                     text: zod.string().nullish().describe('Element text content to match.'),
                     text_matching: zod
@@ -924,7 +929,7 @@ export const actionsRetrieveResponseIsActionDefault = true
 
 export const ActionsRetrieveResponse = zod
     .object({
-        id: zod.number(),
+        id: zod.number().optional(),
         name: zod
             .string()
             .max(actionsRetrieveResponseNameMax)
@@ -1239,7 +1244,7 @@ export const ActionsRetrieveResponse = zod
                         .string()
                         .nullish()
                         .describe("CSS selector to match the target element (e.g. 'div > button.cta')."),
-                    selector_regex: zod.string().nullable(),
+                    selector_regex: zod.string().nullish(),
                     tag_name: zod.string().nullish().describe('HTML tag name to match (e.g. "button", "a", "input").'),
                     text: zod.string().nullish().describe('Element text content to match.'),
                     text_matching: zod
@@ -1283,39 +1288,41 @@ export const ActionsRetrieveResponse = zod
             .describe(
                 'Action steps defining trigger conditions. Each step matches events by name, properties, URL, or element attributes. Multiple steps are OR-ed together.'
             ),
-        created_at: zod.string().datetime({}),
-        created_by: zod.object({
-            id: zod.number(),
-            uuid: zod.string(),
-            distinct_id: zod.string().max(actionsRetrieveResponseCreatedByOneDistinctIdMax).nullish(),
-            first_name: zod.string().max(actionsRetrieveResponseCreatedByOneFirstNameMax).optional(),
-            last_name: zod.string().max(actionsRetrieveResponseCreatedByOneLastNameMax).optional(),
-            email: zod.string().email().max(actionsRetrieveResponseCreatedByOneEmailMax),
-            is_email_verified: zod.boolean().nullish(),
-            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-            role_at_organization: zod
-                .union([
-                    zod
-                        .enum([
-                            'engineering',
-                            'data',
-                            'product',
-                            'founder',
-                            'leadership',
-                            'marketing',
-                            'sales',
-                            'other',
-                        ])
-                        .describe(
-                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                        ),
-                    zod.enum(['']),
-                    zod.literal(null),
-                ])
-                .nullish(),
-        }),
-        team_id: zod.number(),
-        is_action: zod.boolean(),
+        created_at: zod.string().datetime({}).optional(),
+        created_by: zod
+            .object({
+                id: zod.number().optional(),
+                uuid: zod.string().optional(),
+                distinct_id: zod.string().max(actionsRetrieveResponseCreatedByOneDistinctIdMax).nullish(),
+                first_name: zod.string().max(actionsRetrieveResponseCreatedByOneFirstNameMax).optional(),
+                last_name: zod.string().max(actionsRetrieveResponseCreatedByOneLastNameMax).optional(),
+                email: zod.string().email().max(actionsRetrieveResponseCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'other',
+                            ])
+                            .describe(
+                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.literal(null),
+                    ])
+                    .nullish(),
+            })
+            .optional(),
+        team_id: zod.number().optional(),
+        is_action: zod.boolean().default(actionsRetrieveResponseIsActionDefault),
         pinned_at: zod
             .string()
             .datetime({})
@@ -1324,7 +1331,7 @@ export const ActionsRetrieveResponse = zod
                 'ISO 8601 timestamp when the action was pinned, or null if not pinned. Set any value to pin, null to unpin.'
             ),
         _create_in_folder: zod.string().optional(),
-        user_access_level: zod.string().nullable().describe('The effective access level the user has for this object'),
+        user_access_level: zod.string().nullish().describe('The effective access level the user has for this object'),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -1671,7 +1678,7 @@ export const ActionsUpdateBody = zod
                         .string()
                         .nullish()
                         .describe("CSS selector to match the target element (e.g. 'div > button.cta')."),
-                    selector_regex: zod.string().nullable(),
+                    selector_regex: zod.string().nullish(),
                     tag_name: zod.string().nullish().describe('HTML tag name to match (e.g. "button", "a", "input").'),
                     text: zod.string().nullish().describe('Element text content to match.'),
                     text_matching: zod
@@ -1751,7 +1758,7 @@ export const actionsUpdateResponseIsActionDefault = true
 
 export const ActionsUpdateResponse = zod
     .object({
-        id: zod.number(),
+        id: zod.number().optional(),
         name: zod
             .string()
             .max(actionsUpdateResponseNameMax)
@@ -2066,7 +2073,7 @@ export const ActionsUpdateResponse = zod
                         .string()
                         .nullish()
                         .describe("CSS selector to match the target element (e.g. 'div > button.cta')."),
-                    selector_regex: zod.string().nullable(),
+                    selector_regex: zod.string().nullish(),
                     tag_name: zod.string().nullish().describe('HTML tag name to match (e.g. "button", "a", "input").'),
                     text: zod.string().nullish().describe('Element text content to match.'),
                     text_matching: zod
@@ -2110,39 +2117,41 @@ export const ActionsUpdateResponse = zod
             .describe(
                 'Action steps defining trigger conditions. Each step matches events by name, properties, URL, or element attributes. Multiple steps are OR-ed together.'
             ),
-        created_at: zod.string().datetime({}),
-        created_by: zod.object({
-            id: zod.number(),
-            uuid: zod.string(),
-            distinct_id: zod.string().max(actionsUpdateResponseCreatedByOneDistinctIdMax).nullish(),
-            first_name: zod.string().max(actionsUpdateResponseCreatedByOneFirstNameMax).optional(),
-            last_name: zod.string().max(actionsUpdateResponseCreatedByOneLastNameMax).optional(),
-            email: zod.string().email().max(actionsUpdateResponseCreatedByOneEmailMax),
-            is_email_verified: zod.boolean().nullish(),
-            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-            role_at_organization: zod
-                .union([
-                    zod
-                        .enum([
-                            'engineering',
-                            'data',
-                            'product',
-                            'founder',
-                            'leadership',
-                            'marketing',
-                            'sales',
-                            'other',
-                        ])
-                        .describe(
-                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                        ),
-                    zod.enum(['']),
-                    zod.literal(null),
-                ])
-                .nullish(),
-        }),
-        team_id: zod.number(),
-        is_action: zod.boolean(),
+        created_at: zod.string().datetime({}).optional(),
+        created_by: zod
+            .object({
+                id: zod.number().optional(),
+                uuid: zod.string().optional(),
+                distinct_id: zod.string().max(actionsUpdateResponseCreatedByOneDistinctIdMax).nullish(),
+                first_name: zod.string().max(actionsUpdateResponseCreatedByOneFirstNameMax).optional(),
+                last_name: zod.string().max(actionsUpdateResponseCreatedByOneLastNameMax).optional(),
+                email: zod.string().email().max(actionsUpdateResponseCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'other',
+                            ])
+                            .describe(
+                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.literal(null),
+                    ])
+                    .nullish(),
+            })
+            .optional(),
+        team_id: zod.number().optional(),
+        is_action: zod.boolean().default(actionsUpdateResponseIsActionDefault),
         pinned_at: zod
             .string()
             .datetime({})
@@ -2151,7 +2160,7 @@ export const ActionsUpdateResponse = zod
                 'ISO 8601 timestamp when the action was pinned, or null if not pinned. Set any value to pin, null to unpin.'
             ),
         _create_in_folder: zod.string().optional(),
-        user_access_level: zod.string().nullable().describe('The effective access level the user has for this object'),
+        user_access_level: zod.string().nullish().describe('The effective access level the user has for this object'),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -2500,7 +2509,7 @@ export const ActionsPartialUpdateBody = zod
                         .string()
                         .nullish()
                         .describe("CSS selector to match the target element (e.g. 'div > button.cta')."),
-                    selector_regex: zod.string().nullable(),
+                    selector_regex: zod.string().nullish(),
                     tag_name: zod.string().nullish().describe('HTML tag name to match (e.g. "button", "a", "input").'),
                     text: zod.string().nullish().describe('Element text content to match.'),
                     text_matching: zod
@@ -2580,7 +2589,7 @@ export const actionsPartialUpdateResponseIsActionDefault = true
 
 export const ActionsPartialUpdateResponse = zod
     .object({
-        id: zod.number(),
+        id: zod.number().optional(),
         name: zod
             .string()
             .max(actionsPartialUpdateResponseNameMax)
@@ -2905,7 +2914,7 @@ export const ActionsPartialUpdateResponse = zod
                         .string()
                         .nullish()
                         .describe("CSS selector to match the target element (e.g. 'div > button.cta')."),
-                    selector_regex: zod.string().nullable(),
+                    selector_regex: zod.string().nullish(),
                     tag_name: zod.string().nullish().describe('HTML tag name to match (e.g. "button", "a", "input").'),
                     text: zod.string().nullish().describe('Element text content to match.'),
                     text_matching: zod
@@ -2949,39 +2958,41 @@ export const ActionsPartialUpdateResponse = zod
             .describe(
                 'Action steps defining trigger conditions. Each step matches events by name, properties, URL, or element attributes. Multiple steps are OR-ed together.'
             ),
-        created_at: zod.string().datetime({}),
-        created_by: zod.object({
-            id: zod.number(),
-            uuid: zod.string(),
-            distinct_id: zod.string().max(actionsPartialUpdateResponseCreatedByOneDistinctIdMax).nullish(),
-            first_name: zod.string().max(actionsPartialUpdateResponseCreatedByOneFirstNameMax).optional(),
-            last_name: zod.string().max(actionsPartialUpdateResponseCreatedByOneLastNameMax).optional(),
-            email: zod.string().email().max(actionsPartialUpdateResponseCreatedByOneEmailMax),
-            is_email_verified: zod.boolean().nullish(),
-            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-            role_at_organization: zod
-                .union([
-                    zod
-                        .enum([
-                            'engineering',
-                            'data',
-                            'product',
-                            'founder',
-                            'leadership',
-                            'marketing',
-                            'sales',
-                            'other',
-                        ])
-                        .describe(
-                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                        ),
-                    zod.enum(['']),
-                    zod.literal(null),
-                ])
-                .nullish(),
-        }),
-        team_id: zod.number(),
-        is_action: zod.boolean(),
+        created_at: zod.string().datetime({}).optional(),
+        created_by: zod
+            .object({
+                id: zod.number().optional(),
+                uuid: zod.string().optional(),
+                distinct_id: zod.string().max(actionsPartialUpdateResponseCreatedByOneDistinctIdMax).nullish(),
+                first_name: zod.string().max(actionsPartialUpdateResponseCreatedByOneFirstNameMax).optional(),
+                last_name: zod.string().max(actionsPartialUpdateResponseCreatedByOneLastNameMax).optional(),
+                email: zod.string().email().max(actionsPartialUpdateResponseCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'other',
+                            ])
+                            .describe(
+                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.literal(null),
+                    ])
+                    .nullish(),
+            })
+            .optional(),
+        team_id: zod.number().optional(),
+        is_action: zod.boolean().default(actionsPartialUpdateResponseIsActionDefault),
         pinned_at: zod
             .string()
             .datetime({})
@@ -2990,7 +3001,7 @@ export const ActionsPartialUpdateResponse = zod
                 'ISO 8601 timestamp when the action was pinned, or null if not pinned. Set any value to pin, null to unpin.'
             ),
         _create_in_folder: zod.string().optional(),
-        user_access_level: zod.string().nullable().describe('The effective access level the user has for this object'),
+        user_access_level: zod.string().nullish().describe('The effective access level the user has for this object'),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
