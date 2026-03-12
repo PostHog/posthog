@@ -80,6 +80,79 @@ def _fill_missing_sections(
     return content
 
 
+def _compute_metadata(
+    team_id: int,
+    evaluation_id: str,
+    period_start: str,
+    period_end: str,
+    previous_period_start: str,
+) -> EvalReportMetadata | None:
+    """Compute report metadata directly via HogQL (independent of agent state)."""
+    from posthog.temporal.llm_analytics.eval_reports.report_agent.tools import _ch_ts, _execute_hogql
+
+    try:
+        ts_start = _ch_ts(period_start)
+        ts_end = _ch_ts(period_end)
+        ts_prev_start = _ch_ts(previous_period_start)
+
+        current_rows = _execute_hogql(
+            team_id,
+            f"""
+            SELECT
+                countIf(properties.$ai_evaluation_result = true AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != false)) as pass_count,
+                countIf(properties.$ai_evaluation_result = false AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != false)) as fail_count,
+                countIf(properties.$ai_evaluation_applicable = false) as na_count,
+                count() as total
+            FROM events
+            WHERE event = '$ai_evaluation'
+                AND properties.$ai_evaluation_id = '{evaluation_id}'
+                AND timestamp >= '{ts_start}'
+                AND timestamp < '{ts_end}'
+            """,
+        )
+
+        previous_rows = _execute_hogql(
+            team_id,
+            f"""
+            SELECT
+                countIf(properties.$ai_evaluation_result = true AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != false)) as pass_count,
+                countIf(properties.$ai_evaluation_result = false AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != false)) as fail_count
+            FROM events
+            WHERE event = '$ai_evaluation'
+                AND properties.$ai_evaluation_id = '{evaluation_id}'
+                AND timestamp >= '{ts_prev_start}'
+                AND timestamp < '{ts_start}'
+            """,
+        )
+
+        current = current_rows[0] if current_rows else [0, 0, 0, 0]
+        previous = previous_rows[0] if previous_rows else [0, 0]
+
+        pass_count = int(current[0])
+        fail_count = int(current[1])
+        na_count = int(current[2])
+        total = int(current[3])
+        applicable = pass_count + fail_count
+        pass_rate = round(pass_count / applicable * 100, 2) if applicable > 0 else 0.0
+
+        prev_pass = int(previous[0])
+        prev_fail = int(previous[1])
+        prev_applicable = prev_pass + prev_fail
+        previous_pass_rate = round(prev_pass / prev_applicable * 100, 2) if prev_applicable > 0 else None
+
+        return EvalReportMetadata(
+            total_runs=total,
+            pass_count=pass_count,
+            fail_count=fail_count,
+            na_count=na_count,
+            pass_rate=pass_rate,
+            previous_pass_rate=previous_pass_rate,
+        )
+    except Exception:
+        logger.exception("Failed to compute report metadata")
+        return None
+
+
 def run_eval_report_agent(
     team_id: int,
     evaluation_id: str,
@@ -144,15 +217,20 @@ def run_eval_report_agent(
             {"recursion_limit": EVAL_REPORT_AGENT_RECURSION_LIMIT},
         )
 
+        report = result.get("report", {})
+
+        # Compute metadata independently — InjectedState doesn't propagate
+        # key replacements back to graph state, so we query directly.
+        metadata = _compute_metadata(team_id, evaluation_id, period_start, period_end, previous_period_start)
+
         logger.info(
             "eval_report_agent_completed",
             team_id=team_id,
             evaluation_id=evaluation_id,
-            sections_written=len([s for s in result.get("report", {}).values() if s is not None]),
+            sections_written=len([s for s in report.values() if s is not None]),
+            metadata=metadata.to_dict() if metadata else None,
         )
 
-        report = result.get("report", {})
-        metadata = result.get("computed_metadata")
         return _fill_missing_sections(report, metadata), metadata
 
     except Exception as e:

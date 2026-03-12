@@ -97,7 +97,7 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
         # 1. Prepare context
         context = await temporalio.workflow.execute_activity(
             prepare_report_context_activity,
-            PrepareReportContextInput(report_id=inputs.report_id),
+            PrepareReportContextInput(report_id=inputs.report_id, manual=inputs.manual),
             start_to_close_timeout=PREPARE_ACTIVITY_TIMEOUT,
             retry_policy=FETCH_RETRY_POLICY,
         )
@@ -150,10 +150,11 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
             retry_policy=DELIVER_RETRY_POLICY,
         )
 
-        # 5. Update next delivery date
-        await temporalio.workflow.execute_activity(
-            update_next_delivery_date_activity,
-            UpdateNextDeliveryDateInput(report_id=inputs.report_id),
-            start_to_close_timeout=UPDATE_SCHEDULE_ACTIVITY_TIMEOUT,
-            retry_policy=UPDATE_SCHEDULE_RETRY_POLICY,
-        )
+        # 5. Update next delivery date (skip for manual runs to avoid disrupting schedule)
+        if not inputs.manual:
+            await temporalio.workflow.execute_activity(
+                update_next_delivery_date_activity,
+                UpdateNextDeliveryDateInput(report_id=inputs.report_id),
+                start_to_close_timeout=UPDATE_SCHEDULE_ACTIVITY_TIMEOUT,
+                retry_policy=UPDATE_SCHEDULE_RETRY_POLICY,
+            )

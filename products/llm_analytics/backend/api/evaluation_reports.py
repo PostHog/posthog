@@ -145,7 +145,7 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             asyncio.run(
                 client.start_workflow(
                     GENERATE_EVAL_REPORT_WORKFLOW_NAME,
-                    GenerateAndDeliverEvalReportWorkflowInput(report_id=str(report.id)),
+                    GenerateAndDeliverEvalReportWorkflowInput(report_id=str(report.id), manual=True),
                     id=f"eval-report-manual-{report.id}-{dt.datetime.now(tz=dt.UTC).timestamp():.0f}",
                     task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
                 )
