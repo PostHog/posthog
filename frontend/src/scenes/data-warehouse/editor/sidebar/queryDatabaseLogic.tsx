@@ -13,6 +13,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/ConnectionSelector'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { DataWarehouseSourceIcon, mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -167,6 +168,10 @@ const shouldHideField = (field: DatabaseSchemaField): boolean => {
 
 const shouldHideFieldName = (fieldName: string): boolean => {
     return fieldName === 'team_id'
+}
+
+const shouldUseDirectConnectionTree = (connectionId: string | null): boolean => {
+    return !!connectionId && connectionId !== POSTHOG_WAREHOUSE
 }
 
 const createColumnNode = (
@@ -1676,6 +1681,96 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         ? []
                         : [createTopLevelFolderNode('managed-views', managedViewsChildren)]),
                 ]
+            },
+        ],
+        displayedTreeData: [
+            (s) => [s.searchTerm, s.searchTreeData, s.treeData, s.connectionId],
+            (
+                searchTerm: string,
+                searchTreeData: TreeDataItem[],
+                treeData: TreeDataItem[],
+                connectionId: string | null
+            ): TreeDataItem[] => {
+                const sourceData = searchTerm ? searchTreeData : treeData
+
+                if (!shouldUseDirectConnectionTree(connectionId)) {
+                    return sourceData
+                }
+
+                const flattenedTables: TreeDataItem[] = []
+                const flattenedViews: TreeDataItem[] = []
+                const additionalItems: TreeDataItem[] = []
+
+                sourceData.forEach((item) => {
+                    if (item.record?.type === 'sources') {
+                        const sourceChildren = item.children ?? []
+                        sourceChildren.forEach((sourceChild) => {
+                            if (sourceChild.record?.type === 'source-folder') {
+                                flattenedTables.push(...(sourceChild.children ?? []))
+                                return
+                            }
+
+                            flattenedTables.push(sourceChild)
+                        })
+                        return
+                    }
+
+                    if (item.record?.type === 'views') {
+                        // In direct-connection mode, hide saved-query and managed view sections,
+                        // and only keep DB-backed view nodes if they are present in schema.
+                        const viewChildren = item.children ?? []
+                        viewChildren.forEach((viewChild) => {
+                            if (viewChild.record?.type === 'view-table') {
+                                flattenedViews.push(viewChild)
+                            }
+                        })
+                        return
+                    }
+
+                    if (item.record?.type === 'managed-views') {
+                        return
+                    }
+
+                    additionalItems.push(item)
+                })
+
+                return [
+                    ...(flattenedTables.length > 0
+                        ? [
+                              {
+                                  id: searchTerm ? 'search-tables' : 'tables',
+                                  name: 'Tables',
+                                  type: 'node' as const,
+                                  icon: <IconDatabase />,
+                                  record: { type: 'tables' },
+                                  children: flattenedTables,
+                              },
+                          ]
+                        : []),
+                    ...(flattenedViews.length > 0
+                        ? [
+                              {
+                                  id: searchTerm ? 'search-views' : 'views',
+                                  name: 'Views',
+                                  type: 'node' as const,
+                                  icon: <IconDatabase />,
+                                  record: { type: 'views' },
+                                  children: flattenedViews,
+                              },
+                          ]
+                        : []),
+                    ...additionalItems,
+                ]
+            },
+        ],
+        defaultExpandedRootIds: [
+            (s) => [s.connectionId, s.displayedTreeData],
+            (connectionId: string | null, displayedTreeData: TreeDataItem[]): string[] => {
+                if (!shouldUseDirectConnectionTree(connectionId)) {
+                    return []
+                }
+
+                return displayedTreeData.map((item) => item.id)
             },
         ],
         joinsByFieldName: [

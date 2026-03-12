@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 import {
     IconBrackets,
@@ -22,7 +22,6 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
-import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/ConnectionSelector'
 import { buildQueryForColumnClick } from 'scenes/data-warehouse/editor/sql-utils'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
@@ -39,14 +38,14 @@ import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
 
 export const QueryDatabase = (): JSX.Element => {
     const {
-        treeData,
-        searchTreeData,
         expandedFolders,
         expandedSearchFolders,
         searchTerm,
         joinsByFieldName,
         editingDraftId,
         connectionId,
+        displayedTreeData,
+        defaultExpandedRootIds,
     } = useValues(queryDatabaseLogic)
     const {
         setExpandedFolders,
@@ -180,87 +179,6 @@ export const QueryDatabase = (): JSX.Element => {
         }
     }
 
-    const displayedTreeData = useMemo(() => {
-        const sourceData = searchTerm ? searchTreeData : treeData
-
-        if (!connectionId || connectionId === POSTHOG_WAREHOUSE) {
-            return sourceData
-        }
-
-        const flattenedTables: TreeDataItem[] = []
-        const flattenedViews: TreeDataItem[] = []
-        const additionalItems: TreeDataItem[] = []
-
-        sourceData.forEach((item) => {
-            if (item.record?.type === 'sources') {
-                const sourceChildren = item.children ?? []
-                sourceChildren.forEach((sourceChild) => {
-                    if (sourceChild.record?.type === 'source-folder') {
-                        flattenedTables.push(...(sourceChild.children ?? []))
-                        return
-                    }
-
-                    flattenedTables.push(sourceChild)
-                })
-                return
-            }
-
-            if (item.record?.type === 'views') {
-                // In direct-connection mode, hide saved-query and managed view sections,
-                // and only keep DB-backed view nodes if they are present in schema.
-                const viewChildren = item.children ?? []
-                viewChildren.forEach((viewChild) => {
-                    if (viewChild.record?.type === 'view-table') {
-                        flattenedViews.push(viewChild)
-                    }
-                })
-                return
-            }
-
-            if (item.record?.type === 'managed-views') {
-                return
-            }
-
-            additionalItems.push(item)
-        })
-
-        return [
-            ...(flattenedTables.length > 0
-                ? [
-                      {
-                          id: searchTerm ? 'search-tables' : 'tables',
-                          name: 'Tables',
-                          type: 'node' as const,
-                          icon: <IconDatabase />,
-                          record: { type: 'tables' },
-                          children: flattenedTables,
-                      },
-                  ]
-                : []),
-            ...(flattenedViews.length > 0
-                ? [
-                      {
-                          id: searchTerm ? 'search-views' : 'views',
-                          name: 'Views',
-                          type: 'node' as const,
-                          icon: <IconDatabase />,
-                          record: { type: 'views' },
-                          children: flattenedViews,
-                      },
-                  ]
-                : []),
-            ...additionalItems,
-        ]
-    }, [searchTerm, searchTreeData, connectionId, treeData])
-
-    const defaultExpandedRootIds = useMemo(() => {
-        if (!connectionId || connectionId === POSTHOG_WAREHOUSE) {
-            return []
-        }
-
-        return displayedTreeData.map((item) => item.id)
-    }, [connectionId, displayedTreeData])
-
     const treeRef = useRef<LemonTreeRef>(null)
     useEffect(() => {
         setTreeRef(treeRef)
@@ -269,7 +187,6 @@ export const QueryDatabase = (): JSX.Element => {
     return (
         <LemonTree
             ref={treeRef}
-            // TODO: Can move this to treedata selector but selectors are maxed out on dependencies
             data={displayedTreeData}
             expandedItemIds={
                 connectionId

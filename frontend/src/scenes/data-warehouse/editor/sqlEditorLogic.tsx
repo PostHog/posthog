@@ -23,6 +23,7 @@ import { objectsEqual, removeUndefinedAndNull } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { parseQueryTablesAndColumns } from 'scenes/data-warehouse/editor/sql-utils'
+import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { Scene } from 'scenes/sceneTypes'
@@ -46,6 +47,7 @@ import {
     ChartDisplayType,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
+    ExternalDataSource,
     ExportContext,
     LineageGraph,
     QueryBasedInsightModel,
@@ -173,6 +175,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ['drafts'],
             featureFlagLogic,
             ['featureFlags'],
+            externalDataSourcesLogic,
+            ['dataWarehouseSources'],
             outputPaneLogic({ tabId: props.tabId }),
             ['activeTab as outputActiveTab'],
         ],
@@ -1190,6 +1194,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     return undefined
                 }
                 return sourceQuery.source.connectionId
+            },
+        ],
+        selectedDirectSource: [
+            (s) => [s.dataWarehouseSources, s.selectedConnectionId],
+            (dataWarehouseSources, selectedConnectionId): ExternalDataSource | undefined => {
+                return dataWarehouseSources?.results.find((source) => source.id === selectedConnectionId)
             },
         ],
         isEditingMaterializedView: [

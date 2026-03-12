@@ -14,7 +14,6 @@ import { DATABASE_TREE_COLLAPSE_THRESHOLD, editorSizingLogic } from 'scenes/data
 import { DatabaseSearchField } from 'scenes/data-warehouse/editor/sidebar/DatabaseSearchField'
 import { QueryDatabase } from 'scenes/data-warehouse/editor/sidebar/QueryDatabase'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
-import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
 
 import { SyncMoreNotice } from './SyncMoreNotice'
@@ -27,13 +26,9 @@ export const DatabaseTree = memo(function DatabaseTree({
     const { databaseTreeWidth, databaseTreeResizerProps, isDatabaseTreeCollapsed, databaseTreeWillCollapse } =
         useValues(editorSizingLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { selectedConnectionId } = useValues(sqlEditorLogic)
-    const { dataWarehouseSources } = useValues(externalDataSourcesLogic)
+    const { selectedConnectionId, selectedDirectSource } = useValues(sqlEditorLogic)
     const { toggleDatabaseTreeCollapsed, setDatabaseTreeCollapsed } = useActions(editorSizingLogic)
     const isDirectQueryEnabled = !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
-    const selectedDirectSource = (dataWarehouseSources?.results ?? []).find(
-        (source) => source.id === selectedConnectionId
-    )
 
     const searchPlaceholder = isDirectQueryEnabled
         ? selectedConnectionId
