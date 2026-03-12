@@ -4,9 +4,15 @@ import type { AxisFormat, ChartTheme } from 'lib/charts/types'
 
 export type LineStyle = 'solid' | 'dashed' | 'dotted'
 
+export interface DataPoint {
+    x: string | number
+    y: number
+    status?: 'incomplete'
+}
+
 export interface Series {
     label: string
-    data: number[]
+    data: DataPoint[]
     pointLabels?: string[]
     color?: string
     hidden?: boolean
@@ -117,43 +123,40 @@ export interface ClickEvent {
 }
 
 export interface TimeSeriesProps extends BaseChartProps {
-    data: Series[]
+    series: Series[]
     compare?: ComparisonSeries[]
-    labels: string[]
     xAxis?: AxisConfig
     /** Single config or `[left, right]` tuple for dual y-axes. */
     yAxis?: AxisConfig | [AxisConfig, AxisConfig]
     goalLines?: GoalLine[]
     annotations?: Annotation[]
-    showValues?: boolean
-    showTrendLine?: boolean
-
-    /** Raw date strings from the query — enables smart x-axis tick formatting. */
-    dates?: (string | number)[]
     interval?: ChartInterval
-    timezone?: string
-    xAxisTickCallback?: (value: string | number, index: number) => string | null
 }
 
 export type LineInterpolation = 'linear' | 'smooth' | 'step'
 
-export interface LineProps extends TimeSeriesProps {
-    cumulative?: boolean
-    interpolation?: LineInterpolation
-    showDots?: boolean | 'auto'
-    lineWidth?: number
+export interface LineOptions {
     stacked?: boolean
     percentStacked?: boolean
     isArea?: boolean
     fillOpacity?: number
+    cumulative?: boolean
+    interpolation?: LineInterpolation
+    showDots?: boolean | 'auto'
+    lineWidth?: number
+    crosshair?: boolean
     hideXAxis?: boolean
     hideYAxis?: boolean
-    crosshair?: boolean
-    /** Trailing data points rendered as dotted (in-progress time period). */
-    incompletePoints?: number
+    maxSeries?: number
+    showValues?: boolean
+    showTrendLine?: boolean
+    animate?: boolean
+}
+
+export interface LineProps extends TimeSeriesProps {
+    options?: LineOptions
     highlightSeriesIndex?: number | null
     onHighlightChange?: (seriesIndex: number | null) => void
-    maxSeries?: number
 }
 
 export type AreaProps = LineProps
