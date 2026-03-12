@@ -52,7 +52,7 @@ class TestProxyRecordAPI(APIBaseTest):
             f"/api/organizations/{self.organization.id}/proxy_records/",
             {"domain": "test.example.com"},
         )
-        assert response.status_code == status.HTTP_200_OK
+        assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
         assert data["domain"] == "test.example.com"
         assert data["status"] == "waiting"
@@ -92,7 +92,7 @@ class TestProxyRecordAPI(APIBaseTest):
             f"/api/organizations/{self.organization.id}/proxy_records/",
             {"domain": "test.example.com"},
         )
-        assert response.status_code == status.HTTP_200_OK
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_create_with_missing_domain_rejected(self):
         response = self.client.post(

@@ -98,6 +98,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     serializer_class = ProxyRecordSerializer
     permission_classes = [OrganizationAdminWritePermissions, TimeSensitiveActionPermission]
     queryset = ProxyRecord.objects.order_by("-created_at")
+    http_method_names = ["get", "post", "delete"]
 
     DEFAULT_MAX_PROXY_RECORDS = 2
 
@@ -190,7 +191,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
 
         serializer = self.get_serializer(record)
         _capture_proxy_event(request, record, "created")
-        return Response(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
         description="Retry provisioning a failed reverse proxy. "
@@ -263,6 +264,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
             ProxyRecord.Status.ERRORING,
             ProxyRecord.Status.TIMED_OUT,
         ):
+            _capture_proxy_event(request, record, "deleted")
             record.delete()
         else:
             record.status = ProxyRecord.Status.DELETING
