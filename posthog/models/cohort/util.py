@@ -560,10 +560,26 @@ def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int
 def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, team_id: int):
     """Remove a person from a static cohort in ClickHouse.
 
-    Uses DELETE FROM with mutations_sync=0 to avoid replica synchronization issues in production.
-    This is an exception to PostHog's usual pattern due to the table lacking an is_deleted and version columns.
+    Uses DELETE FROM with mutations_sync=0 and lightweight_deletes_sync=0 to avoid replica
+    synchronization issues when some replicas are inactive. In tests, uses synchronous mutations
+    for deterministic behavior. This is an exception to PostHog's usual pattern due to the table
+    lacking an is_deleted and version columns.
     """
     tag_queries(cohort_id=cohort_id, team_id=team_id, name="remove_person_from_static_cohort", feature=Feature.COHORT)
+
+    # Use synchronous mutations in tests for deterministic behavior
+    if settings.TEST:
+        ch_settings = {
+            "mutations_sync": "2",
+            "lightweight_deletes_sync": "2",
+        }
+    else:
+        # Use async mutations in production to avoid replica sync issues
+        ch_settings = {
+            "mutations_sync": "0",
+            "lightweight_deletes_sync": "0",
+        }
+
     sync_execute(
         DELETE_PERSON_FROM_STATIC_COHORT,
         {
@@ -571,7 +587,7 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
             "cohort_id": cohort_id,
             "team_id": team_id,
         },
-        settings={"mutations_sync": "0"},
+        settings=ch_settings,
     )
 
 
@@ -825,6 +841,18 @@ def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
     return [*cohort_ids, *static_cohort_ids]
 
 
+def get_nested_cohort_ids(cohort: Cohort) -> set[int]:
+    """Extract cohort IDs referenced in a cohort's property filters."""
+    ids: set[int] = set()
+    for prop in cohort.properties.flat:
+        if prop.type == "cohort" and not isinstance(prop.value, list):
+            try:
+                ids.add(int(prop.value))
+            except (ValueError, TypeError):
+                continue
+    return ids
+
+
 def get_all_cohort_dependencies(
     cohort: Cohort,
     using_database: str = "default",
@@ -837,13 +865,7 @@ def get_all_cohort_dependencies(
     seen_cohort_ids = set()
     seen_cohort_ids.add(cohort.id)
 
-    queue = []
-    for prop in cohort.properties.flat:
-        if prop.type == "cohort" and not isinstance(prop.value, list):
-            try:
-                queue.append(int(prop.value))
-            except (ValueError, TypeError):
-                continue
+    queue = list(get_nested_cohort_ids(cohort))
 
     while queue:
         cohort_id = queue.pop()
@@ -854,19 +876,14 @@ def get_all_cohort_dependencies(
                     continue
             else:
                 current_cohort = Cohort.objects.db_manager(using_database).get(
-                    pk=cohort_id, team__project_id=cohort.team.project_id, deleted=False
+                    pk=cohort_id, team_id=cohort.team_id, deleted=False
                 )
                 seen_cohorts_cache[cohort_id] = current_cohort
             if current_cohort.id not in seen_cohort_ids:
                 cohorts.append(current_cohort)
                 seen_cohort_ids.add(current_cohort.id)
 
-                for prop in current_cohort.properties.flat:
-                    if prop.type == "cohort" and not isinstance(prop.value, list):
-                        try:
-                            queue.append(int(prop.value))
-                        except (ValueError, TypeError):
-                            continue
+                queue.extend(get_nested_cohort_ids(current_cohort))
 
         except Cohort.DoesNotExist:
             seen_cohorts_cache[cohort_id] = ""

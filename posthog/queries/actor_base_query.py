@@ -10,7 +10,7 @@ from posthog.schema import ActorsQuery
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_TRENDS
 from posthog.hogql_queries.actor_strategies import PersonStrategy
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.models import Entity, Filter, PersonDistinctId, SessionRecording, Team
+from posthog.models import Entity, Filter, PersonDistinctId, Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -41,6 +41,7 @@ class CommonActor(TypedDict):
 
 class SerializedPerson(CommonActor):
     type: Literal["person"]
+    last_seen_at: Optional[datetime]
     uuid: Union[uuid.UUID, str]
     is_identified: Optional[bool]
     name: str
@@ -125,7 +126,7 @@ class ActorBaseQuery:
     ) -> set[str]:
         """Filters a list of session_ids to those that actually have recordings"""
         query = """
-        SELECT DISTINCT session_id
+        SELECT session_id
         FROM session_replay_events
         WHERE
             team_id = %(team_id)s
@@ -140,6 +141,8 @@ class ActorBaseQuery:
 
         if date_to:
             query += " AND max_last_timestamp <= %(date_to)s"
+
+        query += " GROUP BY session_id HAVING max(is_deleted) = 0"
 
         params = {
             "team_id": self._team.pk,
@@ -173,19 +176,9 @@ class ActorBaseQuery:
                     if event[2]:
                         all_session_ids.add(event[2])
 
-        session_ids_with_all_recordings = self.query_for_session_ids_with_recordings(
+        session_ids_with_recordings = self.query_for_session_ids_with_recordings(
             all_session_ids, self._filter.date_from, self._filter.date_to
         )
-
-        # Prune out deleted recordings
-        session_ids_with_deleted_recordings = set(
-            SessionRecording.objects.filter(
-                team=self._team,
-                session_id__in=session_ids_with_all_recordings,
-                deleted=True,
-            ).values_list("session_id", flat=True)
-        )
-        session_ids_with_recordings = session_ids_with_all_recordings.difference(session_ids_with_deleted_recordings)
 
         matched_recordings_by_actor_id: dict[Union[uuid.UUID, str], list[MatchedRecording]] = {}
         for row in raw_result:
@@ -303,6 +296,7 @@ def get_serialized_people(
             id=uuid,
             uuid=uuid,
             created_at=person_dict["created_at"],
+            last_seen_at=person_dict["last_seen_at"],
             properties=person_dict["properties"],
             is_identified=person_dict["is_identified"],
             name=get_person_name_helper(
@@ -331,6 +325,7 @@ def serialize_people(
             id=person.uuid,
             uuid=person.uuid,
             created_at=person.created_at,
+            last_seen_at=person.last_seen_at,
             properties=person.properties,
             is_identified=person.is_identified,
             name=get_person_name(team, person),

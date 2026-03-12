@@ -2,8 +2,8 @@ import { useValues } from 'kea'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
-import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { IntegrationView } from 'lib/integrations/IntegrationView'
 
 import { IntegrationKind } from '~/types'
 

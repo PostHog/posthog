@@ -349,19 +349,28 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         initial_query = self.visit(ctx.selectStmtWithParens())
 
         for subsequent in ctx.subsequentSelectSetClause():
-            if subsequent.UNION() and subsequent.ALL():
-                union_type = "UNION ALL"
-            elif subsequent.UNION() and subsequent.DISTINCT():
-                union_type = "UNION DISTINCT"
+            if subsequent.UNION():
+                if subsequent.ALL():
+                    union_type = "UNION ALL"
+                elif subsequent.DISTINCT():
+                    union_type = "UNION DISTINCT"
+                else:
+                    union_type = "UNION DISTINCT"
+                if subsequent.BY() and subsequent.NAME():
+                    union_type += " BY NAME"
+            elif subsequent.INTERSECT() and subsequent.ALL():
+                union_type = "INTERSECT ALL"
             elif subsequent.INTERSECT() and subsequent.DISTINCT():
                 union_type = "INTERSECT DISTINCT"
             elif subsequent.INTERSECT():
                 union_type = "INTERSECT"
+            elif subsequent.EXCEPT() and subsequent.ALL():
+                union_type = "EXCEPT ALL"
             elif subsequent.EXCEPT():
                 union_type = "EXCEPT"
             else:
                 raise SyntaxError(
-                    "Set operator must be one of UNION ALL, UNION DISTINCT, INTERSECT, INTERSECT DISTINCT, and EXCEPT"
+                    "Set operator must be one of UNION ALL, UNION DISTINCT, UNION [ALL|DISTINCT] BY NAME, INTERSECT, INTERSECT ALL, INTERSECT DISTINCT, EXCEPT, and EXCEPT ALL"
                 )
             select_query = self.visit(subsequent.selectStmtWithParens())
             select_queries.append(
@@ -378,7 +387,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitSelectStmt(self, ctx: HogQLParser.SelectStmtContext):
         select_query = ast.SelectQuery(
             ctes=self.visit(ctx.withClause()) if ctx.withClause() else None,
-            select=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [],
+            select=self.visit(ctx.selectColumnExprList()) if ctx.selectColumnExprList() else [],
             distinct=True if ctx.DISTINCT() else None,
             select_from=self.visit(ctx.fromClause()) if ctx.fromClause() else None,
             where=self.visit(ctx.whereClause()) if ctx.whereClause() else None,
@@ -432,7 +441,11 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return select_query
 
     def visitWithClause(self, ctx: HogQLParser.WithClauseContext):
-        return self.visit(ctx.withExprList())
+        ctes: dict[str, ast.CTE] = self.visit(ctx.withExprList())
+        if ctx.RECURSIVE():
+            for name in ctes:
+                ctes[name].recursive = True
+        return ctes
 
     def visitTopClause(self, ctx: HogQLParser.TopClauseContext):
         raise NotImplementedError(f"Unsupported node: TopClause")
@@ -687,6 +700,21 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitColumnExprList(self, ctx: HogQLParser.ColumnExprListContext):
         return [self.visit(c) for c in ctx.columnExpr()]
+
+    def visitSelectColumnExprList(self, ctx: HogQLParser.SelectColumnExprListContext):
+        return [self.visit(c) for c in ctx.selectColumnExpr()]
+
+    def visitColumnExprAliasBefore(self, ctx: HogQLParser.ColumnExprAliasBeforeContext):
+        alias = self.visit(ctx.identifier())
+        expr = self.visit(ctx.columnExpr())
+
+        if alias.lower() in RESERVED_KEYWORDS:
+            raise SyntaxError(f'"{alias}" cannot be an alias or identifier, as it\'s a reserved keyword')
+
+        return ast.Alias(expr=expr, alias=alias)
+
+    def visitColumnExprSelectValue(self, ctx: HogQLParser.ColumnExprSelectValueContext):
+        return self.visit(ctx.columnExpr())
 
     def visitColumnExprTernaryOp(self, ctx: HogQLParser.ColumnExprTernaryOpContext):
         return ast.Call(
@@ -1050,7 +1078,26 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitWithExprSubquery(self, ctx: HogQLParser.WithExprSubqueryContext):
         subquery = self.visit(ctx.selectSetStmt())
         name = self.visit(ctx.identifier())
-        return ast.CTE(name=name, expr=subquery, cte_type="subquery")
+        materialized = None if not ctx.MATERIALIZED() else ctx.NOT() is None
+        columns = None
+        using_key = None
+        column_name_lists = ctx.withExprColumnNameList()
+        if ctx.USING():
+            # USING KEY present: first list is CTE columns (if any), last list is the key columns
+            using_key_list = column_name_lists[-1]
+            using_key = [self.visit(ident) for ident in using_key_list.identifier()]
+            if len(column_name_lists) > 1:
+                columns = [self.visit(ident) for ident in column_name_lists[0].identifier()]
+        elif column_name_lists:
+            columns = [self.visit(ident) for ident in column_name_lists[0].identifier()]
+        return ast.CTE(
+            name=name,
+            expr=subquery,
+            columns=columns,
+            cte_type="subquery",
+            materialized=materialized,
+            using_key=using_key,
+        )
 
     def visitWithExprColumn(self, ctx: HogQLParser.WithExprColumnContext):
         expr = self.visit(ctx.columnExpr())

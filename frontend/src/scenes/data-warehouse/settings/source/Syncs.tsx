@@ -90,7 +90,9 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
                                 <LemonTag type={StatusTagSetting[job.status] || 'default'}>{job.status}</LemonTag>
                             )
                             return job.latest_error && job.status === ExternalDataJobStatus.Failed ? (
-                                <Tooltip title={job.latest_error}>{tagContent}</Tooltip>
+                                <Tooltip title={job.latest_error} interactive>
+                                    {tagContent}
+                                </Tooltip>
                             ) : (
                                 tagContent
                             )

@@ -71,10 +71,17 @@ class FilterGenerationCorrectness(Scorer):
         return self._run_eval_sync(output, expected, **kwargs)
 
     def _run_eval_sync(self, output, expected=None, **kwargs):
+        if isinstance(output["output"], str):
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={"reason": f"LLM did not return filters: {output['output'][:200]}"},
+            )
+
         try:
             actual_filters = RevenueAnalyticsAssistantFilters.model_validate(output["output"])
         except Exception as e:
-            logger.exception(f"Error parsing filters: {e}")
+            logger.warning(f"Error parsing filters: {e}")
             return Score(name=self._name(), score=0.0, metadata={"reason": "LLM returned invalid filter structure"})
 
         # Convert both objects to dict for deepdiff comparison
@@ -116,20 +123,20 @@ class AskUserForHelp(Scorer):
         return "ask_user_for_help_scorer"
 
     def _run_eval_sync(self, output, expected=None, **kwargs):
-        if "output" not in output or output["output"] is None:
+        if isinstance(output.get("output"), str):
+            return Score(name=self._name(), score=1, metadata={"reason": "LLM returned text instead of filters"})
+        if output.get("output") is None:
             if (
                 "intermediate_steps" in output
                 and len(output["intermediate_steps"]) > 0
                 and output["intermediate_steps"][-1][0].tool == "ask_user_for_help"
             ):
-                return Score(
-                    name=self._name(), score=1, metadata={"reason": "LLM returned valid ask_user_for_help response"}
-                )
+                return Score(name=self._name(), score=1, metadata={"reason": "LLM called ask_user_for_help tool"})
             else:
                 return Score(
                     name=self._name(),
                     score=0,
-                    metadata={"reason": "LLM did not return valid ask_user_for_help response"},
+                    metadata={"reason": "LLM did not return filters or ask for help"},
                 )
         else:
             return Score(name=self._name(), score=0.0, metadata={"reason": "LLM returned a filter"})
@@ -145,10 +152,17 @@ class DateTimeFilteringCorrectness(Scorer):
         return self._run_eval_sync(output, expected, **kwargs)
 
     def _run_eval_sync(self, output, expected=None, **kwargs):
+        if isinstance(output["output"], str):
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={"reason": f"LLM did not return filters: {output['output'][:200]}"},
+            )
+
         try:
             actual_filters = RevenueAnalyticsAssistantFilters.model_validate(output["output"])
         except Exception as e:
-            logger.exception(f"Error parsing filters: {e}")
+            logger.warning(f"Error parsing filters: {e}")
             return Score(name=self._name(), score=0.0, metadata={"reason": "LLM returned invalid filter structure"})
 
         if actual_filters.date_from == expected.date_from and actual_filters.date_to == expected.date_to:

@@ -44,7 +44,7 @@ test.describe('Early Access Management', () => {
         await expect(page.locator('[data-attr="save-feature"]')).toContainText('Save')
 
         // delete feature
-        await page.locator('[data-attr="info-actions-panel"]').click()
+        await page.locator('[data-attr="open-context-panel-button"]').first().click()
         await page.locator('[data-attr="early-access-feature-delete"]').click()
         await expect(page.getByRole('heading', { name: 'Permanently delete feature?' })).toBeVisible()
         await page.locator('[data-attr="confirm-delete-feature"]').click()

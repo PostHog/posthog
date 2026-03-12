@@ -77,17 +77,21 @@ export function TaxonomicPropertyFilter({
     editable = true,
     operatorAllowlist,
     endpointFilters,
+    hogQLGlobals,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
-    const groupTypes = taxonomicGroupTypes || DEFAULT_TAXONOMIC_GROUP_TYPES
-    const taxonomicOnChange: (
-        group: TaxonomicFilterGroup,
-        value: TaxonomicFilterValue,
-        item: any,
-        originalQuery?: string
-    ) => void = (taxonomicGroup, value, item, originalQuery) => {
-        selectItem(taxonomicGroup, value, item?.propertyFilterType, item, originalQuery)
-        if (taxonomicGroup.type === TaxonomicFilterGroupType.HogQLExpression) {
+    const baseGroupTypes = taxonomicGroupTypes || DEFAULT_TAXONOMIC_GROUP_TYPES
+    const groupTypes = [TaxonomicFilterGroupType.SuggestedFilters, ...baseGroupTypes]
+    const taxonomicOnChange: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void = (
+        taxonomicGroup,
+        value,
+        item
+    ) => {
+        selectItem(taxonomicGroup, value, item?.propertyFilterType, item)
+        if (
+            taxonomicGroup.type === TaxonomicFilterGroupType.HogQLExpression ||
+            taxonomicGroup.type === TaxonomicFilterGroupType.SuggestedFilters
+        ) {
             onComplete?.()
         }
     }
@@ -169,6 +173,7 @@ export function TaxonomicPropertyFilter({
             hideBehavioralCohorts={hideBehavioralCohorts}
             selectFirstItem={!cohortOrOtherValue}
             endpointFilters={endpointFilters}
+            hogQLGlobals={hogQLGlobals}
         />
     )
 
@@ -214,6 +219,11 @@ export function TaxonomicPropertyFilter({
             groupTypeIndex={
                 isGroupPropertyFilter(filter) && typeof filter?.group_type_index === 'number'
                     ? (filter?.group_type_index as GroupTypeIndex)
+                    : undefined
+            }
+            groupKeyNames={
+                isGroupPropertyFilter(filter) && 'group_key_names' in filter
+                    ? (filter as any).group_key_names
                     : undefined
             }
             operatorAllowlist={operatorAllowlist}

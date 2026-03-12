@@ -15,7 +15,8 @@ from posthog.views import api_key_search_view, redis_edit_ttl_view, redis_values
 from ee.admin.loginas_views import loginas_user, upgrade_impersonation
 from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
 from ee.api import integration
-from ee.api.vercel import vercel_sso, vercel_webhooks
+from ee.api.agentic_provisioning import views as agentic_provisioning_views
+from ee.api.vercel import vercel_connect, vercel_sso, vercel_webhooks
 from ee.middleware import admin_oauth2_callback
 from ee.support_sidebar_max.views import MaxChatViewSet
 
@@ -107,8 +108,17 @@ if settings.ADMIN_PORTAL_ENABLED:
     from posthog.admin.admins.backfill_precalculated_person_properties_admin import (
         backfill_precalculated_person_properties_view,
     )
+    from posthog.admin.admins.distinct_id_usage_admin import distinct_id_usage_view
+    from posthog.admin.admins.email_mfa_bypass_admin import EmailMFABypassViewSet, email_mfa_bypass_view
+    from posthog.admin.admins.health_check_admin import (
+        health_check_list_view,
+        health_check_runs_fragment_view,
+        health_check_trigger_view,
+    )
+    from posthog.admin.admins.radar_bypass_admin import RadarBypassViewSet, radar_bypass_view
     from posthog.admin.admins.realtime_cohort_calculation_admin import analyze_realtime_cohort_calculation_view
     from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
+    from posthog.admin.admins.tophog_admin import tophog_dashboard_view
 
     admin_urlpatterns = [
         path("admin/oauth2/callback", admin_oauth2_callback, name="admin_oauth2_callback"),
@@ -123,6 +133,36 @@ if settings.ADMIN_PORTAL_ENABLED:
             name="realtime-cohorts-calculation",
         ),
         path(
+            "admin/radar-bypass/",
+            admin.site.admin_view(radar_bypass_view),
+            name="radar-bypass",
+        ),
+        path(
+            "api/admin/radar-bypass/",
+            RadarBypassViewSet.as_view({"get": "list", "post": "create"}),
+            name="radar-bypass-api-list",
+        ),
+        path(
+            "api/admin/radar-bypass/<str:email>/",
+            RadarBypassViewSet.as_view({"delete": "destroy"}),
+            name="radar-bypass-api-detail",
+        ),
+        path(
+            "admin/email-mfa-bypass/",
+            admin.site.admin_view(email_mfa_bypass_view),
+            name="email-mfa-bypass",
+        ),
+        path(
+            "api/admin/email-mfa-bypass/",
+            EmailMFABypassViewSet.as_view({"get": "list", "post": "create"}),
+            name="email-mfa-bypass-api-list",
+        ),
+        path(
+            "api/admin/email-mfa-bypass/<str:email>/",
+            EmailMFABypassViewSet.as_view({"delete": "destroy"}),
+            name="email-mfa-bypass-api-detail",
+        ),
+        path(
             "admin/resave-cohorts/",
             admin.site.admin_view(resave_cohorts_view),
             name="resave-cohorts",
@@ -131,6 +171,31 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/backfill-precalculated-person-properties/",
             admin.site.admin_view(backfill_precalculated_person_properties_view),
             name="backfill-precalculated-person-properties",
+        ),
+        path(
+            "admin/distinct-id-usage/",
+            admin.site.admin_view(distinct_id_usage_view),
+            name="distinct-id-usage",
+        ),
+        path(
+            "admin/tophog/",
+            admin.site.admin_view(tophog_dashboard_view),
+            name="tophog-dashboard",
+        ),
+        path(
+            "admin/health-checks/",
+            admin.site.admin_view(health_check_list_view),
+            name="health-checks",
+        ),
+        path(
+            "admin/health-checks/<str:kind>/",
+            admin.site.admin_view(health_check_trigger_view),
+            name="health-check-trigger",
+        ),
+        path(
+            "admin/health-checks/<str:kind>/runs/",
+            admin.site.admin_view(health_check_runs_fragment_view),
+            name="health-check-runs",
         ),
         path(
             "admin/logout/",
@@ -152,6 +217,18 @@ urlpatterns: list[Any] = [
     path("max/chat/", csrf_exempt(MaxChatViewSet.as_view({"post": "create"})), name="max_chat"),
     re_path(r"^login/vercel/?$", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_redirect"})),
     re_path(r"^login/vercel/continue/?$", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_continue"})),
+    re_path(
+        r"^connect/vercel/callback/?$",
+        vercel_connect.VercelConnectCallbackViewSet.as_view({"get": "callback"}),
+    ),
+    re_path(
+        r"^api/vercel/connect/complete/?$",
+        vercel_connect.VercelConnectLinkViewSet.as_view({"post": "complete"}),
+    ),
+    re_path(
+        r"^api/vercel/connect/session/?$",
+        vercel_connect.VercelConnectLinkViewSet.as_view({"get": "session_info"}),
+    ),
     path("webhooks/vercel", csrf_exempt(vercel_webhooks.vercel_webhook), name="vercel_webhooks"),
     path("scim/v2/<uuid:domain_id>/Users", csrf_exempt(scim_views.SCIMUsersView.as_view()), name="scim_users"),
     path(
@@ -176,5 +253,51 @@ urlpatterns: list[Any] = [
         name="scim_resource_types",
     ),
     path("scim/v2/<uuid:domain_id>/Schemas", csrf_exempt(scim_views.SCIMSchemasView.as_view()), name="scim_schemas"),
+    # Stripe Agentic Provisioning Protocol (APP 0.1d)
+    path(
+        "api/agentic/provisioning/health",
+        csrf_exempt(agentic_provisioning_views.provisioning_health),
+        name="agentic_provisioning_health",
+    ),
+    path(
+        "api/agentic/provisioning/services",
+        csrf_exempt(agentic_provisioning_views.provisioning_services),
+        name="agentic_provisioning_services",
+    ),
+    path(
+        "api/agentic/provisioning/account_requests",
+        csrf_exempt(agentic_provisioning_views.account_requests),
+        name="agentic_provisioning_account_requests",
+    ),
+    path(
+        "api/agentic/authorize",
+        agentic_provisioning_views.agentic_authorize,
+        name="agentic_authorize",
+    ),
+    path(
+        "api/agentic/oauth/token",
+        csrf_exempt(agentic_provisioning_views.oauth_token),
+        name="agentic_provisioning_oauth_token",
+    ),
+    path(
+        "api/agentic/provisioning/resources",
+        csrf_exempt(agentic_provisioning_views.provisioning_resources_create),
+        name="agentic_provisioning_resources_create",
+    ),
+    path(
+        "api/agentic/provisioning/resources/<str:resource_id>/rotate_credentials",
+        csrf_exempt(agentic_provisioning_views.provisioning_rotate_credentials),
+        name="agentic_provisioning_rotate_credentials",
+    ),
+    path(
+        "api/agentic/provisioning/resources/<str:resource_id>",
+        csrf_exempt(agentic_provisioning_views.provisioning_resource_detail),
+        name="agentic_provisioning_resource_detail",
+    ),
+    path(
+        "api/agentic/provisioning/deep_links",
+        csrf_exempt(agentic_provisioning_views.deep_links),
+        name="agentic_provisioning_deep_links",
+    ),
     *admin_urlpatterns,
 ]

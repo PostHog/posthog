@@ -80,7 +80,7 @@ test.describe('Quick create survey from feature flag', () => {
     let name: string
 
     test.beforeEach(async ({ page }) => {
-        name = randomString('ff-')
+        name = randomString('ff')
         await page.goto(urls.featureFlags())
         await expect(page.locator('h1')).toContainText('Feature flags')
 

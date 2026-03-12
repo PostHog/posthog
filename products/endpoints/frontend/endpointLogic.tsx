@@ -17,6 +17,7 @@ import { EndpointType, EndpointVersionType } from '~/types'
 
 import type { endpointLogicType } from './endpointLogicType'
 import { endpointsLogic } from './endpointsLogic'
+import { insightPickerEndpointModalLogic } from './insightPickerEndpointModalLogic'
 
 export type CodeExampleTab = 'terminal' | 'python' | 'nodejs'
 
@@ -46,6 +47,7 @@ export const endpointLogic = kea<endpointLogicType>([
         setIsUpdateMode: (isUpdateMode: boolean) => ({ isUpdateMode }),
         setSelectedEndpointName: (selectedEndpointName: string | null) => ({ selectedEndpointName }),
         openCreateFromInsightModal: true,
+        closeCreateFromInsightModal: true,
         setDuplicateEndpoint: (endpoint: EndpointType | null) => ({ endpoint }),
         createEndpoint: (request: EndpointRequest) => ({ request }),
         createEndpointSuccess: (response: any) => ({ response }),
@@ -98,10 +100,20 @@ export const endpointLogic = kea<endpointLogicType>([
                 setSelectedEndpointName: (_, { selectedEndpointName }) => selectedEndpointName,
             },
         ],
+        createFromInsightModalOpen: [
+            false,
+            {
+                openCreateFromInsightModal: () => true,
+                setDuplicateEndpoint: (_, { endpoint }) => !!endpoint,
+                closeCreateFromInsightModal: () => false,
+                createEndpointSuccess: () => false,
+            },
+        ],
         duplicateEndpoint: [
             null as EndpointType | null,
             {
                 setDuplicateEndpoint: (_, { endpoint }) => endpoint,
+                createEndpointSuccess: () => null,
             },
         ],
         // Extend the loader reducer to clear on action
@@ -181,6 +193,10 @@ export const endpointLogic = kea<endpointLogicType>([
             openCreateFromInsightModal: () => {
                 actions.loadEndpoints()
             },
+            closeCreateFromInsightModal: () => {
+                actions.setDuplicateEndpoint(null)
+                insightPickerEndpointModalLogic.findMounted()?.actions.clearSelectedInsight()
+            },
             createEndpoint: async ({ request }) => {
                 try {
                     if (request.name) {
@@ -190,14 +206,14 @@ export const endpointLogic = kea<endpointLogicType>([
                     actions.createEndpointSuccess(response)
                 } catch (error: any) {
                     console.error('Failed to create endpoint:', error)
-                    const queryError = error.attr === 'query' ? error.detail : null
-                    actions.createEndpointFailure(queryError)
+                    actions.createEndpointFailure(error.detail || null)
                 }
             },
             createEndpointSuccess: ({ response }) => {
                 actions.setEndpointName('')
                 actions.setEndpointDescription('')
                 actions.loadEndpoints()
+                insightPickerEndpointModalLogic.findMounted()?.actions.closeModal()
                 lemonToast.success(<>Endpoint created</>, {
                     button: {
                         label: 'View',

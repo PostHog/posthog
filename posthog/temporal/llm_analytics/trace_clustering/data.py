@@ -10,8 +10,8 @@ from datetime import datetime
 import structlog
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
-from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tags_context
@@ -27,133 +27,10 @@ from posthog.temporal.llm_analytics.trace_clustering.models import (
 
 logger = structlog.get_logger(__name__)
 
-# AI event types to query for trace filtering (same as TracesQueryRunner)
-AI_EVENT_TYPES = ("$ai_span", "$ai_generation", "$ai_embedding", "$ai_metric", "$ai_feedback", "$ai_trace")
-
-
-def fetch_eligible_trace_ids(
-    team: Team,
-    window_start: datetime,
-    window_end: datetime,
-    trace_filters: list[dict],
-    max_samples: int,
-) -> list[ItemId]:
-    """Query trace IDs that have at least one AI event matching the given property filters.
-
-    Queries across all AI event types ($ai_span, $ai_generation, $ai_embedding, etc.)
-    to find traces where at least one event matches the filter criteria. This allows
-    filtering on properties from any event type (e.g., $ai_model on generations,
-    custom properties on spans, etc.).
-
-    Args:
-        team: Team object to query traces for
-        window_start: Start of time window
-        window_end: End of time window
-        trace_filters: List of property filter dicts (PostHog standard format)
-        max_samples: Maximum number of traces to return
-
-    Returns:
-        List of trace IDs where at least one event matches the filter criteria
-    """
-    if not trace_filters:
-        return []
-
-    # Build property filter expression from the list of filters
-    property_exprs: list[ast.Expr] = []
-    for prop in trace_filters:
-        property_exprs.append(property_to_expr(prop, team))
-
-    # Combine filters with AND logic
-    property_filter_expr = ast.And(exprs=property_exprs) if len(property_exprs) > 1 else property_exprs[0]
-
-    # Build event types tuple for IN clause
-    event_types_tuple = ast.Tuple(exprs=[ast.Constant(value=e) for e in AI_EVENT_TYPES])
-
-    query = parse_select(
-        """
-        SELECT DISTINCT properties.$ai_trace_id as trace_id
-        FROM events
-        WHERE event IN {event_types}
-            AND timestamp >= {start_dt}
-            AND timestamp < {end_dt}
-            AND isNotNull(properties.$ai_trace_id)
-            AND properties.$ai_trace_id != ''
-            AND {property_filters}
-        ORDER BY rand()
-        LIMIT {max_samples}
-        """
-    )
-
-    with tags_context(product=Product.LLM_ANALYTICS):
-        result = execute_hogql_query(
-            query_type="EligibleTraceIdsForClustering",
-            query=query,
-            placeholders={
-                "event_types": event_types_tuple,
-                "start_dt": ast.Constant(value=window_start),
-                "end_dt": ast.Constant(value=window_end),
-                "property_filters": property_filter_expr,
-                "max_samples": ast.Constant(value=max_samples * 2),  # Oversample to account for missing embeddings
-            },
-            team=team,
-        )
-
-    rows = result.results or []
-    return [row[0] for row in rows if row[0]]
-
-
-def fetch_generation_ids_for_traces(
-    team: Team,
-    trace_ids: list[ItemId],
-    window_start: datetime,
-    window_end: datetime,
-) -> list[ItemId]:
-    """Map trace IDs to generation event UUIDs by querying $ai_generation events.
-
-    Generation embeddings are keyed by event UUID (not $ai_generation_id), matching
-    the sampling logic in trace_summarization/sampling.py which uses
-    argMaxIf(uuid, timestamp, ...) as the generation identifier.
-
-    Args:
-        team: Team object to query for
-        trace_ids: List of trace IDs to find generations for
-        window_start: Start of time window
-        window_end: End of time window
-
-    Returns:
-        List of generation event UUIDs belonging to the given traces
-    """
-    if not trace_ids:
-        return []
-
-    trace_ids_tuple = ast.Tuple(exprs=[ast.Constant(value=tid) for tid in trace_ids])
-
-    query = parse_select(
-        """
-        SELECT DISTINCT uuid
-        FROM events
-        WHERE event = {event_name}
-            AND timestamp >= {start_dt}
-            AND timestamp < {end_dt}
-            AND properties.$ai_trace_id IN {trace_ids}
-        """
-    )
-
-    with tags_context(product=Product.LLM_ANALYTICS):
-        result = execute_hogql_query(
-            query_type="GenerationIdsForTraces",
-            query=query,
-            placeholders={
-                "event_name": ast.Constant(value="$ai_generation"),
-                "start_dt": ast.Constant(value=window_start),
-                "end_dt": ast.Constant(value=window_end),
-                "trace_ids": trace_ids_tuple,
-            },
-            team=team,
-        )
-
-    rows = result.results or []
-    return [str(row[0]) for row in rows if row[0]]
+# ClickHouse max_execution_time for clustering queries (seconds).
+# Default HogQL timeout is 60s which is too tight for the legacy unfiltered
+# query path on high-volume teams. These run in background Temporal activities.
+CLUSTERING_QUERY_MAX_EXECUTION_TIME = 120
 
 
 def fetch_item_embeddings_for_clustering(
@@ -162,65 +39,21 @@ def fetch_item_embeddings_for_clustering(
     window_end: datetime,
     max_samples: int,
     analysis_level: AnalysisLevel = "trace",
-    trace_filters: list[dict] | None = None,
+    job_id: str | None = None,
 ) -> tuple[list[ItemId], ItemEmbeddings, ItemBatchRunIds]:
-    """Query item IDs and embeddings from document_embeddings table using HogQL.
+    """Query item IDs and embeddings from document_embeddings table.
 
-    If trace_filters are provided, first queries for eligible trace IDs from AI events
-    matching the filter criteria, then fetches embeddings only for those items.
-
-    Args:
-        team: Team object to query embeddings for
-        window_start: Start of time window
-        window_end: End of time window
-        max_samples: Maximum number of items to sample
-        analysis_level: "trace" or "generation" - determines which document_type to query
-        trace_filters: Optional property filters to scope which traces are included
-
-    Returns:
-        Tuple of (list of item IDs, dict mapping item_id -> embedding vector,
-                  dict mapping item_id -> batch_run_id for linking to summaries)
+    Two paths:
+    - job_id present: filter by rendering suffix (batch_run_id = {team}_{ts}_{job_id})
+    - no job_id: return all embeddings for the document type (legacy/unfiltered)
     """
-    # Select document_type based on analysis_level
-    document_type_new = (
+    document_type = (
         constants.LLMA_GENERATION_DOCUMENT_TYPE
         if analysis_level == "generation"
         else constants.LLMA_TRACE_DOCUMENT_TYPE
     )
 
-    # If filters provided, first get eligible item IDs.
-    # For trace-level: eligible IDs are trace IDs directly.
-    # For generation-level: find eligible trace IDs, then map to generation IDs.
-    eligible_item_ids: list[ItemId] | None = None
-    if trace_filters:
-        eligible_trace_ids = fetch_eligible_trace_ids(
-            team=team,
-            window_start=window_start,
-            window_end=window_end,
-            trace_filters=trace_filters,
-            max_samples=max_samples,
-        )
-        if not eligible_trace_ids:
-            return [], {}, {}
-
-        if analysis_level == "generation":
-            eligible_item_ids = fetch_generation_ids_for_traces(
-                team=team,
-                trace_ids=eligible_trace_ids,
-                window_start=window_start,
-                window_end=window_end,
-            )
-            if not eligible_item_ids:
-                return [], {}, {}
-        else:
-            eligible_item_ids = eligible_trace_ids
-
-    # Build base query - add IN clause if we have eligible item IDs
-    # We also fetch rendering to link embeddings to their source summarization run
-    # Backwards compatibility: support both old and new document type formats
-    # - New format: document_type = "llm-trace-summary-detailed" (mode in document_type, batch_run_id in rendering)
-    # - Old format: document_type = "llm-trace-summary" AND rendering = "llma_trace_detailed"
-    if eligible_item_ids:
+    if job_id:
         query = parse_select(
             """
             SELECT document_id, embedding, rendering
@@ -228,17 +61,13 @@ def fetch_item_embeddings_for_clustering(
             WHERE timestamp >= {start_dt}
                 AND timestamp < {end_dt}
                 AND product = {product}
-                AND (
-                    document_type = {document_type_new}
-                    OR (document_type = {document_type_legacy} AND rendering = {rendering_legacy})
-                )
+                AND document_type = {document_type}
                 AND length(embedding) > 0
-                AND document_id IN {eligible_ids}
+                AND endsWith(rendering, {job_id_suffix})
             ORDER BY rand()
             LIMIT {max_samples}
             """
         )
-        eligible_ids_tuple = ast.Tuple(exprs=[ast.Constant(value=iid) for iid in eligible_item_ids])
     else:
         query = parse_select(
             """
@@ -248,7 +77,7 @@ def fetch_item_embeddings_for_clustering(
                 AND timestamp < {end_dt}
                 AND product = {product}
                 AND (
-                    document_type = {document_type_new}
+                    document_type = {document_type}
                     OR (document_type = {document_type_legacy} AND rendering = {rendering_legacy})
                 )
                 AND length(embedding) > 0
@@ -256,19 +85,20 @@ def fetch_item_embeddings_for_clustering(
             LIMIT {max_samples}
             """
         )
-        eligible_ids_tuple = None
 
     placeholders: dict[str, ast.Expr] = {
         "start_dt": ast.Constant(value=window_start),
         "end_dt": ast.Constant(value=window_end),
         "product": ast.Constant(value=constants.LLMA_TRACE_PRODUCT),
-        "document_type_new": ast.Constant(value=document_type_new),
-        "document_type_legacy": ast.Constant(value=constants.LLMA_TRACE_DOCUMENT_TYPE_LEGACY),
-        "rendering_legacy": ast.Constant(value=constants.LLMA_TRACE_RENDERING_LEGACY),
+        "document_type": ast.Constant(value=document_type),
         "max_samples": ast.Constant(value=max_samples),
     }
-    if eligible_ids_tuple:
-        placeholders["eligible_ids"] = eligible_ids_tuple
+
+    if job_id:
+        placeholders["job_id_suffix"] = ast.Constant(value=f"_{job_id}")
+    else:
+        placeholders["document_type_legacy"] = ast.Constant(value=constants.LLMA_TRACE_DOCUMENT_TYPE_LEGACY)
+        placeholders["rendering_legacy"] = ast.Constant(value=constants.LLMA_TRACE_RENDERING_LEGACY)
 
     with tags_context(product=Product.LLM_ANALYTICS):
         result = execute_hogql_query(
@@ -276,13 +106,16 @@ def fetch_item_embeddings_for_clustering(
             query=query,
             placeholders=placeholders,
             team=team,
+            settings=HogQLGlobalSettings(max_execution_time=CLUSTERING_QUERY_MAX_EXECUTION_TIME),
         )
 
     rows = result.results or []
 
-    logger.debug(
+    logger.info(
         "fetch_item_embeddings_for_clustering_result",
         num_rows=len(rows),
+        analysis_level=analysis_level,
+        job_id=job_id,
     )
 
     # Build all maps in single loop to ensure item_ids, embeddings_map, and batch_run_ids are aligned
@@ -383,6 +216,7 @@ def fetch_item_summaries(
                 "max_rows": ast.Constant(value=max_rows),
             },
             team=team,
+            settings=HogQLGlobalSettings(max_execution_time=CLUSTERING_QUERY_MAX_EXECUTION_TIME),
         )
 
     rows = result.results or []

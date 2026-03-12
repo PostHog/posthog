@@ -8,19 +8,24 @@ use std::{
 use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::database_pools::DatabasePools;
 use axum::{
+    error_handling::HandleErrorLayer,
     http::{Method, StatusCode},
     routing::{any, get},
     Router,
 };
+use common_cache::NegativeCache;
 use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
 use common_hypercache::HyperCacheReader;
+use common_metrics::inc;
 use common_metrics::{setup_metrics_recorder, track_metrics};
 use common_redis::Client as RedisClient;
-use health::HealthRegistry;
+use health::{readiness_handler, HealthRegistry};
 use metrics::gauge;
 use sqlx::PgPool;
 use tower::limit::ConcurrencyLimitLayer;
+use tower::timeout::TimeoutLayer;
+use tower::ServiceBuilder;
 use tower_http::{
     cors::{AllowHeaders, AllowOrigin, CorsLayer},
     trace::TraceLayer,
@@ -35,9 +40,13 @@ use crate::{
     cohorts::cohort_cache_manager::CohortCacheManager,
     config::{Config, TeamIdCollection},
     metrics::{
-        consts::{FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_REQUESTS_COUNTER},
+        consts::{
+            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_REQUESTS_COUNTER,
+            FLAG_REQUEST_TIMEOUT_COUNTER,
+        },
         utils::team_id_label_filter,
     },
+    rayon_dispatcher::RayonDispatcher,
 };
 
 #[derive(Clone)]
@@ -73,6 +82,11 @@ pub struct State {
     /// Reads pre-computed config from Python's RemoteConfig.build_config()
     /// Uses token-based lookup (api_token)
     pub config_hypercache_reader: Arc<HyperCacheReader>,
+    /// Bounds concurrent large-batch dispatches to the Rayon pool
+    pub rayon_dispatcher: RayonDispatcher,
+    /// In-memory negative cache for invalid API tokens, preventing repeated
+    /// Redis/S3/PG lookups for tokens that don't correspond to any team
+    pub team_negative_cache: NegativeCache,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -90,6 +104,8 @@ pub fn router(
     flags_with_cohorts_hypercache_reader: Arc<HyperCacheReader>,
     team_hypercache_reader: Arc<HyperCacheReader>,
     config_hypercache_reader: Arc<HyperCacheReader>,
+    rayon_dispatcher: RayonDispatcher,
+    team_negative_cache: NegativeCache,
     config: Config,
 ) -> Router {
     // Initialize flag definitions rate limiter with default and custom team rates
@@ -129,9 +145,6 @@ pub fn router(
         )
     });
 
-    // Clone database_pools for readiness check before moving into State
-    let db_pools_for_readiness = database_pools.clone();
-
     spawn_rate_limiter_cleanup_task(
         flags_rate_limiter.clone(),
         ip_rate_limiter.clone(),
@@ -157,6 +170,8 @@ pub fn router(
         flags_with_cohorts_hypercache_reader,
         team_hypercache_reader,
         config_hypercache_reader,
+        rayon_dispatcher,
+        team_negative_cache,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -173,10 +188,7 @@ pub fn router(
     // liveness/readiness/startup checks
     let status_router = Router::new()
         .route("/", get(index))
-        .route(
-            "/_readiness",
-            get(move || readiness(db_pools_for_readiness.clone())),
-        )
+        .route("/_readiness", get(readiness_handler))
         .route("/_liveness", get(move || ready(liveness.get_status())))
         .route(
             "/_startup",
@@ -185,6 +197,12 @@ pub fn router(
 
     // flags endpoint
     // IP rate limiting is now handled in the endpoint handler for better control and log-only mode support
+    //
+    // Layer ordering (outermost to innermost, last .layer() call on Router is outermost):
+    // 1. HandleErrorLayer (outermost): converts timeout errors into 503 responses.
+    // 2. TimeoutLayer: cancels the entire request after request_timeout_ms,
+    //    ensuring zombie tasks don't hold connections after Envoy kills the downstream.
+    // 3. ConcurrencyLimitLayer (innermost): bounds in-flight requests.
     let flags_router = Router::new()
         .route("/flags", any(endpoint::flags))
         .route("/flags/", any(endpoint::flags))
@@ -198,7 +216,26 @@ pub fn router(
         )
         .route("/decide", any(endpoint::flags))
         .route("/decide/", any(endpoint::flags))
-        .layer(ConcurrencyLimitLayer::new(config.max_concurrency));
+        .layer(ConcurrencyLimitLayer::new(config.max_concurrency))
+        .layer(
+            ServiceBuilder::new()
+                .layer(HandleErrorLayer::new(|err: tower::BoxError| async move {
+                    let is_timeout = err.is::<tower::timeout::error::Elapsed>();
+                    tracing::warn!(error = %err, timeout = is_timeout, "Request aborted by tower layer");
+                    if is_timeout {
+                        inc(FLAG_REQUEST_TIMEOUT_COUNTER, &[], 1);
+                    }
+                    let body = if is_timeout {
+                        "Request timed out"
+                    } else {
+                        "Service unavailable"
+                    };
+                    (StatusCode::SERVICE_UNAVAILABLE, body)
+                }))
+                .layer(TimeoutLayer::new(Duration::from_millis(
+                    config.request_timeout_ms,
+                ))),
+        );
 
     let router = Router::new()
         .merge(status_router)
@@ -283,25 +320,6 @@ async fn test_pool_connection(pool: &PgPool, name: &str, skip_query: bool) -> Re
     }
 
     Ok(())
-}
-
-pub async fn readiness(
-    database_pools: Arc<DatabasePools>,
-) -> Result<&'static str, (StatusCode, String)> {
-    let pools = [
-        ("non_persons_reader", &database_pools.non_persons_reader),
-        ("non_persons_writer", &database_pools.non_persons_writer),
-        ("persons_reader", &database_pools.persons_reader),
-        ("persons_writer", &database_pools.persons_writer),
-    ];
-
-    for (name, pool) in pools {
-        test_pool_connection(pool, name, database_pools.test_before_acquire)
-            .await
-            .map_err(|e| (StatusCode::SERVICE_UNAVAILABLE, e))?;
-    }
-
-    Ok("ready")
 }
 
 pub async fn index() -> &'static str {
@@ -391,7 +409,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_pool_connection_success() {
-        // This test requires a running database
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or("postgres://posthog:posthog@localhost:5432/test_database".to_string());
 
@@ -404,13 +421,9 @@ mod tests {
 
         // If database is available, connection test should succeed
         // If not, it will fail - both are acceptable in test environment
-        // This test primarily verifies the function doesn't panic
         match result {
-            Ok(()) => {
-                // Pool connection test succeeded
-            }
+            Ok(()) => {}
             Err(e) => {
-                // Expected when no database is running
                 assert!(e.contains("test_pool"));
             }
         }
@@ -418,7 +431,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_pool_connection_failure_includes_pool_name() {
-        // Create a pool with an invalid connection string
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
             .acquire_timeout(std::time::Duration::from_millis(100))
@@ -437,7 +449,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_startup_always_returns_started() {
-        // Create pools with invalid connection strings to simulate DB unavailability
         let invalid_pool = Arc::new(
             sqlx::postgres::PgPoolOptions::new()
                 .max_connections(1)
@@ -451,18 +462,16 @@ mod tests {
             non_persons_writer: invalid_pool.clone(),
             persons_reader: invalid_pool.clone(),
             persons_writer: invalid_pool,
+            behavioral_cohorts_reader: None,
             test_before_acquire: false,
         });
 
-        // Startup should always return "started" even if warmup fails
         let result = startup(database_pools).await;
         assert_eq!(result, "started");
     }
 
     #[tokio::test]
     async fn test_startup_with_aliased_pools() {
-        // Simulate the common case where persons pools are aliased to non-persons pools
-        // (when persons_db_routing is disabled)
         let shared_pool = Arc::new(
             sqlx::postgres::PgPoolOptions::new()
                 .max_connections(1)
@@ -471,16 +480,15 @@ mod tests {
                 .expect("Failed to create pool"),
         );
 
-        // Both persons pools point to the same Arc as non-persons pools
         let database_pools = Arc::new(DatabasePools {
             non_persons_reader: shared_pool.clone(),
             non_persons_writer: shared_pool.clone(),
-            persons_reader: shared_pool.clone(), // Aliased to non_persons_reader
-            persons_writer: shared_pool,         // Aliased to non_persons_writer
+            persons_reader: shared_pool.clone(),
+            persons_writer: shared_pool,
+            behavioral_cohorts_reader: None,
             test_before_acquire: false,
         });
 
-        // Startup should still return "started" and handle aliased pools gracefully
         let result = startup(database_pools).await;
         assert_eq!(result, "started");
     }

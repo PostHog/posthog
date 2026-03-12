@@ -1,18 +1,24 @@
+from __future__ import annotations
+
 import os
+import json
 import time
 import uuid
 import shlex
 import logging
 from collections.abc import Iterable
 from functools import lru_cache
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
 
+if TYPE_CHECKING:
+    from products.tasks.backend.temporal.process_task.utils import McpServerConfig
+
 import modal
-import requests
 
 from posthog.exceptions_capture import capture_exception
+from posthog.security.outbound_proxy import external_requests
 
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.temporal.exceptions import (
@@ -44,7 +50,7 @@ def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
     """
     image_repo = image.replace("ghcr.io/", "")
     try:
-        token_resp = requests.get(
+        token_resp = external_requests.get(
             f"https://ghcr.io/token?service=ghcr.io&scope=repository:{image_repo}:pull",
             timeout=10,
         )
@@ -57,7 +63,7 @@ def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
             logger.warning("GHCR token response missing token field")
             return f"{image}:master"
 
-        manifest_resp = requests.get(
+        manifest_resp = external_requests.get(
             f"https://ghcr.io/v2/{image_repo}/manifests/master",
             headers={
                 "Accept": "application/vnd.oci.image.index.v1+json",
@@ -142,7 +148,7 @@ class ModalSandbox:
         return ModalSandbox._get_default_app()
 
     @staticmethod
-    def create(config: SandboxConfig) -> "ModalSandbox":
+    def create(config: SandboxConfig) -> ModalSandbox:
         try:
             app = ModalSandbox._get_app_for_template(config.template)
             base_image = _get_template_image(config.template)
@@ -206,7 +212,7 @@ class ModalSandbox:
             )
 
     @staticmethod
-    def get_by_id(sandbox_id: str) -> "ModalSandbox":
+    def get_by_id(sandbox_id: str) -> ModalSandbox:
         try:
             sb = modal.Sandbox.from_id(sandbox_id)
 
@@ -377,12 +383,13 @@ class ModalSandbox:
         )
 
         target_path = f"/tmp/workspace/repos/{org}/{repo}"
+        org_path = f"/tmp/workspace/repos/{org}"
 
         clone_command = (
-            f"rm -rf {target_path} && "
-            f"mkdir -p /tmp/workspace/repos/{org} && "
-            f"cd /tmp/workspace/repos/{org} && "
-            f"git clone {repo_url} {repo}"
+            f"rm -rf {shlex.quote(target_path)} && "
+            f"mkdir -p {shlex.quote(org_path)} && "
+            f"cd {shlex.quote(org_path)} && "
+            f"git clone --depth 1 --single-branch {shlex.quote(repo_url)} {shlex.quote(repo)}"
         )
 
         logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id}")
@@ -399,7 +406,7 @@ class ModalSandbox:
         org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        result = self.execute(f"cd {repo_path} && git status --porcelain")
+        result = self.execute(f"cd {shlex.quote(repo_path)} && git status --porcelain")
         is_clean = not result.stdout.strip()
 
         return is_clean, result.stdout
@@ -423,7 +430,16 @@ class ModalSandbox:
         logger.info(f"Got connect credentials for sandbox {self.id}: {credentials.url}")
         return AgentServerResult(url=credentials.url, token=credentials.token)
 
-    def start_agent_server(self, repository: str, task_id: str, run_id: str, mode: str = "background") -> None:
+    def start_agent_server(
+        self,
+        repository: str,
+        task_id: str,
+        run_id: str,
+        mode: str = "background",
+        interaction_origin: str | None = None,
+        branch: str | None = None,
+        mcp_configs: list[McpServerConfig] | None = None,
+    ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
         The sandbox URL and token should be obtained via get_connect_credentials()
@@ -436,10 +452,18 @@ class ModalSandbox:
         org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
+        mcp_servers_arg = ""
+        if mcp_configs:
+            mcp_json = json.dumps([c.to_dict() for c in mcp_configs])
+            mcp_servers_arg = f" --mcpServers {shlex.quote(mcp_json)}"
+
+        env_prefix = f"env TWIG_INTERACTION_ORIGIN={shlex.quote(interaction_origin)} " if interaction_origin else ""
+        branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         command = (
             f"cd /scripts && "
-            f"nohup npx agent-server --port {AGENT_SERVER_PORT} --repositoryPath {repo_path} "
-            f"--taskId {task_id} --runId {run_id} --mode {mode} "
+            f"nohup {env_prefix}npx agent-server --port {AGENT_SERVER_PORT} --repositoryPath {shlex.quote(repo_path)} "
+            f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
+            f"{branch_flag}{mcp_servers_arg} "
             f"> /tmp/agent-server.log 2>&1 &"
         )
 

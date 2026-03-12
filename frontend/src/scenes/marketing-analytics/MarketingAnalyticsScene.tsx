@@ -6,8 +6,9 @@ import { LemonBanner, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { QueryTile } from 'scenes/web-analytics/common'
 import { NonIntegratedConversionsTable } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsTable'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
@@ -25,8 +26,8 @@ import {
     MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
     marketingAnalyticsTilesLogic,
 } from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
-import { Onboarding } from './Onboarding/Onboarding'
 import { marketingOnboardingLogic } from './Onboarding/marketingOnboardingLogic'
+import { Onboarding } from './Onboarding/Onboarding'
 
 export const scene: SceneExport = {
     component: MarketingAnalyticsScene,
@@ -69,17 +70,24 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
 const MarketingAnalyticsDashboard = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { hasSources, hasNoConfiguredSources, loading } = useValues(marketingAnalyticsLogic)
+    const { loadSources } = useActions(externalDataSourcesLogic)
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     const { tiles: marketingTiles } = useValues(marketingAnalyticsTilesLogic)
     const { showOnboarding } = useValues(marketingOnboardingLogic)
     const { completeOnboarding, resetOnboarding } = useActions(marketingOnboardingLogic)
+
+    // Reload sources on every navigation to this scene so newly configured
+    // data warehouse sources are picked up without a full page refresh
+    useEffect(() => {
+        loadSources()
+    }, [loadSources])
 
     // Auto-complete onboarding if user already has sources and conversion goals configured
     useEffect(() => {
         if (!loading && hasSources && conversion_goals.length > 0 && showOnboarding) {
             completeOnboarding()
         }
-    }, [loading, hasSources, conversion_goals, showOnboarding])
+    }, [loading, hasSources, conversion_goals, showOnboarding, completeOnboarding])
 
     // Reset onboarding if user truly has no configured sources (handles session/project changes).
     // Uses hasNoConfiguredSources which guards against premature evaluation while tables are loading.
@@ -87,7 +95,7 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
         if (hasNoConfiguredSources && !showOnboarding) {
             resetOnboarding()
         }
-    }, [loading, hasSources, showOnboarding, resetOnboarding])
+    }, [loading, hasSources, showOnboarding, resetOnboarding]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const feedbackBanner = (
         <LemonBanner type="info" action={{ children: 'Send feedback', id: 'marketing-analytics-feedback-button' }}>

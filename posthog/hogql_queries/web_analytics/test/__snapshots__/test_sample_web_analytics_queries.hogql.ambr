@@ -442,7 +442,7 @@
   FROM
     (SELECT any(person_id) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            concatWithSeparator(' / ', coalesce(session.$entry_utm_source, session.$entry_referring_domain, '(none)'), coalesce(session.$entry_utm_medium, '(none)'), coalesce(session.$entry_utm_campaign, '(none)')) AS breakdown_value,
+            concatWithSeparator(' / ', if(isNotNull(session.$entry_utm_source), session.$entry_utm_source, if(isNotNull(session.$entry_referring_domain), concat('referrer:', session.$entry_referring_domain), '(none)')), coalesce(session.$entry_utm_medium, '(none)'), coalesce(session.$entry_utm_campaign, '(none)')) AS breakdown_value,
             session.session_id AS session_id,
             any(session.$is_bounce) AS is_bounce,
             min(session.$start_timestamp) AS start_timestamp

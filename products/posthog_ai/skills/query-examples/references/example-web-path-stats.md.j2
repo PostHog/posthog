@@ -1,0 +1,9 @@
+# Web path stats
+
+In this view you can validate all of the paths that were accessed in your application, regardless of when they were accessed through the lifetime of a user session.
+
+The bounce rate indicates the percentage of users who left your page immediately after visiting without capturing any event.
+
+```sql
+{{ render_hogql_example({"kind": "WebStatsTableQuery", "filterTestAccounts": false, "breakdownBy": "Page", "properties": [], "dateRange": {"date_from": "-7d"}, "includeBounceRate": true}) }}
+```

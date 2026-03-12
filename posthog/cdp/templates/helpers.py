@@ -64,6 +64,7 @@ class BaseHogFunctionTemplateTest(BaseTest):
     mock_fetch = MagicMock()
     mock_print = MagicMock()
     mock_posthog_capture = MagicMock()
+    mock_produce_to_warehouse_webhooks = MagicMock()
     fetch_responses: dict[str, dict[Any, Any]] = {}
 
     def setUp(self):
@@ -78,6 +79,7 @@ class BaseHogFunctionTemplateTest(BaseTest):
         self.mock_posthog_capture = MagicMock(
             side_effect=lambda *args: print("[DEBUG HogFunctionPostHogCapture]", *args)  # noqa: T201
         )
+        self.mock_produce_to_warehouse_webhooks = MagicMock(side_effect=lambda *args: args[0] if args else None)
 
     def mock_fetch_response(self, url, *args):
         return self.fetch_responses.get(url, {"status": 200, "body": {}})
@@ -131,6 +133,7 @@ class BaseHogFunctionTemplateTest(BaseTest):
             "fetch": self.mock_fetch,
             "print": self.mock_print,
             "postHogCapture": self.mock_posthog_capture,
+            "produceToWarehouseWebhooks": self.mock_produce_to_warehouse_webhooks,
         }
 
         if functions:

@@ -5,8 +5,8 @@ import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 import { humanize } from 'lib/components/ActivityLog/humanizeActivity'
 import { DetectiveHog } from 'lib/components/hedgehogs'
 
-import { AuditLogTable } from './AuditLogTable'
 import { advancedActivityLogsLogic } from './advancedActivityLogsLogic'
+import { AuditLogTable } from './AuditLogTable'
 
 export function AdvancedActivityLogsList(): JSX.Element {
     const { advancedActivityLogs, advancedActivityLogsLoading, pagination } = useValues(advancedActivityLogsLogic)

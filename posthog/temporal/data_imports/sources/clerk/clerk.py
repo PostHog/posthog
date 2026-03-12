@@ -4,6 +4,7 @@ import requests
 from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 
+from posthog.security.outbound_proxy import external_requests
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.clerk.settings import CLERK_ENDPOINTS
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
@@ -108,7 +109,7 @@ def validate_credentials(secret_key: str) -> tuple[bool, str | None]:
     }
 
     try:
-        response = requests.get(url, headers=headers, params={"limit": 1}, timeout=10)
+        response = external_requests.get(url, headers=headers, params={"limit": 1}, timeout=10)
 
         if response.status_code == 200:
             return True, None

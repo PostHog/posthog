@@ -20,7 +20,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
 import { endpointsLogic } from 'products/endpoints/frontend/endpointsLogic'
 
-import { multitabEditorLogic } from '../multitabEditorLogic'
+import { sqlEditorLogic } from '../sqlEditorLogic'
 
 interface EndpointProps {
     tabId: string
@@ -41,7 +41,7 @@ export function Endpoint({ tabId }: EndpointProps): JSX.Element {
     const { endpoints } = useValues(endpointsLogic({ tabId }))
 
     const { variablesForInsight } = useValues(variablesLogic)
-    const { queryInput } = useValues(multitabEditorLogic)
+    const { queryInput } = useValues(sqlEditorLogic)
 
     const handleSubmit = (): void => {
         const sqlQuery = queryInput || ''

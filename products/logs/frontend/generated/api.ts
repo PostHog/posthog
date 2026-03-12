@@ -1,3 +1,4 @@
+import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 /**
  * Auto-generated from the Django backend OpenAPI schema.
  * To modify these types, update the Django serializers or views, then run:
@@ -7,61 +8,32 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ExplainRequestApi,
+    LogsAlertConfigurationApi,
+    LogsAlertsListParams,
+    PaginatedLogsAlertConfigurationListApi,
     PaginatedPluginLogEntryListApi,
-    PluginConfigsLogsList2Params,
+    PatchedLogsAlertConfigurationApi,
     PluginConfigsLogsListParams,
 } from './api.schemas'
 
-export const getHogFlowTemplatesLogsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/hog_flow_templates/${id}/logs/`
-}
+// https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
+type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
 
-export const hogFlowTemplatesLogsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getHogFlowTemplatesLogsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
+type WritableKeys<T> = {
+    [P in keyof T]-?: IfEquals<{ [Q in P]: T[P] }, { -readonly [Q in P]: T[P] }, P>
+}[keyof T]
 
-export const getHogFlowsLogsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/hog_flows/${id}/logs/`
-}
+type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never
+type DistributeReadOnlyOverUnions<T> = T extends any ? NonReadonly<T> : never
 
-export const hogFlowsLogsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getHogFlowsLogsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getHogFunctionsLogsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/hog_functions/${id}/logs/`
-}
-
-export const hogFunctionsLogsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getHogFunctionsLogsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getLogsAttributesRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/logs/attributes/`
-}
-
-export const logsAttributesRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLogsAttributesRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
+type Writable<T> = Pick<T, WritableKeys<T>>
+type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
+    ? {
+          [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
+      }
+    : DistributeReadOnlyOverUnions<T>
 
 /**
  * Explain a log entry using AI.
@@ -85,8 +57,136 @@ export const logsExplainLogWithAICreate = async (
     })
 }
 
+export const getHogFunctionsLogsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_functions/${id}/logs/`
+}
+
+export const hogFunctionsLogsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getHogFunctionsLogsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLogsAlertsListUrl = (projectId: string, params?: LogsAlertsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/logs/alerts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/logs/alerts/`
+}
+
+export const logsAlertsList = async (
+    projectId: string,
+    params?: LogsAlertsListParams,
+    options?: RequestInit
+): Promise<PaginatedLogsAlertConfigurationListApi> => {
+    return apiMutator<PaginatedLogsAlertConfigurationListApi>(getLogsAlertsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLogsAlertsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/alerts/`
+}
+
+export const logsAlertsCreate = async (
+    projectId: string,
+    logsAlertConfigurationApi: NonReadonly<LogsAlertConfigurationApi>,
+    options?: RequestInit
+): Promise<LogsAlertConfigurationApi> => {
+    return apiMutator<LogsAlertConfigurationApi>(getLogsAlertsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsAlertConfigurationApi),
+    })
+}
+
+export const getLogsAlertsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/alerts/${id}/`
+}
+
+export const logsAlertsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<LogsAlertConfigurationApi> => {
+    return apiMutator<LogsAlertConfigurationApi>(getLogsAlertsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLogsAlertsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/alerts/${id}/`
+}
+
+export const logsAlertsUpdate = async (
+    projectId: string,
+    id: string,
+    logsAlertConfigurationApi: NonReadonly<LogsAlertConfigurationApi>,
+    options?: RequestInit
+): Promise<LogsAlertConfigurationApi> => {
+    return apiMutator<LogsAlertConfigurationApi>(getLogsAlertsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsAlertConfigurationApi),
+    })
+}
+
+export const getLogsAlertsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/alerts/${id}/`
+}
+
+export const logsAlertsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedLogsAlertConfigurationApi: NonReadonly<PatchedLogsAlertConfigurationApi>,
+    options?: RequestInit
+): Promise<LogsAlertConfigurationApi> => {
+    return apiMutator<LogsAlertConfigurationApi>(getLogsAlertsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedLogsAlertConfigurationApi),
+    })
+}
+
+export const getLogsAlertsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/alerts/${id}/`
+}
+
+export const logsAlertsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getLogsAlertsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getLogsAttributesRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/attributes/`
+}
+
+export const logsAttributesRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getLogsAttributesRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getLogsExportCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/logs/export/`
+    return `/api/projects/${projectId}/logs/export/`
 }
 
 export const logsExportCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
@@ -97,7 +197,7 @@ export const logsExportCreate = async (projectId: string, options?: RequestInit)
 }
 
 export const getLogsHasLogsRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/logs/has_logs/`
+    return `/api/projects/${projectId}/logs/has_logs/`
 }
 
 export const logsHasLogsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
@@ -108,7 +208,7 @@ export const logsHasLogsRetrieve = async (projectId: string, options?: RequestIn
 }
 
 export const getLogsQueryCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/logs/query/`
+    return `/api/projects/${projectId}/logs/query/`
 }
 
 export const logsQueryCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
@@ -119,7 +219,7 @@ export const logsQueryCreate = async (projectId: string, options?: RequestInit):
 }
 
 export const getLogsSparklineCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/logs/sparkline/`
+    return `/api/projects/${projectId}/logs/sparkline/`
 }
 
 export const logsSparklineCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
@@ -130,7 +230,7 @@ export const logsSparklineCreate = async (projectId: string, options?: RequestIn
 }
 
 export const getLogsValuesRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/logs/values/`
+    return `/api/projects/${projectId}/logs/values/`
 }
 
 export const logsValuesRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
@@ -156,8 +256,8 @@ export const getPluginConfigsLogsListUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/plugin_configs/${pluginConfigId}/logs/?${stringifiedParams}`
-        : `/api/environments/${projectId}/plugin_configs/${pluginConfigId}/logs/`
+        ? `/api/projects/${projectId}/plugin_configs/${pluginConfigId}/logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/plugin_configs/${pluginConfigId}/logs/`
 }
 
 export const pluginConfigsLogsList = async (
@@ -167,145 +267,6 @@ export const pluginConfigsLogsList = async (
     options?: RequestInit
 ): Promise<PaginatedPluginLogEntryListApi> => {
     return apiMutator<PaginatedPluginLogEntryListApi>(getPluginConfigsLogsListUrl(projectId, pluginConfigId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getHogFlowTemplatesLogsRetrieve2Url = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_flow_templates/${id}/logs/`
-}
-
-export const hogFlowTemplatesLogsRetrieve2 = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getHogFlowTemplatesLogsRetrieve2Url(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getHogFlowsLogsRetrieve2Url = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_flows/${id}/logs/`
-}
-
-export const hogFlowsLogsRetrieve2 = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getHogFlowsLogsRetrieve2Url(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getHogFunctionsLogsRetrieve2Url = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_functions/${id}/logs/`
-}
-
-export const hogFunctionsLogsRetrieve2 = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getHogFunctionsLogsRetrieve2Url(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getLogsAttributesRetrieve2Url = (projectId: string) => {
-    return `/api/projects/${projectId}/logs/attributes/`
-}
-
-export const logsAttributesRetrieve2 = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLogsAttributesRetrieve2Url(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getLogsExportCreate2Url = (projectId: string) => {
-    return `/api/projects/${projectId}/logs/export/`
-}
-
-export const logsExportCreate2 = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLogsExportCreate2Url(projectId), {
-        ...options,
-        method: 'POST',
-    })
-}
-
-export const getLogsHasLogsRetrieve2Url = (projectId: string) => {
-    return `/api/projects/${projectId}/logs/has_logs/`
-}
-
-export const logsHasLogsRetrieve2 = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLogsHasLogsRetrieve2Url(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getLogsQueryCreate2Url = (projectId: string) => {
-    return `/api/projects/${projectId}/logs/query/`
-}
-
-export const logsQueryCreate2 = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLogsQueryCreate2Url(projectId), {
-        ...options,
-        method: 'POST',
-    })
-}
-
-export const getLogsSparklineCreate2Url = (projectId: string) => {
-    return `/api/projects/${projectId}/logs/sparkline/`
-}
-
-export const logsSparklineCreate2 = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLogsSparklineCreate2Url(projectId), {
-        ...options,
-        method: 'POST',
-    })
-}
-
-export const getLogsValuesRetrieve2Url = (projectId: string) => {
-    return `/api/projects/${projectId}/logs/values/`
-}
-
-export const logsValuesRetrieve2 = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLogsValuesRetrieve2Url(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getPluginConfigsLogsList2Url = (
-    projectId: string,
-    pluginConfigId: string,
-    params?: PluginConfigsLogsList2Params
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/plugin_configs/${pluginConfigId}/logs/?${stringifiedParams}`
-        : `/api/projects/${projectId}/plugin_configs/${pluginConfigId}/logs/`
-}
-
-export const pluginConfigsLogsList2 = async (
-    projectId: string,
-    pluginConfigId: string,
-    params?: PluginConfigsLogsList2Params,
-    options?: RequestInit
-): Promise<PaginatedPluginLogEntryListApi> => {
-    return apiMutator<PaginatedPluginLogEntryListApi>(getPluginConfigsLogsList2Url(projectId, pluginConfigId, params), {
         ...options,
         method: 'GET',
     })

@@ -200,7 +200,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             direction,
         }),
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
-        setInterval: (interval: IntervalType) => ({ interval }),
+        setDateInterval: (interval: IntervalType) => ({ interval }),
         setDatesAndInterval: (dateFrom: string | null, dateTo: string | null, interval: IntervalType) => ({
             dateFrom,
             dateTo,
@@ -366,7 +366,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         isIntervalManuallySet,
                     }
                 },
-                setInterval: ({ dateFrom, dateTo }, { interval }) => ({
+                setDateInterval: ({ dateFrom, dateTo }, { interval }) => ({
                     dateTo,
                     dateFrom,
                     interval,
@@ -1492,9 +1492,25 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 {},
                                 {
                                     docs: {
-                                        url: 'https://posthog.com/docs/web-analytics/dashboard#referrers-channels-utms',
+                                        url: 'https://posthog.com/docs/web-analytics/dashboard#channels-referrers-utms',
                                         title: 'Referrers',
                                         description: 'Understand where your users are coming from',
+                                    },
+                                }
+                            ),
+                            createTableTab(
+                                TileId.SOURCES,
+                                SourceTab.REFERRING_URL,
+                                'Referrer URLs',
+                                'Referring URL',
+                                WebStatsBreakdown.InitialReferringURL,
+                                {},
+                                {
+                                    docs: {
+                                        url: 'https://posthog.com/docs/web-analytics/dashboard#channels-referrers-utms',
+                                        title: 'Referrer URLs',
+                                        description:
+                                            'Full referring URLs (without query parameters) showing where your users came from',
                                     },
                                 }
                             ),
@@ -1901,7 +1917,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                     bottom-right cell shows the grand total. The displayed time is based
                                                     on your project's date and time settings (UTC by default,
                                                     configurable in{' '}
-                                                    <Link to={urls.settings('project', 'date-and-time')}>
+                                                    <Link
+                                                        to={urls.settings('environment-customization', 'date-and-time')}
+                                                    >
                                                         project settings
                                                     </Link>
                                                     ).
@@ -1962,7 +1980,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                     bottom-right cell shows the grand total. The displayed time is based
                                                     on your project's date and time settings (UTC by default,
                                                     configurable in{' '}
-                                                    <Link to={urls.settings('project', 'date-and-time')}>
+                                                    <Link
+                                                        to={urls.settings('environment-customization', 'date-and-time')}
+                                                    >
                                                         project settings
                                                     </Link>
                                                     ).
@@ -2159,8 +2179,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
     tabAwareActionToUrl(({ values }) => {
         const stateToUrl = (): string => {
-            const searchParams = { ...router.values.searchParams }
-            const urlParams = new URLSearchParams(searchParams)
+            const urlParams = new URLSearchParams(router.values.location.search)
 
             const {
                 rawWebAnalyticsFilters,
@@ -2192,6 +2211,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             // spreading from their individual dropdowns to the global filters list
             if (rawWebAnalyticsFilters.length > 0) {
                 urlParams.set('filters', JSON.stringify(rawWebAnalyticsFilters))
+            } else {
+                urlParams.delete('filters')
             }
             if (conversionGoal) {
                 if ('actionId' in conversionGoal) {
@@ -2265,7 +2286,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             togglePropertyFilter: stateToUrl,
             setConversionGoal: stateToUrl,
             setDates: stateToUrl,
-            setInterval: stateToUrl,
+            setDateInterval: stateToUrl,
             setDeviceTab: stateToUrl,
             setSourceTab: stateToUrl,
             setGraphsTab: stateToUrl,

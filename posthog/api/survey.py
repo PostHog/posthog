@@ -1,7 +1,7 @@
 import re
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
-from typing import Any, TypedDict, cast
+from typing import Any, Optional, TypedDict, cast
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -18,6 +18,7 @@ import nh3
 import structlog
 import posthoganalytics
 from axes.decorators import axes_dispatch
+from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from nanoid import generate
@@ -217,7 +218,9 @@ class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerial
             "response_sampling_daily_limits",
             "enable_partial_responses",
             "enable_iframe_embedding",
+            "translations",
             "user_access_level",
+            "form_content",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -231,6 +234,48 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     linked_insight_id = serializers.IntegerField(required=False, write_only=True, allow_null=True)
     targeting_flag_id = serializers.IntegerField(required=False, write_only=True)
     targeting_flag_filters = serializers.JSONField(required=False, write_only=True, allow_null=True)
+
+    def _validate_and_sanitize_link(self, link: str) -> str:
+        """Validate URL scheme and format, then sanitize HTML. Returns cleaned link."""
+        parsed_url = urlparse(link)
+
+        # Check for unsupported schemes
+        if parsed_url.scheme not in ALLOWED_LINK_URL_SCHEMES:
+            raise serializers.ValidationError(
+                f"Link must be a URL with one of these schemes: [{', '.join(ALLOWED_LINK_URL_SCHEMES)}]"
+            )
+
+        # Validate mailto links
+        if parsed_url.scheme == "mailto":
+            if not re.match(EMAIL_REGEX, link):
+                raise serializers.ValidationError(
+                    "Invalid mailto link. Please enter a valid mailto link (e.g., mailto:example@domain.com)."
+                )
+        # Validate HTTPS URLs
+        elif parsed_url.scheme == "https":
+            if not parsed_url.netloc:
+                raise serializers.ValidationError("Invalid HTTPS URL. Please enter a valid HTTPS link.")
+
+        # Sanitize HTML if present
+        if nh3.is_html(link):
+            return nh3_clean_with_allow_list(link)
+        return link
+
+    def _validate_and_sanitize_choices(self, choices: list) -> list:
+        """Validate choices are non-empty strings and sanitize HTML. Returns cleaned choices."""
+        cleaned_choices = []
+        for choice in choices:
+            if not isinstance(choice, str):
+                raise serializers.ValidationError("Question choices must be strings")
+            if not choice.strip():
+                raise serializers.ValidationError("Question choices cannot be empty")
+
+            if nh3.is_html(choice):
+                cleaned_choices.append(nh3_clean_with_allow_list(choice))
+            else:
+                cleaned_choices.append(choice)
+        return cleaned_choices
+
     remove_targeting_flag = serializers.BooleanField(required=False, write_only=True, allow_null=True)
     targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
@@ -281,7 +326,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "response_sampling_daily_limits",
             "enable_partial_responses",
             "enable_iframe_embedding",
+            "translations",
             "_create_in_folder",
+            "form_content",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 
@@ -304,6 +351,10 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         thank_you_description = value.get("thankYouMessageDescription")
         if thank_you_description and nh3.is_html(thank_you_description):
             value["thankYouMessageDescription"] = nh3_clean_with_allow_list(thank_you_description)
+
+        thank_you_close_button = value.get("thankYouMessageCloseButtonText")
+        if thank_you_close_button and nh3.is_html(thank_you_close_button):
+            value["thankYouMessageCloseButtonText"] = nh3_clean_with_allow_list(thank_you_close_button)
 
         thank_you_description_content_type = value.get("thankYouMessageDescriptionContentType")
         if thank_you_description_content_type and thank_you_description_content_type not in ["text", "html"]:
@@ -336,6 +387,95 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         return value
 
+    def validate_translations(self, value: Any) -> Optional[dict[str, dict[str, str]]]:
+        """Validate survey-level translations."""
+        if value is None:
+            return value
+
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Translations must be an object")
+
+        cleaned_translations = {}
+        for lang_code, translation_data in value.items():
+            if not isinstance(translation_data, dict):
+                raise serializers.ValidationError(f"Translation for '{lang_code}' must be an object")
+
+            cleaned_translation = {}
+
+            # Validate and sanitize all translatable fields to prevent XSS
+            for field in [
+                "name",
+                "description",
+                "thankYouMessageHeader",
+                "thankYouMessageDescription",
+                "thankYouMessageCloseButtonText",
+            ]:
+                if field in translation_data:
+                    if not isinstance(translation_data[field], str):
+                        raise serializers.ValidationError(f"Translation for '{lang_code}': '{field}' must be a string")
+                    if nh3.is_html(translation_data[field]):
+                        cleaned_translation[field] = nh3_clean_with_allow_list(translation_data[field])
+                    else:
+                        cleaned_translation[field] = translation_data[field]
+
+            # Only store non-empty translations to avoid wasting storage
+            if cleaned_translation:
+                cleaned_translations[lang_code] = cleaned_translation
+
+        return cleaned_translations
+
+    def _validate_question_translations(self, translations_dict: Any, question_index: int) -> dict[str, dict[str, Any]]:
+        """Validate and sanitize translations for a single question."""
+        # Use question_index + 1 for user-facing error messages
+        question_num = question_index + 1
+
+        if not isinstance(translations_dict, dict):
+            raise serializers.ValidationError(f"Question {question_num}: translations must be an object")
+
+        cleaned_translations = {}
+
+        for lang_code, translation_data in translations_dict.items():
+            if not isinstance(translation_data, dict):
+                raise serializers.ValidationError(
+                    f"Question {question_num}: Translation for '{lang_code}' must be an object"
+                )
+
+            cleaned_translation = {}
+
+            # Validate and sanitize all translatable fields
+            for field in ["question", "description", "buttonText", "lowerBoundLabel", "upperBoundLabel"]:
+                if field in translation_data:
+                    if not isinstance(translation_data[field], str):
+                        raise serializers.ValidationError(
+                            f"Question {question_num}: Translation '{lang_code}' field '{field}' must be a string"
+                        )
+                    if nh3.is_html(translation_data[field]):
+                        cleaned_translation[field] = nh3_clean_with_allow_list(translation_data[field])
+                    else:
+                        cleaned_translation[field] = translation_data[field]
+
+            # Validate and sanitize link field
+            if "link" in translation_data:
+                if not isinstance(translation_data["link"], str):
+                    raise serializers.ValidationError(
+                        f"Question {question_num}: Translation '{lang_code}' field 'link' must be a string"
+                    )
+                cleaned_translation["link"] = self._validate_and_sanitize_link(translation_data["link"])
+
+            # Validate and sanitize choices array
+            if "choices" in translation_data:
+                if not isinstance(translation_data["choices"], list):
+                    raise serializers.ValidationError(
+                        f"Question {question_num}: Translation '{lang_code}' field 'choices' must be a list of strings"
+                    )
+                cleaned_translation["choices"] = self._validate_and_sanitize_choices(translation_data["choices"])
+
+            # Only store non-empty translations to avoid wasting storage
+            if cleaned_translation:
+                cleaned_translations[lang_code] = cleaned_translation
+
+        return cleaned_translations
+
     def validate_questions(self, value):
         if value is None:
             return value
@@ -344,55 +484,108 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             raise serializers.ValidationError("Questions must be a list of objects")
 
         cleaned_questions = []
-        for raw_question in value:
+        for index, raw_question in enumerate(value):
             if not isinstance(raw_question, dict):
                 raise serializers.ValidationError("Questions must be a list of objects")
 
-            cleaned_question = {
-                **raw_question,
-            }
+            cleaned_question = {**raw_question}
+
             question_text = raw_question.get("question")
 
             if not question_text:
                 raise serializers.ValidationError("Question text is required")
 
-            description = raw_question.get("description")
+            if not isinstance(question_text, str):
+                raise serializers.ValidationError("Question text must be a string")
+
+            # Sanitize and assign question text
             if nh3.is_html(question_text):
                 cleaned_question["question"] = nh3_clean_with_allow_list(question_text)
-            if description and nh3.is_html(description):
-                cleaned_question["description"] = nh3_clean_with_allow_list(description)
+            else:
+                cleaned_question["question"] = question_text
+
+            description = raw_question.get("description")
+            if description:
+                if not isinstance(description, str):
+                    raise serializers.ValidationError("Question description must be a string")
+                # Sanitize and assign description
+                if nh3.is_html(description):
+                    cleaned_question["description"] = nh3_clean_with_allow_list(description)
+                else:
+                    cleaned_question["description"] = description
+
+            # Validate choices first before translation validation to provide clearer error messages
+            choices = raw_question.get("choices")
+            if choices:
+                if not isinstance(choices, list):
+                    raise serializers.ValidationError("Question choices must be a list of strings")
+                cleaned_question["choices"] = self._validate_and_sanitize_choices(choices)
 
             description_content_type = raw_question.get("descriptionContentType")
             if description_content_type and description_content_type not in ["text", "html"]:
                 raise serializers.ValidationError("Question descriptionContentType must be one of ['text', 'html']")
 
-            choices = raw_question.get("choices")
-            if choices:
-                if not isinstance(choices, list):
-                    raise serializers.ValidationError("Question choices must be a list of strings")
-                if any(not choice.strip() for choice in choices):
-                    raise serializers.ValidationError("Question choices cannot be empty")
+            # Validate and sanitize inline translations
+            if "translations" in raw_question:
+                cleaned_translations = self._validate_question_translations(raw_question["translations"], index)
+
+                # Validate choices array length matches if present
+                original_choices = cleaned_question.get("choices")
+                for lang_code, translation_data in cleaned_translations.items():
+                    if "choices" in translation_data:
+                        if "choices" not in cleaned_question or not isinstance(original_choices, list):
+                            translation_data.pop("choices", None)
+                            continue
+
+                        translated_choices = translation_data["choices"]
+                        if len(translated_choices) != len(original_choices):
+                            raise serializers.ValidationError(
+                                f"Question {index + 1}: Translation '{lang_code}' has {len(translated_choices)} choices "
+                                f"but question has {len(original_choices)} choices. Array lengths must match to avoid partial translations."
+                            )
+
+                cleaned_question["translations"] = cleaned_translations
 
             link = raw_question.get("link")
             if link:
-                parsed_url = urlparse(link)
+                if not isinstance(link, str):
+                    raise serializers.ValidationError(f"Question {index + 1}: link must be a string")
+                cleaned_question["link"] = self._validate_and_sanitize_link(link)
 
-                # Check for unsupported schemes
-                if parsed_url.scheme not in ALLOWED_LINK_URL_SCHEMES:
-                    raise serializers.ValidationError(
-                        f"Link must be a URL with one of these schemes: [{', '.join(ALLOWED_LINK_URL_SCHEMES)}]"
-                    )
+            # Validate validation rules for open text questions
+            validation_rules = raw_question.get("validation")
+            if validation_rules is not None:
+                if not isinstance(validation_rules, list):
+                    raise serializers.ValidationError("Question validation must be a list of validation rules")
 
-                # Separate validation for `mailto:` links
-                if parsed_url.scheme == "mailto":
-                    if not re.match(EMAIL_REGEX, link):
+                valid_types = ["min_length", "max_length", "email"]
+                for rule in validation_rules:
+                    if not isinstance(rule, dict):
+                        raise serializers.ValidationError("Each validation rule must be an object")
+
+                    rule_type = rule.get("type")
+                    if rule_type not in valid_types:
                         raise serializers.ValidationError(
-                            "Invalid mailto link. Please enter a valid mailto link (e.g., mailto:example@domain.com)."
+                            f"Validation rule type must be one of: {', '.join(valid_types)}"
                         )
-                # HTTPS validation
-                elif parsed_url.scheme == "https":
-                    if not parsed_url.netloc:
-                        raise serializers.ValidationError("Invalid HTTPS URL. Please enter a valid HTTPS link.")
+
+                    # Validate value for length rules
+                    if rule_type in ["min_length", "max_length"]:
+                        rule_value = rule.get("value")
+                        if rule_value is not None:
+                            if not isinstance(rule_value, int) or rule_value <= 0:
+                                raise serializers.ValidationError(
+                                    f"Validation rule value for {rule_type} must be a positive integer"
+                                )
+
+                # Cross-validate min_length <= max_length
+                min_rule = next((r for r in validation_rules if r.get("type") == "min_length"), None)
+                max_rule = next((r for r in validation_rules if r.get("type") == "max_length"), None)
+                if min_rule and max_rule:
+                    min_val = min_rule.get("value")
+                    max_val = max_rule.get("value")
+                    if min_val is not None and max_val is not None and min_val > max_val:
+                        raise serializers.ValidationError("Minimum length cannot be greater than maximum length")
 
             cleaned_questions.append(cleaned_question)
 
@@ -654,16 +847,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 validated_data["targeting_flag_id"] = new_flag.id
             validated_data.pop("targeting_flag_filters")
 
-        end_date = validated_data.get("end_date")
-
-        if instance.targeting_flag:
-            # turn off feature flag if survey is completed
-            if end_date is None:
-                instance.targeting_flag.active = True
-            else:
-                instance.targeting_flag.active = False
-            instance.targeting_flag.save()
-
         iteration_count = validated_data.get("iteration_count", None)
         if (
             instance.current_iteration is not None
@@ -716,24 +899,33 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 user,
                 "survey launched",
                 properties,
-                team,
+                team=team,
+                request=self.context["request"],
             )
         elif before_update.end_date is None and instance.end_date is not None:
             report_user_action(
                 user,
                 "survey stopped",
                 properties,
-                team,
+                team=team,
+                request=self.context["request"],
             )
         elif before_update.start_date is not None and before_update.end_date is not None and instance.end_date is None:
             report_user_action(
                 user,
                 "survey resumed",
                 properties,
-                team,
+                team=team,
+                request=self.context["request"],
             )
 
-        self._add_user_survey_interacted_filters(instance, end_date)
+        should_flag_be_active = self._should_survey_flags_be_active(instance)
+
+        if instance.targeting_flag:
+            instance.targeting_flag.active = should_flag_be_active
+            instance.targeting_flag.save()
+
+        self._add_user_survey_interacted_filters(instance)
         self._associate_actions(instance, validated_data.get("conditions"))
         self._add_internal_response_sampling_filters(instance)
         return instance
@@ -779,7 +971,12 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         instance.actions.set(Action.objects.filter(team__project_id=self.context["project_id"], id__in=action_ids))
         instance.save()
 
-    def _add_user_survey_interacted_filters(self, instance: Survey, end_date=None):
+    def _should_survey_flags_be_active(self, instance: Survey) -> bool:
+        return bool(instance.start_date) and not instance.end_date and not instance.archived
+
+    def _add_user_survey_interacted_filters(self, instance: Survey):
+        should_flag_be_active = self._should_survey_flags_be_active(instance)
+
         survey_key = f"{instance.id}"
         if instance.iteration_count is not None and instance.iteration_count > 0:
             survey_key = f"{instance.id}/{instance.current_iteration or 1}"
@@ -854,7 +1051,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 instance.internal_targeting_flag, serialized_data_filters, flag_name_suffix="-custom"
             )
 
-            internal_targeting_flag.active = bool(instance.start_date) and not end_date
+            internal_targeting_flag.active = should_flag_be_active
             internal_targeting_flag.save()
 
             instance.internal_targeting_flag_id = internal_targeting_flag.id
@@ -865,7 +1062,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 None,
                 user_submitted_dismissed_filter,
                 instance.name,
-                bool(instance.start_date) and not end_date,
+                should_flag_be_active,
                 flag_name_suffix="-custom",
             )
             instance.internal_targeting_flag_id = new_flag.id
@@ -911,7 +1108,8 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
     queryset = Survey.objects.select_related(
         "linked_flag", "linked_insight", "targeting_flag", "internal_targeting_flag"
     ).all()
-    filter_backends = [filters.SearchFilter]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    filterset_fields = ["archived"]
     search_fields = ["name", "description"]
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
@@ -1989,7 +2187,7 @@ def surveys(request: Request):
             request,
             generate_exception_response(
                 "surveys",
-                "API key not provided. You can find your project API key in your PostHog project settings.",
+                "Project token not provided. You can find your project token in your PostHog project settings.",
                 type="authentication_error",
                 code="missing_api_key",
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -2026,7 +2224,7 @@ def surveys(request: Request):
                 request,
                 generate_exception_response(
                     "surveys",
-                    "Project API key invalid. You can find your project API key in your PostHog project settings.",
+                    "Project token invalid. You can find your project token in your PostHog project settings.",
                     type="authentication_error",
                     code="invalid_api_key",
                     status_code=status.HTTP_401_UNAUTHORIZED,

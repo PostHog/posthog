@@ -1,6 +1,6 @@
 import re
 import itertools
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from typing import Any, Optional
 
 from posthoganalytics import feature_enabled
@@ -23,7 +23,7 @@ from posthog.hogql.property import has_aggregation
 from posthog.hogql.resolver_utils import extract_select_queries
 
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-from posthog.hogql_queries.actor_strategies import ActorStrategy, GroupStrategy, PersonStrategy
+from posthog.hogql_queries.actor_strategies import ActorStrategy, GroupStrategy, PersonStrategy, SessionStrategy
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
@@ -43,7 +43,9 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         self.source_query_runner: Optional[QueryRunner] = None
 
         if self.query.source:
-            self.source_query_runner = get_query_runner(self.query.source, self.team, self.timings, self.limit_context)
+            self.source_query_runner = get_query_runner(
+                self.query.source, self.team, self.timings, self.limit_context, request=self.request
+            )
             self.modifiers = self.source_query_runner.modifiers
         else:
             # For direct person queries (no source), ensure we use V2 to get latest person data only
@@ -80,9 +82,20 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
 
         return self.source_query_runner.group_type_index
 
+    @property
+    def is_session_aggregation(self) -> bool:
+        if not self.source_query_runner or not isinstance(self.source_query_runner, InsightActorsQueryRunner):
+            return False
+
+        return self.source_query_runner.is_session_aggregation
+
     def determine_strategy(self) -> ActorStrategy:
         if self.group_type_index is not None:
             return GroupStrategy(self.group_type_index, team=self.team, query=self.query, paginator=self.paginator)
+
+        if self.is_session_aggregation:
+            return SessionStrategy(team=self.team, query=self.query, paginator=self.paginator)
+
         return PersonStrategy(team=self.team, query=self.query, paginator=self.paginator)
 
     @staticmethod
@@ -126,10 +139,27 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
 
         return enriched
 
+    def _enrich_session_actors_with_person_identity(self, results: Iterable[list], person_id_col_index: int) -> list:
+        # Materialise so we can iterate twice (results may be an iterator)
+        results_list = list(results)
+
+        person_uuids = {str(row[person_id_col_index]) for row in results_list if row[person_id_col_index]}
+        person_strategy = PersonStrategy(team=self.team, query=self.query, paginator=self.paginator)
+        persons_lookup = person_strategy.get_actors(iter(person_uuids)) if person_uuids else {}
+
+        enriched = []
+        for row in results_list:
+            result_row = list(row)
+            person_uuid = str(result_row[person_id_col_index]) if result_row[person_id_col_index] else None
+            result_row[person_id_col_index] = persons_lookup.get(person_uuid) if person_uuid else {}
+            enriched.append(result_row)
+
+        return enriched
+
     def prepare_recordings(
         self, column_name: str, input_columns: list[str]
     ) -> tuple[int | None, dict[str, list[dict]] | None]:
-        if (column_name != "person" and column_name != "actor") or "matched_recordings" not in input_columns:
+        if column_name not in ("person", "actor", "session") or "matched_recordings" not in input_columns:
             return None, None
 
         column_index_events = input_columns.index("matched_recordings")
@@ -157,7 +187,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         missing_actors_count = None
         results: Sequence[list] | Iterator[list] = self.paginator.results
 
-        enrich_columns = filter(lambda column: column in ("person", "group", "actor"), input_columns)
+        enrich_columns = filter(lambda column: column in ("person", "group", "actor", "session"), input_columns)
         for column_name in enrich_columns:
             actor_column_index = input_columns.index(column_name)
             actor_ids = (row[actor_column_index] for row in self.paginator.results)
@@ -181,6 +211,11 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                 recordings_lookup,
                 person_uuid_to_event_distinct_ids,
             )
+
+        if self.is_session_aggregation and "person_id" in input_columns:
+            person_id_col_index = input_columns.index("person_id")
+            results = self._enrich_session_actors_with_person_identity(results, person_id_col_index)
+            input_columns[person_id_col_index] = "person"
 
         for column_index, col in enumerate(input_columns):
             # convert tuple that gets returned into a dict
@@ -214,13 +249,19 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
     def input_columns(self) -> list[str]:
         strategy_input_cols = self.strategy.input_columns()
         if self.query.select:
+            selected_columns = list(self.query.select)
+
             if (
                 self.calculating
                 and "event_distinct_ids" in strategy_input_cols
-                and "event_distinct_ids" not in self.query.select
+                and "event_distinct_ids" not in selected_columns
             ):
-                return [*self.query.select, "event_distinct_ids"]
-            return self.query.select
+                selected_columns.append("event_distinct_ids")
+
+            if self.calculating and self.is_session_aggregation and "person_id" not in selected_columns:
+                selected_columns.append("person_id")
+
+            return selected_columns
 
         return self.strategy.input_columns()
 
@@ -301,10 +342,6 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                     # like `groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events`
                     # we look up valid session ids and match them against the session ids in matching events
                     column = ast.Field(chain=["matching_events"])
-                elif expr == "last_seen" and isinstance(self.strategy, PersonStrategy) and not self.query.source:
-                    # For direct person queries (no source), we'll handle this by adding a LEFT JOIN in the query
-                    # The column will be resolved later when we modify the FROM clause
-                    column = ast.Field(chain=["last_seen_data", "max_timestamp"])
 
                 columns.append(column)
                 if has_aggregation(column):
@@ -384,41 +421,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                 settings=HogQLQuerySettings(join_algorithm="auto", optimize_aggregation_in_order=True),
             )
             if not self.query.source:
-                base_join = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
-
-                # Add LEFT JOIN for last_seen if selected
-                if "last_seen" in self.input_columns() and isinstance(self.strategy, PersonStrategy):
-                    # Create subquery for last_seen data
-                    last_seen_subquery = ast.SelectQuery(
-                        select=[
-                            ast.Field(chain=["person_id"]),
-                            ast.Alias(alias="max_timestamp", expr=parse_expr("max(timestamp)")),
-                        ],
-                        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                        where=ast.CompareOperation(
-                            op=ast.CompareOperationOp.Eq,
-                            left=ast.Field(chain=["team_id"]),
-                            right=ast.Constant(value=self.team.id),
-                        ),
-                        group_by=[ast.Field(chain=["person_id"])],
-                    )
-
-                    # Add LEFT JOIN with the subquery
-                    base_join.next_join = ast.JoinExpr(
-                        table=last_seen_subquery,
-                        alias="last_seen_data",
-                        join_type="LEFT JOIN",
-                        constraint=ast.JoinConstraint(
-                            expr=ast.CompareOperation(
-                                op=ast.CompareOperationOp.Eq,
-                                left=ast.Field(chain=[self.strategy.origin, "id"]),
-                                right=ast.Field(chain=["last_seen_data", "person_id"]),
-                            ),
-                            constraint_type="ON",
-                        ),
-                    )
-
-                select_query.select_from = base_join
+                select_query.select_from = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
             else:
                 assert self.source_query_runner is not None  # For type checking
                 source_query = self.source_query_runner.to_actors_query()

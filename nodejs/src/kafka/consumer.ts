@@ -26,6 +26,7 @@ import {
 import { sanitizeString } from '~/utils/db/utils'
 import { isTestEnv } from '~/utils/env-utils'
 import { parseJSON } from '~/utils/json-parse'
+import { normalizeSessionId } from '~/utils/utils'
 
 import { defaultConfig } from '../config/config'
 import { logger } from '../utils/logger'
@@ -785,6 +786,13 @@ export class KafkaConsumer {
                 // Once we are stopping, make sure that we wait for all background work to finish
                 await Promise.all(this.backgroundTask.map((t) => t.promise))
             } catch (error) {
+                logger.error('🔁', 'main_loop_error', {
+                    error: String(error),
+                    errorCode: (error as any)?.code,
+                    errorOrigin: (error as any)?.origin,
+                    isFatal: (error as any)?.isFatal,
+                    isRetriable: (error as any)?.isRetriable,
+                })
                 throw error
             } finally {
                 logger.info('🔁', 'main_loop_stopping')
@@ -800,6 +808,10 @@ export class KafkaConsumer {
         this.consumerLoop = startConsuming().catch((error) => {
             logger.error('🔁', 'consumer_loop_error', {
                 error: String(error),
+                errorCode: (error as any)?.code,
+                errorOrigin: (error as any)?.origin,
+                isFatal: (error as any)?.isFatal,
+                isRetriable: (error as any)?.isRetriable,
                 config: this.config,
                 consumerConfig: this.consumerConfig,
             })
@@ -828,6 +840,10 @@ export class KafkaConsumer {
             await this.consumerLoop.catch((error) => {
                 logger.error('🔁', 'failed to stop consumer loop safely. Continuing shutdown', {
                     error: String(error),
+                    errorCode: (error as any)?.code,
+                    errorOrigin: (error as any)?.origin,
+                    isFatal: (error as any)?.isFatal,
+                    isRetriable: (error as any)?.isRetriable,
                     config: this.config,
                     consumerConfig: this.consumerConfig,
                 })
@@ -883,7 +899,7 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
             } else if (key === 'distinct_id') {
                 result.distinct_id = sanitizeString(value)
             } else if (key === 'session_id') {
-                result.session_id = sanitizeString(value)
+                result.session_id = normalizeSessionId(sanitizeString(value))
             } else if (key === 'timestamp') {
                 result.timestamp = value
             } else if (key === 'event') {

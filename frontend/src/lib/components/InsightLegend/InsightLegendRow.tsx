@@ -9,6 +9,7 @@ import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisForma
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel, getTrendResultCustomizationKey } from 'scenes/insights/utils'
 import { formatCompareLabel } from 'scenes/insights/views/InsightsTable/columns/SeriesColumn'
+import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
@@ -23,13 +24,14 @@ type InsightLegendRowProps = {
 export function InsightLegendRow({ item }: InsightLegendRowProps): JSX.Element {
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+    const { baseCurrency } = useValues(teamLogic)
 
     const { insightProps, highlightedSeries, editingDisabledReason } = useValues(insightLogic)
     const {
         display,
         trendsFilter,
         breakdownFilter,
-        isSingleSeries,
+        isSingleSeriesDefinition,
         getTrendsColor,
         getTrendsHidden,
         resultCustomizationBy,
@@ -87,7 +89,7 @@ export function InsightLegendRow({ item }: InsightLegendRowProps): JSX.Element {
                                     seriesColor={mainColor}
                                     action={item.action}
                                     fallbackName={item.breakdown_value === '' ? 'None' : item.label}
-                                    hasMultipleSeries={!isSingleSeries}
+                                    hasMultipleSeries={!isSingleSeriesDefinition}
                                     hideBreakdown
                                     compareValue={isPrevious ? formatCompareLabel(item) : undefined}
                                     hideIcon
@@ -101,7 +103,7 @@ export function InsightLegendRow({ item }: InsightLegendRowProps): JSX.Element {
                                 seriesColor={mainColor}
                                 action={item.action}
                                 fallbackName={item.breakdown_value === '' ? 'None' : item.label}
-                                hasMultipleSeries={!isSingleSeries}
+                                hasMultipleSeries={!isSingleSeriesDefinition}
                                 breakdownValue={formattedBreakdownValue}
                                 compareValue={isPrevious ? formatCompareLabel(item) : undefined}
                                 pillMidEllipsis={breakdownFilter?.breakdown === '$current_url'} // TODO: define set of breakdown values that would benefit from mid ellipsis truncation
@@ -115,7 +117,7 @@ export function InsightLegendRow({ item }: InsightLegendRowProps): JSX.Element {
             </div>
             {display === ChartDisplayType.ActionsPie && (
                 <div className="text-secondary grow-0">
-                    {formatAggregationAxisValue(trendsFilter, item.aggregated_value)}
+                    {formatAggregationAxisValue(trendsFilter, item.aggregated_value, baseCurrency)}
                 </div>
             )}
         </div>

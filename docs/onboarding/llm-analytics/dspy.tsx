@@ -52,8 +52,8 @@ export const getDSPySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
             content: (
                 <>
                     <Markdown>
-                        Set your PostHog project API key and host as environment variables, then configure LiteLLM to
-                        use PostHog as a callback handler. You can find your API key in [your project
+                        Set your PostHog project token and host as environment variables, then configure LiteLLM to use
+                        PostHog as a callback handler. You can find your API key in [your project
                         settings](https://app.posthog.com/settings/project).
                     </Markdown>
 
@@ -65,7 +65,7 @@ export const getDSPySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                             import litellm
 
                             # Set PostHog environment variables
-                            os.environ["POSTHOG_API_KEY"] = "<ph_project_api_key>"
+                            os.environ["POSTHOG_API_KEY"] = "<ph_project_token>"
                             os.environ["POSTHOG_API_URL"] = "<ph_client_api_host>"
 
                             # Enable PostHog callbacks in LiteLLM

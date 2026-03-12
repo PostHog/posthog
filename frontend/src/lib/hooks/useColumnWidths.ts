@@ -48,13 +48,13 @@ export function useColumnWidths({ columnKeys, columns }: UseColumnWidthsProps): 
         }
     }, [columnKeys, columns])
 
-    // Measure column widths after table renders
+    // Measure column widths after table renders, using rAF to ensure DOM is ready
     useEffect(() => {
         if (columnKeys && columnKeys.length > 0) {
-            // Use requestAnimationFrame to ensure DOM is ready
-            requestAnimationFrame(() => {
+            const id = requestAnimationFrame(() => {
                 measureColumnWidths()
             })
+            return () => cancelAnimationFrame(id)
         }
     }, [measureColumnWidths, columnKeys])
 

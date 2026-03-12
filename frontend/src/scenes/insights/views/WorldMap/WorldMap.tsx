@@ -6,10 +6,11 @@ import React, { useEffect, useRef } from 'react'
 
 import { gradateColor } from 'lib/utils'
 import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geography/country'
-import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
+import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -32,6 +33,7 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
         worldMapLogic(insightProps)
     )
     const { aggregationLabel } = useValues(groupsModel)
+    const { baseCurrency } = useValues(teamLogic)
 
     const svgRef = useRef<SVGSVGElement>(null)
 
@@ -68,7 +70,9 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
                                     </div>
                                 )
                             }
-                            renderCount={(value: number) => <>{formatAggregationAxisValue(trendsFilter, value)}</>}
+                            renderCount={(value: number) => (
+                                <>{formatAggregationAxisValue(trendsFilter, value, baseCurrency)}</>
+                            )}
                             showHeader={false}
                             hideColorCol
                             hideInspectActorsSection={!showPersonsModal || !currentTooltip[1]}

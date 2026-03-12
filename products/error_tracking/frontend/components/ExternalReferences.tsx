@@ -8,9 +8,9 @@ import { LemonDialog, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { GitHubRepositorySelectField } from 'lib/integrations/GitHubIntegrationHelpers'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { JiraProjectSelectField } from 'lib/integrations/JiraIntegrationHelpers'
 import { LinearTeamSelectField } from 'lib/integrations/LinearIntegrationHelpers'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { ICONS } from 'lib/integrations/utils'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -258,7 +258,7 @@ const createJiraIssueForm = (
     integration: IntegrationType,
     onSubmit: onSubmitFormType
 ): void => {
-    const posthogUrl = urls.errorTrackingIssue(issue.id)
+    const posthogUrl = window.location.origin + window.location.pathname
     const description = issue.description + '\n\n' + `PostHog issue: ${posthogUrl}`
 
     LemonDialog.openForm({

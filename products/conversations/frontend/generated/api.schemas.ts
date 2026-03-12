@@ -15,9 +15,9 @@
 export type ConversationStatusEnumApi = (typeof ConversationStatusEnumApi)[keyof typeof ConversationStatusEnumApi]
 
 export const ConversationStatusEnumApi = {
-    idle: 'idle',
-    in_progress: 'in_progress',
-    canceling: 'canceling',
+    Idle: 'idle',
+    InProgress: 'in_progress',
+    Canceling: 'canceling',
 } as const
 
 /**
@@ -33,14 +33,14 @@ export const ConversationStatusEnumApi = {
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
 export const RoleAtOrganizationEnumApi = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
 } as const
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
@@ -88,10 +88,10 @@ export interface UserBasicApi {
 export type ConversationTypeEnumApi = (typeof ConversationTypeEnumApi)[keyof typeof ConversationTypeEnumApi]
 
 export const ConversationTypeEnumApi = {
-    assistant: 'assistant',
-    tool_call: 'tool_call',
-    deep_research: 'deep_research',
-    slack: 'slack',
+    Assistant: 'assistant',
+    ToolCall: 'tool_call',
+    DeepResearch: 'deep_research',
+    Slack: 'slack',
 } as const
 
 export type ConversationApiMessagesItem = { [key: string]: unknown }
@@ -157,21 +157,25 @@ export type MessageApiContextualTools = { [key: string]: unknown }
  * `plan` - plan
  * `execution` - execution
  * `survey` - survey
+ * `onboarding` - onboarding
  * `research` - research
  * `flags` - flags
+ * `llm_analytics` - llm_analytics
  */
 export type AgentModeEnumApi = (typeof AgentModeEnumApi)[keyof typeof AgentModeEnumApi]
 
 export const AgentModeEnumApi = {
-    product_analytics: 'product_analytics',
-    sql: 'sql',
-    session_replay: 'session_replay',
-    error_tracking: 'error_tracking',
-    plan: 'plan',
-    execution: 'execution',
-    survey: 'survey',
-    research: 'research',
-    flags: 'flags',
+    ProductAnalytics: 'product_analytics',
+    Sql: 'sql',
+    SessionReplay: 'session_replay',
+    ErrorTracking: 'error_tracking',
+    Plan: 'plan',
+    Execution: 'execution',
+    Survey: 'survey',
+    Onboarding: 'onboarding',
+    Research: 'research',
+    Flags: 'flags',
+    LlmAnalytics: 'llm_analytics',
 } as const
 
 /**
@@ -253,9 +257,9 @@ interrupts (single source of truth for payload data). */
 export type ChannelSourceEnumApi = (typeof ChannelSourceEnumApi)[keyof typeof ChannelSourceEnumApi]
 
 export const ChannelSourceEnumApi = {
-    widget: 'widget',
-    email: 'email',
-    slack: 'slack',
+    Widget: 'widget',
+    Email: 'email',
+    Slack: 'slack',
 } as const
 
 /**
@@ -268,11 +272,11 @@ export const ChannelSourceEnumApi = {
 export type TicketStatusEnumApi = (typeof TicketStatusEnumApi)[keyof typeof TicketStatusEnumApi]
 
 export const TicketStatusEnumApi = {
-    new: 'new',
-    open: 'open',
-    pending: 'pending',
-    on_hold: 'on_hold',
-    resolved: 'resolved',
+    New: 'new',
+    Open: 'open',
+    Pending: 'pending',
+    OnHold: 'on_hold',
+    Resolved: 'resolved',
 } as const
 
 /**
@@ -283,9 +287,9 @@ export const TicketStatusEnumApi = {
 export type PriorityEnumApi = (typeof PriorityEnumApi)[keyof typeof PriorityEnumApi]
 
 export const PriorityEnumApi = {
-    low: 'low',
-    medium: 'medium',
-    high: 'high',
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
 } as const
 
 /**
@@ -294,6 +298,8 @@ export const PriorityEnumApi = {
 export interface TicketAssignmentApi {
     readonly id: string
     readonly type: string
+    readonly user: string
+    readonly role: string
 }
 
 export type TicketPersonApiProperties = { [key: string]: unknown }
@@ -310,6 +316,9 @@ export interface TicketPersonApi {
     readonly is_identified: boolean
 }
 
+/**
+ * Serializer mixin that handles tags for objects.
+ */
 export interface TicketApi {
     readonly id: string
     readonly ticket_number: number
@@ -330,10 +339,20 @@ export interface TicketApi {
     /** @nullable */
     readonly last_message_text: string | null
     readonly unread_team_count: number
+    readonly unread_customer_count: number
     /** @nullable */
     readonly session_id: string | null
     readonly session_context: unknown
+    /** @nullable */
+    sla_due_at?: string | null
+    /** @nullable */
+    readonly slack_channel_id: string | null
+    /** @nullable */
+    readonly slack_thread_ts: string | null
+    /** @nullable */
+    readonly slack_team_id: string | null
     readonly person: TicketPersonApi | null
+    tags?: unknown[]
 }
 
 export interface PaginatedTicketListApi {
@@ -345,6 +364,9 @@ export interface PaginatedTicketListApi {
     results: TicketApi[]
 }
 
+/**
+ * Serializer mixin that handles tags for objects.
+ */
 export interface PatchedTicketApi {
     readonly id?: string
     readonly ticket_number?: number
@@ -365,10 +387,29 @@ export interface PatchedTicketApi {
     /** @nullable */
     readonly last_message_text?: string | null
     readonly unread_team_count?: number
+    readonly unread_customer_count?: number
     /** @nullable */
     readonly session_id?: string | null
     readonly session_context?: unknown
+    /** @nullable */
+    sla_due_at?: string | null
+    /** @nullable */
+    readonly slack_channel_id?: string | null
+    /** @nullable */
+    readonly slack_thread_ts?: string | null
+    /** @nullable */
+    readonly slack_team_id?: string | null
     readonly person?: TicketPersonApi | null
+    tags?: unknown[]
+}
+
+export interface SuggestReplyResponseApi {
+    suggestion: string
+}
+
+export interface SuggestReplyErrorApi {
+    detail: string
+    error_type?: string
 }
 
 export type ConversationsListParams = {

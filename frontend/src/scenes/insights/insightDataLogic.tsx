@@ -132,8 +132,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
         query: [
             (s) => [s.propsQuery, s.insight, s.internalQuery, s.filterTestAccountsDefault, s.isDataWarehouseQuery],
             (propsQuery, insight, internalQuery, filterTestAccountsDefault, isDataWarehouseQuery): Node | null =>
-                propsQuery ||
                 internalQuery ||
+                propsQuery ||
                 insight.query ||
                 (isDataWarehouseQuery
                     ? examples.DataWarehouse
@@ -314,7 +314,16 @@ export const insightDataLogic = kea<insightDataLogicType>([
         },
     })),
     propsChanged(({ actions, props, values }) => {
-        if (props.cachedInsight?.query && !objectsEqual(props.cachedInsight.query, values.query)) {
+        if (!props.cachedInsight?.query) {
+            return
+        }
+        try {
+            if (!objectsEqual(props.cachedInsight.query, values.query)) {
+                actions.setQuery(props.cachedInsight.query)
+            }
+        } catch {
+            // values.query can throw if the logic's state isn't in the store yet
+            // (e.g. when InsightCard rebuilds the logic during navigation)
             actions.setQuery(props.cachedInsight.query)
         }
     }),

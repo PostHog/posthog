@@ -8,8 +8,8 @@ import { downloadExportedAsset, exportedAssetBlob } from 'lib/components/ExportB
 import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyNumber } from 'lib/utils'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 
 import { sidePanelExportsLogic } from '~/layout/navigation-3000/sidepanel/panels/exports/sidePanelExportsLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'

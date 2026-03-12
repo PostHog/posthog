@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { useState } from 'react'
 
 import { IconLock, IconPlusSmall, IconTrash } from '@posthog/icons'
@@ -9,16 +9,16 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { FeatureFlagHog } from 'lib/components/hedgehogs'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
-import { FeatureFlagHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { createdAtColumn, createdByColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
@@ -29,10 +29,12 @@ import { cn } from 'lib/utils/css-classes'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { projectLogic } from 'scenes/projectLogic'
+import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
-import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
+import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -49,13 +51,12 @@ import {
     FeatureFlagType,
 } from '~/types'
 
+import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
-import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
-import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
-import { featureFlagLogic } from './featureFlagLogic'
 import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 import { flagSelectionLogic } from './flagSelectionLogic'
+import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
 
 // Component for selection checkbox that uses hooks directly to avoid stale closure issues
 function FeatureFlagSelectionCheckbox({
@@ -86,12 +87,63 @@ function FeatureFlagSelectionCheckbox({
     )
 }
 
+// Component for rendering status cell with loading state
+function FeatureFlagStatusCell({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
+    const flagLogic = featureFlagsLogic({})
+    const { featureFlagsUpdating } = useValues(flagLogic)
+
+    const isUpdating = featureFlag.id ? featureFlagsUpdating[featureFlag.id] : false
+
+    return (
+        <div className="flex justify-start gap-1">
+            {isUpdating ? (
+                <LemonTag type="muted" className="uppercase">
+                    <span className="inline-flex items-center gap-1">
+                        <span className="animate-spin h-3 w-3 border-2 border-current border-t-transparent rounded-full" />
+                        Updating
+                    </span>
+                </LemonTag>
+            ) : featureFlag.active ? (
+                <LemonTag type="success" className="uppercase">
+                    Enabled
+                </LemonTag>
+            ) : (
+                <LemonTag type="default" className="uppercase">
+                    Disabled
+                </LemonTag>
+            )}
+            {featureFlag.status === 'STALE' && (
+                <Tooltip
+                    title={
+                        <>
+                            <div className="text-sm">This flag is likely safe to remove</div>
+                            <div className="text-xs">
+                                Not called in 30+ days or fully rolled out. Make sure to remove any references in your
+                                code before deleting it.
+                            </div>
+                        </>
+                    }
+                    placement="left"
+                >
+                    <span>
+                        <LemonTag type="warning" className="uppercase cursor-default">
+                            Stale
+                        </LemonTag>
+                    </span>
+                </Tooltip>
+            )}
+        </div>
+    )
+}
+
 // Component for feature flag row actions that needs to use hooks
 function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
     const { currentProjectId } = useValues(projectLogic)
     const flagLogic = featureFlagsLogic({})
+    const { featureFlagsUpdating } = useValues(flagLogic)
     const { updateFeatureFlag, loadFeatureFlags } = useActions(flagLogic)
 
+    const isUpdating = featureFlag.id ? featureFlagsUpdating[featureFlag.id] : false
     const [isQuickSurveyModalOpen, setIsQuickSurveyModalOpen] = useState(false)
 
     const tryInInsightsUrl = (featureFlag: FeatureFlagType): string => {
@@ -166,6 +218,8 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                 }}
                                 id={`feature-flag-${featureFlag.id}-switch`}
                                 fullWidth
+                                loading={isUpdating}
+                                disabledReason={isUpdating ? 'Updating…' : undefined}
                             >
                                 {featureFlag.active ? 'Disable' : 'Enable'} feature flag
                             </LemonButton>
@@ -184,13 +238,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                             ? "You don't have permission to edit this feature flag."
                                             : null
                                     }
-                                    onClick={() => {
-                                        if (featureFlag.id) {
-                                            featureFlagLogic({ id: featureFlag.id }).mount()
-                                            featureFlagLogic({ id: featureFlag.id }).actions.editFeatureFlag(true)
-                                            router.actions.push(urls.featureFlag(featureFlag.id))
-                                        }
-                                    }}
+                                    to={combineUrl(urls.featureFlag(featureFlag.id), { edit: true }).url}
                                 >
                                     Edit
                                 </LemonButton>
@@ -298,12 +346,16 @@ export function OverViewTab({
     nouns?: [string, string]
 }): JSX.Element {
     const { aggregationLabel } = useValues(groupsModel)
+    const { user } = useValues(userLogic)
 
     const flagLogic = featureFlagsLogic({ flagPrefix })
     const { featureFlagsLoading, displayedFlags, pagination, filters, shouldShowEmptyState, filtersChanged } =
         useValues(flagLogic)
     const { setFeatureFlagsFilters } = useActions(flagLogic)
     const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
+    const featureFlagsV2Enabled = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2]
+    const newFeatureFlagUrl = featureFlagsV2Enabled ? urls.featureFlagTemplates() : urls.featureFlag('new')
+    const isProductIntroVisible = shouldShowEmptyState || !user?.has_seen_product_intro_for?.[ProductKey.FEATURE_FLAGS]
 
     const {
         selectedCount,
@@ -384,16 +436,7 @@ export function OverViewTab({
                 if (!tags || tags.length === 0) {
                     return null
                 }
-                return enabledFeatureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
-                    <FeatureFlagEvaluationTags
-                        tags={tags}
-                        evaluationTags={featureFlag.evaluation_tags || []}
-                        flagId={featureFlag.id}
-                        context="static"
-                    />
-                ) : (
-                    <ObjectTags tags={tags} staticOnly />
-                )
+                return <ObjectTags tags={tags} staticOnly />
             },
         } as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
         createdByColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
@@ -437,39 +480,7 @@ export function OverViewTab({
             sorter: (a: FeatureFlagType, b: FeatureFlagType) => Number(a.active) - Number(b.active),
             width: 100,
             render: function RenderActive(_, featureFlag: FeatureFlagType) {
-                return (
-                    <div className="flex justify-start gap-1">
-                        {featureFlag.active ? (
-                            <LemonTag type="success" className="uppercase">
-                                Enabled
-                            </LemonTag>
-                        ) : (
-                            <LemonTag type="default" className="uppercase">
-                                Disabled
-                            </LemonTag>
-                        )}
-                        {featureFlag.status === 'STALE' && (
-                            <Tooltip
-                                title={
-                                    <>
-                                        <div className="text-sm">This flag is likely safe to remove</div>
-                                        <div className="text-xs">
-                                            Not called in 30+ days or fully rolled out. Make sure to remove any
-                                            references in your code before deleting it.
-                                        </div>
-                                    </>
-                                }
-                                placement="left"
-                            >
-                                <span>
-                                    <LemonTag type="warning" className="uppercase cursor-default">
-                                        Stale
-                                    </LemonTag>
-                                </span>
-                            </Tooltip>
-                        )}
-                    </div>
-                )
+                return <FeatureFlagStatusCell featureFlag={featureFlag} />
             },
         },
         ...(enabledFeaturesLogic.values.featureFlags?.[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES]
@@ -527,11 +538,12 @@ export function OverViewTab({
                 thingName="feature flag"
                 description="Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once."
                 docsURL="https://posthog.com/docs/feature-flags/manual"
-                action={() => router.actions.push(urls.featureFlag('new'))}
+                action={() => router.actions.push(newFeatureFlagUrl)}
                 isEmpty={shouldShowEmptyState}
                 customHog={FeatureFlagHog}
                 className={cn('my-0')}
             />
+            {!isProductIntroVisible && <ApprovalsPromoBanner />}
             <div>{filtersSection}</div>
             <LemonDivider className="my-0" />
             <div className="flex items-center justify-between min-h-9">
@@ -602,6 +614,7 @@ export function OverViewTab({
                 dataSource={displayedFlags}
                 columns={columns}
                 rowKey="key"
+                rowClassName={(record) => (!record.active ? 'opacity-60' : null)}
                 defaultSorting={{
                     columnKey: 'created_at',
                     order: -1,
@@ -627,11 +640,15 @@ export function OverViewTab({
 export function FeatureFlags(): JSX.Element {
     const { activeTab } = useValues(featureFlagsLogic)
     const { setActiveTab } = useActions(featureFlagsLogic)
+    const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
+    const featureFlagsV2Enabled = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2]
+    const newFeatureFlagUrl = featureFlagsV2Enabled ? urls.featureFlagTemplates() : urls.featureFlag('new')
 
     return (
         <SceneContent className="feature_flags">
             <SceneTitleSection
-                name="Feature flags"
+                name={sceneConfigurations[Scene.FeatureFlags].name}
+                description={sceneConfigurations[Scene.FeatureFlags].description}
                 resourceType={{
                     type: 'feature_flag',
                 }}
@@ -649,7 +666,7 @@ export function FeatureFlags(): JSX.Element {
                         >
                             <LemonButton
                                 type="primary"
-                                to={urls.featureFlag('new')}
+                                to={newFeatureFlagUrl}
                                 data-attr="new-feature-flag"
                                 size="small"
                                 icon={<IconPlusSmall />}
@@ -658,6 +675,7 @@ export function FeatureFlags(): JSX.Element {
                                         placement: 'bottom-end',
                                         className: 'new-feature-flag-overlay',
                                         actionable: true,
+                                        closeOnClickInside: false,
                                         overlay: <OverlayForNewFeatureFlagMenu />,
                                     },
                                     'data-attr': 'new-feature-flag-dropdown',

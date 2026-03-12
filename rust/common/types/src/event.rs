@@ -3,6 +3,7 @@ use std::ops::Not;
 
 use crate::util::{empty_datetime_is_none, empty_string_uuid_is_none};
 use chrono::{DateTime, Utc};
+use metrics::counter;
 use rdkafka::message::{Header, Headers, OwnedHeaders};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -23,6 +24,36 @@ pub trait HasEventName {
 pub struct LibraryInfo {
     pub name: String,
     pub version: Option<String>,
+}
+
+impl LibraryInfo {
+    /// Extract library information from a properties HashMap.
+    ///
+    /// Returns `None` if the `$lib` property is not present.
+    pub fn from_properties(props: &HashMap<String, Value>) -> Option<Self> {
+        let name = props
+            .get("$lib")
+            .and_then(|v| v.as_str())
+            .map(String::from)?;
+
+        let version = props
+            .get("$lib_version")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+
+        Some(LibraryInfo { name, version })
+    }
+}
+
+/// Trait for events that can extract library information from their properties.
+///
+/// This trait provides a common interface for extracting the SDK/library name
+/// and version from event properties, used for metrics and analytics.
+pub trait EventWithLibraryInfo {
+    /// Extract library information from the event properties.
+    ///
+    /// Returns `None` if the `$lib` property is not present.
+    fn extract_library_info(&self) -> Option<LibraryInfo>;
 }
 
 #[derive(Default, Debug, Deserialize, Serialize)]
@@ -158,19 +189,19 @@ impl From<CapturedEventHeaders> for OwnedHeaders {
         // To prevent adding bloat to the other topic headers, only add add dlq headers when present.
         if let Some(ref reason) = headers.dlq_reason {
             owned = owned.insert(Header {
-                key: "dlq-reason",
+                key: "dlq_reason",
                 value: Some(reason.as_str()),
             });
         }
         if let Some(ref step) = headers.dlq_step {
             owned = owned.insert(Header {
-                key: "dlq-step",
+                key: "dlq_step",
                 value: Some(step.as_str()),
             });
         }
         if let Some(ref timestamp) = headers.dlq_timestamp {
             owned = owned.insert(Header {
-                key: "dlq-timestamp",
+                key: "dlq_timestamp",
                 value: Some(timestamp.as_str()),
             });
         }
@@ -204,9 +235,9 @@ impl From<OwnedHeaders> for CapturedEventHeaders {
             historical_migration: headers_map
                 .get("historical_migration")
                 .and_then(|v| v.parse::<bool>().ok()),
-            dlq_reason: headers_map.get("dlq-reason").cloned(),
-            dlq_step: headers_map.get("dlq-step").cloned(),
-            dlq_timestamp: headers_map.get("dlq-timestamp").cloned(),
+            dlq_reason: headers_map.get("dlq_reason").cloned(),
+            dlq_step: headers_map.get("dlq_step").cloned(),
+            dlq_timestamp: headers_map.get("dlq_timestamp").cloned(),
         }
     }
 }
@@ -361,6 +392,14 @@ impl ClickHouseEvent {
     }
 }
 
+impl EventWithLibraryInfo for ClickHouseEvent {
+    fn extract_library_info(&self) -> Option<LibraryInfo> {
+        let properties_str = self.properties.as_ref()?;
+        let properties: HashMap<String, Value> = serde_json::from_str(properties_str).ok()?;
+        LibraryInfo::from_properties(&properties)
+    }
+}
+
 impl HasEventName for RawEvent {
     fn event_name(&self) -> &str {
         &self.event
@@ -405,10 +444,20 @@ impl RawEvent {
         // Replace null characters with Unicode replacement character
         let distinct_id = distinct_id.replace('\0', "\u{FFFD}");
 
-        match distinct_id.len() {
-            0 => None,
-            1..=200 => Some(distinct_id),
-            _ => Some(distinct_id.chars().take(200).collect()),
+        let trimmed = distinct_id.trim();
+
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        if trimmed.len() != distinct_id.len() {
+            counter!("capture_distinct_id_has_whitespace_total").increment(1);
+        }
+
+        if distinct_id.len() <= 200 {
+            Some(distinct_id)
+        } else {
+            Some(distinct_id.chars().take(200).collect())
         }
     }
 
@@ -431,23 +480,11 @@ impl RawEvent {
             *value = f(value.take());
         }
     }
+}
 
-    /// Extract library information from the event properties
-    /// Returns None if $lib property is not present
-    pub fn extract_library_info(&self) -> Option<LibraryInfo> {
-        let name = self
-            .properties
-            .get("$lib")
-            .and_then(|v| v.as_str())
-            .map(String::from)?;
-
-        let version = self
-            .properties
-            .get("$lib_version")
-            .and_then(|v| v.as_str())
-            .map(String::from);
-
-        Some(LibraryInfo { name, version })
+impl EventWithLibraryInfo for RawEvent {
+    fn extract_library_info(&self) -> Option<LibraryInfo> {
+        LibraryInfo::from_properties(&self.properties)
     }
 }
 
@@ -461,6 +498,39 @@ impl CapturedEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_extract_distinct_id_whitespace_only_returns_none() {
+        for input in [" ", "\t\n", "   ", "\r\n\t "] {
+            let event = RawEvent {
+                distinct_id: Some(Value::String(input.to_string())),
+                ..Default::default()
+            };
+            assert_eq!(
+                event.extract_distinct_id(),
+                None,
+                "expected None for whitespace-only distinct_id: {input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_extract_distinct_id_with_surrounding_whitespace_preserved() {
+        let event = RawEvent {
+            distinct_id: Some(Value::String("  hello  ".to_string())),
+            ..Default::default()
+        };
+        assert_eq!(event.extract_distinct_id(), Some("  hello  ".to_string()),);
+    }
+
+    #[test]
+    fn test_extract_distinct_id_normal_value() {
+        let event = RawEvent {
+            distinct_id: Some(Value::String("hello".to_string())),
+            ..Default::default()
+        };
+        assert_eq!(event.extract_distinct_id(), Some("hello".to_string()));
+    }
 
     #[test]
     fn test_captured_event_serialization_with_historical_migration_true() {
@@ -668,7 +738,7 @@ mod tests {
         // Verify the dlq keys are present in the raw Kafka headers
         let dlq_keys: Vec<&str> = owned
             .iter()
-            .filter(|h| h.key.starts_with("dlq-"))
+            .filter(|h| h.key.starts_with("dlq_"))
             .map(|h| h.key)
             .collect();
         assert_eq!(dlq_keys.len(), 3);
@@ -709,12 +779,12 @@ mod tests {
         // Verify the dlq keys are not present in the raw Kafka headers at all
         let dlq_keys: Vec<&str> = owned
             .iter()
-            .filter(|h| h.key.starts_with("dlq-"))
+            .filter(|h| h.key.starts_with("dlq_"))
             .map(|h| h.key)
             .collect();
         assert!(
             dlq_keys.is_empty(),
-            "Expected no dlq-* keys in OwnedHeaders, but found: {dlq_keys:?}"
+            "Expected no dlq_* keys in OwnedHeaders, but found: {dlq_keys:?}"
         );
 
         let recovered: CapturedEventHeaders = owned.into();

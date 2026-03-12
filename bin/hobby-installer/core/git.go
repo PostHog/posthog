@@ -10,6 +10,12 @@ import (
 
 const posthogRepoURL = "https://github.com/PostHog/posthog.git"
 
+// Function variables for testability - tests swap these to mock command execution
+var (
+	runCmd    = RunCommand
+	runCmdDir = RunCommandWithDir
+)
+
 func ClonePostHog() error {
 	logger := GetLogger()
 
@@ -19,7 +25,7 @@ func ClonePostHog() error {
 	}
 
 	logger.WriteString("Cloning PostHog repository...\n")
-	_, err := RunCommand("git", "clone", "--filter=blob:none", posthogRepoURL)
+	_, err := runCmd("git", "clone", "--filter=blob:none", posthogRepoURL)
 	if err == nil {
 		logger.WriteString("Repository cloned successfully\n")
 	}
@@ -34,26 +40,21 @@ func UpdatePostHog() error {
 	}
 
 	logger.WriteString("Fetching latest changes...\n")
-	_, err := RunCommandWithDir("posthog", "git", "fetch", "--prune")
+	_, err := runCmdDir("posthog", "git", "fetch", "--prune")
 	if err != nil {
 		return err
 	}
 
-	// Check if we're on a branch or detached HEAD
-	branch, err := RunCommandWithDir("posthog", "git", "branch", "--show-current")
-	if err != nil {
-		return err
-	}
-	branch = strings.TrimSpace(branch)
-
-	if branch == "" {
-		// Detached HEAD (e.g., CI checked out a specific commit) - skip pull
-		logger.WriteString("On detached HEAD, skipping pull\n")
+	// Check if on a branch before pulling - detached HEAD can't pull
+	// This happens when CI checks out a specific commit SHA
+	branch, _ := runCmdDir("posthog", "git", "branch", "--show-current")
+	if strings.TrimSpace(branch) == "" {
+		logger.WriteString("On detached HEAD, skipping pull (CheckoutVersion will handle it)\n")
 		return nil
 	}
 
 	logger.WriteString("Pulling updates...\n")
-	_, err = RunCommandWithDir("posthog", "git", "pull")
+	_, err = runCmdDir("posthog", "git", "pull")
 	return err
 }
 
@@ -80,37 +81,37 @@ func CheckoutVersion(version string) error {
 }
 
 func checkoutLatest() error {
-	if _, err := RunCommandWithDir("posthog", "git", "fetch", "origin"); err != nil {
+	if _, err := runCmdDir("posthog", "git", "fetch", "origin"); err != nil {
 		return err
 	}
 
-	branch, err := RunCommandWithDir("posthog", "git", "branch", "--show-current")
+	branch, err := runCmdDir("posthog", "git", "branch", "--show-current")
 	if err != nil {
 		return err
 	}
 	branch = strings.TrimSpace(branch)
 
 	if branch != "" {
-		_, err = RunCommandWithDir("posthog", "git", "reset", "--hard", "origin/"+branch)
+		_, err = runCmdDir("posthog", "git", "reset", "--hard", "origin/"+branch)
 	}
 	return err
 }
 
 func checkoutLatestRelease() error {
-	if _, err := RunCommandWithDir("posthog", "git", "fetch", "--tags"); err != nil {
+	if _, err := runCmdDir("posthog", "git", "fetch", "--tags"); err != nil {
 		return err
 	}
 
-	out, err := RunCommandWithDir("posthog", "git", "describe", "--tags", "--abbrev=0")
+	out, err := runCmdDir("posthog", "git", "describe", "--tags", "--abbrev=0")
 	if err != nil {
-		out, err = RunCommandWithDir("posthog", "sh", "-c", "git describe --tags $(git rev-list --tags --max-count=1)")
+		out, err = runCmdDir("posthog", "sh", "-c", "git describe --tags $(git rev-list --tags --max-count=1)")
 		if err != nil {
 			return fmt.Errorf("no release tags found")
 		}
 	}
 	tag := strings.TrimSpace(out)
 
-	_, err = RunCommandWithDir("posthog", "git", "checkout", tag)
+	_, err = runCmdDir("posthog", "git", "checkout", tag)
 	return err
 }
 
@@ -118,30 +119,30 @@ func checkoutSpecific(version string) error {
 	isCommit := regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(version)
 
 	if isCommit {
-		_, err := RunCommandWithDir("posthog", "git", "checkout", version)
+		_, err := runCmdDir("posthog", "git", "checkout", version)
 		return err
 	}
 
-	if _, err := RunCommandWithDir("posthog", "git", "fetch", "--tags"); err != nil {
+	if _, err := runCmdDir("posthog", "git", "fetch", "--tags"); err != nil {
 		return err
 	}
 
 	releaseTag := strings.TrimPrefix(version, "release-")
-	_, err := RunCommandWithDir("posthog", "git", "checkout", releaseTag)
+	_, err := runCmdDir("posthog", "git", "checkout", releaseTag)
 	return err
 }
 
 func GetCurrentCommit() (string, error) {
-	out, err := RunCommandWithDir("posthog", "git", "rev-parse", "--short", "HEAD")
+	out, err := runCmdDir("posthog", "git", "rev-parse", "--short", "HEAD")
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(out), nil
 }
 
-func CopyComposeFiles(version string) error {
+func CopyComposeFiles() error {
 	logger := GetLogger()
-	logger.Debug("CopyComposeFiles version=%q", version)
+	logger.Debug("CopyComposeFiles")
 
 	_ = os.Remove("docker-compose.yml") // Ignore error if file doesn't exist
 
@@ -150,39 +151,9 @@ func CopyComposeFiles(version string) error {
 		return err
 	}
 
-	return copyFileWithEnvSubst("posthog/docker-compose.hobby.yml", "docker-compose.yml", version)
-}
-
-func copyFileWithEnvSubst(src, dst, version string) error {
-	logger := GetLogger()
-	data, err := os.ReadFile(src)
-	if err != nil {
-		logger.Debug("Failed to read %s: %v", src, err)
-		return err
-	}
-
-	content := string(data)
-
-	registryURL := os.Getenv("REGISTRY_URL")
-	if registryURL == "" {
-		registryURL = ReadEnvValue("REGISTRY_URL")
-	}
-	if registryURL == "" {
-		registryURL = "posthog/posthog"
-	}
-
-	if version == "" {
-		version = "latest"
-	}
-
-	logger.Debug("copyFileWithEnvSubst: REGISTRY_URL=%q, POSTHOG_APP_TAG=%q", registryURL, version)
-
-	content = strings.ReplaceAll(content, "${REGISTRY_URL}", registryURL)
-	content = strings.ReplaceAll(content, "$REGISTRY_URL", registryURL)
-	content = strings.ReplaceAll(content, "${POSTHOG_APP_TAG}", version)
-	content = strings.ReplaceAll(content, "$POSTHOG_APP_TAG", version)
-
-	return os.WriteFile(dst, []byte(content), 0644)
+	// Copy as-is — Docker Compose reads REGISTRY_URL, POSTHOG_APP_TAG, and
+	// POSTHOG_NODE_TAG from .env at runtime, so no substitution needed here.
+	return copyFile("posthog/docker-compose.hobby.yml", "docker-compose.yml")
 }
 
 func copyFile(src, dst string) error {

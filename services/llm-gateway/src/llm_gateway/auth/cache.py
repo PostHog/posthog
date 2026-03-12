@@ -37,8 +37,17 @@ class AuthCache:
 
         return True, user
 
-    def set(self, key: str, user: AuthenticatedUser | None) -> None:
-        expires_at = time.monotonic() + self._ttl
+    def set(self, key: str, user: AuthenticatedUser | None, ttl: int | None = None) -> None:
+        effective_ttl: float = ttl if ttl is not None else self._ttl
+
+        if user and user.token_expires_at:
+            remaining = (user.token_expires_at - datetime.now(UTC)).total_seconds()
+            if remaining > 0:
+                effective_ttl = min(effective_ttl, remaining)
+            else:
+                return
+
+        expires_at = time.monotonic() + effective_ttl
         self._cache[key] = CachedAuthEntry(user=user, expires_at=expires_at)
 
     def invalidate(self, key: str) -> None:

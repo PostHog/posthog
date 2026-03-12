@@ -7,10 +7,10 @@ import { LemonDivider } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { IconRecording, IconSurveys } from 'lib/lemon-ui/icons'
-import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { urls } from 'scenes/urls'
 
@@ -18,9 +18,9 @@ import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { buildEarlyAccessFeatureContent } from './NotebookNodeEarlyAccessFeature'
 import { buildCodeExampleContent } from './NotebookNodeFlagCodeExample'
 import { notebookNodeFlagLogic } from './NotebookNodeFlagLogic'
+import { notebookNodeLogic } from './notebookNodeLogic'
 import { buildPlaylistContent } from './NotebookNodePlaylist'
 import { buildSurveyContent } from './NotebookNodeSurvey'
-import { notebookNodeLogic } from './notebookNodeLogic'
 import { INTEGER_REGEX_MATCH_GROUPS, OPTIONAL_PROJECT_NON_CAPTURE_GROUP } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagAttributes>): JSX.Element => {

@@ -13,6 +13,7 @@ import { HogFunctionTemplateType } from '~/types'
 import { CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
 // Side-effect imports: register product-specific trigger and action nodes
 import '../registry'
+
 import { getRegisteredActionNodeCategories } from '../registry/actions/actionNodeRegistry'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { getDelayDescription } from '../steps/stepDelayLogic'
@@ -236,7 +237,7 @@ function HogFunctionTemplatesChooser(): JSX.Element {
                             <SpinnerOverlay />
                         ) : (
                             <ul className="overflow-y-auto flex-1">
-                                {filteredTemplates.map((template) => (
+                                {filteredTemplates.map((template: HogFunctionTemplateType) => (
                                     <li key={template.type}>
                                         <HogFlowEditorToolbarNode
                                             action={{

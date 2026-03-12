@@ -144,8 +144,8 @@ class TestResearchAgentExecutable(ClickhouseTestMixin, BaseTest):
             assert captured_state is not None  # for mypy
             self.assertEqual(captured_state.supermode, AgentMode.RESEARCH)
 
-    async def test_get_model_uses_claude_opus_with_thinking(self):
-        state = AssistantState(messages=[HumanMessage(content="Test")])
+    async def test_get_model_uses_opus_in_research_mode(self):
+        state = AssistantState(messages=[HumanMessage(content="Test")], supermode=AgentMode.RESEARCH)
         node = _create_research_agent_node(self.team, self.user, state=state)
 
         mock_model = MagicMock()
@@ -156,15 +156,29 @@ class TestResearchAgentExecutable(ClickhouseTestMixin, BaseTest):
 
             mock_anthropic.assert_called_once()
             call_kwargs = mock_anthropic.call_args.kwargs
-            self.assertEqual(call_kwargs["model"], "claude-opus-4-5-20251101")
+            self.assertEqual(call_kwargs["model"], "claude-opus-4-6")
             self.assertEqual(call_kwargs["max_tokens"], 16_384)
             self.assertEqual(call_kwargs["thinking"], {"type": "enabled", "budget_tokens": 4096})
             self.assertTrue(call_kwargs["streaming"])
             self.assertTrue(call_kwargs["billable"])
             self.assertIn("interleaved-thinking-2025-05-14", call_kwargs["betas"])
 
+    async def test_get_model_uses_sonnet_in_plan_mode(self):
+        state = AssistantState(messages=[HumanMessage(content="Test")], supermode=AgentMode.PLAN)
+        node = _create_research_agent_node(self.team, self.user, state=state)
+
+        mock_model = MagicMock()
+        mock_model.bind_tools = MagicMock(return_value=mock_model)
+
+        with patch("ee.hogai.research_agent.executables.MaxChatAnthropic", return_value=mock_model) as mock_anthropic:
+            node._get_model(state, [])
+
+            mock_anthropic.assert_called_once()
+            call_kwargs = mock_anthropic.call_args.kwargs
+            self.assertEqual(call_kwargs["model"], "claude-sonnet-4-6")
+
     async def test_get_model_binds_tools_with_parallel_calls(self):
-        state = AssistantState(messages=[HumanMessage(content="Test")])
+        state = AssistantState(messages=[HumanMessage(content="Test")], supermode=AgentMode.RESEARCH)
         node = _create_research_agent_node(self.team, self.user, state=state)
 
         mock_model = MagicMock()

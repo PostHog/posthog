@@ -28,12 +28,12 @@ from django.db import DEFAULT_DB_ALIAS, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.http import HttpRequest, HttpResponse, JsonResponse
 
-import requests
 from structlog import get_logger
 
 from posthog.celery import app
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.kafka_client.client import can_connect as can_connect_to_kafka
+from posthog.security.outbound_proxy import internal_requests
 
 logger = get_logger(__name__)
 
@@ -233,7 +233,7 @@ def is_clickhouse_connected() -> bool:
     ping_url = urljoin(settings.CLICKHOUSE_HTTP_URL, "ping")
     try:
         # nosemgrep: python.requests.security.disabled-cert-validation.disabled-cert-validation (internal health check to local ClickHouse, cert validation not required)
-        response = requests.get(ping_url, timeout=3, verify=False)
+        response = internal_requests.get(ping_url, timeout=3, verify=False)
         response.raise_for_status()
     except Exception:
         logger.debug("clickhouse_connection_failure", exc_info=True)

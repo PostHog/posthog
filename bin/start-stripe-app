@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(dirname "$0")/.."
+TEAM_ID="${1:-1}"
+
+if ! command -v stripe &> /dev/null; then
+    echo "Error: Stripe CLI is not installed."
+    echo "Install it with: brew install stripe/stripe-cli/stripe"
+    exit 1
+fi
+
+# Generate (or reuse) PostHog OAuth tokens for the Stripe App.
+echo "Generating PostHog OAuth tokens for team ${TEAM_ID}..."
+python "$REPO_ROOT/manage.py" generate_stripe_app_tokens --team-id="$TEAM_ID"
+
+cd "$REPO_ROOT/services/stripe-app"
+pnpm install --frozen-lockfile
+
+exec pnpm run dev

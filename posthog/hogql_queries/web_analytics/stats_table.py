@@ -35,6 +35,7 @@ from posthog.hogql_queries.web_analytics.stats_table_pre_aggregated import Stats
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner, map_columns
 
 BREAKDOWN_NULL_DISPLAY = "(none)"
+BREAKDOWN_REFERRER_PREFIX = "referrer:"
 
 
 class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryResponse]):
@@ -628,6 +629,11 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 return ast.Field(chain=["events", "properties", "$screen_name"])
             case WebStatsBreakdown.INITIAL_REFERRING_DOMAIN:
                 return ast.Field(chain=["session", "$entry_referring_domain"])
+            case WebStatsBreakdown.INITIAL_REFERRING_URL:
+                return ast.Call(
+                    name="cutQueryStringAndFragment",
+                    args=[ast.Field(chain=["events", "properties", "$session_entry_referrer"])],
+                )
             case WebStatsBreakdown.INITIAL_UTM_SOURCE:
                 return ast.Field(chain=["session", "$entry_utm_source"])
             case WebStatsBreakdown.INITIAL_UTM_CAMPAIGN:
@@ -641,14 +647,40 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
                 return ast.Field(chain=["session", "$channel_type"])
             case WebStatsBreakdown.INITIAL_UTM_SOURCE_MEDIUM_CAMPAIGN:
+                # The source part uses a prefix so the frontend can distinguish
+                # whether the value came from $entry_utm_source or $entry_referring_domain
+                source_expr = ast.Call(
+                    name="if",
+                    args=[
+                        ast.Call(
+                            name="isNotNull",
+                            args=[ast.Field(chain=["session", "$entry_utm_source"])],
+                        ),
+                        ast.Field(chain=["session", "$entry_utm_source"]),
+                        ast.Call(
+                            name="if",
+                            args=[
+                                ast.Call(
+                                    name="isNotNull",
+                                    args=[ast.Field(chain=["session", "$entry_referring_domain"])],
+                                ),
+                                ast.Call(
+                                    name="concat",
+                                    args=[
+                                        ast.Constant(value=BREAKDOWN_REFERRER_PREFIX),
+                                        ast.Field(chain=["session", "$entry_referring_domain"]),
+                                    ],
+                                ),
+                                ast.Constant(value=BREAKDOWN_NULL_DISPLAY),
+                            ],
+                        ),
+                    ],
+                )
                 return ast.Call(
                     name="concatWithSeparator",
                     args=[
                         ast.Constant(value=" / "),
-                        coalesce_with_null_display(
-                            ast.Field(chain=["session", "$entry_utm_source"]),
-                            ast.Field(chain=["session", "$entry_referring_domain"]),
-                        ),
+                        source_expr,
                         coalesce_with_null_display(ast.Field(chain=["session", "$entry_utm_medium"])),
                         coalesce_with_null_display(ast.Field(chain=["session", "$entry_utm_campaign"])),
                     ],

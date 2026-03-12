@@ -8,8 +8,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { DashboardTemplateEditorType, DashboardTemplateType, MonacoMarker } from '~/types'
 
-import type { dashboardTemplateEditorLogicType } from './dashboardTemplateEditorLogicType'
 import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
+import type { dashboardTemplateEditorLogicType } from './dashboardTemplateEditorLogicType'
 
 export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType>([
     path(['scenes', 'dashboard', 'dashboardTemplateEditorLogic']),

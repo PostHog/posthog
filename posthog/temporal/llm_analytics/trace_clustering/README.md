@@ -140,7 +140,7 @@ The workflow uses **three separate activities** with independent timeouts and re
 
 **Activity 2 (Label)** - LangGraph agent:
 
-- Runs a multi-turn LangGraph agent powered by OpenAI GPT-5.1 (`gpt-5.2`)
+- Runs a multi-turn LangGraph agent powered by OpenAI GPT-5.3 (`gpt-5.3`)
 - Agent explores clusters using tools (overview, trace titles, trace details)
 - Iteratively generates distinctive labels for each cluster
 - Ensures labels differentiate clusters from each other
@@ -210,7 +210,7 @@ Each clustering run generates one `$ai_trace_clusters` event with native JSON st
     # Clustering parameters used for this run (for debugging/analysis)
     "$ai_clustering_params": {
         "clustering_method": "hdbscan",
-        "clustering_method_params": {"min_cluster_size_fraction": 0.01, "min_samples": 5},
+        "clustering_method_params": {"min_cluster_size_fraction": 0.02, "min_samples": 5},
         "embedding_normalization": "l2",
         "dimensionality_reduction_method": "umap",
         "dimensionality_reduction_ndims": 100,
@@ -341,12 +341,12 @@ Key constants in `constants.py`:
 | `MIN_TRACES_FOR_CLUSTERING`         | 20                                | Minimum traces required for workflow          |
 | `COMPUTE_ACTIVITY_TIMEOUT`          | 120s                              | Clustering compute timeout                    |
 | `EMIT_ACTIVITY_TIMEOUT`             | 60s                               | Event emission timeout                        |
-| `LABELING_AGENT_MODEL`              | gpt-5.2                           | OpenAI model for labeling agent               |
+| `LABELING_AGENT_MODEL`              | gpt-5.3                           | OpenAI model for labeling agent               |
 | `LABELING_AGENT_MAX_ITERATIONS`     | 50                                | Max agent iterations before finalization      |
 | `LABELING_AGENT_RECURSION_LIMIT`    | 150                               | LangGraph recursion limit                     |
 | `LABELING_AGENT_TIMEOUT`            | 600.0                             | Full agent run timeout (seconds)              |
 | `DEFAULT_HDBSCAN_MIN_SAMPLES`       | 5                                 | Min samples for HDBSCAN core points           |
-| `DEFAULT_MIN_CLUSTER_SIZE_FRACTION` | 0.01                              | Min cluster size as fraction of total samples |
+| `DEFAULT_MIN_CLUSTER_SIZE_FRACTION` | 0.02                              | Min cluster size as fraction of total samples |
 | `DEFAULT_UMAP_N_COMPONENTS`         | 100                               | UMAP dimensions for clustering                |
 | `DEFAULT_UMAP_N_NEIGHBORS`          | 15                                | UMAP neighborhood size                        |
 | `DEFAULT_UMAP_MIN_DIST`             | 0.0                               | UMAP min distance (tighter for clustering)    |

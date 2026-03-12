@@ -240,7 +240,7 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
 
     await logger.adebug(f"Running count query: {printed}")
 
-    async with get_clickhouse_client() as client:
+    async with get_clickhouse_client(allow_experimental_analyzer=1) as client:
         result = await client.read_query(printed, query_parameters=context.values)
         count = int(result.decode("utf-8").strip())
         return count
@@ -294,7 +294,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     )
 
     query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
-    async with get_clickhouse_client() as client:
+    async with get_clickhouse_client(allow_experimental_analyzer=1) as client:
         async with client.apost_query(
             query=table_describe_query, query_parameters=context.values, query_id=str(uuid.uuid4())
         ) as ch_response:
@@ -340,7 +340,9 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
 
     await logger.adebug(f"Running clickhouse query: {arrow_printed}")
 
-    async with get_clickhouse_client(max_block_size=CLICKHOUSE_MAX_BLOCK_SIZE_ROWS) as client:
+    async with get_clickhouse_client(
+        max_block_size=CLICKHOUSE_MAX_BLOCK_SIZE_ROWS, allow_experimental_analyzer=1
+    ) as client:
         batches = []
         batches_size = 0
         async for batch in client.astream_query_as_arrow(arrow_printed, query_parameters=context.values):
@@ -370,7 +372,7 @@ def _get_matview_input_objects(
 ) -> tuple[Team, Node, DataWarehouseSavedQuery, DataModelingJob]:
     team = Team.objects.get(id=inputs.team_id)
     node = Node.objects.prefetch_related("saved_query").get(
-        id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id
+        id=inputs.node_id, team_id=inputs.team_id, dag_id_text=inputs.dag_id
     )
     if node.type == NodeType.TABLE:
         raise InvalidNodeTypeException(f"Cannot materialize a TABLE node: {node.name}")
@@ -440,20 +442,17 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                     mode="overwrite",
                     schema_mode="overwrite",
                     storage_options=storage_options,
-                    engine="rust",
                 )
             else:
                 await logger.adebug(
-                    f"Writing batch to delta table: index={index} mode=append schema_mode=merge batch_row_count={batch.num_rows}"
+                    f"Writing batch to delta table: index={index} mode=append batch_row_count={batch.num_rows}"
                 )
                 await asyncio.to_thread(
                     deltalake.write_deltalake,
                     table_or_uri=table_uri,
                     data=batch,
                     mode="append",
-                    schema_mode="merge",
                     storage_options=storage_options,
-                    engine="rust",
                 )
             if index == 0:
                 delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)

@@ -338,6 +338,7 @@ class TestToolAccessControlDeclarations(BaseTest):
         "switch_mode",
         "session_summarization",
         "manage_memories",  # Manages per-team/user memories, no protected resources
+        "recommend_products",  # Returns product recommendations, no protected resources
         # Tools with dynamic/conditional access checks inside _arun_impl
         "read_data",
         "list_data",  # Lists entities with pagination, no protected resources modified
@@ -360,6 +361,7 @@ class TestToolAccessControlDeclarations(BaseTest):
         "generate_hogql_query",
         "fix_hogql_query",
         "analyze_user_interviews",
+        "call_mcp_server",  # Scoped to user's own MCP installations (team + user filtered) but no protected resources modified
     }
 
     def test_all_tools_have_access_control_or_are_exempt(self):

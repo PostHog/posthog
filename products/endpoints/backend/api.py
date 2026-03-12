@@ -36,8 +36,10 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError
 from posthog.hogql.parser import parse_select
+from posthog.hogql.printer.base import HogQLPrinter
 
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
@@ -155,6 +157,46 @@ class EndpointContext(ActivityContextBase):
     version: Optional[int] = None
 
 
+@dataclasses.dataclass(frozen=True)
+class EndpointPagination:
+    limit: int
+    offset: int
+    ceiling: int | None
+
+    def apply_to(self, select_query: ast.SelectQuery) -> None:
+        """Set LIMIT and OFFSET on an AST SelectQuery for pagination."""
+        if self.ceiling is not None and self.offset >= self.ceiling:
+            select_query.limit = ast.Constant(value=0)
+            select_query.offset = ast.Constant(value=0)
+        else:
+            remaining = (self.ceiling - self.offset) if self.ceiling is not None else None
+            effective_limit = min(self.limit, remaining) if remaining is not None else self.limit
+            select_query.limit = ast.Constant(value=effective_limit + 1)
+            if self.offset > 0:
+                select_query.offset = ast.Constant(value=self.offset)
+
+    def process_results(self, result: dict) -> None:
+        """Trim the extra row and annotate the result dict with pagination metadata."""
+        rows = result.get("results", [])
+        has_more = len(rows) > self.limit
+        if has_more:
+            result["results"] = rows[: self.limit]
+        if self.ceiling is not None and self.offset + len(result["results"]) >= self.ceiling:
+            has_more = False
+        result["hasMore"] = has_more
+        result["limit"] = self.limit
+        result["offset"] = self.offset
+
+
+class _PlaceholderPreservingPrinter(HogQLPrinter):
+    """HogQL printer that preserves {placeholder} syntax instead of raising on unresolved placeholders."""
+
+    def visit_placeholder(self, node: ast.Placeholder) -> str:
+        if node.field is None:
+            raise QueryError("You can not use placeholders here")
+        return f"{{{node.field}}}"
+
+
 @extend_schema(tags=[ProductKey.ENDPOINTS])
 class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ModelViewSet):
     # NOTE: Do we need to override the scopes for the "create"
@@ -178,6 +220,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_active", "created_by"]
 
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(deleted=False)
+
     def get_serializer_class(self):
         return None  # We use Pydantic models instead
 
@@ -195,27 +240,29 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             try:
                 return int(body_version)
             except (ValueError, TypeError):
-                raise ValidationError(f"Invalid version parameter: {body_version}")
+                raise ValidationError({"version": f"Must be an integer, got: {body_version}"})
 
         query_version = request.query_params.get("version")
         if query_version is not None:
             try:
                 return int(query_version)
             except (ValueError, TypeError):
-                raise ValidationError(f"Invalid version parameter: {query_version}")
+                raise ValidationError({"version": f"Must be an integer, got: {query_version}"})
 
         return None
 
     def _build_materialization_info(self, version: EndpointVersion) -> dict:
         """Build materialization status dict for a version."""
-        if version.is_materialized and version.saved_query:
+        if version.saved_query:
             return {
                 "status": version.saved_query.status or "Unknown",
                 "can_materialize": True,
                 "last_materialized_at": (
                     version.saved_query.last_run_at.isoformat() if version.saved_query.last_run_at else None
                 ),
-                "error": version.saved_query.latest_error or "",
+                "error": (version.saved_query.latest_error or "")
+                if version.saved_query.status != DataWarehouseSavedQuery.Status.COMPLETED
+                else "",
                 "sync_frequency": sync_frequency_interval_to_sync_frequency(
                     version.saved_query.sync_frequency_interval
                 ),
@@ -268,6 +315,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             "versions_count": endpoint.versions.count(),
             "derived_from_insight": endpoint.derived_from_insight,
             "materialization": self._build_materialization_info(version),
+            "columns": version.get_columns() if version else [],
         }
 
         if isinstance(obj, EndpointVersion):
@@ -287,7 +335,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
     def retrieve(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Retrieve an endpoint, or a specific endpoint version."""
-        endpoint = get_object_or_404(Endpoint.objects.all(), team=self.team, name=name)
+        endpoint = get_object_or_404(Endpoint.objects.all(), team=self.team, name=name, deleted=False)
 
         version_number = self._parse_version_param(request)
         try:
@@ -330,6 +378,65 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             raise ValidationError({"query": "Unknown error occurred parsing the query."})
 
         self._validate_variable_placeholders(ast_node, query.variables or {})
+
+    def _sync_hogql_query_variables(self, query: HogQLQuery) -> None:
+        """Sync query variable definitions with the placeholders used in the query string."""
+        try:
+            ast_node = parse_select(query.query)
+        except Exception:
+            # Validation runs separately and will surface parse errors.
+            return
+
+        finder = VariablePlaceholderFinder()
+        finder.visit(ast_node)
+
+        placeholder_names = {str(p.chain[1]) for p in finder.variable_placeholders if p.chain and len(p.chain) > 1}
+        if not placeholder_names:
+            query.variables = None
+            return
+
+        existing_variables = query.variables or {}
+        existing_variable_ids: list[str] = []
+        for variable in existing_variables.values():
+            if not variable.variableId:
+                continue
+            try:
+                uuid.UUID(variable.variableId)
+            except ValueError:
+                continue
+            existing_variable_ids.append(variable.variableId)
+
+        team_variables = InsightVariable.objects.filter(team=self.team, id__in=existing_variable_ids)
+        team_variables_by_id = {str(variable.id): variable for variable in team_variables}
+
+        synced_variables: dict[str, HogQLVariable] = {}
+        existing_code_names: set[str] = set()
+
+        for variable_id, variable in existing_variables.items():
+            if variable.code_name and variable.code_name in placeholder_names:
+                if variable.value is None and variable.isNull is not True:
+                    team_variable = team_variables_by_id.get(variable.variableId)
+                    if team_variable:
+                        variable.value = team_variable.default_value
+                        variable.isNull = team_variable.default_value is None
+                synced_variables[variable_id] = variable
+                existing_code_names.add(variable.code_name)
+
+        missing_code_names = placeholder_names - existing_code_names
+        if missing_code_names:
+            missing_variables = InsightVariable.objects.filter(team=self.team, code_name__in=missing_code_names)
+
+            for variable in missing_variables:
+                if not variable.code_name:
+                    continue
+                synced_variables[str(variable.id)] = HogQLVariable(
+                    variableId=str(variable.id),
+                    code_name=variable.code_name,
+                    value=variable.default_value,
+                    isNull=variable.default_value is None,
+                )
+
+        query.variables = synced_variables or None
 
     def _validate_variable_placeholders(self, node: ast.AST, variables: Optional[dict[str, HogQLVariable]]) -> None:
         """Validate that every {variables.X} placeholder in the query has a matching variable definition."""
@@ -391,20 +498,23 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     def validate_request(self, data: EndpointRequest, strict: bool = True) -> None:
         query = data.query
         if not query and strict:
-            raise ValidationError("Must specify query")
+            raise ValidationError({"query": "This field is required."})
 
         name = data.name
         if not name:
             if name is not None or strict:
-                raise ValidationError("Endpoint must have a name.")
+                raise ValidationError({"name": "This field is required."})
             return
         if not isinstance(name, str) or not re.fullmatch(ENDPOINT_NAME_REGEX, name):
             raise ValidationError(
-                "Endpoint name must start with a letter, contain only alphanumeric characters, hyphens, or underscores, "
-                "and be between 1 and 128 characters long."
+                {
+                    "name": f"Invalid name '{name}'. Must start with a letter, contain only alphanumeric characters, "
+                    "hyphens, or underscores, and be between 1 and 128 characters long."
+                }
             )
 
         if query and isinstance(query, HogQLQuery) and query.query:
+            self._sync_hogql_query_variables(query)
             self._validate_hogql_query(query)
 
         self._validate_cache_age_seconds(data.cache_age_seconds)
@@ -419,6 +529,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         data = self.get_model(upgraded_query, EndpointRequest)
         self.validate_request(data, strict=True)
 
+        if Endpoint.objects.filter(team=self.team, name=data.name, deleted=False).exists():
+            raise ValidationError({"name": "An endpoint with this name already exists for this team."})
+
         try:
             query_dict = cast(Union[HogQLQuery, InsightQueryNode], data.query).model_dump()
             endpoint = Endpoint.objects.create(
@@ -430,6 +543,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 derived_from_insight=data.derived_from_insight,
             )
 
+            columns = EndpointVersion.extract_columns(query_dict, team_id=self.team.pk)
             EndpointVersion.objects.create(
                 endpoint=endpoint,
                 version=1,
@@ -437,6 +551,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 description=data.description or "",
                 cache_age_seconds=data.cache_age_seconds,
                 created_by=cast(User, request.user),
+                columns=columns,
             )
 
             log_activity(
@@ -459,6 +574,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     "query_kind": query_dict.get("kind") if isinstance(query_dict, dict) else None,
                 },
                 team=self.team,
+                request=request,
             )
 
             current_version = endpoint.get_version()
@@ -515,6 +631,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             raise ValidationError({"sync_frequency": "Cannot set sync_frequency when disabling materialization."})
 
         if data.query and isinstance(data.query, HogQLQuery) and data.query.query:
+            self._sync_hogql_query_variables(data.query)
             self._validate_hogql_query(data.query)
 
     @extend_schema(
@@ -528,7 +645,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         If version is specified, updates target that specific version.
         Otherwise, the current version is used.
         """
-        endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
+        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
         endpoint_before_update = Endpoint.objects.get(pk=endpoint.id)
 
         upgraded_query = upgrade(request.data)
@@ -542,7 +659,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             try:
                 target_version_override = endpoint.get_version(version_number)
             except EndpointVersion.DoesNotExist:
-                raise ValidationError(f"Version {version_number} not found")
+                raise ValidationError({"version": f"Version {version_number} not found for this endpoint."})
             if data.query is not None:
                 raise ValidationError(
                     {
@@ -568,7 +685,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             endpoint.save()
 
             final_is_active = data.is_active if data.is_active is not None else endpoint.is_active
-            was_materialized = bool(current_version.is_materialized and current_version.saved_query)
+            was_materialized = current_version.saved_query_id is not None
 
             # Step 1: Handle deactivation (disables materialization, prevents any materialization operations)
             if not final_is_active and was_materialized:
@@ -610,7 +727,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 # When targeting a specific version, check that version's materialization state
                 # Otherwise use was_materialized (state before this update) to support materialization transfer
                 if target_version_override is not None:
-                    check_was_materialized = bool(target_version.is_materialized and target_version.saved_query)
+                    check_was_materialized = target_version.saved_query_id is not None
                 else:
                     check_was_materialized = was_materialized
 
@@ -769,10 +886,28 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         saved_query.schedule_materialization()
 
-        # Update version with materialization info
+        from products.data_modeling.backend.services.saved_query_dag_sync import sync_saved_query_to_dag
+
+        try:
+            sync_saved_query_to_dag(saved_query)
+        except Exception as e:
+            logger.exception(
+                "Failed to sync endpoint node to DAG",
+                endpoint_name=endpoint.name,
+                saved_query_id=version.saved_query.id if version and version.saved_query else None,
+            )
+            capture_exception(
+                e,
+                {
+                    "product": Product.ENDPOINTS,
+                    "team_id": self.team_id,
+                    "endpoint_name": endpoint.name,
+                    "saved_query_id": version.saved_query.id if version and version.saved_query else None,
+                },
+            )
+
         version.saved_query = saved_query
-        version.is_materialized = True
-        version.save(update_fields=["saved_query", "is_materialized"])
+        version.save(update_fields=["saved_query"])
 
     def _disable_materialization(self, endpoint: Endpoint, version: EndpointVersion | None = None) -> None:
         """Disable materialization for an endpoint version.
@@ -780,26 +915,61 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         If version is not specified, uses the current version.
         """
         version = version or endpoint.get_version()
-        if version and version.saved_query:
-            version.saved_query.revert_materialization()
-            version.saved_query.soft_delete()
-            version.saved_query = None
-            version.is_materialized = False
-            version.save(update_fields=["saved_query", "is_materialized"])
+        if version:
+            if version.saved_query:
+                from products.data_modeling.backend.services.saved_query_dag_sync import delete_node_from_dag
+
+                try:
+                    delete_node_from_dag(version.saved_query)
+                except Exception as e:
+                    logger.exception(
+                        "Failed to remove endpoint node from DAG",
+                        endpoint_name=endpoint.name,
+                        saved_query_id=version.saved_query.id if version and version.saved_query else None,
+                    )
+                    capture_exception(
+                        e,
+                        {
+                            "product": Product.ENDPOINTS,
+                            "team_id": self.team_id,
+                            "endpoint_name": endpoint.name,
+                            "saved_query_id": version.saved_query.id if version and version.saved_query else None,
+                        },
+                    )
+            version.disable_materialization()
         clear_endpoint_materialization_cache(self.team_id, endpoint.name)
 
     def destroy(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Delete an endpoint and clean up materialized query."""
-        endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
+        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
         endpoint_id = str(endpoint.id)
         endpoint_name = endpoint.name
 
-        # Disable materialization on all versions
-        for version in endpoint.versions.all():
-            if version.saved_query:
-                self._disable_materialization(endpoint, version)
+        # Remove DAG nodes before soft_delete (which soft-deletes saved queries)
+        from products.data_modeling.backend.services.saved_query_dag_sync import delete_node_from_dag
 
-        endpoint.delete()
+        for version in endpoint.versions.filter(saved_query__isnull=False):
+            try:
+                if version.saved_query:
+                    delete_node_from_dag(version.saved_query)
+            except Exception as e:
+                logger.exception(
+                    "Failed to remove endpoint node from DAG on destroy",
+                    endpoint_name=endpoint.name,
+                    saved_query_id=version.saved_query.id if version.saved_query else None,
+                )
+                capture_exception(
+                    e,
+                    {
+                        "product": Product.ENDPOINTS,
+                        "team_id": self.team_id,
+                        "endpoint_name": endpoint.name,
+                        "saved_query_id": version.saved_query.id if version and version.saved_query else None,
+                    },
+                )
+
+        endpoint.soft_delete()
+        clear_endpoint_materialization_cache(self.team_id, endpoint.name)
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team.id,
@@ -886,26 +1056,32 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             logger.debug("Failed to analyze variables for materialization", exc_info=True)
             return []
 
-    def _get_original_select_columns(self, query: dict, version: EndpointVersion) -> builtins.list[ast.Expr] | None:
-        """Parse the original HogQL query and return SELECT columns as materialized field references.
+    def _parse_original_hogql_query(
+        self, query: dict, version: EndpointVersion
+    ) -> tuple[builtins.list[ast.Expr] | None, int | None]:
+        """Parse the original HogQL query and extract SELECT columns and LIMIT.
 
-        Returns field references for only the original SELECT expressions (not variable columns).
-        Returns None if parsing fails, so the caller can fall back to SELECT *.
+        Returns (select_columns, limit) where either may be None.
+        select_columns are transformed to materialized field references.
         """
         from products.endpoints.backend.materialization import transform_select_for_materialized_table
 
         query_str = query.get("query")
         if not query_str:
-            return None
+            return None, None
 
         try:
             parsed = parse_select(query_str)
-            if isinstance(parsed, ast.SelectQuery) and parsed.select:
-                return transform_select_for_materialized_table(list(parsed.select), self.team)
+            if isinstance(parsed, ast.SelectQuery):
+                columns = (
+                    transform_select_for_materialized_table(list(parsed.select), self.team) if parsed.select else None
+                )
+                limit = parsed.limit.value if isinstance(parsed.limit, ast.Constant) else None
+                return columns, limit
         except Exception:
-            logger.debug("Failed to parse original query for SELECT columns", exc_info=True)
+            logger.debug("Failed to parse original HogQL query", exc_info=True)
 
-        return None
+        return None, None
 
     # Query types that support user-configurable breakdown filtering
     BREAKDOWN_SUPPORTED_QUERY_TYPES = {"TrendsQuery", "FunnelsQuery", "RetentionQuery"}
@@ -1025,6 +1201,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         extra_result_fields: dict | None = None,
         debug: bool = False,
         headers: dict[str, str] | None = None,
+        pagination: EndpointPagination | None = None,
     ) -> Response:
         """Shared query execution logic."""
         merged_data = self.get_model(query_request_data, QueryRequest)
@@ -1037,7 +1214,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         tag_queries(product=Product.ENDPOINTS)
 
         if execution_mode not in BLOCKING_EXECUTION_MODES:
-            raise ValidationError("Only sync modes are supported (refresh param)")
+            raise ValidationError({"refresh": f"Only sync modes are supported, got: {execution_mode}"})
 
         result = process_query_model(
             self.team,
@@ -1048,6 +1225,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             user=cast(User, request.user),
             is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
             cache_age_seconds=cache_age_seconds,
+            request=request,
         )
 
         if isinstance(result, BaseModel):
@@ -1069,6 +1247,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
             for field in debug_fields_to_remove:
                 result.pop(field, None)
+
+        if pagination and "results" in result:
+            pagination.process_results(result)
 
         if "results" in result:
             results_value = result.pop("results")
@@ -1103,6 +1284,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         version: EndpointVersion | None = None,
         debug: bool = False,
         limit: int | None = None,
+        offset: int | None = None,
     ) -> Response:
         """Execute against a materialized table in S3."""
         try:
@@ -1115,9 +1297,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             query_kind = query.get("kind")
 
             select_columns: list[ast.Expr] = [ast.Field(chain=["*"])]
-            if query_kind == "HogQLQuery" and query.get("variables"):
-                original_select = self._get_original_select_columns(query, version)
-                if original_select:
+            original_limit: int | None = None
+            if query_kind == "HogQLQuery":
+                original_select, original_limit = self._parse_original_hogql_query(query, version)
+                if query.get("variables") and original_select:
                     select_columns = original_select
 
             select_query = ast.SelectQuery(
@@ -1125,8 +1308,13 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 select_from=ast.JoinExpr(table=ast.Field(chain=[saved_query.name])),
             )
 
+            pagination: EndpointPagination | None = None
+
             if limit is not None:
-                select_query.limit = ast.Constant(value=limit)
+                pagination = EndpointPagination(limit=limit, offset=offset or 0, ceiling=original_limit)
+                pagination.apply_to(select_query)
+            elif original_limit is not None:
+                select_query.limit = ast.Constant(value=original_limit)
 
             deprecation_headers: dict[str, str] | None = None
 
@@ -1203,6 +1391,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 extra_result_fields=extra_fields,
                 debug=debug,
                 headers=deprecation_headers,
+                pagination=pagination,
             )
 
             if self._is_cache_stale(result, saved_query):
@@ -1214,6 +1403,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     extra_result_fields=extra_fields,
                     debug=debug,
                     headers=deprecation_headers,
+                    pagination=pagination,
                 )
 
             return result
@@ -1236,25 +1426,56 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             )
             raise
 
-    def _apply_limit_to_query(self, query: dict, limit: int) -> dict:
-        """Apply limit to HogQL query by modifying the SQL string."""
+    @staticmethod
+    def _parse_int_param(
+        body_value: int | None, query_param: str | None, name: str, min_value: int | None = None
+    ) -> tuple[int | None, Response | None]:
+        """Parse an integer from the request body or query params. Returns (value, error_response)."""
+        value = body_value
+        if value is None and query_param is not None:
+            try:
+                value = int(query_param)
+                if min_value is not None and value < min_value:
+                    raise ValueError()
+            except (ValueError, TypeError):
+                return None, Response(
+                    {"error": f"Invalid {name} parameter: {query_param}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        elif value is not None and min_value is not None and value < min_value:
+            return None, Response(
+                {"error": f"Invalid {name} parameter: {value}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return value, None
+
+    def _apply_pagination_to_query(self, query: dict, limit: int, offset: int) -> tuple[dict, EndpointPagination]:
+        """Apply pagination to a HogQL query. Returns (modified_query, pagination).
+
+        Parses the HogQL AST, applies LIMIT/OFFSET, and reprints using a
+        placeholder-preserving printer so unresolved {variables.*} survive.
+        """
         query_kind = query.get("kind")
 
         if query_kind == "HogQLQuery":
-            query_string = query.get("query", "")
-            parsed = parse_select(query_string)
+            query_sql = query.get("query", "")
+            parsed = parse_select(query_sql)
+            if not isinstance(parsed, ast.SelectQuery):
+                raise ValidationError(
+                    "Pagination is not supported for UNION queries. Wrap the UNION in a subquery: SELECT * FROM (... UNION ALL ...) LIMIT n"
+                )
 
-            if isinstance(parsed, ast.SelectQuery):
-                existing_limit = parsed.limit.value if isinstance(parsed.limit, ast.Constant) else None
-                effective_limit = min(limit, existing_limit) if existing_limit is not None else limit
-                parsed.limit = ast.Constant(value=effective_limit)
+            ceiling = parsed.limit.value if isinstance(parsed.limit, ast.Constant) else None
+            pagination = EndpointPagination(limit=limit, offset=offset, ceiling=ceiling)
 
+            pagination.apply_to(parsed)
+
+            ctx = HogQLContext(enable_select_queries=True, limit_top_select=False)
             query = query.copy()
-            query["query"] = parsed.to_hogql()
-        elif query_kind:
-            raise ValidationError(f"Limit parameter is only supported for HogQLQuery, not {query_kind}")
+            query["query"] = _PlaceholderPreservingPrinter(context=ctx, dialect="hogql").visit(parsed)
+            return query, pagination
 
-        return query
+        raise ValidationError({"limit": f"Limit/offset parameters are only supported for HogQLQuery, not {query_kind}"})
 
     def _parse_variables(
         self, query: dict[str, dict], variables: dict[str, str]
@@ -1271,7 +1492,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     variable_id = query_variable_id
 
             if variable_id is None:
-                raise ValidationError(f"Variable '{request_variable_code_name}' not found in query")
+                raise ValidationError({"variables": f"Variable '{request_variable_code_name}' not found in query"})
 
             variables_override.append(
                 HogQLVariable(
@@ -1316,6 +1537,77 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         return DashboardFilter(date_from=date_from, date_to=date_to, properties=properties)
 
+    def _should_use_ducklake(self, endpoint: Endpoint, version: EndpointVersion | None) -> bool:
+        if version is None:
+            return False
+        if version.query.get("kind") != "HogQLQuery":
+            return False
+
+        import posthoganalytics
+
+        user_email = getattr(self.request.user, "email", "") if self.request else ""
+        ff_result = posthoganalytics.feature_enabled(
+            "endpoints-ducklake-execution",
+            user_email,
+            person_properties={"email": str(user_email)},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+        logger.info(
+            "Ducklake FF evaluation",
+            endpoint_name=endpoint.name,
+            ff_result=ff_result,
+        )
+        if not ff_result:
+            return False
+
+        from posthog.ducklake.common import get_duckgres_server_for_team
+
+        server = get_duckgres_server_for_team(self.team_id)
+        if server is None:
+            logger.info("Ducklake skip: no duckgres server", endpoint_name=endpoint.name, team_id=self.team_id)
+        return server is not None
+
+    def _execute_ducklake_endpoint(
+        self,
+        endpoint: Endpoint,
+        query: dict,
+        debug: bool = False,
+    ) -> Response:
+        from posthog.schema import HogQLQuery
+
+        from posthog.ducklake.client import execute_ducklake_query
+
+        try:
+            result = execute_ducklake_query(self.team_id, query=HogQLQuery(query=query["query"]))
+            response_data: dict = {
+                "results": result.results,
+                "columns": result.columns,
+                "types": result.types,
+                "hasMore": False,
+                "backend": "ducklake",
+            }
+            if debug:
+                response_data["query"] = query.get("query")
+                response_data["hogql"] = result.hogql
+                response_data["ducklake_sql"] = result.sql
+            return Response(response_data, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.exception(
+                "DuckLake endpoint execution failed",
+                endpoint_name=endpoint.name,
+            )
+            capture_exception(
+                e,
+                {
+                    "product": Product.ENDPOINTS,
+                    "team_id": self.team_id,
+                    "ducklake": True,
+                    "endpoint_name": endpoint.name,
+                },
+            )
+            raise
+
     def _execute_inline_endpoint(
         self,
         endpoint: Endpoint,
@@ -1325,11 +1617,13 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         version: EndpointVersion | None = None,
         debug: bool = False,
         limit: int | None = None,
+        offset: int | None = None,
     ) -> Response:
         """Execute query directly against ClickHouse."""
         try:
+            pagination: EndpointPagination | None = None
             if limit is not None:
-                query = self._apply_limit_to_query(query, limit)
+                query, pagination = self._apply_pagination_to_query(query, limit, offset or 0)
 
             refresh_type = _endpoint_refresh_mode_to_refresh_type(data.refresh)
             query_kind = query.get("kind")
@@ -1370,6 +1664,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 cache_age_seconds=cache_age,
                 debug=debug,
                 headers=deprecation_headers,
+                pagination=pagination,
             )
 
         except Exception as e:
@@ -1396,7 +1691,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     @action(methods=["GET", "POST"], detail=True)
     def run(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Execute endpoint with optional parameters."""
-        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, is_active=True)
+        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, is_active=True, deleted=False)
         data = self.get_model(request.data, EndpointRunRequest)
 
         # Track endpoint execution for deprecation monitoring
@@ -1409,40 +1704,26 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 "has_filters_override": bool(data.filters_override),
                 "has_variables": bool(data.variables),
                 "has_limit": data.limit is not None,
+                "has_offset": data.offset is not None,
                 "refresh_mode": data.refresh.value if data.refresh else None,
             },
             team=self.team,
+            request=request,
         )
 
-        # Support version from request body or query params (for backwards compatibility)
-        version_number = data.version
-        if version_number is None:
-            version_param = request.query_params.get("version")
-            if version_param is not None:
-                try:
-                    version_number = int(version_param)
-                except (ValueError, TypeError):
-                    return Response(
-                        {"error": f"Invalid version parameter: {version_param}"},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
+        version_number, err = self._parse_int_param(data.version, request.query_params.get("version"), "version")
+        if err:
+            return err
+        limit, err = self._parse_int_param(data.limit, request.query_params.get("limit"), "limit", min_value=1)
+        if err:
+            return err
+        offset, err = self._parse_int_param(data.offset, request.query_params.get("offset"), "offset", min_value=0)
+        if err:
+            return err
 
-        limit = data.limit
-        if limit is None:
-            limit_param = request.query_params.get("limit")
-            if limit_param is not None:
-                try:
-                    limit = int(limit_param)
-                    if limit <= 0:
-                        raise ValueError()
-                except (ValueError, TypeError):
-                    return Response(
-                        {"error": f"Invalid limit parameter: {limit_param}"},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-        elif limit <= 0:  # Add validation for body limit
+        if offset is not None and limit is None:
             return Response(
-                {"error": f"Invalid limit parameter: {limit}"},
+                {"error": "offset requires limit to be set"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1461,15 +1742,30 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         self.validate_run_request(data, endpoint, version_obj)
 
+        if offset is not None and version_obj:
+            query_kind = version_obj.query.get("kind")
+            if query_kind != "HogQLQuery":
+                return Response(
+                    {"error": "offset is only supported for HogQL endpoints"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         # Check if we should use materialization for this version
         use_materialized = self._should_use_materialized_table(endpoint, data, version_obj)
+
+        logger.info(
+            "Endpoint run decision",
+            endpoint_name=endpoint.name,
+            use_materialized=use_materialized,
+            version=version_obj.version if version_obj else None,
+        )
 
         debug = data.debug or False
 
         try:
             if use_materialized:
                 result = self._execute_materialized_endpoint(
-                    endpoint, data, request, version=version_obj, debug=debug, limit=limit
+                    endpoint, data, request, version=version_obj, debug=debug, limit=limit, offset=offset
                 )
             else:
                 # Use version's query
@@ -1479,9 +1775,37 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                         status=status.HTTP_404_NOT_FOUND,
                     )
                 query_to_use = version_obj.query.copy()
-                result = self._execute_inline_endpoint(
-                    endpoint, data, request, query_to_use, version=version_obj, debug=debug, limit=limit
-                )
+
+                use_ducklake = self._should_use_ducklake(endpoint, version_obj)
+                if use_ducklake:
+                    try:
+                        result = self._execute_ducklake_endpoint(endpoint, query_to_use, debug=debug)
+                    except Exception:
+                        logger.warning(
+                            "DuckLake execution failed, falling back to inline",
+                            endpoint_name=endpoint.name,
+                        )
+                        result = self._execute_inline_endpoint(
+                            endpoint,
+                            data,
+                            request,
+                            query_to_use,
+                            version=version_obj,
+                            debug=debug,
+                            limit=limit,
+                            offset=offset,
+                        )
+                else:
+                    result = self._execute_inline_endpoint(
+                        endpoint,
+                        data,
+                        request,
+                        query_to_use,
+                        version=version_obj,
+                        debug=debug,
+                        limit=limit,
+                        offset=offset,
+                    )
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             logger.exception(
                 "Endpoint execution failed",
@@ -1533,19 +1857,21 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         # Reject query_override (always)
         if hasattr(data, "query_override") and data.query_override is not None:
-            raise ValidationError("query_override is not allowed. Use variables instead.")
+            raise ValidationError({"query_override": "Not allowed. Use variables instead."})
 
         # Allow filters_override for insight endpoints (deprecated but backwards compatible)
         # Reject for HogQL endpoints
         if data.filters_override is not None:
             if query_kind == "HogQLQuery":
-                raise ValidationError("filters_override is not allowed for HogQL endpoints. Use variables instead.")
+                raise ValidationError({"filters_override": "Not allowed for HogQL endpoints. Use variables instead."})
 
         # Validate refresh mode
         if data.refresh == EndpointRefreshMode.DIRECT and not is_materialized:
             raise ValidationError(
-                "'direct' refresh mode is only valid for materialized endpoints. "
-                "Use 'cache' or 'force' instead, or enable materialization on this endpoint."
+                {
+                    "refresh": "'direct' refresh mode is only valid for materialized endpoints. "
+                    "Use 'cache' or 'force' instead, or enable materialization on this endpoint."
+                }
             )
 
         # Validate variables
@@ -1553,7 +1879,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             allowed_vars = self._get_allowed_variables(query, is_materialized, version)
             unknown_vars = set(data.variables.keys()) - allowed_vars
             if unknown_vars:
-                raise ValidationError(f"Unknown variable(s): {', '.join(sorted(unknown_vars))}")
+                raise ValidationError({"variables": f"Unknown variable(s): {', '.join(sorted(unknown_vars))}"})
 
         # SECURITY: For materialized endpoints with required variables, ALL must be provided.
         # Without this check, omitting variables would return ALL data instead of filtered data.
@@ -1564,7 +1890,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 provided = set(data.variables.keys()) if data.variables else set()
                 missing = sorted(required_vars - provided)
                 if missing:
-                    raise ValidationError(f"Required variable(s) {', '.join(repr(v) for v in missing)} not provided")
+                    raise ValidationError(
+                        {"variables": f"Required variable(s) {', '.join(repr(v) for v in missing)} not provided"}
+                    )
 
     @extend_schema(
         description="Get the last execution times in the past 6 months for multiple endpoints.",
@@ -1588,7 +1916,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             validated_names = []
             for name in names:
                 if not isinstance(name, str) or not re.fullmatch(ENDPOINT_NAME_REGEX, name):
-                    raise ValidationError(f"Invalid endpoint name: {name}")
+                    raise ValidationError({"names": f"Invalid endpoint name: {name}"})
                 validated_names.append(f"'{name}'")
             names_list = ",".join(validated_names)
 
@@ -1638,7 +1966,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         Returns versions in descending order (latest first).
         """
-        endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
+        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
         versions = endpoint.versions.all()
 
         results = [self._serialize(v) for v in versions]
@@ -1653,7 +1981,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         Supports ?version=N query param to get status for a specific version.
         """
-        endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
+        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
 
         version_number = self._parse_version_param(request)
         if version_number is not None:
@@ -1678,7 +2006,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         Supports ?version=N query param to generate spec for a specific version.
         """
-        endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
+        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
 
         version = None
         version_number = self._parse_version_param(request)

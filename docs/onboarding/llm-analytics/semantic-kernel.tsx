@@ -14,8 +14,8 @@ export const getSemanticKernelSteps = (ctx: OnboardingComponentsContext): StepDe
             content: (
                 <>
                     <Markdown>
-                        Setting up analytics starts with installing the PostHog SDK. The Semantic Kernel integration uses
-                        PostHog's OpenAI wrapper.
+                        Setting up analytics starts with installing the PostHog SDK. The Semantic Kernel integration
+                        uses PostHog's OpenAI wrapper.
                     </Markdown>
 
                     <CodeBlock
@@ -52,7 +52,7 @@ export const getSemanticKernelSteps = (ctx: OnboardingComponentsContext): StepDe
             content: (
                 <>
                     <Markdown>
-                        Initialize PostHog with your project API key and host from [your project
+                        Initialize PostHog with your project token and host from [your project
                         settings](https://app.posthog.com/settings/project), then create a PostHog `AsyncOpenAI` wrapper
                         and pass it to Semantic Kernel's `OpenAIChatCompletion` service.
                     </Markdown>
@@ -66,7 +66,7 @@ export const getSemanticKernelSteps = (ctx: OnboardingComponentsContext): StepDe
                             from posthog import Posthog
 
                             posthog = Posthog(
-                                "<ph_project_api_key>",
+                                "<ph_project_token>",
                                 host="<ph_client_api_host>"
                             )
 
@@ -88,8 +88,8 @@ export const getSemanticKernelSteps = (ctx: OnboardingComponentsContext): StepDe
                     <CalloutBox type="fyi" icon="IconInfo" title="How this works">
                         <Markdown>
                             PostHog's `AsyncOpenAI` wrapper is a proper subclass of `openai.AsyncOpenAI`, so it works
-                            directly as the `async_client` parameter in Semantic Kernel's `OpenAIChatCompletion`. PostHog
-                            captures `$ai_generation` events automatically without proxying your calls.
+                            directly as the `async_client` parameter in Semantic Kernel's `OpenAIChatCompletion`.
+                            PostHog captures `$ai_generation` events automatically without proxying your calls.
                         </Markdown>
                     </CalloutBox>
                 </>

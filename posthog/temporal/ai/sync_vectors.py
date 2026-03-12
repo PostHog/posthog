@@ -138,17 +138,19 @@ async def batch_embed_actions(
         "Preparing to embed actions",
         actions_count=len(actions),
     )
-    embeddings_client = get_async_azure_embeddings_client()
-
     filtered_batches = [
         [action for action in actions[i : i + batch_size] if action["summary"]]
         for i in range(0, len(actions), batch_size)
     ]
-    embedding_requests = [
-        aembed_documents(embeddings_client, [cast(str, action["summary"]) for action in action_batch])
-        for action_batch in filtered_batches
-    ]
-    responses = await asyncio.gather(*embedding_requests, return_exceptions=True)
+
+    # TRICKY: This avoids a race condition in AioHttpTransport.open() where concurrent coroutines
+    # can create multiple sessions see: https://github.com/Azure/azure-sdk-for-python/issues/32309
+    async with get_async_azure_embeddings_client() as embeddings_client:
+        embedding_requests = [
+            aembed_documents(embeddings_client, [cast(str, action["summary"]) for action in action_batch])
+            for action_batch in filtered_batches
+        ]
+        responses = await asyncio.gather(*embedding_requests, return_exceptions=True)
 
     successful_batches = []
     for action_batch, maybe_vector in zip(filtered_batches, responses):

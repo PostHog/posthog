@@ -1,5 +1,8 @@
+import shlex
 import logging
 from dataclasses import dataclass
+
+from django.conf import settings
 
 from temporalio import activity
 
@@ -9,6 +12,7 @@ from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
+from products.tasks.backend.temporal.metrics import StepTimer, increment_snapshot_usage
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
@@ -45,8 +49,11 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         "get_sandbox_for_repository",
         **ctx.to_log_context(),
     ):
-        snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(ctx.github_integration_id, [ctx.repository])
-        used_snapshot = snapshot is not None
+        with StepTimer("snapshot_lookup") as snapshot_lookup_timer:
+            snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(ctx.github_integration_id, [ctx.repository])
+            used_snapshot = snapshot is not None
+            snapshot_lookup_timer.set_used_snapshot(used_snapshot)
+        increment_snapshot_usage(used_snapshot)
 
         if used_snapshot:
             emit_agent_log(ctx.run_id, "info", f"Found existing environment for {ctx.repository}")
@@ -84,6 +91,9 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             "JWT_PUBLIC_KEY": get_sandbox_jwt_public_key(),
         }
 
+        if settings.SANDBOX_LLM_GATEWAY_URL:
+            environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
+
         config = SandboxConfig(
             name=get_sandbox_name_for_task(ctx.task_id),
             template=SandboxTemplate.DEFAULT_BASE,
@@ -92,14 +102,50 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             metadata={"task_id": ctx.task_id},
         )
 
-        sandbox = Sandbox.create(config)
+        with StepTimer("sandbox_creation", used_snapshot=used_snapshot):
+            sandbox = Sandbox.create(config)
 
         if not used_snapshot:
             emit_agent_log(ctx.run_id, "info", f"Cloning {ctx.repository} into sandbox")
-            clone_result = sandbox.clone_repository(ctx.repository, github_token=github_token)
+            with StepTimer("repository_clone", used_snapshot=used_snapshot):
+                clone_result = sandbox.clone_repository(ctx.repository, github_token=github_token)
             if clone_result.exit_code != 0:
                 sandbox.destroy()
                 raise RuntimeError(f"Failed to clone repository {ctx.repository}: {clone_result.stderr}")
+
+        if ctx.branch:
+            emit_agent_log(ctx.run_id, "info", f"Checking out branch {ctx.branch}")
+            org, repo = ctx.repository.lower().split("/")
+            repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+
+            # For snapshot-based sandboxes, update the remote URL with the fresh token
+            # since the snapshotted .git/config may contain an expired token.
+            if used_snapshot and github_token:
+                update_remote = (
+                    f"cd {shlex.quote(repo_path)} && "
+                    f"git remote set-url origin https://x-access-token:{shlex.quote(github_token)}@github.com/{shlex.quote(ctx.repository)}.git"
+                )
+                update_result = sandbox.execute(update_remote, timeout_seconds=30)
+                if update_result.exit_code != 0:
+                    logger.warning(
+                        "Failed to update remote URL for snapshot",
+                        extra={"branch": ctx.branch, "stderr": update_result.stderr},
+                    )
+
+            fetch_and_checkout = (
+                f"cd {shlex.quote(repo_path)} && "
+                f"git fetch --depth 1 origin -- {shlex.quote(ctx.branch)} && "
+                f"git checkout -B {shlex.quote(ctx.branch)} FETCH_HEAD"
+            )
+            try:
+                result = sandbox.execute(fetch_and_checkout, timeout_seconds=5 * 60)
+            except Exception:
+                sandbox.destroy()
+                raise
+            if result.exit_code != 0:
+                sandbox.destroy()
+                logger.warning("Branch checkout failed", extra={"branch": ctx.branch, "stderr": result.stderr})
+                raise RuntimeError(f"Failed to checkout branch {ctx.branch}")
 
         credentials = sandbox.get_connect_credentials()
 

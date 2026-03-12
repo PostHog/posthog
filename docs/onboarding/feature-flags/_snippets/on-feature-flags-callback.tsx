@@ -28,5 +28,3 @@ export const OnFeatureFlagsCallbackSnippet = (): JSX.Element => {
         </>
     )
 }
-
-

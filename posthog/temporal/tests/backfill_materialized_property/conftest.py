@@ -8,7 +8,8 @@ import pytest_asyncio
 from asgiref.sync import sync_to_async
 
 from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
-from posthog.models.property_definition import PropertyType
+
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 
 @pytest.fixture

@@ -1,13 +1,17 @@
 {
     "name": "@posthog/products-llm-analytics",
-    "scripts": {},
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+    },
     "dependencies": {
         "kea": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "kea-subscriptions": "catalog:",
-        "posthog-js": "catalog:"
+        "partial-json": "^0.1.7",
+        "posthog-js": "catalog:",
+        "torph": "^0.0.5"
     },
     "devDependencies": {
         "kea-test-utils": "catalog:"
@@ -15,6 +19,7 @@
     "peerDependencies": {
         "@posthog/icons": "*",
         "@storybook/react": "*",
+        "@testing-library/jest-dom": "*",
         "@testing-library/react": "*",
         "@testing-library/user-event": "*",
         "@types/react": "*",
@@ -22,7 +27,6 @@
         "clsx": "*",
         "eslint": "*",
         "jest": "*",
-        "prettier": "*",
         "react": "*",
         "stylelint": "*",
         "typescript": "*",

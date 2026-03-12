@@ -12,7 +12,7 @@ import { Breakdown, ExperimentMetric, ExperimentMetricType, NodeKind } from '~/q
 import { initKeaTests } from '~/test/init'
 import { Experiment } from '~/types'
 
-import { ExperimentSavedMetric, experimentLogic } from './experimentLogic'
+import { ExperimentSavedMetric, ExperimentWarning, experimentLogic } from './experimentLogic'
 
 const RUNNING_EXP_ID = 45
 const RUNNING_FUNNEL_EXP_ID = 46
@@ -159,6 +159,7 @@ describe('experimentLogic', () => {
                             },
                             hasDiagnostics: true,
                             statusCode: 400,
+                            code: 'no-results',
                             queryId: expect.any(String),
                             timestamp: expect.any(Number),
                         },
@@ -235,12 +236,53 @@ describe('experimentLogic', () => {
                             },
                             hasDiagnostics: true,
                             statusCode: 400,
+                            code: 'no-results',
                             queryId: expect.any(String),
                             timestamp: expect.any(Number),
                         },
                         null,
                     ],
                 })
+        })
+    })
+
+    describe('refreshExperimentResults', () => {
+        it('waits for metric refreshes to complete before resolving', async () => {
+            logic.actions.setExperiment(experiment)
+
+            useMocks({
+                post: {
+                    '/api/environments/:team/query': async () => {
+                        await new Promise((resolve) => setTimeout(resolve, 30))
+                        return [
+                            200,
+                            {
+                                cache_key: 'cache_key',
+                                query_status: experimentMetricResultsSuccessJson.query_status,
+                            },
+                        ]
+                    },
+                },
+                get: {
+                    '/api/environments/:team/query/:id': async () => {
+                        await new Promise((resolve) => setTimeout(resolve, 30))
+                        return [200, experimentMetricResultsSuccessJson]
+                    },
+                },
+            })
+
+            await logic.asyncActions.refreshExperimentResults(true, 'manual')
+
+            expect(logic.values.primaryMetricsResultsLoading).toBe(false)
+            expect(logic.values.secondaryMetricsResultsLoading).toBe(false)
+
+            const successfulCount =
+                logic.values.legacyPrimaryMetricsResults.filter(Boolean).length +
+                logic.values.primaryMetricsResults.filter(Boolean).length +
+                logic.values.legacySecondaryMetricsResults.filter(Boolean).length +
+                logic.values.secondaryMetricsResults.filter(Boolean).length
+
+            expect(successfulCount).toBeGreaterThan(0)
         })
     })
 
@@ -662,6 +704,183 @@ describe('experimentLogic', () => {
                 { property: '$browser', type: 'event' },
                 { property: '$os', type: 'event' },
             ])
+        })
+    })
+
+    describe('experimentWarning', () => {
+        const multivariantFilters = {
+            groups: [{ properties: [], rollout_percentage: 100 }],
+            multivariate: {
+                variants: [
+                    { key: 'control', rollout_percentage: 50 },
+                    { key: 'test', rollout_percentage: 50 },
+                ],
+            },
+        }
+
+        const shippedVariantFilters = {
+            groups: [{ properties: [], rollout_percentage: 100 }],
+            multivariate: {
+                variants: [
+                    { key: 'control', rollout_percentage: 0 },
+                    { key: 'test', rollout_percentage: 100 },
+                ],
+            },
+        }
+
+        const zeroRolloutFilters = {
+            groups: [{ properties: [], rollout_percentage: 0 }],
+            multivariate: {
+                variants: [
+                    { key: 'control', rollout_percentage: 50 },
+                    { key: 'test', rollout_percentage: 50 },
+                ],
+            },
+        }
+
+        const zeroRolloutShippedVariantFilters = {
+            groups: [{ properties: [], rollout_percentage: 0 }],
+            multivariate: {
+                variants: [
+                    { key: 'control', rollout_percentage: 0 },
+                    { key: 'test', rollout_percentage: 100 },
+                ],
+            },
+        }
+
+        const createExperiment = (overrides: Partial<Experiment>): Experiment =>
+            ({
+                ...experiment,
+                ...overrides,
+            }) as Experiment
+
+        it.each<{ desc: string; overrides: Partial<Experiment>; expected: ExperimentWarning | null }>([
+            {
+                desc: 'running experiment with active flag and normal rollout',
+                overrides: {
+                    start_date: '2020-01-01',
+                    end_date: undefined,
+                    feature_flag: { id: 1, key: 'flag', active: true, filters: multivariantFilters } as any,
+                },
+                expected: null,
+            },
+            {
+                desc: 'running experiment with disabled flag',
+                overrides: {
+                    start_date: '2020-01-01',
+                    end_date: undefined,
+                    feature_flag: { id: 1, key: 'flag', active: false, filters: multivariantFilters } as any,
+                },
+                expected: { key: 'running_but_flag_disabled' },
+            },
+            {
+                desc: 'running experiment with single variant shipped',
+                overrides: {
+                    start_date: '2020-01-01',
+                    end_date: undefined,
+                    feature_flag: { id: 1, key: 'flag', active: true, filters: shippedVariantFilters } as any,
+                },
+                expected: { key: 'running_but_single_variant_shipped', variantKey: 'test' },
+            },
+            {
+                desc: 'running experiment with zero rollout',
+                overrides: {
+                    start_date: '2020-01-01',
+                    end_date: undefined,
+                    feature_flag: { id: 1, key: 'flag', active: true, filters: zeroRolloutFilters } as any,
+                },
+                expected: { key: 'running_but_no_rollout' },
+            },
+            {
+                desc: 'running experiment with zero rollout takes priority over single variant shipped',
+                overrides: {
+                    start_date: '2020-01-01',
+                    end_date: undefined,
+                    feature_flag: {
+                        id: 1,
+                        key: 'flag',
+                        active: true,
+                        filters: zeroRolloutShippedVariantFilters,
+                    } as any,
+                },
+                expected: { key: 'running_but_no_rollout' },
+            },
+            {
+                desc: 'ended experiment with flag still distributing multiple variants',
+                overrides: {
+                    start_date: '2020-01-01',
+                    end_date: '2020-02-01',
+                    feature_flag: { id: 1, key: 'flag', active: true, filters: multivariantFilters } as any,
+                },
+                expected: { key: 'ended_but_multiple_variants_rolled_out' },
+            },
+            {
+                desc: 'ended experiment with flag active but zero group rollout',
+                overrides: {
+                    start_date: '2020-01-01',
+                    end_date: '2020-02-01',
+                    feature_flag: { id: 1, key: 'flag', active: true, filters: zeroRolloutFilters } as any,
+                },
+                expected: null,
+            },
+            {
+                desc: 'ended experiment with flag disabled',
+                overrides: {
+                    start_date: '2020-01-01',
+                    end_date: '2020-02-01',
+                    feature_flag: { id: 1, key: 'flag', active: false, filters: multivariantFilters } as any,
+                },
+                expected: null,
+            },
+            {
+                desc: 'ended experiment with single variant shipped',
+                overrides: {
+                    start_date: '2020-01-01',
+                    end_date: '2020-02-01',
+                    feature_flag: { id: 1, key: 'flag', active: true, filters: shippedVariantFilters } as any,
+                },
+                expected: null,
+            },
+            {
+                desc: 'archived ended experiment with flag still distributing multiple variants',
+                overrides: {
+                    start_date: '2020-01-01',
+                    end_date: '2020-02-01',
+                    archived: true,
+                    feature_flag: { id: 1, key: 'flag', active: true, filters: multivariantFilters } as any,
+                },
+                expected: { key: 'ended_but_multiple_variants_rolled_out' },
+            },
+            {
+                desc: 'draft experiment with flag already active and distributing variants',
+                overrides: {
+                    start_date: undefined,
+                    end_date: undefined,
+                    feature_flag: { id: 1, key: 'flag', active: true, filters: multivariantFilters } as any,
+                },
+                expected: { key: 'not_started_but_multiple_variants_rolled_out' },
+            },
+            {
+                desc: 'draft experiment with flag active but zero group rollout',
+                overrides: {
+                    start_date: undefined,
+                    end_date: undefined,
+                    feature_flag: { id: 1, key: 'flag', active: true, filters: zeroRolloutFilters } as any,
+                },
+                expected: null,
+            },
+            {
+                desc: 'draft experiment with flag disabled',
+                overrides: {
+                    start_date: undefined,
+                    end_date: undefined,
+                    feature_flag: { id: 1, key: 'flag', active: false, filters: multivariantFilters } as any,
+                },
+                expected: null,
+            },
+        ])('$desc → $expected', ({ overrides, expected }) => {
+            logic.actions.setExperiment(createExperiment(overrides))
+            expect(logic.values.experimentWarning).toEqual(expected)
         })
     })
 })

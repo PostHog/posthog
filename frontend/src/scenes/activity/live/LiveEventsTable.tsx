@@ -1,20 +1,25 @@
+import './LiveEventsTable.scss'
+
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconPauseFilled, IconPlayFilled, IconRefresh } from '@posthog/icons'
-import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconPauseFilled, IconPlayFilled, IconRefresh, IconTerminal } from '@posthog/icons'
+import { LemonButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LiveRecordingsCount, LiveUserCount } from 'lib/components/LiveUserCount'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ActivitySceneTabs } from 'scenes/activity/ActivitySceneTabs'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -90,6 +95,7 @@ export const scene: SceneExport = {
 export function LiveEventsTable(): JSX.Element {
     const { events, streamPaused, filters } = useValues(liveEventsLogic)
     const { pauseStream, resumeStream, setFilters, clearEvents } = useActions(liveEventsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { isVisible } = usePageVisibility()
     useEffect(() => {
@@ -103,6 +109,14 @@ export function LiveEventsTable(): JSX.Element {
     return (
         <SceneContent data-attr="manage-events-table">
             <ActivitySceneTabs activeKey={ActivityTab.LiveEvents} />
+            {featureFlags[FEATURE_FLAGS.LIVESTREAM_TUI] && (
+                <LemonBanner type="info" className="mb-4" icon={<IconTerminal />} dismissKey="livestream-tui-banner">
+                    Stream live events directly in your terminal with <code>posthog-live</code>.{' '}
+                    <Link to="https://posthog.com/docs/live-events/cli" target="_blank">
+                        Learn more
+                    </Link>
+                </LemonBanner>
+            )}
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Activity].name}
                 description={sceneConfigurations[Scene.Activity].description}
@@ -147,6 +161,7 @@ export function LiveEventsTable(): JSX.Element {
                 </div>
             </div>
             <LemonTable
+                className="LiveEventsTable__table"
                 columns={columns}
                 data-attr="live-events-table"
                 rowKey="uuid"

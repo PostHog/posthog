@@ -3,12 +3,12 @@ import datetime
 from typing import Any, Optional
 
 import pyarrow as pa
-import requests
 import structlog
 from dateutil import parser
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from structlog.types import FilteringBoundLogger
 
+from posthog.security.outbound_proxy import external_requests
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_iterator
 from posthog.temporal.data_imports.sources.generated_configs import DoItSourceConfig
@@ -55,8 +55,9 @@ def doit_list_reports(config: DoItSourceConfig, logger: Optional[FilteringBoundL
     if logger is None:
         logger = structlog.get_logger(__name__)
 
-    res = requests.get(
-        "https://api.doit.com/analytics/v1/reports", headers={"Authorization": f"Bearer {config.api_key}"}
+    res = external_requests.get(
+        "https://api.doit.com/analytics/v1/reports",
+        headers={"Authorization": f"Bearer {config.api_key}"},
     )
 
     reports = res.json()["reports"]
@@ -128,7 +129,7 @@ def doit_source(
 
         logger.debug(f"Requesting DoIt url: {request_uri}")
 
-        res = requests.get(
+        res = external_requests.get(
             request_uri,
             headers={"Authorization": f"Bearer {config.api_key}"},
         )

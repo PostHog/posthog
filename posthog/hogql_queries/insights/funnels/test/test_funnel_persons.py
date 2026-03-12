@@ -22,6 +22,7 @@ from posthog.schema import (
     FunnelsActorsQuery,
     FunnelsFilter,
     FunnelsQuery,
+    FunnelVizType,
 )
 
 from posthog.constants import INSIGHT_FUNNELS
@@ -830,3 +831,223 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
         # Should return 2 users: user_does_step1_only and user_does_step1_and_2_only
         self.assertEqual(len(results), 2)
+
+
+class TestFunnelSessionActors(ClickhouseTestMixin, APIBaseTest):
+    """Tests for funnel actors when aggregating by session_id."""
+
+    def _create_session_funnel_data(self):
+        from posthog.models.utils import uuid7
+
+        self.session_id_1 = str(uuid7("2021-01-02 00:00:00"))
+        self.session_id_2 = str(uuid7("2021-01-03 00:00:00"))
+
+        self.person = _create_person(
+            distinct_ids=["user_1"],
+            team_id=self.team.pk,
+            properties={"email": "test@example.com", "name": "Test User", "$browser": "Chrome"},
+        )
+        _create_event(
+            event="step one",
+            distinct_id="user_1",
+            team=self.team,
+            timestamp="2021-01-02 00:00:00",
+            properties={"$session_id": self.session_id_1},
+        )
+        _create_event(
+            event="step two",
+            distinct_id="user_1",
+            team=self.team,
+            timestamp="2021-01-02 01:00:00",
+            properties={"$session_id": self.session_id_1},
+        )
+        _create_event(
+            event="step one",
+            distinct_id="user_1",
+            team=self.team,
+            timestamp="2021-01-03 00:00:00",
+            properties={"$session_id": self.session_id_2},
+        )
+
+    def _base_funnels_query(self, viz_type=FunnelVizType.STEPS) -> FunnelsQuery:
+        return FunnelsQuery(
+            series=[
+                EventsNode(event="step one"),
+                EventsNode(event="step two"),
+            ],
+            dateRange=DateRange(date_from="2021-01-01", date_to="2021-01-08"),
+            funnelsFilter=FunnelsFilter(
+                funnelAggregateByHogQL="properties.$session_id",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+                funnelVizType=viz_type,
+            ),
+        )
+
+    @freeze_time("2021-01-08 00:00:00.000Z")
+    def test_funnel_session_actors_returns_sessions_with_person(self):
+        self._create_session_funnel_data()
+
+        funnels_query = self._base_funnels_query()
+        funnel_actors_query = FunnelsActorsQuery(source=funnels_query, funnelStep=1)
+        actors_query = ActorsQuery(
+            source=funnel_actors_query,
+            select=["actor"],
+        )
+        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+        assert "person" in response.columns
+        assert len(response.results) == 2
+
+        session_ids = {str(row[0]["session_id"]) for row in response.results}
+        assert session_ids == {self.session_id_1, self.session_id_2}
+
+        person_col_index = response.columns.index("person")
+        for row in response.results:
+            person_data = row[person_col_index]
+            assert person_data is not None
+            assert "properties" in person_data
+            assert person_data["properties"]["email"] == "test@example.com"
+
+    @freeze_time("2021-01-08 00:00:00.000Z")
+    def test_funnel_session_actors_step_completed(self):
+        self._create_session_funnel_data()
+
+        funnels_query = self._base_funnels_query()
+        funnel_actors_query = FunnelsActorsQuery(source=funnels_query, funnelStep=2)
+        actors_query = ActorsQuery(
+            source=funnel_actors_query,
+            select=["actor"],
+        )
+        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+        assert len(response.results) == 1
+        assert str(response.results[0][0]["session_id"]) == self.session_id_1
+
+    @freeze_time("2021-01-08 00:00:00.000Z")
+    def test_funnel_session_actors_dropoff(self):
+        self._create_session_funnel_data()
+
+        funnels_query = self._base_funnels_query()
+        funnel_actors_query = FunnelsActorsQuery(source=funnels_query, funnelStep=-2)
+        actors_query = ActorsQuery(
+            source=funnel_actors_query,
+            select=["actor"],
+        )
+        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+        assert len(response.results) == 1
+        assert str(response.results[0][0]["session_id"]) == self.session_id_2
+
+    @freeze_time("2021-01-08 00:00:00.000Z")
+    def test_funnel_trends_session_actors(self):
+        self._create_session_funnel_data()
+
+        funnels_query = self._base_funnels_query(viz_type=FunnelVizType.TRENDS)
+        funnel_actors_query = FunnelsActorsQuery(
+            source=funnels_query,
+            funnelTrendsDropOff=False,
+            funnelTrendsEntrancePeriodStart="2021-01-02T00:00:00+00:00",
+        )
+        actors_query = ActorsQuery(
+            source=funnel_actors_query,
+            select=["actor"],
+        )
+        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+        assert "person" in response.columns
+        assert len(response.results) == 1
+        assert str(response.results[0][0]["session_id"]) == self.session_id_1
+
+        person_col_index = response.columns.index("person")
+        person_data = response.results[0][person_col_index]
+        assert person_data is not None
+        assert person_data["properties"]["email"] == "test@example.com"
+
+    @freeze_time("2021-01-08 00:00:00.000Z")
+    def test_funnel_trends_session_actors_dropoff(self):
+        self._create_session_funnel_data()
+
+        funnels_query = self._base_funnels_query(viz_type=FunnelVizType.TRENDS)
+        funnel_actors_query = FunnelsActorsQuery(
+            source=funnels_query,
+            funnelTrendsDropOff=True,
+            funnelTrendsEntrancePeriodStart="2021-01-03T00:00:00+00:00",
+        )
+        actors_query = ActorsQuery(
+            source=funnel_actors_query,
+            select=["actor"],
+        )
+        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+        assert "person" in response.columns
+        assert len(response.results) == 1
+        assert str(response.results[0][0]["session_id"]) == self.session_id_2
+
+    @freeze_time("2021-01-08 00:00:00.000Z")
+    def test_funnel_session_actors_search_by_email(self):
+        self._create_session_funnel_data()
+
+        funnels_query = self._base_funnels_query()
+        funnel_actors_query = FunnelsActorsQuery(source=funnels_query, funnelStep=1)
+
+        actors_query = ActorsQuery(
+            source=funnel_actors_query,
+            select=["actor"],
+            search="test@example.com",
+        )
+        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+        assert len(response.results) == 2
+        session_ids = {str(row[0]["session_id"]) for row in response.results}
+        assert session_ids == {self.session_id_1, self.session_id_2}
+
+    @freeze_time("2021-01-08 00:00:00.000Z")
+    def test_funnel_session_actors_search_by_name(self):
+        self._create_session_funnel_data()
+
+        funnels_query = self._base_funnels_query()
+        funnel_actors_query = FunnelsActorsQuery(source=funnels_query, funnelStep=1)
+
+        actors_query = ActorsQuery(
+            source=funnel_actors_query,
+            select=["actor"],
+            search="Test User",
+        )
+        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+        assert len(response.results) == 2
+        session_ids = {str(row[0]["session_id"]) for row in response.results}
+        assert session_ids == {self.session_id_1, self.session_id_2}
+
+    @freeze_time("2021-01-08 00:00:00.000Z")
+    def test_funnel_session_actors_search_email_no_match(self):
+        self._create_session_funnel_data()
+
+        funnels_query = self._base_funnels_query()
+        funnel_actors_query = FunnelsActorsQuery(source=funnels_query, funnelStep=1)
+
+        actors_query = ActorsQuery(
+            source=funnel_actors_query,
+            select=["actor"],
+            search="non-existing@example.com",
+        )
+        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+        assert len(response.results) == 0
+
+    @freeze_time("2021-01-08 00:00:00.000Z")
+    def test_funnel_session_actors_search_name_no_match(self):
+        self._create_session_funnel_data()
+
+        funnels_query = self._base_funnels_query()
+        funnel_actors_query = FunnelsActorsQuery(source=funnels_query, funnelStep=1)
+
+        actors_query = ActorsQuery(
+            source=funnel_actors_query,
+            select=["actor"],
+            search="non existing",
+        )
+        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+        assert len(response.results) == 0

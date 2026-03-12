@@ -162,7 +162,14 @@ function TemplateItem({
     const [isHovering, setIsHovering] = useState(false)
     const [isMenuOpen, setIsMenuOpen] = useState(false)
 
-    const scopeTag = template.scope === 'global' ? 'official' : template.scope === 'team' ? 'team' : null
+    const scopeTag =
+        template.scope === 'global'
+            ? 'official'
+            : template.scope === 'organization'
+              ? 'organization'
+              : template.scope === 'team'
+                ? 'team'
+                : null
 
     return (
         <div

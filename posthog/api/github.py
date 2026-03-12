@@ -5,7 +5,6 @@ from typing import Any
 from django.conf import settings
 from django.db.models import Q
 
-import requests
 import structlog
 import posthoganalytics
 from cryptography.exceptions import InvalidSignature
@@ -24,6 +23,7 @@ from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_tok
 from posthog.models.personal_api_key import find_personal_api_key
 from posthog.models.utils import mask_key_value
 from posthog.redis import get_client
+from posthog.security.outbound_proxy import external_requests
 from posthog.tasks.email import (
     send_oauth_token_exposed,
     send_personal_api_key_exposed,
@@ -38,7 +38,7 @@ TWENTY_FOUR_HOURS = 60 * 60 * 24
 
 # GitHub sends swapped type names - these constants clarify the mismatch
 GITHUB_TYPE_FOR_PERSONAL_API_KEY = "posthog_feature_flags_secure_api_key"
-GITHUB_TYPE_FOR_PROJECT_SECRET = "posthog_personal_api_key"
+GITHUB_TYPE_FOR_SECURE_API_KEY = "posthog_personal_api_key"
 GITHUB_TYPE_FOR_OAUTH_ACCESS_TOKEN = "posthog_oauth_access_token"
 GITHUB_TYPE_FOR_OAUTH_REFRESH_TOKEN = "posthog_oauth_refresh_token"
 
@@ -57,7 +57,7 @@ def relay_to_eu(raw_body: str, kid: str, sig: str) -> list[dict] | None:
     if not url:
         return None
     try:
-        resp = requests.post(
+        resp = external_requests.post(
             url,
             data=raw_body,
             headers={
@@ -94,7 +94,7 @@ def verify_github_signature(payload: str, kid: str, sig: str) -> None:
 
     if pem is None:
         try:
-            resp = requests.get(GITHUB_KEYS_URI, timeout=10)
+            resp = external_requests.get(GITHUB_KEYS_URI, timeout=10)
             resp.raise_for_status()
             data = resp.json()
         except Exception:
@@ -140,7 +140,7 @@ class SecretAlertSerializer(serializers.Serializer):
     type = serializers.ChoiceField(
         choices=[
             GITHUB_TYPE_FOR_PERSONAL_API_KEY,
-            GITHUB_TYPE_FOR_PROJECT_SECRET,
+            GITHUB_TYPE_FOR_SECURE_API_KEY,
             GITHUB_TYPE_FOR_OAUTH_ACCESS_TOKEN,
             GITHUB_TYPE_FOR_OAUTH_REFRESH_TOKEN,
         ]
@@ -261,7 +261,7 @@ class SecretAlert(APIView):
                     serializer.roll(key)
                     send_personal_api_key_exposed(key.user.id, key.id, old_mask_value, more_info)
 
-            elif item["type"] == GITHUB_TYPE_FOR_PROJECT_SECRET:
+            elif item["type"] == GITHUB_TYPE_FOR_SECURE_API_KEY:
                 try:
                     team = Team.objects.get(Q(secret_api_token=token) | Q(secret_api_token_backup=token))
                     local_found = True

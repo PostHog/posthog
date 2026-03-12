@@ -21,6 +21,21 @@ class TestExtractDataCenter:
         with pytest.raises(ValueError, match="Invalid Mailchimp API key format"):
             extract_data_center("invalidkey")
 
+    @pytest.mark.parametrize(
+        "malicious_key",
+        [
+            "key-evil.com/#",
+            "key-evil.com/path",
+            "key-us6.attacker.com",
+            "key-dc:8080",
+            "key-",
+            "key- spaces",
+        ],
+    )
+    def test_malicious_dc_values_raise(self, malicious_key):
+        with pytest.raises(ValueError, match="Invalid Mailchimp API key format"):
+            extract_data_center(malicious_key)
+
 
 class TestFormatIncrementalValue:
     def test_datetime(self):

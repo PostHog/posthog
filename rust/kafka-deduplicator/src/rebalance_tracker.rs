@@ -127,28 +127,50 @@ impl RebalanceTracker {
     ///
     /// On the 1->0 transition (all rebalances complete), creates a fresh export
     /// suppression token so checkpoint exports can resume normally.
+    ///
+    /// Uses compare_exchange to prevent underflow from 0 to usize::MAX, which
+    /// would permanently set is_rebalancing() to true.
     pub fn finish_rebalancing(&self) {
-        let prev = self.rebalancing_count.fetch_sub(1, Ordering::SeqCst);
-        let new_count = prev.saturating_sub(1);
-        metrics::gauge!(REBALANCING_COUNT).set(new_count as f64);
+        loop {
+            let current = self.rebalancing_count.load(Ordering::SeqCst);
+            if current == 0 {
+                warn!("finish_rebalancing called when counter was already 0 — skipping to prevent underflow");
+                return;
+            }
 
-        if prev == 0 {
-            warn!("finish_rebalancing called when counter was already 0");
-        } else if new_count == 0 {
-            // Create fresh token when ALL rebalances complete (1 -> 0 transition)
-            let mut token = self
-                .export_suppression_token
-                .write()
-                .unwrap_or_else(|poison| poison.into_inner());
-            *token = CancellationToken::new();
-            info!("Export suppression: created fresh token (all rebalances complete)");
-            info!("All rebalances completed, counter returned to 0");
-        } else {
-            info!(
-                previous_count = prev,
-                new_count = new_count,
-                "Rebalance finished, decremented rebalancing counter (other rebalances still in progress)"
-            );
+            match self.rebalancing_count.compare_exchange(
+                current,
+                current - 1,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => {
+                    let new_count = current - 1;
+                    metrics::gauge!(REBALANCING_COUNT).set(new_count as f64);
+
+                    if new_count == 0 {
+                        // Create fresh token when ALL rebalances complete (1 -> 0 transition)
+                        let mut token = self
+                            .export_suppression_token
+                            .write()
+                            .unwrap_or_else(|poison| poison.into_inner());
+                        *token = CancellationToken::new();
+                        info!("Export suppression: created fresh token (all rebalances complete)");
+                        info!("All rebalances completed, counter returned to 0");
+                    } else {
+                        info!(
+                            previous_count = current,
+                            new_count = new_count,
+                            "Rebalance finished, decremented rebalancing counter (other rebalances still in progress)"
+                        );
+                    }
+                    return;
+                }
+                Err(_) => {
+                    // Counter changed between load and CAS, retry
+                    continue;
+                }
+            }
         }
     }
 
@@ -414,6 +436,18 @@ mod tests {
     #[test]
     fn test_default_impl() {
         let tracker = RebalanceTracker::default();
+        assert!(!tracker.is_rebalancing());
+    }
+
+    #[test]
+    fn test_finish_rebalancing_prevents_underflow() {
+        let tracker = RebalanceTracker::new();
+        assert_eq!(tracker.rebalancing_count(), 0);
+        assert!(!tracker.is_rebalancing());
+
+        // Calling finish_rebalancing when counter is 0 does not corrupt the counter
+        tracker.finish_rebalancing();
+        assert_eq!(tracker.rebalancing_count(), 0);
         assert!(!tracker.is_rebalancing());
     }
 

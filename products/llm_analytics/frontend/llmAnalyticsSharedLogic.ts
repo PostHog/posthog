@@ -27,12 +27,12 @@ export type LLMAnalyticsTabId =
     | 'traces'
     | 'users'
     | 'errors'
+    | 'tools'
     | 'sessions'
     | 'playground'
     | 'datasets'
     | 'evaluations'
     | 'prompts'
-    | 'settings'
     | 'clusters'
 
 export type SortDirection = 'ASC' | 'DESC'
@@ -59,7 +59,7 @@ export interface LLMAnalyticsSharedLogicProps {
 export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'llmAnalyticsSharedLogic']),
     props({} as LLMAnalyticsSharedLogicProps),
-    key((props: LLMAnalyticsSharedLogicProps) => props?.personId || 'llmAnalyticsScene'),
+    key((props: LLMAnalyticsSharedLogicProps) => `${props?.personId || 'llmAnalyticsScene'}::${props?.tabId || ''}`),
     connect(() => ({
         values: [sceneLogic, ['sceneKey'], featureFlagLogic, ['featureFlags'], userLogic, ['user']],
         actions: [teamLogic, ['addProductIntent']],
@@ -144,6 +144,8 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
                     return 'users'
                 } else if (sceneKey === 'llmAnalyticsErrors') {
                     return 'errors'
+                } else if (sceneKey === 'llmAnalyticsTools') {
+                    return 'tools'
                 } else if (sceneKey === 'llmAnalyticsSessions') {
                     return 'sessions'
                 } else if (sceneKey === 'llmAnalyticsPlayground') {
@@ -154,8 +156,6 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
                     return 'evaluations'
                 } else if (sceneKey === 'llmAnalyticsPrompts') {
                     return 'prompts'
-                } else if (sceneKey === 'llmAnalyticsSettings') {
-                    return 'settings'
                 } else if (sceneKey === 'llmAnalyticsClusters') {
                     return 'clusters'
                 }
@@ -186,25 +186,19 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
             filter_test_accounts,
         }: Record<string, unknown>): void {
             const parsedFilters = isAnyPropertyFilters(filters) ? filters : []
-
             if (!objectsEqual(parsedFilters, values.propertyFilters)) {
                 actions.setPropertyFilters(parsedFilters)
             }
 
-            if (
-                (date_from || INITIAL_EVENTS_DATE_FROM) !== values.dateFilter.dateFrom ||
-                (date_to || INITIAL_DATE_TO) !== values.dateFilter.dateTo
-            ) {
-                actions.setDates(
-                    (date_from as string | null) || INITIAL_EVENTS_DATE_FROM,
-                    (date_to as string | null) || INITIAL_DATE_TO
-                )
+            const newDateFrom = (date_from as string | null) || INITIAL_EVENTS_DATE_FROM
+            const newDateTo = (date_to as string | null) || INITIAL_DATE_TO
+            if (newDateFrom !== values.dateFilter.dateFrom || newDateTo !== values.dateFilter.dateTo) {
+                actions.setDates(newDateFrom, newDateTo)
             }
 
             const filterTestAccountsValue = [true, 'true', 1, '1'].includes(
                 filter_test_accounts as string | number | boolean
             )
-
             if (filterTestAccountsValue !== values.shouldFilterTestAccounts) {
                 actions.setShouldFilterTestAccounts(filterTestAccountsValue)
             }
@@ -222,9 +216,9 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
             [urls.llmAnalyticsTraces()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsUsers()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsErrors()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmAnalyticsTools()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsSessions()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsPlayground()]: (_, searchParams) => applySearchParams(searchParams),
-            [urls.llmAnalyticsSettings()]: () => {},
         }
     }),
 

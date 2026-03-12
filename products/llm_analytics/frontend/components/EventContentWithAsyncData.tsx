@@ -1,13 +1,19 @@
+import React from 'react'
+
 import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
 import { isObject } from 'lib/utils'
 
-import { ConversationMessagesDisplay } from '../ConversationDisplay/ConversationMessagesDisplay'
+import {
+    ConversationDisplayOption,
+    ConversationMessagesDisplay,
+} from '../ConversationDisplay/ConversationMessagesDisplay'
 import { useAIData } from '../hooks/useAIData'
-import { normalizeMessages } from '../utils'
+import { normalizeMessage, normalizeMessages } from '../utils'
 import { AIDataLoading } from './AIDataLoading'
 
 interface EventContentGenerationProps {
     eventId: string
+    traceId?: string | null
     rawInput: unknown
     rawOutput: unknown
     tools: unknown
@@ -15,10 +21,12 @@ interface EventContentGenerationProps {
     httpStatus: unknown
     raisedError: boolean
     searchQuery?: string
+    displayOption?: ConversationDisplayOption
 }
 
 export function EventContentGeneration({
     eventId,
+    traceId,
     rawInput,
     rawOutput,
     tools,
@@ -26,12 +34,32 @@ export function EventContentGeneration({
     httpStatus,
     raisedError,
     searchQuery,
+    displayOption,
 }: EventContentGenerationProps): JSX.Element {
     const { input, output, isLoading } = useAIData({
         uuid: eventId,
         input: rawInput,
         output: rawOutput,
     })
+
+    // Map each normalized input message back to its original index in $ai_input.
+    // This serves as a stable key for looking up per-message sentiment results,
+    // regardless of how normalizeMessage expands/transforms messages.
+    const inputSourceIndices = React.useMemo(() => {
+        const indices: number[] = []
+        if (tools) {
+            indices.push(-1) // tools message prepended by normalizeMessages
+        }
+        if (Array.isArray(input)) {
+            for (let i = 0; i < input.length; i++) {
+                const expanded = normalizeMessage(input[i], 'user')
+                for (let j = 0; j < expanded.length; j++) {
+                    indices.push(i)
+                }
+            }
+        }
+        return indices
+    }, [input, tools])
 
     if (isLoading) {
         return <AIDataLoading variant="block" />
@@ -41,10 +69,14 @@ export function EventContentGeneration({
         <ConversationMessagesDisplay
             inputNormalized={normalizeMessages(input, 'user', tools)}
             outputNormalized={normalizeMessages(output, 'assistant')}
+            inputSourceIndices={inputSourceIndices}
             errorData={errorData}
             httpStatus={typeof httpStatus === 'number' ? httpStatus : undefined}
             raisedError={raisedError}
             searchQuery={searchQuery}
+            displayOption={displayOption}
+            traceId={traceId}
+            generationEventId={eventId}
         />
     )
 }

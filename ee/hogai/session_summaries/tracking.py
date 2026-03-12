@@ -23,6 +23,7 @@ def capture_session_summary_timing(
     if not user_distinct_id:
         return
     properties: dict = {
+        "ai_product": "signals",
         "session_id": session_id,
         "timing_type": timing_type,
         "duration_seconds": duration_seconds,
@@ -56,6 +57,7 @@ def capture_session_summary_started(
         distinct_id=user.distinct_id,
         event="session summary started",
         properties={
+            "ai_product": "signals",
             "tracking_id": tracking_id,
             "summary_source": summary_source,
             "summary_type": summary_type,
@@ -87,6 +89,7 @@ def capture_session_summary_generated(
     if not user.distinct_id:
         return
     properties: dict = {
+        "ai_product": "signals",
         "tracking_id": tracking_id,
         "summary_source": summary_source,
         "summary_type": summary_type,

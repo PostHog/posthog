@@ -163,7 +163,7 @@ POSTGRESQL_STRING_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     ),
     "split_part": HogQLFunctionMeta(
         # We need to repeat each argument in the format string since we use each one multiple times
-        "if(empty(splitByString({1}, {0})), '', if(length(splitByString({1}, {0})) >= {2}, arrayElement(splitByString({1}, {0}), {2}), ''))",
+        "arrayElement(arrayMap((parts, idx) -> if(empty(parts), '', if(length(parts) >= idx, arrayElement(parts, idx), '')), [splitByString({1}, {0})], [{2}]), 1)",
         3,
         3,
         signatures=[((StringType(), StringType(), IntegerType()), StringType())],

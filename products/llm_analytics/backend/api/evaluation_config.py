@@ -1,5 +1,3 @@
-from typing import cast
-
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -9,11 +7,11 @@ from rest_framework.response import Response
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
-from posthog.models import User
 from posthog.permissions import AccessControlPermission
 
 from ..models.evaluation_config import EvaluationConfig
 from ..models.provider_keys import LLMProviderKey
+from .metrics import llma_track_latency
 from .provider_keys import LLMProviderKeySerializer
 
 
@@ -46,6 +44,7 @@ class EvaluationConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "llm_provider_key"
     permission_classes = [IsAuthenticated, AccessControlPermission]
 
+    @llma_track_latency("llma_evaluation_config_list")
     @monitor(feature=None, endpoint="llma_evaluation_config_list", method="GET")
     def list(self, request: Request, **kwargs) -> Response:
         """Get the evaluation config for this team"""
@@ -54,6 +53,7 @@ class EvaluationConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(serializer.data)
 
     @action(detail=False, methods=["post"])
+    @llma_track_latency("llma_evaluation_config_set_active_key")
     @monitor(feature=None, endpoint="llma_evaluation_config_set_active_key", method="POST")
     def set_active_key(self, request: Request, **kwargs) -> Response:
         """Set the active provider key for evaluations"""
@@ -85,13 +85,14 @@ class EvaluationConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         config.save(update_fields=["active_provider_key", "updated_at"])
 
         report_user_action(
-            cast(User, request.user),
+            request.user,
             "llma evaluation config active key set",
             {
                 "key_id": str(key.id),
                 "old_key_id": str(old_key.id) if old_key else None,
             },
-            self.team,
+            team=self.team,
+            request=self.request,
         )
 
         serializer = EvaluationConfigSerializer(config)

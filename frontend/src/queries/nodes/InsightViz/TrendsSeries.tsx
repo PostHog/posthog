@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { alphabet } from 'lib/utils'
+import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
@@ -27,14 +28,22 @@ export function TrendsSeries(): JSX.Element | null {
 
     const { showGroupsOptions: showGroupsOptionsFromModel, groupsTaxonomicTypes } = useValues(groupsModel)
 
-    // Disable groups for calendar heatmap
-    const showGroupsOptions = display === ChartDisplayType.CalendarHeatmap ? false : showGroupsOptionsFromModel
+    // Disable groups for calendar heatmap and box plot
+    const showGroupsOptions =
+        display === ChartDisplayType.CalendarHeatmap || display === ChartDisplayType.BoxPlot
+            ? false
+            : showGroupsOptionsFromModel
+
+    const { hasPageview, hasScreen } = getProjectEventExistence()
 
     const propertiesTaxonomicGroupTypes = [
         TaxonomicFilterGroupType.EventProperties,
         TaxonomicFilterGroupType.PersonProperties,
         TaxonomicFilterGroupType.EventFeatureFlags,
         TaxonomicFilterGroupType.EventMetadata,
+        ...(hasPageview ? [TaxonomicFilterGroupType.PageviewUrls] : []),
+        ...(hasScreen ? [TaxonomicFilterGroupType.Screens] : []),
+        TaxonomicFilterGroupType.EmailAddresses,
         ...groupsTaxonomicTypes,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
@@ -55,7 +64,9 @@ export function TrendsSeries(): JSX.Element | null {
           ? MathAvailability.ActorsOnly
           : display === ChartDisplayType.CalendarHeatmap
             ? MathAvailability.CalendarHeatmapOnly
-            : MathAvailability.All
+            : display === ChartDisplayType.BoxPlot
+              ? MathAvailability.BoxPlotOnly
+              : MathAvailability.All
 
     return (
         <>
@@ -95,7 +106,10 @@ export function TrendsSeries(): JSX.Element | null {
                 actionsTaxonomicGroupTypes={[
                     TaxonomicFilterGroupType.Events,
                     TaxonomicFilterGroupType.Actions,
-                    ...(isTrends && display !== ChartDisplayType.CalendarHeatmap
+                    ...(hasPageview ? [TaxonomicFilterGroupType.PageviewEvents] : []),
+                    ...(hasScreen ? [TaxonomicFilterGroupType.ScreenEvents] : []),
+                    TaxonomicFilterGroupType.AutocaptureEvents,
+                    ...(isTrends && display !== ChartDisplayType.CalendarHeatmap && display !== ChartDisplayType.BoxPlot
                         ? [TaxonomicFilterGroupType.DataWarehouse]
                         : []),
                 ]}

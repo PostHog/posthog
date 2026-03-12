@@ -8,6 +8,7 @@ from django.utils import timezone
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.response import Response
 
@@ -85,7 +86,9 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         response_data = response.json()
-        self.assertTrue(response_data["is_materialized"])
+        # is_materialized is derived from saved_query.table_id, which is only set after Temporal runs
+        # At this point, saved_query exists but table_id is not yet set
+        self.assertFalse(response_data["is_materialized"])
 
         # Verify SavedQuery was created on version
         version.refresh_from_db()
@@ -427,7 +430,8 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        self.assertTrue(response_data["is_materialized"])
+        # is_materialized is derived from saved_query.table_id — False until Temporal creates the table
+        self.assertFalse(response_data["is_materialized"])
         self.assertIn("materialization", response_data)
         self.assertTrue(response_data["materialization"]["can_materialize"])
         self.assertIn("status", response_data["materialization"])
@@ -623,7 +627,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         # Link saved_query to version
         version = endpoint.versions.first()
         version.saved_query = saved_query
-        version.is_materialized = True
         version.save()
 
         # filters_override is no longer allowed - should be rejected
@@ -639,7 +642,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         # Should fail with 400 since filters_override is not allowed for HogQL endpoints
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("filters_override is not allowed for HogQL endpoints", response.json()["detail"])
+        self.assertIn("Not allowed for HogQL endpoints. Use variables instead.", response.json()["detail"])
 
     def test_stale_materialized_data_uses_inline_execution(self):
         """Test that stale materialized data triggers inline execution instead of using cached table."""
@@ -672,7 +675,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         # Link saved_query to version
         version = endpoint.versions.first()
         version.saved_query = saved_query
-        version.is_materialized = True
         version.save()
 
         # Mock the execution methods to track which path is taken
@@ -724,7 +726,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         # Link saved_query to version
         version = endpoint.versions.first()
         version.saved_query = saved_query
-        version.is_materialized = True
         version.save()
 
         # Mock the execution methods to track which path is taken
@@ -775,7 +776,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         # Link saved_query to version
         version = endpoint.versions.first()
         version.saved_query = saved_query
-        version.is_materialized = True
         version.save()
 
         with (
@@ -825,7 +825,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         # Link saved_query to version
         version = endpoint.versions.first()
         version.saved_query = saved_query
-        version.is_materialized = True
         version.save()
 
         with (
@@ -1057,6 +1056,125 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             self.assertIn("event_name", query_sql)
             self.assertIn("$pageview", query_sql)
 
+    @parameterized.expand(
+        [
+            ("completed_hides_stale_error", DataWarehouseSavedQuery.Status.COMPLETED, "Previous error", ""),
+            ("failed_shows_error", DataWarehouseSavedQuery.Status.FAILED, "Query failed", "Query failed"),
+            ("running_shows_error", DataWarehouseSavedQuery.Status.RUNNING, "Previous error", "Previous error"),
+            ("completed_no_error", DataWarehouseSavedQuery.Status.COMPLETED, None, ""),
+        ],
+    )
+    def test_materialization_error_visibility_by_status(self, _name, sq_status, latest_error, expected_error):
+        endpoint = create_endpoint_with_version(
+            name=f"test_error_visibility_{_name}",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+        )
+        self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True, "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR},
+            format="json",
+        )
+        version = endpoint.versions.first()
+        version.refresh_from_db()
+        saved_query = version.saved_query
+        saved_query.status = sq_status
+        saved_query.latest_error = latest_error
+        saved_query.save()
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["materialization"]["error"], expected_error)
+
+    def test_enable_materialization_creates_dag_node(self):
+        endpoint = create_endpoint_with_version(
+            name="dag_node_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True, "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        from products.data_modeling.backend.models import Node
+
+        version = endpoint.versions.first()
+        version.refresh_from_db()
+        assert version.saved_query is not None
+
+        node = Node.objects.filter(team=self.team, saved_query=version.saved_query).first()
+        self.assertIsNotNone(node)
+
+    def test_disable_materialization_removes_dag_node(self):
+        endpoint = create_endpoint_with_version(
+            name="remove_dag_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True, "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR},
+            format="json",
+        )
+
+        version = endpoint.versions.first()
+        version.refresh_from_db()
+        assert version.saved_query is not None
+        saved_query_id = version.saved_query.id
+
+        from products.data_modeling.backend.models import Node
+
+        self.assertTrue(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": False},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertFalse(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())
+
+    def test_delete_endpoint_removes_dag_node(self):
+        endpoint = create_endpoint_with_version(
+            name="delete_dag_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True, "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR},
+            format="json",
+        )
+
+        version = endpoint.versions.first()
+        version.refresh_from_db()
+        assert version.saved_query is not None
+        saved_query_id = version.saved_query.id
+
+        from products.data_modeling.backend.models import Node
+
+        self.assertTrue(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())
+
 
 @pytest.mark.asyncio
 class TestEndpointMaterializationTemporal:
@@ -1084,7 +1202,6 @@ class TestEndpointMaterializationTemporal:
 
         # Link saved_query to version instead of endpoint
         version.saved_query = saved_query
-        version.is_materialized = True
         await sync_to_async(version.save)()
 
         yield endpoint

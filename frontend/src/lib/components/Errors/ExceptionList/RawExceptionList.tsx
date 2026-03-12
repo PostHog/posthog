@@ -3,12 +3,12 @@ import { useEffect } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
+import { errorPropertiesLogic } from '../errorPropertiesLogic'
 import { ExceptionRenderer } from '../Exception/ExceptionRenderer'
 import { RawExceptionHeader } from '../Exception/RawExceptionHeader'
 import { RawFrame } from '../Frame/RawFrame'
 import { EmptyStackTrace } from '../StackTrace/EmptyStackTrace'
 import { StackTraceRenderer } from '../StackTrace/StackTraceRenderer'
-import { errorPropertiesLogic } from '../errorPropertiesLogic'
 import { ErrorTrackingStackFrame } from '../types'
 import { createFrameFilter } from '../utils'
 import { ExceptionListRenderer } from './ExceptionListRenderer'

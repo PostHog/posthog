@@ -96,14 +96,14 @@ LLMA_TRACE_RENDERING_LEGACY = "llma_trace_detailed"
 LLMA_TRACE_PRODUCT = "llm-analytics"
 
 # Cluster labeling agent configuration
-LABELING_AGENT_MODEL = "gpt-5.2"  # OpenAI GPT-5.2 for reasoning
+LABELING_AGENT_MODEL = "gpt-5.3"  # OpenAI GPT-5.3 for reasoning
 LABELING_AGENT_MAX_ITERATIONS = 50  # Max agent iterations before forced finalization
 LABELING_AGENT_RECURSION_LIMIT = 150  # LangGraph recursion limit (> 2 * max_iterations)
 LABELING_AGENT_TIMEOUT = 600.0  # 10 minutes for full agent run
 
 # HDBSCAN clustering parameters
-DEFAULT_MIN_CLUSTER_SIZE_FRACTION = 0.01  # 1% of samples as minimum cluster size
-MIN_CLUSTER_SIZE_FRACTION_MIN = 0.01  # Minimum allowed value for min_cluster_size_fraction
+DEFAULT_MIN_CLUSTER_SIZE_FRACTION = 0.02  # 2% of samples as minimum cluster size
+MIN_CLUSTER_SIZE_FRACTION_MIN = 0.02  # Minimum allowed value for min_cluster_size_fraction
 MIN_CLUSTER_SIZE_FRACTION_MAX = 0.5  # Maximum allowed value for min_cluster_size_fraction
 DEFAULT_HDBSCAN_MIN_SAMPLES = 5  # Minimum samples in neighborhood for core points
 DEFAULT_UMAP_N_COMPONENTS = 100  # Dimensionality for clustering (not visualization)

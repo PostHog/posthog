@@ -6,6 +6,7 @@ const config: StorybookConfig = {
     stories: [
         '../../../frontend/src/**/*.stories.@(js|jsx|ts|tsx|mdx)',
         '../../../products/**/frontend/**/*.stories.@(js|jsx|ts|tsx|mdx)',
+        '../../../common/mosaic/storybook/**/*.stories.@(js|jsx|ts|tsx|mdx)',
     ],
 
     addons: [
@@ -16,7 +17,11 @@ const config: StorybookConfig = {
         '@storybook/addon-a11y',
     ],
 
-    staticDirs: ['public', { from: '../../../frontend/public', to: '/static' }],
+    staticDirs: [
+        'public',
+        { from: '../../../frontend/public', to: '/static' },
+        { from: '../../../frontend/node_modules/@posthog/hedgehog-mode/assets', to: '/static/hedgehog-mode' },
+    ],
 
     webpackFinal: (config) => {
         const mainConfig = createEntry('main')

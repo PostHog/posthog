@@ -4,6 +4,7 @@ import { IconInfo, IconPencil } from '@posthog/icons'
 import { LemonBanner, LemonInput } from '@posthog/lemon-ui'
 
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -12,7 +13,6 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { urls } from 'scenes/urls'
 
@@ -37,9 +37,9 @@ import { ExperimentMetricGoal, ExperimentMetricMathType, FilterType, FunnelConve
 import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConversionWindowFilter'
 import { ExperimentMetricFunnelOrderSelector } from './ExperimentMetricFunnelOrderSelector'
 import { ExperimentMetricOutlierHandling } from './ExperimentMetricOutlierHandling'
-import { commonActionFilterProps } from './Metrics/Selectors'
 import { filterToMetricConfig, filterToMetricSource } from './metricQueryUtils'
 import { createFilterForSource, getFilter } from './metricQueryUtils'
+import { commonActionFilterProps } from './Metrics/Selectors'
 import {
     getAllowedMathTypes,
     getDefaultExperimentMetric,
@@ -123,7 +123,7 @@ export function ExperimentMetricForm({
     handleSetMetric: (newMetric: ExperimentMetric) => void
     filterTestAccounts: boolean
     exposureCriteria?: ExperimentExposureCriteria | undefined
-    openExposureCriteriaModal?: (() => void) | null
+    openExposureCriteriaModal?: (exposureCriteria?: ExperimentExposureCriteria) => void
 }): JSX.Element {
     const mathAvailability = getMathAvailability(metric.metric_type)
     const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
@@ -275,7 +275,7 @@ export function ExperimentMetricForm({
                         exposureCriteria && openExposureCriteriaModal
                             ? {
                                   size: 'xsmall',
-                                  onClick: () => openExposureCriteriaModal(),
+                                  onClick: () => openExposureCriteriaModal(exposureCriteria),
                                   icon: <IconPencil />,
                                   tooltip: 'Edit exposure criteria',
                               }

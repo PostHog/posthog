@@ -1,5 +1,6 @@
 // Build frontend/src/products.{json,tsx} from manifest.tsx files
 import * as ps from 'child_process'
+import { createHash } from 'crypto'
 import fse from 'fs-extra'
 import path from 'path'
 import { cloneNode } from 'ts-clone-node'
@@ -18,10 +19,43 @@ function buildProductManifests() {
     const sourceFiles = products
         .map((p) => path.resolve(productsDir, `${p}/manifest.tsx`))
         .filter((p) => fse.existsSync(p))
+        .sort()
 
     // Also include the schema file so we can resolve some enum values
     const enumFile = path.resolve(__dirname, '../frontend/src/queries/schema/schema-general.ts')
     const allSourceFiles = [...sourceFiles, enumFile]
+
+    const outputTsx = path.join(__dirname, 'src/products.tsx')
+    const outputJson = path.join(__dirname, 'src/products.json')
+    const cacheDir = path.join(__dirname, '.cache')
+    const cacheFile = path.join(cacheDir, 'products.hash')
+    const buildScript = fileURLToPath(import.meta.url)
+
+    const hash = createHash('sha256')
+
+    // hash the build script first
+    hash.update(fse.readFileSync(buildScript))
+
+    // hash all input file content
+    for (const f of allSourceFiles) {
+        hash.update(fse.readFileSync(f))
+    }
+    const digest = hash.digest('hex')
+
+    // if we've already seen this hash digest, we have no recent changes
+    if (!process.env.BUILD_PRODUCTS_NO_CACHE) {
+        try {
+            if (
+                fse.readFileSync(cacheFile, 'utf8') === digest &&
+                fse.existsSync(outputTsx) &&
+                fse.existsSync(outputJson)
+            ) {
+                return
+            }
+        } catch {
+            // Cache file missing or unreadable, so continue with build
+        }
+    }
 
     const program = ts.createProgram(allSourceFiles, {
         target: 1, // ES5
@@ -332,8 +366,8 @@ function buildProductManifests() {
     fse.mkdirSync(tsxTmpDir, { recursive: true })
     const tsxTmpFile = path.join(tsxTmpDir, 'products.tsx')
     fse.writeFileSync(tsxTmpFile, productsTsx)
-    ps.execFileSync('prettier', ['--write', tsxTmpFile])
-    fse.renameSync(tsxTmpFile, path.join(__dirname, 'src/products.tsx'))
+    ps.execFileSync('oxfmt', [tsxTmpFile])
+    fse.renameSync(tsxTmpFile, outputTsx)
 
     // 8. Assemble `products.json`, write, format, move to src/
     // A much simplified version of `products.tsx` to simplify consumption from Python
@@ -356,8 +390,11 @@ function buildProductManifests() {
     fse.mkdirSync(jsonTmpDir, { recursive: true })
     const jsonTmpFile = path.join(jsonTmpDir, 'products.json')
     fse.writeFileSync(jsonTmpFile, JSON.stringify(productsJson))
-    ps.execFileSync('prettier', ['--write', jsonTmpFile])
-    fse.renameSync(jsonTmpFile, path.join(__dirname, 'src/products.json'))
+    ps.execFileSync('oxfmt', [jsonTmpFile])
+    fse.renameSync(jsonTmpFile, outputJson)
+
+    fse.mkdirSync(cacheDir, { recursive: true })
+    fse.writeFileSync(cacheFile, digest)
 }
 
 function keepOnlyImport(prop, manifestPath) {

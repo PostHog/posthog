@@ -8,18 +8,18 @@ import React, { HTMLProps, useCallback, useEffect, useMemo, useRef, useState } f
 import { IconInfo } from '@posthog/icons'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { IconWithCount } from 'lib/lemon-ui/icons'
 
 import { useColumnWidths } from '../../hooks/useColumnWidths'
 import { PaginationAuto, PaginationControl, PaginationManual, usePagination } from '../PaginationControl'
 import { Tooltip } from '../Tooltip'
-import { LemonTableLoader } from './LemonTableLoader'
-import { TableRow } from './TableRow'
 import { determineColumnKey, getStickyColumnInfo } from './columnUtils'
+import { LemonTableLoader } from './LemonTableLoader'
 import { Sorting, SortingIndicator, getNextSorting } from './sorting'
+import { TableRow } from './TableRow'
 import { ExpandableConfig, LemonTableColumnGroup, LemonTableColumns } from './types'
 
 export interface LemonTableProps<T extends Record<string, any>> {
@@ -365,6 +365,7 @@ export function LemonTable<T extends Record<string, any>>({
 
                                                                           // Check if the click happened on the checkbox input, label, or its specific SVG (LemonCheckbox__box)
                                                                           if (
+                                                                              target.closest('.LemonCheckbox') ||
                                                                               target.classList.contains(
                                                                                   'LemonCheckbox__box'
                                                                               ) ||
@@ -382,7 +383,8 @@ export function LemonTable<T extends Record<string, any>>({
                                                                           const nextSorting = getNextSorting(
                                                                               currentSorting,
                                                                               determineColumnKey(column, 'sorting'),
-                                                                              disableSortingCancellation
+                                                                              disableSortingCancellation,
+                                                                              column.defaultSortOrder
                                                                           )
 
                                                                           setLocalSorting(nextSorting)
@@ -439,7 +441,8 @@ export function LemonTable<T extends Record<string, any>>({
                                                                                     const nextSorting = getNextSorting(
                                                                                         currentSorting,
                                                                                         columnKey,
-                                                                                        disableSortingCancellation
+                                                                                        disableSortingCancellation,
+                                                                                        column.defaultSortOrder
                                                                                     )
                                                                                     return `Click to ${
                                                                                         nextSorting

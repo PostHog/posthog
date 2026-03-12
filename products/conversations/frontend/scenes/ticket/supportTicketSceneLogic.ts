@@ -1,7 +1,11 @@
-import { actions, afterMount, beforeUnmount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { JSONContent } from '@tiptap/core'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { beforeUnload, router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
+
+import { urls } from 'scenes/urls'
 
 import api from '~/lib/api'
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
@@ -13,6 +17,7 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 import type { TicketAssignee } from '../../components/Assignee'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import type { ChatMessage, Ticket, TicketPriority, TicketStatus } from '../../types'
+import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 import type { supportTicketSceneLogicType } from './supportTicketSceneLogicType'
 
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
@@ -87,10 +92,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'ticket', 'supportTicketSceneLogic']),
     props({ id: 'new' as string | number }),
     key((props) => props.id),
+    connect(() => ({
+        actions: [supportTicketsSceneLogic, ['loadTickets']],
+    })),
     actions({
         loadTicket: true,
         setTicket: (ticket: Ticket | null) => ({ ticket }),
         setTicketLoading: (loading: boolean) => ({ loading }),
+        incrementUnreadCustomerCount: true,
         updateTicket: true,
 
         loadMessages: true,
@@ -118,10 +127,19 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         setStatus: (status: TicketStatus) => ({ status }),
         setPriority: (priority: TicketPriority) => ({ priority }),
         setAssignee: (assignee: TicketAssignee) => ({ assignee }),
+        setTags: (tags: string[]) => ({ tags }),
 
         // Session context actions
         loadPerson: true,
         loadPreviousTickets: true,
+
+        // Draft message state (persists across tab switches)
+        setDraftContent: (content: JSONContent | null) => ({ content }),
+        setDraftIsPrivate: (isPrivate: boolean) => ({ isPrivate }),
+
+        // AI suggestion
+        suggestReply: true,
+        setSuggesting: (suggesting: boolean) => ({ suggesting }),
     }),
     loaders(({ values, props }) => ({
         person: [
@@ -161,18 +179,15 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     }
 
                     try {
-                        // Load all tickets for any of this person's distinct_ids (in parallel)
-                        const responses = await Promise.all(
-                            person.distinct_ids.map((distinctId: string) =>
-                                api.conversationsTickets.list({ distinct_id: distinctId })
-                            )
-                        )
-                        const allTickets = responses.flatMap((r) => r.results || [])
+                        const response = await api.conversationsTickets.list({
+                            distinct_ids: person.distinct_ids.join(','),
+                        })
+                        const allTickets = response.results || []
 
-                        // Deduplicate by ID and exclude current ticket
-                        const uniqueTickets = Array.from(
-                            new Map(allTickets.map((ticket) => [ticket.id, ticket])).values()
-                        ).filter((ticket) => ticket.id !== currentTicketId)
+                        // Exclude current ticket
+                        const uniqueTickets = allTickets.filter(
+                            (ticket) => ticket.ticket_number !== parseInt(currentTicketId.toString())
+                        )
 
                         // Sort by created_at descending (most recent first)
                         return uniqueTickets.sort(
@@ -191,6 +206,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             null as Ticket | null,
             {
                 setTicket: (_, { ticket }) => ticket,
+                incrementUnreadCustomerCount: (state) =>
+                    state ? { ...state, unread_customer_count: state.unread_customer_count + 1 } : state,
             },
         ],
         ticketLoading: [
@@ -220,6 +237,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             {
                 setAssignee: (_, { assignee }) => assignee,
                 setTicket: (_, { ticket }) => ticket?.assignee || null,
+            },
+        ],
+        tags: [
+            [] as string[],
+            {
+                setTags: (_, { tags }) => tags,
+                setTicket: (_, { ticket }) => ticket?.tags || [],
             },
         ],
         messages: [
@@ -259,20 +283,44 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 setMessageSending: (_, { sending }) => sending,
             },
         ],
+        draftContent: [
+            null as JSONContent | null,
+            {
+                setDraftContent: (_, { content }) => content,
+            },
+        ],
+        draftIsPrivate: [
+            false,
+            {
+                setDraftIsPrivate: (_, { isPrivate }) => isPrivate,
+            },
+        ],
+        suggesting: [
+            false,
+            {
+                suggestReply: () => true,
+                setSuggesting: (_, { suggesting }) => suggesting,
+            },
+        ],
     }),
     selectors({
         hasUnsavedChanges: [
-            (s) => [s.status, s.priority, s.assignee, s.ticket],
-            (status, priority, assignee, ticket): boolean => {
+            (s) => [s.status, s.priority, s.assignee, s.tags, s.ticket],
+            (status, priority, assignee, tags, ticket): boolean => {
                 if (!ticket) {
                     return false
                 }
                 return (
                     status !== ticket.status ||
                     priority !== ticket.priority ||
-                    JSON.stringify(assignee) !== JSON.stringify(ticket.assignee)
+                    JSON.stringify(assignee) !== JSON.stringify(ticket.assignee) ||
+                    JSON.stringify([...tags].sort()) !== JSON.stringify([...(ticket.tags || [])].sort())
                 )
             },
+        ],
+        hasPendingWork: [
+            (s) => [s.hasUnsavedChanges, s.draftContent],
+            (hasUnsavedChanges, draftContent): boolean => hasUnsavedChanges || draftContent !== null,
         ],
         chatPanelWidth: [
             () => [],
@@ -297,14 +345,22 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                             [message.created_by.first_name, message.created_by.last_name].filter(Boolean).join(' ') ||
                             message.created_by.email ||
                             'Support'
+                    } else if (authorType === 'AI') {
+                        displayName = 'PostHog Assistant'
                     } else if (authorType === 'customer') {
-                        // Try person properties first (from ticket.person), then ticket traits
-                        displayName =
-                            ticket?.person?.properties?.name ||
-                            ticket?.person?.properties?.email ||
-                            ticket?.anonymous_traits?.name ||
-                            ticket?.anonymous_traits?.email ||
-                            'Anonymous user'
+                        // For Slack messages, use the per-message author info
+                        const slackAuthorName = message.item_context?.slack_author_name
+                        if (slackAuthorName) {
+                            displayName = slackAuthorName
+                        } else {
+                            // Fallback to ticket-level info for widget messages
+                            displayName =
+                                ticket?.person?.properties?.name ||
+                                ticket?.person?.properties?.email ||
+                                ticket?.anonymous_traits?.name ||
+                                ticket?.anonymous_traits?.email ||
+                                'Anonymous user'
+                        }
                     }
 
                     return {
@@ -347,6 +403,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             }
             try {
                 const ticket = await api.conversationsTickets.get(props.id.toString())
+
+                // If accessed via UUID, redirect to ticket_number URL for cleaner URLs
+                const isUuid = props.id.toString().includes('-')
+                if (isUuid && ticket.ticket_number) {
+                    router.actions.replace(urls.supportTicketDetail(ticket.ticket_number))
+                    return
+                }
+
                 actions.setTicket(ticket)
                 actions.loadMessages()
 
@@ -383,6 +447,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     status: string
                     priority: string
                     assignee: TicketAssignee
+                    tags: string[]
                 }> = {}
 
                 if (values.status) {
@@ -392,23 +457,25 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     data.priority = values.priority
                 }
                 data.assignee = values.assignee
+                data.tags = values.tags
 
                 const ticket = await api.conversationsTickets.update(props.id.toString(), data)
                 actions.setTicket(ticket)
                 lemonToast.success('Ticket updated')
+                actions.loadTickets()
             } catch {
                 lemonToast.error('Failed to update ticket')
             }
         },
         loadMessages: async () => {
-            if (props.id === 'new') {
+            if (props.id === 'new' || !values.ticket?.id) {
                 actions.setMessages([])
                 return
             }
             try {
                 const response = await api.comments.list({
                     scope: 'conversations_ticket',
-                    item_id: props.id.toString(),
+                    item_id: values.ticket.id,
                 })
                 // Reverse to show oldest first (bottom = newest)
                 actions.setMessages((response.results || []).reverse())
@@ -419,7 +486,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         },
         loadOlderMessages: async () => {
             const currentMessages = values.messages
-            if (props.id === 'new' || currentMessages.length === 0 || !values.hasMoreMessages) {
+            if (props.id === 'new' || !values.ticket?.id || currentMessages.length === 0 || !values.hasMoreMessages) {
                 actions.setOlderMessagesLoading(false)
                 actions.setHasMoreMessages(false)
                 return
@@ -429,7 +496,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 const oldestMessage = currentMessages[0]
                 const response = await api.comments.list({
                     scope: 'conversations_ticket',
-                    item_id: props.id.toString(),
+                    item_id: values.ticket.id,
                 })
 
                 const allMessages = response.results || []
@@ -444,8 +511,32 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setOlderMessagesLoading(false)
             }
         },
+        suggestReply: async () => {
+            try {
+                await api.conversationsTickets.suggestReply(props.id.toString())
+                actions.loadMessages()
+            } catch (error: any) {
+                // Parse error response for specific error messages
+                const errorData = error?.data || {}
+                const errorDetail = errorData.detail || 'Failed to generate AI suggestion'
+                const errorType = errorData.error_type
+
+                // Show more specific error messages based on error type
+                if (errorType === 'timeout') {
+                    lemonToast.error('AI service timed out. Please try again.')
+                } else if (errorType === 'rate_limit') {
+                    lemonToast.error('Too many requests. Please wait a moment and try again.')
+                } else if (errorType === 'validation_error') {
+                    lemonToast.error('AI returned an invalid response. Please try again.')
+                } else {
+                    lemonToast.error(errorDetail)
+                }
+            } finally {
+                actions.setSuggesting(false)
+            }
+        },
         sendMessage: async ({ content, richContent, isPrivate, onSuccess }) => {
-            if (props.id === 'new') {
+            if (props.id === 'new' || !values.ticket?.id) {
                 actions.setMessageSending(false)
                 return
             }
@@ -455,7 +546,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         content,
                         rich_content: richContent,
                         scope: 'conversations_ticket',
-                        item_id: props.id.toString(),
+                        item_id: values.ticket.id,
                         item_context: {
                             author_type: 'support',
                             is_private: isPrivate,
@@ -466,9 +557,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 lemonToast.success(isPrivate ? 'Private message sent' : 'Message sent')
                 actions.setMessageSending(false)
                 onSuccess?.()
+                if (!isPrivate) {
+                    actions.incrementUnreadCustomerCount()
+                }
                 setTimeout(() => {
                     actions.loadMessages()
                 }, 300)
+                actions.loadTickets()
             } catch {
                 lemonToast.error('Failed to send message')
                 actions.setMessageSending(false)
@@ -483,4 +578,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     beforeUnmount(({ cache }) => {
         cache.disposables.disposeAll()
     }),
+    beforeUnload(({ values }) => ({
+        enabled: () => values.hasPendingWork,
+        message: 'You have unsaved changes. Are you sure you want to leave?',
+    })),
 ])

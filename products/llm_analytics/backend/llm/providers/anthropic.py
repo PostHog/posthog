@@ -1,6 +1,5 @@
 """Anthropic provider for unified LLM client."""
 
-import json
 import uuid
 import logging
 from collections.abc import Generator
@@ -10,6 +9,7 @@ from django.conf import settings
 
 import anthropic
 import posthoganalytics
+from anthropic.lib._parse._transform import transform_schema
 from anthropic.types import MessageParam, TextBlockParam, ThinkingConfigEnabledParam
 from posthoganalytics.ai.anthropic import Anthropic
 from pydantic import BaseModel
@@ -40,33 +40,36 @@ class AnthropicConfig:
     TIMEOUT: float = 300.0
 
     SUPPORTED_MODELS: list[str] = [
+        "claude-sonnet-4-6",
+        "claude-opus-4-6",
+        "claude-opus-4-5",
         "claude-haiku-4-5",
         "claude-sonnet-4-5",
-        "claude-opus-4-5",
         "claude-opus-4-1",
-        "claude-sonnet-4-0",
         "claude-opus-4-0",
-        "claude-3-7-sonnet-latest",
+        "claude-sonnet-4-0",
     ]
 
     SUPPORTED_MODELS_WITH_CACHE_CONTROL: list[str] = [
+        "claude-sonnet-4-6",
+        "claude-opus-4-6",
+        "claude-opus-4-5",
         "claude-haiku-4-5",
         "claude-sonnet-4-5",
-        "claude-opus-4-5",
         "claude-opus-4-1",
-        "claude-sonnet-4-0",
         "claude-opus-4-0",
-        "claude-3-7-sonnet-latest",
+        "claude-sonnet-4-0",
     ]
 
     SUPPORTED_MODELS_WITH_THINKING: list[str] = [
+        "claude-sonnet-4-6",
+        "claude-opus-4-6",
+        "claude-opus-4-5",
         "claude-haiku-4-5",
         "claude-sonnet-4-5",
-        "claude-opus-4-5",
         "claude-opus-4-1",
-        "claude-sonnet-4-0",
         "claude-opus-4-0",
-        "claude-3-7-sonnet-latest",
+        "claude-sonnet-4-0",
     ]
 
 
@@ -95,50 +98,48 @@ class AnthropicAdapter:
             client = anthropic.Anthropic(api_key=effective_api_key, timeout=AnthropicConfig.TIMEOUT)
 
         messages: Any = request.messages
-
-        # Handle structured output by appending JSON schema instructions
         system_prompt = request.system or ""
-        if request.response_format and issubclass(request.response_format, BaseModel):
-            json_schema = request.response_format.model_json_schema()
-            system_prompt = f"""{system_prompt}
+        use_structured = request.response_format and issubclass(request.response_format, BaseModel)
 
-You must respond with valid JSON that matches this schema:
-{json.dumps(json_schema, indent=2)}
+        create_kwargs: dict[str, Any] = {
+            "model": request.model,
+            "system": system_prompt,
+            "messages": messages,
+            "max_tokens": request.max_tokens or AnthropicConfig.MAX_TOKENS,
+            "temperature": request.temperature if request.temperature is not None else AnthropicConfig.TEMPERATURE,
+            **(self._build_analytics_kwargs(analytics, client)),
+        }
 
-Return ONLY the JSON object, no other text or markdown formatting."""
+        if use_structured:
+            assert request.response_format is not None
+            json_schema = self._build_output_schema(request.response_format)
+            create_kwargs["output_config"] = {
+                "format": {
+                    "type": "json_schema",
+                    "schema": json_schema,
+                }
+            }
 
         try:
-            response = client.messages.create(
-                model=request.model,
-                system=system_prompt,
-                messages=messages,
-                max_tokens=request.max_tokens or AnthropicConfig.MAX_TOKENS,
-                temperature=request.temperature if request.temperature is not None else AnthropicConfig.TEMPERATURE,
-                **(self._build_analytics_kwargs(analytics, client)),
-            )
-            content = ""
-            for block in response.content:
-                if hasattr(block, "text"):
-                    content += block.text
+            response = client.messages.create(**create_kwargs)
+
             usage = Usage(
                 input_tokens=response.usage.input_tokens,
                 output_tokens=response.usage.output_tokens,
                 total_tokens=response.usage.input_tokens + response.usage.output_tokens,
             )
 
-            # Parse structured output if response_format was specified
+            content = ""
+            for block in response.content:
+                if hasattr(block, "text"):
+                    content += block.text
+
             parsed: BaseModel | None = None
-            if request.response_format and issubclass(request.response_format, BaseModel):
+            if use_structured:
+                assert request.response_format is not None
                 try:
-                    # Clean up the content - remove markdown code blocks if present
-                    clean_content = content.strip()
-                    if clean_content.startswith("```"):
-                        lines = clean_content.split("\n")
-                        # Remove first and last lines (code block markers)
-                        clean_content = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-                    parsed = request.response_format.model_validate_json(clean_content)
+                    parsed = request.response_format.model_validate_json(content)
                 except Exception as e:
-                    logger.warning(f"Failed to parse structured output from Anthropic: {e}")
                     raise StructuredOutputParseError(f"Failed to parse structured output: {e}") from e
 
             return CompletionResponse(
@@ -310,9 +311,31 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
 
     @staticmethod
+    def recommended_models() -> set[str]:
+        return set(AnthropicConfig.SUPPORTED_MODELS)
+
+    @staticmethod
     def list_models(api_key: str | None = None) -> list[str]:
-        """List available Anthropic models."""
-        return AnthropicConfig.SUPPORTED_MODELS
+        """List available Anthropic models.
+
+        Without a key, returns the curated SUPPORTED_MODELS list.
+        With a key, returns SUPPORTED_MODELS first, then remaining Claude models
+        from the API sorted by creation date (newest first).
+        """
+        if not api_key:
+            return AnthropicConfig.SUPPORTED_MODELS
+
+        supported = set(AnthropicConfig.SUPPORTED_MODELS)
+        try:
+            client = anthropic.Anthropic(api_key=api_key, timeout=AnthropicConfig.TIMEOUT)
+            api_models = client.models.list(limit=1000)
+            filtered = [m for m in api_models.data if m.id not in supported and m.id.startswith("claude-")]
+            filtered.sort(key=lambda m: m.created_at, reverse=True)
+            other = [m.id for m in filtered]
+            return list(AnthropicConfig.SUPPORTED_MODELS) + other
+        except Exception:
+            logger.exception("Error fetching Anthropic models from API")
+            return AnthropicConfig.SUPPORTED_MODELS
 
     @staticmethod
     def get_api_key() -> str:
@@ -324,6 +347,10 @@ Return ONLY the JSON object, no other text or markdown formatting."""
 
     def _get_default_api_key(self) -> str:
         return self.get_api_key()
+
+    @staticmethod
+    def _build_output_schema(response_format: type[BaseModel]) -> dict[str, Any]:
+        return transform_schema(response_format)
 
     def _build_analytics_kwargs(self, analytics: AnalyticsContext, client) -> dict:
         """Build PostHog analytics kwargs if using instrumented client."""
