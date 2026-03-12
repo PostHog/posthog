@@ -16,7 +16,7 @@ import { llmAnalyticsScoreDefinitionsList, llmAnalyticsScoreDefinitionsPartialUp
 import type {
     Kind01eEnumApi as ScoreDefinitionKind,
     PaginatedScoreDefinitionListApi,
-    ScoreDefinitionApi as ScoreDefinition,
+    ScoreDefinitionApi,
 } from '../generated/api.schemas'
 import type { llmAnalyticsScoreDefinitionsLogicType } from './llmAnalyticsScoreDefinitionsLogicType'
 import { getApiErrorDetail, getCurrentProjectId, type ScoreDefinitionModalMode } from './scoreDefinitionModalUtils'
@@ -96,12 +96,12 @@ export const llmAnalyticsScoreDefinitionsLogic = kea<llmAnalyticsScoreDefinition
             debounce,
         }),
         loadScoreDefinitions: (debounce: boolean = true) => ({ debounce }),
-        openModal: (mode: ScoreDefinitionModalMode, scoreDefinition: ScoreDefinition | null = null) => ({
+        openModal: (mode: ScoreDefinitionModalMode, scoreDefinition: ScoreDefinitionApi | null = null) => ({
             mode,
             scoreDefinition,
         }),
         closeModal: true,
-        toggleArchive: (scoreDefinition: ScoreDefinition) => ({ scoreDefinition }),
+        toggleArchive: (scoreDefinition: ScoreDefinitionApi) => ({ scoreDefinition }),
         toggleArchiveSuccess: (definitionId: string) => ({ definitionId }),
         toggleArchiveFailure: (definitionId: string) => ({ definitionId }),
     }),
@@ -126,7 +126,7 @@ export const llmAnalyticsScoreDefinitionsLogic = kea<llmAnalyticsScoreDefinition
             },
         ],
         selectedDefinition: [
-            null as ScoreDefinition | null,
+            null as ScoreDefinitionApi | null,
             {
                 openModal: (_, { scoreDefinition }) => scoreDefinition,
                 closeModal: () => null,
