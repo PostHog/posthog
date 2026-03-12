@@ -18,6 +18,7 @@ from posthog.schema import (
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
     FunnelsActorsQuery,
+    FunnelsDataWarehouseNode,
     FunnelsQuery,
     GroupNode,
     GroupPropertyFilter,
@@ -72,5 +73,5 @@ type AnyPropertyFilter = Union[
     LogPropertyFilter,
 ]
 
-type EntityNode = Union[EventsNode, ActionsNode, DataWarehouseNode, GroupNode]
+type EntityNode = Union[EventsNode, ActionsNode, DataWarehouseNode, FunnelsDataWarehouseNode, GroupNode]
 type ExclusionEntityNode = Union[FunnelExclusionEventsNode, FunnelExclusionActionsNode]

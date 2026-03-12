@@ -16,7 +16,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { groupsModel } from '~/models/groupsModel'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery } from '~/queries/schema/schema-general'
+import { FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { isInsightQueryNode } from '~/queries/utils'
 import { EditorFilterProps, FilterType } from '~/types'
 
@@ -41,7 +41,12 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
     const actionFilters = isInsightQueryNode(querySource) ? queryNodeToFilter(querySource) : null
     const setActionFilters = (payload: Partial<FilterType>): void => {
         updateQuerySource({
-            series: actionsAndEventsToSeries(payload as any, true, MathAvailability.FunnelsOnly),
+            series: actionsAndEventsToSeries(
+                payload as any,
+                true,
+                MathAvailability.FunnelsOnly,
+                NodeKind.FunnelsDataWarehouseNode
+            ),
         } as FunnelsQuery)
     }
 

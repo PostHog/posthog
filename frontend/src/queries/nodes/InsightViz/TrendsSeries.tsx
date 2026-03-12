@@ -62,6 +62,7 @@ export function TrendsSeries(): JSX.Element | null {
     }
 
     const filters = queryNodeToFilter(querySource)
+    const isFunnels = querySource.kind === NodeKind.FunnelsQuery
     const mathAvailability = isLifecycle
         ? MathAvailability.None
         : isStickiness
@@ -93,7 +94,7 @@ export function TrendsSeries(): JSX.Element | null {
                                 payload as any,
                                 true,
                                 mathAvailability,
-                                NodeKind.DataWarehouseNode
+                                isFunnels ? NodeKind.FunnelsDataWarehouseNode : NodeKind.DataWarehouseNode
                             ),
                         } as TrendsQuery | FunnelsQuery | StickinessQuery)
                     }

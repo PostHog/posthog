@@ -22,6 +22,7 @@ import {
     isAnyDataWarehouseNode,
     isDataWarehouseNode,
     isEventsNode,
+    isFunnelsDataWarehouseNode,
     isFunnelsQuery,
     isGroupNode,
     isLifecycleDataWarehouseNode,
@@ -82,7 +83,7 @@ export const seriesNodeToFilter = (
         math_group_type_index: node.math_group_type_index,
         optionalInFunnel: node.optionalInFunnel,
         properties: node.properties as any, // TODO,
-        ...(isDataWarehouseNode(node)
+        ...(isDataWarehouseNode(node) || isFunnelsDataWarehouseNode(node)
             ? {
                   table_name: node.table_name,
                   id_field: node.id_field,
