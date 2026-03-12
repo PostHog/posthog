@@ -146,10 +146,10 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
     [ChartDisplayType.ActionsBarValue]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.ActionsPie]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.ActionsTable]: ChartDisplayType.ActionsBarValue,
-    [ChartDisplayType.WorldMap]: ChartDisplayType.ActionsBarValue,
-    [ChartDisplayType.CalendarHeatmap]: ChartDisplayType.ActionsBarValue,
+    [ChartDisplayType.WorldMap]: ChartDisplayType.WorldMap,
+    [ChartDisplayType.CalendarHeatmap]: ChartDisplayType.CalendarHeatmap,
 
-    [ChartDisplayType.TwoDimensionalHeatmap]: ChartDisplayType.TwoDimensionalHeatmap,
+    [ChartDisplayType.TwoDimensionalHeatmap]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.BoxPlot]: ChartDisplayType.BoxPlot,
 }
 
