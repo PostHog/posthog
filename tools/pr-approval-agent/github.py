@@ -9,6 +9,7 @@ import json
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal, overload
 
 
 @dataclass
@@ -51,6 +52,14 @@ class PRData:
         return any(f.get("status") == "A" for f in self.files)
 
 
+@overload
+def _gh_api(endpoint: str, *, paginate: Literal[True]) -> list: ...
+
+
+@overload
+def _gh_api(endpoint: str, *, paginate: Literal[False] = ...) -> dict: ...
+
+
 def _gh_api(endpoint: str, *, paginate: bool = False) -> dict | list:
     cmd = ["gh", "api", endpoint]
     if paginate:
@@ -67,13 +76,24 @@ def _gh_api(endpoint: str, *, paginate: bool = False) -> dict | list:
 def _git_diff_files(base_sha: str, head_sha: str, repo_root: Path) -> list[dict]:
     """Get changed files with line counts and status from the local checkout."""
     diff_range = f"{base_sha}...{head_sha}"
-    run_opts = {"capture_output": True, "text": True, "timeout": 30, "cwd": repo_root}
 
-    numstat = subprocess.run(["git", "diff", "--numstat", diff_range], **run_opts)
+    numstat = subprocess.run(
+        ["git", "diff", "--numstat", diff_range],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        cwd=repo_root,
+    )
     if numstat.returncode != 0:
         raise RuntimeError(f"git diff --numstat failed: {numstat.stderr.strip()}")
 
-    name_status = subprocess.run(["git", "diff", "--name-status", diff_range], **run_opts)
+    name_status = subprocess.run(
+        ["git", "diff", "--name-status", diff_range],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        cwd=repo_root,
+    )
     status_map: dict[str, str] = {}
     for line in name_status.stdout.strip().splitlines():
         parts = line.split("\t", 1)

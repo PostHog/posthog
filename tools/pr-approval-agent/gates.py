@@ -280,7 +280,7 @@ class CodeownersRule:
 
 
 def parse_codeowners_soft(path: Path) -> list[CodeownersRule]:
-    rules = []
+    rules: list[CodeownersRule] = []
     if not path.exists():
         return rules
     with open(path) as f:
