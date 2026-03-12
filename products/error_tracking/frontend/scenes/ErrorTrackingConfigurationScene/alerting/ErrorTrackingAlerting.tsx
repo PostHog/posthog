@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useFeatureFlagEnabled, useFeatureFlagVariantKey } from 'posthog-js/react'
+import { useFeatureFlagVariantKey } from 'posthog-js/react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -25,7 +25,7 @@ const ERROR_TRACKING_SUB_TEMPLATE_IDS: HogFunctionSubTemplateIdType[] = [
     'error-tracking-issue-spiking',
 ]
 
-const BASE_ERROR_TRACKING_TRIGGERS: WizardTrigger[] = [
+const ERROR_TRACKING_TRIGGERS: WizardTrigger[] = [
     {
         key: 'error-tracking-issue-created',
         name: 'Issue created',
@@ -37,12 +37,6 @@ const BASE_ERROR_TRACKING_TRIGGERS: WizardTrigger[] = [
         description: 'Get notified when a previously resolved issue comes back',
     },
 ]
-
-const SPIKE_TRIGGER: WizardTrigger = {
-    key: 'error-tracking-issue-spiking',
-    name: 'Issue spiking',
-    description: 'Get notified when an issue starts occurring more frequently than usual',
-}
 
 const ERROR_TRACKING_DESTINATIONS: WizardDestination[] = [
     {
@@ -93,20 +87,16 @@ const HOG_FUNCTION_FILTER_LIST = ERROR_TRACKING_SUB_TEMPLATE_IDS.map(getFiltersF
     (f) => !!f
 ) as CyclotronJobFiltersType[]
 
+const ALERT_WIZARD_PROPS: AlertWizardLogicProps = {
+    logicKey: 'error-tracking',
+    subTemplateIds: ERROR_TRACKING_SUB_TEMPLATE_IDS,
+    triggers: ERROR_TRACKING_TRIGGERS,
+    destinations: ERROR_TRACKING_DESTINATIONS,
+}
+
 export function ErrorTrackingAlerting(): JSX.Element {
-    const spikeAlertingEnabled = useFeatureFlagEnabled(FEATURE_FLAGS.ERROR_TRACKING_SPIKE_ALERTING)
-
-    const wizardProps: AlertWizardLogicProps = {
-        logicKey: 'error-tracking',
-        subTemplateIds: ERROR_TRACKING_SUB_TEMPLATE_IDS,
-        triggers: spikeAlertingEnabled
-            ? [...BASE_ERROR_TRACKING_TRIGGERS, SPIKE_TRIGGER]
-            : BASE_ERROR_TRACKING_TRIGGERS,
-        destinations: ERROR_TRACKING_DESTINATIONS,
-    }
-
     return (
-        <BindLogic logic={alertWizardLogic} props={wizardProps}>
+        <BindLogic logic={alertWizardLogic} props={ALERT_WIZARD_PROPS}>
             <ErrorTrackingAlertingInner />
         </BindLogic>
     )
