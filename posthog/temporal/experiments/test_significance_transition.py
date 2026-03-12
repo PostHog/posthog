@@ -83,7 +83,7 @@ class TestCheckSignificanceTransition(BaseTest):
                     query_from=datetime(2024, 1, 1, tzinfo=ZoneInfo("UTC")),
                     query_to=query_to_utc - timedelta(days=1),
                     status=ExperimentMetricResult.Status.COMPLETED,
-                    result=_make_result(previous_significant),
+                    result=_make_result(previous_significant),  # type: ignore[arg-type]
                 )
 
         result_dict = _make_result(new_significant)
