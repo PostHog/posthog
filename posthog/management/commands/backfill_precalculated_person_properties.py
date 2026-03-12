@@ -152,6 +152,7 @@ class Command(BaseCommand):
         # Map: condition_hash -> (bytecode, [cohort_ids])
         condition_map: dict[str, tuple[list, list[int]]] = {}
         cohort_ids = []
+        total_original_filters = 0
         for cohort in cohorts:
             if cohort.cohort_type != CohortType.REALTIME:
                 self.stdout.write(
@@ -172,6 +173,7 @@ class Command(BaseCommand):
                 continue
 
             cohort_ids.append(cohort.id)
+            total_original_filters += len(filters)
             self.stdout.write(self.style.SUCCESS(f"Cohort {cohort.id}: found {len(filters)} person property filters"))
 
             # Deduplicate by condition_hash
@@ -226,7 +228,6 @@ class Command(BaseCommand):
             self.stdout.write(f"  - {cond_hash} (used by cohorts: {cids})")
 
         # Run single coordinator workflow for all cohorts with deduplicated filters
-        total_original_filters = sum(len(extract_person_property_filters(cohorts[i])) for i in range(len(cohort_ids)))
         self.stdout.write(
             self.style.SUCCESS(
                 f"\nProcessing {len(cohort_ids)} cohorts: reduced {total_original_filters} filters to {len(deduplicated_filters)} unique conditions"
