@@ -5,6 +5,9 @@ from typing import Optional
 
 from clickhouse_driver.errors import ServerException
 
+from posthog.hogql.errors import ExposedHogQLError
+
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.exceptions import (
     ClickHouseAtCapacity,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
@@ -32,6 +35,9 @@ class InternalCHQueryError(ServerException):
 
 
 class ExposedCHQueryError(InternalCHQueryError):
+    """User-safe ClickHouse query error. Subclasses have user_safe=True in ErrorCodeMeta,
+    which classify_query_error() uses to categorize them as USER_ERROR."""
+
     def __str__(self) -> str:
         message: str = self.message
         try:
@@ -52,6 +58,16 @@ class ErrorCodeMeta:
     """Whether this error code is safe to show to the user and couldn't be caught at HogQL level.
     If a string is set, it will be used as the error message instead of the ClickHouse one.
     """
+    category: QueryErrorCategory | None = None
+    """Explicit error category for observability. If None, defaults to USER_ERROR when user_safe
+    is set, otherwise ERROR. Set explicitly for CANCELLED and RATE_LIMITED codes."""
+
+    def get_category(self) -> QueryErrorCategory:
+        if self.category is not None:
+            return self.category
+        if self.user_safe:
+            return QueryErrorCategory.USER_ERROR
+        return QueryErrorCategory.ERROR
 
     @property
     def label(self) -> str:
@@ -143,20 +159,13 @@ def look_up_clickhouse_error_code_meta(error: ServerException) -> ErrorCodeMeta:
     return CLICKHOUSE_ERROR_CODE_LOOKUP[code]
 
 
-_CANCELLED_CODE_NAMES = frozenset({"query_was_cancelled", "query_was_cancelled_by_client", "aborted"})
-
-
 def classify_query_error(e: Exception) -> QueryErrorCategory:
     """Classify a query execution exception into a high-level category for observability."""
-    from posthog.hogql.errors import ExposedHogQLError
+    # ClickHouse errors — use the category from the error code metadata
+    if isinstance(e, ServerException):
+        return look_up_clickhouse_error_code_meta(e).get_category()
 
-    from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-
-    # Cancelled — check code_name on wrapped CH errors
-    if isinstance(e, InternalCHQueryError) and getattr(e, "code_name", None) in _CANCELLED_CODE_NAMES:
-        return QueryErrorCategory.CANCELLED
-
-    # Rate limited
+    # Rate limited (non-CH)
     if isinstance(e, (ClickHouseAtCapacity, ConcurrencyLimitExceeded)):
         return QueryErrorCategory.RATE_LIMITED
 
@@ -172,19 +181,8 @@ def classify_query_error(e: Exception) -> QueryErrorCategory:
     ):
         return QueryErrorCategory.USER_ERROR
 
-    # User errors — bad query construction
-    if isinstance(
-        e,
-        (
-            ExposedHogQLError,
-            ExposedCHQueryError,
-            CHQueryErrorNumberOfArgumentsDoesntMatch,
-            CHQueryErrorUnknownIdentifier,
-            CHQueryErrorCannotParseUuid,
-            CHQueryErrorUnsupportedMethod,
-            CHQueryErrorInvalidJoinOnExpression,
-        ),
-    ):
+    # User errors — bad HogQL query construction
+    if isinstance(e, ExposedHogQLError):
         return QueryErrorCategory.USER_ERROR
 
     # Everything else
@@ -293,7 +291,7 @@ class CHQueryErrorInvalidJoinOnExpression(InternalCHQueryError):
 CLICKHOUSE_UNKNOWN_EXCEPTION = ErrorCodeMeta("UNKNOWN_EXCEPTION")
 CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     0: ErrorCodeMeta("OK"),
-    1: ErrorCodeMeta("UNSUPPORTED_METHOD"),
+    1: ErrorCodeMeta("UNSUPPORTED_METHOD", category=QueryErrorCategory.USER_ERROR),
     2: ErrorCodeMeta("UNSUPPORTED_PARAMETER"),
     3: ErrorCodeMeta("UNEXPECTED_END_OF_FILE"),
     4: ErrorCodeMeta("EXPECTED_END_OF_FILE"),
@@ -325,7 +323,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     39: ErrorCodeMeta("TOO_LARGE_SIZE_COMPRESSED"),
     40: ErrorCodeMeta("CHECKSUM_DOESNT_MATCH"),
     41: ErrorCodeMeta("CANNOT_PARSE_DATETIME", user_safe=True),
-    42: ErrorCodeMeta("NUMBER_OF_ARGUMENTS_DOESNT_MATCH"),
+    42: ErrorCodeMeta("NUMBER_OF_ARGUMENTS_DOESNT_MATCH", category=QueryErrorCategory.USER_ERROR),
     43: ErrorCodeMeta("ILLEGAL_TYPE_OF_ARGUMENT", user_safe=True),
     44: ErrorCodeMeta("ILLEGAL_COLUMN"),
     46: ErrorCodeMeta("UNKNOWN_FUNCTION", user_safe=True),
@@ -415,7 +413,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     156: ErrorCodeMeta("DICTIONARIES_WAS_NOT_LOADED"),
     158: ErrorCodeMeta("TOO_MANY_ROWS"),
     159: ErrorCodeMeta("TIMEOUT_EXCEEDED", user_safe=True),
-    160: ErrorCodeMeta("TOO_SLOW"),
+    160: ErrorCodeMeta("TOO_SLOW", category=QueryErrorCategory.USER_ERROR),
     161: ErrorCodeMeta("TOO_MANY_COLUMNS"),
     162: ErrorCodeMeta("TOO_DEEP_SUBQUERIES"),
     164: ErrorCodeMeta("READONLY"),
@@ -446,7 +444,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     198: ErrorCodeMeta("DNS_ERROR"),
     199: ErrorCodeMeta("UNKNOWN_QUOTA"),
     201: ErrorCodeMeta("QUOTA_EXCEEDED"),
-    202: ErrorCodeMeta("TOO_MANY_SIMULTANEOUS_QUERIES", user_safe=True),
+    202: ErrorCodeMeta("TOO_MANY_SIMULTANEOUS_QUERIES", user_safe=True, category=QueryErrorCategory.RATE_LIMITED),
     203: ErrorCodeMeta("NO_FREE_CONNECTION"),
     204: ErrorCodeMeta("CANNOT_FSYNC"),
     206: ErrorCodeMeta("ALIAS_REQUIRED"),
@@ -478,7 +476,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     233: ErrorCodeMeta("BAD_DATA_PART_NAME"),
     234: ErrorCodeMeta("NO_REPLICA_HAS_PART"),
     235: ErrorCodeMeta("DUPLICATE_DATA_PART"),
-    236: ErrorCodeMeta("ABORTED"),
+    236: ErrorCodeMeta("ABORTED", category=QueryErrorCategory.CANCELLED),
     237: ErrorCodeMeta("NO_REPLICA_NAME_GIVEN"),
     238: ErrorCodeMeta("FORMAT_VERSION_TOO_OLD"),
     239: ErrorCodeMeta("CANNOT_MUNMAP"),
@@ -594,7 +592,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     391: ErrorCodeMeta("EXTERNAL_LIBRARY_ERROR"),
     392: ErrorCodeMeta("QUERY_IS_PROHIBITED"),
     393: ErrorCodeMeta("THERE_IS_NO_QUERY"),
-    394: ErrorCodeMeta("QUERY_WAS_CANCELLED"),
+    394: ErrorCodeMeta("QUERY_WAS_CANCELLED", category=QueryErrorCategory.CANCELLED),
     395: ErrorCodeMeta("FUNCTION_THROW_IF_VALUE_IS_NON_ZERO", user_safe=True),
     396: ErrorCodeMeta("TOO_MANY_ROWS_OR_BYTES"),
     397: ErrorCodeMeta("QUERY_IS_NOT_SUPPORTED_IN_MATERIALIZED_VIEW"),
@@ -603,7 +601,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     400: ErrorCodeMeta("CANNOT_STAT"),
     401: ErrorCodeMeta("FEATURE_IS_NOT_ENABLED_AT_BUILD_TIME"),
     402: ErrorCodeMeta("CANNOT_IOSETUP"),
-    403: ErrorCodeMeta("INVALID_JOIN_ON_EXPRESSION"),
+    403: ErrorCodeMeta("INVALID_JOIN_ON_EXPRESSION", category=QueryErrorCategory.USER_ERROR),
     404: ErrorCodeMeta("BAD_ODBC_CONNECTION_STRING"),
     406: ErrorCodeMeta("TOP_AND_LIMIT_TOGETHER"),
     407: ErrorCodeMeta("DECIMAL_OVERFLOW"),
@@ -634,7 +632,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     436: ErrorCodeMeta("PROTOBUF_BAD_CAST"),
     437: ErrorCodeMeta("PROTOBUF_FIELD_NOT_REPEATED"),
     438: ErrorCodeMeta("DATA_TYPE_CANNOT_BE_PROMOTED"),
-    439: ErrorCodeMeta("CANNOT_SCHEDULE_TASK"),
+    439: ErrorCodeMeta("CANNOT_SCHEDULE_TASK", category=QueryErrorCategory.RATE_LIMITED),
     440: ErrorCodeMeta("INVALID_LIMIT_EXPRESSION"),
     441: ErrorCodeMeta("CANNOT_PARSE_DOMAIN_VALUE_FROM_STRING"),
     442: ErrorCodeMeta("BAD_DATABASE_FOR_TEMPORARY_TABLE"),
@@ -897,7 +895,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     731: ErrorCodeMeta("QUERY_CACHE_USED_WITH_NON_THROW_OVERFLOW_MODE"),
     733: ErrorCodeMeta("TABLE_IS_BEING_RESTARTED"),
     734: ErrorCodeMeta("CANNOT_WRITE_AFTER_BUFFER_CANCELED"),
-    735: ErrorCodeMeta("QUERY_WAS_CANCELLED_BY_CLIENT"),
+    735: ErrorCodeMeta("QUERY_WAS_CANCELLED_BY_CLIENT", category=QueryErrorCategory.CANCELLED),
     736: ErrorCodeMeta("DATALAKE_DATABASE_ERROR"),
     737: ErrorCodeMeta("GOOGLE_CLOUD_ERROR"),
     738: ErrorCodeMeta("PART_IS_LOCKED"),
