@@ -55,6 +55,7 @@ class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            "400 Client Error: Bad Request for url: https://api.paddle.com": "Paddle rejected the request parameters. Please check your source configuration and incremental sync state, then try again.",
             "401 Client Error: Unauthorized for url: https://api.paddle.com": "Your Paddle API key is invalid or expired. Please check your API key in Paddle and reconnect.",
             "403 Client Error: Forbidden for url: https://api.paddle.com": "Your Paddle API key does not have the required permissions. Please check your API key permissions in Paddle and try again.",
         }

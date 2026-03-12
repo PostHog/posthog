@@ -1,12 +1,16 @@
+from datetime import datetime
+
 import pytest
 from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
+from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.paddle.paddle import (
     PaddlePermissionError,
     PaddleResumeConfig,
+    _format_paddle_datetime_query_value,
     get_rows,
     paddle_source,
     validate_credentials,
@@ -101,6 +105,17 @@ def test_get_rows_incremental(mock_request):
 
     assert actual_params["billed_at[GT]"] == "2024-01-01T00:00:00Z"
     assert actual_params["order_by"] == "billed_at[ASC]"
+
+
+@parameterized.expand(
+    [
+        ("utc_string", "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z"),
+        ("offset_string", "2024-01-01T02:00:00+02:00", "2024-01-01T00:00:00Z"),
+        ("naive_datetime", datetime(2024, 1, 1, 0, 0, 0), "2024-01-01T00:00:00Z"),
+    ]
+)
+def test_format_paddle_datetime_query_value(_, value, expected):
+    assert _format_paddle_datetime_query_value(value) == expected
 
 
 @patch(MOCK_PATH)

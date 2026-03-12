@@ -1,7 +1,9 @@
 import dataclasses
+from datetime import UTC, date, datetime, time
 from typing import Any, Optional
 
 import requests
+from dateutil import parser
 from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
@@ -21,6 +23,22 @@ class PaddleResumeConfig:
 
 class PaddlePermissionError(Exception):
     pass
+
+
+def _format_paddle_datetime_query_value(value: Any) -> str:
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, date):
+        parsed = datetime.combine(value, time.min, tzinfo=UTC)
+    else:
+        parsed = parser.isoparse(str(value))
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    else:
+        parsed = parsed.astimezone(UTC)
+
+    return parsed.isoformat().replace("+00:00", "Z")
 
 
 def _get_paddle_session() -> requests.Session:
@@ -57,7 +75,9 @@ def get_rows(
 
     if should_use_incremental_field and incremental_field_name:
         if db_incremental_field_last_value:
-            params[f"{incremental_field_name}[GT]"] = db_incremental_field_last_value
+            params[f"{incremental_field_name}[GT]"] = _format_paddle_datetime_query_value(
+                db_incremental_field_last_value
+            )
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume_config and resume_config.next_url:
