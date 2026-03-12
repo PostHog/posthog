@@ -1,13 +1,10 @@
 import { getNextRetryMs, retryIfRetriable } from '../../src/utils/retries'
 
-jest.useFakeTimers()
-jest.spyOn(global, 'setTimeout')
+jest.mock('../../src/utils/utils', () => ({
+    sleep: jest.fn().mockResolvedValue(undefined),
+}))
 
 describe('retryIfRetriable', () => {
-    beforeEach(() => {
-        jest.clearAllTimers()
-    })
-
     it('does not retry when error.isRetriable is false', async () => {
         const error = new Error('non-retriable') as any
         error.isRetriable = false
