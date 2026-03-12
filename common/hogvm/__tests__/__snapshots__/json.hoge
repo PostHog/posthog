@@ -27,4 +27,6 @@
 "JSONExtract", 3, 2, "print", 1, 35, 32, "{\"name\": \"John\", \"age\": 30}", 32, "age", 32, "Int", 2, "JSONExtract", 3,
 2, "print", 1, 35, 32, "{\"name\": \"John\", \"age\": 30}", 32, "unknown", 32, "String", 2, "JSONExtract", 3, 2,
 "print", 1, 35, 32, "{\"a\": {\"b\": \"nested\"}}", 32, "a", 32, "b", 32, "String", 2, "JSONExtract", 4, 2, "print", 1,
-35, 32, "key", 32, "value", 42, 1, 32, "key", 32, "String", 2, "JSONExtract", 3, 2, "print", 1, 35, 35, 35]
+35, 32, "key", 32, "value", 42, 1, 32, "key", 32, "String", 2, "JSONExtract", 3, 2, "print", 1, 35, 32,
+"not valid json", 32, "key", 32, "String", 2, "JSONExtract", 3, 2, "print", 1, 35, 32, "{\"a\": 1}", 32, "String", 2,
+"JSONExtract", 2, 2, "print", 1, 35, 35, 35]
