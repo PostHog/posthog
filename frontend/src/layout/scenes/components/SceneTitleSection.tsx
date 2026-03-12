@@ -434,26 +434,12 @@ export function SceneName({
         'text-lg font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-sm)] leading-[1.4] select-auto'
 
     const debouncedOnBlurSave = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
+        onChange?.(value)
     }, renameDebounceMs)
 
     const debouncedOnChange = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
+        onChange?.(value)
     }, renameDebounceMs)
-
-    // Cancel any pending debounced saves when leaving forceEdit (e.g. Cancel in edit mode).
-    // Without this, a keystroke's debouncedOnChange could fire after Cancel and route to
-    // updateDashboard because dashboardMode is already null.
-    useEffect(() => {
-        if (!forceEdit) {
-            debouncedOnBlurSave.cancel()
-            debouncedOnChange.cancel()
-        }
-    }, [forceEdit]) // eslint-disable-line react-hooks/exhaustive-deps -- stable refs from useDebouncedCallback
 
     useEffect(() => {
         if (!isLoading && forceEdit) {
@@ -464,7 +450,6 @@ export function SceneName({
     }, [isLoading, forceEdit])
 
     const handleBlur = (e: React.FocusEvent): void => {
-        // Check if focus is moving to an element within our container (like the generate button)
         const relatedTarget = e.relatedTarget as HTMLElement | null
         if (relatedTarget && containerRef.current && containerRef.current.contains(relatedTarget)) {
             return
@@ -490,8 +475,9 @@ export function SceneName({
                             value={name || ''}
                             onChange={(e) => {
                                 setName(e.target.value)
-                                if (!saveOnBlur || forceEdit) {
-                                    // Call onChange immediately if not using saveOnBlur, or if in forceEdit mode
+                                if (forceEdit) {
+                                    onChange?.(e.target.value)
+                                } else if (!saveOnBlur) {
                                     debouncedOnChange(e.target.value)
                                 }
                             }}
@@ -623,23 +609,12 @@ function SceneDescription({
     const emptyText = canEdit ? 'Enter description (optional)' : 'No description'
 
     const debouncedOnBlurSaveDescription = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
+        onChange?.(value)
     }, renameDebounceMs)
 
     const debouncedOnDescriptionChange = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
+        onChange?.(value)
     }, renameDebounceMs)
-
-    useEffect(() => {
-        if (!forceEdit) {
-            debouncedOnBlurSaveDescription.cancel()
-            debouncedOnDescriptionChange.cancel()
-        }
-    }, [forceEdit]) // eslint-disable-line react-hooks/exhaustive-deps -- stable refs from useDebouncedCallback
 
     useEffect(() => {
         if (!isLoading && forceEdit) {
@@ -669,8 +644,9 @@ function SceneDescription({
                         maxLength={maxLength}
                         onChange={(e) => {
                             setDescription(e.target.value)
-                            if (!saveOnBlur || forceEdit) {
-                                // Call onChange immediately if not using saveOnBlur, or if in forceEdit mode
+                            if (forceEdit) {
+                                onChange?.(e.target.value)
+                            } else if (!saveOnBlur) {
                                 debouncedOnDescriptionChange(e.target.value)
                             }
                         }}
