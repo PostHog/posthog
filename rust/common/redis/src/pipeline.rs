@@ -33,7 +33,7 @@ pub enum PipelineResult {
     String(String),
     /// Raw bytes (GET raw bytes)
     Bytes(Vec<u8>),
-    /// Boolean result (SET NX EX)
+    /// Boolean result (SET NX EX, EXPIRE)
     Bool(bool),
     /// Count result (SCARD)
     Count(u64),
