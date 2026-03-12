@@ -4,24 +4,23 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import {
     ProxyRecordsCreateBody,
-    ProxyRecordsCreateParams,
     ProxyRecordsDestroyParams,
-    ProxyRecordsListParams,
     ProxyRecordsListQueryParams,
     ProxyRecordsRetrieveParams,
     ProxyRecordsRetryCreateParams,
 } from '@/generated/proxy-records/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const ProxyListSchema = ProxyRecordsListParams.extend(ProxyRecordsListQueryParams.shape)
+const ProxyListSchema = ProxyRecordsListQueryParams
 
 const proxyList = (): ToolBase<typeof ProxyListSchema, Schemas.PaginatedProxyRecordList & { _posthogUrl: string }> => ({
     name: 'proxy-list',
     schema: ProxyListSchema,
     handler: async (context: Context, params: z.infer<typeof ProxyListSchema>) => {
+        const orgId = await context.stateManager.getOrgID()
         const result = await context.api.request<Schemas.PaginatedProxyRecordList>({
             method: 'GET',
-            path: `/api/organizations/${params.organization_id}/proxy_records/`,
+            path: `/api/organizations/${orgId}/proxy_records/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
@@ -34,62 +33,66 @@ const proxyList = (): ToolBase<typeof ProxyListSchema, Schemas.PaginatedProxyRec
     },
 })
 
-const ProxyGetSchema = ProxyRecordsRetrieveParams
+const ProxyGetSchema = ProxyRecordsRetrieveParams.omit({ organization_id: true })
 
 const proxyGet = (): ToolBase<typeof ProxyGetSchema, Schemas.ProxyRecord> => ({
     name: 'proxy-get',
     schema: ProxyGetSchema,
     handler: async (context: Context, params: z.infer<typeof ProxyGetSchema>) => {
+        const orgId = await context.stateManager.getOrgID()
         const result = await context.api.request<Schemas.ProxyRecord>({
             method: 'GET',
-            path: `/api/organizations/${params.organization_id}/proxy_records/${params.id}/`,
+            path: `/api/organizations/${orgId}/proxy_records/${params.id}/`,
         })
         return result
     },
 })
 
-const ProxyCreateSchema = ProxyRecordsCreateParams.extend(ProxyRecordsCreateBody.shape)
+const ProxyCreateSchema = ProxyRecordsCreateBody
 
 const proxyCreate = (): ToolBase<typeof ProxyCreateSchema, Schemas.ProxyRecord> => ({
     name: 'proxy-create',
     schema: ProxyCreateSchema,
     handler: async (context: Context, params: z.infer<typeof ProxyCreateSchema>) => {
+        const orgId = await context.stateManager.getOrgID()
         const body: Record<string, unknown> = {}
         if (params.domain !== undefined) {
             body['domain'] = params.domain
         }
         const result = await context.api.request<Schemas.ProxyRecord>({
             method: 'POST',
-            path: `/api/organizations/${params.organization_id}/proxy_records/`,
+            path: `/api/organizations/${orgId}/proxy_records/`,
             body,
         })
         return result
     },
 })
 
-const ProxyRetrySchema = ProxyRecordsRetryCreateParams
+const ProxyRetrySchema = ProxyRecordsRetryCreateParams.omit({ organization_id: true })
 
 const proxyRetry = (): ToolBase<typeof ProxyRetrySchema, Schemas.ProxyRecord> => ({
     name: 'proxy-retry',
     schema: ProxyRetrySchema,
     handler: async (context: Context, params: z.infer<typeof ProxyRetrySchema>) => {
+        const orgId = await context.stateManager.getOrgID()
         const result = await context.api.request<Schemas.ProxyRecord>({
             method: 'POST',
-            path: `/api/organizations/${params.organization_id}/proxy_records/${params.id}/retry/`,
+            path: `/api/organizations/${orgId}/proxy_records/${params.id}/retry/`,
         })
         return result
     },
 })
 
-const ProxyDeleteSchema = ProxyRecordsDestroyParams
+const ProxyDeleteSchema = ProxyRecordsDestroyParams.omit({ organization_id: true })
 
 const proxyDelete = (): ToolBase<typeof ProxyDeleteSchema, unknown> => ({
     name: 'proxy-delete',
     schema: ProxyDeleteSchema,
     handler: async (context: Context, params: z.infer<typeof ProxyDeleteSchema>) => {
+        const orgId = await context.stateManager.getOrgID()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
-            path: `/api/organizations/${params.organization_id}/proxy_records/${params.id}/`,
+            path: `/api/organizations/${orgId}/proxy_records/${params.id}/`,
         })
         return result
     },

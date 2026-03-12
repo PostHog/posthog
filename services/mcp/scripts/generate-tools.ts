@@ -241,14 +241,20 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
     const excludeSet = new Set(config.exclude_params ?? [])
     const includeSet = config.include_params ? new Set(config.include_params) : undefined
 
-    // Path params (omit project_id when present in the operation's path params)
+    // Path params (omit project_id and organization_id — these are auto-resolved)
     const allPathParams = (resolved.operation.parameters ?? []).filter((p) => p.in === 'path')
-    const hasProjectId = allPathParams.some((p) => p.name === 'project_id')
-    const pathParams = allPathParams.filter((p) => p.name !== 'project_id')
+    const autoResolvedParams = ['project_id', 'organization_id']
+    const pathParams = allPathParams.filter((p) => !autoResolvedParams.includes(p.name))
     if (pathParams.length > 0) {
         const importName = `${pascal}Params`
         orvalImports.push(importName)
-        schemaParts.push(hasProjectId ? `${importName}.omit({ project_id: true })` : importName)
+        const omitKeys = autoResolvedParams.filter((k) => allPathParams.some((p) => p.name === k))
+        if (omitKeys.length > 0) {
+            const omitObj = omitKeys.map((k) => `${k}: true`).join(', ')
+            schemaParts.push(`${importName}.omit({ ${omitObj} })`)
+        } else {
+            schemaParts.push(importName)
+        }
         for (const p of pathParams) {
             pathParamNames.push(p.name)
         }
@@ -387,13 +393,14 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
 
 /** Extract path parameter names from a URL pattern (e.g., {id} from /api/projects/{project_id}/actions/{id}/) */
 function extractPathParams(urlPattern: string): string[] {
+    const autoResolved = new Set(['project_id', 'organization_id'])
     const matches = urlPattern.match(/\{(\w+)\}/g) ?? []
-    return matches.map((m) => m.slice(1, -1)).filter((name) => name !== 'project_id')
+    return matches.map((m) => m.slice(1, -1)).filter((name) => !autoResolved.has(name))
 }
 
-/** Build a template literal expression for the API path, interpolating project_id and path params */
+/** Build a template literal expression for the API path, interpolating auto-resolved IDs and path params */
 function buildPathExpr(urlPath: string, pathParamNames: string[], paramAccessPrefix = ''): string {
-    let pathExpr = `\`${urlPath.replace('{project_id}', '${projectId}')}\``
+    let pathExpr = `\`${urlPath.replace('{project_id}', '${projectId}').replace('{organization_id}', '${orgId}')}\``
     for (const pn of pathParamNames) {
         pathExpr = pathExpr.replace(`{${pn}}`, `\${${paramAccessPrefix}${pn}}`)
     }
@@ -475,11 +482,15 @@ function generateToolCode(
 
     const pathExpr = buildPathExpr(resolved.path, composition.pathParamNames, 'params.')
 
-    // Determine if this operation is project-scoped (has {project_id} in the path)
+    // Determine which auto-resolved IDs this operation needs
     const needsProjectId = resolved.path.includes('{project_id}')
+    const needsOrgId = resolved.path.includes('{organization_id}')
 
     // Build handler body
     let handlerBody = ''
+    if (needsOrgId) {
+        handlerBody += `        const orgId = await context.stateManager.getOrgID()\n`
+    }
     if (needsProjectId) {
         handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
     }
@@ -573,8 +584,12 @@ function generateCustomSchemaToolCode(
     const responseType = resolveResponseType(resolved.operation, knownTypes)
 
     const needsProjectId = resolved.path.includes('{project_id}')
+    const needsOrgId = resolved.path.includes('{organization_id}')
 
     let handlerBody = ''
+    if (needsOrgId) {
+        handlerBody += `        const orgId = await context.stateManager.getOrgID()\n`
+    }
     if (needsProjectId) {
         handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
     }
