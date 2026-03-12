@@ -1,3 +1,4 @@
+import enum
 import json
 import uuid
 import asyncio
@@ -282,8 +283,10 @@ async def _sandbox_stream(
     # Use a queue to decouple the idle-timeout from the async generator.
     # asyncio.wait_for on __anext__() would cancel and close the generator,
     # so we run the reader in a background task instead.
-    _SENTINEL = object()  # identity sentinel for stream end
-    event_queue: asyncio.Queue[dict | object] = asyncio.Queue()
+    class _Sentinel(enum.Enum):
+        END = "end"
+
+    event_queue: asyncio.Queue[dict[str, Any] | _Sentinel] = asyncio.Queue()
 
     async def _reader() -> None:
         try:
@@ -292,7 +295,7 @@ async def _sandbox_stream(
         except TaskRunStreamError as exc:
             await event_queue.put({"_error": str(exc)})
         finally:
-            await event_queue.put(_SENTINEL)
+            await event_queue.put(_Sentinel.END)
 
     reader_task = asyncio.create_task(_reader())
     agent_text_chunks: list[str] = []
@@ -313,7 +316,7 @@ async def _sandbox_stream(
                 # Haven't seen any data yet; keep waiting (sandbox still booting)
                 continue
 
-            if event is _SENTINEL:
+            if isinstance(event, _Sentinel):
                 logger.info("sandbox_stream_completed", run_id=run_id, total_events=event_count)
                 break
 
