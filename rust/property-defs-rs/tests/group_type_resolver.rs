@@ -1,4 +1,6 @@
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use personhog_proto::personhog::{
     service::v1::person_hog_service_server::{PersonHogService, PersonHogServiceServer},
@@ -17,6 +19,7 @@ use property_defs_rs::{
 struct MockPersonHogService {
     mappings_by_team: Vec<GroupTypeMappingsByKey>,
     fail: bool,
+    call_count: Arc<AtomicUsize>,
 }
 
 impl MockPersonHogService {
@@ -24,6 +27,18 @@ impl MockPersonHogService {
         Self {
             mappings_by_team,
             fail: false,
+            call_count: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    fn with_mappings_counted(
+        mappings_by_team: Vec<GroupTypeMappingsByKey>,
+        call_count: Arc<AtomicUsize>,
+    ) -> Self {
+        Self {
+            mappings_by_team,
+            fail: false,
+            call_count,
         }
     }
 
@@ -31,6 +46,7 @@ impl MockPersonHogService {
         Self {
             mappings_by_team: vec![],
             fail: true,
+            call_count: Arc::new(AtomicUsize::new(0)),
         }
     }
 }
@@ -41,6 +57,7 @@ impl PersonHogService for MockPersonHogService {
         &self,
         _req: Request<GetGroupTypeMappingsByTeamIdsRequest>,
     ) -> Result<Response<GroupTypeMappingsBatchResponse>, Status> {
+        self.call_count.fetch_add(1, Ordering::SeqCst);
         if self.fail {
             return Err(Status::internal("mock failure"));
         }
@@ -358,21 +375,25 @@ async fn test_personhog_failure_returns_error() {
 
 #[tokio::test]
 async fn test_personhog_caches_resolved_types() {
-    let mock = MockPersonHogService::with_mappings(vec![GroupTypeMappingsByKey {
-        key: 1,
-        mappings: vec![GroupTypeMapping {
-            id: 1,
-            team_id: 1,
-            project_id: 1,
-            group_type: "organization".to_string(),
-            group_type_index: 3,
-            name_singular: None,
-            name_plural: None,
-            default_columns: None,
-            detail_dashboard_id: None,
-            created_at: None,
+    let call_count = Arc::new(AtomicUsize::new(0));
+    let mock = MockPersonHogService::with_mappings_counted(
+        vec![GroupTypeMappingsByKey {
+            key: 1,
+            mappings: vec![GroupTypeMapping {
+                id: 1,
+                team_id: 1,
+                project_id: 1,
+                group_type: "organization".to_string(),
+                group_type_index: 3,
+                name_singular: None,
+                name_plural: None,
+                default_columns: None,
+                detail_dashboard_id: None,
+                created_at: None,
+            }],
         }],
-    }]);
+        call_count.clone(),
+    );
 
     let addr = start_mock_server(mock).await;
     let config = make_config(&format!("http://{addr}"));
@@ -382,12 +403,13 @@ async fn test_personhog_caches_resolved_types() {
     let mut updates = vec![make_group_update(1, "organization")];
     resolver.resolve(&mut updates).await.unwrap();
     assert_eq!(get_resolved_index(&updates[0]), Some(3));
+    assert_eq!(call_count.load(Ordering::SeqCst), 1);
 
-    // Second call should resolve from cache even though the server is the same.
-    // We verify by checking that a fresh unresolved update also gets index 3.
+    // Second call should resolve from cache — server must not be contacted again
     let mut updates2 = vec![make_group_update(1, "organization")];
     resolver.resolve(&mut updates2).await.unwrap();
     assert_eq!(get_resolved_index(&updates2[0]), Some(3));
+    assert_eq!(call_count.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]

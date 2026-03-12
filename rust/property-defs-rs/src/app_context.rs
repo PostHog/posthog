@@ -1,9 +1,9 @@
-use health::{HealthHandle, HealthRegistry};
-use sqlx::{postgres::PgPoolOptions, PgPool};
-use time::Duration;
 use crate::{
     api::v1::query::Manager, config::Config, group_type_resolver::GroupTypeResolver, types::Update,
 };
+use health::{HealthHandle, HealthRegistry};
+use sqlx::{postgres::PgPoolOptions, PgPool};
+use time::Duration;
 
 pub struct AppContext {
     // this points to the original (shared) CLOUD DB instance in prod deployments
