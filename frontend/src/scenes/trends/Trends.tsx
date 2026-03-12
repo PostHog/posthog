@@ -3,6 +3,8 @@ import { Suspense, lazy } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
@@ -12,7 +14,7 @@ import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, InsightType } from '~/types'
 
 import { trendsDataLogic } from './trendsDataLogic'
-import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from './viz'
+import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie, TrendsChart } from './viz'
 
 // Lazy-loaded viz types that are rarely used on dashboards
 const WorldMap = lazy(() => import('scenes/insights/views/WorldMap').then((m) => ({ default: m.WorldMap })))
@@ -33,44 +35,39 @@ interface Props {
 export function TrendInsight({ view, context, embedded, inSharedMode, editMode }: Props): JSX.Element {
     const { insightProps, showPersonsModal: insightLogicShowPersonsModal } = useValues(insightLogic)
     const showPersonsModal = insightLogicShowPersonsModal && !inSharedMode
+    const { featureFlags } = useValues(featureFlagLogic)
+    const useHogCharts = !!featureFlags[FEATURE_FLAGS.HOG_CHARTS]
 
     const { display, series, breakdownFilter, hasBreakdownMore, breakdownValuesLoading } = useValues(
         trendsDataLogic(insightProps)
     )
     const { updateBreakdownFilter } = useActions(trendsDataLogic(insightProps))
 
+    const chartProps = {
+        showPersonsModal,
+        context,
+        inCardView: embedded && !inSharedMode,
+        inSharedMode,
+    }
+
     const renderViz = (): JSX.Element | undefined => {
         if (
             !display ||
             display === ChartDisplayType.ActionsLineGraph ||
             display === ChartDisplayType.ActionsLineGraphCumulative ||
-            display === ChartDisplayType.ActionsAreaGraph ||
-            display === ChartDisplayType.ActionsBar ||
-            display === ChartDisplayType.ActionsUnstackedBar
+            display === ChartDisplayType.ActionsAreaGraph
         ) {
-            return (
-                <ActionsLineGraph
-                    showPersonsModal={showPersonsModal}
-                    context={context}
-                    inCardView={embedded && !inSharedMode}
-                    inSharedMode={inSharedMode}
-                />
-            )
+            return useHogCharts ? <TrendsChart {...chartProps} /> : <ActionsLineGraph {...chartProps} />
+        }
+        if (display === ChartDisplayType.ActionsBar || display === ChartDisplayType.ActionsUnstackedBar) {
+            return <ActionsLineGraph {...chartProps} />
         }
         if (display === ChartDisplayType.BoldNumber) {
-            return (
-                <BoldNumber
-                    showPersonsModal={showPersonsModal}
-                    context={context}
-                    inCardView={embedded && !inSharedMode}
-                    inSharedMode={inSharedMode}
-                />
-            )
+            return <BoldNumber {...chartProps} />
         }
         if (display === ChartDisplayType.ActionsTable) {
-            const ActionsTable = InsightsTable
             return (
-                <ActionsTable
+                <InsightsTable
                     embedded
                     filterKey={`trends_${view}`}
                     canEditSeriesNameInline={editMode}
@@ -80,24 +77,10 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             )
         }
         if (display === ChartDisplayType.ActionsPie) {
-            return (
-                <ActionsPie
-                    showPersonsModal={showPersonsModal}
-                    context={context}
-                    inCardView={embedded && !inSharedMode}
-                    inSharedMode={inSharedMode}
-                />
-            )
+            return <ActionsPie {...chartProps} />
         }
         if (display === ChartDisplayType.ActionsBarValue) {
-            return (
-                <ActionsHorizontalBar
-                    showPersonsModal={showPersonsModal}
-                    context={context}
-                    inCardView={embedded && !inSharedMode}
-                    inSharedMode={inSharedMode}
-                />
-            )
+            return <ActionsHorizontalBar {...chartProps} />
         }
         if (display === ChartDisplayType.WorldMap) {
             const hasSubdivisionBreakdown =
@@ -106,46 +89,14 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
                 breakdownFilter.breakdowns.some(
                     (b) => b.property === '$geoip_subdivision_1_code' || b.property === '$geoip_subdivision_1_name'
                 )
-
-            if (hasSubdivisionBreakdown) {
-                return (
-                    <RegionMap
-                        showPersonsModal={showPersonsModal}
-                        context={context}
-                        inCardView={embedded && !inSharedMode}
-                        inSharedMode={inSharedMode}
-                    />
-                )
-            }
-
-            return (
-                <WorldMap
-                    showPersonsModal={showPersonsModal}
-                    context={context}
-                    inCardView={embedded && !inSharedMode}
-                    inSharedMode={inSharedMode}
-                />
-            )
+            return hasSubdivisionBreakdown ? <RegionMap {...chartProps} /> : <WorldMap {...chartProps} />
         }
         if (display === ChartDisplayType.CalendarHeatmap) {
-            return (
-                <TrendsCalendarHeatMap
-                    showPersonsModal={showPersonsModal}
-                    context={context}
-                    inCardView={embedded && !inSharedMode}
-                    inSharedMode={inSharedMode}
-                />
-            )
+            return <TrendsCalendarHeatMap {...chartProps} />
         }
         if (display === ChartDisplayType.BoxPlot) {
-            return (
-                <BoxPlotChart
-                    showPersonsModal={showPersonsModal}
-                    context={context}
-                    inCardView={embedded}
-                    inSharedMode={inSharedMode}
-                />
-            )
+            // BoxPlotChart uses `embedded` directly (no `!inSharedMode` guard), unlike other charts
+            return <BoxPlotChart {...chartProps} inCardView={embedded} />
         }
     }
 

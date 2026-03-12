@@ -42,6 +42,7 @@ import {
 
 import type { trendsDataLogicType } from './trendsDataLogicType'
 import { IndexedTrendResult } from './types'
+import { buildTrendsSeries } from './viz/trendsChartUtils'
 
 export const RESULT_CUSTOMIZATION_DEFAULT = ResultCustomizationBy.Value
 
@@ -399,6 +400,80 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         resultCustomizationBy: [
             (s) => [s.resultCustomizationByRaw],
             (resultCustomizationByRaw) => resultCustomizationByRaw || RESULT_CUSTOMIZATION_DEFAULT,
+        ],
+
+        isArea: [(s) => [s.display], (display): boolean => display === ChartDisplayType.ActionsAreaGraph],
+
+        isStacked: [
+            (s) => [s.isLifecycle, s.lifecycleFilter, s.display],
+            (isLifecycle, lifecycleFilter, display): boolean =>
+                isLifecycle ? (lifecycleFilter?.stacked ?? true) : display !== ChartDisplayType.ActionsUnstackedBar,
+        ],
+
+        isPercentStackView: [
+            (s) => [s.supportsPercentStackView, s.showPercentStackView],
+            (supportsPercentStackView, showPercentStackView): boolean =>
+                !!supportsPercentStackView && !!showPercentStackView,
+        ],
+
+        isLog10: [(s) => [s.yAxisScaleType], (yAxisScaleType): boolean => yAxisScaleType === 'log10'],
+
+        incompletePoints: [
+            (s) => [s.isStickiness, s.incompletenessOffsetFromEnd],
+            (isStickiness, incompletenessOffsetFromEnd): number => {
+                if (isStickiness || incompletenessOffsetFromEnd >= 0) {
+                    return 0
+                }
+                return Math.abs(incompletenessOffsetFromEnd)
+            },
+        ],
+
+        trendsSeries: [
+            (s) => [
+                s.indexedResults,
+                s.isArea,
+                s.isLog10,
+                s.isStickiness,
+                s.incompletePoints,
+                s.showMultipleYAxes,
+                s.showTrendLines,
+                s.showConfidenceIntervals,
+                s.confidenceLevel,
+                s.showMovingAverage,
+                s.movingAverageIntervals,
+                s.getTrendsColor,
+                s.getTrendsHidden,
+            ],
+            (
+                indexedResults,
+                isArea,
+                isLog10,
+                isStickiness,
+                incompletePoints,
+                showMultipleYAxes,
+                showTrendLines,
+                showConfidenceIntervals,
+                confidenceLevel,
+                showMovingAverage,
+                movingAverageIntervals,
+                getTrendsColor,
+                getTrendsHidden
+            ) =>
+                buildTrendsSeries({
+                    indexedResults,
+                    isArea,
+                    isLog10,
+                    isStickiness,
+                    incompletePoints,
+                    showMultipleYAxes,
+                    showTrendLines,
+                    showConfidenceIntervals,
+                    confidenceLevel,
+                    showMovingAverage,
+                    movingAverageIntervals,
+                    getTrendsColor,
+                    getTrendsHidden,
+                }),
         ],
 
         getTrendsColorToken: [
