@@ -155,8 +155,8 @@ func TestFocus_swapWithTab(t *testing.T) {
 
 func TestFocus_mouseClickSidebar(t *testing.T) {
 	m := readyModel(t, "backend", "frontend")
-	// Click second row in sidebar (row 1 = y=headerHeight+1)
-	m = update(m, tea.MouseClickMsg{Button: tea.MouseLeft, X: 5, Y: headerHeight + 1})
+	// Click second row in sidebar: header(1) + border(1) + row0(1) = y offset 3
+	m = update(m, tea.MouseClickMsg{Button: tea.MouseLeft, X: 5, Y: headerHeight + 2})
 	if m.focusedPane != focusSidebar {
 		t.Error("click in sidebar should focus sidebar")
 	}
@@ -250,7 +250,7 @@ func TestCopyMode_exitOnProcSwitch(t *testing.T) {
 	}
 	// Mouse-clicking a different process in the sidebar calls loadActiveProc,
 	// which always exits copy mode.
-	m = update(m, tea.MouseClickMsg{Button: tea.MouseLeft, X: 5, Y: headerHeight + 1})
+	m = update(m, tea.MouseClickMsg{Button: tea.MouseLeft, X: 5, Y: headerHeight + 2})
 	if m.copyMode {
 		t.Error("switching process should exit copy mode")
 	}

@@ -352,7 +352,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.X < sidebarWidth && msg.Y >= headerHeight {
 				m.focusedPane = focusSidebar
 				m.dbg("focus: mouse click → sidebar")
-				row := msg.Y - headerHeight
+				row := msg.Y - headerHeight - 1 // -1 for top border
 				idx := m.sidebarOffset + row
 				if idx >= 0 && idx < len(m.rows) {
 					prev := m.cursor
