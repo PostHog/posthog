@@ -14,7 +14,7 @@ from posthog.models.snippet_versioning import (
     resolve_version,
     validate_version_artifacts,
 )
-from posthog.tasks.snippet_versioning import _LAST_HASH_REDIS_KEY, sync_posthog_js_versions
+from posthog.tasks.snippet_versioning import sync_snippet_manifest
 
 
 def _make_manifest(versions: list[str], pointers: dict[str, str]) -> dict:
@@ -210,21 +210,22 @@ class TestSyncTask(SimpleTestCase):
 
     def tearDown(self):
         cache.delete(REDIS_POINTER_MAP_KEY)
-        cache.delete(_LAST_HASH_REDIS_KEY)
         _reset_caches()
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
-    @patch("posthog.tasks.snippet_versioning.validate_version_artifacts")
-    @patch("posthog.tasks.snippet_versioning.object_storage.read")
+    @patch("posthog.models.snippet_versioning.validate_version_artifacts")
+    @patch("posthog.models.snippet_versioning.object_storage.read")
     def test_syncs_versions_json_to_redis(self, mock_read, mock_validate):
-        entries = [
-            {"version": "1.358.0", "timestamp": "2025-01-15T00:00:00Z"},
-            {"version": "1.359.0", "timestamp": "2025-01-20T00:00:00Z"},
-        ]
-        mock_read.return_value = json.dumps(entries)
+        entries = json.dumps(
+            [
+                {"version": "1.358.0", "timestamp": "2025-01-15T00:00:00Z"},
+                {"version": "1.359.0", "timestamp": "2025-01-20T00:00:00Z"},
+            ]
+        )
+        mock_read.return_value = entries
         mock_validate.return_value = True
 
-        sync_posthog_js_versions()
+        sync_snippet_manifest()
 
         raw = cache.get(REDIS_POINTER_MAP_KEY)
         manifest = json.loads(raw)
@@ -234,33 +235,18 @@ class TestSyncTask(SimpleTestCase):
         assert manifest["pointers"]["1.359"] == "1.359.0"
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
-    @patch("posthog.tasks.snippet_versioning.validate_version_artifacts")
-    @patch("posthog.tasks.snippet_versioning.object_storage.read")
-    def test_skips_update_when_unchanged(self, mock_read, mock_validate):
-        entries = json.dumps([{"version": "1.359.0", "timestamp": "2025-01-20T00:00:00Z"}])
-        mock_read.return_value = entries
-        mock_validate.return_value = True
-
-        # First sync
-        sync_posthog_js_versions()
-        # Second sync with same content
-        sync_posthog_js_versions()
-
-        mock_validate.assert_called_once()
-
-    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
-    @patch("posthog.tasks.snippet_versioning.validate_version_artifacts")
-    @patch("posthog.tasks.snippet_versioning.object_storage.read")
+    @patch("posthog.models.snippet_versioning.validate_version_artifacts")
+    @patch("posthog.models.snippet_versioning.object_storage.read")
     def test_rejects_update_when_artifacts_missing(self, mock_read, mock_validate):
         entries = [{"version": "99.99.99", "timestamp": "2025-01-20T00:00:00Z"}]
         mock_read.return_value = json.dumps(entries)
         mock_validate.return_value = False
 
-        sync_posthog_js_versions()
+        sync_snippet_manifest()
 
         assert cache.get(REDIS_POINTER_MAP_KEY) is None
 
     @override_settings(POSTHOG_JS_S3_BUCKET="")
     def test_noop_when_versioning_disabled(self):
-        sync_posthog_js_versions()
+        sync_snippet_manifest()
         assert cache.get(REDIS_POINTER_MAP_KEY) is None

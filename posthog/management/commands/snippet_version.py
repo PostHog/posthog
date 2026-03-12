@@ -9,8 +9,10 @@ from posthog.models.remote_config import RemoteConfig
 from posthog.models.snippet_versioning import (
     REDIS_POINTER_MAP_KEY,
     S3_VERSIONS_KEY,
+    ManifestSyncError,
     VersionManifest,
     compute_version_manifest,
+    sync_manifest_from_s3,
     validate_version_artifacts,
 )
 from posthog.storage import object_storage
@@ -35,6 +37,9 @@ def _changed_pointers(before: dict[str, str], after: dict[str, str]) -> set[str]
 #
 #   # Yank a bad version (soft-delete, pointer map falls back to previous):
 #   ./manage.py snippet_version yank 1.359.0 --accept --purge
+#
+#   # Re-sync versions.json from S3 to Redis (same as celery task):
+#   ./manage.py snippet_version sync
 
 
 class Command(BaseCommand):
@@ -49,6 +54,8 @@ class Command(BaseCommand):
             sub.add_argument("--accept", action="store_true", help="Actually write changes (default is dry-run)")
             sub.add_argument("--purge", action="store_true", help="Purge CDN cache for affected versions")
 
+        subparsers.add_parser("sync", help="Re-sync versions.json from S3 to Redis")
+
     def handle(self, *args, **options):
         if not settings.POSTHOG_JS_S3_BUCKET:
             raise CommandError("POSTHOG_JS_S3_BUCKET is not configured")
@@ -58,6 +65,8 @@ class Command(BaseCommand):
             self._handle_publish(options)
         elif action == "yank":
             self._handle_yank(options)
+        elif action == "sync":
+            self._handle_sync()
 
     def _read_manifest(self) -> list[dict]:
         try:
@@ -176,3 +185,13 @@ class Command(BaseCommand):
             self._purge_changed(before["pointers"], after["pointers"])
 
         self.stdout.write(self.style.SUCCESS(f"Yanked posthog-js v{version}"))
+
+    def _handle_sync(self) -> None:
+        try:
+            manifest = sync_manifest_from_s3()
+        except ManifestSyncError as e:
+            raise CommandError(str(e))
+
+        self.stdout.write(f"Versions: {len(manifest['versions'])}")
+        self.stdout.write(f"Pointers: {manifest['pointers']}")
+        self.stdout.write(self.style.SUCCESS("Sync complete"))

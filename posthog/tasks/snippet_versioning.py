@@ -1,67 +1,24 @@
-import json
-import hashlib
-
 from django.conf import settings
-from django.core.cache import cache
 
 import structlog
 from celery import shared_task
 
-from posthog.models.snippet_versioning import (
-    REDIS_POINTER_MAP_KEY,
-    S3_VERSIONS_KEY,
-    compute_version_manifest,
-    validate_version_artifacts,
-)
-from posthog.storage import object_storage
+from posthog.exceptions_capture import capture_exception
+from posthog.models.snippet_versioning import sync_manifest_from_s3
 from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
 
-# Hash of last synced manifest, used to skip redundant updates
-_LAST_HASH_REDIS_KEY = "posthog_js_versions_last_hash"
-
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
-def sync_posthog_js_versions() -> None:
+def sync_snippet_manifest() -> None:
     """Read versions.json from S3, compute pointer map, update Redis if changed."""
     if not settings.POSTHOG_JS_S3_BUCKET:
         return
 
     try:
-        raw = object_storage.read(
-            S3_VERSIONS_KEY,
-            bucket=settings.POSTHOG_JS_S3_BUCKET,
-            missing_ok=True,
-        )
-    except Exception:
-        logger.exception("Failed to read posthog-js/versions.json from S3")
-        return
-
-    if raw is None:
-        logger.warning("posthog-js/versions.json not found in S3")
-        return
-
-    # Skip if manifest hasn't changed
-    new_hash = hashlib.sha256(raw.encode()).hexdigest()
-    existing_hash = cache.get(_LAST_HASH_REDIS_KEY)
-    if existing_hash == new_hash:
-        return
-
-    entries = json.loads(raw)
-    manifest = compute_version_manifest(entries)
-
-    # Validate that major pin targets have artifacts (these serve the most traffic)
-    major_pins = {pin: ver for pin, ver in manifest["pointers"].items() if "." not in pin}
-    for pin, version in major_pins.items():
-        if not validate_version_artifacts(version):
-            logger.error(
-                "Rejecting versions.json update: artifacts missing for major pin",
-                pin=pin,
-                version=version,
-            )
-            return
-
-    cache.set(REDIS_POINTER_MAP_KEY, json.dumps(manifest), timeout=None)
-    cache.set(_LAST_HASH_REDIS_KEY, new_hash, timeout=None)
-    logger.info("Updated posthog-js version manifest", manifest=manifest)
+        manifest = sync_manifest_from_s3()
+        logger.info("Updated posthog-js version manifest", manifest=manifest)
+    except Exception as e:
+        logger.exception("Failed to sync version manifest", error=str(e))
+        capture_exception(e, additional_properties={"tag": "snippet_versioning", "task": "sync_snippet_manifest"})

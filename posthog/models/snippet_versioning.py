@@ -23,8 +23,8 @@ DEFAULT_SNIPPET_VERSION = "1"
 S3_VERSIONS_KEY = "versions.json"
 
 REDIS_JS_CONTENT_TTL = 60 * 60 * 24 * 30  # 30 days — version content is immutable
-REDIS_JS_KEY_PREFIX = "posthog_js_content"
-REDIS_POINTER_MAP_KEY = "posthog_js_latest_pointers"
+REDIS_JS_KEY_PREFIX = "js_snippet"
+REDIS_POINTER_MAP_KEY = "js_snippet:manifest"
 
 # Matches exact version like "1.358.0"
 _EXACT_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
@@ -199,6 +199,42 @@ def validate_version_artifacts(version: str) -> bool:
     except ObjectStorageError:
         logger.exception("Failed to validate artifacts", version=version)
         return False
+
+
+class ManifestSyncError(Exception):
+    """Raised when syncing the version manifest from S3 fails."""
+
+    pass
+
+
+def sync_manifest_from_s3() -> VersionManifest:
+    """
+    Read versions.json from S3, compute manifest, validate major pins, and write to Redis.
+
+    Raises ManifestSyncError if anything goes wrong.
+    """
+    raw = object_storage.read(
+        S3_VERSIONS_KEY,
+        bucket=settings.POSTHOG_JS_S3_BUCKET,
+        missing_ok=True,
+    )
+    if raw is None:
+        raise ManifestSyncError("versions.json not found in S3")
+
+    entries = json.loads(raw)
+    if not entries:
+        raise ManifestSyncError("versions.json is empty")
+
+    manifest = compute_version_manifest(entries)
+
+    # Validate that major pin targets have artifacts
+    major_pins = {pin: ver for pin, ver in manifest["pointers"].items() if "." not in pin}
+    for pin, version in major_pins.items():
+        if not validate_version_artifacts(version):
+            raise ManifestSyncError(f"Artifacts missing for major pin {pin} -> {version}")
+
+    cache.set(REDIS_POINTER_MAP_KEY, json.dumps(manifest), timeout=None)
+    return manifest
 
 
 def resolve_version(requested_version: Optional[str]) -> Optional[str]:
