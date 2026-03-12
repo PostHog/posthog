@@ -31,6 +31,7 @@ export interface BuildSeriesOptions {
     isArea: boolean
     isLog10: boolean
     isStickiness: boolean
+    incompletePoints: number
     showMultipleYAxes: boolean | undefined | null
     showTrendLines: boolean | undefined
     showConfidenceIntervals: boolean | undefined
@@ -73,7 +74,12 @@ export function buildTrendsSeries(opts: BuildSeriesOptions): Series[] {
         }
 
         const days = (dataset.days as string[] | undefined) ?? []
-        const dataPoints: DataPoint[] = data.map((v, i) => ({ x: days[i] ?? String(i), y: v }))
+        const incompleteStart = opts.incompletePoints > 0 ? data.length - opts.incompletePoints : Infinity
+        const dataPoints: DataPoint[] = data.map((v, i) => ({
+            x: days[i] ?? String(i),
+            y: v,
+            ...(i >= incompleteStart ? { status: 'incomplete' as const } : {}),
+        }))
 
         const yAxisID = opts.showMultipleYAxes && index > 0 ? `y${index}` : 'y'
 

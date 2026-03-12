@@ -36,7 +36,6 @@ function TrendsChartInner({ showPersonsModal = true, context }: ChartParams): JS
         isStacked,
         isPercentStackView,
         isLog10,
-        incompletePoints,
         trendsSeries,
     } = useValues(trendsDataLogic(insightProps))
 
@@ -61,19 +60,16 @@ function TrendsChartInner({ showPersonsModal = true, context }: ChartParams): JS
             series={trendsSeries}
             yAxis={buildYAxis(isLog10, isPercentStackView, showMultipleYAxes ?? null, trendsSeries.length)}
             goalLines={buildGoalLines(alertThresholdLines, schemaGoalLines ?? undefined)}
-            className="TrendsChart w-full grow relative overflow-hidden"
             interval={interval ?? undefined}
             options={{
                 stacked: isStacked,
                 percentStacked: isPercentStackView,
                 isArea,
                 fillOpacity: isPercentStackView ? 1 : 0.5,
-                incompletePoints,
                 showValues: !!showValuesOnSeries,
                 maxSeries: 50,
             }}
             tooltip={{
-                shared: true,
                 render: (ctx: TooltipContext) => (
                     <TrendsTooltip
                         context={ctx}
