@@ -21,7 +21,7 @@ jobs:
               github.event.label.name == 'stamphog'
               || (github.event.action == 'ready_for_review' && contains(github.event.pull_request.labels.*.name, 'stamphog'))
             )
-        runs-on: depot-ubuntu-latest
+        runs-on: ubuntu-latest
         timeout-minutes: 10
 
         steps:
@@ -34,15 +34,15 @@ jobs:
 
             # Always run the approval script from master — hardcoded so a PR
             # targeting a non-master branch can't supply a tampered script.
-            - name: Checkout master
+            - name: Checkout master (blobless)
               uses: actions/checkout@v6
               with:
                   token: ${{ steps.app-token.outputs.token }}
                   ref: master
-                  fetch-depth: 0
+                  filter: blob:none
 
             - name: Fetch PR head ref
-              run: git fetch origin pull/${{ github.event.pull_request.number }}/head
+              run: git fetch --filter=blob:none origin pull/${{ github.event.pull_request.number }}/head
 
             - name: Install uv
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0

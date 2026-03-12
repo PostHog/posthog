@@ -175,8 +175,16 @@ REVIEWER_SYSTEM = textwrap.dedent(
     - "Missing tests for new error handling path."
     - "Touches shared query builder — needs team review."
 
-    Your output is constrained to a JSON schema with verdict, reasoning,
-    risk, and issues fields. Fill them according to the rules above.
+    CRITICAL: Your final output MUST be a single JSON object — no markdown,
+    no prose, no explanation outside the JSON. The schema is:
+    {
+      "verdict": "APPROVE" | "REFUSE" | "ESCALATE",
+      "reasoning": "<1 sentence>",
+      "risk": "low" | "medium" | "high",
+      "issues": ["<issue1>", ...]
+    }
+    If there are no issues, use an empty array. Never wrap the JSON in
+    code fences or add text before/after it.
     """
 )
 
