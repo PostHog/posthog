@@ -5,6 +5,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from asgiref.sync import async_to_sync
+from temporalio.client import WorkflowHandle
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
@@ -60,14 +61,14 @@ async def _run_workflows_batched(
         batch = reports[batch_idx : batch_idx + batch_size]
         batch_num = batch_idx // batch_size + 1
         logger.info("Starting batch %d/%d (%d reports)", batch_num, total_batches, len(batch))
-        handles: list[tuple[str, str, object]] = []
+        handles: list[tuple[str, str, WorkflowHandle]] = []
         for report_id, title in batch:
             workflow_id = config["workflow_id_fn"](team_id, report_id)
             workflow_inputs = config["inputs_cls"](team_id=team_id, report_id=report_id)
             try:
                 handle = await client.start_workflow(
-                    config["workflow_name"],  # type: ignore
-                    workflow_inputs,  # type: ignore
+                    config["workflow_name"],
+                    workflow_inputs,
                     id=workflow_id,
                     task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                     execution_timeout=timedelta(minutes=30),
@@ -85,7 +86,7 @@ async def _run_workflows_batched(
         # Wait for all workflows in this batch to complete before starting the next
         for report_id, title, handle in handles:
             try:
-                await handle.result()  # type: ignore
+                await handle.result()
                 logger.info("Completed %s for report %s — %s", action, report_id, title)
             except Exception:
                 execution_failed += 1
@@ -150,7 +151,7 @@ class Command(BaseCommand):
             logger.info("Dry run complete. %d report(s) would be affected.", report_count)
             return
 
-        report_data = [(str(r.id), r.title) for r in reports]
+        report_data = [(str(r.id), r.title or "") for r in reports]
         started, skipped, start_failed, execution_failed = async_to_sync(_run_workflows_batched)(
             team_id, report_data, action, batch_size
         )
