@@ -10,6 +10,7 @@ from prometheus_client import Counter, Histogram
 from redis.exceptions import RedisError
 
 from posthog import redis as posthog_redis
+from posthog.caching.utils import last_refresh_from_cached_result
 
 logger = structlog.get_logger(__name__)
 
@@ -105,17 +106,15 @@ class QueryCoalescer:
         execute: Callable[[], T],
         get_cache_data: Callable[[], Optional[dict]],
         build_response: Callable[[dict], T],
-        is_fresh: Callable[[dict, float], bool],
         max_wait: float,
     ) -> T:
         """Execute with coalescing: one leader calculates, followers wait for cache.
 
         Args:
             execute: The function that calculates and caches the result (leader work).
-            get_cache_data: Function to check cache for the result.
+            get_cache_data: Function to check cache for the result. Returned dict must
+                contain a "last_refresh" datetime used for freshness checks.
             build_response: Function to build a response from cached data (for followers).
-            is_fresh: Predicate (data, leader_start) -> bool to determine if cached data
-                is fresh enough. The caller owns freshness semantics.
             max_wait: Maximum time in seconds followers will wait for the leader's result.
 
         Returns the result from either execute() or from cache via build_response().
@@ -141,7 +140,8 @@ class QueryCoalescer:
                 except RedisError:
                     pass
 
-        cached_data = self._wait_for_result(get_cache_data, is_fresh, max_wait=max_wait)
+        fresh_after = time.time()
+        cached_data = self._wait_for_result(get_cache_data, fresh_after=fresh_after, max_wait=max_wait)
         if cached_data is not None:
             return build_response(cached_data)
         if self.dry_run:
@@ -149,7 +149,7 @@ class QueryCoalescer:
         self._raise_stored_error()
 
     def _try_acquire(self) -> bool:
-        self._lock_value = f"{self.query_id}:{time.time()}"
+        self._lock_value = self.query_id
         acquired = self._redis.set(self._lock_key, self._lock_value, nx=True, ex=LOCK_TTL_SECONDS)
         self._is_leader = bool(acquired)
         if self._is_leader:
@@ -178,41 +178,36 @@ class QueryCoalescer:
             pass
         raise QueryCoalescingError(error_msg or "Leader failed or crashed without storing an error")
 
+    @staticmethod
+    def _is_fresh(data: dict, fresh_after: float) -> bool:
+        last_refresh = last_refresh_from_cached_result(data)
+        if last_refresh is None:
+            return False
+        return last_refresh.timestamp() >= fresh_after
+
     def _wait_for_result(
         self,
         get_cache_data: Callable[[], Optional[dict]],
-        is_fresh: Callable[[dict, float], bool],
+        fresh_after: float,
         poll_interval: float = POLL_INTERVAL_SECONDS,
         max_wait: float = 300,
     ) -> Optional[dict]:
         if self.dry_run:
             return None
 
-        lock_value = self._redis.get(self._lock_key)
-        if lock_value is None:
-            coalesce_counter.labels(outcome="follower_leader_gone").inc()
-            return None
-        fresh_after = self._parse_lock_start_time(
-            lock_value.decode("utf-8") if isinstance(lock_value, bytes) else lock_value
-        )
-        if fresh_after is None:
-            return None
-
         start = time.monotonic()
 
         while (time.monotonic() - start) < max_wait:
             data = get_cache_data()
-            if data is not None and is_fresh(data, fresh_after):
+            if data is not None and self._is_fresh(data, fresh_after):
                 coalesce_wait_histogram.observe(time.monotonic() - start)
                 coalesce_counter.labels(outcome="follower_hit").inc()
                 return data
 
-            lock_value = self._redis.get(self._lock_key)
-            if lock_value is None:
-                # Leader finished or died — check cache one last time to guard against a race
-                # where the lock is release but cache is not written to yet
+            if self._redis.get(self._lock_key) is None:
+                # Leader finished or died — check cache one last time
                 data = get_cache_data()
-                if data is not None and is_fresh(data, fresh_after):
+                if data is not None and self._is_fresh(data, fresh_after):
                     coalesce_wait_histogram.observe(time.monotonic() - start)
                     coalesce_counter.labels(outcome="follower_hit").inc()
                     return data
@@ -223,10 +218,3 @@ class QueryCoalescer:
 
         coalesce_counter.labels(outcome="follower_timeout").inc()
         return None
-
-    @staticmethod
-    def _parse_lock_start_time(lock_value: str) -> Optional[float]:
-        try:
-            return float(lock_value.rsplit(":", 1)[1])
-        except (IndexError, ValueError):
-            return None

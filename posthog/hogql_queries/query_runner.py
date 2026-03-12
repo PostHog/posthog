@@ -1413,9 +1413,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     execute=execute_blocking,
                     get_cache_data=cache_manager.get_cache_data,
                     build_response=lambda data: CachedResponse(**{**data, "is_cached": True}),
-                    is_fresh=lambda data, leader_start: (
-                        data.get("last_refresh") is not None and data["last_refresh"].timestamp() >= leader_start
-                    ),
                     max_wait=settings.QUERY_COALESCING_MAX_WAIT_SECONDS,
                 )
 
