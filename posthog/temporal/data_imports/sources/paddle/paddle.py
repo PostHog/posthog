@@ -48,8 +48,10 @@ def _get_paddle_session() -> requests.Session:
 
 
 def paddle_request(
-    session: requests.Session, method: str, url: str, logger: Optional[FilteringBoundLogger] = None, **kwargs
+    session: requests.Session, method: str, url: str, **kwargs
 ) -> requests.Response:
+    # No retry adapter on the session — errors surface immediately so the
+    # caller (get_rows / validate_credentials) can decide how to handle them.
     response = session.request(method, url, **kwargs)
     return response
 
