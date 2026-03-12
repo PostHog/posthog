@@ -3,7 +3,9 @@ from collections.abc import Iterator
 from datetime import date, datetime
 from typing import Any, Optional
 
+import requests
 from structlog.types import FilteringBoundLogger
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.security.outbound_proxy import external_requests
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
@@ -12,6 +14,10 @@ from posthog.temporal.data_imports.sources.common.resumable import ResumableSour
 from posthog.temporal.data_imports.sources.klaviyo.settings import KLAVIYO_ENDPOINTS, KlaviyoEndpointConfig
 
 KLAVIYO_BASE_URL = "https://a.klaviyo.com/api"
+
+
+class KlaviyoRetryableError(Exception):
+    pass
 
 
 @dataclasses.dataclass
@@ -136,12 +142,26 @@ def get_rows(
     else:
         url = _build_url(f"{KLAVIYO_BASE_URL}{config.path}", params)
 
-    while True:
-        response = external_requests.get(url, headers=headers, timeout=60)
+    @retry(
+        retry=retry_if_exception_type((KlaviyoRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+        stop=stop_after_attempt(5),
+        wait=wait_exponential_jitter(initial=1, max=30),
+        reraise=True,
+    )
+    def fetch_page(page_url: str) -> dict:
+        response = external_requests.get(page_url, headers=headers, timeout=60)
+
+        if response.status_code == 429 or response.status_code >= 500:
+            raise KlaviyoRetryableError(f"Klaviyo API error (retryable): status={response.status_code}, url={page_url}")
+
         if not response.ok:
-            logger.error(f"Klaviyo API error: status={response.status_code}, body={response.text}, url={url}")
+            logger.error(f"Klaviyo API error: status={response.status_code}, body={response.text}, url={page_url}")
             response.raise_for_status()
-        data = response.json()
+
+        return response.json()
+
+    while True:
+        data = fetch_page(url)
 
         items = data.get("data", [])
         if not items:

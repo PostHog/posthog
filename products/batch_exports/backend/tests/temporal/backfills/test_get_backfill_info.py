@@ -4,12 +4,19 @@ import datetime as dt
 import pytest
 
 from posthog.batch_exports.models import BatchExport, BatchExportDestination
+from posthog.models.utils import uuid7
+from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse, insert_sessions_in_clickhouse
 
 from products.batch_exports.backend.temporal.backfill_batch_export import (
     _get_backfill_info_for_events,
     _get_backfill_info_for_persons,
+    _get_backfill_info_for_sessions,
 )
-from products.batch_exports.backend.tests.temporal.utils.clickhouse import truncate_events, truncate_persons
+from products.batch_exports.backend.tests.temporal.utils.clickhouse import (
+    truncate_events,
+    truncate_persons,
+    truncate_sessions,
+)
 from products.batch_exports.backend.tests.temporal.utils.persons import (
     generate_test_person_distinct_id2,
     generate_test_persons_in_clickhouse,
@@ -732,3 +739,162 @@ class TestGetBackfillInfoForPersons:
 
         assert earliest_start is None
         assert record_count == 0
+
+
+class TestGetBackfillInfoForSessions:
+    """Tests for the _get_backfill_info_for_sessions function."""
+
+    @pytest.fixture(autouse=True)
+    async def truncate_tables(self, clickhouse_client):
+        await truncate_events(clickhouse_client)
+        await truncate_sessions(clickhouse_client)
+
+    @pytest.fixture
+    def make_batch_export(self, ateam):
+        def _make(
+            interval: str = "hour",
+            interval_offset: int | None = None,
+            timezone: str = "UTC",
+        ) -> BatchExport:
+            destination = BatchExportDestination(type="S3", config={})
+            return BatchExport(
+                team_id=ateam.pk,
+                name="Test Batch Export",
+                destination=destination,
+                interval=interval,
+                interval_offset=interval_offset,
+                timezone=timezone,
+                model="sessions",
+            )
+
+        return _make
+
+    @pytest.fixture
+    def generate_sessions(self, clickhouse_client, ateam):
+        async def _generate(
+            start_time: dt.datetime,
+            end_time: dt.datetime | None = None,
+            count: int = 10,
+            count_other_team: int = 0,
+        ):
+            """Generate events with unique session IDs and derive sessions from them.
+
+            Each event gets a unique $session_id, so the number of sessions equals count.
+            """
+            for i in range(count):
+                event_time = start_time + dt.timedelta(seconds=i)
+                session_id = str(uuid7(unix_ms_time=int(event_time.timestamp() * 1000)))
+                await generate_test_events_in_clickhouse(
+                    client=clickhouse_client,
+                    team_id=ateam.pk,
+                    start_time=event_time,
+                    end_time=(end_time or event_time + dt.timedelta(minutes=2)),
+                    count=1,
+                    inserted_at=event_time,
+                    table="sharded_events",
+                    event_name="test-event",
+                    count_outside_range=0,
+                    count_other_team=0,
+                    properties={"$session_id": session_id},
+                )
+
+            for i in range(count_other_team):
+                event_time = start_time + dt.timedelta(seconds=i)
+                session_id = str(uuid7(unix_ms_time=int(event_time.timestamp() * 1000)))
+                await generate_test_events_in_clickhouse(
+                    client=clickhouse_client,
+                    team_id=ateam.pk + 1,
+                    start_time=event_time,
+                    end_time=(end_time or event_time + dt.timedelta(minutes=2)),
+                    count=1,
+                    inserted_at=event_time,
+                    table="sharded_events",
+                    event_name="test-event",
+                    count_outside_range=0,
+                    count_other_team=0,
+                    properties={"$session_id": session_id},
+                )
+
+            await insert_sessions_in_clickhouse(client=clickhouse_client, table="sharded_events")
+
+        return _generate
+
+    async def test_returns_earliest_start_and_count_when_data_exists(self, generate_sessions, make_batch_export):
+        session_time = dt.datetime(2021, 1, 15, 10, 30, 0, tzinfo=dt.UTC)
+        await generate_sessions(start_time=session_time, count=5, count_other_team=3)
+
+        batch_export = make_batch_export()
+        earliest_start, record_count = await _get_backfill_info_for_sessions(
+            batch_export=batch_export,
+            start_at=None,
+            end_at=None,
+        )
+
+        assert earliest_start == dt.datetime(2021, 1, 15, 10, 0, 0, tzinfo=dt.UTC)
+        assert record_count == 5
+
+    async def test_returns_none_and_zero_when_no_data_exists(self, make_batch_export):
+        batch_export = make_batch_export()
+        earliest_start, record_count = await _get_backfill_info_for_sessions(
+            batch_export=batch_export,
+            start_at=None,
+            end_at=None,
+        )
+
+        assert earliest_start is None
+        assert record_count == 0
+
+    async def test_counts_only_sessions_after_start_at(self, generate_sessions, make_batch_export):
+        early_time = dt.datetime(2021, 1, 10, 0, 0, 0, tzinfo=dt.UTC)
+        late_time = dt.datetime(2021, 1, 20, 0, 0, 0, tzinfo=dt.UTC)
+
+        await generate_sessions(start_time=early_time, count=5)
+        await generate_sessions(start_time=late_time, count=8)
+
+        batch_export = make_batch_export()
+        earliest_start, record_count = await _get_backfill_info_for_sessions(
+            batch_export=batch_export,
+            start_at=dt.datetime(2021, 1, 15, 0, 0, 0, tzinfo=dt.UTC),
+            end_at=None,
+        )
+
+        assert earliest_start == dt.datetime(2021, 1, 20, 0, 0, 0, tzinfo=dt.UTC)
+        assert record_count == 8
+
+    async def test_counts_only_sessions_before_end_at(self, ateam, generate_sessions, make_batch_export):
+        early_time = dt.datetime(2021, 1, 10, 0, 0, 0, tzinfo=dt.UTC)
+        late_time = dt.datetime(2021, 1, 20, 0, 0, 0, tzinfo=dt.UTC)
+
+        await generate_sessions(start_time=early_time, count=5)
+        await generate_sessions(start_time=late_time, count=8)
+
+        batch_export = make_batch_export()
+        earliest_start, record_count = await _get_backfill_info_for_sessions(
+            batch_export=batch_export,
+            start_at=None,
+            end_at=dt.datetime(2021, 1, 15, 0, 0, 0, tzinfo=dt.UTC),
+        )
+
+        assert earliest_start == dt.datetime(2021, 1, 10, 0, 0, 0, tzinfo=dt.UTC)
+        assert record_count == 5
+
+    @pytest.mark.parametrize(
+        "interval,expected_start",
+        [
+            ("hour", dt.datetime(2021, 1, 15, 10, 0, 0, tzinfo=dt.UTC)),
+            ("every 5 minutes", dt.datetime(2021, 1, 15, 10, 35, 0, tzinfo=dt.UTC)),
+        ],
+    )
+    async def test_earliest_start_aligned_to_interval(
+        self, interval, expected_start, generate_sessions, make_batch_export
+    ):
+        session_time = dt.datetime(2021, 1, 15, 10, 37, 45, tzinfo=dt.UTC)
+        await generate_sessions(start_time=session_time, count=3)
+
+        batch_export = make_batch_export(interval=interval)
+        earliest_start, _ = await _get_backfill_info_for_sessions(
+            batch_export=batch_export,
+            start_at=None,
+            end_at=None,
+        )
+        assert earliest_start == expected_start
