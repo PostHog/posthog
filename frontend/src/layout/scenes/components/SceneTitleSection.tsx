@@ -421,25 +421,17 @@ export function SceneName({
     suffix,
 }: SceneNameProps): JSX.Element {
     const [name, setName] = useState(initialName)
+    const [prevInitialName, setPrevInitialName] = useState(initialName)
+    if (initialName !== prevInitialName) {
+        setPrevInitialName(initialName)
+        setName(initialName)
+    }
+
     const [isEditing, setIsEditing] = useState(forceEdit)
     const containerRef = useRef<HTMLDivElement>(null)
 
     const textClasses =
         'text-lg font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-sm)] leading-[1.4] select-auto'
-
-    useEffect(() => {
-        if (!isLoading) {
-            setName(initialName)
-        }
-    }, [initialName, isLoading])
-
-    useEffect(() => {
-        if (!isLoading && forceEdit) {
-            setIsEditing(true)
-        } else {
-            setIsEditing(false)
-        }
-    }, [isLoading, forceEdit])
 
     const debouncedOnBlurSave = useDebouncedCallback((value: string) => {
         if (onChange) {
@@ -453,13 +445,31 @@ export function SceneName({
         }
     }, renameDebounceMs)
 
+    // Cancel any pending debounced saves when leaving forceEdit (e.g. Cancel in edit mode).
+    // Without this, a keystroke's debouncedOnChange could fire after Cancel and route to
+    // updateDashboard because dashboardMode is already null.
+    useEffect(() => {
+        if (!forceEdit) {
+            debouncedOnBlurSave.cancel()
+            debouncedOnChange.cancel()
+        }
+    }, [forceEdit]) // eslint-disable-line react-hooks/exhaustive-deps -- stable refs from useDebouncedCallback
+
+    useEffect(() => {
+        if (!isLoading && forceEdit) {
+            setIsEditing(true)
+        } else {
+            setIsEditing(false)
+        }
+    }, [isLoading, forceEdit])
+
     const handleBlur = (e: React.FocusEvent): void => {
         // Check if focus is moving to an element within our container (like the generate button)
         const relatedTarget = e.relatedTarget as HTMLElement | null
         if (relatedTarget && containerRef.current && containerRef.current.contains(relatedTarget)) {
             return
         }
-        if (saveOnBlur && name !== initialName) {
+        if (saveOnBlur && !forceEdit && name !== initialName) {
             debouncedOnBlurSave(name || '')
         }
         if (!forceEdit) {
@@ -600,25 +610,17 @@ function SceneDescription({
     maxLength,
 }: SceneDescriptionProps): JSX.Element | null {
     const [description, setDescription] = useState(initialDescription)
+    const [prevInitialDescription, setPrevInitialDescription] = useState(initialDescription)
+    if (initialDescription !== prevInitialDescription) {
+        setPrevInitialDescription(initialDescription)
+        setDescription(initialDescription)
+    }
+
     const [isEditing, setIsEditing] = useState(forceEdit)
 
     const textClasses = 'text-sm my-0 select-auto'
 
     const emptyText = canEdit ? 'Enter description (optional)' : 'No description'
-
-    useEffect(() => {
-        if (!isLoading) {
-            setDescription(initialDescription)
-        }
-    }, [initialDescription, isLoading])
-
-    useEffect(() => {
-        if (!isLoading && forceEdit) {
-            setIsEditing(true)
-        } else {
-            setIsEditing(false)
-        }
-    }, [isLoading, forceEdit])
 
     const debouncedOnBlurSaveDescription = useDebouncedCallback((value: string) => {
         if (onChange) {
@@ -632,8 +634,23 @@ function SceneDescription({
         }
     }, renameDebounceMs)
 
+    useEffect(() => {
+        if (!forceEdit) {
+            debouncedOnBlurSaveDescription.cancel()
+            debouncedOnDescriptionChange.cancel()
+        }
+    }, [forceEdit]) // eslint-disable-line react-hooks/exhaustive-deps -- stable refs from useDebouncedCallback
+
+    useEffect(() => {
+        if (!isLoading && forceEdit) {
+            setIsEditing(true)
+        } else {
+            setIsEditing(false)
+        }
+    }, [isLoading, forceEdit])
+
     const handleBlur = (): void => {
-        if (saveOnBlur && description !== initialDescription) {
+        if (saveOnBlur && !forceEdit && description !== initialDescription) {
             debouncedOnBlurSaveDescription(description || '')
         }
         if (!forceEdit) {

@@ -257,6 +257,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setSubscriptionMode: (enabled: boolean, id?: number | 'new') => ({ enabled, id }),
         /** Set the dashboard mode, see DashboardMode for details. */
         setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }),
+        /** Pending name/description during edit mode — only persisted on save, cleared on cancel. */
+        setPendingName: (name: string) => ({ name }),
+        setPendingDescription: (description: string) => ({ description }),
+        clearPendingMetadata: true,
         /** Optimistic pin/unpin toggle. */
         togglePinned: true,
         /** Open/close the Terraform export modal. */
@@ -397,6 +401,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         const dashboard: DashboardType<InsightModel> = await api.update(
                             `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
                             {
+                                ...(values.pendingName !== null ? { name: values.pendingName } : {}),
+                                ...(values.pendingDescription !== null
+                                    ? { description: values.pendingDescription }
+                                    : {}),
                                 filters: values.effectiveEditBarFilters,
                                 variables: values.effectiveDashboardVariableOverrides,
                                 breakdown_colors: values.temporaryBreakdownColors,
@@ -776,6 +784,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
             null as DashboardMode | null,
             {
                 setDashboardMode: (_, { mode }) => mode,
+            },
+        ],
+        pendingName: [
+            null as string | null,
+            {
+                setPendingName: (_, { name }) => name,
+                clearPendingMetadata: () => null,
+                // Clear once the single save PATCH confirms — avoids flicker where
+                // display briefly shows the old dashboard.name before the response
+                saveEditModeChangesSuccess: () => null,
+            },
+        ],
+        pendingDescription: [
+            null as string | null,
+            {
+                setPendingDescription: (_, { description }) => description,
+                clearPendingMetadata: () => null,
+                saveEditModeChangesSuccess: () => null,
             },
         ],
         loadLayoutFromServerOnPreview: [
@@ -1901,12 +1927,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 eventUsageLogic.actions.reportDashboardPropertiesChanged(values.dashboard)
             }
         },
+        saveEditModeChangesSuccess: ({ dashboard }) => {
+            if (dashboard) {
+                // Sync the saved dashboard (including any name/description changes) to
+                // dashboardsModel so the sidebar and other global views stay up to date
+                dashboardsModel.actions.updateDashboardSuccess(dashboard)
+            }
+        },
         setDashboardMode: async ({ mode, source }) => {
             if (mode === DashboardMode.Edit && source !== DashboardEventSource.DashboardHeaderDiscardChanges) {
                 clearDOMTextSelection()
                 lemonToast.info('Now editing the dashboard – press E or click Save to persist changes')
             } else if (source === DashboardEventSource.DashboardHeaderDiscardChanges) {
-                // cancel edit mode changesdashboardLogi
+                // cancel edit mode changes — discard pending name/description without saving
+                actions.clearPendingMetadata()
 
                 // reset filters to that before previewing
                 actions.resetIntermittentFilters()
@@ -1938,6 +1972,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     source === DashboardEventSource.SceneCommonButtons)
             ) {
                 // save edit mode changes when exiting via Save button or E key/Edit layout button
+                // Pending name/description are included in the saveEditModeChanges PATCH
+                // to avoid a race between two concurrent PATCHes to the same endpoint.
                 actions.saveEditModeChanges()
             }
 
