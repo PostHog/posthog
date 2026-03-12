@@ -72,7 +72,7 @@ ruff check products/signals/grouping-iterations/ --fix && ruff format products/s
 
 ```bash
 # Full run with evaluation (~5-7 min for 42 signals)
-python products/signals/grouping-iterations/run.py
+
 
 # Tag a run with a note for context
 python products/signals/grouping-iterations/run.py --note "baseline before prompt changes"

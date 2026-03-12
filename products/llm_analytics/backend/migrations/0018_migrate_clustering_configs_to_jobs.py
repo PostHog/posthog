@@ -10,7 +10,7 @@ def migrate_clustering_configs_to_jobs(apps, schema_editor):
         for level, suffix in [("trace", "traces"), ("generation", "generations")]:
             ClusteringJob.objects.create(
                 team_id=config.team_id,
-                name=f"Default ({suffix})",
+                name=f"Default - {suffix}",
                 analysis_level=level,
                 event_filters=config.event_filters,
                 enabled=True,

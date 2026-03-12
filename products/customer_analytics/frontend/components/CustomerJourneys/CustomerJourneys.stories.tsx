@@ -33,5 +33,5 @@ export const EmptyState: StoryFn = () => {
 }
 EmptyState.parameters = {
     pageUrl: urls.customerAnalyticsJourneys(),
-    testOptions: { waitForSelector: '.empty-message' },
+    testOptions: { waitForSelector: '[data-attr="product-introduction-journey"]' },
 }
