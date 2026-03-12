@@ -42,24 +42,10 @@ async function searchAndSelect(triggerAttr: string, searchText: string, resultAt
 }
 
 export const series = {
-    async select(index: number, eventName: string): Promise<void> {
+    async select(eventName: string, index = 0): Promise<void> {
         await searchAndSelect(`trend-element-subject-${index}`, eventName, 'prop-filter-events-0')
 
         await waitFor(() => expect(getQuerySource().series[index].event).toBe(eventName), { timeout: DEBOUNCE_TIMEOUT })
-    },
-
-    async add(eventName: string): Promise<void> {
-        const before = getQuerySource().series.length
-        await searchAndSelect('add-action-event-button', eventName, 'prop-filter-events-0')
-
-        await waitFor(
-            () => {
-                const src = getQuerySource()
-                expect(src.series).toHaveLength(before + 1)
-                expect(src.series[before].event).toBe(eventName)
-            },
-            { timeout: DEBOUNCE_TIMEOUT }
-        )
     },
 }
 
@@ -98,12 +84,6 @@ export const compare = {
         await clickSelect('compare-filter', 'Compare to previous period')
 
         await waitFor(() => expect(getQuerySource().compareFilter?.compare).toBe(true), { timeout: DEBOUNCE_TIMEOUT })
-    },
-
-    async disable(): Promise<void> {
-        await clickSelect('compare-filter', 'No comparison')
-
-        await waitFor(() => expect(getQuerySource().compareFilter?.compare).toBeFalsy(), { timeout: DEBOUNCE_TIMEOUT })
     },
 }
 

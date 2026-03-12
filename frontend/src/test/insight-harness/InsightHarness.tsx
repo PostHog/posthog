@@ -24,14 +24,6 @@ export interface InsightTestHarnessProps {
     mockResponses?: MockResponse[]
 }
 
-export function generateData(label: string, points = 5): number[] {
-    let seed = 0
-    for (const ch of label) {
-        seed = ((seed << 5) - seed + ch.charCodeAt(0)) | 0
-    }
-    return Array.from({ length: points }, (_, i) => Math.abs((seed + i * 17) % 50) + 1)
-}
-
 function InsightTestHarnessInner({
     query,
     showFilters = false,

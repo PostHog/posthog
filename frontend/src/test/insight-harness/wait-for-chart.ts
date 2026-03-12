@@ -1,19 +1,19 @@
 import { waitFor } from '@testing-library/react'
 
-import { getChart } from './chart-accessor'
+import { type Chart, getChart } from './chart-accessor'
 
-export async function waitForChart(expectedDatasets?: number): ReturnType<typeof getChart> {
-    let chart: ReturnType<typeof getChart>
+export async function waitForChart(expectedSeries?: number): Promise<Chart> {
+    let chart: Chart
     await waitFor(
         () => {
             chart = getChart()
-            if (expectedDatasets !== undefined) {
-                expect(chart.datasets).toHaveLength(expectedDatasets)
+            if (expectedSeries !== undefined) {
+                expect(chart.seriesCount).toBe(expectedSeries)
             } else {
-                expect(chart.datasets.length).toBeGreaterThan(0)
+                expect(chart.seriesCount).toBeGreaterThan(0)
             }
         },
-        { timeout: 5000 }
+        { timeout: 2000 }
     )
     return chart!
 }

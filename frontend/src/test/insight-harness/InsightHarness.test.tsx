@@ -12,11 +12,11 @@ import {
     compare,
     display,
     expectNoNaN,
-    generateData,
     getChart,
     interval,
     renderInsight,
     series,
+    trendsSeries,
     waitForChart,
 } from './index'
 
@@ -42,36 +42,35 @@ describe('InsightTestHarness', () => {
         cleanup()
     })
 
-    it('renders a basic trends line chart with correct data', async () => {
+    it('renders scoreboard pageviews', async () => {
         renderInsight({})
 
         const chart = await waitForChart(1)
-        expect(chart.datasets[0].label).toBe('$pageview')
-        expect(chart.datasets[0].data).toEqual(generateData('$pageview'))
-
+        expect(chart.series('$pageview').data).toEqual(trendsSeries.pageviews.data)
         expectNoNaN()
     })
 
-    it('renders multiple series with indexed access', async () => {
+    it('renders pageviews and naps side by side', async () => {
         renderInsight({
             query: buildTrendsQuery({
                 series: [
-                    { kind: NodeKind.EventsNode, event: '$pageview', name: 'Pageviews' },
-                    { kind: NodeKind.EventsNode, event: 'Saved a HedgeHog', name: 'Rescues' },
+                    { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                    { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
                 ],
             }),
         })
 
         const chart = await waitForChart(2)
-        expect(chart.datasets[0].label).toBe('Pageviews')
-        expect(chart.datasets[1].label).toBe('Rescues')
+        expect(chart.series('$pageview').data).toEqual(trendsSeries.pageviews.data)
+        expect(chart.series('Napped').data).toEqual(trendsSeries.napped.data)
+        expect(chart.seriesNames).toEqual(['$pageview', 'Napped'])
     })
 
     it('exposes labels and chart type', async () => {
         renderInsight({})
 
         const chart = await waitForChart(1)
-        expect(chart.labels.length).toBeGreaterThan(0)
+        expect(chart.labels).toEqual(['Mon', 'Tue', 'Wed', 'Thu', 'Fri'])
         expect(chart.type).toBe('line')
     })
 
@@ -85,7 +84,7 @@ describe('InsightTestHarness', () => {
         })
     })
 
-    it('does not produce NaN values for sparse series', async () => {
+    it('does not produce NaN values', async () => {
         renderInsight({})
 
         await waitForChart(1)
@@ -114,18 +113,18 @@ describe('InsightTestHarness', () => {
             await display.set('Bar chart')
         })
 
-        it('select event, breakdown by rescue method, assert breakdown values in chart', async () => {
+        it('breaking down naps by hedgehog shows Spike naps most on Thursdays', async () => {
             renderInsight({ showFilters: true })
             await waitForChart(1)
 
-            await series.select(0, 'Saved a HedgeHog')
-            await breakdown.set('rescue_method')
+            await series.select('Napped')
+            await breakdown.set('hedgehog')
 
             const chart = await waitForChart(5)
-            expect(chart.datasets[0].label).toBe('from road')
-            expect(chart.datasets[0].data).toEqual(generateData('Saved a HedgeHog::from road'))
-            expect(chart.datasets[1].label).toBe('from garden')
-            expect(chart.datasets[1].data).toEqual(generateData('Saved a HedgeHog::from garden'))
+            expect(chart.seriesNames).toEqual(['Spike', 'Bramble', 'Thistle', 'Conker', 'Prickles'])
+
+            expect(chart.value('Spike', 'Thu')).toBe(4)
+            expect(chart.series('Bramble').data).toEqual([0, 0, 1, 1, 0])
         })
     })
 })

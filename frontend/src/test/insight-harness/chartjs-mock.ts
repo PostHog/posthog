@@ -34,6 +34,7 @@ let capturedCharts: CapturedChart[] = []
 
 export function resetCapturedCharts(): void {
     capturedCharts = []
+    MockChart._instances = []
 }
 
 export function getCapturedChartConfigs(): CapturedChart[] {

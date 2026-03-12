@@ -1,5 +1,6 @@
 export { getChart } from './chart-accessor'
-export { buildTrendsQuery, generateData, renderInsight } from './InsightHarness'
+export type { Chart } from './chart-accessor'
+export { buildTrendsQuery, renderInsight } from './InsightHarness'
 export type { InsightTestHarnessProps } from './InsightHarness'
 export { breakdown, compare, display, getQuerySource, interval, series } from './interactions'
 export { setupInsightMocks } from './mocks'

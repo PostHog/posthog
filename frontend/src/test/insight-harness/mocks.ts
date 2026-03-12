@@ -4,17 +4,16 @@ import { useMocks } from '~/mocks/jest'
 import { NodeKind, TrendsQueryResponse } from '~/queries/schema/schema-general'
 import { EventDefinition, PropertyDefinition } from '~/types'
 
-import { generateData } from './InsightHarness'
 import {
     actionDefinitions,
     eventDefinitions as defaultEventDefs,
+    lookupSeries,
     personProperties,
     propertyDefinitions as defaultPropDefs,
     propertyValues as defaultPropValues,
     sessionPropertyDefinitions,
+    type SeriesData,
 } from './test-data'
-
-// ── Types ───────────────────────────────────────────────────────────
 
 export interface QueryBody {
     kind?: string
@@ -30,16 +29,6 @@ export interface MockResponse {
     match: (query: QueryBody) => boolean
     response: TrendsQueryResponse | ((query: QueryBody) => TrendsQueryResponse)
 }
-
-interface SeriesData {
-    label: string
-    data: number[]
-    labels?: string[]
-    days?: string[]
-    breakdown_value?: string | number
-}
-
-// ── Response builders ───────────────────────────────────────────────
 
 function buildTrendsResponse(series: SeriesData[]): TrendsQueryResponse {
     return {
@@ -62,34 +51,17 @@ function buildTrendsResponse(series: SeriesData[]): TrendsQueryResponse {
     }
 }
 
-function autoRespond(query: QueryBody, propValues: Record<string, string[]>): SeriesData[] {
-    const querySeries = query.series ?? []
+function resolveSeriesData(query: QueryBody): SeriesData[] {
     const breakdownProp = query.breakdownFilter?.breakdowns?.[0]?.property ?? query.breakdownFilter?.breakdown ?? null
-    const breakdownValues = breakdownProp ? (propValues[breakdownProp] ?? []) : []
 
-    if (breakdownValues.length > 0) {
-        return querySeries.flatMap((s) =>
-            breakdownValues.map((bv) => ({
-                label: bv,
-                data: generateData(`${s.event ?? s.name}::${bv}`),
-                breakdown_value: bv,
-            }))
-        )
-    }
-
-    return querySeries.map((s) => {
-        const label = s.name ?? s.event ?? 'Unknown'
-        return { label, data: generateData(label) }
+    return (query.series ?? []).flatMap((s) => {
+        return lookupSeries(s.event ?? s.name ?? 'Unknown', breakdownProp ?? undefined)
     })
 }
-
-// ── Filtering helpers ───────────────────────────────────────────────
 
 function filterBySearch<T extends { name: string }>(items: T[], search: string): T[] {
     return search ? items.filter((item) => item.name.includes(search)) : items
 }
-
-// ── MSW setup ───────────────────────────────────────────────────────
 
 export interface SetupMocksOptions {
     eventDefinitions?: EventDefinition[]
@@ -108,7 +80,7 @@ export function setupInsightMocks({
     const responses: MockResponse[] = mockResponses ?? [
         {
             match: (query) => query.kind === NodeKind.TrendsQuery,
-            response: (query) => buildTrendsResponse(autoRespond(query, propValues)),
+            response: (query) => buildTrendsResponse(resolveSeriesData(query)),
         },
     ]
 
