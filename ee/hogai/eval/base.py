@@ -123,15 +123,24 @@ def _print_eval_stats(experiment_name: str, result: EvalResultWithSummary) -> No
                 )
             lines.append(f"  {score_summary.name}: {pct}{diff_str}{imp_reg}")
 
-    # Per-case results
-    if results:
+    # Separate failed and passed cases
+    failed = []
+    passed = []
+    for eval_result in results:
+        has_failure = eval_result.error is not None or any(
+            v is not None and v < 1.0 for v in eval_result.scores.values()
+        )
+        if has_failure:
+            failed.append(eval_result)
+        else:
+            passed.append(eval_result)
+
+    # Failed cases with full input for debugging
+    if failed:
         lines.append("")
-        lines.append("Per-case Results:")
-        for eval_result in results:
+        lines.append(f"Failed Cases ({len(failed)}/{len(results)}):")
+        for eval_result in failed:
             input_str = str(eval_result.input)
-            # Truncate long inputs
-            if len(input_str) > 80:
-                input_str = input_str[:77] + "..."
             score_parts = []
             for score_name, score_val in eval_result.scores.items():
                 if score_val is not None:
@@ -139,9 +148,20 @@ def _print_eval_stats(experiment_name: str, result: EvalResultWithSummary) -> No
                 else:
                     score_parts.append(f"{score_name}=N/A")
             scores_str = ", ".join(score_parts)
-            error_str = " [ERROR]" if eval_result.error else ""
+            lines.append(f"  - Input: {input_str}")
+            lines.append(f"    Scores: {scores_str}")
+            if eval_result.error:
+                lines.append(f"    Error: {eval_result.error}")
+
+    # Passed cases (condensed)
+    if passed:
+        lines.append("")
+        lines.append(f"Passed Cases ({len(passed)}/{len(results)}):")
+        for eval_result in passed:
+            input_str = str(eval_result.input)
+            if len(input_str) > 80:
+                input_str = input_str[:77] + "..."
             lines.append(f"  - {input_str}")
-            lines.append(f"    Scores: {scores_str}{error_str}")
 
     lines.append(f"{'=' * 60}")
     lines.append("")
