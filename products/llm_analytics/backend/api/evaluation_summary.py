@@ -189,7 +189,7 @@ def _fetch_evaluation_runs(
             properties.$ai_evaluation_result as result,
             properties.$ai_evaluation_reasoning as reasoning,
             properties.$ai_evaluation_applicable as applicable
-        FROM events
+        FROM ai_events
         WHERE {where_clause}
         ORDER BY timestamp DESC
         LIMIT {limit}

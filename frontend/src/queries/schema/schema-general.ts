@@ -105,6 +105,7 @@ export enum NodeKind {
     LogAttributesQuery = 'LogAttributesQuery',
     LogValuesQuery = 'LogValuesQuery',
     SessionBatchEventsQuery = 'SessionBatchEventsQuery',
+    AiEventsQuery = 'AiEventsQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -231,6 +232,7 @@ export type AnyDataNode =
     | TracesQuery
     | TraceQuery
     | TraceNeighborsQuery
+    | AiEventsQuery
     | VectorSearchQuery
     | UsageMetricsQuery
     | EndpointsUsageOverviewQuery
@@ -323,6 +325,7 @@ export type QuerySchema =
     | TracesQuery
     | TraceQuery
     | TraceNeighborsQuery
+    | AiEventsQuery
     | VectorSearchQuery
 
     // Customer analytics
@@ -851,6 +854,15 @@ export interface EventsQuery extends DataNode<EventsQueryResponse> {
     orderBy?: string[]
 }
 
+/**
+ * Query node for AI events that transparently chooses the `ai_events` table (within 30-day TTL)
+ * or the `events` table (beyond TTL). When using `ai_events`, property references like
+ * `properties.$ai_*` are rewritten to dedicated column names.
+ */
+export interface AiEventsQuery extends Omit<EventsQuery, 'kind' | 'response'>, DataNode<EventsQueryResponse> {
+    kind: NodeKind.AiEventsQuery
+}
+
 export interface SessionsQueryResponse extends AnalyticsQueryResponseBase {
     results: any[][]
     columns: any[]
@@ -955,6 +967,7 @@ export interface DataTableNode
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
                     | TracesQuery
+                    | AiEventsQuery
                     | EndpointsUsageTableQuery
                 )['response']
             >
@@ -965,6 +978,7 @@ export interface DataTableNode
     source:
         | EventsNode
         | EventsQuery
+        | AiEventsQuery
         | PersonsNode
         | ActorsQuery
         | GroupsQuery

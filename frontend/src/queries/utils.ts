@@ -106,7 +106,7 @@ export function isGroupNode(node?: Record<string, any> | null): node is GroupNod
 }
 
 export function isEventsQuery(node?: Record<string, any> | null): node is EventsQuery {
-    return node?.kind === NodeKind.EventsQuery
+    return node?.kind === NodeKind.EventsQuery || node?.kind === NodeKind.AiEventsQuery
 }
 
 export function isSessionsQuery(node?: Record<string, any> | null): node is SessionsQuery {

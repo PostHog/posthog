@@ -56,6 +56,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.postgres_utils import add_postgres_foreign_key_lazy_joins
 from posthog.hogql.database.s3_table import S3Table
+from posthog.hogql.database.schema.ai_events import AiEventsTable
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
 from posthog.hogql.database.schema.cohort_membership import CohortMembershipTable
@@ -195,6 +196,7 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
     "batch_export_log_entries": TableNode(name="batch_export_log_entries", table=BatchExportLogEntriesTable()),
     "sessions": TableNode(name="sessions", table=SessionsTableV1()),
     "heatmaps": TableNode(name="heatmaps", table=HeatmapsTable()),
+    "ai_events": TableNode(name="ai_events", table=AiEventsTable()),
     "exchange_rate": TableNode(name="exchange_rate", table=ExchangeRateTable()),
     "document_embeddings": TableNode(name="document_embeddings", table=DocumentEmbeddingsTable()),
     **{name: TableNode(name=name, table=table) for name, table in HOGQL_MODEL_TABLES.items()},

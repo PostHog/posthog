@@ -115,7 +115,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 columnsInResponse: string[] | null,
                 context: QueryContext<DataTableNode> | undefined
             ): DataTableRow[] | null => {
-                if (response && sourceKind === NodeKind.EventsQuery) {
+                if (response && (sourceKind === NodeKind.EventsQuery || sourceKind === NodeKind.AiEventsQuery)) {
                     const queryResponse = response as AnyResponseType
                     if (queryResponse) {
                         let results: any[] | null = []
