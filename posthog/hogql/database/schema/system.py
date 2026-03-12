@@ -266,6 +266,7 @@ exports: PostgresTable = PostgresTable(
 activity_logs: PostgresTable = PostgresTable(
     name="activity_logs",
     postgres_table_name="posthog_activitylog",
+    access_scope="activity_log",
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
