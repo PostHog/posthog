@@ -7,6 +7,7 @@ import { elementsToString, extractElements } from '../../utils/elements-chain'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { MAX_GROUP_TYPES_PER_TEAM } from './group-type-manager'
+import { uuidFromDistinctId } from './person-uuid'
 
 const elementsOrElementsChainCounter = new Counter({
     name: 'events_pipeline_elements_or_elements_chain_total',
@@ -42,7 +43,7 @@ export function getElementsChain(properties: Properties): string {
 
 export function createEvent(
     preIngestionEvent: PreIngestionEvent,
-    person: Person,
+    person: Person | undefined,
     processPerson: boolean,
     historicalMigration: boolean,
     capturedAt: Date | null
@@ -63,14 +64,14 @@ export function createEvent(
     }
 
     let eventPersonProperties: Record<string, unknown> = {}
-    if (processPerson) {
+    if (processPerson && person) {
         eventPersonProperties = {
             ...person.properties,
             // For consistency, we'd like events to contain the properties that they set, even if those were changed
             // before the event is ingested.
             ...(properties.$set || {}),
         }
-    } else {
+    } else if (!processPerson) {
         // TODO: Move this into `normalizeEventStep` where it belongs, but the code structure
         // and tests demand this for now.
         for (let groupTypeIndex = 0; groupTypeIndex < MAX_GROUP_TYPES_PER_TEAM; ++groupTypeIndex) {
@@ -80,11 +81,14 @@ export function createEvent(
     }
 
     let personMode: PersonMode = 'full'
-    if (person.force_upgrade) {
+    if (person?.force_upgrade) {
         personMode = 'force_upgrade'
     } else if (!processPerson) {
         personMode = 'propertyless'
     }
+
+    // Use person UUID if available, otherwise generate deterministic UUID from distinct_id
+    const personId = person?.uuid ?? uuidFromDistinctId(teamId, distinctId)
 
     const processedEvent: ProcessedEvent = {
         uuid,
@@ -97,9 +101,9 @@ export function createEvent(
         elements_chain: elementsChain,
         created_at: null,
         captured_at: capturedAt,
-        person_id: person.uuid,
+        person_id: personId,
         person_properties: eventPersonProperties,
-        person_created_at: person.created_at,
+        person_created_at: person?.created_at ?? null,
         person_mode: personMode,
         // Only include historical_migration when true to avoid bloating messages
         ...(historicalMigration ? { historical_migration: true } : {}),

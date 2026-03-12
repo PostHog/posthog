@@ -104,18 +104,16 @@ export class CymbalClient {
         const { response, durationMs } = await this.makeRequest(requests)
 
         if (response.status >= 400) {
-            const errorBody = await response.text().catch(() => 'unknown')
             this.recordMetrics(`error_${response.status}`, durationMs, requests.length)
 
             logger.warn('⚠️', 'cymbal_error_response', {
                 status: response.status,
-                errorBody,
                 batchSize: requests.length,
             })
 
             // 5xx errors and 429 are retriable
             const isRetriable = response.status >= 500 || response.status === 429
-            throw new CymbalError(`Cymbal returned ${response.status}: ${errorBody}`, isRetriable)
+            throw new CymbalError(`Cymbal returned ${response.status}`, isRetriable)
         }
 
         const rawResults = await response.json()

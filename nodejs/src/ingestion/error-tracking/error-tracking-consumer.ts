@@ -100,7 +100,6 @@ export class ErrorTrackingConsumer {
     protected overflowRedirectService?: OverflowRedirectService
     protected overflowLaneTTLRefreshService?: OverflowRedirectService
     protected topHog?: TopHog
-    private isStopping = false
 
     constructor(
         private config: ErrorTrackingConsumerOptions,
@@ -226,7 +225,6 @@ export class ErrorTrackingConsumer {
 
     public async stop(): Promise<void> {
         logger.info('🔁', `${this.name} - stopping`)
-        this.isStopping = true
 
         // Wait for any pending side effects
         await this.promiseScheduler.waitForAll()

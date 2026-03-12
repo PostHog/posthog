@@ -127,7 +127,11 @@ export class PluginServer {
 
         const capabilities = getPluginServerCapabilities(this.config)
 
-        const needsIngestion = !!(capabilities.ingestionV2Combined || capabilities.ingestionV2)
+        const needsIngestion = !!(
+            capabilities.ingestionV2Combined ||
+            capabilities.ingestionV2 ||
+            capabilities.errorTrackingIngestion
+        )
 
         const needsCdp = !!(
             capabilities.cdpProcessedEvents ||

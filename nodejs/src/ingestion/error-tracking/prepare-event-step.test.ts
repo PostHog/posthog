@@ -64,23 +64,20 @@ describe('createErrorTrackingPrepareEventStep', () => {
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (isOkResult(result)) {
-            expect(result.value.person.uuid).toBe('existing-person-uuid')
-            expect(result.value.person.properties).toEqual({ email: 'test@example.com', name: 'Test User' })
+            expect(result.value.person).toBeDefined()
+            expect(result.value.person?.uuid).toBe('existing-person-uuid')
+            expect(result.value.person?.properties).toEqual({ email: 'test@example.com', name: 'Test User' })
         }
     })
 
-    it('creates placeholder person when person is null', async () => {
+    it('returns undefined person when person is null', async () => {
         const event = createTestPluginEvent({ event: '$exception' })
 
         const result = await step({ event, team, person: null, headers: createTestHeaders() })
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (isOkResult(result)) {
-            expect(result.value.person).toBeDefined()
-            expect(result.value.person.team_id).toBe(123)
-            expect(result.value.person.uuid).toMatch(/^[0-9a-f-]{36}$/)
-            expect(result.value.person.properties).toEqual({})
-            expect(result.value.person.created_at).toBeDefined()
+            expect(result.value.person).toBeUndefined()
         }
     })
 
@@ -265,7 +262,7 @@ describe('createErrorTrackingPrepareEventStep', () => {
 
             // These should be in output
             expect(result.value.preparedEvent).toBeDefined()
-            expect(result.value.person).toBeDefined()
+            expect(result.value.person).toBeUndefined() // null input becomes undefined
             expect(result.value.processPerson).toBe(true)
             expect(result.value.historicalMigration).toBeDefined()
         }

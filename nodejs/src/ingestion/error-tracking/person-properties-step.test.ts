@@ -3,14 +3,17 @@ import { DateTime } from 'luxon'
 import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 import { createTestTeam } from '~/tests/helpers/team'
 import { InternalPerson } from '~/types'
-import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
+import {
+    InternalPersonWithDistinctId,
+    PersonRepository,
+} from '~/worker/ingestion/persons/repositories/person-repository'
 
 import { PipelineResultType, isOkResult } from '../pipelines/results'
-import { createPersonPropertiesReadOnlyStep } from './person-properties-step'
+import { createFetchPersonBatchStep } from './person-properties-step'
 
-describe('createPersonPropertiesReadOnlyStep', () => {
+describe('createFetchPersonBatchStep', () => {
     let mockPersonRepository: jest.Mocked<PersonRepository>
-    let step: ReturnType<typeof createPersonPropertiesReadOnlyStep>
+    let step: ReturnType<typeof createFetchPersonBatchStep>
 
     const team = createTestTeam({ id: 123 })
 
@@ -47,29 +50,59 @@ describe('createPersonPropertiesReadOnlyStep', () => {
             updateCohortsAndFeatureFlagsForMerge: jest.fn(),
             inTransaction: jest.fn(),
         }
-        step = createPersonPropertiesReadOnlyStep(mockPersonRepository)
+        step = createFetchPersonBatchStep(mockPersonRepository)
     })
 
-    it('fetches person and passes it through when person exists', async () => {
-        const event = createTestPluginEvent({
-            distinct_id: 'user-123',
+    it('returns empty array for empty input', async () => {
+        const results = await step([])
+
+        expect(results).toEqual([])
+        expect(mockPersonRepository.fetchPersonsByDistinctIds).not.toHaveBeenCalled()
+    })
+
+    it('fetches persons in batch and maps them to inputs', async () => {
+        const event1 = createTestPluginEvent({
+            distinct_id: 'user-1',
             event: '$exception',
-            properties: { existing: 'property' },
+            properties: { idx: 1 },
         })
-        const person = createTestInternalPerson()
-
-        mockPersonRepository.fetchPerson.mockResolvedValueOnce(person)
-
-        const result = await step({ event, team })
-
-        expect(result.type).toBe(PipelineResultType.OK)
-        if (isOkResult(result)) {
-            // Event properties should NOT be modified (no $person_id/$person_properties added)
-            expect(result.value.event.properties).toEqual({ existing: 'property' })
-            // Person should be passed through for downstream steps
-            expect(result.value.person).toEqual(person)
+        const event2 = createTestPluginEvent({
+            distinct_id: 'user-2',
+            event: '$exception',
+            properties: { idx: 2 },
+        })
+        const person1: InternalPersonWithDistinctId = {
+            ...createTestInternalPerson({ uuid: 'person-1' }),
+            distinct_id: 'user-1',
         }
-        expect(mockPersonRepository.fetchPerson).toHaveBeenCalledWith(123, 'user-123', { useReadReplica: true })
+        const person2: InternalPersonWithDistinctId = {
+            ...createTestInternalPerson({ uuid: 'person-2' }),
+            distinct_id: 'user-2',
+        }
+
+        mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValueOnce([person1, person2])
+
+        const results = await step([
+            { event: event1, team },
+            { event: event2, team },
+        ])
+
+        expect(results).toHaveLength(2)
+        expect(results[0].type).toBe(PipelineResultType.OK)
+        expect(results[1].type).toBe(PipelineResultType.OK)
+        if (isOkResult(results[0])) {
+            expect(results[0].value.person?.uuid).toBe('person-1')
+        }
+        if (isOkResult(results[1])) {
+            expect(results[1].value.person?.uuid).toBe('person-2')
+        }
+        expect(mockPersonRepository.fetchPersonsByDistinctIds).toHaveBeenCalledWith(
+            [
+                { teamId: 123, distinctId: 'user-1' },
+                { teamId: 123, distinctId: 'user-2' },
+            ],
+            true // useReadReplica
+        )
     })
 
     it('returns null person when person not found', async () => {
@@ -79,14 +112,15 @@ describe('createPersonPropertiesReadOnlyStep', () => {
             properties: { existing: 'property' },
         })
 
-        mockPersonRepository.fetchPerson.mockResolvedValueOnce(undefined)
+        mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValueOnce([])
 
-        const result = await step({ event, team })
+        const results = await step([{ event, team }])
 
-        expect(result.type).toBe(PipelineResultType.OK)
-        if (isOkResult(result)) {
-            expect(result.value.event.properties).toEqual({ existing: 'property' })
-            expect(result.value.person).toBeNull()
+        expect(results).toHaveLength(1)
+        expect(results[0].type).toBe(PipelineResultType.OK)
+        if (isOkResult(results[0])) {
+            expect(results[0].value.event.properties).toEqual({ existing: 'property' })
+            expect(results[0].value.person).toBeNull()
         }
     })
 
@@ -97,14 +131,80 @@ describe('createPersonPropertiesReadOnlyStep', () => {
             properties: { existing: 'property' },
         })
 
-        const result = await step({ event, team })
+        const results = await step([{ event, team }])
 
-        expect(result.type).toBe(PipelineResultType.OK)
-        if (isOkResult(result)) {
-            expect(result.value.event.properties).toEqual({ existing: 'property' })
-            expect(result.value.person).toBeNull()
+        expect(results).toHaveLength(1)
+        expect(results[0].type).toBe(PipelineResultType.OK)
+        if (isOkResult(results[0])) {
+            expect(results[0].value.event.properties).toEqual({ existing: 'property' })
+            expect(results[0].value.person).toBeNull()
         }
-        expect(mockPersonRepository.fetchPerson).not.toHaveBeenCalled()
+        expect(mockPersonRepository.fetchPersonsByDistinctIds).not.toHaveBeenCalled()
+    })
+
+    it('handles mix of found and not found persons', async () => {
+        const event1 = createTestPluginEvent({
+            distinct_id: 'user-found',
+            event: '$exception',
+        })
+        const event2 = createTestPluginEvent({
+            distinct_id: 'user-not-found',
+            event: '$exception',
+        })
+        const person: InternalPersonWithDistinctId = {
+            ...createTestInternalPerson(),
+            distinct_id: 'user-found',
+        }
+
+        mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValueOnce([person])
+
+        const results = await step([
+            { event: event1, team },
+            { event: event2, team },
+        ])
+
+        expect(results).toHaveLength(2)
+        if (isOkResult(results[0])) {
+            expect(results[0].value.person).not.toBeNull()
+        }
+        if (isOkResult(results[1])) {
+            expect(results[1].value.person).toBeNull()
+        }
+    })
+
+    it('handles events with empty distinct_id mixed with valid ones', async () => {
+        const eventWithDistinctId = createTestPluginEvent({
+            distinct_id: 'user-123',
+            event: '$exception',
+        })
+        const eventWithoutDistinctId = createTestPluginEvent({
+            distinct_id: '',
+            event: '$exception',
+        })
+        const person: InternalPersonWithDistinctId = {
+            ...createTestInternalPerson(),
+            distinct_id: 'user-123',
+        }
+
+        mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValueOnce([person])
+
+        const results = await step([
+            { event: eventWithDistinctId, team },
+            { event: eventWithoutDistinctId, team },
+        ])
+
+        expect(results).toHaveLength(2)
+        if (isOkResult(results[0])) {
+            expect(results[0].value.person).not.toBeNull()
+        }
+        if (isOkResult(results[1])) {
+            expect(results[1].value.person).toBeNull()
+        }
+        // Should only query for the event with distinct_id
+        expect(mockPersonRepository.fetchPersonsByDistinctIds).toHaveBeenCalledWith(
+            [{ teamId: 123, distinctId: 'user-123' }],
+            true
+        )
     })
 
     it('preserves original input structure', async () => {
@@ -113,30 +213,19 @@ describe('createPersonPropertiesReadOnlyStep', () => {
             event: '$exception',
             properties: { key: 'value' },
         })
-        const person = createTestInternalPerson()
-
-        mockPersonRepository.fetchPerson.mockResolvedValueOnce(person)
-
-        const result = await step({ event, team })
-
-        expect(result.type).toBe(PipelineResultType.OK)
-        if (isOkResult(result)) {
-            expect(result.value.team).toBe(team)
-            expect(result.value.event).toBe(event) // Same reference, unmodified
-        }
-    })
-
-    it('uses read replica for performance', async () => {
-        const event = createTestPluginEvent({
+        const person: InternalPersonWithDistinctId = {
+            ...createTestInternalPerson(),
             distinct_id: 'user-123',
-        })
+        }
 
-        mockPersonRepository.fetchPerson.mockResolvedValueOnce(undefined)
+        mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValueOnce([person])
 
-        await step({ event, team })
+        const results = await step([{ event, team }])
 
-        expect(mockPersonRepository.fetchPerson).toHaveBeenCalledWith(expect.any(Number), expect.any(String), {
-            useReadReplica: true,
-        })
+        expect(results).toHaveLength(1)
+        if (isOkResult(results[0])) {
+            expect(results[0].value.team).toBe(team)
+            expect(results[0].value.event).toBe(event) // Same reference, unmodified
+        }
     })
 })

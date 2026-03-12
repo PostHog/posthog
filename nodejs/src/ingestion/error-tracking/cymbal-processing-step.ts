@@ -83,17 +83,15 @@ export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
                     return drop('suppressed')
                 }
 
-                // Replace event properties with Cymbal's processed properties
+                // Replace event properties with Cymbal's processed properties.
                 // Cymbal returns the full properties object with $exception_list, $exception_fingerprint, etc.
-                const processedEvent: PluginEvent = {
-                    ...input.event,
-                    properties: response.properties,
-                }
+                // We mutate the event directly since it's not used after this step.
+                input.event.properties = response.properties
 
                 // Check for processing errors from Cymbal
                 const warnings = getCymbalProcessingWarnings(response, input.event.uuid)
 
-                return ok({ ...input, event: processedEvent }, [], warnings)
+                return ok({ ...input, event: input.event }, [], warnings)
             })
         } catch (error) {
             logger.error('❌', 'cymbal_batch_processing_error', {

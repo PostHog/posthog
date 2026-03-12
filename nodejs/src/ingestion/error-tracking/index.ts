@@ -18,4 +18,4 @@ export {
 
 // Steps
 export { createCymbalProcessingStep } from './cymbal-processing-step'
-export { createPersonPropertiesReadOnlyStep } from './person-properties-step'
+export { createFetchPersonBatchStep } from './person-properties-step'

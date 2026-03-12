@@ -1,17 +1,11 @@
-import { DateTime } from 'luxon'
-
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, ISOTimestamp, Person, PreIngestionEvent, Team } from '~/types'
-import { uuidFromDistinctId } from '~/worker/ingestion/person-uuid'
+import { invalidTimestampCounter } from '~/worker/ingestion/event-pipeline/metrics'
+import { parseEventTimestamp } from '~/worker/ingestion/timestamps'
 
+import { PipelineWarning } from '../pipelines/pipeline.interface'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
-
-/**
- * Marker timestamp used for placeholder persons (when no person exists in DB).
- * Using a distinctive value helps identify these cases when debugging.
- */
-const PLACEHOLDER_PERSON_CREATED_AT = DateTime.utc(1970, 1, 1, 0, 0, 5)
 
 export interface ErrorTrackingPrepareEventInput {
     event: PluginEvent
@@ -21,13 +15,13 @@ export interface ErrorTrackingPrepareEventInput {
 }
 
 /**
- * Output adds preparedEvent and resolved person, removes event (no longer needed).
- * Preserves team for downstream steps (e.g., read-only process groups).
- * Uses Omit to preserve any additional fields from input type T.
+ * Output adds preparedEvent, removes event (no longer needed).
+ * Person is optional - undefined if no person was found in the database.
+ * Preserves team and headers for downstream steps.
  */
 export type ErrorTrackingPrepareEventOutput<T> = Omit<T, 'event' | 'person'> & {
     preparedEvent: PreIngestionEvent
-    person: Person // Always defined (placeholder if not found)
+    person?: Person
     processPerson: boolean
     historicalMigration: boolean
 }
@@ -37,7 +31,7 @@ export type ErrorTrackingPrepareEventOutput<T> = Omit<T, 'event' | 'person'> & {
  *
  * This step:
  * 1. Converts PluginEvent to PreIngestionEvent format
- * 2. Creates a placeholder person if none exists (propertyless mode)
+ * 2. Validates timestamp (falls back to now if invalid)
  * 3. Extracts historical_migration flag from headers
  *
  * The output is compatible with createCreateEventStep() and createEmitEventStep().
@@ -49,21 +43,25 @@ export function createErrorTrackingPrepareEventStep<T extends ErrorTrackingPrepa
     return function errorTrackingPrepareEventStep(input) {
         const { event, team, person, headers } = input
 
-        // Convert PluginEvent to PreIngestionEvent
-        const properties = { ...(event.properties ?? {}) }
+        const warnings: PipelineWarning[] = []
+        const invalidTimestampCallback = function (type: string, details: Record<string, any>) {
+            invalidTimestampCounter.labels(type).inc()
+            warnings.push({ type, details })
+        }
 
-        // Remove $set and $set_once from properties.
-        //
-        // Error tracking events ($exception) are in NO_PERSON_UPDATE_EVENTS, meaning
-        // person updates are never written to the database. However, createEvent()
-        // merges properties.$set into person_properties when processPerson=true.
-        // This would cause person_properties to contain values that don't actually
-        // exist on the person (e.g., GeoIP data from the Hog transformer).
-        //
-        // By removing $set/$set_once here, we ensure person_properties only contains
-        // the actual person properties from the database, matching Cymbal's behavior.
+        // Convert PluginEvent to PreIngestionEvent.
+        // Remove $set and $set_once from properties because error tracking events
+        // ($exception) are in NO_PERSON_UPDATE_EVENTS - person updates are never
+        // written to the database. However, createEvent() merges properties.$set
+        // into person_properties when processPerson=true, which would cause
+        // person_properties to contain values that don't exist on the person
+        // (e.g., GeoIP data from the Hog transformer). Mutation is safe since
+        // the event is discarded after this step.
+        const properties = event.properties ?? {}
         delete properties.$set
         delete properties.$set_once
+
+        const timestamp = parseEventTimestamp(event, invalidTimestampCallback)
 
         const preparedEvent: PreIngestionEvent = {
             eventUuid: event.uuid,
@@ -72,23 +70,7 @@ export function createErrorTrackingPrepareEventStep<T extends ErrorTrackingPrepa
             projectId: team.project_id,
             distinctId: event.distinct_id,
             properties,
-            timestamp: (event.timestamp ?? event.now) as ISOTimestamp,
-        }
-
-        // If we have a person from the read-only lookup, use it.
-        // Otherwise, create a placeholder person with a deterministic UUID.
-        //
-        // NOTE: This pipeline does NOT create persons in the database (unlike the
-        // analytics pipeline). We only do a read-only lookup. This diverges from
-        // Cymbal's behavior, which omits person fields entirely when no person is
-        // found. Here we include placeholder values to satisfy the type system and
-        // downstream steps. The deterministic UUID ensures the same distinct_id
-        // always maps to the same person_id for consistency.
-        const resolvedPerson: Person = person ?? {
-            team_id: team.id,
-            uuid: uuidFromDistinctId(team.id, event.distinct_id),
-            properties: {},
-            created_at: PLACEHOLDER_PERSON_CREATED_AT,
+            timestamp: timestamp.toISO() as ISOTimestamp,
         }
 
         // Error tracking always uses processPerson=true to:
@@ -98,17 +80,18 @@ export function createErrorTrackingPrepareEventStep<T extends ErrorTrackingPrepa
 
         const historicalMigration = headers.historical_migration ?? false
 
-        // Use spread to preserve any additional fields from input (e.g., message, team)
-        // Then add/override with our prepared fields
-        const { event: _event, person: _person, ...rest } = input
         return Promise.resolve(
-            ok({
-                ...rest,
-                preparedEvent,
-                person: resolvedPerson,
-                processPerson,
-                historicalMigration,
-            })
+            ok(
+                {
+                    ...input,
+                    preparedEvent,
+                    person: person ?? undefined,
+                    processPerson,
+                    historicalMigration,
+                },
+                [],
+                warnings
+            )
         )
     }
 }

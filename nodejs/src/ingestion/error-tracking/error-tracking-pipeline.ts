@@ -22,14 +22,14 @@ import { EVENTS_OUTPUT, EventOutput, IngestionOutputs } from '../event-processin
 import { createReadOnlyProcessGroupsStep } from '../event-processing/readonly-process-groups-step'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
 import { newBatchPipelineBuilder } from '../pipelines/builders'
-import { TopHogRegistry, count, countOk, createTopHogWrapper, timer } from '../pipelines/extensions/tophog'
+import { TopHogRegistry, count, countOk, createTopHogWrapper } from '../pipelines/extensions/tophog'
 import { createBatch, createUnwrapper } from '../pipelines/helpers'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
 import { createCymbalProcessingStep } from './cymbal-processing-step'
 import { CymbalClient } from './cymbal/client'
 import { ErrorTrackingHogTransformer } from './error-tracking-consumer'
-import { createPersonPropertiesReadOnlyStep } from './person-properties-step'
+import { createFetchPersonBatchStep } from './person-properties-step'
 import { createErrorTrackingPrepareEventStep } from './prepare-event-step'
 
 export interface ErrorTrackingPipelineInput {
@@ -184,17 +184,10 @@ export function createErrorTrackingPipeline(
                                         sleepMs: 100,
                                     })
                                     // Enrich, prepare, create, and emit events
+                                    // Batch fetch person (read-only, no updates)
+                                    .pipeBatch(createFetchPersonBatchStep(personRepository))
                                     .sequentially((b) =>
                                         b
-                                            // Fetch person properties (read-only, no updates)
-                                            .pipe(
-                                                topHogWrapper(createPersonPropertiesReadOnlyStep(personRepository), [
-                                                    timer('person_lookup_time', (input) => ({
-                                                        team_id: String(input.team.id),
-                                                        distinct_id: input.event.distinct_id,
-                                                    })),
-                                                ])
-                                            )
                                             // Run Hog transformations (including GeoIP if team has it enabled)
                                             .pipe(createHogTransformEventStep(hogTransformer))
                                             // Prepare event for emission
