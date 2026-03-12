@@ -1,13 +1,17 @@
-import type {
-    BooleanScoreDefinitionConfigApi as BooleanScoreDefinitionConfig,
-    CategoricalScoreDefinitionConfigApi as CategoricalScoreDefinitionConfig,
-    NumericScoreDefinitionConfigApi as NumericScoreDefinitionConfig,
-    ScoreDefinitionConfigApi as ScoreDefinitionConfig,
-} from '../generated/api.schemas'
 import type { TraceReview, TraceReviewScore } from './types'
+export {
+    getBooleanConfig,
+    getCategoricalConfig,
+    getNumericConfig,
+} from '../scoreDefinitions/scoreDefinitionConfigUtils'
+import { getBooleanConfig, getCategoricalConfig } from '../scoreDefinitions/scoreDefinitionConfigUtils'
 
 const DEFAULT_BOOLEAN_TRUE_LABEL = 'Yes'
 const DEFAULT_BOOLEAN_FALSE_LABEL = 'No'
+
+export function getTraceReviewScores(review: Pick<TraceReview, 'scores'> | null | undefined): TraceReviewScore[] {
+    return Array.isArray(review?.scores) ? review.scores : []
+}
 
 export function formatNumericTraceReviewScore(value: string | number | null | undefined): string {
     if (value === null || value === undefined || value === '') {
@@ -17,18 +21,6 @@ export function formatNumericTraceReviewScore(value: string | number | null | un
     return String(value)
         .replace(/(\.\d*?)0+$/, '$1')
         .replace(/\.$/, '')
-}
-
-export function getCategoricalConfig(config: ScoreDefinitionConfig): CategoricalScoreDefinitionConfig {
-    return 'options' in config ? { selection_mode: 'single', ...config } : { options: [], selection_mode: 'single' }
-}
-
-export function getNumericConfig(config: ScoreDefinitionConfig): NumericScoreDefinitionConfig {
-    return 'min' in config || 'max' in config || 'step' in config ? config : {}
-}
-
-export function getBooleanConfig(config: ScoreDefinitionConfig): BooleanScoreDefinitionConfig {
-    return 'true_label' in config || 'false_label' in config ? config : {}
 }
 
 export function getTraceReviewScoreDisplayValue(score: TraceReviewScore): string {
@@ -56,18 +48,41 @@ export function getTraceReviewScoreDisplayValue(score: TraceReviewScore): string
     return config.false_label || DEFAULT_BOOLEAN_FALSE_LABEL
 }
 
+export function getTraceReviewScoreTagLabel(score: TraceReviewScore): string {
+    return `${score.definition_name}: ${getTraceReviewScoreDisplayValue(score)}`
+}
+
+export function getVisibleTraceReviewScores(
+    review: Pick<TraceReview, 'scores'> | null | undefined,
+    maxVisibleScores: number
+): TraceReviewScore[] {
+    return getTraceReviewScores(review).slice(0, Math.max(0, maxVisibleScores))
+}
+
+export function getHiddenTraceReviewScoreCount(
+    review: Pick<TraceReview, 'scores'> | null | undefined,
+    maxVisibleScores: number
+): number {
+    return Math.max(
+        0,
+        getTraceReviewScores(review).length - getVisibleTraceReviewScores(review, maxVisibleScores).length
+    )
+}
+
 export function getTraceReviewDisplayValue(review: TraceReview): string {
-    if (review.scores.length === 0) {
+    const scores = getTraceReviewScores(review)
+
+    if (scores.length === 0) {
         return 'Reviewed'
     }
 
-    if (review.scores.length === 1) {
-        const score = review.scores[0]
-        const summary = `${score.definition_name}: ${getTraceReviewScoreDisplayValue(score)}`
+    if (scores.length === 1) {
+        const score = scores[0]
+        const summary = getTraceReviewScoreTagLabel(score)
         return summary.length <= 24 ? summary : '1 score'
     }
 
-    return `${review.scores.length} scores`
+    return `${scores.length} scores`
 }
 
 export function getTraceReviewStatusDisplayValue(review: TraceReview | null): string {
@@ -75,17 +90,17 @@ export function getTraceReviewStatusDisplayValue(review: TraceReview | null): st
         return 'Not reviewed'
     }
 
-    if (review.scores.length === 0) {
+    const scores = getTraceReviewScores(review)
+
+    if (scores.length === 0) {
         return 'Reviewed'
     }
 
-    return review.scores.length === 1
-        ? `Reviewed: ${getTraceReviewDisplayValue(review)}`
-        : `Reviewed: ${review.scores.length} scores`
+    return scores.length === 1 ? `Reviewed: ${getTraceReviewDisplayValue(review)}` : `Reviewed: ${scores.length} scores`
 }
 
 export function getTraceReviewTagType(review: TraceReview): 'success' | 'completion' {
-    return review.scores.length === 0 ? 'success' : 'completion'
+    return getTraceReviewScores(review).length === 0 ? 'success' : 'completion'
 }
 
 export function getTraceReviewStatusTagType(review: TraceReview | null): 'success' | 'completion' | 'muted' {

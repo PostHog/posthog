@@ -5,15 +5,21 @@ import { router } from 'kea-router'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 
 import { ApiConfig } from '~/lib/api'
+import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
 import { tabAwareActionToUrl } from '~/lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual, pluralize } from '~/lib/utils'
 import { urls } from '~/scenes/urls'
 
-import { llmAnalyticsScoreDefinitionsList } from '../generated/api'
-import type { Kind01eEnumApi as ScoreDefinitionKind, PaginatedScoreDefinitionListApi } from '../generated/api.schemas'
+import { llmAnalyticsScoreDefinitionsList, llmAnalyticsScoreDefinitionsPartialUpdate } from '../generated/api'
+import type {
+    Kind01eEnumApi as ScoreDefinitionKind,
+    PaginatedScoreDefinitionListApi,
+    ScoreDefinitionApi as ScoreDefinition,
+} from '../generated/api.schemas'
 import type { llmAnalyticsScoreDefinitionsLogicType } from './llmAnalyticsScoreDefinitionsLogicType'
+import { getApiErrorDetail, getCurrentProjectId, type ScoreDefinitionModalMode } from './scoreDefinitionModalUtils'
 
 export const SCORE_DEFINITIONS_PER_PAGE = 30
 
@@ -90,6 +96,14 @@ export const llmAnalyticsScoreDefinitionsLogic = kea<llmAnalyticsScoreDefinition
             debounce,
         }),
         loadScoreDefinitions: (debounce: boolean = true) => ({ debounce }),
+        openModal: (mode: ScoreDefinitionModalMode, scoreDefinition: ScoreDefinition | null = null) => ({
+            mode,
+            scoreDefinition,
+        }),
+        closeModal: true,
+        toggleArchive: (scoreDefinition: ScoreDefinition) => ({ scoreDefinition }),
+        toggleArchiveSuccess: (definitionId: string) => ({ definitionId }),
+        toggleArchiveFailure: (definitionId: string) => ({ definitionId }),
     }),
 
     reducers({
@@ -102,6 +116,40 @@ export const llmAnalyticsScoreDefinitionsLogic = kea<llmAnalyticsScoreDefinition
                         ...filters,
                         ...('page' in filters ? {} : { page: 1 }),
                     }),
+            },
+        ],
+        modalMode: [
+            null as ScoreDefinitionModalMode | null,
+            {
+                openModal: (_, { mode }) => mode,
+                closeModal: () => null,
+            },
+        ],
+        selectedDefinition: [
+            null as ScoreDefinition | null,
+            {
+                openModal: (_, { scoreDefinition }) => scoreDefinition,
+                closeModal: () => null,
+            },
+        ],
+        archivingDefinitionIds: [
+            new Set<string>(),
+            {
+                toggleArchive: (state, { scoreDefinition }) => {
+                    const nextState = new Set(state)
+                    nextState.add(scoreDefinition.id)
+                    return nextState
+                },
+                toggleArchiveSuccess: (state, { definitionId }) => {
+                    const nextState = new Set(state)
+                    nextState.delete(definitionId)
+                    return nextState
+                },
+                toggleArchiveFailure: (state, { definitionId }) => {
+                    const nextState = new Set(state)
+                    nextState.delete(definitionId)
+                    return nextState
+                },
             },
         ],
     }),
@@ -187,14 +235,34 @@ export const llmAnalyticsScoreDefinitionsLogic = kea<llmAnalyticsScoreDefinition
                 return count === 0 ? '0 scorers' : `${start}-${end} of ${pluralize(count, 'scorer')}`
             },
         ],
+        isArchivingDefinition: [
+            (s) => [s.archivingDefinitionIds],
+            (archivingDefinitionIds): ((definitionId: string) => boolean) => {
+                return (definitionId: string) => archivingDefinitionIds.has(definitionId)
+            },
+        ],
     }),
 
-    listeners(({ asyncActions, values, selectors }) => ({
+    listeners(({ actions, asyncActions, values, selectors }) => ({
         setFilters: async ({ debounce }, _, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
 
             if (!objectsEqual(oldFilters, values.filters)) {
                 await asyncActions.loadScoreDefinitions(debounce)
+            }
+        },
+
+        toggleArchive: async ({ scoreDefinition }) => {
+            try {
+                await llmAnalyticsScoreDefinitionsPartialUpdate(getCurrentProjectId(), scoreDefinition.id, {
+                    archived: !scoreDefinition.archived,
+                })
+                actions.toggleArchiveSuccess(scoreDefinition.id)
+                lemonToast.success(scoreDefinition.archived ? 'Scorer unarchived.' : 'Scorer archived.')
+                await asyncActions.loadScoreDefinitions(false)
+            } catch (error) {
+                actions.toggleArchiveFailure(scoreDefinition.id)
+                lemonToast.error(getApiErrorDetail(error) || 'Failed to update scorer state.')
             }
         },
     })),

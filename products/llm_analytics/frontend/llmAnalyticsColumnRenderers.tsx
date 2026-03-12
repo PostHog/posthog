@@ -239,19 +239,17 @@ function LazyGenerationSentimentCell({ generationEventId }: { generationEventId:
 function LazyTraceReviewColumnCell({ traceId }: { traceId: string }): JSX.Element {
     const { getTraceReview, isTraceLoading, didTraceReviewLoadFail } = useValues(traceReviewsLazyLoaderLogic)
     const { ensureReviewsLoaded } = useActions(traceReviewsLazyLoaderLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const cached = typeof getTraceReview === 'function' ? getTraceReview(traceId) : undefined
+    const loading = typeof isTraceLoading === 'function' ? isTraceLoading(traceId) : false
+    const failed = typeof didTraceReviewLoadFail === 'function' ? didTraceReviewLoadFail(traceId) : false
 
-    if (!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_REVIEW]) {
-        return <>–</>
-    }
+    useEffect(() => {
+        if (!traceId || cached !== undefined || loading || failed) {
+            return
+        }
 
-    const cached = getTraceReview(traceId)
-    const loading = isTraceLoading(traceId)
-    const failed = didTraceReviewLoadFail(traceId)
-
-    if (cached === undefined && !loading && !failed) {
         ensureReviewsLoaded([traceId])
-    }
+    }, [cached, ensureReviewsLoaded, failed, loading, traceId])
 
     if (loading || cached === undefined) {
         if (failed) {
