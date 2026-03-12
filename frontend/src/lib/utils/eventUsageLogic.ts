@@ -664,7 +664,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             metric,
         }),
         reportExperimentAiSummaryRequested: (experiment: Experiment) => ({ experiment }),
-        reportExperimentSessionReplaySummaryRequested: (experiment: Experiment) => ({ experiment }),
+        reportExperimentSessionReplaySummaryRequested: (experiment: Experiment, useSkill: boolean) => ({
+            experiment,
+            useSkill,
+        }),
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType, mediaPreviewCount?: number) => ({
             type,
@@ -1598,9 +1601,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 ...getEventPropertiesForExperiment(experiment),
             })
         },
-        reportExperimentSessionReplaySummaryRequested: ({ experiment }) => {
+        reportExperimentSessionReplaySummaryRequested: ({ experiment, useSkill }) => {
             posthog.capture('experiment session replay summary requested', {
                 ...getEventPropertiesForExperiment(experiment),
+                use_skill: useSkill,
             })
         },
         reportPropertyGroupFilterAdded: () => {
