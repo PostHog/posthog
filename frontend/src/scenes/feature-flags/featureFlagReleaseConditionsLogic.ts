@@ -387,7 +387,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 actions.setOpenConditions(newOpenConditions)
             }
         },
-        calculateBlastRadiusForCondition: async ({ sortKey, properties }, breakpoint) => {
+        calculateBlastRadiusForCondition: async ({ sortKey, properties }) => {
             actions.setAffectedUsers(sortKey, undefined)
 
             let response: UserBlastRadiusType
@@ -407,8 +407,6 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     response = { users_affected: -1, total_users: -1 }
                 }
             }
-
-            breakpoint()
 
             actions.setAffectedUsers(sortKey, response.users_affected)
             if (response.total_users !== -1) {
