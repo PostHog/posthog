@@ -78,23 +78,18 @@ class BackfillPrecalculatedPersonPropertiesCommandTestCase(BaseTest):
         # Verify the workflow was called
         self.assertTrue(mock_workflow.called)
         call_args = mock_workflow.call_args[1]
-        cohort_filters = call_args["cohort_filters"]
+        deduplicated_conditions = call_args["deduplicated_conditions"]
+        cohort_ids = call_args["cohort_ids"]
 
-        # Should have 2 cohort filters (one per cohort)
-        self.assertEqual(len(cohort_filters), 2)
+        # Should have deduplicated conditions with 1 unique condition shared by 2 cohorts
+        self.assertEqual(len(deduplicated_conditions), 1)
+        self.assertEqual(set(cohort_ids), {cohort1.id, cohort2.id})
 
-        # Both cohorts should have the same filter (since they share the condition_hash)
-        cohort1_filters = next(cf.filters for cf in cohort_filters if cf.cohort_id == cohort1.id)
-        cohort2_filters = next(cf.filters for cf in cohort_filters if cf.cohort_id == cohort2.id)
-
-        self.assertEqual(len(cohort1_filters), 1)
-        self.assertEqual(len(cohort2_filters), 1)
-
-        # Both filters should have the same condition_hash and bytecode
-        self.assertEqual(cohort1_filters[0].condition_hash, shared_condition_hash)
-        self.assertEqual(cohort2_filters[0].condition_hash, shared_condition_hash)
-        self.assertEqual(cohort1_filters[0].bytecode, shared_bytecode)
-        self.assertEqual(cohort2_filters[0].bytecode, shared_bytecode)
+        # The shared condition should be present with both cohorts
+        self.assertIn(shared_condition_hash, deduplicated_conditions)
+        bytecode, cohort_set = deduplicated_conditions[shared_condition_hash]
+        self.assertEqual(bytecode, shared_bytecode)
+        self.assertEqual(cohort_set, {cohort1.id, cohort2.id})
 
         # Verify output shows deduplication
         output = self.command_output.getvalue()
@@ -193,28 +188,24 @@ class BackfillPrecalculatedPersonPropertiesCommandTestCase(BaseTest):
             )
 
         call_args = mock_workflow.call_args[1]
-        cohort_filters = call_args["cohort_filters"]
+        deduplicated_conditions = call_args["deduplicated_conditions"]
+        cohort_ids = call_args["cohort_ids"]
 
-        # Should have 3 cohort filters
-        self.assertEqual(len(cohort_filters), 3)
+        # Should have 2 unique conditions and 3 cohorts
+        self.assertEqual(len(deduplicated_conditions), 2)
+        self.assertEqual(set(cohort_ids), {cohort1.id, cohort2.id, cohort3.id})
 
-        # Verify each cohort gets only its own filters
-        cohort1_filters = next(cf.filters for cf in cohort_filters if cf.cohort_id == cohort1.id)
-        cohort2_filters = next(cf.filters for cf in cohort_filters if cf.cohort_id == cohort2.id)
-        cohort3_filters = next(cf.filters for cf in cohort_filters if cf.cohort_id == cohort3.id)
+        # Verify the age condition is shared by cohorts 1 and 2
+        self.assertIn(age_condition_hash, deduplicated_conditions)
+        age_bytecode_actual, age_cohort_set = deduplicated_conditions[age_condition_hash]
+        self.assertEqual(age_bytecode_actual, age_bytecode)
+        self.assertEqual(age_cohort_set, {cohort1.id, cohort2.id})
 
-        # Cohort 1 should have both age and country filters
-        self.assertEqual(len(cohort1_filters), 2)
-        cohort1_condition_hashes = {f.condition_hash for f in cohort1_filters}
-        self.assertEqual(cohort1_condition_hashes, {age_condition_hash, country_condition_hash})
-
-        # Cohort 2 should have only age filter
-        self.assertEqual(len(cohort2_filters), 1)
-        self.assertEqual(cohort2_filters[0].condition_hash, age_condition_hash)
-
-        # Cohort 3 should have only country filter
-        self.assertEqual(len(cohort3_filters), 1)
-        self.assertEqual(cohort3_filters[0].condition_hash, country_condition_hash)
+        # Verify the country condition is shared by cohorts 1 and 3
+        self.assertIn(country_condition_hash, deduplicated_conditions)
+        country_bytecode_actual, country_cohort_set = deduplicated_conditions[country_condition_hash]
+        self.assertEqual(country_bytecode_actual, country_bytecode)
+        self.assertEqual(country_cohort_set, {cohort1.id, cohort3.id})
 
         # Verify output shows deduplication for both shared conditions
         output = self.command_output.getvalue()
@@ -276,14 +267,16 @@ class BackfillPrecalculatedPersonPropertiesCommandTestCase(BaseTest):
             )
 
         call_args = mock_workflow.call_args[1]
-        cohort_filters = call_args["cohort_filters"]
+        deduplicated_conditions = call_args["deduplicated_conditions"]
+        cohort_ids = call_args["cohort_ids"]
 
-        # Should have 2 cohort filters
-        self.assertEqual(len(cohort_filters), 2)
+        # Should have 2 unique conditions (no deduplication)
+        self.assertEqual(len(deduplicated_conditions), 2)
+        self.assertEqual(len(cohort_ids), 2)
 
-        # Each cohort should have exactly one unique filter
-        for cf in cohort_filters:
-            self.assertEqual(len(cf.filters), 1)
+        # Each condition should be used by exactly one cohort
+        for _condition_hash, (_, cohort_set) in deduplicated_conditions.items():
+            self.assertEqual(len(cohort_set), 1)
 
         # Verify output shows all new conditions
         output = self.command_output.getvalue()
@@ -346,11 +339,12 @@ class BackfillPrecalculatedPersonPropertiesCommandTestCase(BaseTest):
             )
 
         call_args = mock_workflow.call_args[1]
-        cohort_filters = call_args["cohort_filters"]
+        deduplicated_conditions = call_args["deduplicated_conditions"]
+        cohort_ids = call_args["cohort_ids"]
 
-        # Should only have 1 cohort filter (the good one)
-        self.assertEqual(len(cohort_filters), 1)
-        self.assertEqual(cohort_filters[0].cohort_id, good_cohort.id)
+        # Should only have 1 cohort and 1 condition (the good one)
+        self.assertEqual(len(deduplicated_conditions), 1)
+        self.assertEqual(cohort_ids, [good_cohort.id])
 
         # Verify output shows skipping
         output = self.command_output.getvalue()
@@ -402,14 +396,17 @@ class BackfillPrecalculatedPersonPropertiesCommandTestCase(BaseTest):
             )
 
         call_args = mock_workflow.call_args[1]
-        cohort_filters = call_args["cohort_filters"]
+        deduplicated_conditions = call_args["deduplicated_conditions"]
+        cohort_ids = call_args["cohort_ids"]
 
-        # Should have 1 cohort filter
-        self.assertEqual(len(cohort_filters), 1)
+        # Should have 1 unique condition (intra-cohort deduplication)
+        self.assertEqual(len(deduplicated_conditions), 1)
+        self.assertEqual(len(cohort_ids), 1)
 
-        # The cohort should only get one copy of the filter (deduplicated)
-        self.assertEqual(len(cohort_filters[0].filters), 1)
-        self.assertEqual(cohort_filters[0].filters[0].condition_hash, shared_condition_hash)
+        # The condition should be present with the correct cohort
+        self.assertIn(shared_condition_hash, deduplicated_conditions)
+        _, cohort_set = deduplicated_conditions[shared_condition_hash]
+        self.assertEqual(cohort_set, {cohort_ids[0]})
 
         # Verify the set-based deduplication worked
         output = self.command_output.getvalue()

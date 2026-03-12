@@ -16,7 +16,6 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesInputs,
     BackfillPrecalculatedPersonPropertiesWorkflow,
-    CohortFilters,
 )
 
 LOGGER = get_logger(__name__)
@@ -37,27 +36,23 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorInputs:
     """Inputs for the coordinator workflow that spawns child workflows."""
 
     team_id: int
-    cohort_filters: list[CohortFilters]  # All cohorts and their filters
+    deduplicated_conditions: dict[str, tuple[list[Any], set[int]]]  # condition_hash -> (bytecode, cohort_ids)
+    cohort_ids: list[int]  # All cohort IDs being processed
     parallelism: int = 10  # Number of child workflows to spawn
     batch_size: int = 1000  # Persons per batch within each worker
     workflows_per_batch: int = 5  # Number of workflows to start per batch
     batch_delay_minutes: int = 5  # Delay between batches in minutes
 
     @property
-    def cohort_ids(self) -> list[int]:
-        """List of cohort IDs."""
-        return [cf.cohort_id for cf in self.cohort_filters]
-
-    @property
     def total_filters(self) -> int:
-        """Total number of filters across all cohorts."""
-        return sum(len(cf.filters) for cf in self.cohort_filters)
+        """Total number of unique filters."""
+        return len(self.deduplicated_conditions)
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
         return {
             "team_id": self.team_id,
-            "cohort_count": len(self.cohort_filters),
+            "cohort_count": len(self.cohort_ids),
             "cohort_ids": self.cohort_ids,
             "filter_count": self.total_filters,
             "parallelism": self.parallelism,
@@ -155,10 +150,15 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
             f"in batches of {inputs.workflows_per_batch} every {inputs.batch_delay_minutes} minutes"
         )
 
-        # Step 2: Calculate ranges for each child workflow
+        # Step 2: Use already deduplicated conditions from management command
+        workflow_logger.info(
+            f"Processing {len(inputs.deduplicated_conditions)} unique conditions across {len(cohort_ids)} cohorts"
+        )
+
+        # Step 3: Calculate ranges for each child workflow
         persons_per_workflow = math.ceil(total_persons / inputs.parallelism)
 
-        # Step 3: Prepare all workflow configs first
+        # Step 4: Prepare all workflow configs first
         workflow_configs: list[ChildWorkflowConfig] = []
         for i in range(inputs.parallelism):
             offset = i * persons_per_workflow
@@ -172,7 +172,8 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
                     id=f"{temporalio.workflow.info().workflow_id}-child-{i}",
                     inputs=BackfillPrecalculatedPersonPropertiesInputs(
                         team_id=inputs.team_id,
-                        cohort_filters=inputs.cohort_filters,  # Pass all cohort filters
+                        deduplicated_conditions=inputs.deduplicated_conditions,
+                        cohort_ids=inputs.cohort_ids,
                         batch_size=inputs.batch_size,
                         offset=offset,
                         limit=limit,
