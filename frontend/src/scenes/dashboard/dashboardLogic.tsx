@@ -16,7 +16,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import uniqBy from 'lodash.uniqby'
 import posthog from 'posthog-js'
-import { LayoutItem, ResponsiveLayouts } from 'react-grid-layout'
+import { ResponsiveLayouts } from 'react-grid-layout'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
@@ -70,6 +70,7 @@ import {
     ProjectTreeRef,
     QueryBasedInsightModel,
     TextModel,
+    TileLayout,
 } from '~/types'
 
 import { getResponseBytes, sortDayJsDates } from '../insights/utils'
@@ -1333,11 +1334,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         layoutForItem: [
             (s) => [s.layout],
-            (layout) => {
-                const layoutForItem: Record<string, LayoutItem> = {}
+            (layout: TileLayout[] | undefined) => {
+                const layoutForItem: Record<string, TileLayout> = {}
                 if (layout) {
                     for (const obj of layout) {
-                        layoutForItem[obj.i] = obj
+                        if (obj.i) {
+                            layoutForItem[obj.i] = obj
+                        }
                     }
                 }
                 return layoutForItem
