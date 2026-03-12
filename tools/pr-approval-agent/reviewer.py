@@ -72,27 +72,32 @@ def _make_path_validator(repo_root: Path, diff_path: Path):
     allowed_files = [str(diff_path.resolve())]
 
     async def validate_tool(input_data, tool_use_id, context):
-        tool_input = input_data.get("tool_input", {})
-        path = tool_input.get("file_path") or tool_input.get("path") or ""
+        try:
+            tool_input = input_data.get("tool_input", {})
+            path = tool_input.get("file_path") or tool_input.get("path") or ""
 
-        if not path:
-            return {}
+            if not path:
+                return {}
 
-        resolved = str(Path(path).resolve())
+            resolved = str(Path(path).resolve())
 
-        if resolved in allowed_files:
-            return {}
+            if resolved in allowed_files:
+                return {}
 
-        if any(resolved.startswith(root + "/") or resolved == root for root in allowed_roots):
-            return {}
+            if any(resolved.startswith(root + "/") or resolved == root for root in allowed_roots):
+                return {}
 
-        return {
-            "hookSpecificOutput": {
-                "hookEventName": input_data["hook_event_name"],
-                "permissionDecision": "deny",
-                "permissionDecisionReason": f"Path outside repo root: {path}",
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": input_data.get("hook_event_name", "PreToolUse"),
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": f"Path outside repo root: {path}",
+                }
             }
-        }
+        except Exception as e:
+            # Fail open — dontAsk + allowed_tools already restricts access
+            print(f"\033[2m    ⚠ Path validator hook error: {type(e).__name__}: {e}\033[0m", flush=True)
+            return {}
 
     return validate_tool
 
