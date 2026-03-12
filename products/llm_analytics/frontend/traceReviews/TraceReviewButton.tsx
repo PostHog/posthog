@@ -16,7 +16,45 @@ import type {
 } from '../generated/api.schemas'
 import { traceReviewModalLogic } from './traceReviewModalLogic'
 import { traceReviewsLazyLoaderLogic } from './traceReviewsLazyLoaderLogic'
+import type { TraceReviewFormScoreValue } from './types'
 import { getBooleanConfig, getCategoricalConfig, getNumericConfig } from './utils'
+
+function getCategoricalSelections(value: TraceReviewFormScoreValue | undefined): string[] {
+    if (Array.isArray(value)) {
+        return value
+    }
+
+    if (typeof value === 'string' && value) {
+        return [value]
+    }
+
+    return []
+}
+
+function getCategoricalSelectionHint(config: CategoricalScoreDefinitionConfig): string | null {
+    if ((config.selection_mode || 'single') !== 'multiple') {
+        return null
+    }
+
+    const minimumSelections = config.min_selections ?? null
+    const maximumSelections = config.max_selections ?? null
+
+    if (minimumSelections !== null && maximumSelections !== null) {
+        return minimumSelections === maximumSelections
+            ? `Select ${minimumSelections} options.`
+            : `Select ${minimumSelections}-${maximumSelections} options.`
+    }
+
+    if (minimumSelections !== null) {
+        return `Select at least ${minimumSelections} options.`
+    }
+
+    if (maximumSelections !== null) {
+        return `Select up to ${maximumSelections} options.`
+    }
+
+    return 'Select one or more options.'
+}
 
 function CategoricalDefinitionInput({
     definition,
@@ -24,27 +62,72 @@ function CategoricalDefinitionInput({
     setScoreValue,
 }: {
     definition: ScoreDefinition
-    value: string | boolean | null | undefined
-    setScoreValue: (definitionId: string, value: string | boolean | null) => void
+    value: TraceReviewFormScoreValue | undefined
+    setScoreValue: (definitionId: string, value: TraceReviewFormScoreValue) => void
 }): JSX.Element {
     const config = getCategoricalConfig(definition.config) as CategoricalScoreDefinitionConfig
+    const selectedValues = getCategoricalSelections(value)
+    const selectionMode = config.selection_mode || 'single'
+    const maximumSelections = config.max_selections ?? null
+    const selectionHint = getCategoricalSelectionHint(config)
+
+    if (selectionMode === 'single') {
+        const selectedValue = selectedValues[0]
+
+        return (
+            <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                    <LemonSegmentedButton
+                        value={selectedValue}
+                        onChange={(nextValue) => setScoreValue(definition.id, nextValue ? [String(nextValue)] : null)}
+                        options={config.options.map((option) => ({ label: option.label, value: option.key }))}
+                        fullWidth
+                        size="small"
+                    />
+                    {selectedValue ? (
+                        <LemonButton type="secondary" size="small" onClick={() => setScoreValue(definition.id, null)}>
+                            Clear
+                        </LemonButton>
+                    ) : null}
+                </div>
+            </div>
+        )
+    }
 
     return (
         <div className="space-y-2">
-            <div className="flex items-center gap-2">
-                <LemonSegmentedButton
-                    value={typeof value === 'string' ? value : undefined}
-                    onChange={(nextValue) => setScoreValue(definition.id, (nextValue as string | undefined) || null)}
-                    options={config.options.map((option) => ({ label: option.label, value: option.key }))}
-                    fullWidth
-                    size="small"
-                />
-                {typeof value === 'string' && value ? (
+            <div className="flex flex-wrap items-center gap-2">
+                {config.options.map((option) => {
+                    const isSelected = selectedValues.includes(option.key)
+                    const isSelectionLimitReached =
+                        !isSelected && maximumSelections !== null && selectedValues.length >= maximumSelections
+
+                    return (
+                        <LemonButton
+                            key={option.key}
+                            type={isSelected ? 'primary' : 'secondary'}
+                            size="small"
+                            disabled={isSelectionLimitReached}
+                            onClick={() =>
+                                setScoreValue(
+                                    definition.id,
+                                    isSelected
+                                        ? selectedValues.filter((selectedValue) => selectedValue !== option.key)
+                                        : [...selectedValues, option.key]
+                                )
+                            }
+                        >
+                            {option.label}
+                        </LemonButton>
+                    )
+                })}
+                {selectedValues.length > 0 ? (
                     <LemonButton type="secondary" size="small" onClick={() => setScoreValue(definition.id, null)}>
                         Clear
                     </LemonButton>
                 ) : null}
             </div>
+            {selectionHint ? <div className="text-xs text-muted">{selectionHint}</div> : null}
         </div>
     )
 }
@@ -55,8 +138,8 @@ function BooleanDefinitionInput({
     setScoreValue,
 }: {
     definition: ScoreDefinition
-    value: string | boolean | null | undefined
-    setScoreValue: (definitionId: string, value: string | boolean | null) => void
+    value: TraceReviewFormScoreValue | undefined
+    setScoreValue: (definitionId: string, value: TraceReviewFormScoreValue) => void
 }): JSX.Element {
     const config = getBooleanConfig(definition.config) as BooleanScoreDefinitionConfig
 
@@ -91,8 +174,8 @@ function NumericDefinitionInput({
     setScoreValue,
 }: {
     definition: ScoreDefinition
-    value: string | boolean | null | undefined
-    setScoreValue: (definitionId: string, value: string | boolean | null) => void
+    value: TraceReviewFormScoreValue | undefined
+    setScoreValue: (definitionId: string, value: TraceReviewFormScoreValue) => void
 }): JSX.Element {
     const config = getNumericConfig(definition.config) as NumericScoreDefinitionConfig
 
@@ -128,8 +211,8 @@ function DefinitionInput({
     setScoreValue,
 }: {
     definition: ScoreDefinition
-    value: string | boolean | null | undefined
-    setScoreValue: (definitionId: string, value: string | boolean | null) => void
+    value: TraceReviewFormScoreValue | undefined
+    setScoreValue: (definitionId: string, value: TraceReviewFormScoreValue) => void
 }): JSX.Element {
     if (definition.kind === 'categorical') {
         return <CategoricalDefinitionInput definition={definition} value={value} setScoreValue={setScoreValue} />

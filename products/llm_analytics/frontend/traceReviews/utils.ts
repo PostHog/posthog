@@ -20,7 +20,7 @@ export function formatNumericTraceReviewScore(value: string | number | null | un
 }
 
 export function getCategoricalConfig(config: ScoreDefinitionConfig): CategoricalScoreDefinitionConfig {
-    return 'options' in config ? config : { options: [] }
+    return 'options' in config ? { selection_mode: 'single', ...config } : { options: [], selection_mode: 'single' }
 }
 
 export function getNumericConfig(config: ScoreDefinitionConfig): NumericScoreDefinitionConfig {
@@ -34,8 +34,14 @@ export function getBooleanConfig(config: ScoreDefinitionConfig): BooleanScoreDef
 export function getTraceReviewScoreDisplayValue(score: TraceReviewScore): string {
     if (score.definition_kind === 'categorical') {
         const config = getCategoricalConfig(score.definition_config)
-        const matchingOption = config.options.find((option) => option.key === score.categorical_value)
-        return matchingOption?.label || score.categorical_value || 'Reviewed'
+        const selectedKeys = score.categorical_values || []
+
+        if (selectedKeys.length === 0) {
+            return 'Reviewed'
+        }
+
+        const optionLabels = new Map(config.options.map((option) => [option.key, option.label]))
+        return selectedKeys.map((optionKey) => optionLabels.get(optionKey) || optionKey).join(', ')
     }
 
     if (score.definition_kind === 'numeric') {
