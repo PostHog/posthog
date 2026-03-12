@@ -127,10 +127,11 @@ export function InsightVizDisplay({
         }
 
         if (activeView === InsightType.FUNNELS) {
-            if (!isFunnelWithEnoughSteps) {
+            const isFlowViz = funnelsFilter?.funnelVizType === FunnelVizType.Flow
+            if (!isFunnelWithEnoughSteps && !isFlowViz) {
                 return <FunnelSingleStepState actionable={!embedded && editMode} />
             }
-            if (!hasFunnelResults && !erroredQueryId && !insightDataLoading) {
+            if (!hasFunnelResults && !erroredQueryId && !insightDataLoading && !isFlowViz) {
                 return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
             }
         }
@@ -219,7 +220,10 @@ export function InsightVizDisplay({
             !disableTable
         ) {
             return (
-                <SceneSection title="Detailed results">
+                <SceneSection
+                    title={<span className="font-semibold text-lg m-0">Detailed results</span>}
+                    className="mt-4"
+                >
                     <FunnelStepsTable />
                 </SceneSection>
             )

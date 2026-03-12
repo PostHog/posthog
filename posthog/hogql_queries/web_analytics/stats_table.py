@@ -629,6 +629,11 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 return ast.Field(chain=["events", "properties", "$screen_name"])
             case WebStatsBreakdown.INITIAL_REFERRING_DOMAIN:
                 return ast.Field(chain=["session", "$entry_referring_domain"])
+            case WebStatsBreakdown.INITIAL_REFERRING_URL:
+                return ast.Call(
+                    name="cutQueryStringAndFragment",
+                    args=[ast.Field(chain=["events", "properties", "$session_entry_referrer"])],
+                )
             case WebStatsBreakdown.INITIAL_UTM_SOURCE:
                 return ast.Field(chain=["session", "$entry_utm_source"])
             case WebStatsBreakdown.INITIAL_UTM_CAMPAIGN:

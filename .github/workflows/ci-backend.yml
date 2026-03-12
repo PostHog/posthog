@@ -27,6 +27,7 @@ env:
     CLICKHOUSE_VERIFY: 'False'
     TEST: 1
     CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
+    CLICKHOUSE_COMPAT_PYTEST_TARGETS: 'posthog/clickhouse ee/clickhouse'
     OBJECT_STORAGE_ENABLED: 'True'
     OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
     OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
@@ -43,7 +44,7 @@ env:
     SANDBOX_JWT_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
 
 permissions:
-    contents: write
+    contents: read
     pull-requests: write
 
 jobs:
@@ -120,7 +121,8 @@ jobs:
                         - docker/clickhouse
                       legacy:
                         # Non-product backend code — when only products/ change,
-                        # turbo contract-check decides whether Django tests run.
+                        # turbo-discover diffs backend:test vs backend:contract-check
+                        # to detect isolated products and decide whether Django runs.
                         # Everything from backend: EXCEPT products/**/backend/**/*
                         - 'ee/**/*'
                         - 'common/**/*'
@@ -160,15 +162,18 @@ jobs:
                         - 'frontend/src/generated/**/*'
                         - 'products/*/frontend/generated/**/*'
                         - 'services/mcp/src/generated/**/*'
+                        - 'services/mcp/src/api/generated.ts'
                         # Generation tooling - changes here could affect output
+                        - 'tools/openapi-codegen/**/*'
+                        - 'services/mcp/scripts/lib/**'
                         - 'frontend/bin/generate-openapi-types.mjs'
                         - 'frontend/src/lib/api-orval-mutator.ts'
-                        - 'services/mcp/scripts/generate-orval-schemas.mjs'
-                        - 'services/mcp/scripts/generate-tools.ts'
+                        - 'services/mcp/scripts/**/*'
                         - 'services/mcp/definitions/**/*.yaml'
                         - 'products/*/mcp/**/*.yaml'
                         - 'services/mcp/src/tools/generated/**/*'
                         - 'services/mcp/schema/generated-tool-definitions.json'
+                        - 'services/mcp/schema/tool-definitions-all.json'
 
     detect-snapshot-mode:
         name: Detect snapshot mode
@@ -180,15 +185,19 @@ jobs:
         steps:
             - name: Detect mode
               id: detect
+              env:
+                  PR_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+                  REPO: ${{ github.repository }}
+                  HAS_NO_SNAPSHOT_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'no-snapshot-update') }}
+                  AUTHOR: ${{ github.actor }}
               run: |
-                  if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
+                  if [ "$PR_REPO" != "$REPO" ] && [ -n "$PR_REPO" ]; then
                     echo "mode=check" >> $GITHUB_OUTPUT
                     echo "Fork detected - running in CHECK mode (no commits allowed)"
-                  elif [ "${{ contains(github.event.pull_request.labels.*.name, 'no-snapshot-update') }}" == "true" ]; then
+                  elif [ "$HAS_NO_SNAPSHOT_LABEL" == "true" ]; then
                     echo "mode=check" >> $GITHUB_OUTPUT
                     echo "::notice::🔍 Running in CHECK mode - 'no-snapshot-update' label detected"
                   else
-                    AUTHOR="${{ github.actor }}"
                     echo "Workflow triggered by: $AUTHOR"
                     # Dependabot is excluded - it creates new PRs that may need snapshot updates
                     # Other bots (github-actions, posthog-bot) commit snapshots and must use CHECK mode to avoid loops
@@ -212,7 +221,7 @@ jobs:
         timeout-minutes: 5
         name: Discover product tests
         outputs:
-            run_legacy: ${{ steps.contract-check.outputs.run_legacy }}
+            run_legacy: ${{ steps.discover.outputs.run_legacy }}
             matrix: ${{ steps.discover.outputs.matrix }}
 
         steps:
@@ -221,70 +230,35 @@ jobs:
             - name: Setup pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
 
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
-
             - name: Setup Node.js
               uses: actions/setup-node@v6
               with:
                   node-version: 20
                   cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-backend.yml
 
             - name: Install pnpm dependencies
-              run: pnpm install --frozen-lockfile
-
-            - name: Check contract changes
-              id: contract-check
-              run: |
-                  # Determines if Django needs to run based on contract changes.
-                  #
-                  # Logic:
-                  # - Push to master: run Django (full CI)
-                  # - Legacy (posthog/ee/common) changed: run Django
-                  # - Any contract-check cache miss: run Django
-                  # - All cache hits: skip Django (isolated impl-only changes)
-                  #
-                  # Always runs contract-check at the end to keep the remote cache
-                  # warm as a baseline for future product-only PRs.
-
-                  if [[ "${{ github.event_name }}" != "pull_request" ]]; then
-                    echo "Push to master - Django will run"
-                    echo "run_legacy=true" >> $GITHUB_OUTPUT
-                  elif [[ "${{ needs.changes.outputs.legacy }}" == "true" ]]; then
-                    echo "Legacy code changed - Django will run"
-                    echo "run_legacy=true" >> $GITHUB_OUTPUT
-                  else
-                    # Product-only change — check contract cache to decide
-                    CACHE_STATUS=$(./node_modules/.bin/turbo run backend:contract-check --dry-run=json 2>/dev/null | jq -r '
-                      [.tasks[] | select(.command | test("NONEXISTENT") | not) | .cache.status] |
-                      if length == 0 then "NO_TASKS"
-                      elif any(. == "MISS") then "MISS"
-                      else "HIT"
-                      end
-                    ' || echo "PARSE_ERROR")
-
-                    echo "Contract check cache status: $CACHE_STATUS"
-
-                    if [[ "$CACHE_STATUS" == "HIT" || "$CACHE_STATUS" == "NO_TASKS" ]]; then
-                      echo "Contracts unchanged (cache $CACHE_STATUS) - Django can be skipped"
-                      echo "run_legacy=false" >> $GITHUB_OUTPUT
-                    else
-                      echo "Contract files changed ($CACHE_STATUS) - Django will run"
-                      echo "run_legacy=true" >> $GITHUB_OUTPUT
-                    fi
-                  fi
-
-                  # Always run to keep remote cache warm as baseline
-                  ./node_modules/.bin/turbo run backend:contract-check --output-logs=errors-only 2>/dev/null || true
+              run: pnpm install --frozen-lockfile --filter=@posthog/root
 
             - name: Discover products to test
               id: discover
               env:
-                  LEGACY_CHANGED: ${{ needs.changes.outputs.legacy }}
+                  # On pushes to master, always run everything.
+                  # On PRs, use the path filter to detect legacy changes.
+                  LEGACY_CHANGED: ${{ github.event_name != 'pull_request' || needs.changes.outputs.legacy }}
               run: |
-                  MATRIX=$(node .github/scripts/turbo-discover.js)
-                  echo "Matrix: $MATRIX"
-                  echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+                  # turbo-discover.js diffs backend:test vs backend:contract-check
+                  # to detect isolated products. Non-isolated product changes trigger
+                  # the full suite (all products + Django).
+                  RESULT=$(node .github/scripts/turbo-discover.js)
+                  echo "Result: $RESULT"
+                  echo "matrix=$(echo "$RESULT" | jq -c '.matrix')" >> $GITHUB_OUTPUT
+                  echo "run_legacy=$(echo "$RESULT" | jq -r '.run_legacy')" >> $GITHUB_OUTPUT
+
+                  # Keep contract-check remote cache warm for future runs
+                  ./node_modules/.bin/turbo run backend:contract-check --output-logs=errors-only 2>/dev/null || true
 
     # Runs product tests in parallel — one matrix job per group
     # Each job gets its own runner + Docker stack, so no shared DB conflicts
@@ -326,17 +300,17 @@ jobs:
             - name: Setup pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
 
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
-
             - name: Setup Node.js
               uses: actions/setup-node@v6
               with:
                   node-version: 20
                   cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-backend.yml
 
             - name: Install pnpm dependencies
-              run: pnpm install --frozen-lockfile
+              run: pnpm install --frozen-lockfile --filter=@posthog/root
 
             - name: Set up Python
               uses: actions/setup-python@v6
@@ -411,13 +385,13 @@ jobs:
                   retention-days: 2
 
             - name: Verify new snapshots for flakiness
-              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
+              if: ${{ always() && needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
               shell: bash
               run: |
                   .github/scripts/verify-new-snapshots.sh
 
             - name: Generate snapshot patch
-              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
+              if: ${{ always() && needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
               shell: bash
               run: |
                   mkdir -p /tmp/patches
@@ -430,7 +404,7 @@ jobs:
                   fi
 
             - name: Upload snapshot patch
-              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
+              if: ${{ always() && needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: snapshot-patch-Products-${{ strategy.job-index }}
@@ -588,10 +562,8 @@ jobs:
               if: github.event_name == 'pull_request' && needs.changes.outputs.migrations == 'true'
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  CHANGED_FILES: ${{ needs.changes.outputs.migrations_files }}
               run: |
-                  # Read the changed files from the output
-                  CHANGED_FILES="${{ needs.changes.outputs.migrations_files }}"
-
                   # If no migration files changed, exit
                   if [ -z "$CHANGED_FILES" ]; then
                     echo "No migration files changed"
@@ -768,13 +740,15 @@ jobs:
             - name: Check migrations
               # Skip migration safety check on master push (no migration_files from path filter)
               if: github.event_name != 'push'
+              env:
+                  MIGRATIONS_FILES: ${{ needs.changes.outputs.migrations_files }}
               run: |
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx migrate info --source rust/persons_migrations/
                   python manage.py makemigrations --check --dry-run
                   git fetch origin master
                   # Check migration safety using old SQL-based checker (still uses stdin from git diff)
-                  echo "${{ needs.changes.outputs.migrations_files }}" | grep -v migrations/0001_ | grep -v 'rust/persons_migrations' | python manage.py test_migrations_are_safe
+                  echo "$MIGRATIONS_FILES" | grep -v migrations/0001_ | grep -v 'rust/persons_migrations' | python manage.py test_migrations_are_safe
 
             - name: Check CH migrations
               run: |
@@ -792,13 +766,16 @@ jobs:
               with:
                   node-version: 24.13.0
                   cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-backend.yml
 
             - name: Install package.json dependencies with pnpm
               env:
                   npm_config_fetch_retries: 3
                   npm_config_fetch_retry_mintimeout: 10000
                   npm_config_fetch_retry_maxtimeout: 60000
-              run: pnpm install --frozen-lockfile
+              run: pnpm --filter=@posthog/root --filter=@posthog/frontend... --filter=@posthog/mcp... install --frozen-lockfile
 
             - name: Check and update OpenAPI types
               env:
@@ -874,12 +851,96 @@ jobs:
                   git add products/*/frontend/generated/ 2>/dev/null || true
                   git add products/*/mcp/*.yaml 2>/dev/null || true
                   git add services/mcp/definitions/*.yaml 2>/dev/null || true
+                  git add services/mcp/src/api/generated.ts 2>/dev/null || true
+                  git add services/mcp/schema/generated-tool-definitions.json 2>/dev/null || true
+                  git add services/mcp/schema/tool-definitions-all.json 2>/dev/null || true
+                  git add services/mcp/src/tools/generated/ 2>/dev/null || true
                   git commit -m "chore: update OpenAPI generated types"
                   git push origin "$BRANCH"
                   echo "::notice::Pushed updated OpenAPI types to $BRANCH"
 
+    build_django_matrix:
+        name: Build Django matrix
+        needs: [changes, get_clickhouse_versions]
+        if: needs.changes.outputs.backend == 'true'
+        runs-on: ubuntu-latest
+        outputs:
+            include: ${{ steps.build.outputs.include }}
+        steps:
+            - name: Build matrix include list
+              id: build
+              env:
+                  OLDEST_SUPPORTED_IMAGE: ${{ needs.get_clickhouse_versions.outputs.oldest_supported_image }}
+                  COMPAT_MATRIX_JSON: ${{ needs.get_clickhouse_versions.outputs.compat_matrix }}
+              run: |
+                  # :NOTE: Keep shard counts/group ranges in sync with historical Django matrix tuning.
+                  # Consult #team-devex before changing.
+                  core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" '
+                    [range(1; 39) | {
+                      segment: "Core",
+                      "person-on-events": false,
+                      "python-version": "3.12.12",
+                      "clickhouse-server-image": $image,
+                      concurrency: 38,
+                      group: .,
+                      artifact_key: ("core-" + (.|tostring)),
+                      compat: false
+                    }]
+                  ')
+
+                  core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" '
+                    [range(1; 8) | {
+                      segment: "Core",
+                      "person-on-events": true,
+                      "python-version": "3.12.12",
+                      "clickhouse-server-image": $image,
+                      concurrency: 7,
+                      group: .,
+                      artifact_key: ("core-poe-" + (.|tostring)),
+                      compat: false
+                    }]
+                  ')
+
+                  temporal=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" '
+                    [range(1; 8) | {
+                      segment: "Temporal",
+                      "person-on-events": false,
+                      "python-version": "3.12.12",
+                      "clickhouse-server-image": $image,
+                      concurrency: 7,
+                      group: .,
+                      artifact_key: ("temporal-" + (.|tostring)),
+                      compat: false
+                    }]
+                  ')
+
+                  compat_source="${COMPAT_MATRIX_JSON:-[]}"
+                  compat=$(jq -cn --argjson compat "$compat_source" '
+                    [
+                      $compat
+                      | to_entries[]
+                      | .value + {
+                          segment: "Core",
+                          "person-on-events": false,
+                          "python-version": "3.12.12",
+                          compat: true,
+                          artifact_key: ("compat-" + ((.key + 1)|tostring))
+                        }
+                    ]
+                  ')
+
+                  include=$(jq -cn \
+                    --argjson core "$core" \
+                    --argjson core_persons_on_events "$core_persons_on_events" \
+                    --argjson temporal "$temporal" \
+                    --argjson compat "$compat" \
+                    '$core + $core_persons_on_events + $temporal + $compat')
+
+                  echo "include=$include" >> "$GITHUB_OUTPUT"
+                  echo "Django matrix size: $(jq -r 'length' <<< "$include")"
+
     django:
-        needs: [changes, turbo-discover, detect-snapshot-mode, get_clickhouse_versions]
+        needs: [changes, turbo-discover, detect-snapshot-mode, get_clickhouse_versions, build_django_matrix]
         # Run legacy pytest if:
         # 1. Legacy code directly changed (ee/, posthog/)
         # 2. OR product changes affect legacy code (turbo-discover outputs run_legacy=true)
@@ -887,139 +948,21 @@ jobs:
         if: |
             always() &&
             needs.changes.outputs.backend == 'true' &&
+            needs.build_django_matrix.result == 'success' &&
             (needs.changes.outputs.legacy == 'true' ||
              needs.turbo-discover.outputs.run_legacy == 'true' ||
              (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
         # increase for tmate testing
         timeout-minutes: 30
 
-        name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
+        name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         # Runner type is performance-critical — consult #team-devex before changing
         runs-on: depot-ubuntu-latest
 
         strategy:
             fail-fast: false
             matrix:
-                python-version: ['3.12.12']
-                clickhouse-server-image: ${{ fromJson(needs.get_clickhouse_versions.outputs.oldest_supported) }}
-                segment: ['Core']
-                person-on-events: [false]
-                # :NOTE: Keep concurrency and groups in sync
-                # Shard counts are tuned to balance wall-clock time vs setup overhead (Amdahl's law).
-                # Consult #team-devex before changing.
-                concurrency: [38]
-                group:
-                    [
-                        1,
-                        2,
-                        3,
-                        4,
-                        5,
-                        6,
-                        7,
-                        8,
-                        9,
-                        10,
-                        11,
-                        12,
-                        13,
-                        14,
-                        15,
-                        16,
-                        17,
-                        18,
-                        19,
-                        20,
-                        21,
-                        22,
-                        23,
-                        24,
-                        25,
-                        26,
-                        27,
-                        28,
-                        29,
-                        30,
-                        31,
-                        32,
-                        33,
-                        34,
-                        35,
-                        36,
-                        37,
-                        38,
-                    ]
-                include:
-                    - segment: 'Core'
-                      person-on-events: true
-                      python-version: '3.12.12'
-                      concurrency: 7
-                      group: 1
-                    - segment: 'Core'
-                      person-on-events: true
-                      python-version: '3.12.12'
-                      concurrency: 7
-                      group: 2
-                    - segment: 'Core'
-                      person-on-events: true
-                      python-version: '3.12.12'
-                      concurrency: 7
-                      group: 3
-                    - segment: 'Core'
-                      person-on-events: true
-                      python-version: '3.12.12'
-                      concurrency: 7
-                      group: 4
-                    - segment: 'Core'
-                      person-on-events: true
-                      python-version: '3.12.12'
-                      concurrency: 7
-                      group: 5
-                    - segment: 'Core'
-                      person-on-events: true
-                      python-version: '3.12.12'
-                      concurrency: 7
-                      group: 6
-                    - segment: 'Core'
-                      person-on-events: true
-                      python-version: '3.12.12'
-                      concurrency: 7
-                      group: 7
-                    - segment: 'Temporal'
-                      person-on-events: false
-                      python-version: '3.12.12'
-                      concurrency: 7
-                      group: 1
-                    - segment: 'Temporal'
-                      person-on-events: false
-                      python-version: '3.12.12'
-                      concurrency: 7
-                      group: 2
-                    - segment: 'Temporal'
-                      person-on-events: false
-                      python-version: '3.12.12'
-                      concurrency: 7
-                      group: 3
-                    - segment: 'Temporal'
-                      person-on-events: false
-                      python-version: '3.12.12'
-                      concurrency: 7
-                      group: 4
-                    - segment: 'Temporal'
-                      person-on-events: false
-                      python-version: '3.12.12'
-                      concurrency: 7
-                      group: 5
-                    - segment: 'Temporal'
-                      person-on-events: false
-                      python-version: '3.12.12'
-                      concurrency: 7
-                      group: 6
-                    - segment: 'Temporal'
-                      person-on-events: false
-                      python-version: '3.12.12'
-                      concurrency: 7
-                      group: 7
+                include: ${{ fromJson(needs.build_django_matrix.outputs.include) }}
 
         steps:
             - uses: actions/checkout@v6
@@ -1053,7 +996,7 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               shell: bash
               run: |
-                  export CLICKHOUSE_SERVER_IMAGE=${{ needs.get_clickhouse_versions.outputs.oldest_supported_image }}
+                  export CLICKHOUSE_SERVER_IMAGE=${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
                   export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
 
@@ -1207,6 +1150,13 @@ jobs:
               shell: bash
               run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV
 
+            - name: Add snapshot flags for compat subset runs
+              # Compat runs a subset and doesn't own snapshots (main Django rows do).
+              # Warn on unused snapshots to avoid version-specific false negatives.
+              if: ${{ needs.changes.outputs.backend == 'true' && matrix.compat }}
+              shell: bash
+              run: echo "PYTEST_ARGS=--snapshot-update --snapshot-warn-unused" >> $GITHUB_ENV
+
             # Tests
             - name: Log test environment diagnostics
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
@@ -1240,10 +1190,14 @@ jobs:
               run: | # async_migrations covered in ci-async-migrations.yml
                   set +e
                   pytest -v --tb=short ${{
+                      matrix.compat
+                      && env.CLICKHOUSE_COMPAT_PYTEST_TARGETS
+                      || (
                       matrix.person-on-events
                       && './posthog/clickhouse/ ./posthog/queries/ ./posthog/api/test/test_insight* ./posthog/api/test/dashboards/test_dashboard.py'
                       || 'posthog'
-                  }} ${{ matrix.person-on-events && 'ee/clickhouse/' || 'ee/' }} -m "not async_migrations" \
+                      )
+                  }} ${{ matrix.compat && '' || (matrix.person-on-events && 'ee/clickhouse/' || 'ee/') }} -m "not async_migrations" \
                       --ignore=posthog/temporal \
                       --ignore=posthog/dags \
                       --ignore=common/hogvm/python/test \
@@ -1337,14 +1291,14 @@ jobs:
 
             - name: Verify new snapshots for flakiness
               # Only in UPDATE mode - CHECK mode doesn't update snapshots
-              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
+              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat }}
               shell: bash
               run: |
                   .github/scripts/verify-new-snapshots.sh
 
             - name: Generate snapshot patch
               # Only in UPDATE mode - CHECK mode verifies snapshots match exactly
-              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
+              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat }}
               shell: bash
               run: |
                   mkdir -p /tmp/patches
@@ -1360,7 +1314,7 @@ jobs:
 
             - name: Upload snapshot patch
               # Only in UPDATE mode
-              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
+              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat }}
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: snapshot-patch-${{ matrix.segment }}-${{ matrix.group }}
@@ -1370,7 +1324,7 @@ jobs:
 
             - name: Archive email renders
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && !matrix.person-on-events
+              if: needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && !matrix.person-on-events && !matrix.compat
               with:
                   name: email_renders-${{ github.sha }}-${{ github.run_attempt }}-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}
                   path: posthog/tasks/test/__emails__
@@ -1379,7 +1333,7 @@ jobs:
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: always()
               with:
-                  name: junit-results-backend-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}
+                  name: junit-results-backend-${{ matrix.artifact_key }}
                   path: junit-*.xml
 
     # Aggregate and commit snapshot changes from all matrix jobs
@@ -1394,10 +1348,8 @@ jobs:
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
             # Oldest supported version as plain string (for comparisons)
             oldest_supported_image: ${{ steps.read-versions.outputs.oldest_supported_image }}
-            # Compat versions (all unique versions except oldest_supported, already tested by Django)
-            compat_versions: ${{ steps.read-versions.outputs.compat_versions }}
-            # Whether to skip compat tests (no additional versions to test)
-            skip_compat: ${{ steps.read-versions.outputs.skip_compat }}
+            # Fully expanded compat matrix (version x shard group)
+            compat_matrix: ${{ steps.read-versions.outputs.compat_matrix }}
         steps:
             - uses: actions/checkout@v6
               with:
@@ -1406,6 +1358,9 @@ jobs:
             - name: Read ClickHouse versions from JSON
               id: read-versions
               run: |
+                  compat_shards="2"
+                  echo "Using $compat_shards shard(s) per compat version"
+
                   # Oldest supported version for main Django tests (for max compatibility, as JSON array for matrix)
                   oldest_supported=$(jq -r '.oldest_supported' .github/clickhouse-versions.json)
                   if [ -z "$oldest_supported" ] || [ "$oldest_supported" = "null" ]; then
@@ -1416,62 +1371,39 @@ jobs:
                   echo "oldest_supported_image=$oldest_supported" >> $GITHUB_OUTPUT
                   echo "Oldest supported version for Django tests: $oldest_supported"
 
-                  # Compat versions: all unique versions except oldest_supported (already tested by Django shards)
-                  compat_versions=$(jq -c --arg oldest "$oldest_supported" '[.[]] | unique | map(select(. != $oldest))' .github/clickhouse-versions.json)
-                  if [ "$compat_versions" = "[]" ] || [ -z "$compat_versions" ]; then
-                    echo "skip_compat=true" >> $GITHUB_OUTPUT
-                    echo "compat_versions=[]" >> $GITHUB_OUTPUT
-                    echo "No additional CH versions to test — oldest_supported already covered by Django tests"
-                  else
-                    echo "skip_compat=false" >> $GITHUB_OUTPUT
-                    echo "compat_versions=$compat_versions" >> $GITHUB_OUTPUT
-                    echo "Compat versions (excluding oldest_supported $oldest_supported): $compat_versions"
+                  # Read all unique versions so we can derive compat coverage.
+                  all=$(jq -c '[.[]] | unique' .github/clickhouse-versions.json)
+                  if [ "$all" = "[]" ] || [ -z "$all" ]; then
+                    echo "::error::No versions found in .github/clickhouse-versions.json"
+                    exit 1
                   fi
+                  echo "All CH versions found: $all"
 
-    clickhouse-compat:
-        name: ClickHouse compat tests - ${{ matrix.clickhouse-server-image }}
-        needs: [changes, turbo-discover, get_clickhouse_versions]
-        # Run if legacy code changed, product changes affect legacy, or turbo-discover failed
-        if: |
-            always() &&
-            needs.changes.outputs.backend == 'true' &&
-            needs.get_clickhouse_versions.outputs.skip_compat != 'true' &&
-            (needs.changes.outputs.legacy == 'true' ||
-             needs.turbo-discover.outputs.run_legacy == 'true' ||
-             (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
-        runs-on: depot-ubuntu-latest
-        strategy:
-            fail-fast: false
-            matrix:
-                clickhouse-server-image: ${{ fromJson(needs.get_clickhouse_versions.outputs.compat_versions) }}
-        steps:
-            - uses: actions/checkout@v6
-              with:
-                  fetch-depth: 1
-                  clean: false
-            - name: Clean up data directories with container permissions
-              run: |
-                  # Use docker to clean up files created by containers
-                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
-              continue-on-error: true
-            - name: Run ClickHouse compat tests
-              uses: ./.github/actions/run-backend-tests
-              with:
-                  python-version: '3.12.12'
-                  clickhouse-server-image: ${{ matrix.clickhouse-server-image }}
-                  segment: 'Core'
-                  concurrency: 1
-                  group: 1
-                  person-on-events: false
-                  pytest-targets: 'posthog/clickhouse ee/clickhouse'
-                  oldest_supported_clickhouse_image: ${{ needs.get_clickhouse_versions.outputs.oldest_supported_image }}
-                  # Skip plugin transpiler build - these tests don't need it and it causes esbuild deadlocks
-                  skip-plugin-transpiler: 'true'
-                  # Compat tests run a subset and don't own snapshots (main django tests do).
-                  # This flag makes unused snapshots non-fatal and always updates snapshot
-                  # content so compat tests never fail due to CH version query differences.
-                  snapshot-warn-unused: 'true'
+                  # Compat coverage is only needed for non-oldest versions.
+                  compat_versions=$(jq -c --arg oldest "$oldest_supported" '[.[]] | unique | map(select(. != $oldest))' .github/clickhouse-versions.json)
+                  echo "Compat versions (excluding oldest): $compat_versions"
 
+                  compat_count=$(jq -r 'length' <<< "$compat_versions")
+                  echo "compat_count=$compat_count" >> $GITHUB_OUTPUT
+
+                  if [ "$compat_count" -eq 0 ]; then
+                    echo "compat_matrix=[]" >> $GITHUB_OUTPUT
+                    echo "No non-oldest CH versions found — compat tests provide no additional coverage, skipping"
+                  else
+                    compat_matrix=$(jq -cn --argjson versions "$compat_versions" --argjson shards "$compat_shards" '
+                      [
+                        $versions[] as $version
+                        | range(1; $shards + 1) as $group
+                        | {
+                            "clickhouse-server-image": $version,
+                            "concurrency": $shards,
+                            "group": $group
+                          }
+                      ]
+                    ')
+                    echo "compat_matrix=$compat_matrix" >> $GITHUB_OUTPUT
+                    echo "Compat matrix: $compat_matrix"
+                  fi
     # Aggregate and commit snapshot changes from all matrix jobs
     handle-snapshots:
         name: Commit snapshot changes
@@ -1544,17 +1476,7 @@ jobs:
     # Job just to collate the status of the matrix jobs for requiring passing status
     # Must depend on handle-snapshots to prevent auto-merge before commits complete
     django_tests:
-        needs:
-            [
-                django,
-                clickhouse-compat,
-                check-migrations,
-                async-migrations,
-                turbo-discover,
-                turbo-tests,
-                handle-snapshots,
-                repo-checks,
-            ]
+        needs: [django, check-migrations, async-migrations, turbo-discover, turbo-tests, handle-snapshots, repo-checks]
         name: Django Tests Pass
         runs-on: ubuntu-latest
         if: always()
@@ -1565,11 +1487,6 @@ jobs:
                   # Otherwise, it will be 'failure'.
                   if [[ "${{ needs.django.result }}" != "success" && "${{ needs.django.result }}" != "skipped" ]]; then
                     echo "One or more jobs in the Django test matrix failed."
-                    exit 1
-                  fi
-
-                  if [[ "${{ needs.clickhouse-compat.result }}" != "success" && "${{ needs.clickhouse-compat.result }}" != "skipped" ]]; then
-                    echo "ClickHouse compat tests failed."
                     exit 1
                   fi
 

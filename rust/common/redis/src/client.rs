@@ -558,6 +558,9 @@ impl Client for RedisClient {
                 PipelineCommand::Scard { key } => {
                     pipe.cmd("SCARD").arg(key);
                 }
+                PipelineCommand::SAdd { key, member } => {
+                    pipe.cmd("SADD").arg(key).arg(member);
+                }
                 PipelineCommand::ZRangeByScore { key, min, max } => {
                     pipe.cmd("ZRANGEBYSCORE").arg(key).arg(min).arg(max);
                 }
@@ -618,6 +621,10 @@ impl RedisClient {
             | PipelineCommand::SetEx { .. }
             | PipelineCommand::Del { .. }
             | PipelineCommand::HIncrBy { .. } => Ok(PipelineResult::Ok),
+            PipelineCommand::SAdd { .. } => {
+                let count: u64 = redis::from_redis_value(&raw)?;
+                Ok(PipelineResult::Count(count))
+            }
             PipelineCommand::SetNxEx { .. } => {
                 // SET NX returns OK if set, nil if key existed
                 match raw {

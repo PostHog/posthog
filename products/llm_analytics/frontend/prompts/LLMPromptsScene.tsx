@@ -42,7 +42,7 @@ export function LLMPromptsScene(): JSX.Element {
             width: '25%',
             render: function renderName(_, prompt) {
                 return (
-                    <Link to={promptUrl(prompt.name)} className="font-semibold" data-attr="prompt-name-link">
+                    <Link to={promptUrl(prompt.name)} className="font-semibold" data-attr="llma-prompt-name-link">
                         {prompt.name}
                     </Link>
                 )
@@ -90,7 +90,11 @@ export function LLMPromptsScene(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton to={promptUrl(prompt.name)} data-attr="prompt-dropdown-view" fullWidth>
+                                <LemonButton
+                                    to={promptUrl(prompt.name)}
+                                    data-attr="llma-prompt-dropdown-view"
+                                    fullWidth
+                                >
                                     View
                                 </LemonButton>
 
@@ -101,7 +105,7 @@ export function LLMPromptsScene(): JSX.Element {
                                     <LemonButton
                                         status="danger"
                                         onClick={() => openArchivePromptDialog(() => deletePrompt(prompt.name))}
-                                        data-attr="prompt-dropdown-delete"
+                                        data-attr="llma-prompt-dropdown-delete"
                                         fullWidth
                                     >
                                         Archive

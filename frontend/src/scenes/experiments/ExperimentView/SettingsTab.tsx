@@ -3,6 +3,10 @@ import { useActions, useValues } from 'kea'
 import { IconPencil } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
+
 import { ExperimentStatsMethod } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
@@ -12,6 +16,7 @@ import { StatsMethodModal } from './StatsMethodModal'
 export function SettingsTab(): JSX.Element {
     const { experiment, statsMethod } = useValues(experimentLogic)
     const { openStatsEngineModal } = useActions(modalsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const isBayesian = statsMethod === ExperimentStatsMethod.Bayesian
 
@@ -31,6 +36,13 @@ export function SettingsTab(): JSX.Element {
                 </div>
                 <StatsMethodModal />
             </div>
+            {featureFlags[FEATURE_FLAGS.EXPERIMENT_SIGNIFICANCE_ALERTS] && (
+                <div>
+                    <h2 className="font-semibold text-lg">Notifications</h2>
+                    <p>Get notified when a metric reaches significance.</p>
+                    <LinkedHogFunctions type="internal_destination" subTemplateIds={['experiment-significant']} />
+                </div>
+            )}
         </div>
     )
 }

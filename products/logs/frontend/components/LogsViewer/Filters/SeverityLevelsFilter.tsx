@@ -1,68 +1,58 @@
-import { useActions, useValues } from 'kea'
-
-import { IconFilter } from '@posthog/icons'
-import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
-
-import { capitalizeFirstLetter } from 'lib/utils'
+import { IconChevronDown } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonDropdown } from '@posthog/lemon-ui'
 
 import { LogMessage } from '~/queries/schema/schema-general'
 
-import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
+const SEVERITY_OPTIONS: { key: LogMessage['severity_text']; label: string }[] = [
+    { key: 'trace', label: 'Trace' },
+    { key: 'debug', label: 'Debug' },
+    { key: 'info', label: 'Info' },
+    { key: 'warn', label: 'Warn' },
+    { key: 'error', label: 'Error' },
+    { key: 'fatal', label: 'Fatal' },
+]
 
-const options: Record<LogMessage['severity_text'], string> = {
-    trace: 'Trace',
-    debug: 'Debug',
-    info: 'Info',
-    warn: 'Warn',
-    error: 'Error',
-    fatal: 'Fatal',
+interface SeverityLevelsFilterProps {
+    value: LogMessage['severity_text'][]
+    onChange: (levels: LogMessage['severity_text'][]) => void
 }
 
-const ALL_LOG_LEVELS = Object.values(options) as LogMessage['severity_text'][]
-
-export const SeverityLevelsFilter = (): JSX.Element => {
-    const { filters } = useValues(logsViewerFiltersLogic)
-    const { severityLevels } = filters
-    const { setSeverityLevels } = useActions(logsViewerFiltersLogic)
-
-    const onClick = (level: LogMessage['severity_text']): void => {
-        const levels = [...severityLevels]
-
-        const index = levels.indexOf(level)
-
-        if (index > -1) {
-            levels.splice(index, 1)
-        } else {
-            levels.push(level)
-        }
-
-        setSeverityLevels(levels)
-    }
-
-    const displayLevels =
-        severityLevels.length !== ALL_LOG_LEVELS.length && severityLevels.length > 0
-            ? severityLevels.map((l) => capitalizeFirstLetter(l)).join(', ')
-            : 'All levels'
-
+export const SeverityLevelsFilter = ({ value, onChange }: SeverityLevelsFilterProps): JSX.Element => {
     return (
-        <LemonMenu
+        <LemonDropdown
             closeOnClickInside={false}
-            items={Object.entries(options).map(([key, label]) => ({
-                label,
-                onClick: () => onClick(key as LogMessage['severity_text']),
-                active: severityLevels.includes(key as LogMessage['severity_text']),
-                'data-attr': `logs-severity-option-${key}`,
-            }))}
+            overlay={
+                <div className="space-y-px p-1">
+                    {SEVERITY_OPTIONS.map((option) => (
+                        <LemonButton
+                            key={option.key}
+                            type="tertiary"
+                            size="small"
+                            fullWidth
+                            icon={
+                                <LemonCheckbox checked={value.includes(option.key)} className="pointer-events-none" />
+                            }
+                            onClick={() => {
+                                const newLevels = value.includes(option.key)
+                                    ? value.filter((l) => l !== option.key)
+                                    : [...value, option.key]
+                                onChange(newLevels)
+                            }}
+                            data-attr={`logs-severity-option-${option.key}`}
+                        >
+                            {option.label}
+                        </LemonButton>
+                    ))}
+                </div>
+            }
         >
-            <LemonButton
-                data-attr="logs-severity-filter"
-                icon={<IconFilter />}
-                size="small"
-                type="secondary"
-                className="whitespace-nowrap"
-            >
-                {displayLevels}
+            <LemonButton data-attr="logs-severity-filter" type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                {value.length === 0 || value.length === SEVERITY_OPTIONS.length
+                    ? 'All levels'
+                    : value.length === 1
+                      ? (SEVERITY_OPTIONS.find((o) => o.key === value[0])?.label ?? value[0])
+                      : `${value.length} levels`}
             </LemonButton>
-        </LemonMenu>
+        </LemonDropdown>
     )
 }

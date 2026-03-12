@@ -88,6 +88,39 @@ class TeamSignalGroupingInput:
 
 
 @dataclass
+class BufferSignalsInput:
+    """Inputs for the buffer signals workflow."""
+
+    team_id: int
+    # Signals that arrived between the last drain and continue_as_new.
+    # Small in practice (only a few signals can sneak in during two activity calls),
+    # but must be carried over to avoid dropping them.
+    pending_signals: list["EmitSignalInputs"] = field(default_factory=list)
+
+
+@dataclass
+class TeamSignalGroupingV2Input:
+    """Inputs for the v2 grouping workflow."""
+
+    team_id: int
+    pending_batch_keys: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ReadSignalsFromS3Input:
+    """Activity input: read a batch of signals from S3."""
+
+    object_key: str
+
+
+@dataclass
+class ReadSignalsFromS3Output:
+    """Activity output: the deserialized signals."""
+
+    signals: list["EmitSignalInputs"]
+
+
+@dataclass
 class SignalReportSummaryWorkflowInputs:
     """Inputs for the signal report summary workflow."""
 

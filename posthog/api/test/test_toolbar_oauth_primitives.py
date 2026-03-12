@@ -20,6 +20,7 @@ from posthog.api.oauth.toolbar_service import (
     build_toolbar_oauth_state,
     get_or_create_toolbar_oauth_application,
     new_state_nonce,
+    normalize_and_validate_app_url,
     toolbar_oauth_state_cache,
 )
 from posthog.models import Organization, Team, User
@@ -339,7 +340,6 @@ class TestToolbarOAuthCallbackExchange(APIBaseTest):
         assert "#section1&__posthog_toolbar=code:auth_code_123" in redirect_url
 
     def test_callback_strips_posthog_hash_from_redirect(self):
-        """__posthog hash params must not survive the OAuth round-trip or they cause a re-init loop."""
         posthog_hash = "%7B%22action%22%3A%22ph_authorize%22%2C%22token%22%3A%22phc_test%22%7D"
         state = self._authorize_and_get_state(redirect_url=f"https://example.com/page#__posthog={posthog_hash}")
         response = self.client.get(f"/toolbar_oauth/callback?code=auth_code_123&state={state}")
@@ -347,6 +347,17 @@ class TestToolbarOAuthCallbackExchange(APIBaseTest):
         assert response.status_code == 302
         redirect_url = response["Location"]
         assert "__posthog=" not in redirect_url.split("__posthog_toolbar")[0]
+        assert "__posthog_toolbar=code:auth_code_123" in redirect_url
+
+    def test_callback_strips_posthog_toolbar_hash_from_redirect(self):
+        state = self._authorize_and_get_state(
+            redirect_url="https://example.com/page#__posthog_toolbar=code:old,client_id:old"
+        )
+        response = self.client.get(f"/toolbar_oauth/callback?code=auth_code_123&state={state}")
+
+        assert response.status_code == 302
+        redirect_url = response["Location"]
+        assert "code:old" not in redirect_url
         assert "__posthog_toolbar=code:auth_code_123" in redirect_url
 
     def test_callback_with_invalid_state_returns_error(self):
@@ -482,3 +493,112 @@ class TestToolbarOAuthCallbackExchange(APIBaseTest):
         response = self.client.get(f"/toolbar_oauth/callback?code=abc&state={state}")
         assert response.status_code == 302
         assert response["Location"].startswith("https://example.com#__posthog_toolbar=")
+
+    def test_callback_strips_both_posthog_and_toolbar_hash(self):
+        posthog_hash = "%7B%22action%22%3A%22ph_authorize%22%7D"
+        redirect_url = f"https://example.com/page#__posthog={posthog_hash}&__posthog_toolbar=code:old,client_id:old"
+        state = self._authorize_and_get_state(redirect_url=redirect_url)
+        response = self.client.get(f"/toolbar_oauth/callback?code=auth_code_123&state={state}")
+
+        assert response.status_code == 302
+        location = response["Location"]
+        assert "__posthog=" not in location.split("__posthog_toolbar")[0]
+        assert "code:old" not in location
+        assert "__posthog_toolbar=code:auth_code_123" in location
+
+    def test_callback_preserves_spa_hash_route(self):
+        state = self._authorize_and_get_state(redirect_url="https://example.com/#/dashboard/settings")
+        response = self.client.get(f"/toolbar_oauth/callback?code=abc&state={state}")
+
+        assert response.status_code == 302
+        location = response["Location"]
+        assert "/dashboard/settings&__posthog_toolbar=code:abc" in location
+
+    def test_callback_preserves_fragment_params_after_stripping_toolbar(self):
+        state = self._authorize_and_get_state(
+            redirect_url="https://example.com/page#section1&__posthog_toolbar=code:old,client_id:old&other=value"
+        )
+        response = self.client.get(f"/toolbar_oauth/callback?code=new_code&state={state}")
+
+        assert response.status_code == 302
+        location = response["Location"]
+        assert "code:old" not in location
+        assert "section1" in location
+        assert "other=value" in location
+        assert "__posthog_toolbar=code:new_code" in location
+
+
+class TestNormalizeAndValidateAppUrl(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+
+    @parameterized.expand(
+        [
+            (
+                "strips __posthog param",
+                "https://example.com/page#__posthog=%7B%7D",
+                "https://example.com/page",
+            ),
+            (
+                "strips __posthog_toolbar param",
+                "https://example.com/page#__posthog_toolbar=code:old,client_id:old",
+                "https://example.com/page",
+            ),
+            (
+                "strips both params",
+                "https://example.com/page#__posthog=%7B%7D&__posthog_toolbar=code:old,client_id:old",
+                "https://example.com/page",
+            ),
+            (
+                "strips both params reversed order",
+                "https://example.com/page#__posthog_toolbar=code:old,client_id:old&__posthog=%7B%7D",
+                "https://example.com/page",
+            ),
+            (
+                "preserves SPA hash route",
+                "https://example.com/#/login&__posthog_toolbar=code:old,client_id:old",
+                "https://example.com/#/login",
+            ),
+            (
+                "preserves other fragment params",
+                "https://example.com/page#section1&__posthog_toolbar=code:old,client_id:old&other=value",
+                "https://example.com/page#section1&other=value",
+            ),
+            (
+                "preserves fragment with only non-posthog params",
+                "https://example.com/page#section1&__posthog=%7B%7D&tab=2",
+                "https://example.com/page#section1&tab=2",
+            ),
+        ]
+    )
+    def test_stripping(self, _name, app_url, expected):
+        assert normalize_and_validate_app_url(self.team, app_url) == expected
+
+    @parameterized.expand(
+        [
+            ("no fragment", "https://example.com/page"),
+            ("plain fragment", "https://example.com/page#section1"),
+            ("spa route fragment", "https://example.com/#/dashboard"),
+            ("fragment with unrelated params", "https://example.com/page#tab=2&view=grid"),
+            ("url with query string and fragment", "https://example.com/page?q=search#section1"),
+        ]
+    )
+    def test_passthrough(self, _name, app_url):
+        assert normalize_and_validate_app_url(self.team, app_url) == app_url
+
+    def test_rejects_disallowed_domain(self):
+        with self.assertRaises(ToolbarOAuthError) as cm:
+            normalize_and_validate_app_url(self.team, "https://evil.com/page")
+        assert cm.exception.code == "forbidden_app_url"
+
+    def test_rejects_non_https_for_non_loopback(self):
+        with self.assertRaises(ToolbarOAuthError) as cm:
+            normalize_and_validate_app_url(self.team, "http://example.com/page")
+        assert cm.exception.code == "invalid_app_url"
+
+    def test_rejects_missing_scheme(self):
+        with self.assertRaises(ToolbarOAuthError) as cm:
+            normalize_and_validate_app_url(self.team, "example.com/page")
+        assert cm.exception.code == "invalid_app_url"

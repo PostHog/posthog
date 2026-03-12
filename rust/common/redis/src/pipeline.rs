@@ -27,7 +27,7 @@ use crate::{Client, CustomRedisError, RedisValueFormat};
 /// Each variant corresponds to the return type of a Redis command.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PipelineResult {
-    /// Success with no return value (SET, DEL, HINCRBY, etc.)
+    /// Success — return value intentionally discarded (SET, DEL, HINCRBY, SADD, etc.)
     Ok,
     /// String value (GET)
     String(String),
@@ -82,6 +82,10 @@ pub enum PipelineCommand {
     },
     Scard {
         key: String,
+    },
+    SAdd {
+        key: String,
+        member: String,
     },
     ZRangeByScore {
         key: String,
@@ -236,6 +240,15 @@ impl<C> Pipeline<C> {
         self
     }
 
+    /// Add an SADD command to the pipeline.
+    pub fn sadd(mut self, key: impl Into<String>, member: impl Into<String>) -> Self {
+        self.commands.push(PipelineCommand::SAdd {
+            key: key.into(),
+            member: member.into(),
+        });
+        self
+    }
+
     /// Add a ZRANGEBYSCORE command to the pipeline.
     pub fn zrangebyscore(
         mut self,
@@ -345,9 +358,10 @@ mod tests {
             .hget("k11", "f11")
             .hincrby("k12", "f12", 5)
             .scard("k13")
-            .zrangebyscore("k14", "0", "100");
+            .sadd("k14", "m14")
+            .zrangebyscore("k15", "0", "100");
 
-        assert_eq!(pipeline.len(), 14);
+        assert_eq!(pipeline.len(), 15);
     }
 
     #[test]
@@ -461,19 +475,21 @@ mod integration_tests {
             .del("del_key")
             .set_nx_ex("nx_key", "value", 60)
             .scard("scard_key")
+            .sadd("sadd_key", "member1")
             .zrangebyscore("zset_key", "0", "100")
             .execute()
             .await
             .unwrap();
 
-        assert_eq!(results.len(), 6);
+        assert_eq!(results.len(), 7);
         assert!(matches!(&results[0], Ok(PipelineResult::String(s)) if s == "string_value"));
         assert!(matches!(results[1], Ok(PipelineResult::Ok)));
         assert!(matches!(results[2], Ok(PipelineResult::Ok)));
         assert!(matches!(results[3], Ok(PipelineResult::Bool(true))));
         assert!(matches!(results[4], Ok(PipelineResult::Count(42))));
+        assert!(matches!(results[5], Ok(PipelineResult::Count(_)))); // SADD
         assert!(
-            matches!(&results[5], Ok(PipelineResult::Strings(v)) if v == &vec!["a".to_string(), "b".to_string()])
+            matches!(&results[6], Ok(PipelineResult::Strings(v)) if v == &vec!["a".to_string(), "b".to_string()])
         );
     }
 }
