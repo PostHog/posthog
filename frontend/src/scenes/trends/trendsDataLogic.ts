@@ -176,11 +176,11 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     return false
                 }
 
-                if (hasDataWarehouseSeries) {
-                    return isLifecycle && (querySource as LifecycleQuery | null)?.customAggregationTarget !== true
+                if (!hasDataWarehouseSeries) {
+                    return true
                 }
 
-                return true
+                return isLifecycle && (querySource as LifecycleQuery | null)?.customAggregationTarget !== true
             },
         ],
 
