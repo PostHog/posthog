@@ -187,6 +187,10 @@ export const VariableInput = ({
                         onChange={(value) => {
                             setLocalInputValue(value ? String(value) : '')
                             setIsNull(!value)
+                            if (!value) {
+                                onChange(variable.id, null, true)
+                                closePopover()
+                            }
                         }}
                         options={(variable.values ?? []).map((n) => ({ label: n, value: n }))}
                         allowClear
