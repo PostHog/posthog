@@ -1445,6 +1445,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         },
                         activeTabId: sourceTab,
                         setTabId: actions.setSourceTab,
+                        splitIndices: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REFERRER_URL_DRILLDOWN]
+                            ? [1, 3] // [Channel] [Referring Domain ▼ Referring URL] [UTM Source ▼ ...]
+                            : [2], // [Channel] [Referring Domain] [UTM Source ▼ ...]
                         tabs: [
                             createTableTab(
                                 TileId.SOURCES,

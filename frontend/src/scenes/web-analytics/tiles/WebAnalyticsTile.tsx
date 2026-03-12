@@ -840,11 +840,11 @@ export const WebStatsTableTile = ({
             filterValue: string | number | null
         ): { sourceTab?: string; geographyTab?: string; deviceTab?: string } | undefined => {
             const sourceDrillDown = SOURCE_DRILL_DOWN_MAP[breakdownBy]
-            // When the referrer URL drilldown flag is off, navigate to UTM source instead of referrer URL
+            // When the referrer URL drilldown flag is off, don't navigate away from referrer domain
             const sourceTab =
                 !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REFERRER_URL_DRILLDOWN] &&
                 sourceDrillDown === SourceTab.REFERRING_URL
-                    ? SourceTab.UTM_SOURCE
+                    ? undefined
                     : sourceDrillDown
             const geographyTab = GEOGRAPHY_DRILL_DOWN_MAP[breakdownBy]
             const deviceTab = DEVICE_DRILL_DOWN_MAP[breakdownBy]
