@@ -612,6 +612,8 @@ export const WebStatsTrendTile = ({
         dateFilter: { interval },
         preZoomDateFilter,
     } = useValues(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const isDragToZoomEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DRAG_TO_ZOOM]
     const worldMapPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)?.key
     const regionPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Region)?.key
 
@@ -650,7 +652,7 @@ export const WebStatsTrendTile = ({
                 query,
             },
             compareFilter: 'compareFilter' in query.source ? query.source.compareFilter : undefined,
-            onDateRangeZoom: zoomIntoPeriod,
+            onDateRangeZoom: isDragToZoomEnabled ? zoomIntoPeriod : undefined,
         }
 
         // World maps need custom click handler for country filtering, trend lines use default persons modal
