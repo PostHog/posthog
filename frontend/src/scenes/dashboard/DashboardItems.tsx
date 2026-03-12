@@ -330,6 +330,7 @@ export function DashboardItems(): JSX.Element {
                                         tile={tile}
                                         placement={placement}
                                         otherDashboards={otherDashboards}
+                                        isDragging={isDragging.current}
                                         onEdit={() => {
                                             if (dashboard?.id) {
                                                 push(urls.dashboardTextTile(dashboard.id, tile.id))
@@ -338,7 +339,10 @@ export function DashboardItems(): JSX.Element {
                                         onMoveToDashboard={commonTileProps.moveToDashboard}
                                         onDuplicate={() => duplicateTile(tile)}
                                         onRemove={commonTileProps.removeFromDashboard}
-                                        {...commonTileProps}
+                                        showResizeHandles={commonTileProps.showResizeHandles}
+                                        canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
+                                        onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
+                                        onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
                                     />
                                 )
                             }
