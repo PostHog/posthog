@@ -188,23 +188,33 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING("No person property filters found across any cohorts"))
             return
 
-        # Build deduplicated filter list and create cohort filters
+        # Create cohort filters with each cohort getting only its own filters
+        cohort_filters_list = []
+        for cohort_id in cohort_ids:
+            # Get filters that belong to this specific cohort
+            cohort_specific_filters = [
+                PersonPropertyFilter(
+                    condition_hash=cond_hash,
+                    bytecode=bytecode,
+                )
+                for cond_hash, (bytecode, cohort_list) in condition_map.items()
+                if cohort_id in cohort_list
+            ]
+
+            cohort_filters_list.append(
+                CohortFilters(
+                    cohort_id=cohort_id,
+                    filters=cohort_specific_filters,
+                )
+            )
+
+        # Build the deduplicated filters for reporting
         deduplicated_filters = [
             PersonPropertyFilter(
                 condition_hash=cond_hash,
                 bytecode=bytecode,
             )
             for cond_hash, (bytecode, _cids) in condition_map.items()
-        ]
-
-        # Create a single CohortFilters object with all deduplicated filters
-        # All cohorts will process the same deduplicated filter set
-        cohort_filters_list = [
-            CohortFilters(
-                cohort_id=cohort_id,
-                filters=deduplicated_filters,  # All cohorts get the same deduplicated filters
-            )
-            for cohort_id in cohort_ids
         ]
 
         self.stdout.write(
