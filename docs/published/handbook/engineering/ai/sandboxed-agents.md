@@ -9,24 +9,24 @@ GitHub repositories, and code execution.
 Use them when your feature needs an autonomous agent that reads PostHog data, writes code, and produces artifacts like PRs or reports.
 
 For simpler LLM calls (summarization, translation, classification),
-skip this page and use the [LLM gateway](/handbook/engineering/llm-gateway) directly —
+skip this page and use the LLM gateway (`get_llm_client()`) directly —
 it's simpler and doesn't need a sandbox.
 
 ## When to use what
 
-| Need                                                                            | Solution                                                                | Example                                                                                         |
-| ------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Autonomous agent that reads PostHog data and writes code                        | Sandboxed agent (this page)                                             | Signals team building an enrichment pipeline that generates reports from PostHog analytics data |
-| Autonomous agent that interacts with customers or performs multi-step reasoning | Sandboxed agent (this page)                                             | Conversations team building a customer support agent that queries PostHog and creates PRs       |
-| Single-shot LLM call (summarize, classify, translate)                           | [LLM gateway](/handbook/engineering/llm-gateway) via `get_llm_client()` | LLM analytics summarizing a funnel, generating a natural-language insight title                 |
-| Not sure                                                                        | Ask in `#team-posthog-ai`                                               | —                                                                                               |
+| Example                                                                                         | Solution                           |
+| ----------------------------------------------------------------------------------------------- | ---------------------------------- |
+| Signals team building an enrichment pipeline that generates reports from PostHog analytics data | Sandboxed agent (this page)        |
+| Conversations team building a support agent that queries PostHog and customer documentation     | Sandboxed agent (this page)        |
+| LLM analytics summarizing a funnel, generating a natural-language insight title                 | LLM gateway via `get_llm_client()` |
+| Not sure                                                                                        | Ask in `#team-posthog-ai`          |
 
 **Rule of thumb**: if the LLM needs to _do things_ (query data, read files, create branches, open PRs), use a sandboxed agent.
 If it just needs to _answer a question_ given some context you already have, use the LLM gateway.
 
 ## How it works
 
-A sandboxed agent runs inside an isolated cloud container (gVisor in production, Docker locally).
+A sandboxed agent runs inside an isolated cloud container (Modal in production, Docker locally).
 The system provisions the sandbox, clones a GitHub repo, starts an agent server, and waits for the agent to finish.
 
 ```text
@@ -64,7 +64,6 @@ task = Task.create_and_run(
     description="Analyze error trends and generate a summary report with recommendations.",
     origin_product=Task.OriginProduct.ERROR_TRACKING,  # or your product's origin
     user_id=user.id,
-    repository="posthog/posthog",
     posthog_mcp_scopes="read_only",  # or "full" if the agent needs write access
 )
 ```
@@ -184,57 +183,6 @@ Network access is configured per-team via `SandboxEnvironment`:
 - **Trusted** — only allows access to a default set of trusted domains (GitHub, npm, PyPI, etc.)
 - **Full** — unrestricted network access
 - **Custom** — explicit allowlist of domains, optionally including the trusted defaults
-
-## Examples
-
-### Signals: enrichment pipeline for generating reports
-
-The Signals team uses sandboxed agents to analyze error trends and generate enrichment reports.
-The agent reads PostHog error tracking data via MCP, analyzes patterns, and produces a structured report.
-
-```python
-from products.tasks.backend.models import Task
-
-task = Task.create_and_run(
-    team=team,
-    title=f"Analyze error cluster {cluster_id}",
-    description=(
-        f"Analyze the error cluster {cluster_id} and generate a report "
-        "with root cause analysis, affected users, and recommended fixes. "
-        "Query error events using HogQL to identify patterns."
-    ),
-    origin_product=Task.OriginProduct.ERROR_TRACKING,
-    user_id=user.id,
-    repository="posthog/posthog",
-    posthog_mcp_scopes="read_only",  # only needs to read data
-    create_pr=False,  # produces a report, not a code change
-)
-```
-
-### Conversations: customer support agent
-
-The Conversations team uses sandboxed agents triggered from Slack
-to investigate customer issues, query relevant PostHog data, and create fixes.
-
-```python
-from products.tasks.backend.models import Task
-
-task = Task.create_and_run(
-    team=team,
-    title="Fix signup flow error for customer",
-    description=(
-        "A customer reported that the signup flow crashes on mobile. "
-        "Investigate session recordings and error events for the last 24 hours, "
-        "identify the root cause, and create a PR with a fix."
-    ),
-    origin_product=Task.OriginProduct.SLACK,
-    user_id=user.id,
-    repository="posthog/posthog",
-    posthog_mcp_scopes="full",
-    slack_thread_context=slack_thread_context,
-    slack_thread_url=slack_thread_url,
-)
-```
 
 ## Local development
 
