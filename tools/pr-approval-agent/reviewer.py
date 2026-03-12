@@ -87,8 +87,11 @@ def _make_path_validator(repo_root: Path, diff_path: Path):
             return {}
 
         return {
-            "behavior": "deny",
-            "message": f"Path outside repo root: {path}",
+            "hookSpecificOutput": {
+                "hookEventName": input_data["hook_event_name"],
+                "permissionDecision": "deny",
+                "permissionDecisionReason": f"Path outside repo root: {path}",
+            }
         }
 
     return validate_tool
