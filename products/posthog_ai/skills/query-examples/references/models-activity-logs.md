@@ -4,6 +4,8 @@
 
 Activity logs track user and system actions across PostHog entities, providing an audit trail of changes to feature flags, insights, dashboards, experiments, and more.
 
+> **Note:** Only team-scoped activity logs are visible. Organisation-level logs (e.g. membership changes) are not included because they are not associated with a specific team.
+
 ### Columns
 
 Column | Type | Nullable | Description
