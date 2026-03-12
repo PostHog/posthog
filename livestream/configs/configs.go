@@ -25,11 +25,13 @@ type SessionRecordingConfig struct {
 }
 
 type RedisConfig struct {
-	Address         string `mapstructure:"address"`
-	Port            string `mapstructure:"port"`
-	TLS             bool   `mapstructure:"tls"`
-	FlushIntervalMs int    `mapstructure:"flush_interval_ms"`
-	UsePubSub       bool   `mapstructure:"use_pub_sub"`
+	Address            string `mapstructure:"address"`
+	Port               string `mapstructure:"port"`
+	TLS                bool   `mapstructure:"tls"`
+	FlushIntervalMs    int    `mapstructure:"flush_interval_ms"`
+	UsePubSub          bool   `mapstructure:"use_pub_sub"`
+	PublishBufferSize  int    `mapstructure:"publish_buffer_size"`
+	PublishWorkers     int    `mapstructure:"publish_workers"`
 }
 
 type Config struct {
@@ -114,7 +116,9 @@ func InitConfigs(filename, configPath string) {
 	_ = viper.BindEnv("redis.port")              // LIVESTREAM_REDIS_PORT
 	_ = viper.BindEnv("redis.tls")               // LIVESTREAM_REDIS_TLS
 	_ = viper.BindEnv("redis.flush_interval_ms") // LIVESTREAM_REDIS_FLUSH_INTERVAL_MS
-	_ = viper.BindEnv("redis.use_pub_sub")       // LIVESTREAM_REDIS_USE_PUB_SUB
+	_ = viper.BindEnv("redis.use_pub_sub")         // LIVESTREAM_REDIS_USE_PUB_SUB
+	_ = viper.BindEnv("redis.publish_buffer_size") // LIVESTREAM_REDIS_PUBLISH_BUFFER_SIZE
+	_ = viper.BindEnv("redis.publish_workers")     // LIVESTREAM_REDIS_PUBLISH_WORKERS
 }
 
 func LoadConfig() (*Config, error) {
@@ -161,6 +165,13 @@ func LoadConfig() (*Config, error) {
 	}
 	if config.Kafka.GroupID == "" {
 		return nil, errors.New("kafka.group_id must be set")
+	}
+
+	if config.Redis.PublishBufferSize == 0 {
+		config.Redis.PublishBufferSize = 10000
+	}
+	if config.Redis.PublishWorkers == 0 {
+		config.Redis.PublishWorkers = 256
 	}
 
 	if config.Redis.FlushIntervalMs < 50 {

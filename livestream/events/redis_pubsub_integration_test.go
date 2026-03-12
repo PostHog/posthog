@@ -65,7 +65,7 @@ func startRouter(t *testing.T) (
 	routerClient := NewIntegrationTestClient(t)
 	pubClient := NewIntegrationTestClient(t)
 
-	broker = NewRedisEventBrokerFromClient(pubClient)
+	broker = NewRedisEventBrokerFromClient(pubClient, 10000, 256)
 
 	subChan = make(chan Subscription, 16)
 	unSubChan = make(chan Subscription, 16)
@@ -73,6 +73,7 @@ func startRouter(t *testing.T) (
 	router := NewTokenRouter(routerClient, subChan, unSubChan)
 
 	ctx, cancel := context.WithCancel(context.Background())
+	go broker.Run(ctx)
 	go router.Run(ctx)
 
 	t.Cleanup(func() {
