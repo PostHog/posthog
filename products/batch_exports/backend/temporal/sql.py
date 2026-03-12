@@ -972,19 +972,7 @@ SELECT
     COUNT(*) as total_count
 FROM (
     SELECT DISTINCT ON (team_id, event, cityHash64(events_recent.distinct_id), cityHash64(events_recent.uuid))
-        team_id AS team_id,
-        timestamp AS timestamp,
-        event AS event,
-        distinct_id AS distinct_id,
-        toString(uuid) AS uuid,
-        inserted_at AS _inserted_at,
-        created_at AS created_at,
-        elements_chain AS elements_chain,
-        toString(person_id) AS person_id,
-        nullIf(properties, '') AS properties,
-        nullIf(person_properties, '') AS person_properties,
-        nullIf(JSONExtractString(properties, '$set'), '') AS set,
-        nullIf(JSONExtractString(properties, '$set_once'), '') AS set_once
+        inserted_at AS _inserted_at
     FROM
         events_recent
     PREWHERE
