@@ -46,8 +46,10 @@ class TestFunnelStepBuilder(BaseTest):
         # step_0 should be the exposure filter
         assert columns[0].expr == exposure_filter
 
-        # step_1 should check event = 'purchase'
-        assert isinstance(columns[1].expr, ast.CompareOperation)
+        # step_1 should be wrapped in if() call: if(event = 'purchase', 1, 0)
+        assert isinstance(columns[1].expr, ast.Call)
+        assert columns[1].expr.name == "if"
+        assert isinstance(columns[1].expr.args[0], ast.CompareOperation)  # The condition
 
     def test_boolean_columns_multiple_event_steps(self):
         """Boolean columns for multi-step event funnel."""
@@ -67,9 +69,10 @@ class TestFunnelStepBuilder(BaseTest):
         # Verify all aliases
         assert [col.alias for col in columns] == ["step_0", "step_1", "step_2", "step_3"]
 
-        # Each metric step should be a compare operation
+        # Each metric step should be wrapped in if() call
         for i in range(1, 4):
-            assert isinstance(columns[i].expr, ast.CompareOperation)
+            assert isinstance(columns[i].expr, ast.Call)
+            assert columns[i].expr.name == "if"
 
     def test_boolean_columns_action_step(self):
         """Boolean columns work with ActionsNode."""
@@ -85,12 +88,14 @@ class TestFunnelStepBuilder(BaseTest):
         # Should have 3 columns
         assert len(columns) == 3
 
-        # step_1 should be event check
-        assert isinstance(columns[1].expr, ast.CompareOperation)
+        # step_1 should be event check wrapped in if()
+        assert isinstance(columns[1].expr, ast.Call)
+        assert columns[1].expr.name == "if"
 
-        # step_2 should be action check (returns False constant if action doesn't exist)
-        # This is the correct behavior from event_or_action_to_filter()
-        assert isinstance(columns[2].expr, ast.Expr)  # Any expression is valid
+        # step_2 should be action check wrapped in if()
+        # The inner condition returns False constant if action doesn't exist
+        assert isinstance(columns[2].expr, ast.Call)
+        assert columns[2].expr.name == "if"
 
     def test_boolean_columns_rejects_datawarehouse(self):
         """Boolean columns should reject DW nodes with clear error."""

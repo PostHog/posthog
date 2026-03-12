@@ -93,7 +93,7 @@ class FunnelStepBuilder:
             columns.append(
                 ast.Alias(
                     alias=f"step_{step_index}",
-                    expr=step_filter,
+                    expr=ast.Call(name="if", args=[step_filter, ast.Constant(value=1), ast.Constant(value=0)]),
                 )
             )
 
