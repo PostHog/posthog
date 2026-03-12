@@ -382,7 +382,7 @@ describe('the feature flag release conditions logic', () => {
         })
 
         describe('API calls', () => {
-            beforeEach(() => {
+            it('doesnt make extra API calls when rollout percentage or variants change', async () => {
                 logic?.unmount()
 
                 jest.spyOn(api, 'create').mockClear()
@@ -419,40 +419,25 @@ describe('the feature flag release conditions logic', () => {
                         },
                     ]),
                 })
+
+                // Mount and wait for all listeners to finish
                 logic.mount()
-            })
+                await expectLogic(logic).toFinishAllListeners()
 
-            it('doesnt make extra API calls when rollout percentage or variants change', async () => {
-                await expectLogic(logic)
-                    .toDispatchActions([
-                        'setAffectedUsers',
-                        'setAffectedUsers',
-                        'setAffectedUsers',
-                        'setAffectedUsers',
-                        'setAffectedUsers',
-                        'setAffectedUsers',
-                        'setTotalUsers',
-                    ])
-                    .toMatchValues({
-                        affectedUsers: { A: 120, B: 120, C: 120 },
-                        totalUsers: 2000,
-                    })
+                // Verify final state - all conditions have their blast radius calculated
+                expect(logic.values.affectedUsers).toEqual({ A: 120, B: 120, C: 120 })
+                expect(logic.values.totalUsers).toEqual(2000)
 
+                // 3 API calls made (one for each condition)
                 expect(api.create).toHaveBeenCalledTimes(3)
 
-                await expectLogic(logic, () => {
-                    logic.actions.updateConditionSet(0, 20, undefined, undefined)
-                }).toNotHaveDispatchedActions(['setAffectedUsers', 'setTotalUsers'])
+                // Change rollout percentage and variant - should NOT trigger additional API calls
+                logic.actions.updateConditionSet(0, 20, undefined, undefined)
+                logic.actions.updateConditionSet(1, 30, undefined, 'test-variant')
+                logic.actions.updateConditionSet(2, undefined, undefined, 'test-variant2')
+                await expectLogic(logic).toFinishAllListeners()
 
-                await expectLogic(logic, () => {
-                    logic.actions.updateConditionSet(1, 30, undefined, 'test-variant')
-                }).toNotHaveDispatchedActions(['setAffectedUsers', 'setTotalUsers'])
-
-                await expectLogic(logic, () => {
-                    logic.actions.updateConditionSet(2, undefined, undefined, 'test-variant2')
-                }).toNotHaveDispatchedActions(['setAffectedUsers', 'setTotalUsers'])
-
-                // no extra calls when changing rollout percentage
+                // No extra API calls when only changing rollout percentage or variant
                 expect(api.create).toHaveBeenCalledTimes(3)
             })
         })

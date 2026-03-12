@@ -39,7 +39,7 @@ export function PathFlowEdge({
             />
             <EdgeLabelRenderer>
                 <div
-                    className="rounded bg-bg-light border border-border px-1 py-0.5 text-xxs text-muted pointer-events-auto nopan"
+                    className="rounded bg-bg-light border border-primary px-1 py-0.5 text-xxs text-muted pointer-events-auto nopan"
                     style={{
                         position: 'absolute',
                         transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
