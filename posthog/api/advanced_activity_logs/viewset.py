@@ -2,7 +2,7 @@ import json
 import hashlib
 import logging
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Optional, get_args
 from urllib.parse import urlencode
 
 from django.db.models import Q, QuerySet
@@ -17,7 +17,11 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
 from posthog.models import NotificationViewed
-from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
+from posthog.models.activity_logging.activity_log import (
+    ActivityLog,
+    ActivityScope,
+    apply_activity_visibility_restrictions,
+)
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks import exporter
 
@@ -92,18 +96,24 @@ class ActivityLogPagination(BasePagination):
             return self.cursor_pagination.get_paginated_response(data)
 
 
+class ActivityLogScopeField(serializers.ChoiceField):
+    def __init__(self, **kwargs):
+        choices = get_args(ActivityScope)
+        super().__init__(choices=choices, **kwargs)
+
+
 class ActivityLogQueryParamsSerializer(serializers.Serializer):
     user = serializers.UUIDField(
         required=False,
         help_text="Filter by user UUID who performed the action.",
     )
-    scope = serializers.CharField(
+    scope = ActivityLogScopeField(
         required=False,
         help_text='Filter by a single activity scope, e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment".',
     )
     scopes = serializers.CharField(
         required=False,
-        help_text='Filter by multiple scopes, comma-separated. E.g. "FeatureFlag,Insight".',
+        help_text='Filter by multiple activity scopes, comma-separated. Values must be valid ActivityScope enum values. E.g. "FeatureFlag,Insight".',
     )
     item_id = serializers.CharField(
         required=False,
@@ -111,10 +121,14 @@ class ActivityLogQueryParamsSerializer(serializers.Serializer):
     )
     page = serializers.IntegerField(
         required=False,
+        min_value=1,
         help_text="Page number for pagination. When provided, uses page-based pagination ordered by most recent first.",
     )
     page_size = serializers.IntegerField(
         required=False,
+        min_value=1,
+        max_value=1000,
+        default=100,
         help_text="Number of results per page (default: 100, max: 1000). Only used with page-based pagination.",
     )
 
