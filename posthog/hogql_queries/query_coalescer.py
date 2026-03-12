@@ -192,12 +192,11 @@ class QueryCoalescer:
         if lock_value is None:
             coalesce_counter.labels(outcome="follower_leader_gone").inc()
             return None
-        leader_start = self._parse_lock_start_time(
+        fresh_after = self._parse_lock_start_time(
             lock_value.decode("utf-8") if isinstance(lock_value, bytes) else lock_value
         )
-        if leader_start is None:
+        if fresh_after is None:
             return None
-        fresh_after = leader_start
 
         start = time.monotonic()
 
