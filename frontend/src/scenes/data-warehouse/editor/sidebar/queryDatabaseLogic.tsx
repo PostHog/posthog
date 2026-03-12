@@ -3,7 +3,7 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
-import { IconBolt, IconCode2, IconDatabase, IconDocument, IconPlug, IconPlus } from '@posthog/icons'
+import { IconBolt, IconDatabase, IconDocument, IconEndpoints, IconPlug, IconPlus } from '@posthog/icons'
 import { LemonMenuItem } from '@posthog/lemon-ui'
 import { Spinner } from '@posthog/lemon-ui'
 
@@ -885,7 +885,7 @@ const createEndpointNode = (
         id: `${isSearch ? 'search-' : ''}endpoint-${endpointTable.id}`,
         name: displayName,
         type: 'node',
-        icon: <IconCode2 />,
+        icon: <IconEndpoints />,
         record: {
             type: 'endpoint',
             table: endpointTable,

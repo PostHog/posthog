@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
-import { Responsive as ReactGridLayout } from 'react-grid-layout'
+import { Layout, Responsive as ReactGridLayout } from 'react-grid-layout'
 
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
@@ -23,7 +23,7 @@ import { urls } from 'scenes/urls'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
+import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
 const DRAG_AUTO_SCROLL_THRESHOLD = 100
 const DRAG_AUTO_SCROLL_SPEED = 8
@@ -114,10 +114,16 @@ export function DashboardItems(): JSX.Element {
                 <ReactGridLayout
                     width={gridWrapperWidth}
                     className={className}
-                    draggableHandle=".CardMeta,.TextCard__body"
-                    isDraggable={dashboardMode === DashboardMode.Edit && !isMobileView}
-                    isResizable={dashboardMode === DashboardMode.Edit && !isMobileView}
-                    layouts={layouts}
+                    dragConfig={{
+                        enabled: dashboardMode === DashboardMode.Edit && !isMobileView,
+                        handle: '.CardMeta,.TextCard__body',
+                        cancel: 'a,table,button,input,.Popover',
+                    }}
+                    resizeConfig={{
+                        enabled: dashboardMode === DashboardMode.Edit && !isMobileView,
+                        handles: ['s', 'e', 'se', 'n', 'w', 'nw', 'ne', 'sw'],
+                    }}
+                    layouts={layouts as Partial<Record<DashboardLayoutSize, Layout>>}
                     rowHeight={80}
                     margin={[16, 16]}
                     containerPadding={[0, 0]}
@@ -130,7 +136,6 @@ export function DashboardItems(): JSX.Element {
                         updateContainerWidth(containerWidth, newCols)
                     }}
                     breakpoints={BREAKPOINTS}
-                    resizeHandles={['s', 'e', 'se', 'n', 'w', 'nw', 'ne', 'sw']}
                     cols={BREAKPOINT_COLUMN_COUNTS}
                     onResize={(_layout: any, _oldItem: any, newItem: any) => {
                         if (!resizingItem || resizingItem.w !== newItem.w || resizingItem.h !== newItem.h) {
@@ -163,7 +168,7 @@ export function DashboardItems(): JSX.Element {
                             return
                         }
 
-                        const mouseY = e.clientY
+                        const mouseY = (e as MouseEvent).clientY
 
                         let scrollSpeed = 0
                         if (mouseY < containerRect.top + DRAG_AUTO_SCROLL_THRESHOLD) {
@@ -205,7 +210,6 @@ export function DashboardItems(): JSX.Element {
                             reportDashboardTileRepositioned(dashboard.id, 'moved')
                         }
                     }}
-                    draggableCancel="a,table,button,input,.Popover"
                 >
                     {tiles?.map((tile) => {
                         const { insight, text } = tile
@@ -220,6 +224,31 @@ export function DashboardItems(): JSX.Element {
                             canEnterEditModeFromEdge,
                             onEnterEditModeFromEdge: canEnterEditModeFromEdge
                                 ? () => setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardEdgeHover)
+                                : undefined,
+                            onDragHandleMouseDown: canEnterEditModeFromEdge
+                                ? (e: React.MouseEvent) => {
+                                      const target = e.target as Element | null
+                                      if (!target) {
+                                          return
+                                      }
+
+                                      const gridItem = target.closest('.react-grid-item')
+                                      if (!gridItem) {
+                                          return
+                                      }
+
+                                      // Don't trigger when clicking obvious interactive controls
+                                      if (
+                                          target.closest(
+                                              'input,textarea,button,select,a,p,h4,[contenteditable="true"],[role="textbox"]'
+                                          )
+                                      ) {
+                                          return
+                                      }
+                                      e.preventDefault()
+                                      e.stopPropagation()
+                                      setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardDragHandle)
+                                  }
                                 : undefined,
                             showEditingControls: isEditablePlacement,
                             moveToDashboard: ({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
