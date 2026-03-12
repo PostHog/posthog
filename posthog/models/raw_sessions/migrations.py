@@ -14,7 +14,7 @@ from posthog.models.raw_sessions.sessions_v2 import (
 
 def update_raw_sessions_table(migration: str):
     return [
-        # sharded
+        # sharded (replicated table, one ALTER per shard)
         run_sql_with_exceptions(
             migration.format(
                 table_name=SHARDED_RAW_SESSIONS_DATA_TABLE(),
@@ -22,17 +22,24 @@ def update_raw_sessions_table(migration: str):
             ),
             node_roles=[NodeRole.DATA],
             sharded=True,
+            is_alter_on_replicated_table=True,
         ),
-        # writable
+        # writable (distributed table)
         run_sql_with_exceptions(
             migration.format(
                 table_name=WRITABLE_RAW_SESSIONS_DATA_TABLE(),
                 on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
             ),
             node_roles=[NodeRole.DATA],
+            sharded=False,
+            is_alter_on_replicated_table=False,
         ),
         # update the MV
-        run_sql_with_exceptions(RAW_SESSION_TABLE_UPDATE_SQL()),
+        run_sql_with_exceptions(
+            RAW_SESSION_TABLE_UPDATE_SQL(),
+            sharded=False,
+            is_alter_on_replicated_table=False,
+        ),
         # distributed
         run_sql_with_exceptions(
             migration.format(
@@ -40,6 +47,8 @@ def update_raw_sessions_table(migration: str):
                 on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
             ),
             node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+            sharded=False,
+            is_alter_on_replicated_table=False,
         ),
         # recreate the view
         run_sql_with_exceptions(RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL()),
