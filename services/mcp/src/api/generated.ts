@@ -14221,7 +14221,7 @@ export namespace Schemas {
     } as const;
 
     export interface InputsItem {
-      value?: string;
+      value?: unknown;
       templating?: Templating186Enum;
       readonly bytecode: readonly unknown[];
       readonly order: number;
@@ -14511,6 +14511,36 @@ export namespace Schemas {
       _create_in_folder?: string;
       /** @nullable */
       readonly batch_export_id: string | null;
+    }
+
+    /**
+     * Mock global variables available during test invocation.
+     */
+    export type HogFunctionInvocationGlobals = {[key: string]: unknown};
+
+    /**
+     * Mock ClickHouse event data to test the function with.
+     */
+    export type HogFunctionInvocationClickhouseEvent = {[key: string]: unknown};
+
+    export interface HogFunctionInvocation {
+      /** Full function configuration to test. */
+      configuration: HogFunction;
+      /** Mock global variables available during test invocation. */
+      globals?: HogFunctionInvocationGlobals;
+      /** Mock ClickHouse event data to test the function with. */
+      clickhouse_event?: HogFunctionInvocationClickhouseEvent;
+      /** When true (default), async functions like fetch() are simulated. */
+      mock_async_functions?: boolean;
+      /** Invocation result status. */
+      readonly status: string;
+      /** Execution logs from the test invocation. */
+      readonly logs: readonly unknown[];
+      /**
+       * Optional invocation ID for correlation.
+       * @nullable
+       */
+      invocation_id?: string | null;
     }
 
     export interface HogFunctionMinimal {
@@ -20680,6 +20710,16 @@ export namespace Schemas {
       _create_in_folder?: string;
       /** @nullable */
       readonly batch_export_id?: string | null;
+    }
+
+    /**
+     * Map of hog function UUIDs to their new execution_order values.
+     */
+    export type PatchedHogFunctionRearrangeOrders = {[key: string]: number};
+
+    export interface PatchedHogFunctionRearrange {
+      /** Map of hog function UUIDs to their new execution_order values. */
+      orders?: PatchedHogFunctionRearrangeOrders;
     }
 
     /**
