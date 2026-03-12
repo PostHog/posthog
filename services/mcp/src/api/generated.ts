@@ -21247,36 +21247,6 @@ export namespace Schemas {
       readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnum[];
     }
 
-    export interface PatchedProxyRecord {
-      /** Unique identifier for the proxy record. */
-      readonly id?: string;
-      /** The custom domain to proxy through, e.g. 'e.example.com'. Must be a valid subdomain you control. */
-      domain?: string;
-      /** The CNAME target to add as a DNS record for your domain. Point your domain's CNAME to this value. */
-      readonly target_cname?: string;
-      /** Current provisioning status. Values: waiting (DNS verification pending), issuing (SSL certificate being issued), valid (proxy is live and working), warning (proxy has issues but is operational), erroring (proxy setup failed), deleting (removal in progress), timed_out (DNS verification timed out).
-
-    * `waiting` - Waiting
-    * `issuing` - Issuing
-    * `valid` - Valid
-    * `warning` - Warning
-    * `erroring` - Erroring
-    * `deleting` - Deleting
-    * `timed_out` - Timed Out */
-      readonly status?: ProxyRecordStatusEnum;
-      /**
-       * Human-readable status message with details about errors or warnings, if any.
-       * @nullable
-       */
-      readonly message?: string | null;
-      /** When this proxy record was created. */
-      readonly created_at?: string;
-      /** When this proxy record was last updated. */
-      readonly updated_at?: string;
-      /** ID of the user who created this proxy record. */
-      readonly created_by?: number;
-    }
-
     export interface PatchedQueryTabState {
       readonly id?: string;
       /** 
