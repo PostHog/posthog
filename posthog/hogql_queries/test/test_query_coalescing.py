@@ -1,5 +1,6 @@
 import time
 import threading
+from typing import Optional
 
 from unittest import mock
 
@@ -317,14 +318,14 @@ class TestQueryCoalescer(TestCase):
             )
 
         error_value = self.redis.get(f"{ERROR_KEY_PREFIX}:{self.cache_key}")
-        self.assertIsNotNone(error_value)
+        assert error_value is not None
         self.assertIn(b"ValueError: boom", error_value)
 
     def test_leader_heartbeat_keeps_followers_waiting(self):
         """Long-running leader with heartbeat: followers still get result."""
         follower_waiting = threading.Event()
         leader_done = threading.Event()
-        follower_result = [None]
+        follower_result: list[Optional[dict]] = [None]
 
         coalescer = QueryCoalescer(self.cache_key, "leader")
         coalescer._try_acquire()
@@ -352,7 +353,7 @@ class TestQueryCoalescer(TestCase):
         coalescer._release()
 
         follower_thread.join(timeout=5)
-        self.assertIsNotNone(follower_result[0])
+        assert follower_result[0] is not None
         self.assertEqual(follower_result[0]["results"], [42])
 
 
