@@ -105,9 +105,8 @@ export function createCohortFormData(cohort: CohortType): FormData {
     }
 
     if (isQueryBased) {
-        // Query-based dynamic cohorts send the query and empty filters
+        // Query-based dynamic cohorts only need the query, no filters
         rawCohort.query = JSON.stringify(cohort.query)
-        rawCohort.filters = JSON.stringify({ properties: {} })
     } else {
         rawCohort.filters = JSON.stringify(
             cohort.is_static
