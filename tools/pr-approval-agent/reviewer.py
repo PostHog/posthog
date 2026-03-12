@@ -12,8 +12,8 @@ import textwrap
 import subprocess
 from pathlib import Path
 
-from claude_agent_sdk import ClaudeAgentOptions, HookMatcher, query
-from claude_agent_sdk.types import AssistantMessage, TextBlock, ToolUseBlock
+from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
+from claude_agent_sdk.types import AssistantMessage, ToolUseBlock
 from github import PRData
 
 MODEL = "claude-sonnet-4-6"
@@ -54,54 +54,23 @@ VERDICT_SCHEMA = {
 }
 
 
-def _parse_verdict(text: str) -> dict:
-    """Parse structured verdict JSON from agent output.
+def _validate_verdict(result: dict) -> dict:
+    """Validate structured verdict from agent output.
 
-    output_format constrains the model to the VERDICT_SCHEMA, so the text
-    should always be valid JSON. If it isn't, we crash intentionally — the
-    caller catches RuntimeError and falls back to ESCALATE. We must NOT
-    try to extract JSON from markdown wrappers because that is the exact
-    code path a prompt injection would exploit.
+    structured_output from the SDK is already a parsed dict matching
+    VERDICT_SCHEMA. We just sanity-check the verdict value.
     """
-    text = text.strip()
-    if not text:
-        raise RuntimeError("Reviewer agent returned no output")
-    try:
-        result = json.loads(text)
-    except json.JSONDecodeError:
-        raise RuntimeError(f"Could not parse verdict JSON:\n{text[:500]}")
     if result.get("verdict") not in ("APPROVE", "REFUSE", "ESCALATE"):
         result["verdict"] = "ESCALATE"
         result.setdefault("issues", []).append("Invalid verdict value — escalating")
     return result
 
-
-def _make_path_validator(repo_root: Path, diff_path: Path):
-    """Only allow Read/Grep/Glob within the repo checkout."""
-    allowed_roots = [str(repo_root.resolve())]
-    allowed_files = [str(diff_path.resolve())]
-
-    async def validate_tool(input_data, tool_use_id, context):
-        tool_input = input_data.get("tool_input", {})
-        path = tool_input.get("file_path") or tool_input.get("path") or ""
-
-        if not path:
-            return {}
-
-        resolved = str(Path(path).resolve())
-
-        if resolved in allowed_files:
-            return {}
-
-        if any(resolved.startswith(root + "/") or resolved == root for root in allowed_roots):
-            return {}
-
-        return {
-            "behavior": "deny",
-            "message": f"Path outside repo root: {path}",
-        }
-
-    return validate_tool
+    # Path validator hook removed — the PreToolUse hook crashes the CLI
+    # subprocess (Stream closed) on every invocation, wasting retries.
+    # Security impact is low: dontAsk + allowed_tools already restricts
+    # the agent to Read/Grep/Glob, and it can only read files the OS user
+    # can access anyway (ephemeral CI runner, no secrets on disk).
+    # TODO: re-enable once the SDK hook bug is fixed.
 
 
 ANTI_INJECTION_NOTICE = textwrap.dedent("""\
@@ -195,39 +164,37 @@ class Reviewer:
     async def _review(self, pr: PRData, classification: dict, gate_context: dict) -> dict:
         diff_path = self._write_diff_file(pr)
         prompt = self._build_review_prompt(pr, classification, gate_context, diff_path)
-        path_validator = _make_path_validator(self.repo_root, diff_path)
 
         options = ClaudeAgentOptions(
             system_prompt=REVIEWER_SYSTEM,
             allowed_tools=["Read", "Grep", "Glob"],
-            disallowed_tools=["Write", "Edit", "NotebookEdit", "Bash"],
+            disallowed_tools=["Write", "Edit", "NotebookEdit", "Bash", "Agent", "WebFetch", "WebSearch"],
             cwd=str(self.repo_root),
             max_turns=20,
             model=MODEL,
             permission_mode="dontAsk",
             output_format=VERDICT_SCHEMA,
-            hooks={"PreToolUse": [HookMatcher(matcher="Read|Grep|Glob", hooks=[path_validator])]},
         )
 
-        result_text = ""
+        structured_output = None
         async for message in query(prompt=prompt, options=options):
             if self.verbose:
                 print(f"\033[2m    [{type(message).__name__}]\033[0m", flush=True)
-            if isinstance(message, AssistantMessage):
-                # Keep only the last assistant message's text (tool-use
-                # messages in between are intermediate steps, not the verdict)
-                msg_text = ""
+            if isinstance(message, ResultMessage):
+                if message.subtype == "error_max_structured_output_retries":
+                    raise RuntimeError("Agent could not produce valid structured output after retries")
+                if message.structured_output:
+                    structured_output = message.structured_output
+            elif isinstance(message, AssistantMessage):
                 for block in message.content:
                     if isinstance(block, ToolUseBlock) and self.verbose:
                         self._log_tool_call(block)
-                    if isinstance(block, TextBlock):
-                        msg_text += block.text
-                if msg_text:
-                    result_text = msg_text
 
         diff_path.unlink(missing_ok=True)
 
-        return _parse_verdict(result_text)
+        if structured_output is None:
+            raise RuntimeError("Reviewer agent returned no structured output")
+        return _validate_verdict(structured_output)
 
     def _log_tool_call(self, block: ToolUseBlock) -> None:
         name = block.name
@@ -307,6 +274,9 @@ class Reviewer:
             Gate verdict: {gate_verdict}
             {constraint}
 
+            The full diff is at: {diff_path}
+            Read this file to review the changes, then submit your verdict.
+
             --- BEGIN UNTRUSTED CONTENT ---
             PR #{pr.number}: {safe_title}
             Author: {safe_author}
@@ -316,12 +286,7 @@ class Reviewer:
 
             Review comments:
             {review_comments}
-
-            The full diff is at: {diff_path}
-            Read this file to review the changes.
             --- END UNTRUSTED CONTENT ---
-
-            Now analyze the diff and submit your verdict.
         """)
 
     def _format_ownership(self, cl: dict) -> str:

@@ -3,6 +3,8 @@ from datetime import datetime, timedelta
 
 from django.conf import settings
 
+import tiktoken
+
 from posthog.schema import EmbeddingModelName, SignalInput
 
 from posthog.hogql import ast
@@ -17,6 +19,8 @@ from products.signals.backend.temporal.grouping import TeamSignalGroupingWorkflo
 from products.signals.backend.temporal.types import EmitSignalInputs, TeamSignalGroupingInput
 
 EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536
+MAX_SIGNAL_DESCRIPTION_TOKENS = 8000
+_tiktoken_encoding = tiktoken.get_encoding("cl100k_base")
 
 
 def soft_delete_report_signals(report_id: str, team_id: int, team: Team) -> None:
@@ -114,6 +118,13 @@ async def emit_signal(
             extra={"html_url": "https://github.com/posthog/posthog/issues/12345", "number": 12345, ...},
         )
     """
+    token_count = len(_tiktoken_encoding.encode(description))
+    if token_count > MAX_SIGNAL_DESCRIPTION_TOKENS:
+        raise ValueError(
+            f"Signal description exceeds {MAX_SIGNAL_DESCRIPTION_TOKENS} tokens ({token_count} tokens). "
+            f"Truncate the description before calling emit_signal."
+        )
+
     # Raise if signal doesn't match any known schema
     SignalInput.model_validate(
         {

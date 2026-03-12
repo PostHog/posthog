@@ -25,14 +25,23 @@ export function EditModeActions(): JSX.Element {
 
     return (
         <>
-            <LemonButton
-                data-attr="dashboard-edit-mode-discard"
-                type="secondary"
-                onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)}
-                size="small"
+            <AppShortcut
+                name="CancelDashboardEdit"
+                keybind={[keyBinds.escape]}
+                intent="Cancel edit mode"
+                interaction="click"
+                scope={Scene.Dashboard}
             >
-                Cancel
-            </LemonButton>
+                <LemonButton
+                    data-attr="dashboard-edit-mode-discard"
+                    type="secondary"
+                    onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)}
+                    size="small"
+                    tooltip="Discard changes and exit edit mode"
+                >
+                    Cancel
+                </LemonButton>
+            </AppShortcut>
             <AppShortcut
                 name="SaveDashboard"
                 keybind={[keyBinds.edit, keyBinds.save]}
