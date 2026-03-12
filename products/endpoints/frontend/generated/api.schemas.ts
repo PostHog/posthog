@@ -228,7 +228,14 @@ export const GroupPropertyFilterApiType = {
     Group: 'group',
 } as const
 
+/**
+ * @nullable
+ */
+export type GroupPropertyFilterApiGroupKeyNames = { [key: string]: string } | null | null
+
 export interface GroupPropertyFilterApi {
+    /** @nullable */
+    group_key_names?: GroupPropertyFilterApiGroupKeyNames
     /** @nullable */
     group_type_index?: number | null
     key: string
@@ -3146,6 +3153,7 @@ export const WebStatsBreakdownApi = {
     ScreenName: 'ScreenName',
     InitialChannelType: 'InitialChannelType',
     InitialReferringDomain: 'InitialReferringDomain',
+    InitialReferringURL: 'InitialReferringURL',
     InitialUTMSource: 'InitialUTMSource',
     InitialUTMCampaign: 'InitialUTMCampaign',
     InitialUTMMedium: 'InitialUTMMedium',

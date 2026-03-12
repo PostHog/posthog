@@ -19,11 +19,12 @@ MAX_CLASSIFICATIONS_PER_TRACE = 200
 MAX_GENERATIONS_PER_TRACE = 10  # per-trace cap enforced by window function in ClickHouse
 MAX_INPUT_CHARS = 300_000  # skip $ai_input longer than this (covers p99; extraction truncates before inference)
 MAX_INPUT_CHARS_GENERATION = 1_000_000  # higher limit for generation-level — user asked for specific UUIDs
-QUERY_LOOKBACK_DAYS = 30  # timestamp filter to enable partition pruning
+QUERY_LOOKBACK_DAYS = 7  # fallback timestamp filter when caller omits date range
 
 # Temporal workflow/activity config
 WORKFLOW_NAME = "llma-sentiment-classify"
 ACTIVITY_TIMEOUT_SECONDS = 120  # start-to-close timeout for classify activity
+ACTIVITY_SCHEDULE_TO_START_TIMEOUT_SECONDS = 30  # fail fast if no worker picks up the activity
 WORKFLOW_TIMEOUT_BATCH_SECONDS = 120  # task timeout for sentiment workflow
 MAX_RETRY_ATTEMPTS = 2  # retry policy for both workflow and activity
 
@@ -64,8 +65,9 @@ GENERATIONS_QUERY = """
 """
 
 # Fetch specific generation events by UUID — no window function needed.
-# Uses a higher size limit than the trace query since the user asked for
-# these specific generations (extraction + truncation caps inference cost).
+# No length() filter here: it translates to JSONExtractRaw on every scanned
+# row which is expensive on high-volume teams (benchmarked 2.4x slower).
+# The size check is applied post-fetch in Python instead.
 GENERATIONS_BY_UUID_QUERY = """
     SELECT
         uuid,
@@ -75,5 +77,4 @@ GENERATIONS_BY_UUID_QUERY = """
       AND timestamp >= toDateTime({date_from}, 'UTC')
       AND timestamp <= toDateTime({date_to}, 'UTC')
       AND uuid IN {uuids}
-      AND length(properties.$ai_input) <= {max_input_chars}
 """

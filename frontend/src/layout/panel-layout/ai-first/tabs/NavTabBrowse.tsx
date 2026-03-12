@@ -82,14 +82,14 @@ export function NavTabBrowse(): JSX.Element {
             className={cn('flex-1', {
                 'rounded-tr': !isLayoutPanelVisible && !firstTabIsActive,
             })}
-            innerClassName="overflow-y-auto overflow-x-hidden"
+            innerClassName="overflow-y-auto overflow-x-hidden px-1"
             direction="vertical"
             styledScrollbars
         >
             <Collapsible
                 open={expandedNavSections.project ?? true}
                 onOpenChange={() => toggleNavSection('project')}
-                className="px-1 mt-1"
+                className="mt-1"
             >
                 <Collapsible.Trigger
                     icon={!isLayoutNavCollapsed ? <IconFolder /> : undefined}

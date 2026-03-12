@@ -10,6 +10,7 @@ import { captureException } from '~/utils/posthog'
 import { logger } from '../../../utils/logger'
 import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from '../managers/hog-function-manager.service'
+import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
 import { SesWebhookHandler } from './helpers/ses'
 import { generateEmailTrackingCode, generateEmailTrackingPixelUrl } from './helpers/tracking-code'
@@ -31,7 +32,7 @@ const emailTrackingErrorsCounter = new Counter({
 })
 
 export const generateTrackingRedirectUrl = (
-    invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id'>,
+    invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id' | 'teamId'>,
     targetUrl: string
 ): string => {
     return `${defaultConfig.CDP_EMAIL_TRACKING_URL}/public/m/redirect?ph_id=${generateEmailTrackingCode(invocation)}&target=${encodeURIComponent(targetUrl)}`
@@ -59,7 +60,8 @@ export class EmailTrackingService {
     constructor(
         private hogFunctionManager: HogFunctionManagerService,
         private hogFlowManager: HogFlowManagerService,
-        private hogFunctionMonitoringService: HogFunctionMonitoringService
+        private hogFunctionMonitoringService: HogFunctionMonitoringService,
+        private recipientsManager: RecipientsManagerService
     ) {
         this.sesWebhookHandler = new SesWebhookHandler()
     }
@@ -132,7 +134,7 @@ export class EmailTrackingService {
         }
 
         try {
-            const { status, body, metrics } = await this.sesWebhookHandler.handleWebhook({
+            const { status, body, metrics, optOutRecipients } = await this.sesWebhookHandler.handleWebhook({
                 body: parseJSON(req.body),
                 headers: req.headers,
                 verifySignature: true,
@@ -145,6 +147,38 @@ export class EmailTrackingService {
                     metricName: metric.metricName,
                     source: 'ses',
                 })
+            }
+
+            // Collect all emails to opt out per team, then batch each team's opt-out in one query
+            const emailsByTeam = new Map<number, string[]>()
+            for (const { teamId: teamIdStr, emailAddresses } of optOutRecipients || []) {
+                const teamId = teamIdStr ? parseInt(teamIdStr, 10) : NaN
+                if (!teamId || isNaN(teamId)) {
+                    logger.error('[EmailTrackingService] handleSesWebhook: Missing or invalid teamId for opt-out', {
+                        teamIdStr,
+                        emailAddresses,
+                    })
+                    continue
+                }
+                const existing = emailsByTeam.get(teamId) ?? []
+                existing.push(...emailAddresses)
+                emailsByTeam.set(teamId, existing)
+            }
+
+            for (const [teamId, emails] of emailsByTeam) {
+                try {
+                    await this.recipientsManager.optOut(teamId, emails)
+                    logger.info('[EmailTrackingService] Opted out recipients after a hard bounce', {
+                        teamId,
+                        emails,
+                    })
+                } catch (error) {
+                    logger.error('[EmailTrackingService] Failed to opt out recipients', {
+                        teamId,
+                        emails,
+                        error,
+                    })
+                }
             }
 
             return { status, message: body as string }

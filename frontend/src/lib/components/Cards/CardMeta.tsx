@@ -20,7 +20,6 @@ import { InsightColor } from '~/types'
 
 export interface Resizeable {
     showResizeHandles?: boolean
-    canResizeWidth?: boolean
 }
 
 export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'className'> {

@@ -65,16 +65,26 @@ function summarizeProperties(properties: AnyPropertyFilter[], aggregationTargetN
     const parts = properties.slice(0, 2).map((property) => {
         const key = property.type === PropertyFilterType.Cohort ? 'Cohort' : property.key || 'property'
         const operator = isPropertyFilterWithOperator(property) ? allOperatorsToHumanName(property.operator) : 'is'
+        const groupKeyNames: Record<string, string> =
+            property.key === '$group_key' && property.type === PropertyFilterType.Group && 'group_key_names' in property
+                ? ((property as any).group_key_names ?? {})
+                : {}
+        const hasGroupKeyNames = Object.keys(groupKeyNames).length > 0
 
         let value: string | number
         if (property.type === PropertyFilterType.Cohort) {
             value = property.cohort_name || `ID ${property.value}`
         } else if (Array.isArray(property.value)) {
-            value = property.value.slice(0, 2).join(', ') + (property.value.length > 2 ? '...' : '')
+            const displayValues = hasGroupKeyNames
+                ? property.value.map((v) => groupKeyNames[String(v)] || String(v))
+                : property.value.map(String)
+            value = displayValues.slice(0, 2).join(', ') + (displayValues.length > 2 ? '...' : '')
         } else if (property.value === null || property.value === undefined) {
             value = ''
         } else {
-            value = String(property.value)
+            value = hasGroupKeyNames
+                ? groupKeyNames[String(property.value)] || String(property.value)
+                : String(property.value)
         }
 
         return `${key} ${operator} ${value}`

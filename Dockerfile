@@ -35,6 +35,7 @@ COPY bin/ bin/
 COPY patches/ patches/
 COPY common/hogvm/typescript/ common/hogvm/typescript/
 COPY common/esbuilder/ common/esbuilder/
+COPY common/replay-shared/ common/replay-shared/
 COPY common/tailwind/ common/tailwind/
 COPY products/ products/
 COPY docs/onboarding/ docs/onboarding/
