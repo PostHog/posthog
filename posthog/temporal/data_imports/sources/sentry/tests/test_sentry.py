@@ -181,7 +181,7 @@ class TestSentryTransport:
             ("not_found", 404, (False, "Sentry organization 'acme' not found")),
         ]
     )
-    @patch("posthog.temporal.data_imports.sources.sentry.sentry.external_requests.get")
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.requests.get")
     def test_validate_credentials(self, _name, status_code, expected, mock_get) -> None:
         resp = Mock()
         resp.status_code = status_code
@@ -347,7 +347,7 @@ class TestSentrySourceValidation:
 
     # ----- Issue fan-out: custom iterator (issue_tag_values) -----
 
-    @patch("posthog.temporal.data_imports.sources.sentry.sentry.external_requests.get")
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.requests.get")
     def test_issue_tag_values_custom_fanout_row_format(self, mock_get) -> None:
         seen_issues_params: list[dict | None] = []
         seen_values_params: list[dict | None] = []
@@ -382,7 +382,7 @@ class TestSentrySourceValidation:
         assert seen_issues_params == [{"limit": 100, "query": "", "sort": "date"}]
         assert seen_values_params == [{"limit": 100, "sort": "-date"}]
 
-    @patch("posthog.temporal.data_imports.sources.sentry.sentry.external_requests.get")
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.requests.get")
     def test_issue_tag_values_incremental_stops_at_last_seen_cutoff(self, mock_get) -> None:
         cutoff = datetime(2026, 3, 3, 0, 0, 0, tzinfo=UTC)
 
