@@ -714,9 +714,9 @@ async fn test_parent_cancellation_stops_all_attempts() -> Result<()> {
 ///
 /// Tests:
 /// 1. Pre-cancelled token prevents upload from starting
-/// 2. Cancellation returns appropriate error with "cancelled" message
+/// 2. Pre-cancelled export is cooperatively skipped rather than treated as an error
 /// 3. No files are uploaded when pre-cancelled
-/// 4. Verifies the cancellation flows through exporter → uploader correctly
+/// 4. Verifies the cancellation flows through worker → planner/uploader correctly
 #[tokio::test]
 async fn test_export_cancellation_via_minio() -> Result<()> {
     let test_topic = "test_export_cancellation";
@@ -753,9 +753,9 @@ async fn test_export_cancellation_via_minio() -> Result<()> {
     let partition = Partition::new(test_topic.to_string(), test_partition);
 
     // ============================================================
-    // Test 1: Pre-cancelled token should fail immediately
+    // Test 1: Pre-cancelled token should skip immediately
     // ============================================================
-    info!("Test 1: Pre-cancelled token should fail immediately");
+    info!("Test 1: Pre-cancelled token should skip immediately");
 
     // Each test case gets its own TempDir to avoid directory collision
     let tmp_checkpoint_dir_1 = TempDir::new()?;
@@ -781,18 +781,14 @@ async fn test_export_cancellation_via_minio() -> Result<()> {
         .await;
     let elapsed = start.elapsed();
 
-    assert!(result.is_err(), "Checkpoint should fail when pre-cancelled");
-    let err_msg = result.unwrap_err().to_string();
     assert!(
-        err_msg.to_lowercase().contains("cancelled"),
-        "Error should mention cancellation: {}",
-        err_msg
+        matches!(result, Ok(None)),
+        "Checkpoint should be skipped when pre-cancelled, got: {result:?}"
     );
 
     info!(
         elapsed_ms = elapsed.as_millis(),
-        error = err_msg,
-        "Pre-cancelled export failed as expected"
+        "Pre-cancelled export skipped as expected"
     );
 
     // Verify: No objects should have been uploaded to MinIO
@@ -1070,7 +1066,7 @@ async fn test_export_mid_upload_cancellation() -> Result<()> {
         Ok(None) => {
             info!(
                 elapsed_ms = elapsed.as_millis(),
-                "Export was skipped (no exporter configured - unexpected)"
+                "Export was skipped before upload after cancellation"
             );
         }
         Err(e) => {
