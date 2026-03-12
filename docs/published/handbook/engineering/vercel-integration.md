@@ -27,7 +27,8 @@ Before diving in, a few PostHog data model basics:
 6. [Feature flag & experiment sync](#6-feature-flag--experiment-sync)
 7. [SSO (single sign-on)](#7-sso-single-sign-on)
 8. [Uninstall flow](#8-uninstall-flow)
-9. [Key files reference](#9-key-files-reference)
+9. [Contacting Vercel support](#9-contacting-vercel-support)
+10. [Key files reference](#10-key-files-reference)
 
 ---
 
@@ -424,7 +425,13 @@ For connectable integrations (linked existing accounts), the webhook handler sim
 
 ---
 
-## 9. Key files reference
+## 9. Contacting Vercel support
+
+For integration or billing issues that need Vercel's involvement, post in the shared Slack channel [#posthog-vercel](https://posthog.slack.com/archives/C08LYBQ58N5) with a :ticket: reaction on the message. This flags it for the Vercel team to pick up.
+
+---
+
+## 10. Key files reference
 
 ### PostHog repo (`posthog/`)
 
