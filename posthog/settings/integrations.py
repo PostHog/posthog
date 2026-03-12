@@ -58,6 +58,10 @@ CLICKUP_APP_CLIENT_SECRET = get_from_env("CLICKUP_APP_CLIENT_SECRET", "")
 ATLASSIAN_APP_CLIENT_ID = get_from_env("ATLASSIAN_APP_CLIENT_ID", "")
 ATLASSIAN_APP_CLIENT_SECRET = get_from_env("ATLASSIAN_APP_CLIENT_SECRET", "")
 
+SUPABASE_OAUTH_CLIENT_ID = get_from_env("SUPABASE_OAUTH_CLIENT_ID", "")
+SUPABASE_OAUTH_CLIENT_SECRET = get_from_env("SUPABASE_OAUTH_CLIENT_SECRET", "")
+SUPABASE_API_BASE_URL = get_from_env("SUPABASE_API_BASE_URL", "https://api.supabase.com/v1")
+
 # Stripe requires a more complex OAuth setup: we authenticate with Stripe, then exchange tokens
 # with our internal OAuth system to allow the Stripe app to make API calls to users' PostHog instances.
 # We also support their agentic provisioning protocol which requires us to check even more stuff

@@ -16,6 +16,7 @@ from ee.admin.loginas_views import loginas_user, upgrade_impersonation
 from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
 from ee.api import integration
 from ee.api.agentic_provisioning import views as agentic_provisioning_views
+from ee.api.supabase_integration import views as supabase_views
 from ee.api.vercel import vercel_connect, vercel_sso, vercel_webhooks
 from ee.middleware import admin_oauth2_callback
 from ee.support_sidebar_max.views import MaxChatViewSet
@@ -298,6 +299,17 @@ urlpatterns: list[Any] = [
         "api/agentic/provisioning/deep_links",
         csrf_exempt(agentic_provisioning_views.deep_links),
         name="agentic_provisioning_deep_links",
+    ),
+    # Supabase OAuth integration
+    path(
+        "integrations/supabase/install",
+        supabase_views.supabase_install,
+        name="supabase_install",
+    ),
+    path(
+        "integrations/supabase/callback",
+        supabase_views.supabase_callback,
+        name="supabase_callback",
     ),
     *admin_urlpatterns,
 ]
