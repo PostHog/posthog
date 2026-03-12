@@ -7,7 +7,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1039_subscription_dashboard_export_insights"),
-        ("llm_analytics", "0018_migrate_clustering_configs_to_jobs"),
+        ("llm_analytics", "0019_rename_default_clustering_jobs"),
     ]
 
     operations = [
