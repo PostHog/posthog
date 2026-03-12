@@ -1,23 +1,67 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
+import { DescriptiveSelect } from './DescriptiveSelect'
 import { errorTrackingInsightsLogic } from './errorTrackingInsightsLogic'
 import { SessionEndingIssue } from './errorTrackingInsightsLogic'
+import {
+    SESSION_ENDING_EVENT_THRESHOLDS,
+    SESSION_ENDING_STRATEGY_OPTIONS,
+    SESSION_ENDING_TIME_THRESHOLDS,
+} from './queries'
 import { TableCard } from './TableCard'
 
 export function SessionEndingIssues(): JSX.Element {
-    const { sessionEndingIssues, sessionEndingIssuesLoading } = useValues(errorTrackingInsightsLogic)
+    const {
+        sessionEndingIssues,
+        sessionEndingIssuesLoading,
+        sessionEndingStrategy,
+        sessionEndingTimeThreshold,
+        sessionEndingEventThreshold,
+    } = useValues(errorTrackingInsightsLogic)
+    const { setSessionEndingStrategy, setSessionEndingTimeThreshold, setSessionEndingEventThreshold } =
+        useActions(errorTrackingInsightsLogic)
 
     const rows = (sessionEndingIssues ?? []) as SessionEndingIssue[]
+
+    const config = (
+        <>
+            <DescriptiveSelect
+                value={sessionEndingStrategy}
+                onChange={setSessionEndingStrategy}
+                options={SESSION_ENDING_STRATEGY_OPTIONS}
+            />
+            {sessionEndingStrategy === 'time' && (
+                <LemonSelect
+                    size="xsmall"
+                    value={sessionEndingTimeThreshold}
+                    onChange={setSessionEndingTimeThreshold}
+                    options={SESSION_ENDING_TIME_THRESHOLDS.map((s) => ({ value: s, label: `${s}s` }))}
+                />
+            )}
+            {sessionEndingStrategy === 'event' && (
+                <LemonSelect
+                    size="xsmall"
+                    value={sessionEndingEventThreshold}
+                    onChange={setSessionEndingEventThreshold}
+                    options={SESSION_ENDING_EVENT_THRESHOLDS.map((n) => ({
+                        value: n,
+                        label: `${n} event${n === 1 ? '' : 's'}`,
+                    }))}
+                />
+            )}
+        </>
+    )
 
     return (
         <TableCard
             title="Session-ending issues"
-            description="Issues that ended the most sessions (no activity within 5s)"
+            description="Issues that ended the most sessions"
             loading={sessionEndingIssuesLoading}
+            config={config}
         >
             {rows.length === 0 ? (
                 <div className="flex items-center justify-center h-full text-secondary text-sm">No data</div>

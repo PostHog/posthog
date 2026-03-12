@@ -137,13 +137,56 @@ export const SUMMARY_STATS_QUERY = `
     WHERE {filters}
 `
 
-export const SESSION_ENDING_ISSUES_QUERY = `
+export type SessionEndingStrategy = 'strict' | 'time' | 'event'
+
+export interface SessionEndingStrategyOption {
+    value: SessionEndingStrategy
+    label: string
+    description: string
+}
+
+export const SESSION_ENDING_STRATEGY_OPTIONS: SessionEndingStrategyOption[] = [
+    {
+        value: 'strict',
+        label: 'Strict',
+        description: 'Exception must be the very last event in the session',
+    },
+    {
+        value: 'time',
+        label: 'Time window',
+        description: 'Session ended within X seconds after the exception',
+    },
+    {
+        value: 'event',
+        label: 'Event window',
+        description: 'At most X other events occurred after the exception',
+    },
+]
+
+export const SESSION_ENDING_TIME_THRESHOLDS = [1, 5, 10, 30, 60]
+export const SESSION_ENDING_EVENT_THRESHOLDS = [1, 2, 3, 4, 5]
+
+export function buildSessionEndingIssuesQuery(strategy: SessionEndingStrategy, threshold: number): string {
+    let condition: string
+    const needsTimestamps = strategy === 'event'
+
+    if (strategy === 'strict') {
+        condition = `last_event = '$exception'`
+    } else if (strategy === 'time') {
+        condition = `notEmpty(last_exception_issue_id) AND dateDiff('second', last_exception_ts, last_event_ts) <= ${threshold}`
+    } else {
+        condition = `notEmpty(last_exception_issue_id) AND length(arrayFilter(t -> t > last_exception_ts, all_timestamps)) <= ${threshold}`
+    }
+
+    return `
     WITH session_data AS (
         SELECT
             $session_id as sid,
             argMax(event, timestamp) as last_event,
-            argMax(issue_id, timestamp) as last_issue_id,
-            arraySort(groupArray(timestamp)) as timestamps
+            argMaxIf(issue_id, timestamp, event = '$exception') as last_exception_issue_id,
+            maxIf(timestamp, event = '$exception') as last_exception_ts,
+            max(timestamp) as last_event_ts
+            ${needsTimestamps ? ', groupArray(timestamp) as all_timestamps' : ''}
         FROM events
         WHERE {filters}
             AND notEmpty($session_id)
@@ -151,14 +194,11 @@ export const SESSION_ENDING_ISSUES_QUERY = `
     ),
     exception_ended AS (
         SELECT
-            last_issue_id as issue_id,
+            ${strategy === 'strict' ? "argMaxIf(issue_id, timestamp, event = '$exception')" : 'last_exception_issue_id'} as issue_id,
             count() as sessions,
             groupArray(sid) as session_ids
         FROM session_data
-        WHERE last_event = '$exception'
-            AND notEmpty(last_issue_id)
-            AND length(timestamps) >= 2
-            AND dateDiff('second', arrayElement(timestamps, -2), arrayElement(timestamps, -1)) <= 5
+        WHERE ${condition}
         GROUP BY issue_id
         ORDER BY sessions DESC
         LIMIT 10
@@ -184,22 +224,63 @@ export const SESSION_ENDING_ISSUES_QUERY = `
     ) AS rs
     ORDER BY sessions DESC
 `
+}
 
-export const ERRORS_BY_PAGE_QUERY = `
+export type ErrorsByPageStrategy = 'visits' | 'events'
+
+export interface ErrorsByPageStrategyOption {
+    value: ErrorsByPageStrategy
+    label: string
+    description: string
+}
+
+export const ERRORS_BY_PAGE_STRATEGY_OPTIONS: ErrorsByPageStrategyOption[] = [
+    {
+        value: 'visits',
+        label: 'By visits',
+        description: 'Exceptions divided by pageviews for each URL',
+    },
+    {
+        value: 'events',
+        label: 'By events',
+        description: 'Exceptions as a percentage of all events on each page',
+    },
+]
+
+export function buildErrorsByPageQuery(strategy: ErrorsByPageStrategy): string {
+    if (strategy === 'visits') {
+        return `
     SELECT
         properties.$current_url as url,
-        countIf(event = '$pageview') as pageviews,
+        countIf(event = '$pageview') as denominator,
         countIf(event = '$exception') as errors,
-        if(pageviews > 0, round(errors / pageviews * 100, 1), 0) as error_rate
+        if(denominator > 0, round(errors / denominator * 100, 1), 0) as error_rate
     FROM events
     WHERE {filters}
         AND event IN ('$pageview', '$exception')
         AND notEmpty(properties.$current_url)
     GROUP BY url
-    HAVING errors > 0 AND pageviews > 0
+    HAVING errors > 0 AND denominator > 0
     ORDER BY error_rate DESC
     LIMIT 10
 `
+    }
+
+    return `
+    SELECT
+        properties.$current_url as url,
+        count() as denominator,
+        countIf(event = '$exception') as errors,
+        if(denominator > 0, round(errors / denominator * 100, 1), 0) as error_rate
+    FROM events
+    WHERE {filters}
+        AND notEmpty(properties.$current_url)
+    GROUP BY url
+    HAVING errors > 0 AND denominator > 0
+    ORDER BY error_rate DESC
+    LIMIT 10
+`
+}
 
 export function insightNewUrl(query: InsightVizNode<TrendsQuery>): string {
     const editorQuery: InsightVizNode<TrendsQuery> = {

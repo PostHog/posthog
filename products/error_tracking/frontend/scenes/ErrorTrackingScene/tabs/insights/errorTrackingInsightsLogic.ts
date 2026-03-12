@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
@@ -14,10 +14,14 @@ import type { errorTrackingInsightsLogicType } from './errorTrackingInsightsLogi
 import {
     buildAffectedUsersRateQuery,
     buildCrashFreeSessionsQuery,
+    buildErrorsByPageQuery,
     buildExceptionVolumeQuery,
-    ERRORS_BY_PAGE_QUERY,
+    buildSessionEndingIssuesQuery,
+    ErrorsByPageStrategy,
     InsightQueryFilters,
-    SESSION_ENDING_ISSUES_QUERY,
+    SESSION_ENDING_EVENT_THRESHOLDS,
+    SESSION_ENDING_TIME_THRESHOLDS,
+    SessionEndingStrategy,
     SUMMARY_STATS_QUERY,
 } from './queries'
 
@@ -39,7 +43,7 @@ export interface SessionEndingIssue {
 
 export interface PageErrorRate {
     url: string
-    pageviews: number
+    denominator: number
     errors: number
     errorRate: number
 }
@@ -80,6 +84,29 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
 
     actions({
         loadAllCustomInsights: true,
+        setSessionEndingStrategy: (strategy: SessionEndingStrategy) => ({ strategy }),
+        setSessionEndingTimeThreshold: (threshold: number) => ({ threshold }),
+        setSessionEndingEventThreshold: (threshold: number) => ({ threshold }),
+        setErrorsByPageStrategy: (strategy: ErrorsByPageStrategy) => ({ strategy }),
+    }),
+
+    reducers({
+        sessionEndingStrategy: [
+            'time' as SessionEndingStrategy,
+            { setSessionEndingStrategy: (_, { strategy }) => strategy },
+        ],
+        sessionEndingTimeThreshold: [
+            SESSION_ENDING_TIME_THRESHOLDS[1], // 5s default
+            { setSessionEndingTimeThreshold: (_, { threshold }) => threshold },
+        ],
+        sessionEndingEventThreshold: [
+            SESSION_ENDING_EVENT_THRESHOLDS[1], // 2 events default
+            { setSessionEndingEventThreshold: (_, { threshold }) => threshold },
+        ],
+        errorsByPageStrategy: [
+            'visits' as ErrorsByPageStrategy,
+            { setErrorsByPageStrategy: (_, { strategy }) => strategy },
+        ],
     }),
 
     selectors({
@@ -119,6 +146,11 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
             (s) => [s.dateRange, s.insightQueryFilters],
             (dateRange, filters): InsightVizNode<TrendsQuery> =>
                 buildCrashFreeSessionsQuery(dateRange.date_from ?? '-7d', dateRange.date_to ?? null, filters),
+        ],
+        errorsByLocationQuery: [
+            (s) => [s.dateRange, s.insightQueryFilters],
+            (dateRange, filters): InsightVizNode<TrendsQuery> =>
+                buildErrorsByLocationQuery(dateRange.date_from ?? '-7d', dateRange.date_to ?? null, filters),
         ],
     }),
 
@@ -162,9 +194,13 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
             {
                 loadSessionEndingIssues: async (_, breakpoint) => {
                     await breakpoint(10)
+                    const threshold =
+                        values.sessionEndingStrategy === 'time'
+                            ? values.sessionEndingTimeThreshold
+                            : values.sessionEndingEventThreshold
                     const response = await api.query({
                         kind: NodeKind.HogQLQuery,
-                        query: SESSION_ENDING_ISSUES_QUERY,
+                        query: buildSessionEndingIssuesQuery(values.sessionEndingStrategy, threshold),
                         filters: getFilters(values),
                     })
                     const results = (response as HogQLQueryResponse)?.results ?? []
@@ -186,13 +222,13 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                     await breakpoint(10)
                     const response = await api.query({
                         kind: NodeKind.HogQLQuery,
-                        query: ERRORS_BY_PAGE_QUERY,
+                        query: buildErrorsByPageQuery(values.errorsByPageStrategy),
                         filters: getFilters(values),
                     })
                     const results = (response as HogQLQueryResponse)?.results ?? []
                     return results.map((row: any) => ({
                         url: row[0] as string,
-                        pageviews: row[1] as number,
+                        denominator: row[1] as number,
                         errors: row[2] as number,
                         errorRate: row[3] as number,
                     }))
@@ -207,12 +243,12 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
             actions.loadSessionEndingIssues(null)
             actions.loadErrorsByPage(null)
         },
-        setDateRange: () => {
-            actions.loadAllCustomInsights()
-        },
-        setFilterTestAccounts: () => {
-            actions.loadAllCustomInsights()
-        },
+        setDateRange: () => actions.loadAllCustomInsights(),
+        setFilterTestAccounts: () => actions.loadAllCustomInsights(),
+        setSessionEndingStrategy: () => actions.loadSessionEndingIssues(null),
+        setSessionEndingTimeThreshold: () => actions.loadSessionEndingIssues(null),
+        setSessionEndingEventThreshold: () => actions.loadSessionEndingIssues(null),
+        setErrorsByPageStrategy: () => actions.loadErrorsByPage(null),
     })),
 
     subscriptions(({ actions }) => ({

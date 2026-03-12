@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -6,26 +6,32 @@ import { urls } from 'scenes/urls'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-import { errorTrackingInsightsLogic } from './errorTrackingInsightsLogic'
+import { DescriptiveSelect } from './DescriptiveSelect'
+import { errorTrackingInsightsLogic, PageErrorRate } from './errorTrackingInsightsLogic'
+import { ERRORS_BY_PAGE_STRATEGY_OPTIONS } from './queries'
 import { TableCard } from './TableCard'
 
-interface PageErrorRate {
-    url: string
-    pageviews: number
-    errors: number
-    errorRate: number
-}
-
 export function ErrorsByPage(): JSX.Element {
-    const { errorsByPage, errorsByPageLoading } = useValues(errorTrackingInsightsLogic)
+    const { errorsByPage, errorsByPageLoading, errorsByPageStrategy } = useValues(errorTrackingInsightsLogic)
+    const { setErrorsByPageStrategy } = useActions(errorTrackingInsightsLogic)
 
     const rows = (errorsByPage ?? []) as PageErrorRate[]
+    const denominatorLabel = errorsByPageStrategy === 'visits' ? 'Visits' : 'Events'
+
+    const config = (
+        <DescriptiveSelect
+            value={errorsByPageStrategy}
+            onChange={setErrorsByPageStrategy}
+            options={ERRORS_BY_PAGE_STRATEGY_OPTIONS}
+        />
+    )
 
     return (
         <TableCard
             title="Error rate by page"
-            description="% of page visits that resulted in an exception"
+            description="Pages with the highest exception rate"
             loading={errorsByPageLoading}
+            config={config}
         >
             {rows.length === 0 ? (
                 <div className="flex items-center justify-center h-full text-secondary text-sm">No data</div>
@@ -34,7 +40,7 @@ export function ErrorsByPage(): JSX.Element {
                     <thead>
                         <tr className="text-xs text-secondary border-b">
                             <th className="text-left font-medium py-1.5 px-2">Page URL</th>
-                            <th className="text-right font-medium py-1.5 px-2">Visits</th>
+                            <th className="text-right font-medium py-1.5 px-2">{denominatorLabel}</th>
                             <th className="text-right font-medium py-1.5 px-2">Errors</th>
                             <th className="text-right font-medium py-1.5 px-2">Error rate</th>
                             <th className="text-right font-medium py-1.5 px-2">Actions</th>
@@ -46,7 +52,7 @@ export function ErrorsByPage(): JSX.Element {
                                 <td className="py-1.5 px-2 max-w-48 truncate font-mono text-xs" title={row.url}>
                                     {formatUrl(row.url)}
                                 </td>
-                                <td className="py-1.5 px-2 text-sm text-right text-secondary">{row.pageviews}</td>
+                                <td className="py-1.5 px-2 text-sm text-right text-secondary">{row.denominator}</td>
                                 <td className="py-1.5 px-2 text-sm text-right">{row.errors}</td>
                                 <td className="py-1.5 px-2 text-right">
                                     <span
