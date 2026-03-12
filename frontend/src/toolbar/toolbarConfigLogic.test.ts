@@ -371,6 +371,29 @@ describe('toolbar toolbarConfigLogic', () => {
             warnSpy.mockRestore()
         })
 
+        it('resets authStatus to idle after failed code exchange with fallback', async () => {
+            const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+            localStorage.setItem(
+                OAUTH_LOCALSTORAGE_KEY,
+                JSON.stringify({
+                    accessToken: 'stored-access',
+                    refreshToken: 'stored-refresh',
+                    clientId: 'stored-client',
+                })
+            )
+            localStorage.removeItem(PKCE_STORAGE_KEY)
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:stale,client_id:some-client')
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({
+                authStatus: 'idle',
+                isAuthenticated: true,
+            })
+            warnSpy.mockRestore()
+        })
+
         it('remains unauthenticated when code exchange fails and no stored tokens exist', async () => {
             const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
             localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)

@@ -464,10 +464,12 @@ async function exchangeCodeForTokens(
 
     if (!pkceData.verifier) {
         console.warn('PostHog Toolbar: no PKCE verifier found, cannot exchange code')
+        actions.setAuthStatus('idle')
         return false
     }
     if (pkceData.ts && Date.now() - pkceData.ts > PKCE_TTL_MS) {
         console.warn('PostHog Toolbar: PKCE verifier expired')
+        actions.setAuthStatus('idle')
         return false
     }
 
