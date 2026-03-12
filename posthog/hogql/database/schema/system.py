@@ -263,6 +263,20 @@ exports: PostgresTable = PostgresTable(
     },
 )
 
+activity_logs: PostgresTable = PostgresTable(
+    name="activity_logs",
+    postgres_table_name="posthog_activitylog",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "activity": StringDatabaseField(name="activity"),
+        "item_id": StringDatabaseField(name="item_id"),
+        "scope": StringDatabaseField(name="scope"),
+        "detail": StringJSONDatabaseField(name="detail"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+    },
+)
+
 actions: PostgresTable = PostgresTable(
     name="actions",
     postgres_table_name="posthog_action",
@@ -362,6 +376,7 @@ error_tracking_issues: PostgresTable = PostgresTable(
 class SystemTables(TableNode):
     name: str = "system"
     children: dict[str, TableNode] = {
+        "activity_logs": TableNode(name="activity_logs", table=activity_logs),
         "actions": TableNode(name="actions", table=actions),
         "cohort_calculation_history": TableNode(name="cohort_calculation_history", table=cohort_calculation_history),
         "cohorts": TableNode(name="cohorts", table=cohorts),
