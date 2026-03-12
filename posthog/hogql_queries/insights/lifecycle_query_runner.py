@@ -232,6 +232,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                 data_warehouse_node = self.query.series[0]
                 label = "{} - {}".format(data_warehouse_node.table_name, val[2])
                 action_object = {
+                    "id": data_warehouse_node.id,
                     "name": data_warehouse_node.table_name,
                     "type": "data_warehouse",
                     "order": 0,
