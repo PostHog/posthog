@@ -115,6 +115,7 @@ function DataSourceSetup({
             props={{
                 availableSources,
                 requiredTables: SIGNAL_SOURCE_REQUIRED_TABLES[product],
+                skipPrefixValidation: true,
                 onComplete,
             }}
         >

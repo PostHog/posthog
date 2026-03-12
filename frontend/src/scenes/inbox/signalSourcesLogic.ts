@@ -255,13 +255,10 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
     listeners(({ actions, values }) => {
         // If the required table for a signal source is not yet syncing on the existing DW source,
         // enable it so the signals workflow has data to process.
-        async function ensureRequiredTableSyncing(dwSourceType: string, tableName: string): Promise<void> {
-            const source = values.dataWarehouseSources?.results?.find(
-                (s: ExternalDataSource) => s.source_type === dwSourceType
-            )
-            if (!source) {
-                return
-            }
+        async function ensureRequiredTableSyncing(
+            source: ExternalDataSource,
+            tableName: string
+        ): Promise<void> {
             const schema = source.schemas?.find((s: ExternalDataSourceSchema) => s.name === tableName)
             if (schema && !schema.should_sync) {
                 await api.externalDataSchemas.update(schema.id, { should_sync: true })
@@ -278,16 +275,22 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 const sourceConfig = getDataWarehouseSourceConfig(values, dwSource)
                 const isCurrentlyEnabled = sourceConfig?.enabled === true
                 if (!isCurrentlyEnabled) {
-                    const hasSource =
-                        values.dataWarehouseSources?.results?.some(
-                            (s: ExternalDataSource) => s.source_type === dwSource
-                        ) ?? false
-                    if (!hasSource) {
+                    // Use cached sources if available, otherwise fetch directly to avoid
+                    // a race condition where the debounced loader hasn't resolved yet.
+                    let sources = values.dataWarehouseSources?.results
+                    if (!sources) {
+                        const response = await api.externalDataSources.list()
+                        sources = response.results
+                    }
+                    const existingSource = sources?.find(
+                        (s: ExternalDataSource) => s.source_type === dwSource
+                    )
+                    if (!existingSource) {
                         actions.openDataSourceSetup(dwSource)
                         return
                     }
                     try {
-                        await ensureRequiredTableSyncing(dwSource, requiredTable)
+                        await ensureRequiredTableSyncing(existingSource, requiredTable)
                     } catch (error: any) {
                         lemonToast.error(error?.detail || error?.message || enableErrorMessage)
                         return

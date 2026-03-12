@@ -223,6 +223,8 @@ export interface SourceWizardLogicProps {
     availableSources: Record<string, SourceConfig>
     /** When set, only these tables will be pre-selected and they cannot be deselected */
     requiredTables?: string[]
+    /** When true, skip the source_prefix validation call (e.g. when creating from signal sources flow) */
+    skipPrefixValidation?: boolean
 }
 
 export const sourceWizardLogic = kea<sourceWizardLogicType>([
@@ -971,7 +973,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     actions.setIsLoading(true)
 
                     try {
-                        if (!isDirectQueryMode) {
+                        if (!isDirectQueryMode && !props.skipPrefixValidation) {
                             await api.externalDataSources.source_prefix(payload.source_type, sourceValues.prefix)
                         }
 
