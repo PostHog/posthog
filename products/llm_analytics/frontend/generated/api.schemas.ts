@@ -320,6 +320,98 @@ export interface ClusteringRunRequestApi {
 }
 
 /**
+ * * `hourly` - Hourly
+ * `daily` - Daily
+ * `weekly` - Weekly
+ */
+export type EvaluationReportFrequencyEnumApi =
+    (typeof EvaluationReportFrequencyEnumApi)[keyof typeof EvaluationReportFrequencyEnumApi]
+
+export const EvaluationReportFrequencyEnumApi = {
+    Hourly: 'hourly',
+    Daily: 'daily',
+    Weekly: 'weekly',
+} as const
+
+/**
+ * * `monday` - Monday
+ * `tuesday` - Tuesday
+ * `wednesday` - Wednesday
+ * `thursday` - Thursday
+ * `friday` - Friday
+ * `saturday` - Saturday
+ * `sunday` - Sunday
+ */
+export type ByweekdayEnumApi = (typeof ByweekdayEnumApi)[keyof typeof ByweekdayEnumApi]
+
+export const ByweekdayEnumApi = {
+    Monday: 'monday',
+    Tuesday: 'tuesday',
+    Wednesday: 'wednesday',
+    Thursday: 'thursday',
+    Friday: 'friday',
+    Saturday: 'saturday',
+    Sunday: 'sunday',
+} as const
+
+export interface EvaluationReportApi {
+    readonly id: string
+    evaluation: string
+    frequency: EvaluationReportFrequencyEnumApi
+    /** @nullable */
+    byweekday?: ByweekdayEnumApi[] | null
+    start_date: string
+    /** @nullable */
+    readonly next_delivery_date: string | null
+    delivery_targets?: unknown
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    max_sample_size?: number
+    enabled?: boolean
+    deleted?: boolean
+    /** @nullable */
+    readonly last_delivered_at: string | null
+    /** @nullable */
+    readonly created_by: number | null
+    readonly created_at: string
+}
+
+export interface PaginatedEvaluationReportListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: EvaluationReportApi[]
+}
+
+export interface PatchedEvaluationReportApi {
+    readonly id?: string
+    evaluation?: string
+    frequency?: EvaluationReportFrequencyEnumApi
+    /** @nullable */
+    byweekday?: ByweekdayEnumApi[] | null
+    start_date?: string
+    /** @nullable */
+    readonly next_delivery_date?: string | null
+    delivery_targets?: unknown
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    max_sample_size?: number
+    enabled?: boolean
+    deleted?: boolean
+    /** @nullable */
+    readonly last_delivered_at?: string | null
+    /** @nullable */
+    readonly created_by?: number | null
+    readonly created_at?: string
+}
+
+/**
  * * `all` - all
  * `pass` - pass
  * `fail` - fail
@@ -854,6 +946,17 @@ export type EvaluationsListParams = {
 }
 
 export type LlmAnalyticsClusteringJobsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type LlmAnalyticsEvaluationReportsListParams = {
     /**
      * Number of results to return per page.
      */
