@@ -375,8 +375,8 @@ class BigQueryClient:
         return None
 
     @classmethod
-    def from_service_account_integration(cls, sa: GoogleCloudServiceAccountIntegration) -> typing.Self:
-        if sa.is_impersonated():
+    def from_service_account_integration(cls, integration: GoogleCloudServiceAccountIntegration) -> typing.Self:
+        if integration.is_impersonated():
             our_credentials = google.auth.impersonated_credentials.Credentials(
                 source_credentials=google.auth.aws.Credentials(
                     audience=settings.BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD,
@@ -392,24 +392,18 @@ class BigQueryClient:
 
             their_credentials = google.auth.impersonated_credentials.Credentials(
                 source_credentials=our_credentials,
-                target_principal=sa.integration.sensitive_config["service_account_email"],
+                target_principal=integration.service_account_email,
                 target_scopes=["https://www.googleapis.com/auth/bigquery"],
                 lifetime=3600,
             )
         else:
             their_credentials = service_account.Credentials.from_service_account_info(
-                {
-                    "private_key": sa.integration.sensitive_config["private_key"],
-                    "private_key_id": sa.integration.sensitive_config["private_key_id"],
-                    "token_uri": sa.integration.sensitive_config["token_uri"],
-                    "client_email": sa.integration.sensitive_config["service_account_email"],
-                    "project_id": sa.integration.config["project_id"],
-                },
+                integration.service_account_info,
                 scopes=["https://www.googleapis.com/auth/cloud-platform"],
             )
 
         client = bigquery.Client(
-            project=sa.project_id,
+            project=integration.project_id,
             credentials=their_credentials,
         )
         return cls(client)

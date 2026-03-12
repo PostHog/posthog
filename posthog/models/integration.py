@@ -1173,11 +1173,6 @@ class GoogleAdsIntegration:
 
 class GoogleCloudServiceAccountIntegration:
     integration: Integration
-    project_id: str
-    service_account_email: str
-    private_key: str | None
-    private_key_id: str | None
-    token_uri: str | None
 
     def __init__(self, integration: Integration) -> None:
         self.integration = integration
@@ -1239,6 +1234,24 @@ class GoogleCloudServiceAccountIntegration:
         return all(key in self.integration.sensitive_config for key in actual_credentials) and all(
             self.integration.sensitive_config[key] for key in actual_credentials
         )
+
+    @property
+    def project_id(self) -> str:
+        return self.integration.config["project_id"]
+
+    @property
+    def service_account_email(self) -> str:
+        return self.integration.sensitive_config["service_account_email"]
+
+    @property
+    def service_account_info(self) -> dict[str, str]:
+        return {
+            "private_key": self.integration.sensitive_config["private_key"],
+            "private_key_id": self.integration.sensitive_config["private_key_id"],
+            "token_uri": self.integration.sensitive_config["token_uri"],
+            "client_email": self.integration.sensitive_config["service_account_email"],
+            "project_id": self.integration.config["project_id"],
+        }
 
 
 class GoogleCloudIntegration:
