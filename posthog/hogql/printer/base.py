@@ -145,6 +145,13 @@ class HogQLPrinter(Visitor[str]):
             return f"({ret.strip()})"
         return ret
 
+    def visit_values_query(self, node: ast.ValuesQuery):
+        rows = []
+        for row in node.rows:
+            values = ", ".join(self.visit(expr) for expr in row)
+            rows.append(f"({values})")
+        return f"(VALUES {', '.join(rows)})"
+
     def _print_select_columns(self, columns: Iterable[ast.Expr]) -> list[str]:
         return [self.visit(column) for column in columns]
 
@@ -416,7 +423,11 @@ class HogQLPrinter(Visitor[str]):
 
         elif isinstance(node.type, ast.SelectQueryAliasType) and node.alias is not None:
             join_strings.append(self.visit(node.table))
-            join_strings.append(f"AS {self._print_identifier(node.alias)}")
+            alias_str = f"AS {self._print_identifier(node.alias)}"
+            if node.column_aliases and self.dialect == "postgres":
+                col_names = ", ".join(self._print_identifier(c) for c in node.column_aliases)
+                alias_str += f" ({col_names})"
+            join_strings.append(alias_str)
 
         elif isinstance(node.type, ast.LazyTableType):
             if self.dialect == "hogql":
@@ -433,7 +444,7 @@ class HogQLPrinter(Visitor[str]):
                 f"Only selecting from a table or a subquery is supported. Unexpected type: {node.type.__class__.__name__}"
             )
 
-        if node.column_aliases:
+        if node.column_aliases and not isinstance(node.type, ast.SelectQueryAliasType):
             if self.dialect != "postgres":
                 raise QueryError(f"Table column aliases are not allowed in {self.dialect} dialect")
             col_aliases = ", ".join(self._print_identifier(ca) for ca in node.column_aliases)

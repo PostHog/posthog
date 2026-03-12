@@ -1247,6 +1247,16 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitTableExprSubquery(self, ctx: HogQLParser.TableExprSubqueryContext):
         return self.visit(ctx.selectSetStmt())
 
+    def visitTableExprValues(self, ctx: HogQLParser.TableExprValuesContext):
+        return self.visit(ctx.valuesClause())
+
+    def visitValuesClause(self, ctx: HogQLParser.ValuesClauseContext):
+        rows = [self.visit(row) for row in ctx.valuesRow()]
+        return ast.ValuesQuery(rows=rows)
+
+    def visitValuesRow(self, ctx: HogQLParser.ValuesRowContext):
+        return [self.visit(expr) for expr in ctx.columnExpr()]
+
     def visitTableExprPlaceholder(self, ctx: HogQLParser.TableExprPlaceholderContext):
         return self.visit(ctx.placeholder())
 
@@ -1254,8 +1264,13 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         alias: str = self.visit(ctx.alias() or ctx.identifier())
         if alias.lower() in RESERVED_KEYWORDS:
             raise SyntaxError(f'"{alias}" cannot be an alias or identifier, as it\'s a reserved keyword')
-        column_aliases = self.visit(ctx.columnAliases()) if ctx.columnAliases() else None
+        column_aliases = None
+        if hasattr(ctx, "columnAliases") and ctx.columnAliases():
+            column_aliases = self.visit(ctx.columnAliases())
+        elif hasattr(ctx, "tableAliasColumnNameList") and ctx.tableAliasColumnNameList():
+            column_aliases = [self.visit(ident) for ident in ctx.tableAliasColumnNameList().identifier()]
         table = self.visit(ctx.tableExpr())
+
         if isinstance(table, ast.JoinExpr):
             table.alias = alias
             table.column_aliases = column_aliases

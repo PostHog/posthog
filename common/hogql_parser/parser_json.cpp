@@ -2185,6 +2185,24 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
   VISIT(TableExprSubquery) { return visit(ctx->selectSetStmt()); }
 
+  VISIT(TableExprValues) { return visit(ctx->valuesClause()); }
+
+  VISIT(ValuesClause) {
+    Json json = Json::object();
+    json["node"] = "ValuesQuery";
+    if (!is_internal) addPositionInfo(json, ctx);
+    Json rows = Json::array();
+    for (auto* row_ctx : ctx->valuesRow()) {
+      Json row = Json::array();
+      for (auto* expr_ctx : row_ctx->columnExpr()) {
+        row.pushBack(visitAsJSON(expr_ctx));
+      }
+      rows.pushBack(std::move(row));
+    }
+    json["rows"] = std::move(rows);
+    return json;
+  }
+
   VISIT(TableExprPlaceholder) { return visitAsJSON(ctx->placeholder()); }
 
   VISIT(TableExprAlias) {

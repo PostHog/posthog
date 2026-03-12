@@ -157,6 +157,11 @@ class TraversingVisitor(Visitor[None]):
         self.visit(node.constraint)
         self.visit(node.next_join)
 
+    def visit_values_query(self, node: ast.ValuesQuery):
+        for row in node.rows:
+            for expr in row:
+                self.visit(expr)
+
     def visit_select_query(self, node: ast.SelectQuery):
         # :TRICKY: when adding new fields, also add them to visit_select_query of resolver.py
         self.visit(node.select_from)
@@ -707,6 +712,14 @@ class CloningVisitor(Visitor[Any]):
             join_type=node.join_type,
             constraint=self.visit(node.constraint),
             sample=self.visit(node.sample),
+        )
+
+    def visit_values_query(self, node: ast.ValuesQuery):
+        return ast.ValuesQuery(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            rows=[[self.visit(expr) for expr in row] for row in node.rows],
         )
 
     def visit_select_query(self, node: ast.SelectQuery):

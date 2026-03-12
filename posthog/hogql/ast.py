@@ -904,7 +904,7 @@ class JoinExpr(Expr):
     type: Optional[TableOrSelectType] = None
 
     join_type: Optional[str] = None
-    table: Optional[Union["SelectQuery", "SelectSetQuery", "Placeholder", "HogQLXTag", "Field"]] = None
+    table: Optional[Union["SelectQuery", "SelectSetQuery", "ValuesQuery", "Placeholder", "HogQLXTag", "Field"]] = None
     table_args: Optional[list[Expr]] = None
     alias: Optional[str] = None
     column_aliases: Optional[list[str]] = None
@@ -1008,6 +1008,12 @@ class SelectQuery(Expr):
             ],
             where=Constant(value=False),
         )
+
+
+@dataclass(kw_only=True)
+class ValuesQuery(Expr):
+    type: Optional[SelectQueryType] = None
+    rows: list[list[Expr]]
 
 
 SetOperator = Literal[

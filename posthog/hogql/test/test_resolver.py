@@ -85,9 +85,10 @@ class TestResolver(BaseTest):
     def test_resolve_table_column_aliases_dialect_guard(self):
         expr = self._select("SELECT 1 FROM events AS e (event_alias)")
 
-        with self.assertRaises(QueryError) as context:
-            resolve_types(expr, self.context, dialect="clickhouse")
-        self.assertEqual(str(context.exception), "Table column aliases are not allowed in clickhouse dialect")
+        # Resolver allows column_aliases in any dialect; the printer enforces the dialect guard
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
+        assert isinstance(resolved.select_from, ast.JoinExpr)
+        assert resolved.select_from.column_aliases == ["event_alias"]
 
         resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
         assert isinstance(resolved.select_from, ast.JoinExpr)
@@ -1362,3 +1363,65 @@ class TestResolver(BaseTest):
                 self.context,
                 dialect="postgres",
             )
+
+    def test_values_query_basic(self):
+        expr = self._select("SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS v (id, name)")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(expr.select_from, ast.JoinExpr)
+        assert isinstance(expr.select_from.type, ast.SelectQueryAliasType)
+        assert expr.select_from.alias == "v"
+        assert isinstance(expr.select_from.type.select_query_type, ast.SelectQueryType)
+        columns = expr.select_from.type.select_query_type.columns
+        assert "id" in columns
+        assert "name" in columns
+
+    def test_values_query_default_column_names(self):
+        expr = self._select("SELECT * FROM (VALUES (1, 'a')) AS v")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(expr.select_from, ast.JoinExpr)
+        assert isinstance(expr.select_from.table, ast.ValuesQuery)
+        assert expr.select_from.table.type is not None
+        columns = expr.select_from.table.type.columns
+        assert "col0" in columns
+        assert "col1" in columns
+
+    def test_values_query_row_length_mismatch(self):
+        with self.assertRaisesMessage(QueryError, "VALUES row 2 has 1 columns, expected 2"):
+            expr = self._select("SELECT * FROM (VALUES (1, 'a'), (2)) AS v")
+            resolve_types(expr, self.context, dialect="postgres")
+
+    def test_values_query_alias_column_count_mismatch(self):
+        with self.assertRaisesMessage(QueryError, "VALUES has 2 column(s) but 3 column name(s) were provided"):
+            expr = self._select("SELECT * FROM (VALUES (1, 'a')) AS v (id, name, extra)")
+            resolve_types(expr, self.context, dialect="postgres")
+
+    def test_subquery_alias_columns_remap(self):
+        # Subquery with alias column list: SELECT * FROM (SELECT 1, 'a') AS v(id, name)
+        # The resolver should remap columns so that v.id and v.name resolve correctly,
+        # and SELECT * expansion uses the aliased names, not the original ones.
+        expr = self._select("SELECT * FROM (SELECT 1, 'a') AS v(id, name)")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
+        assert isinstance(expr.select_from, ast.JoinExpr)
+        assert isinstance(expr.select_from.type, ast.SelectQueryAliasType)
+        assert isinstance(expr.select_from.type.select_query_type, ast.SelectQueryType)
+        columns = expr.select_from.type.select_query_type.columns
+        assert "id" in columns, f"Expected 'id' in columns, got {list(columns.keys())}"
+        assert "name" in columns, f"Expected 'name' in columns, got {list(columns.keys())}"
+
+    def test_subquery_alias_columns_qualified_access(self):
+        # Qualified access via alias column names should resolve
+        expr = self._select("SELECT v.id, v.name FROM (SELECT 1, 'a') AS v(id, name)")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
+        assert len(expr.select) == 2
+        for col in expr.select:
+            assert isinstance(col, ast.Alias)
+            assert isinstance(col.expr, ast.Field)
+            assert isinstance(col.expr.type, ast.FieldType)
+        assert cast(ast.Alias, expr.select[0]).alias == "id"
+        assert cast(ast.Alias, expr.select[1]).alias == "name"
+
+    def test_subquery_alias_columns_count_mismatch(self):
+        # Providing wrong number of alias columns for a subquery should error
+        with self.assertRaises(QueryError):
+            expr = self._select("SELECT * FROM (SELECT 1, 'a') AS v(id, name, extra)")
+            resolve_types(expr, self.context, dialect="clickhouse")
