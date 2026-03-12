@@ -2,6 +2,7 @@ import os
 import re
 import json
 import time
+from dataclasses import dataclass
 from typing import NotRequired, Optional, TypedDict
 
 from django.conf import settings
@@ -9,6 +10,7 @@ from django.core.cache import cache
 
 import structlog
 
+from posthog.exceptions_capture import capture_exception
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 
@@ -24,11 +26,6 @@ REDIS_JS_CONTENT_TTL = 60 * 60 * 24 * 30  # 30 days — version content is immut
 REDIS_JS_KEY_PREFIX = "posthog_js_content"
 REDIS_POINTER_MAP_KEY = "posthog_js_latest_pointers"
 
-# In-process cache for pointer map
-_pointer_map_cache: Optional[dict] = None
-_pointer_map_cache_time: float = 0
-POINTER_MAP_IN_PROCESS_TTL = 60  # seconds
-
 # Matches exact version like "1.358.0"
 _EXACT_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
@@ -39,18 +36,55 @@ class VersionEntry(TypedDict):
     yanked: NotRequired[bool | None]
 
 
+class VersionManifest(TypedDict):
+    """Represents the version manifest stored in Redis"""
+
+    versions: list[str]
+    pointers: dict[str, str]
+
+
+MANIFEST_IN_PROCESS_TTL = 60  # seconds
+
+
+@dataclass
+class CachedManifest:
+    """In-memory representation of a version manifest, with a set for O(1) exact version lookups."""
+
+    versions: frozenset[str]
+    pointers: dict[str, str]
+    cached_at: float
+
+    @staticmethod
+    def from_json(raw: str) -> "CachedManifest":
+        data = json.loads(raw) if isinstance(raw, str) else raw
+        return CachedManifest(
+            versions=frozenset(data["versions"]),
+            pointers=data["pointers"],
+            cached_at=time.time(),
+        )
+
+    @property
+    def is_fresh(self) -> bool:
+        return (time.time() - self.cached_at) < MANIFEST_IN_PROCESS_TTL
+
+
+# In-process cache
+_cached_manifest: Optional[CachedManifest] = None
+
+
 def _parse_version(version: str) -> tuple[int, int, int]:
     parts = version.split(".")
     return (int(parts[0]), int(parts[1]), int(parts[2]))
 
 
-def compute_pointer_map(entries: list[VersionEntry]) -> dict[str, str]:
+def compute_version_manifest(entries: list[VersionEntry]) -> VersionManifest:
     """
-    Compute the version pointer map from a versions manifest.
+    Compute a version manifest from a list of version entries.
 
-    For each non-yanked version, tracks the highest version for each
-    major ("1") and minor ("1.358") pointer.
+    Returns all non-yanked versions and a pointer map that tracks the
+    highest version for each major ("1") and minor ("1.358") alias.
     """
+    versions: list[str] = []
     pointers: dict[str, str] = {}
     best: dict[str, tuple[int, int, int]] = {}
 
@@ -58,6 +92,7 @@ def compute_pointer_map(entries: list[VersionEntry]) -> dict[str, str]:
         if entry.get("yanked", False):
             continue
         version = entry["version"]
+        versions.append(version)
         parsed = _parse_version(version)
         major, minor, _patch = parsed
 
@@ -66,7 +101,7 @@ def compute_pointer_map(entries: list[VersionEntry]) -> dict[str, str]:
                 best[pointer] = parsed
                 pointers[pointer] = version
 
-    return pointers
+    return {"versions": versions, "pointers": pointers}
 
 
 def _get_disk_js_content() -> str:
@@ -125,19 +160,27 @@ def get_js_content(requested_version: Optional[str] = None) -> str:
     return _get_disk_js_content()
 
 
-def _get_pointer_map() -> Optional[dict]:
-    """Get pointer map from in-process cache -> Redis."""
-    global _pointer_map_cache, _pointer_map_cache_time
+def _get_manifest() -> Optional[CachedManifest]:
+    """Get version manifest from in-process cache -> Redis."""
+    global _cached_manifest
 
-    now = time.time()
-    if _pointer_map_cache is not None and (now - _pointer_map_cache_time) < POINTER_MAP_IN_PROCESS_TTL:
-        return _pointer_map_cache
+    if _cached_manifest is not None and _cached_manifest.is_fresh:
+        return _cached_manifest
 
     raw = cache.get(REDIS_POINTER_MAP_KEY)
     if raw is not None:
-        _pointer_map_cache = json.loads(raw) if isinstance(raw, str) else raw
-        _pointer_map_cache_time = now
-        return _pointer_map_cache
+        try:
+            _cached_manifest = CachedManifest.from_json(raw)
+            return _cached_manifest
+        except Exception as e:
+            capture_exception(
+                e, additional_properties={"tag": "snippet_versioning", "redis_key": REDIS_POINTER_MAP_KEY}
+            )
+    elif settings.POSTHOG_JS_S3_BUCKET:
+        capture_exception(
+            Exception("Version manifest not found in Redis"),
+            additional_properties={"tag": "snippet_versioning", "redis_key": REDIS_POINTER_MAP_KEY},
+        )
 
     return None
 
@@ -172,17 +215,20 @@ def resolve_version(requested_version: Optional[str]) -> Optional[str]:
     if not settings.POSTHOG_JS_S3_BUCKET:
         return None
 
-    pointers = _get_pointer_map()
-    if pointers is None:
-        return None
-
-    if requested_version is not None and _EXACT_VERSION_RE.match(requested_version):
-        # Verify exact versions are known (present as a pointer map value)
-        if requested_version in pointers.values():
-            return requested_version
+    manifest = _get_manifest()
+    if manifest is None:
         return None
 
     if requested_version is None:
         requested_version = DEFAULT_SNIPPET_VERSION
 
-    return pointers.get(requested_version)
+    # Alias lookup (major/minor pointers)
+    resolved = manifest.pointers.get(requested_version)
+    if resolved:
+        return resolved
+
+    # Exact version lookup
+    if requested_version in manifest.versions:
+        return requested_version
+
+    return None

@@ -24,9 +24,10 @@ class TestPublish(SimpleTestCase):
         call_command("snippet_version", "publish", "1.359.0", "--accept")
 
         raw = cache.get(REDIS_POINTER_MAP_KEY)
-        pointers = json.loads(raw)
-        assert pointers["1"] == "1.359.0"
-        assert pointers["1.359"] == "1.359.0"
+        manifest = json.loads(raw)
+        assert manifest["versions"] == ["1.359.0"]
+        assert manifest["pointers"]["1"] == "1.359.0"
+        assert manifest["pointers"]["1.359"] == "1.359.0"
 
         mock_storage.write.assert_called_once()
         written = json.loads(mock_storage.write.call_args[0][1])
@@ -140,8 +141,8 @@ class TestYank(SimpleTestCase):
         assert "yanked" not in written[0]
 
         raw = cache.get(REDIS_POINTER_MAP_KEY)
-        pointers = json.loads(raw)
-        assert pointers["1"] == "1.358.0"
+        manifest = json.loads(raw)
+        assert manifest["pointers"]["1"] == "1.358.0"
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
     @patch("posthog.management.commands.snippet_version.object_storage")

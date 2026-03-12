@@ -10,7 +10,7 @@ from celery import shared_task
 from posthog.models.snippet_versioning import (
     REDIS_POINTER_MAP_KEY,
     S3_VERSIONS_KEY,
-    compute_pointer_map,
+    compute_version_manifest,
     validate_version_artifacts,
 )
 from posthog.storage import object_storage
@@ -49,10 +49,10 @@ def sync_posthog_js_versions() -> None:
         return
 
     entries = json.loads(raw)
-    pointers = compute_pointer_map(entries)
+    manifest = compute_version_manifest(entries)
 
     # Validate that major pin targets have artifacts (these serve the most traffic)
-    major_pins = {pin: ver for pin, ver in pointers.items() if "." not in pin}
+    major_pins = {pin: ver for pin, ver in manifest["pointers"].items() if "." not in pin}
     for pin, version in major_pins.items():
         if not validate_version_artifacts(version):
             logger.error(
@@ -62,6 +62,6 @@ def sync_posthog_js_versions() -> None:
             )
             return
 
-    cache.set(REDIS_POINTER_MAP_KEY, json.dumps(pointers), timeout=None)
+    cache.set(REDIS_POINTER_MAP_KEY, json.dumps(manifest), timeout=None)
     cache.set(_LAST_HASH_REDIS_KEY, new_hash, timeout=None)
-    logger.info("Updated posthog-js pointer map", pointers=pointers)
+    logger.info("Updated posthog-js version manifest", manifest=manifest)

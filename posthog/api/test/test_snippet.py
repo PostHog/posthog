@@ -11,18 +11,29 @@ import posthog.models.snippet_versioning as sv
 from posthog.models.snippet_versioning import REDIS_POINTER_MAP_KEY
 
 
+def _make_manifest(versions: list[str], pointers: dict[str, str]) -> dict:
+    return {"versions": versions, "pointers": pointers}
+
+
+def _reset_caches():
+    sv._cached_manifest = None
+
+
+MANIFEST = _make_manifest(
+    versions=["1.358.0", "1.359.0"],
+    pointers={"1": "1.359.0", "1.358": "1.358.0", "1.359": "1.359.0"},
+)
+
+
 class TestSnippetResolveAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
-        sv._pointer_map_cache = None
-        sv._pointer_map_cache_time = 0
-        pointers = {"1": "1.359.0", "1.358": "1.358.0", "1.359": "1.359.0"}
-        cache.set(REDIS_POINTER_MAP_KEY, json.dumps(pointers))
+        _reset_caches()
+        cache.set(REDIS_POINTER_MAP_KEY, json.dumps(MANIFEST))
 
     def tearDown(self):
         cache.delete(REDIS_POINTER_MAP_KEY)
-        sv._pointer_map_cache = None
-        sv._pointer_map_cache_time = 0
+        _reset_caches()
         super().tearDown()
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
@@ -52,15 +63,12 @@ class TestSnippetResolveAPI(APIBaseTest):
 class TestSnippetVersionAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
-        sv._pointer_map_cache = None
-        sv._pointer_map_cache_time = 0
-        pointers = {"1": "1.359.0", "1.358": "1.358.0", "1.359": "1.359.0"}
-        cache.set(REDIS_POINTER_MAP_KEY, json.dumps(pointers))
+        _reset_caches()
+        cache.set(REDIS_POINTER_MAP_KEY, json.dumps(MANIFEST))
 
     def tearDown(self):
         cache.delete(REDIS_POINTER_MAP_KEY)
-        sv._pointer_map_cache = None
-        sv._pointer_map_cache_time = 0
+        _reset_caches()
         super().tearDown()
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")

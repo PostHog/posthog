@@ -9,7 +9,8 @@ from posthog.models.remote_config import RemoteConfig
 from posthog.models.snippet_versioning import (
     REDIS_POINTER_MAP_KEY,
     S3_VERSIONS_KEY,
-    compute_pointer_map,
+    VersionManifest,
+    compute_version_manifest,
     validate_version_artifacts,
 )
 from posthog.storage import object_storage
@@ -78,9 +79,9 @@ class Command(BaseCommand):
         )
         self.stdout.write(self.style.SUCCESS("S3 updated"))
 
-    def _update_redis(self, pointers: dict[str, str]) -> None:
-        cache.set(REDIS_POINTER_MAP_KEY, json.dumps(pointers), timeout=None)
-        self.stdout.write(self.style.SUCCESS(f"Redis updated with pointers: {pointers}"))
+    def _update_redis(self, manifest: VersionManifest) -> None:
+        cache.set(REDIS_POINTER_MAP_KEY, json.dumps(manifest), timeout=None)
+        self.stdout.write(self.style.SUCCESS(f"Redis updated with manifest: {manifest}"))
 
     def _purge_changed(self, before: dict[str, str], after: dict[str, str]) -> None:
         changed = _changed_pointers(before, after)
@@ -117,7 +118,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("Artifacts validated"))
 
         entries = self._read_manifest()
-        before = compute_pointer_map(entries)
+        before = compute_version_manifest(entries)
 
         # Check for duplicate
         if any(e["version"] == version for e in entries):
@@ -130,8 +131,8 @@ class Command(BaseCommand):
             }
         )
 
-        after = compute_pointer_map(entries)
-        self._print_diff(before, after)
+        after = compute_version_manifest(entries)
+        self._print_diff(before["pointers"], after["pointers"])
 
         if not accept:
             self.stdout.write(self.style.WARNING("Dry-run mode. Pass --accept to write changes."))
@@ -141,7 +142,7 @@ class Command(BaseCommand):
         self._write_manifest(entries)
 
         if options.get("purge"):
-            self._purge_changed(before, after)
+            self._purge_changed(before["pointers"], after["pointers"])
 
         self.stdout.write(self.style.SUCCESS(f"Published posthog-js v{version}"))
 
@@ -149,7 +150,7 @@ class Command(BaseCommand):
         version = options["version"]
         accept = options.get("accept", False)
         entries = self._read_manifest()
-        before = compute_pointer_map(entries)
+        before = compute_version_manifest(entries)
 
         found = False
         for entry in entries:
@@ -161,8 +162,8 @@ class Command(BaseCommand):
         if not found:
             raise CommandError(f"Version {version} not found in the manifest")
 
-        after = compute_pointer_map(entries)
-        self._print_diff(before, after)
+        after = compute_version_manifest(entries)
+        self._print_diff(before["pointers"], after["pointers"])
 
         if not accept:
             self.stdout.write(self.style.WARNING("Dry-run mode. Pass --accept to write changes."))
@@ -172,6 +173,6 @@ class Command(BaseCommand):
         self._write_manifest(entries)
 
         if options.get("purge"):
-            self._purge_changed(before, after)
+            self._purge_changed(before["pointers"], after["pointers"])
 
         self.stdout.write(self.style.SUCCESS(f"Yanked posthog-js v{version}"))
