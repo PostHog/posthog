@@ -883,14 +883,9 @@ def agentic_login(request: Any) -> HttpResponseBase:
         logger.warning("agentic_login.invalid_token_data")
         return HttpResponseRedirect("/?error=invalid_token_data")
 
-    user_id = link_data.get("user_id")
+    user_id = link_data["user_id"]
     team_id = link_data.get("team_id")
     purpose = link_data.get("purpose", "dashboard")
-
-    if not user_id:
-        _capture_deep_link_event("invalid_token_data")
-        logger.warning("agentic_login.missing_user_id")
-        return HttpResponseRedirect("/?error=invalid_token_data")
 
     try:
         user = User.objects.get(id=user_id)
