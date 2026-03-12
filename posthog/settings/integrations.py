@@ -80,3 +80,5 @@ WORKOS_RADAR_ENABLED = get_from_env("WORKOS_RADAR_ENABLED", False, type_cast=str
 # Recall.ai (for desktop recordings product)
 RECALL_AI_API_KEY = get_from_env("RECALL_AI_API_KEY", "")
 RECALL_AI_API_URL = get_from_env("RECALL_AI_API_URL", "https://us-west-2.recall.ai")
+
+GOOGLE_CLOUD_EXTERNAL_PROJECT_ID = get_from_env("GOOGLE_CLOUD_EXTERNAL_PROJECT_ID", "")

@@ -1,4 +1,5 @@
 import io
+import os
 import json
 import time
 import typing
@@ -11,7 +12,10 @@ import collections.abc
 from django.conf import settings
 
 import pyarrow as pa
+import aioboto3
 import requests
+import google.auth
+import google.auth.aws
 from google.api_core.exceptions import (
     Forbidden,
     GatewayTimeout,
@@ -28,6 +32,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.models.integration import GoogleCloudServiceAccountIntegration, Integration
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -308,6 +313,47 @@ class BigQueryTable(Table[BigQueryField]):
         return self.parents[1]
 
 
+class Aioboto3CredentialsSupplier(google.auth.aws.AwsSecurityCredentialsSupplier):
+    """Implementation of credential supplier for `google.auth` using `aioboto3`.
+
+    The default credential supplier provided by `google.auth` tries to manually execute
+    requests, but it's more straight forward for us to rely on `aioboto3` to resolve
+    credentials.
+
+    The interface requires all methods to be blocking, but we can schedule `aioboto3`
+    async calls in the event loop via `asyncio.run_corountine_threadsafe`.
+    """
+
+    def __init__(self) -> None:
+        self.session = aioboto3.session.Session()
+
+    def get_aws_security_credentials(self, context, request) -> google.auth.aws.AwsSecurityCredentials:
+        return asyncio.run_coroutine_threadsafe(self._get_credentials, asyncio.get_event_loop()).result()
+
+    def get_aws_region(self, context, request) -> str:
+        """Similar to the default implementation, but without a fallback request."""
+        env_aws_region = os.environ.get("AWS_REGION")
+        if env_aws_region is not None:
+            return env_aws_region
+
+        env_aws_region = os.environ.get("AWS_DEFAULT_REGION")
+        if env_aws_region is not None:
+            return env_aws_region
+
+        raise ValueError("No AWS region found")
+
+    async def _get_credentials(self) -> google.auth.aws.AwsSecurityCredentials:
+        async with self.session.client("sts") as client:
+            response = await client.get_session_token()
+            credentials = response["Credentials"]
+
+            return google.auth.aws.AwsSecurityCredentials(
+                credentials.get("AccessKeyId"),
+                credentials.get("SecretAccessKey"),
+                credentials.get("SessionToken"),
+            )
+
+
 class BigQueryClient:
     """Async client to interact with BigQuery.
 
@@ -327,6 +373,46 @@ class BigQueryClient:
     async def __aexit__(self, exc_type, exc_value, traceback) -> None:
         await asyncio.to_thread(self.sync_client.close)
         return None
+
+    @classmethod
+    def from_service_account_integration(cls, integration: GoogleCloudServiceAccountIntegration) -> typing.Self:
+        if integration.is_impersonated():
+            our_credentials = google.auth.impersonated_credentials.Credentials(
+                source_credentials=google.auth.aws.Credentials(
+                    audience=settings.BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD,
+                    subject_token_type="urn:ietf:params:aws:token-type:aws4_request",  # Only possible value
+                    token_url="https://sts.googleapis.com/v1/token",  # Default
+                    aws_security_credentials_supplier=Aioboto3CredentialsSupplier(),
+                    scopes=["https://www.googleapis.com/auth/cloud-platform"],
+                ),
+                target_principal=settings.BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT,
+                target_scopes=["https://www.googleapis.com/auth/cloud-platform"],
+                lifetime=3600,
+            )
+
+            their_credentials = google.auth.impersonated_credentials.Credentials(
+                source_credentials=our_credentials,
+                target_principal=integration.sensitive_config["service_account_email"],
+                target_scopes=["https://www.googleapis.com/auth/bigquery"],
+                lifetime=3600,
+            )
+        else:
+            their_credentials = service_account.Credentials.from_service_account_info(
+                {
+                    "private_key": integration.sensitive_config["private_key"],
+                    "private_key_id": integration.sensitive_config["private_key_id"],
+                    "token_uri": integration.sensitive_config["token_uri"],
+                    "client_email": integration.sensitive_config["service_account_email"],
+                    "project_id": integration.config["project_id"],
+                },
+                scopes=["https://www.googleapis.com/auth/cloud-platform"],
+            )
+
+        client = bigquery.Client(
+            project=integration.project_id,
+            credentials=their_credentials,
+        )
+        return cls(client)
 
     @classmethod
     def from_service_account_inputs(
@@ -957,6 +1043,21 @@ class BigQueryInsertInputs(BatchExportInsertInputs):
     token_uri: str
     client_email: str
     use_json_type: bool = False
+    integration_id: int | None = None
+
+
+async def _get_google_cloud_service_account_integration(
+    inputs: BigQueryInsertInputs,
+) -> GoogleCloudServiceAccountIntegration | None:
+    """Get the Google Cloud impersonated service account integration."""
+    if inputs.integration_id is None:
+        return None
+
+    try:
+        integration = await Integration.objects.aget(id=inputs.integration_id, team_id=inputs.team_id)
+    except Integration.DoesNotExist:
+        return None
+    return GoogleCloudServiceAccountIntegration(integration)
 
 
 @activity.defn
@@ -1044,9 +1145,15 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
         attempt = activity.info().attempt
         stage_table_id = f"stage_{inputs.table_id}_{data_interval_end_str}_{inputs.team_id}_{attempt}"
 
-        async with BigQueryClient.from_service_account_inputs(
-            inputs.private_key, inputs.private_key_id, inputs.token_uri, inputs.client_email, inputs.project_id
-        ) as bq_client:
+        google_cloud_integration = await _get_google_cloud_service_account_integration(inputs)
+        if google_cloud_integration is not None:
+            bq_client = BigQueryClient.from_service_account_integration(google_cloud_integration)
+        else:
+            bq_client = BigQueryClient.from_service_account_inputs(
+                inputs.private_key, inputs.private_key_id, inputs.token_uri, inputs.client_email, inputs.project_id
+            )
+
+        async with bq_client:
             bigquery_target_table = await bq_client.get_or_create_table(target_table)
 
             can_perform_merge = await bq_client.check_for_query_permissions(bigquery_target_table)
