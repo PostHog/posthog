@@ -167,16 +167,18 @@ export function LemonTable<T extends Record<string, any>>({
         [location, searchParams, hashParams, push, useURLForSorting, onSort, currentSortingParam]
     )
 
-    const columnGroups = (
-        rawColumns.length > 0 && 'children' in rawColumns[0]
-            ? rawColumns
-            : [
-                  {
-                      children: rawColumns,
-                  },
-              ]
-    ) as LemonTableColumnGroup<T>[]
-    const columns = columnGroups.flatMap((group) => group.children)
+    const columnGroups = useMemo(
+        () =>
+            (rawColumns.length > 0 && 'children' in rawColumns[0]
+                ? rawColumns
+                : [
+                      {
+                          children: rawColumns,
+                      },
+                  ]) as LemonTableColumnGroup<T>[],
+        [rawColumns]
+    )
+    const columns = useMemo(() => columnGroups.flatMap((group) => group.children), [columnGroups])
 
     const scrollRef = useRef<HTMLDivElement>(null)
 
