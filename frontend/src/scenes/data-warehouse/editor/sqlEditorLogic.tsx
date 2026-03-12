@@ -31,7 +31,7 @@ import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
-import { objectsEqual, removeUndefinedAndNull } from 'lib/utils'
+import { objectsEqual, removeUndefinedAndNull, slugify } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { parseQueryTablesAndColumns } from 'scenes/data-warehouse/editor/sql-utils'
@@ -64,6 +64,8 @@ import {
     LineageGraph,
     QueryBasedInsightModel,
 } from '~/types'
+
+import { validateEndpointName } from 'products/endpoints/frontend/common'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from './draftsLogic'
@@ -956,7 +958,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     </>
                 ),
                 errors: {
-                    name: (name) => (!name ? 'You must enter a name' : undefined),
+                    name: (name) => validateEndpointName(name?.trim() || ''),
                 },
                 onSubmit: async ({ name, description }) => actions.saveAsEndpointSubmit(name, description),
             })
@@ -964,7 +966,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         saveAsEndpointSubmit: async ({ name, description }) => {
             try {
                 const endpoint = await api.endpoint.create({
-                    name,
+                    name: slugify(name),
                     description: description || undefined,
                     query: {
                         ...(values.sourceQuery.source as HogQLQuery),
@@ -974,8 +976,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 lemonToast.success('Endpoint created')
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateFirstEndpoint)
                 router.actions.push(urls.endpoint(endpoint.name))
-            } catch {
-                lemonToast.error('Failed to create endpoint')
+            } catch (error: any) {
+                lemonToast.error(error.detail || 'Failed to create endpoint')
             }
         },
         updateInsight: async () => {

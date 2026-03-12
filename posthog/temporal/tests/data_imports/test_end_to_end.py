@@ -3355,13 +3355,17 @@ async def test_stripe_webhook_s3_charges(team, stripe_charge, mock_stripe_client
 
     # Create a webhook HogFunction linked to this schema via inputs
     schema = await sync_to_async(ExternalDataSchema.objects.get)(id=inputs.external_data_schema_id)
+    schema_id_str = str(schema.id)
     await sync_to_async(HogFunction.objects.create)(
         team=team,
         enabled=True,
         deleted=False,
         type="warehouse_source_webhook",
-        inputs_schema=[{"key": "schema_id", "type": "string"}],
-        inputs={"schema_id": {"value": str(schema.id)}},
+        inputs_schema=[{"key": "schema_mapping", "type": "json"}, {"key": "schema_ids", "type": "json"}],
+        inputs={
+            "schema_mapping": {"value": {"charge": schema_id_str}},
+            "schema_ids": {"value": [schema_id_str]},
+        },
     )
 
     assert schema.initial_sync_complete is True

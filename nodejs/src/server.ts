@@ -14,7 +14,6 @@ import { CdpApi } from './cdp/cdp-api'
 import { CdpConsumerBaseDeps } from './cdp/consumers/cdp-base.consumer'
 import { CdpBatchHogFlowRequestsConsumer } from './cdp/consumers/cdp-batch-hogflow.consumer'
 import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
-import { CdpCyclotronShadowWorker } from './cdp/consumers/cdp-cyclotron-shadow-worker.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpDatawarehouseEventsConsumer } from './cdp/consumers/cdp-data-warehouse-events.consumer'
@@ -48,7 +47,7 @@ import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 import { ServerCommands } from './utils/commands'
 import { PostgresRouter } from './utils/db/postgres'
 import { createRedisPoolFromConfig } from './utils/db/redis'
-import { isDevEnv, isTestEnv } from './utils/env-utils'
+import { isTestEnv } from './utils/env-utils'
 import { GeoIPService } from './utils/geoip'
 import { logger } from './utils/logger'
 import { NodeInstrumentation } from './utils/node-instrumentation'
@@ -137,7 +136,6 @@ export class PluginServer {
             capabilities.cdpLegacyOnEvent ||
             capabilities.cdpApi ||
             capabilities.cdpCyclotronWorker ||
-            capabilities.cdpCyclotronShadowWorker ||
             capabilities.cdpCyclotronWorkerHogFlow ||
             capabilities.cdpPrecalculatedFilters ||
             capabilities.cdpCohortMembership ||
@@ -382,27 +380,6 @@ export class PluginServer {
             if (capabilities.cdpCyclotronWorker) {
                 serviceLoaders.push(async () => {
                     const worker = new CdpCyclotronWorker(this.config, cdpDeps!)
-                    await worker.start()
-                    return worker.service
-                })
-            }
-
-            if (capabilities.cdpCyclotronShadowWorker) {
-                // Shadow worker is purely for testing so we only enable if in dev or test mode with an explicit env
-                // if not dev mode then we fully trust env vars instead
-
-                const config = { ...this.config }
-                if (isDevEnv()) {
-                    // On cloud we use the standard values but locally we likely want to test both the shadow and main in parallel
-                    // so we map it here manually
-                    config.CYCLOTRON_DATABASE_URL = config.CYCLOTRON_SHADOW_DATABASE_URL!
-                    // We also need to forcefully ensure the job queue consumes and writes to itself
-                    config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = '*:postgres-v2'
-                    config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE = 'postgres-v2'
-                }
-
-                serviceLoaders.push(async () => {
-                    const worker = new CdpCyclotronShadowWorker(config, cdpDeps!)
                     await worker.start()
                     return worker.service
                 })

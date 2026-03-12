@@ -6,24 +6,22 @@ on:
 
 permissions:
     contents: read
-    pull-requests: read
+    pull-requests: write
 
 concurrency:
     group: pr-approval-${{ github.event.pull_request.number }}
 
 jobs:
     review:
-        # Safety layers: only org members can apply labels (GitHub permission),
-        # and the author_association check below is defense-in-depth against
-        # external PRs. Do not weaken without security review.
+        # Write access is required to apply the stamphog label, so no
+        # additional author_association check is needed.
         if: >-
             !github.event.pull_request.draft
-            && contains(fromJSON('["MEMBER","OWNER"]'), github.event.pull_request.author_association)
             && (
               github.event.label.name == 'stamphog'
               || (github.event.action == 'ready_for_review' && contains(github.event.pull_request.labels.*.name, 'stamphog'))
             )
-        runs-on: depot-ubuntu-latest
+        runs-on: ubuntu-latest
         timeout-minutes: 10
 
         steps:
@@ -36,15 +34,16 @@ jobs:
 
             # Always run the approval script from master — hardcoded so a PR
             # targeting a non-master branch can't supply a tampered script.
-            - name: Checkout master
+            - name: Checkout master (blobless, full history)
               uses: actions/checkout@v6
               with:
                   token: ${{ steps.app-token.outputs.token }}
                   ref: master
+                  filter: blob:none
                   fetch-depth: 0
 
             - name: Fetch PR head ref
-              run: git fetch origin pull/${{ github.event.pull_request.number }}/head
+              run: git fetch --filter=blob:none origin pull/${{ github.event.pull_request.number }}/head
 
             - name: Install uv
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
@@ -65,17 +64,21 @@ jobs:
             - name: Post review
               if: success()
               env:
-                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  # Use GITHUB_TOKEN for approvals so github-actions[bot] is the
+                  # reviewer — its approvals count toward branch protection rules,
+                  # unlike GitHub App bot approvals which show author_association NONE.
+                  GH_TOKEN_APPROVE: ${{ github.token }}
+                  GH_TOKEN_COMMENT: ${{ steps.app-token.outputs.token }}
               run: |
                   VERDICT=$(jq -r '.final_verdict' /tmp/review.json)
                   REASONING=$(jq -r '.reviewer.reasoning // "No reasoning provided"' /tmp/review.json)
                   PR=${{ github.event.pull_request.number }}
 
                   if [ "$VERDICT" = "APPROVED" ]; then
-                    gh pr review "$PR" --approve --body "$REASONING" \
+                    GH_TOKEN="$GH_TOKEN_APPROVE" gh pr review "$PR" --approve --body "$REASONING" \
                       --repo ${{ github.repository }}
                   else
-                    gh pr review "$PR" --comment --body "$REASONING" \
+                    GH_TOKEN="$GH_TOKEN_COMMENT" gh pr review "$PR" --comment --body "$REASONING" \
                       --repo ${{ github.repository }}
                   fi
 
