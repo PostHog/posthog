@@ -18149,6 +18149,9 @@ export namespace Schemas {
     /**
      * * `session_replay` - Session replay
     * `llm_analytics` - LLM analytics
+    * `github` - GitHub
+    * `linear` - Linear
+    * `zendesk` - Zendesk
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -18156,11 +18159,16 @@ export namespace Schemas {
     export const SourceProductEnum = {
       SessionReplay: 'session_replay',
       LlmAnalytics: 'llm_analytics',
+      Github: 'github',
+      Linear: 'linear',
+      Zendesk: 'zendesk',
     } as const;
 
     /**
      * * `session_analysis_cluster` - Session analysis cluster
     * `evaluation` - Evaluation
+    * `issue` - Issue
+    * `ticket` - Ticket
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -18168,6 +18176,8 @@ export namespace Schemas {
     export const SignalSourceConfigSourceTypeEnum = {
       SessionAnalysisCluster: 'session_analysis_cluster',
       Evaluation: 'evaluation',
+      Issue: 'issue',
+      Ticket: 'ticket',
     } as const;
 
     export interface SignalSourceConfig {
