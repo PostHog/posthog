@@ -350,7 +350,15 @@ impl IntoResponse for FlagError {
             FlagError::ClientFacing(err) => match err {
                 ClientFacingError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
                 ClientFacingError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg),
-                ClientFacingError::BillingLimit => (StatusCode::PAYMENT_REQUIRED, "Billing limit reached. Please upgrade your plan.".to_string()),
+                ClientFacingError::BillingLimit => {
+                    let response = AuthenticationErrorResponse {
+                        error_type: "quota_limited".to_string(),
+                        code: "payment_required".to_string(),
+                        detail: "You have exceeded your feature flag request quota".to_string(),
+                        attr: None,
+                    };
+                    return (StatusCode::PAYMENT_REQUIRED, Json(response)).into_response();
+                }
                 ClientFacingError::RateLimited
                 | ClientFacingError::IpRateLimited
                 | ClientFacingError::TokenRateLimited => {
