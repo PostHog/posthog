@@ -2436,6 +2436,26 @@
                   "table": null,
                   "type": "integer"
               },
+              "product": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "product",
+                  "id": null,
+                  "name": "product",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "user_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "user_id",
+                  "id": null,
+                  "name": "user_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
               "read_rows": {
                   "chain": null,
                   "fields": null,
@@ -5802,6 +5822,26 @@
                   "hogql_value": "created_by",
                   "id": null,
                   "name": "created_by",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "product": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "product",
+                  "id": null,
+                  "name": "product",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "user_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "user_id",
+                  "id": null,
+                  "name": "user_id",
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"

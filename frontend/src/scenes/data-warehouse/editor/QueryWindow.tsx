@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
 import { memo, useMemo } from 'react'
 
-import { IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { IconClock, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -24,6 +24,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { FixErrorButton } from './components/FixErrorButton'
 import { editorSizingLogic } from './editorSizingLogic'
 import { OutputPane } from './OutputPane'
+import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { QueryPane } from './QueryPane'
 import { QueryVariablesMenu } from './QueryVariablesMenu'
 import { sqlEditorLogic } from './sqlEditorLogic'
@@ -62,6 +63,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId, mode }: QueryWindowPr
                     <QueryVariablesMenu
                         disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
                     />
+                    <QueryLogButton />
                 </div>
 
                 <div className="ml-auto flex items-center gap-2">
@@ -212,6 +214,26 @@ function RunButton(): JSX.Element {
                 {responseLoading ? 'Cancel' : 'Run'}
             </LemonButton>
         </AppShortcut>
+    )
+}
+
+function QueryLogButton(): JSX.Element {
+    const { activeTab } = useValues(outputPaneLogic)
+    const { setActiveTab } = useActions(outputPaneLogic)
+
+    const isActive = activeTab === OutputTab.QueryLog
+
+    return (
+        <LemonButton
+            type="secondary"
+            size="small"
+            icon={<IconClock />}
+            onClick={() => setActiveTab(isActive ? OutputTab.Results : OutputTab.QueryLog)}
+            active={isActive}
+            data-attr="sql-editor-query-log-button"
+        >
+            Query log
+        </LemonButton>
     )
 }
 

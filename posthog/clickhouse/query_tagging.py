@@ -32,6 +32,7 @@ class Product(StrEnum):
     REPLAY = "replay"
     SDK_DOCTOR = "sdk_doctor"
     SESSION_SUMMARY = "session_summary"
+    SQL_EDITOR = "sql_editor"
     WAREHOUSE = "warehouse"
     WORKFLOWS = "workflows"
 
