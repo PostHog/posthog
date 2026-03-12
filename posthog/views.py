@@ -519,32 +519,25 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
             "id": cat.id,
             "name": cat.name,
             "description": cat.public_description,
-            "status": preferences.get(str(cat.id), PreferenceStatus.NO_PREFERENCE),
+            "is_subscribed": preferences.get(str(cat.id), PreferenceStatus.NO_PREFERENCE)
+            != PreferenceStatus.OPTED_OUT.value,
         }
         for cat in categories
     ]
 
     context = {
         "recipient": recipient,
-        "categories": [
-            *categories_templating,
-            {
-                "id": ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
-                "name": "All marketing communications",
-                "description": "Unsubscribing here overrides individual preferences.",
-                "status": preferences.get(ALL_MESSAGE_PREFERENCE_CATEGORY_ID, PreferenceStatus.NO_PREFERENCE),
-            },
-        ],
+        "categories": categories_templating,
         "token": token,
+        "all_id": ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
+        "all_subscribed": preferences.get(ALL_MESSAGE_PREFERENCE_CATEGORY_ID, PreferenceStatus.NO_PREFERENCE)
+        != PreferenceStatus.OPTED_OUT.value,
     }
 
-    return render(
-        request,
-        "message_preferences/one_click_unsubscribe_success.html"
-        if is_one_click_unsubscribe
-        else "message_preferences/preferences.html",
-        context,
-    )
+    if is_one_click_unsubscribe:
+        return render(request, "message_preferences/one_click_unsubscribe_success.html", context)
+
+    return render(request, "message_preferences/preferences.html", context)
 
 
 @csrf_protect
@@ -594,11 +587,13 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
                 all_opted_out = False
 
         # If all preferences are opted out, add the "$all" preference
-        if all_opted_out and preferences_dict:
+        if all_opted_out and len(preferences_dict) > 1:
             preferences_dict[ALL_MESSAGE_PREFERENCE_CATEGORY_ID] = PreferenceStatus.OPTED_OUT.value
 
-        # Update all preferences with a single DB write
-        recipient.preferences = preferences_dict
+        # Merge with existing preferences instead of overwriting
+        existing_preferences = recipient.preferences or {}
+        existing_preferences.update(preferences_dict)
+        recipient.preferences = existing_preferences
         recipient.save()
 
         return JsonResponse({"success": True})
