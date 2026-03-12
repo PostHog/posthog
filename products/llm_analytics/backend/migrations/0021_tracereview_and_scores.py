@@ -9,7 +9,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1043_add_15_minute_interval_to_batch_exports"),
-        ("llm_analytics", "0019_scoredefinition"),
+        ("llm_analytics", "0020_scoredefinition"),
     ]
 
     operations = [
