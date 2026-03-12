@@ -1061,6 +1061,57 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
             ["referrer:news.ycombinator.com / referral / (none)", (1, None), (1, None), 1 / 2, ""],
         ] == results
 
+    def test_initial_referring_url(self):
+        d1 = "d1"
+        s1 = str(uuid7("2024-06-26"))
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d1],
+            properties={"name": d1},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-06-26",
+            properties={
+                "$session_id": s1,
+                "$referrer": "https://www.google.com/search?q=posthog",
+                "$referring_domain": "www.google.com",
+            },
+        )
+
+        d2 = "d2"
+        s2 = str(uuid7("2024-06-26"))
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d2],
+            properties={"name": d2},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d2,
+            timestamp="2024-06-26",
+            properties={
+                "$session_id": s2,
+                "$referrer": "https://news.ycombinator.com/item?id=12345",
+                "$referring_domain": "news.ycombinator.com",
+            },
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2024-06-27",
+            breakdown_by=WebStatsBreakdown.INITIAL_REFERRING_URL,
+        ).results
+
+        assert sorted(results, key=lambda r: r[0]) == [
+            ["https://news.ycombinator.com/item", (1, None), (1, None), 1 / 2, ""],
+            ["https://www.google.com/search", (1, None), (1, None), 1 / 2, ""],
+        ]
+
     def test_null_in_utm_tags(self):
         d1 = "d1"
         s1 = str(uuid7("2024-06-26"))
