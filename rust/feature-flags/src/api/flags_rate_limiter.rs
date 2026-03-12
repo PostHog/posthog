@@ -222,10 +222,10 @@ const MAX_CUSTOM_RATE_OVERRIDES: usize = crate::config::MAX_FLAGS_RATE_LIMIT_OVE
 
 /// Redacts a token for safe logging, showing only a prefix and suffix.
 fn redact_token(token: &str) -> String {
-    if token.len() <= 8 {
-        return "***".to_string();
+    match (token.get(..4), token.get(token.len().saturating_sub(4)..)) {
+        (Some(prefix), Some(suffix)) if token.len() > 8 => format!("{prefix}…{suffix}"),
+        _ => "***".to_string(),
     }
-    format!("{}…{}", &token[..4], &token[token.len() - 4..])
 }
 
 /// Token bucket rate limiter for feature flag requests.
