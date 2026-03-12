@@ -107,7 +107,7 @@ tools:
     input_schema: ActionCreateSchema # named export from src/schema/tool-inputs.ts
     list: true # marks as a list endpoint
     enrich_url: '{id}' # appended to url_prefix for result URLs
-    exclude_params: [field] # hide params from tool input
+    exclude_params: [field] # hide params from tool input (supports dot-notation for nested fields)
     include_params: [field] # whitelist params (excludes all others)
     param_overrides: # override individual param descriptions or schemas
       name:
@@ -171,3 +171,32 @@ tools:
 
 This keeps the Orval-derived schema for all other fields but replaces `steps` with `ActionStepsSchema`
 from `src/schema/tool-inputs.ts` via `.extend()`.
+
+### Nested field exclusion
+
+`exclude_params` supports dot-notation paths to exclude fields nested inside objects or arrays.
+Use `*` as a wildcard segment to navigate into array items.
+
+Exclusions are applied to the OpenAPI spec **before** Orval runs, so the generated Zod schemas
+never contain excluded fields.
+
+```yaml
+tools:
+  actions-create:
+    operation: actions_create
+    enabled: true
+    exclude_params:
+      - deleted                    # top-level field
+      - steps.*.selector_regex     # nested field in array items
+      - steps.*.properties.*.value # deeply nested via double wildcard
+      - config.remove              # nested object property (no wildcard)
+```
+
+Path syntax:
+
+| Segment | Navigates into |
+|---------|----------------|
+| `fieldName` | `properties[fieldName]` on the current schema object |
+| `*` | `items` of the current array schema |
+
+Non-existent paths are silently ignored. `$ref` references are resolved transparently at each step.
