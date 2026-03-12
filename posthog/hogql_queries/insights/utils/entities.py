@@ -8,11 +8,14 @@ from posthog.schema import (
     EventsNode,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
+    FunnelsDataWarehouseNode,
     GroupNode,
     HogQLPropertyFilter,
 )
 
 from posthog.types import AnyPropertyFilter, EntityNode, ExclusionEntityNode
+
+type DataWarehouseEntityNode = DataWarehouseNode | FunnelsDataWarehouseNode
 
 
 def is_equal_type(a: EntityNode, b: EntityNode | ExclusionEntityNode) -> bool:
@@ -20,8 +23,8 @@ def is_equal_type(a: EntityNode, b: EntityNode | ExclusionEntityNode) -> bool:
         return isinstance(b, EventsNode) or isinstance(b, FunnelExclusionEventsNode)
     if isinstance(a, ActionsNode):
         return isinstance(b, ActionsNode) or isinstance(b, FunnelExclusionActionsNode)
-    if isinstance(a, DataWarehouseNode):
-        return isinstance(b, DataWarehouseNode)
+    if isinstance(a, DataWarehouseNode) or isinstance(a, FunnelsDataWarehouseNode):
+        return isinstance(b, DataWarehouseNode) or isinstance(b, FunnelsDataWarehouseNode)
     if isinstance(a, GroupNode):
         return isinstance(b, GroupNode)
     raise ValueError(detail=f"Type comparison for {type(a)} and {type(b)} not implemented.")
@@ -59,8 +62,8 @@ def is_equal(a: EntityNode, b: EntityNode | ExclusionEntityNode, compare_propert
 
     # different data source
     if (
-        isinstance(a, DataWarehouseNode)
-        and isinstance(b, DataWarehouseNode)
+        isinstance(a, DataWarehouseEntityNode)
+        and isinstance(b, DataWarehouseEntityNode)
         and (a.id != b.id or a.id_field != b.id_field)
     ):
         return False
@@ -97,8 +100,8 @@ def is_superset(a: EntityNode, b: EntityNode | ExclusionEntityNode) -> bool:
 
 
 def _nodes_equal(
-    a_nodes: list[EventsNode | ActionsNode | DataWarehouseNode],
-    b_nodes: list[EventsNode | ActionsNode | DataWarehouseNode],
+    a_nodes: list[EventsNode | ActionsNode | DataWarehouseEntityNode],
+    b_nodes: list[EventsNode | ActionsNode | DataWarehouseEntityNode],
     compare_properties: bool,
 ) -> bool:
     """Order-independent comparison of child nodes in a GroupNode."""

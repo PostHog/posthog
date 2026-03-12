@@ -12,6 +12,7 @@ from posthog.schema import (
     DataWarehouseNode,
     EventsNode,
     FunnelAggregateByHogQL,
+    FunnelsDataWarehouseNode,
     FunnelTimeToConvertResults,
     FunnelVizType,
     GroupNode,
@@ -25,7 +26,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql
+from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql, is_data_warehouse_entity
 from posthog.hogql_queries.insights.utils.entities import is_equal, is_superset
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
@@ -211,7 +212,7 @@ class FunnelBase(ABC):
 
     def _serialize_step(
         self,
-        step: ActionsNode | EventsNode | DataWarehouseNode | GroupNode,
+        step: ActionsNode | EventsNode | DataWarehouseNode | FunnelsDataWarehouseNode | GroupNode,
         count: int,
         index: int,
         people: Optional[list[uuid.UUID]] = None,
@@ -221,7 +222,7 @@ class FunnelBase(ABC):
             step_type = "events"
         elif isinstance(step, ActionsNode):
             step_type = "actions"
-        elif isinstance(step, DataWarehouseNode):
+        elif is_data_warehouse_entity(step):
             step_type = "data_warehouse"
         elif isinstance(step, GroupNode):
             step_type = "group"
@@ -243,7 +244,7 @@ class FunnelBase(ABC):
         if isinstance(step, EventsNode):
             name = step.event
             action_id = step.event
-        elif isinstance(step, DataWarehouseNode):
+        elif is_data_warehouse_entity(step):
             name = step.table_name
             action_id = None
         elif isinstance(step, GroupNode):
@@ -259,7 +260,7 @@ class FunnelBase(ABC):
                     events.append(node.event if node.event is not None else "All events")
                 elif isinstance(node, ActionsNode):
                     events.append(actions_by_id.get(int(node.id), "Unnamed action"))
-                elif isinstance(node, DataWarehouseNode):
+                elif is_data_warehouse_entity(node):
                     events.append(node.table_name)
             name = ", ".join(events)
             action_id = name

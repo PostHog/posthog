@@ -13,6 +13,7 @@ from posthog.schema import (
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
     FunnelMathType,
+    FunnelsDataWarehouseNode,
     GroupNode,
     StepOrderValue,
 )
@@ -35,6 +36,7 @@ from posthog.hogql_queries.insights.funnels.utils import (
     data_warehouse_config_key,
     entity_config_mismatch,
     get_breakdown_expr,
+    is_data_warehouse_entity,
 )
 from posthog.hogql_queries.insights.utils.data_warehouse_schema_mixin import DataWarehouseSchemaMixin
 from posthog.hogql_queries.insights.utils.properties import Properties
@@ -42,6 +44,8 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.property.property import PropertyName
 from posthog.types import EntityNode, ExclusionEntityNode
+
+type FunnelDataWarehouseNode = DataWarehouseNode | FunnelsDataWarehouseNode
 
 
 @dataclass
@@ -106,7 +110,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
 
         # collect the steps by their source table and configuration, so we can build one query per source table/configuration
         for step_index, node in enumerate(self.context.query.series):
-            if isinstance(node, DataWarehouseNode):
+            if is_data_warehouse_entity(node):
                 # we may have multiple steps using the same data warehouse table but with different configurations
                 config_key = data_warehouse_config_key(node)
 
@@ -150,7 +154,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 queries.append(
                     self._build_data_warehouse_table_query(
                         table_config_index=config.table_config_index,
-                        steps_with_index=cast(Sequence[tuple[int, DataWarehouseNode]], config.steps_with_index),
+                        steps_with_index=cast(Sequence[tuple[int, FunnelDataWarehouseNode]], config.steps_with_index),
                         skip_step_filter=skip_step_filter,
                     )
                 )
@@ -212,7 +216,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
     def _build_data_warehouse_table_query(
         self,
         table_config_index: int,
-        steps_with_index: Sequence[tuple[int, DataWarehouseNode]],
+        steps_with_index: Sequence[tuple[int, FunnelDataWarehouseNode]],
         skip_step_filter: bool,
     ) -> ast.SelectQuery:
         table_entity = steps_with_index[0][1]
@@ -271,7 +275,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
 
     def _get_funnel_cols(
         self,
-        table_entity: Optional[DataWarehouseNode] = None,
+        table_entity: Optional[FunnelDataWarehouseNode] = None,
         table_config_index: Optional[int] = None,
     ) -> list[ast.Expr]:
         cols: list[ast.Expr] = []
@@ -300,7 +304,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
     def _get_step_col(
         self,
         step_entity: EntityNode,
-        table_entity: DataWarehouseNode | None,
+        table_entity: FunnelDataWarehouseNode | None,
         step_index: int,
     ) -> ast.Expr:
         # when the entity for which we're building the step column, is on a different table/config
@@ -313,11 +317,11 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
     def _get_exclusions_col(
         self,
         exclusions: list[ExclusionEntityNode],
-        table_entity: DataWarehouseNode | None,
+        table_entity: FunnelDataWarehouseNode | None,
         step_index: int,
     ) -> ast.Expr:
         # exclusions aren't implemented for data warehouse, yet
-        if isinstance(table_entity, DataWarehouseNode) or len(exclusions) == 0:
+        if is_data_warehouse_entity(table_entity) or len(exclusions) == 0:
             return parse_expr(f"0 as exclusion_{step_index}")
 
         conditions = [
@@ -330,7 +334,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
     def _build_step_query(
         self,
         step_entity: EntityNode | ExclusionEntityNode,
-        table_entity: DataWarehouseNode | None,
+        table_entity: FunnelDataWarehouseNode | None,
     ) -> ast.Expr:
         filters: list[ast.Expr] = []
 
@@ -341,7 +345,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             except Action.DoesNotExist:
                 raise ValidationError(f"Action ID {step_entity.id} does not exist!")
             event_expr = action_to_expr(action)
-        elif isinstance(step_entity, DataWarehouseNode):
+        elif is_data_warehouse_entity(step_entity):
             event_expr = ast.Constant(value=1)
         elif isinstance(step_entity, GroupNode):
             child_exprs = [self._build_step_query(child, table_entity) for child in step_entity.nodes]
@@ -349,7 +353,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 event_expr = ast.Or(exprs=child_exprs)
         elif step_entity.event is None:
             # all events
-            if isinstance(table_entity, DataWarehouseNode):
+            if is_data_warehouse_entity(table_entity):
                 event_expr = ast.Constant(value=0)
             else:
                 event_expr = ast.Constant(value=1)
@@ -434,7 +438,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
 
     def _get_breakdown_select_prop(
         self,
-        table_entity: Optional[DataWarehouseNode] = None,
+        table_entity: Optional[FunnelDataWarehouseNode] = None,
     ) -> list[ast.Expr]:
         default_breakdown_selector = "[]" if self._query_has_array_breakdown() else "NULL"
 
@@ -450,7 +454,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
 
         # breakdown prop
         prop_basic: ast.Expr
-        if isinstance(table_entity, DataWarehouseNode) == (breakdownType == "data_warehouse"):
+        if is_data_warehouse_entity(table_entity) == (breakdownType == "data_warehouse"):
             prop_basic = ast.Alias(alias="prop_basic", expr=self._get_breakdown_expr())
         else:
             prop_basic = parse_expr(f"{default_breakdown_selector} as prop_basic")
@@ -481,11 +485,11 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
 
     def _get_extra_fields(
         self,
-        table_entity: Optional[DataWarehouseNode] = None,
+        table_entity: Optional[FunnelDataWarehouseNode] = None,
         table_config_index: int | None = None,
     ) -> list[ast.Expr]:
         def _expr_for(field: str) -> ast.Expr:
-            if isinstance(table_entity, DataWarehouseNode):
+            if is_data_warehouse_entity(table_entity):
                 if field == "uuid":
                     resolved_field = self.get_warehouse_field(table_entity.table_name, table_entity.id_field)
                     if isinstance(resolved_field, UUIDDatabaseField):
@@ -599,7 +603,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                     events.update(action.get_step_events())
                 except Action.DoesNotExist:
                     raise ValidationError(f"Action ID {node.id} does not exist!")
-            elif isinstance(node, DataWarehouseNode):
+            elif is_data_warehouse_entity(node):
                 continue  # Data warehouse nodes aren't based on events
             elif isinstance(node, GroupNode):
                 for child in node.nodes:
@@ -611,7 +615,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                             events.update(action.get_step_events())
                         except Action.DoesNotExist:
                             raise ValidationError(f"Action ID {child.id} does not exist!")
-                    elif isinstance(child, DataWarehouseNode):
+                    elif is_data_warehouse_entity(child):
                         continue
             else:
                 raise ValidationError("Series and exclusions must be compose of action and event nodes")
