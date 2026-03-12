@@ -32,4 +32,3 @@ tools:
             changes array where each change has type, action, field, before, and after
             values), and created_at timestamp.
         mcp_version: 1
-        ui_resource_uri: ui://posthog/activity-log-list.html
