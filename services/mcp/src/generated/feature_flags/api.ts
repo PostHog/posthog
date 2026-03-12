@@ -537,6 +537,186 @@ export const FeatureFlagsCreateBody = zod.object({
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
+export const FeatureFlagsRetrieve2Params = zod.object({
+    id: zod.number().describe('A unique integer value identifying this feature flag.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const featureFlagsRetrieve2ResponseKeyMax = 400
+
+export const featureFlagsRetrieve2ResponseCreatedByOneDistinctIdMax = 200
+
+export const featureFlagsRetrieve2ResponseCreatedByOneFirstNameMax = 150
+
+export const featureFlagsRetrieve2ResponseCreatedByOneLastNameMax = 150
+
+export const featureFlagsRetrieve2ResponseCreatedByOneEmailMax = 254
+
+export const featureFlagsRetrieve2ResponseVersionDefault = 0
+export const featureFlagsRetrieve2ResponseLastModifiedByOneDistinctIdMax = 200
+
+export const featureFlagsRetrieve2ResponseLastModifiedByOneFirstNameMax = 150
+
+export const featureFlagsRetrieve2ResponseLastModifiedByOneLastNameMax = 150
+
+export const featureFlagsRetrieve2ResponseLastModifiedByOneEmailMax = 254
+
+export const featureFlagsRetrieve2ResponseShouldCreateUsageDashboardDefault = true
+
+export const FeatureFlagsRetrieve2Response = zod
+    .object({
+        id: zod.number(),
+        name: zod
+            .string()
+            .optional()
+            .describe('contains the description for the flag (field name `name` is kept for backwards-compatibility)'),
+        key: zod.string().max(featureFlagsRetrieve2ResponseKeyMax),
+        filters: zod.record(zod.string(), zod.unknown()).optional(),
+        deleted: zod.boolean().optional(),
+        active: zod.boolean().optional(),
+        created_by: zod.object({
+            id: zod.number(),
+            uuid: zod.string(),
+            distinct_id: zod.string().max(featureFlagsRetrieve2ResponseCreatedByOneDistinctIdMax).nullish(),
+            first_name: zod.string().max(featureFlagsRetrieve2ResponseCreatedByOneFirstNameMax).optional(),
+            last_name: zod.string().max(featureFlagsRetrieve2ResponseCreatedByOneLastNameMax).optional(),
+            email: zod.string().email().max(featureFlagsRetrieve2ResponseCreatedByOneEmailMax),
+            is_email_verified: zod.boolean().nullish(),
+            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
+            role_at_organization: zod
+                .union([
+                    zod
+                        .enum([
+                            'engineering',
+                            'data',
+                            'product',
+                            'founder',
+                            'leadership',
+                            'marketing',
+                            'sales',
+                            'other',
+                        ])
+                        .describe(
+                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                        ),
+                    zod.enum(['']),
+                    zod.literal(null),
+                ])
+                .nullish(),
+        }),
+        created_at: zod.string().datetime({}).optional(),
+        updated_at: zod.string().datetime({}).nullable(),
+        version: zod.number().default(featureFlagsRetrieve2ResponseVersionDefault),
+        last_modified_by: zod.object({
+            id: zod.number(),
+            uuid: zod.string(),
+            distinct_id: zod.string().max(featureFlagsRetrieve2ResponseLastModifiedByOneDistinctIdMax).nullish(),
+            first_name: zod.string().max(featureFlagsRetrieve2ResponseLastModifiedByOneFirstNameMax).optional(),
+            last_name: zod.string().max(featureFlagsRetrieve2ResponseLastModifiedByOneLastNameMax).optional(),
+            email: zod.string().email().max(featureFlagsRetrieve2ResponseLastModifiedByOneEmailMax),
+            is_email_verified: zod.boolean().nullish(),
+            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
+            role_at_organization: zod
+                .union([
+                    zod
+                        .enum([
+                            'engineering',
+                            'data',
+                            'product',
+                            'founder',
+                            'leadership',
+                            'marketing',
+                            'sales',
+                            'other',
+                        ])
+                        .describe(
+                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                        ),
+                    zod.enum(['']),
+                    zod.literal(null),
+                ])
+                .nullish(),
+        }),
+        ensure_experience_continuity: zod.boolean().nullish(),
+        experiment_set: zod.array(zod.number()),
+        surveys: zod.record(zod.string(), zod.unknown()),
+        features: zod.record(zod.string(), zod.unknown()),
+        rollback_conditions: zod.unknown().nullish(),
+        performed_rollback: zod.boolean().nullish(),
+        can_edit: zod.boolean(),
+        tags: zod.array(zod.unknown()).optional(),
+        evaluation_tags: zod.array(zod.unknown()).optional(),
+        usage_dashboard: zod.number(),
+        analytics_dashboards: zod.array(zod.number()).optional(),
+        has_enriched_analytics: zod.boolean().nullish(),
+        user_access_level: zod.string().nullable().describe('The effective access level the user has for this object'),
+        creation_context: zod
+            .enum([
+                'feature_flags',
+                'experiments',
+                'surveys',
+                'early_access_features',
+                'web_experiments',
+                'product_tours',
+            ])
+            .describe(
+                '* `feature_flags` - feature_flags\n* `experiments` - experiments\n* `surveys` - surveys\n* `early_access_features` - early_access_features\n* `web_experiments` - web_experiments\n* `product_tours` - product_tours'
+            )
+            .optional()
+            .describe(
+                "Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.\n\n* `feature_flags` - feature_flags\n* `experiments` - experiments\n* `surveys` - surveys\n* `early_access_features` - early_access_features\n* `web_experiments` - web_experiments\n* `product_tours` - product_tours"
+            ),
+        is_remote_configuration: zod.boolean().nullish(),
+        has_encrypted_payloads: zod.boolean().nullish(),
+        status: zod.string(),
+        evaluation_runtime: zod
+            .union([
+                zod
+                    .enum(['server', 'client', 'all'])
+                    .describe('* `server` - Server\n* `client` - Client\n* `all` - All'),
+                zod.enum(['']),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'Specifies where this feature flag should be evaluated\n\n* `server` - Server\n* `client` - Client\n* `all` - All'
+            ),
+        bucketing_identifier: zod
+            .union([
+                zod
+                    .enum(['distinct_id', 'device_id'])
+                    .describe('* `distinct_id` - User ID (default)\n* `device_id` - Device ID'),
+                zod.enum(['']),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'Identifier used for bucketing users into rollout and variants\n\n* `distinct_id` - User ID (default)\n* `device_id` - Device ID'
+            ),
+        last_called_at: zod
+            .string()
+            .datetime({})
+            .nullish()
+            .describe('Last time this feature flag was called (from $feature_flag_called events)'),
+        _create_in_folder: zod.string().optional(),
+        _should_create_usage_dashboard: zod
+            .boolean()
+            .default(featureFlagsRetrieve2ResponseShouldCreateUsageDashboardDefault),
+        is_used_in_replay_settings: zod
+            .boolean()
+            .describe("Check if this feature flag is used in any team's session recording linked flag setting."),
+    })
+    .describe('Serializer mixin that handles tags for objects.')
+
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+
+If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
 export const FeatureFlagsPartialUpdateParams = zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
     project_id: zod
