@@ -35,6 +35,7 @@ import {
     isInsightQueryNode,
     isInsightVizNode,
     isNodeWithSource,
+    isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
 import { PROPERTY_KEYS } from '~/taxonomy/taxonomy'
