@@ -273,7 +273,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                 actions.setQuery({
                     ...query,
                     source: values.queryPropertyCache
-                        ? mergeCachedProperties(query.source, values.queryPropertyCache, values.featureFlags)
+                        ? mergeCachedProperties(query.source, values.queryPropertyCache)
                         : query.source,
                 } as InsightVizNode)
             } else {
@@ -333,11 +333,7 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
     return newCache
 }
 
-const mergeCachedProperties = (
-    query: InsightQueryNode,
-    cache: QueryPropertyCache,
-    featureFlags: Record<string, boolean | string | undefined>
-): InsightQueryNode => {
+const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCache): InsightQueryNode => {
     const mergedQuery = {
         ...query,
         ...(cache.dateRange ? { dateRange: cache.dateRange } : {}),
@@ -352,11 +348,8 @@ const mergeCachedProperties = (
                 // Trends supports GroupNode, keep series as-is
                 mergedQuery.series = cleanSeriesMath(cache.series, MathAvailability.All) as TrendsQuery['series']
             } else if (isFunnelsQuery(mergedQuery)) {
-                // Funnels supports GroupNode behind a feature flag, keep series as-is when the flag is enabled
-                const supportsCombinedEvents =
-                    !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_EVENTS_COMBINATION_IN_FUNNELS]
                 mergedQuery.series = cleanSeriesMath(
-                    supportsCombinedEvents ? cache.series : expandGroupNodes(cache.series),
+                    cache.series,
                     MathAvailability.FunnelsOnly
                 ) as FunnelsQuery['series']
             } else {
