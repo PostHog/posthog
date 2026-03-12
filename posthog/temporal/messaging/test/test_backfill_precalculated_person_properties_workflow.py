@@ -3,8 +3,6 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesInputs,
-    CohortFilters,
-    PersonPropertyFilter,
     backfill_precalculated_person_properties_activity,
     flush_kafka_batch,
 )
@@ -290,35 +288,19 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             },
         ]
 
-        # Create multiple cohort filters
-        cohort_filters = [
-            CohortFilters(
-                cohort_id=100,
-                filters=[
-                    PersonPropertyFilter(
-                        condition_hash="age_filter_25",
-                        bytecode=["mock_bytecode_age_25"],
-                    ),
-                    PersonPropertyFilter(
-                        condition_hash="country_filter_us",
-                        bytecode=["mock_bytecode_country_us"],
-                    ),
-                ],
-            ),
-            CohortFilters(
-                cohort_id=200,
-                filters=[
-                    PersonPropertyFilter(
-                        condition_hash="age_filter_35",
-                        bytecode=["mock_bytecode_age_35"],
-                    ),
-                ],
-            ),
-        ]
+        # Create deduplicated conditions structure
+        # Cohort 100: age_filter_25, country_filter_us
+        # Cohort 200: age_filter_35
+        deduplicated_conditions = {
+            "age_filter_25": (["mock_bytecode_age_25"], {100}),
+            "country_filter_us": (["mock_bytecode_country_us"], {100}),
+            "age_filter_35": (["mock_bytecode_age_35"], {200}),
+        }
 
         inputs = BackfillPrecalculatedPersonPropertiesInputs(
             team_id=1,
-            cohort_filters=cohort_filters,
+            deduplicated_conditions=deduplicated_conditions,
+            cohort_ids=[100, 200],
             batch_size=100,
             offset=0,
             limit=2,
