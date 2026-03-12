@@ -895,7 +895,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_loads_status_when_enabled_and_available(self, *args):
-        with patch("posthog.plugins.plugin_server_api.requests.get") as mock_get:
+        with patch("posthog.plugins.plugin_server_api.internal_requests.get") as mock_get:
             mock_get.return_value.status_code = status.HTTP_200_OK
             mock_get.return_value.json.return_value = {
                 "state": 1,
@@ -915,7 +915,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             }
 
     def test_does_not_crash_when_status_not_available(self, *args):
-        with patch("posthog.plugins.plugin_server_api.requests.get") as mock_get:
+        with patch("posthog.plugins.plugin_server_api.internal_requests.get") as mock_get:
             # Mock the api actually throwing fully
             mock_get.side_effect = lambda x: Exception("oh no")
 
@@ -930,8 +930,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_patches_status_on_enabled_update(self, *args):
         internal_api_secret = "test-internal-secret"
         internal_api_headers = {"x-internal-api-secret": internal_api_secret}
-        with patch("posthog.plugins.plugin_server_api.requests.get") as mock_get:
-            with patch("posthog.plugins.plugin_server_api.requests.patch") as mock_patch:
+        with patch("posthog.plugins.plugin_server_api.internal_requests.get") as mock_get:
+            with patch("posthog.plugins.plugin_server_api.internal_requests.patch") as mock_patch:
                 with patch("posthog.plugins.plugin_server_api.INTERNAL_API_SECRET", internal_api_secret):
                     mock_get.return_value.status_code = status.HTTP_200_OK
                     mock_get.return_value.json.return_value = {

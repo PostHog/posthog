@@ -828,6 +828,11 @@ export type HogQLQueryApiValues = { [key: string]: unknown } | null | null
 export type HogQLQueryApiVariables = { [key: string]: HogQLVariableApi } | null | null
 
 export interface HogQLQueryApi {
+    /**
+     * Optional direct external data source id for running against a specific source
+     * @nullable
+     */
+    connectionId?: string | null
     /** @nullable */
     explain?: boolean | null
     filters?: HogQLFiltersApi | null
@@ -3265,6 +3270,7 @@ export const WebStatsBreakdownApi = {
     ScreenName: 'ScreenName',
     InitialChannelType: 'InitialChannelType',
     InitialReferringDomain: 'InitialReferringDomain',
+    InitialReferringURL: 'InitialReferringURL',
     InitialUTMSource: 'InitialUTMSource',
     InitialUTMCampaign: 'InitialUTMCampaign',
     InitialUTMMedium: 'InitialUTMMedium',

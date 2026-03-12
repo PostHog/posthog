@@ -22,6 +22,8 @@ import posthoganalytics
 from prometheus_client import Counter, Histogram
 from pydantic import BaseModel, ConfigDict
 
+from posthog.errors import clickhouse_error_type
+
 if TYPE_CHECKING:
     from rest_framework.request import Request
 
@@ -121,7 +123,7 @@ logger = structlog.get_logger(__name__)
 QUERY_EXECUTION_TOTAL = Counter(
     "posthog_query_execution_total",
     "Query executions by status",
-    labelnames=["query_type", "status"],
+    labelnames=["query_type", "status", "error_type"],
 )
 
 QUERY_EXECUTION_DURATION = Histogram(
@@ -1399,9 +1401,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query_start = perf_counter()
             try:
                 query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=dashboard_id)
-                QUERY_EXECUTION_TOTAL.labels(query_type=query_type, status="success").inc()
-            except Exception:
-                QUERY_EXECUTION_TOTAL.labels(query_type=query_type, status="failure").inc()
+                QUERY_EXECUTION_TOTAL.labels(query_type=query_type, status="success", error_type="none").inc()
+            except Exception as e:
+                QUERY_EXECUTION_TOTAL.labels(
+                    query_type=query_type, status="failure", error_type=clickhouse_error_type(e)
+                ).inc()
                 raise
             finally:
                 QUERY_EXECUTION_DURATION.labels(query_type=query_type).observe(perf_counter() - query_start)

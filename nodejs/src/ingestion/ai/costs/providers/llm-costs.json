@@ -1302,8 +1302,9 @@
         "model": "deepseek/deepseek-v3.2",
         "cost": {
             "default": {
-                "prompt_token": 2.5e-7,
-                "completion_token": 4e-7
+                "prompt_token": 2.6e-7,
+                "completion_token": 3.8e-7,
+                "cache_read_token": 1.3e-7
             },
             "atlas-cloud-fast": {
                 "prompt_token": 5e-7,
@@ -1330,8 +1331,8 @@
                 "completion_token": 0.00000168
             },
             "ionstream-fp8": {
-                "prompt_token": 2.5e-7,
-                "completion_token": 4e-7
+                "prompt_token": 2.7e-7,
+                "completion_token": 4.1e-7
             },
             "novita-fp8": {
                 "prompt_token": 2.69e-7,
@@ -2558,6 +2559,10 @@
                 "prompt_token": 1e-7,
                 "completion_token": 3.2e-7
             },
+            "akash-fp16": {
+                "prompt_token": 1.3e-7,
+                "completion_token": 4e-7
+            },
             "cloudflare-fp8": {
                 "prompt_token": 2.9e-7,
                 "completion_token": 0.00000225
@@ -3037,6 +3042,10 @@
                 "completion_token": 2e-7
             },
             "mistral": {
+                "prompt_token": 2e-7,
+                "completion_token": 2e-7
+            },
+            "nextbit-fp8": {
                 "prompt_token": 2e-7,
                 "completion_token": 2e-7
             }
@@ -3704,6 +3713,19 @@
                 "completion_token": 0
             },
             "nvidia-bf16": {
+                "prompt_token": 0,
+                "completion_token": 0
+            }
+        }
+    },
+    {
+        "model": "nvidia/nemotron-3-super-120b-a12b:free",
+        "cost": {
+            "default": {
+                "prompt_token": 0,
+                "completion_token": 0
+            },
+            "nvidia": {
                 "prompt_token": 0,
                 "completion_token": 0
             }
@@ -5784,12 +5806,12 @@
         "model": "qwen/qwen3-next-80b-a3b-thinking",
         "cost": {
             "default": {
-                "prompt_token": 1.5e-7,
-                "completion_token": 0.0000012
+                "prompt_token": 9.75e-8,
+                "completion_token": 7.8e-7
             },
             "alibaba": {
-                "prompt_token": 3.25e-7,
-                "completion_token": 0.0000039
+                "prompt_token": 9.75e-8,
+                "completion_token": 7.8e-7
             },
             "atlas-cloud-fp8": {
                 "prompt_token": 1.5e-7,
@@ -5854,12 +5876,12 @@
         "model": "qwen/qwen3-vl-235b-a22b-thinking",
         "cost": {
             "default": {
-                "prompt_token": 0,
-                "completion_token": 0
+                "prompt_token": 2.6e-7,
+                "completion_token": 0.0000026
             },
             "alibaba": {
-                "prompt_token": 0,
-                "completion_token": 0
+                "prompt_token": 2.6e-7,
+                "completion_token": 0.0000026
             },
             "novita-bf16": {
                 "prompt_token": 9.8e-7,
@@ -5904,12 +5926,12 @@
         "model": "qwen/qwen3-vl-30b-a3b-thinking",
         "cost": {
             "default": {
-                "prompt_token": 0,
-                "completion_token": 0
+                "prompt_token": 1.3e-7,
+                "completion_token": 0.00000156
             },
             "alibaba": {
-                "prompt_token": 0,
-                "completion_token": 0
+                "prompt_token": 1.3e-7,
+                "completion_token": 0.00000156
             },
             "novita-fp16": {
                 "prompt_token": 2e-7,
@@ -6033,8 +6055,8 @@
                 "cache_read_token": 2.25e-7
             },
             "ionstream-fp8": {
-                "prompt_token": 2.2e-7,
-                "completion_token": 0.000001
+                "prompt_token": 2.4e-7,
+                "completion_token": 0.0000018
             },
             "parasail-fp8": {
                 "prompt_token": 2.5e-7,
@@ -6294,10 +6316,6 @@
         "model": "thedrummer/cydonia-24b-v4.1",
         "cost": {
             "default": {
-                "prompt_token": 3e-7,
-                "completion_token": 5e-7
-            },
-            "nextbit-bf16": {
                 "prompt_token": 3e-7,
                 "completion_token": 5e-7
             },
@@ -6587,11 +6605,6 @@
                 "prompt_token": 9e-8,
                 "completion_token": 2.9e-7,
                 "cache_read_token": 4.5e-8
-            },
-            "novita": {
-                "prompt_token": 1e-7,
-                "completion_token": 3e-7,
-                "cache_read_token": 2e-8
             },
             "xiaomi-fp8": {
                 "prompt_token": 1e-7,
@@ -6908,6 +6921,11 @@
             "gmicloud-fp8": {
                 "prompt_token": 0.000001,
                 "completion_token": 0.0000032
+            },
+            "io-net-fp8": {
+                "prompt_token": 9.4e-7,
+                "completion_token": 0.000003,
+                "cache_read_token": 4.7e-7
             },
             "novita-fp8": {
                 "prompt_token": 0.000001,

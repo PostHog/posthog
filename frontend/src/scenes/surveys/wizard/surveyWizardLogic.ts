@@ -58,7 +58,7 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
             teamLogic,
             ['addProductIntent'],
         ],
-        values: [surveyLogic({ id: props.id }), ['survey', 'surveyLoading']],
+        values: [surveyLogic({ id: props.id }), ['survey', 'surveyLoading'], teamLogic, ['currentTeam']],
     })),
 
     actions({
@@ -245,6 +245,7 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
             actions.setSurveyValue('appearance', {
                 ...defaultSurveyAppearance,
                 ...themeAppearance,
+                ...values.currentTeam?.survey_config?.appearance,
                 ...cleanTemplateBehavior,
             })
 
