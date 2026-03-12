@@ -122,10 +122,13 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        batch_size = options["batch_size"]
+        if batch_size < 1:
+            raise CommandError("--batch-size must be at least 1")
+
         team_id = options["team_id"]
         action = options["action"]
         dry_run = options["dry_run"]
-        batch_size = options["batch_size"]
 
         try:
             team = Team.objects.get(id=team_id)
