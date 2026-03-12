@@ -17778,17 +17778,33 @@ export namespace Schemas {
     } as const;
 
     export interface ProxyRecord {
+      /** Unique identifier for the proxy record. */
       readonly id: string;
-      /** @maxLength 64 */
+      /** The custom domain to proxy through, e.g. 'e.example.com'. Must be a valid subdomain you control. */
       domain: string;
+      /** The CNAME target to add as a DNS record for your domain. Point your domain's CNAME to this value. */
       readonly target_cname: string;
+      /** Current provisioning status. Values: waiting (DNS verification pending), issuing (SSL certificate being issued), valid (proxy is live and working), warning (proxy has issues but is operational), erroring (proxy setup failed), deleting (removal in progress), timed_out (DNS verification timed out).
+
+    * `waiting` - Waiting
+    * `issuing` - Issuing
+    * `valid` - Valid
+    * `warning` - Warning
+    * `erroring` - Erroring
+    * `deleting` - Deleting
+    * `timed_out` - Timed Out */
       readonly status: ProxyRecordStatusEnum;
-      /** @nullable */
+      /**
+       * Human-readable status message with details about errors or warnings, if any.
+       * @nullable
+       */
       readonly message: string | null;
+      /** When this proxy record was created. */
       readonly created_at: string;
+      /** When this proxy record was last updated. */
       readonly updated_at: string;
-      /** @nullable */
-      readonly created_by: number | null;
+      /** ID of the user who created this proxy record. */
+      readonly created_by: number;
     }
 
     export interface PaginatedProxyRecordList {
@@ -21232,17 +21248,33 @@ export namespace Schemas {
     }
 
     export interface PatchedProxyRecord {
+      /** Unique identifier for the proxy record. */
       readonly id?: string;
-      /** @maxLength 64 */
+      /** The custom domain to proxy through, e.g. 'e.example.com'. Must be a valid subdomain you control. */
       domain?: string;
+      /** The CNAME target to add as a DNS record for your domain. Point your domain's CNAME to this value. */
       readonly target_cname?: string;
+      /** Current provisioning status. Values: waiting (DNS verification pending), issuing (SSL certificate being issued), valid (proxy is live and working), warning (proxy has issues but is operational), erroring (proxy setup failed), deleting (removal in progress), timed_out (DNS verification timed out).
+
+    * `waiting` - Waiting
+    * `issuing` - Issuing
+    * `valid` - Valid
+    * `warning` - Warning
+    * `erroring` - Erroring
+    * `deleting` - Deleting
+    * `timed_out` - Timed Out */
       readonly status?: ProxyRecordStatusEnum;
-      /** @nullable */
+      /**
+       * Human-readable status message with details about errors or warnings, if any.
+       * @nullable
+       */
       readonly message?: string | null;
+      /** When this proxy record was created. */
       readonly created_at?: string;
+      /** When this proxy record was last updated. */
       readonly updated_at?: string;
-      /** @nullable */
-      readonly created_by?: number | null;
+      /** ID of the user who created this proxy record. */
+      readonly created_by?: number;
     }
 
     export interface PatchedQueryTabState {
