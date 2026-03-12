@@ -882,7 +882,7 @@ def create_group_type_mapping_detail_dashboard(group_type_mapping, user) -> Dash
 def create_data_ops_dashboard(team, user) -> Dashboard:
     """
     Creates the default data ops overview dashboard for a team.
-    Starts empty — tiles can be added by the user or seeded by future code.
+    Seeded with a starter tile — users can add more to track sync health, row counts, etc.
     """
     dashboard = Dashboard.objects.create(
         name="Data ops overview",
@@ -891,6 +891,48 @@ def create_data_ops_dashboard(team, user) -> Dashboard:
         created_by=user,
         creation_mode="template",
     )
+
+    _create_tile_for_insight(
+        dashboard,
+        name="Data Ops Overview",
+        description="",
+        query={
+            "kind": "InsightVizNode",
+            "source": {
+                "kind": "TrendsQuery",
+                "series": [
+                    {
+                        "kind": "EventsNode",
+                        "math": "total",
+                        "name": "All events",
+                        "event": None,
+                    }
+                ],
+                "version": 2,
+                "interval": "hour",
+                "dateRange": {
+                    "date_to": None,
+                    "date_from": "-24h",
+                    "explicitDate": False,
+                },
+                "trendsFilter": {"display": "BoldNumber"},
+                "compareFilter": {"compare": True, "compare_to": "-1w"},
+            },
+        },
+        layouts={
+            "sm": {
+                "h": 3,
+                "w": 2,
+                "x": 0,
+                "y": 0,
+                "minH": 1,
+                "minW": 1,
+            },
+        },
+        color=None,
+        user=user,
+    )
+
     return dashboard
 
 
