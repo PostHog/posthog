@@ -595,7 +595,6 @@ def _backfill_thread_replies(
     ticket: Ticket,
     channel: str,
     thread_ts: str,
-    slack_team_id: str | None,
 ) -> None:
     """Fetch existing thread replies and add them as comments on the ticket."""
     try:
@@ -752,4 +751,4 @@ def handle_support_reaction(event: dict, team: Team, slack_team_id: str) -> None
     )
 
     if ticket:
-        _backfill_thread_replies(client, team, ticket, channel, message_ts, slack_team_id)
+        _backfill_thread_replies(client, team, ticket, channel, message_ts)
