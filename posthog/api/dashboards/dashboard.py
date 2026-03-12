@@ -321,18 +321,19 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
         if not value:
             return []
 
+        normalized = []
         for v in value:
             try:
-                uuid.UUID(v)
+                normalized.append(str(uuid.UUID(v)))
             except ValueError:
                 raise serializers.ValidationError(f"Invalid UUID: {v}")
 
-        valid_ids = self._filter_out_non_existing_quick_filter_ids(value, self.context["get_team"]().id)
-        if len(valid_ids) != len(value):
-            missing = [v for v in value if v not in valid_ids]
+        valid_ids = self._filter_out_non_existing_quick_filter_ids(normalized, self.context["get_team"]().id)
+        if len(valid_ids) != len(normalized):
+            missing = [v for v in normalized if v not in valid_ids]
             raise serializers.ValidationError(f"Quick filters not found: {', '.join(missing)}")
 
-        return value
+        return normalized
 
 
 class DashboardSerializer(DashboardMetadataSerializer):
