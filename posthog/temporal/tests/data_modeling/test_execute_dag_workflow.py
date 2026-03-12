@@ -65,7 +65,7 @@ class TestGetDagStructureActivity:
         # source table (not executable)
         source_node = await database_sync_to_async(Node.objects.create)(
             team=ateam,
-            dag=adag,
+            dag_fk=adag,
             dag_id_text="test-dag",
             name="events",
             type=NodeType.TABLE,
@@ -75,7 +75,7 @@ class TestGetDagStructureActivity:
         for query in saved_queries:
             node = await database_sync_to_async(Node.objects.create)(
                 team=ateam,
-                dag=adag,
+                dag_fk=adag,
                 dag_id_text="test-dag",
                 name=query.name,
                 type=NodeType.MAT_VIEW,
@@ -93,7 +93,7 @@ class TestGetDagStructureActivity:
         source, model_a, model_b, model_c = dag_nodes
         edge1 = await database_sync_to_async(Edge.objects.create)(
             team=ateam,
-            dag=adag,
+            dag_fk=adag,
             dag_id_text="test-dag",
             source=source,
             target=model_a,
@@ -101,7 +101,7 @@ class TestGetDagStructureActivity:
         edges.append(edge1)
         edge2 = await database_sync_to_async(Edge.objects.create)(
             team=ateam,
-            dag=adag,
+            dag_fk=adag,
             dag_id_text="test-dag",
             source=model_a,
             target=model_b,
@@ -109,7 +109,7 @@ class TestGetDagStructureActivity:
         edges.append(edge2)
         edge3 = await database_sync_to_async(Edge.objects.create)(
             team=ateam,
-            dag=adag,
+            dag_fk=adag,
             dag_id_text="test-dag",
             source=model_a,
             target=model_c,
@@ -166,14 +166,14 @@ class TestGetDagStructureActivity:
         )
         mat_node = await database_sync_to_async(Node.objects.create)(
             team=ateam,
-            dag=dag,
+            dag_fk=dag,
             dag_id_text="test-ephemeral-dag",
             type=NodeType.MAT_VIEW,
             saved_query=mat_query,
         )
         ephemeral_node = await database_sync_to_async(Node.objects.create)(
             team=ateam,
-            dag=dag,
+            dag_fk=dag,
             dag_id_text="test-ephemeral-dag",
             type=NodeType.VIEW,
             saved_query=ephemeral_query,
