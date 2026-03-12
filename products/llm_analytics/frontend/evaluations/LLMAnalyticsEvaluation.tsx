@@ -185,6 +185,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                     type="button"
                     className="flex items-center gap-2 cursor-pointer select-none py-2 bg-transparent border-0 p-0"
                     aria-expanded={settingsExpanded}
+                    data-attr="llma-evaluation-settings-toggle"
                     onClick={() => setSettingsExpanded(!settingsExpanded)}
                 >
                     {settingsExpanded ? (
