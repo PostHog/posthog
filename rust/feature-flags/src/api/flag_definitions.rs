@@ -355,7 +355,7 @@ async fn authenticate_flag_definitions(
         if result.is_ok() {
             inc(
                 FLAG_DEFINITIONS_AUTH_COUNTER,
-                &[("method".to_string(), "secret_api_token".to_string())],
+                &[("method".to_string(), "secret_api_key".to_string())],
                 1,
             );
         }
