@@ -43,9 +43,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         self.source_query_runner: Optional[QueryRunner] = None
 
         if self.query.source:
-            self.source_query_runner = get_query_runner(
-                self.query.source, self.team, self.timings, self.limit_context, request=self.request
-            )
+            self.source_query_runner = get_query_runner(self.query.source, self.team, self.timings, self.limit_context)
             self.modifiers = self.source_query_runner.modifiers
         else:
             # For direct person queries (no source), ensure we use V2 to get latest person data only

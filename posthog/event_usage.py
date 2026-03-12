@@ -7,9 +7,6 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, NotRequired, Optional, Required, TypedDict
 from urllib.parse import urlparse
 
-if TYPE_CHECKING:
-    from rest_framework.request import Request
-
 from django.contrib.auth.models import AnonymousUser
 
 import posthoganalytics
@@ -20,6 +17,9 @@ from posthog.models.activity_logging.model_activity import is_impersonated_sessi
 from posthog.models.team import Team
 from posthog.settings import SITE_URL
 from posthog.utils import get_instance_realm
+
+if TYPE_CHECKING:
+    from rest_framework.request import Request
 
 
 def report_user_signed_up(

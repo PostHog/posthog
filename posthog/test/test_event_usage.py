@@ -146,7 +146,12 @@ class TestReportUserAction(BaseTest):
         factory = APIRequestFactory()
         request = factory.get("/fake", headers=headers)
 
-        report_user_action(self.user, "test event", properties=explicit_properties, request=request)
+        report_user_action(
+            self.user,
+            "test event",
+            properties=explicit_properties,
+            request=request,
+        )
 
         mock_capture.assert_called_once()
         captured_props = mock_capture.call_args[1]["properties"]
