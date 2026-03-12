@@ -149,11 +149,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Search mode: '/' to enter, type to filter, enter to confirm,
 		// esc to clear, n/N to navigate matches.
 		if m.searchMode {
-			switch s := msg.String(); {
-			case s == "ctrl+c":
-				m.mgr.StopAll()
-				return m, tea.Quit
-			case s == "esc":
+			s := msg.String()
+			switch {
+			case key.Matches(msg, m.keys.Quit), key.Matches(msg, m.keys.CopyEsc):
 				m.searchMode = false
 				m.searchQuery = ""
 				m.searchMatches = nil
@@ -173,6 +171,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.searchQuery = string(runes[:len(runes)-1])
 					m.recomputeSearch()
 				}
+			case key.Matches(msg, m.keys.Search):
+				// Ignore repeated '/' while already searching.
 			default:
 				var ch string
 				if s == "space" {
@@ -190,11 +190,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Copy mode consumes most keys. First press 'c' to enter,
 		// navigate with ↑/↓, press 'c' again to set the selection anchor, then
-		// navigate to extend the selection, then 'c' to yank. Press 'q' or 'esc' to exit.
+		// navigate to extend the selection, then 'c' to yank.
 		if m.copyMode {
 			switch {
-			case key.Matches(msg, m.keys.Quit):
-			case key.Matches(msg, m.keys.CopyEsc):
+			case key.Matches(msg, m.keys.Quit), key.Matches(msg, m.keys.CopyEsc):
 				m.dbg("copy mode: exit")
 				m.copyMode = false
 				m.applyCopyStyle()
@@ -480,7 +479,7 @@ func (m Model) applySize() Model {
 	if ptyW < 1 {
 		ptyW = 1
 	}
-	// Reduce the viewport width by 2 chars for left/right borders, plus 1 for right border overlap
+	// Reduce the viewport widthto account for borders
 	vpW := ptyW - horizontalBorderCount
 	if m.copyMode {
 		vpW = m.width - horizontalBorderCount
@@ -607,8 +606,7 @@ func (m Model) copySelectedText() string {
 	return sb.String()
 }
 
-// Recomputes searchMatches from current process output and refreshes StyleLineFunc.
-// Does not scroll the viewport.
+// Recomputes searchMatches from current process output
 func (m *Model) recomputeSearch() {
 	if m.searchQuery == "" {
 		m.searchMatches = nil

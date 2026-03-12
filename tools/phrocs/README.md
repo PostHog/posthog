@@ -32,8 +32,8 @@ You typically run phrocs via `hogli dev` rather than directly.
 | Key    | Action                                          |
 | ------ | ----------------------------------------------- |
 | `tab`  | Swap focus sidebar/output                       |
-| `↓`    | Next process (sidebar) / scroll down (output)   |
-| `↑`    | Previous process (sidebar) / scroll up (output) |
+| `↓/k`  | Next process (sidebar) / scroll down (output)   |
+| `↑/j`  | Previous process (sidebar) / scroll up (output) |
 | `pgdn` | Scroll output down                              |
 | `pgup` | Scroll output up                                |
 | `home` | Jump to top of output                           |
@@ -41,6 +41,8 @@ You typically run phrocs via `hogli dev` rather than directly.
 | `r`    | Restart selected process                        |
 | `s`    | Stop selected process                           |
 | `c`    | Enter copy mode (output pane)                   |
+| `/`    | Enter search mode                               |
+| `esc`  | Exit copy mode or clear search                  |
 | `d`    | Open lazydocker (only if installed)             |
 | `?`    | Toggle full help                                |
 | `q`    | Quit                                            |
@@ -52,6 +54,12 @@ Mouse clicks switch focus; mouse wheel scrolls the output pane.
 Press `c` to enter copy mode in the output pane.
 Navigate with `↑`/`↓`, press `c` again to mark the selection start, then extend with `↑`/`↓` and press `c` to copy to clipboard.
 Press `esc` to exit without copying.
+
+### Search mode
+
+Press `/` to enter search mode, type a query, then press `enter` to keep highlights active.
+Use `n` and `N` to jump between matches.
+Press `esc` to clear the active search.
 
 ## Debug logging
 

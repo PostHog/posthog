@@ -3,23 +3,23 @@ package tui
 import "charm.land/bubbles/v2/key"
 
 type keyMap struct {
-	PrevProc    key.Binding
-	NextProc    key.Binding
-	ScrollUp    key.Binding
-	ScrollDown  key.Binding
-	GotoTop     key.Binding
-	GotoBottom  key.Binding
-	SwapFocus   key.Binding
-	Restart     key.Binding
-	Stop        key.Binding
-	Docker      key.Binding
-	CopyMode    key.Binding
-	CopyEsc     key.Binding
-	Search      key.Binding
-	SearchNext  key.Binding
-	SearchPrev  key.Binding
-	Quit        key.Binding
-	Help        key.Binding
+	PrevProc   key.Binding
+	NextProc   key.Binding
+	ScrollUp   key.Binding
+	ScrollDown key.Binding
+	GotoTop    key.Binding
+	GotoBottom key.Binding
+	SwapFocus  key.Binding
+	Restart    key.Binding
+	Stop       key.Binding
+	Docker     key.Binding
+	CopyMode   key.Binding
+	CopyEsc    key.Binding
+	Search     key.Binding
+	SearchNext key.Binding
+	SearchPrev key.Binding
+	Quit       key.Binding
+	Help       key.Binding
 }
 
 func defaultKeyMap() keyMap {

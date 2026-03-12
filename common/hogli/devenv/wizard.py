@@ -142,7 +142,7 @@ def _show_config_summary(config: DevenvConfig) -> None:
     if config.enable_autostart:
         click.echo(f"  Auto-start: {', '.join(config.enable_autostart)}")
     if config.log_to_files:
-        click.echo(" Log mode: output → /tmp/posthog-*.log   status → /tmp/posthog-*.json")
+        click.echo("  Log mode: output → /tmp/posthog-*.log   status → /tmp/posthog-*.json")
 
 
 def _setup_from_intents(intent_map: IntentMap) -> DevenvConfig:
