@@ -785,7 +785,7 @@ class RunSavedQueryRateThrottle(PersonalApiKeyRateThrottle):
     # Rate limit running a saved query per saved query per team.
     # Prevents agents from running the same query repeatedly without reason.
     scope = "saved_query"
-    rate = "1/minute"
+    rate = "10/minute"
 
     def get_cache_key(self, request, view):
         team_id = self.safely_get_team_id_from_view(view)
