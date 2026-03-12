@@ -3,9 +3,11 @@ import time
 
 from posthog.test.base import APIBaseTest
 
+from django.conf import settings
 from django.core.cache import cache
 from django.test import override_settings
 
+from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models.user import User
 
 from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
@@ -73,7 +75,14 @@ class TestAgenticAuthorize(APIBaseTest):
         assert code_data["team_id"] == self.team.id
         assert code_data["scopes"] == ["query:read", "project:read"]
 
-    @override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET, STRIPE_ORCHESTRATOR_CALLBACK_URL=DUMMY_CALLBACK)
+    @override_settings(
+        STRIPE_APP_SECRET_KEY=HMAC_SECRET,
+        STRIPE_ORCHESTRATOR_CALLBACK_URL=DUMMY_CALLBACK,
+        OAUTH2_PROVIDER={
+            **settings.OAUTH2_PROVIDER,
+            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+        },
+    )
     def test_full_a1_flow_with_token_exchange(self):
         self._set_pending_auth("state_e2e", self.user.email)
 

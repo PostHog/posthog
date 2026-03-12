@@ -3,6 +3,9 @@ import random
 
 import pytest
 
+from django.conf import settings
+from django.test import override_settings
+
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Integration, OAuthApplication, Organization, OrganizationMembership, Team, User
@@ -24,17 +27,24 @@ def activity_environment():
 @pytest.fixture(autouse=True)
 def array_oauth_app():
     """Create the Array OAuth application for tests."""
-    app, _ = OAuthApplication.objects.get_or_create(
-        client_id=ARRAY_APP_CLIENT_ID_DEV,
-        defaults={
-            "name": "Array Test App",
-            "client_type": OAuthApplication.CLIENT_PUBLIC,
-            "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            "redirect_uris": "https://app.posthog.com/callback",
-            "algorithm": "RS256",
-        },
-    )
-    yield app
+    from posthog.api.oauth.test_dcr import generate_rsa_key
+
+    oauth2_settings = {
+        **settings.OAUTH2_PROVIDER,
+        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+    }
+    with override_settings(OAUTH2_PROVIDER=oauth2_settings):
+        app, _ = OAuthApplication.objects.get_or_create(
+            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            defaults={
+                "name": "Array Test App",
+                "client_type": OAuthApplication.CLIENT_PUBLIC,
+                "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                "redirect_uris": "https://app.posthog.com/callback",
+                "algorithm": "RS256",
+            },
+        )
+        yield app
 
 
 @pytest.fixture
