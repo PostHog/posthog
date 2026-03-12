@@ -14,42 +14,37 @@ class TestProxyRecordAPI(APIBaseTest):
         super().setUpTestData()
         cls.organization_membership.level = OrganizationMembership.Level.ADMIN
         cls.organization_membership.save()
-        # Set up managed_reverse_proxy feature with limit of 2
         cls.organization.available_product_features = [
             {"key": "managed_reverse_proxy", "name": "managed_reverse_proxy", "limit": 2}
         ]
         cls.organization.save()
 
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.refresh_from_db()
+        self.organization.refresh_from_db()
+
     def test_list_returns_max_proxy_records_from_feature(self):
-        """The list endpoint should return max_proxy_records from the org's available features."""
         response = self.client.get(f"/api/organizations/{self.organization.id}/proxy_records/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertIn("results", data)
-        self.assertIn("max_proxy_records", data)
-        self.assertEqual(data["max_proxy_records"], 2)
-        self.assertEqual(data["results"], [])
+        assert "results" in data
+        assert "max_proxy_records" in data
+        assert data["max_proxy_records"] == 2
+        assert data["results"] == []
 
     def test_list_returns_default_without_feature(self):
-        """Without the managed_reverse_proxy feature, max_proxy_records should default to 2."""
         self.organization.available_product_features = []
         self.organization.save()
 
         response = self.client.get(f"/api/organizations/{self.organization.id}/proxy_records/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data["max_proxy_records"], 2)
-
-        # Restore for other tests
-        self.organization.available_product_features = [
-            {"key": "managed_reverse_proxy", "name": "managed_reverse_proxy", "limit": 2}
-        ]
-        self.organization.save()
+        assert data["max_proxy_records"] == 2
 
     @patch("posthog.api.proxy_record.sync_connect")
     @patch("posthoganalytics.capture")
     def test_create_proxy_record(self, mock_capture, mock_sync_connect):
-        """Should allow creating a proxy record when feature is available."""
         mock_temporal = AsyncMock()
         mock_sync_connect.return_value = mock_temporal
 
@@ -57,42 +52,36 @@ class TestProxyRecordAPI(APIBaseTest):
             f"/api/organizations/{self.organization.id}/proxy_records/",
             {"domain": "test.example.com"},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data["domain"], "test.example.com")
-        self.assertEqual(data["status"], "waiting")
-        self.assertIn("target_cname", data)
+        assert data["domain"] == "test.example.com"
+        assert data["status"] == "waiting"
+        assert "target_cname" in data
 
     @patch("posthog.api.proxy_record.sync_connect")
     @patch("posthoganalytics.capture")
     def test_cannot_exceed_feature_limit(self, mock_capture, mock_sync_connect):
-        """Should reject creation when the org has reached the feature limit (2)."""
         mock_temporal = AsyncMock()
         mock_sync_connect.return_value = mock_temporal
 
-        # Create 2 records (the limit)
         for i in range(2):
-            response = self.client.post(
-                f"/api/organizations/{self.organization.id}/proxy_records/",
-                {"domain": f"proxy{i}.example.com"},
+            ProxyRecord.objects.create(
+                organization=self.organization,
+                created_by=self.user,
+                domain=f"proxy{i}.example.com",
+                target_cname=f"hash{i}.proxy.posthog.com",
             )
-            self.assertEqual(response.status_code, status.HTTP_200_OK, f"Failed to create record {i}")
 
-        # The 3rd should be rejected
         response = self.client.post(
             f"/api/organizations/{self.organization.id}/proxy_records/",
             {"domain": "proxy2.example.com"},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Maximum of 2 proxy records", response.json()["detail"])
-
-        # Verify only 2 records exist
-        self.assertEqual(ProxyRecord.objects.filter(organization=self.organization).count(), 2)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Maximum of 2 proxy records" in response.json()["detail"]
 
     @patch("posthog.api.proxy_record.sync_connect")
     @patch("posthoganalytics.capture")
     def test_can_create_without_feature_using_default(self, mock_capture, mock_sync_connect):
-        """Without the feature, creation should still work using the default limit of 2."""
         mock_temporal = AsyncMock()
         mock_sync_connect.return_value = mock_temporal
 
@@ -103,13 +92,32 @@ class TestProxyRecordAPI(APIBaseTest):
             f"/api/organizations/{self.organization.id}/proxy_records/",
             {"domain": "test.example.com"},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
-        # Restore for other tests
-        self.organization.available_product_features = [
-            {"key": "managed_reverse_proxy", "name": "managed_reverse_proxy", "limit": 2}
-        ]
-        self.organization.save()
+    def test_create_with_missing_domain_rejected(self):
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/proxy_records/",
+            {},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_with_empty_domain_rejected(self):
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/proxy_records/",
+            {"domain": ""},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch("posthog.api.proxy_record.sync_connect")
+    def test_create_cleans_up_on_temporal_failure(self, mock_sync_connect):
+        mock_sync_connect.side_effect = Exception("connection failed")
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/proxy_records/",
+            {"domain": "fail.example.com"},
+        )
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert not ProxyRecord.objects.filter(organization=self.organization, domain="fail.example.com").exists()
 
     def test_non_admin_cannot_create_proxy_record(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -119,7 +127,41 @@ class TestProxyRecordAPI(APIBaseTest):
             f"/api/organizations/{self.organization.id}/proxy_records/",
             {"domain": "test.example.com"},
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_retrieve_proxy_record(self):
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="retrieve.example.com",
+            target_cname="abc123.proxy.posthog.com",
+            status=ProxyRecord.Status.VALID,
+        )
+
+        response = self.client.get(
+            f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["domain"] == "retrieve.example.com"
+        assert data["target_cname"] == "abc123.proxy.posthog.com"
+        assert data["status"] == "valid"
+        assert str(data["id"]) == str(record.id)
+
+    def test_retrieve_proxy_record_from_other_org_not_found(self):
+        other_org = Organization.objects.create(name="Other Org")
+        record = ProxyRecord.objects.create(
+            organization=other_org,
+            created_by=self.user,
+            domain="other.example.com",
+            target_cname="abc123.proxy.posthog.com",
+            status=ProxyRecord.Status.VALID,
+        )
+
+        response = self.client.get(
+            f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/",
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     @parameterized.expand(
         [
@@ -145,14 +187,14 @@ class TestProxyRecordAPI(APIBaseTest):
         response = self.client.post(
             f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/retry/",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data["status"], "waiting")
-        self.assertIsNone(data["message"])
+        assert data["status"] == "waiting"
+        assert data["message"] is None
 
         record.refresh_from_db()
-        self.assertEqual(record.status, ProxyRecord.Status.WAITING)
-        self.assertIsNone(record.message)
+        assert record.status == ProxyRecord.Status.WAITING
+        assert record.message is None
         mock_temporal.start_workflow.assert_called_once()
 
     @parameterized.expand(
@@ -176,42 +218,27 @@ class TestProxyRecordAPI(APIBaseTest):
         response = self.client.post(
             f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/retry/",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Cannot retry", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Cannot retry" in response.json()["detail"]
 
-    def test_retrieve_proxy_record(self):
+    @patch("posthog.api.proxy_record.sync_connect")
+    def test_retry_returns_500_and_reverts_status_on_temporal_failure(self, mock_sync_connect):
+        mock_sync_connect.side_effect = Exception("connection failed")
+
         record = ProxyRecord.objects.create(
             organization=self.organization,
             created_by=self.user,
-            domain="retrieve.example.com",
+            domain="fail.example.com",
             target_cname="abc123.proxy.posthog.com",
-            status=ProxyRecord.Status.VALID,
+            status=ProxyRecord.Status.ERRORING,
         )
 
-        response = self.client.get(
-            f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/",
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/retry/",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        data = response.json()
-        self.assertEqual(data["domain"], "retrieve.example.com")
-        self.assertEqual(data["target_cname"], "abc123.proxy.posthog.com")
-        self.assertEqual(data["status"], "valid")
-        self.assertEqual(str(data["id"]), str(record.id))
-
-    def test_retrieve_proxy_record_from_other_org_not_found(self):
-        other_org = Organization.objects.create(name="Other Org")
-        record = ProxyRecord.objects.create(
-            organization=other_org,
-            created_by=self.user,
-            domain="other.example.com",
-            target_cname="abc123.proxy.posthog.com",
-            status=ProxyRecord.Status.VALID,
-        )
-
-        response = self.client.get(
-            f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/",
-        )
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        record.refresh_from_db()
+        assert record.status == ProxyRecord.Status.ERRORING
 
     def test_non_admin_cannot_retry_proxy_record(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -228,7 +255,7 @@ class TestProxyRecordAPI(APIBaseTest):
         response = self.client.post(
             f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/retry/",
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_retry_proxy_record_from_other_org_not_found(self):
         other_org = Organization.objects.create(name="Other Org")
@@ -243,7 +270,7 @@ class TestProxyRecordAPI(APIBaseTest):
         response = self.client.post(
             f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/retry/",
         )
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     @parameterized.expand(
         [
@@ -264,8 +291,8 @@ class TestProxyRecordAPI(APIBaseTest):
         response = self.client.delete(
             f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertFalse(ProxyRecord.objects.filter(id=record.id).exists())
+        assert response.status_code == status.HTTP_200_OK
+        assert not ProxyRecord.objects.filter(id=record.id).exists()
 
     @parameterized.expand(
         [
@@ -293,10 +320,10 @@ class TestProxyRecordAPI(APIBaseTest):
         response = self.client.delete(
             f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         record.refresh_from_db()
-        self.assertEqual(record.status, ProxyRecord.Status.DELETING)
+        assert record.status == ProxyRecord.Status.DELETING
         mock_temporal.start_workflow.assert_called_once()
 
     def test_destroy_proxy_record_from_other_org_not_found(self):
@@ -312,7 +339,7 @@ class TestProxyRecordAPI(APIBaseTest):
         response = self.client.delete(
             f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/",
         )
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_non_admin_cannot_destroy_proxy_record(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -329,4 +356,4 @@ class TestProxyRecordAPI(APIBaseTest):
         response = self.client.delete(
             f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/",
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN

@@ -144,7 +144,10 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         "Once the CNAME is configured, the proxy will be automatically verified and provisioned.",
     )
     def create(self, request, *args, **kwargs):
-        domain = request.data.get("domain")
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        domain = serializer.validated_data["domain"]
+
         queryset = self.organization.proxy_records.order_by("-created_at")
 
         max_records = self.max_proxy_records
@@ -161,22 +164,29 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
             target_cname=generate_target_cname(self.organization.id, domain),
         )
 
-        temporal = sync_connect()
-        inputs = CreateManagedProxyInputs(
-            organization_id=record.organization_id,
-            proxy_record_id=record.id,
-            domain=record.domain,
-            target_cname=record.target_cname,
-        )
-        workflow_id = f"proxy-create-{inputs.proxy_record_id}"
-        asyncio.run(
-            temporal.start_workflow(
-                "create-proxy",
-                inputs,
-                id=workflow_id,
-                task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+        try:
+            temporal = sync_connect()
+            inputs = CreateManagedProxyInputs(
+                organization_id=record.organization_id,
+                proxy_record_id=record.id,
+                domain=record.domain,
+                target_cname=record.target_cname,
             )
-        )
+            workflow_id = f"proxy-create-{inputs.proxy_record_id}"
+            asyncio.run(
+                temporal.start_workflow(
+                    "create-proxy",
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                )
+            )
+        except Exception:
+            record.delete()
+            return Response(
+                {"detail": "Failed to start provisioning workflow."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
         serializer = self.get_serializer(record)
         _capture_proxy_event(request, record, "created")
@@ -248,13 +258,16 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         except ProxyRecord.DoesNotExist:
             raise NotFound()
 
-        if record and record.status in (
+        if record.status in (
             ProxyRecord.Status.WAITING,
             ProxyRecord.Status.ERRORING,
             ProxyRecord.Status.TIMED_OUT,
         ):
             record.delete()
-        elif record:
+        else:
+            record.status = ProxyRecord.Status.DELETING
+            record.save()
+
             temporal = sync_connect()
             inputs = DeleteManagedProxyInputs(
                 organization_id=record.organization_id,
@@ -271,8 +284,6 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                     task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
                 )
             )
-            record.status = ProxyRecord.Status.DELETING
-            record.save()
 
             _capture_proxy_event(request, record, "deleted")
 
