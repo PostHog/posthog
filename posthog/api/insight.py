@@ -1181,7 +1181,11 @@ class InsightViewSet(
                     | Q(filters__properties__icontains=feature_flag)
                     | (
                         Q(query__isnull=False)
-                        & (Q(query__icontains=feature_flag_breakdown) | Q(query__icontains=feature_flag))
+                        & (
+                            Q(query__source__breakdownFilter__breakdown__icontains=feature_flag_breakdown)
+                            | Q(query__source__properties__icontains=feature_flag)
+                            | Q(query__source__series__icontains=feature_flag)
+                        )
                     )
                 )
             elif key == "events":
