@@ -227,7 +227,7 @@ export class TemplateTester {
     async beforeEach() {
         Settings.defaultZone = 'UTC'
         if (!this.geoipService) {
-            this.geoipService = new GeoIPService(defaultConfig)
+            this.geoipService = new GeoIPService(defaultConfig.MMDB_FILE_LOCATION)
         }
 
         if (!this.geoIp) {

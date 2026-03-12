@@ -14,19 +14,13 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 
 import { cookielessRedisErrorCounter } from '../../common/metrics'
-import {
-    CookielessServerHashMode,
-    EventHeaders,
-    IncomingEventWithTeam,
-    PipelineEvent,
-    PluginsServerConfig,
-    Team,
-} from '../../types'
+import { CookielessServerHashMode, EventHeaders, IncomingEventWithTeam, PipelineEvent, Team } from '../../types'
 import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/db/error'
 import { logger } from '../../utils/logger'
 import { UUID7, bufferToUint32ArrayLE, uint32ArrayLEToBuffer } from '../../utils/utils'
 import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../../worker/ingestion/timestamps'
+import { IngestionConsumerConfig } from '../config'
 import { PipelineResult, dlq, drop, isOkResult, ok } from '../pipelines/results'
 import { RedisHelpers } from './redis-helpers'
 
@@ -105,7 +99,19 @@ export class CookielessManager {
     private readonly mutex = new ConcurrencyController(1)
     private cleanupInterval: NodeJS.Timeout | null = null
 
-    constructor(config: PluginsServerConfig, redis: GenericPool<Redis.Redis>) {
+    constructor(
+        config: Pick<
+            IngestionConsumerConfig,
+            | 'COOKIELESS_DISABLED'
+            | 'COOKIELESS_FORCE_STATELESS_MODE'
+            | 'COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS'
+            | 'COOKIELESS_SESSION_TTL_SECONDS'
+            | 'COOKIELESS_SALT_TTL_SECONDS'
+            | 'COOKIELESS_SESSION_INACTIVITY_MS'
+            | 'COOKIELESS_IDENTIFIES_TTL_SECONDS'
+        >,
+        redis: GenericPool<Redis.Redis>
+    ) {
         this.config = {
             disabled: config.COOKIELESS_DISABLED,
             forceStatelessMode: config.COOKIELESS_FORCE_STATELESS_MODE,

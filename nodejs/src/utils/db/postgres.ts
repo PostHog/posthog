@@ -4,7 +4,7 @@ import { Client, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow, typ
 
 import { withSpan } from '~/common/tracing/tracing-utils'
 
-import { PluginsServerConfig } from '../../types'
+import { CommonConfig } from '../../common/config'
 import { logger } from '../logger'
 import { createPostgresPool } from '../utils'
 import { DependencyUnavailableError } from './error'
@@ -68,7 +68,19 @@ export class TransactionClient {
 export class PostgresRouter {
     private pools: Map<PostgresUse, Pool>
 
-    constructor(serverConfig: PluginsServerConfig) {
+    constructor(
+        serverConfig: Pick<
+            CommonConfig,
+            | 'PLUGIN_SERVER_MODE'
+            | 'DATABASE_URL'
+            | 'POSTGRES_CONNECTION_POOL_SIZE'
+            | 'DATABASE_READONLY_URL'
+            | 'PLUGIN_STORAGE_DATABASE_URL'
+            | 'PERSONS_DATABASE_URL'
+            | 'BEHAVIORAL_COHORTS_DATABASE_URL'
+            | 'PERSONS_READONLY_DATABASE_URL'
+        >
+    ) {
         installPostgresTypeParsers()
 
         const app_name = serverConfig.PLUGIN_SERVER_MODE ?? 'unknown'

@@ -29,7 +29,7 @@ describe('CyclotronJobQueuePostgresV2', () => {
             CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 1000,
             CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: false,
         }
-        const queue = new CyclotronJobQueuePostgresV2(config)
+        const queue = new CyclotronJobQueuePostgresV2(500, config)
 
         const bulkCreateJobs = jest.fn().mockResolvedValue(undefined)
         ;(queue as any).manager = { bulkCreateJobs }
@@ -119,7 +119,7 @@ describe('CyclotronJobQueuePostgresV2', () => {
                 CYCLOTRON_NODE_DATABASE_URL: 'postgres://test',
                 CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 1000,
             }
-            const queue = new CyclotronJobQueuePostgresV2(config)
+            const queue = new CyclotronJobQueuePostgresV2(500, config)
 
             await expect(queue.queueInvocations([{ ...baseInvocation, id: uuidv4() }])).rejects.toThrow(
                 'CyclotronV2Manager not initialized'

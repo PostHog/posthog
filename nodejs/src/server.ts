@@ -98,7 +98,7 @@ export class PluginServer {
         }
 
         this.expressApp = setupExpressApp({ internalApiSecret: this.config.INTERNAL_API_SECRET })
-        this.nodeInstrumentation = new NodeInstrumentation(this.config)
+        this.nodeInstrumentation = new NodeInstrumentation(this.config.INSTRUMENT_THREAD_PERFORMANCE)
         this.setupContinuousProfiling()
     }
 
@@ -123,7 +123,7 @@ export class PluginServer {
         const startupTimer = new Date()
         this.setupListeners()
         this.nodeInstrumentation.setupThreadPerformanceInterval()
-        initializePrometheusLabels(this.config)
+        initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
 
         const capabilities = getPluginServerCapabilities(this.config)
 
@@ -572,7 +572,7 @@ export class PluginServer {
         integrationManager: IntegrationManagerService
         internalCaptureService: InternalCaptureService
     }> {
-        const geoipService = new GeoIPService(this.config)
+        const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
         await geoipService.get()
 
         const personRepository = new PostgresPersonRepository(this.postgres!, {

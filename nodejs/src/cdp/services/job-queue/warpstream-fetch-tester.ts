@@ -2,8 +2,8 @@ import { Message } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
 
 import { getKafkaConfigFromEnv } from '../../../kafka/config'
-import { PluginsServerConfig } from '../../../types'
 import { internalFetch as fetch } from '../../../utils/request'
+import { CdpConfig } from '../../config'
 
 export const cdpSeekLatencyMs = new Histogram({
     name: 'cdp_seek_latency_ms',
@@ -46,7 +46,16 @@ type FetchTarget = {
 export class WarpstreamFetchTester {
     private authHeader?: string
 
-    constructor(private config: PluginsServerConfig) {}
+    constructor(
+        private config: Pick<
+            CdpConfig,
+            | 'CDP_CYCLOTRON_WARPSTREAM_HTTP_URL'
+            | 'CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET'
+            | 'CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT'
+            | 'CDP_CYCLOTRON_TEST_FETCH_BATCH_COUNT'
+            | 'CDP_CYCLOTRON_TEST_FETCH_BATCH_SIZE'
+        >
+    ) {}
 
     start(): void {
         if (!this.config.CDP_CYCLOTRON_WARPSTREAM_HTTP_URL) {

@@ -9,10 +9,7 @@ jest.mock('~/utils/request', () => ({
 
 describe('InternalFetchService', () => {
     it('calls internalFetch with internal auth header', async () => {
-        const internalFetchService = new InternalFetchService({
-            INTERNAL_API_SECRET: 'secret-123',
-            INTERNAL_API_BASE_URL: 'https://internal.example.com',
-        })
+        const internalFetchService = new InternalFetchService('https://internal.example.com', 'secret-123')
         const mockedInternalFetch = jest.mocked(internalFetch)
 
         mockedInternalFetch.mockImplementationOnce((_url, _fetchParams) => {
@@ -42,10 +39,7 @@ describe('InternalFetchService', () => {
     })
 
     it('returns exceptions from internalFetch', async () => {
-        const internalFetchService = new InternalFetchService({
-            INTERNAL_API_SECRET: 'secret-123',
-            INTERNAL_API_BASE_URL: 'https://internal.example.com',
-        })
+        const internalFetchService = new InternalFetchService('https://internal.example.com', 'secret-123')
         const mockedInternalFetch = jest.mocked(internalFetch)
 
         mockedInternalFetch.mockRejectedValueOnce(new Error('boom'))
