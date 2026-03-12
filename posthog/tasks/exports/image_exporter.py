@@ -390,7 +390,7 @@ def _screenshot_asset(
 
 
 def export_image(
-    exported_asset: ExportedAsset, max_height_pixels: Optional[int] = None, source: Optional[str] = None
+    exported_asset: ExportedAsset, max_height_pixels: Optional[int] = None, source: Optional[EventSource] = None
 ) -> None:
     with posthoganalytics.new_context():
         posthoganalytics.tag("team_id", exported_asset.team_id if exported_asset else "unknown")

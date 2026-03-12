@@ -103,7 +103,7 @@ def export_asset_direct(
     limit: Optional[int] = None,  # For CSV/XLSX: max row count
     max_height_pixels: Optional[int] = None,  # For images: max screenshot height in pixels
     cancellation_event: Optional[threading.Event] = None,  # For async callers to signal cancellation
-    source: Optional[str] = None,  # EventSource value to tag queries with (e.g. "subscription")
+    source: Optional[EventSource] = None,  # EventSource value to tag queries with (e.g. "subscription")
 ) -> None:
     from posthog.tasks.exports import csv_exporter, image_exporter
 

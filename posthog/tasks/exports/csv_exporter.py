@@ -130,7 +130,9 @@ class RowBuffer:
 
 
 @contextmanager
-def _buffer_rows(exported_asset: ExportedAsset, limit: int, source: Optional[str] = None) -> Iterator[RowBuffer]:
+def _buffer_rows(
+    exported_asset: ExportedAsset, limit: int, source: Optional[EventSource] = None
+) -> Iterator[RowBuffer]:
     """Buffer rows to a temp file, discovering columns along the way.
 
     Yields a RowBuffer that exposes:
@@ -453,7 +455,7 @@ def _query_supports_limit(query: dict) -> bool:
 
 
 def get_from_query(
-    exported_asset: ExportedAsset, limit: int, resource: dict, source: Optional[str] = None
+    exported_asset: ExportedAsset, limit: int, resource: dict, source: Optional[EventSource] = None
 ) -> Generator[Any, None, None]:
     query = resource.get("source")
     assert query is not None
@@ -521,7 +523,9 @@ def get_from_query(
             break
 
 
-def _iter_rows(exported_asset: ExportedAsset, limit: int, source: Optional[str] = None) -> Generator[Any, None, None]:
+def _iter_rows(
+    exported_asset: ExportedAsset, limit: int, source: Optional[EventSource] = None
+) -> Generator[Any, None, None]:
     resource = exported_asset.export_context or {}
 
     if resource.get("source"):
@@ -534,7 +538,7 @@ def _iter_rows(exported_asset: ExportedAsset, limit: int, source: Optional[str] 
 
 
 def _write_rows_to_jsonl(
-    jsonl_file: Any, exported_asset: ExportedAsset, limit: int, source: Optional[str] = None
+    jsonl_file: Any, exported_asset: ExportedAsset, limit: int, source: Optional[EventSource] = None
 ) -> tuple[int, list[str], set[str]]:
     """Write flattened rows to a JSON lines file, discovering columns as we go.
 
@@ -587,7 +591,7 @@ def _determine_columns(user_columns: list[str], all_keys: list[str], seen_keys: 
 
 
 def _export_tabular(
-    exported_asset: ExportedAsset, limit: int, writer: TabularWriter, source: Optional[str] = None
+    exported_asset: ExportedAsset, limit: int, writer: TabularWriter, source: Optional[EventSource] = None
 ) -> None:
     """Export data using the provided writer."""
     user_columns = (exported_asset.export_context or {}).get("columns", [])
@@ -643,7 +647,9 @@ def make_api_call(
     return response
 
 
-def export_tabular(exported_asset: ExportedAsset, limit: Optional[int] = None, source: Optional[str] = None) -> None:
+def export_tabular(
+    exported_asset: ExportedAsset, limit: Optional[int] = None, source: Optional[EventSource] = None
+) -> None:
     if not limit:
         limit = CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
 
