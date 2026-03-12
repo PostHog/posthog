@@ -32,11 +32,6 @@ const activityLogsList = (): ToolBase<
             _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/activity`,
         }
     },
-    _meta: {
-        ui: {
-            resourceUri: 'ui://posthog/activity-log-list.html',
-        },
-    },
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
