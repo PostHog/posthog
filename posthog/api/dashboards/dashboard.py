@@ -311,11 +311,11 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
         return ret
 
     def _filter_out_non_existing_quick_filter_ids(self, quick_filter_ids: list[str], team_id: int) -> list[str]:
-        existing = {
+        existing_quick_filter_ids = {
             str(uid)
             for uid in QuickFilter.objects.filter(team_id=team_id, id__in=quick_filter_ids).values_list("id", flat=True)
         }
-        return [qf_id for qf_id in quick_filter_ids if qf_id in existing]
+        return [qf_id for qf_id in quick_filter_ids if qf_id in existing_quick_filter_ids]
 
     def validate_quick_filter_ids(self, value: list[str] | None) -> list[str]:
         if not value:
@@ -327,9 +327,9 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
             except ValueError:
                 raise serializers.ValidationError(f"Invalid UUID: {v}")
 
-        valid = self._filter_out_non_existing_quick_filter_ids(value, self.context["get_team"]().id)
-        if len(valid) != len(value):
-            missing = [v for v in value if v not in valid]
+        valid_ids = self._filter_out_non_existing_quick_filter_ids(value, self.context["get_team"]().id)
+        if len(valid_ids) != len(value):
+            missing = [v for v in value if v not in valid_ids]
             raise serializers.ValidationError(f"Quick filters not found: {', '.join(missing)}")
 
         return value

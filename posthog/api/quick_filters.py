@@ -1,4 +1,4 @@
-from django.db import transaction
+from django.db import connection, transaction
 
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
@@ -130,14 +130,11 @@ def remove_quick_filter_from_dashboards(team_id: int, quick_filter_id: str) -> i
     Uses raw SQL for efficient JSONB array manipulation.
     Returns the number of dashboards updated.
     """
-    from django.db import connection
-
     with connection.cursor() as cursor:
         # This query:
         # 1. Finds dashboards where quick_filter_ids contains the target ID (@> operator)
         # 2. Rebuilds the array excluding the target ID (jsonb_array_elements + jsonb_agg)
         # 3. Uses COALESCE to return empty array if all elements are removed (jsonb_agg returns NULL for empty)
-        # Parameters: %s[0] = quoted ID for comparison, %s[1] = team_id, %s[2] = array containing ID for @> check
         cursor.execute(
             """
             UPDATE posthog_dashboard
@@ -171,10 +168,9 @@ class QuickFilterViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return queryset.order_by("-created_at")
 
     def perform_destroy(self, instance):
-        quick_filter_id = str(instance.id)
-        team_id = instance.team_id
-
         with transaction.atomic():
-            # Remove this quick filter from all dashboards before deleting
+            quick_filter_id = str(instance.id)
+            team_id = instance.team_id
+
             remove_quick_filter_from_dashboards(team_id, quick_filter_id)
             instance.delete()
