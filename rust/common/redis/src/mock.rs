@@ -629,7 +629,7 @@ impl MockRedisClient {
             }
             PipelineCommand::SAdd { key, member } => {
                 self.record_call("pipeline_sadd", &key, MockRedisValue::String(member));
-                Self::lookup_or_ok(&self.sadd_ret, &key).map(|_| PipelineResult::Ok)
+                Self::lookup_or_ok(&self.sadd_ret, &key).map(|_| PipelineResult::Count(1))
             }
             PipelineCommand::ZRangeByScore { key, min, max } => {
                 self.record_call(

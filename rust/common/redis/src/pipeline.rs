@@ -487,7 +487,7 @@ mod integration_tests {
         assert!(matches!(results[2], Ok(PipelineResult::Ok)));
         assert!(matches!(results[3], Ok(PipelineResult::Bool(true))));
         assert!(matches!(results[4], Ok(PipelineResult::Count(42))));
-        assert!(matches!(results[5], Ok(PipelineResult::Ok))); // SADD
+        assert!(matches!(results[5], Ok(PipelineResult::Count(_)))); // SADD
         assert!(
             matches!(&results[6], Ok(PipelineResult::Strings(v)) if v == &vec!["a".to_string(), "b".to_string()])
         );
