@@ -38,7 +38,7 @@ def soft_delete_report_signals(report_id: str, team_id: int, team: Team) -> None
             document_id,
             content,
             metadata,
-            toString(timestamp) as timestamp
+            timestamp
         FROM (
             SELECT
                 document_id,

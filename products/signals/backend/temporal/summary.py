@@ -216,7 +216,7 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
                 document_id,
                 content,
                 metadata,
-                toString(timestamp) as timestamp
+                timestamp
             FROM (
                 SELECT
                     document_id,
