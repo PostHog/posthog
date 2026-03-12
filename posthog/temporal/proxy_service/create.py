@@ -39,7 +39,9 @@ from posthog.temporal.proxy_service.cloudflare import (
 from posthog.temporal.proxy_service.common import (
     NonRetriableException,
     RecordDeletedException,
+    SendProxyCreatedEmailInputs,
     UpdateProxyRecordInputs,
+    activity_send_proxy_created_email,
     activity_update_proxy_record,
     get_grpc_client,
     record_exists,
@@ -565,13 +567,15 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                     ),
                 )
 
-            # Everything's created and ready to go, update to VALID
+            # Everything's created and ready to go, update to VALID and clear
+            # any messages from earlier retries (e.g. Cloudflare proxying warning)
             await temporalio.workflow.execute_activity(
                 activity_update_proxy_record,
                 UpdateProxyRecordInputs(
                     organization_id=inputs.organization_id,
                     proxy_record_id=inputs.proxy_record_id,
                     status=ProxyRecord.Status.VALID.value,
+                    message="",
                 ),
                 start_to_close_timeout=dt.timedelta(seconds=10),
                 retry_policy=temporalio.common.RetryPolicy(
@@ -579,6 +583,27 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                     non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
                 ),
             )
+
+            # Send email notification — failure should not block the workflow
+            try:
+                await temporalio.workflow.execute_activity(
+                    activity_send_proxy_created_email,
+                    SendProxyCreatedEmailInputs(
+                        organization_id=inputs.organization_id,
+                        proxy_record_id=inputs.proxy_record_id,
+                        domain=inputs.domain,
+                    ),
+                    start_to_close_timeout=dt.timedelta(seconds=30),
+                    retry_policy=temporalio.common.RetryPolicy(
+                        maximum_attempts=2,
+                        non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
+                    ),
+                )
+            except ActivityError:
+                logger.warning(
+                    "Failed to send proxy provisioned email for domain %s, continuing",
+                    inputs.domain,
+                )
 
             schedule_inputs = ScheduleMonitorJobInputs(
                 organization_id=inputs.organization_id,

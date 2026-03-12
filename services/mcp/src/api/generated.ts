@@ -3363,6 +3363,7 @@ export namespace Schemas {
       ScreenName: 'ScreenName',
       InitialChannelType: 'InitialChannelType',
       InitialReferringDomain: 'InitialReferringDomain',
+      InitialReferringURL: 'InitialReferringURL',
       InitialUTMSource: 'InitialUTMSource',
       InitialUTMCampaign: 'InitialUTMCampaign',
       InitialUTMMedium: 'InitialUTMMedium',
@@ -3985,6 +3986,11 @@ export namespace Schemas {
     export type HogQLQueryVariables = {[key: string]: HogQLVariable} | null | null;
 
     export interface HogQLQuery {
+      /**
+       * Optional direct external data source id for running against a specific source
+       * @nullable
+       */
+      connectionId?: string | null;
       /** @nullable */
       explain?: boolean | null;
       filters?: HogQLFilters | null;
@@ -6957,6 +6963,11 @@ export namespace Schemas {
       /** @nullable */
       readonly persisted_variables: DashboardPersistedVariables;
       readonly team_id: number;
+      /**
+       * List of quick filter IDs associated with this dashboard
+       * @nullable
+       */
+      quick_filter_ids?: string[] | null;
       /** @nullable */
       readonly tiles: readonly DashboardTilesItem[] | null;
       use_template?: string;
@@ -11343,6 +11354,7 @@ export namespace Schemas {
     * `device_id` - Device ID */
       bucketing_identifier?: BucketingIdentifierEnum | BlankEnum | NullEnum | null;
       readonly evaluation_tags: readonly string[];
+      readonly evaluation_contexts: readonly string[];
     }
 
     /**
@@ -18142,6 +18154,9 @@ export namespace Schemas {
     /**
      * * `session_replay` - Session replay
     * `llm_analytics` - LLM analytics
+    * `github` - GitHub
+    * `linear` - Linear
+    * `zendesk` - Zendesk
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -18149,11 +18164,16 @@ export namespace Schemas {
     export const SourceProductEnum = {
       SessionReplay: 'session_replay',
       LlmAnalytics: 'llm_analytics',
+      Github: 'github',
+      Linear: 'linear',
+      Zendesk: 'zendesk',
     } as const;
 
     /**
      * * `session_analysis_cluster` - Session analysis cluster
     * `evaluation` - Evaluation
+    * `issue` - Issue
+    * `ticket` - Ticket
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -18161,6 +18181,8 @@ export namespace Schemas {
     export const SignalSourceConfigSourceTypeEnum = {
       SessionAnalysisCluster: 'session_analysis_cluster',
       Evaluation: 'evaluation',
+      Issue: 'issue',
+      Ticket: 'ticket',
     } as const;
 
     export interface SignalSourceConfig {
@@ -19587,6 +19609,11 @@ export namespace Schemas {
       /** @nullable */
       readonly persisted_variables?: PatchedDashboardPersistedVariables;
       readonly team_id?: number;
+      /**
+       * List of quick filter IDs associated with this dashboard
+       * @nullable
+       */
+      quick_filter_ids?: string[] | null;
       /** @nullable */
       readonly tiles?: readonly PatchedDashboardTilesItem[] | null;
       use_template?: string;

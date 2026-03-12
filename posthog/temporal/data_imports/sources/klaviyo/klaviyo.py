@@ -127,7 +127,7 @@ def get_rows(
 ) -> Iterator[Any]:
     config = KLAVIYO_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
-    batcher = Batcher(logger=logger)
+    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
 
     params = _build_initial_params(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field

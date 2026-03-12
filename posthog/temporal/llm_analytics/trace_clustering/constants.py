@@ -96,7 +96,7 @@ LLMA_TRACE_RENDERING_LEGACY = "llma_trace_detailed"
 LLMA_TRACE_PRODUCT = "llm-analytics"
 
 # Cluster labeling agent configuration
-LABELING_AGENT_MODEL = "gpt-5.2"  # OpenAI GPT-5.2 for reasoning
+LABELING_AGENT_MODEL = "gpt-5.3"  # OpenAI GPT-5.3 for reasoning
 LABELING_AGENT_MAX_ITERATIONS = 50  # Max agent iterations before forced finalization
 LABELING_AGENT_RECURSION_LIMIT = 150  # LangGraph recursion limit (> 2 * max_iterations)
 LABELING_AGENT_TIMEOUT = 600.0  # 10 minutes for full agent run
