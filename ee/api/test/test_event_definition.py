@@ -387,7 +387,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         response = self.client.get("/api/projects/@current/event_definitions/?search=app&event_type=event")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 2)
-        self.assertEqual(response.json()["results"][0]["name"], "installed_app")
+        self.assertEqual([row["name"] for row in response.json()["results"]], ["rated_app", "installed_app"])
 
     def test_create_event_definition_with_description(self):
         """Test creating an event definition with enterprise fields"""
