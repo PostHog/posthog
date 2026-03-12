@@ -5,6 +5,7 @@ import pytest
 
 from temporalio.testing import ActivityEnvironment
 
+from posthog.conftest import _runs_on_internal_pr
 from posthog.models import Integration, OAuthApplication, Organization, OrganizationMembership, Team, User
 from posthog.temporal.common.logger import configure_logger
 
@@ -13,13 +14,6 @@ from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, Sand
 from products.tasks.backend.temporal.create_snapshot.activities.get_snapshot_context import SnapshotContext
 from products.tasks.backend.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
-
-
-def _runs_on_internal_pr() -> bool:
-    value = os.getenv("RUNS_ON_INTERNAL_PR")
-    if value is None:
-        return True
-    return value.lower() in {"1", "true"}
 
 
 @pytest.fixture
