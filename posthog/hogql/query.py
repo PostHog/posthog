@@ -1,5 +1,5 @@
 import dataclasses
-from typing import ClassVar, Literal, Optional, Union, cast
+from typing import ClassVar, Literal, Optional, TypedDict, Union, cast
 
 import psycopg
 from opentelemetry import trace
@@ -86,6 +86,20 @@ POSTGRES_OID_TO_CLICKHOUSE_TYPE: dict[int, str] = {
     1015: "Array(String)",
     2951: "Array(UUID)",
 }
+
+
+class PostgresConnectionKwargs(TypedDict, total=False):
+    host: str
+    port: int
+    dbname: str
+    user: str
+    password: str
+    connect_timeout: int
+    sslmode: str
+    options: str
+    sslcert: str
+    sslkey: str
+    sslrootcert: str
 
 
 def postgres_oid_to_clickhouse_type(oid: int | None) -> str:
@@ -433,7 +447,7 @@ class HogQLQueryExecutor:
         try:
             with self.timings.measure("postgres_execute"):
                 with postgres_source.with_ssh_tunnel(source_config) as (host, port):
-                    connection_kwargs: dict[str, str | int] = {
+                    connection_kwargs: PostgresConnectionKwargs = {
                         "host": host,
                         "port": port,
                         "dbname": source_config.database,
@@ -444,14 +458,12 @@ class HogQLQueryExecutor:
                         "options": f"-c default_transaction_read_only=on -c statement_timeout={statement_timeout_ms}",
                     }
                     if host.endswith(".us.postwh.com"):
-                        connection_kwargs.update(
-                            {
-                                "sslmode": "require",
-                                "sslcert": "/tmp/no.txt",
-                                "sslkey": "/tmp/no.txt",
-                                "sslrootcert": "/tmp/no.txt",
-                            }
-                        )
+                        # DuckLake hosts require SSL but do not use certificate-based auth.
+                        # Override sslmode to "require" (encrypt without cert verification).
+                        connection_kwargs["sslmode"] = "require"
+                        connection_kwargs["sslcert"] = "/tmp/no.txt"
+                        connection_kwargs["sslkey"] = "/tmp/no.txt"
+                        connection_kwargs["sslrootcert"] = "/tmp/no.txt"
 
                     with psycopg.connect(**connection_kwargs) as connection:
                         with connection.cursor() as cursor:
