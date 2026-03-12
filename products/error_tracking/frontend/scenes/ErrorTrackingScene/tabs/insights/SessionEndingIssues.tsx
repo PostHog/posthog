@@ -5,13 +5,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import { errorTrackingInsightsLogic } from './errorTrackingInsightsLogic'
+import { SessionEndingIssue } from './errorTrackingInsightsLogic'
 import { TableCard } from './TableCard'
-
-interface SessionEndingIssue {
-    issueId: string
-    issueName: string
-    endedSessions: number
-}
 
 export function SessionEndingIssues(): JSX.Element {
     const { sessionEndingIssues, sessionEndingIssuesLoading } = useValues(errorTrackingInsightsLogic)

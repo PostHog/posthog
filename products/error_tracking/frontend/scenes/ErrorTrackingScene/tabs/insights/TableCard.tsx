@@ -12,7 +12,7 @@ export function TableCard({
     children: React.ReactNode
 }): JSX.Element {
     return (
-        <div className="border rounded-lg bg-surface-primary flex flex-col min-h-80">
+        <div className="border rounded-lg bg-surface-primary flex flex-col h-100">
             <div className="px-4 pt-3 pb-1 shrink-0">
                 <h3 className="font-semibold text-sm m-0">{title}</h3>
                 <p className="text-xs text-secondary m-0">{description}</p>

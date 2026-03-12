@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 
 import { ChartCard } from './ChartCard'
-import { ErrorsByFeatureFlag } from './ErrorsByFeatureFlag'
 import { ErrorsByPage } from './ErrorsByPage'
 import { errorTrackingInsightsLogic } from './errorTrackingInsightsLogic'
 import { InsightsFilters } from './InsightsFilters'
@@ -43,7 +42,6 @@ export function ErrorTrackingInsights(): JSX.Element {
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
                 <SessionEndingIssues />
                 <ErrorsByPage />
-                <ErrorsByFeatureFlag />
             </div>
         </div>
     )

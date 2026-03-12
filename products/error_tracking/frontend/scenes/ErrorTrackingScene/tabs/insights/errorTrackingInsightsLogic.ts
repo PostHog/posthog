@@ -29,6 +29,7 @@ export interface InsightsSummaryStats {
 export interface SessionEndingIssue {
     issueId: string
     issueName: string
+    issueDescription: string
     endedSessions: number
 }
 
@@ -36,13 +37,6 @@ export interface PageErrorRate {
     url: string
     pageviews: number
     errors: number
-    errorRate: number
-}
-
-export interface FlagErrorRow {
-    flag: string
-    totalSessions: number
-    errorSessions: number
     errorRate: number
 }
 
@@ -185,21 +179,33 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                                 WHERE {filters}
                                     AND notEmpty($session_id)
                                 GROUP BY $session_id
+                            ),
+                            top_issues AS (
+                                SELECT
+                                    issue_id,
+                                    uniq(exc.$session_id) as ended_sessions
+                                FROM events exc
+                                INNER JOIN session_ends se ON exc.$session_id = se.sid
+                                WHERE {filters}
+                                    AND exc.event = '$exception'
+                                    AND notEmpty(exc.$session_id)
+                                    AND notEmpty(exc.properties.$exception_issue_id)
+                                    AND dateDiff('second', exc.timestamp, se.session_end) <= 5
+                                GROUP BY issue_id
+                                ORDER BY ended_sessions DESC
+                                LIMIT 10
                             )
                             SELECT
-                                exc.properties.$exception_issue_id as issue_id,
-                                any(coalesce(exc.properties.$exception_type, 'Unknown error')) as issue_name,
-                                uniq(exc.$session_id) as ended_sessions
-                            FROM events exc
-                            INNER JOIN session_ends se ON exc.$session_id = se.sid
-                            WHERE {filters}
-                                AND exc.event = '$exception'
-                                AND notEmpty(exc.$session_id)
-                                AND notEmpty(exc.properties.$exception_issue_id)
-                                AND dateDiff('second', exc.timestamp, se.session_end) <= 5
-                            GROUP BY issue_id
+                                ti.issue_id,
+                                eti.name as issue_name,
+                                eti.description as issue_description,
+                                ti.ended_sessions
+                            FROM top_issues ti
+                            LEFT JOIN (
+                                SELECT id, name, description FROM system.error_tracking_issues
+                                WHERE id IN (SELECT issue_id FROM top_issues)
+                            ) AS eti ON eti.id = ti.issue_id
                             ORDER BY ended_sessions DESC
-                            LIMIT 10
                         `,
                         filters: getFilters(values),
                     })
@@ -207,7 +213,8 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                     return results.map((row: any) => ({
                         issueId: row[0] as string,
                         issueName: row[1] as string,
-                        endedSessions: row[2] as number,
+                        issueDescription: row[2] as string,
+                        endedSessions: row[3] as number,
                     }))
                 },
             },
@@ -248,58 +255,6 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                 },
             },
         ],
-
-        errorsByFeatureFlag: [
-            null as FlagErrorRow[] | null,
-            {
-                loadErrorsByFeatureFlag: async (_, breakpoint) => {
-                    await breakpoint(10)
-                    const response = await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: `
-                            WITH
-                                flag_sessions AS (
-                                    SELECT
-                                        arrayJoin(JSONExtractArrayRaw(properties.$active_feature_flags ?? '[]')) as flag_raw,
-                                        $session_id as sid
-                                    FROM events
-                                    WHERE {filters}
-                                        AND notEmpty($session_id)
-                                        AND notEmpty(properties.$active_feature_flags)
-                                ),
-                                per_flag AS (
-                                    SELECT
-                                        replaceAll(flag_raw, '"', '') as flag,
-                                        uniq(sid) as total_sessions,
-                                        uniqIf(sid, sid IN (
-                                            SELECT $session_id FROM events
-                                            WHERE {filters} AND event = '$exception' AND notEmpty($session_id)
-                                        )) as error_sessions
-                                    FROM flag_sessions
-                                    GROUP BY flag
-                                    HAVING total_sessions >= 5
-                                )
-                            SELECT
-                                flag,
-                                total_sessions,
-                                error_sessions,
-                                round(error_sessions / total_sessions * 100, 1) as error_rate
-                            FROM per_flag
-                            ORDER BY error_rate DESC
-                            LIMIT 10
-                        `,
-                        filters: getFilters(values),
-                    })
-                    const results = (response as HogQLQueryResponse)?.results ?? []
-                    return results.map((row: any) => ({
-                        flag: row[0] as string,
-                        totalSessions: row[1] as number,
-                        errorSessions: row[2] as number,
-                        errorRate: row[3] as number,
-                    }))
-                },
-            },
-        ],
     })),
 
     listeners(({ actions }) => ({
@@ -307,7 +262,6 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
             actions.loadSummaryStats(null)
             actions.loadSessionEndingIssues(null)
             actions.loadErrorsByPage(null)
-            actions.loadErrorsByFeatureFlag(null)
         },
         setDateRange: () => {
             actions.loadAllCustomInsights()
