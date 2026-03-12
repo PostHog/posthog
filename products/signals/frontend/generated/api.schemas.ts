@@ -10,17 +10,21 @@
 /**
  * * `session_replay` - Session replay
  * `llm_analytics` - LLM analytics
+ * `error_tracking` - Error tracking
  */
 export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
 
 export const SourceProductEnumApi = {
     SessionReplay: 'session_replay',
     LlmAnalytics: 'llm_analytics',
+    ErrorTracking: 'error_tracking',
 } as const
 
 /**
  * * `session_analysis_cluster` - Session analysis cluster
  * `evaluation` - Evaluation
+ * `new_exception` - New exception
+ * `spike_detected` - Spike detected
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -28,6 +32,8 @@ export type SignalSourceConfigSourceTypeEnumApi =
 export const SignalSourceConfigSourceTypeEnumApi = {
     SessionAnalysisCluster: 'session_analysis_cluster',
     Evaluation: 'evaluation',
+    NewException: 'new_exception',
+    SpikeDetected: 'spike_detected',
 } as const
 
 export interface SignalSourceConfigApi {

@@ -1,5 +1,12 @@
 // Signal taxonomy types - shared contract between emitters and consumers
 
+// Common fields shared by all signal inputs
+interface SignalInputBase {
+    source_id: string
+    description: string
+    weight: number
+}
+
 // Session replay segment cluster
 
 export interface SessionReplaySegment {
@@ -23,12 +30,9 @@ export interface SessionSegmentClusterSignalExtra {
     metrics: SessionSegmentClusterMetrics
 }
 
-export interface SessionSegmentClusterSignalInput {
+export interface SessionSegmentClusterSignalInput extends SignalInputBase {
     source_type: 'session_segment_cluster'
     source_product: 'session_replay'
-    source_id: string
-    description: string
-    weight: number
     extra: SessionSegmentClusterSignalExtra
 }
 
@@ -43,12 +47,9 @@ export interface LlmEvalSignalExtra {
     provider?: string
 }
 
-export interface LlmEvaluationSignalInput {
+export interface LlmEvaluationSignalInput extends SignalInputBase {
     source_type: 'evaluation'
     source_product: 'llm_analytics'
-    source_id: string
-    description: string
-    weight: number
     extra: LlmEvalSignalExtra
 }
 
@@ -63,12 +64,9 @@ export interface ZendeskTicketSignalExtra {
     status: string
 }
 
-export interface ZendeskTicketSignalInput {
+export interface ZendeskTicketSignalInput extends SignalInputBase {
     source_type: 'ticket'
     source_product: 'zendesk'
-    source_id: string
-    description: string
-    weight: number
     extra: ZendeskTicketSignalExtra
 }
 
@@ -84,13 +82,23 @@ export interface GithubIssueSignalExtra {
     state: string
 }
 
-export interface GithubIssueSignalInput {
+export interface GithubIssueSignalInput extends SignalInputBase {
     source_type: 'issue'
     source_product: 'github'
-    source_id: string
-    description: string
-    weight: number
     extra: GithubIssueSignalExtra
+}
+
+// Error tracking
+
+export interface ErrorTrackingSignalExtra {
+    issue_id: string
+    fingerprint: string
+}
+
+export interface ErrorTrackingSignalInput extends SignalInputBase {
+    source_type: 'new_exception' | 'spike_detected'
+    source_product: 'error_tracking'
+    extra: ErrorTrackingSignalExtra
 }
 
 // Linear issue
@@ -109,12 +117,9 @@ export interface LinearIssueSignalExtra {
     updated_at: string
 }
 
-export interface LinearIssueSignalInput {
+export interface LinearIssueSignalInput extends SignalInputBase {
     source_type: 'issue'
     source_product: 'linear'
-    source_id: string
-    description: string
-    weight: number
     extra: LinearIssueSignalExtra
 }
 
@@ -127,3 +132,4 @@ export type SignalInput =
     | ZendeskTicketSignalInput
     | GithubIssueSignalInput
     | LinearIssueSignalInput
+    | ErrorTrackingSignalInput

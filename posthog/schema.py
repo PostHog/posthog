@@ -1410,6 +1410,31 @@ class ErrorTrackingIssueStatus(StrEnum):
     SUPPRESSED = "suppressed"
 
 
+class ErrorTrackingSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fingerprint: str
+    issue_id: str
+
+
+class SourceType(StrEnum):
+    NEW_EXCEPTION = "new_exception"
+    SPIKE_DETECTED = "spike_detected"
+
+
+class ErrorTrackingSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: ErrorTrackingSignalExtra
+    source_id: str
+    source_product: Literal["error_tracking"] = "error_tracking"
+    source_type: SourceType
+    weight: float
+
+
 class EventDefinition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6797,6 +6822,7 @@ class SignalInput(
         | ZendeskTicketSignalInput
         | GithubIssueSignalInput
         | LinearIssueSignalInput
+        | ErrorTrackingSignalInput
     ]
 ):
     root: (
@@ -6805,6 +6831,7 @@ class SignalInput(
         | ZendeskTicketSignalInput
         | GithubIssueSignalInput
         | LinearIssueSignalInput
+        | ErrorTrackingSignalInput
     ) = Field(..., discriminator="source_product")
 
 
