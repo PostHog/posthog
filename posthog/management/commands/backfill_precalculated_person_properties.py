@@ -1,5 +1,6 @@
 import time
 import asyncio
+from typing import Any
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
@@ -150,7 +151,7 @@ class Command(BaseCommand):
 
         # Collect and deduplicate filters across all cohorts
         # Map: condition_hash -> (bytecode, [cohort_ids])
-        condition_map: dict[str, tuple[list, list[int]]] = {}
+        condition_map: dict[str, tuple[list[Any], list[int]]] = {}
         cohort_ids = []
         total_original_filters = 0
         for cohort in cohorts:
