@@ -269,6 +269,21 @@
             "readOnlyHint": false
         }
     },
+    "prompt-compare": {
+        "description": "Compare two versions of an LLM prompt by name. Returns a unified diff between the two versions along with version metadata and addition/deletion counts. Useful for reviewing what changed between prompt iterations.",
+        "category": "Prompts",
+        "feature": "prompts",
+        "summary": "Compare prompt versions",
+        "title": "Compare prompt versions",
+        "required_scopes": ["llm_prompt:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "workflows-list": {
         "description": "List all workflows in the project. Returns workflows with their name, description, status (draft/active/archived), version, trigger configuration, and timestamps.",
         "category": "Workflows",

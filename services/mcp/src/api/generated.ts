@@ -16051,6 +16051,35 @@ export namespace Schemas {
       readonly first_version_created_at: string;
     }
 
+    export interface LLMPromptCompareVersion {
+      /** Unique identifier for this prompt version. */
+      id: string;
+      /** Version number. */
+      version: number;
+      /** Full prompt content for this version. */
+      prompt: unknown;
+      readonly created_by: UserBasic;
+      /** When this version was created. */
+      created_at: string;
+      /** Whether this is the latest active version. */
+      is_latest: boolean;
+    }
+
+    export interface LLMPromptCompareResponse {
+      /** Name of the prompt being compared. */
+      prompt_name: string;
+      /** The baseline version details. */
+      version_from: LLMPromptCompareVersion;
+      /** The target version details. */
+      version_to: LLMPromptCompareVersion;
+      /** Unified diff between the two prompt versions. */
+      diff: string;
+      /** Number of lines added. */
+      additions: number;
+      /** Number of lines removed. */
+      deletions: number;
+    }
+
     export interface LLMPromptPublic {
       id: string;
       name: string;
@@ -27836,6 +27865,19 @@ export namespace Schemas {
      * Optional substring filter applied to prompt names and prompt content.
      */
     search?: string;
+    };
+
+    export type LlmPromptsCompareNameRetrieveParams = {
+    /**
+     * Version number to compare from (the baseline).
+     * @minimum 1
+     */
+    version_from: number;
+    /**
+     * Version number to compare to (the target).
+     * @minimum 1
+     */
+    version_to: number;
     };
 
     export type LlmPromptsNameRetrieveParams = {

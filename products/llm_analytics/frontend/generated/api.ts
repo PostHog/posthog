@@ -22,11 +22,13 @@ import type {
     EvaluationSummaryResponseApi,
     EvaluationsListParams,
     LLMPromptApi,
+    LLMPromptCompareResponseApi,
     LLMPromptPublicApi,
     LLMPromptResolveResponseApi,
     LLMProviderKeyApi,
     LlmAnalyticsClusteringJobsListParams,
     LlmAnalyticsProviderKeysListParams,
+    LlmPromptsCompareNameRetrieveParams,
     LlmPromptsListParams,
     LlmPromptsNameRetrieveParams,
     LlmPromptsResolveNameRetrieveParams,
@@ -767,6 +769,38 @@ export const llmPromptsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(lLMPromptApi),
+    })
+}
+
+export const getLlmPromptsCompareNameRetrieveUrl = (
+    projectId: string,
+    promptName: string,
+    params: LlmPromptsCompareNameRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/llm_prompts/compare/name/${promptName}/?${stringifiedParams}`
+        : `/api/environments/${projectId}/llm_prompts/compare/name/${promptName}/`
+}
+
+export const llmPromptsCompareNameRetrieve = async (
+    projectId: string,
+    promptName: string,
+    params: LlmPromptsCompareNameRetrieveParams,
+    options?: RequestInit
+): Promise<LLMPromptCompareResponseApi> => {
+    return apiMutator<LLMPromptCompareResponseApi>(getLlmPromptsCompareNameRetrieveUrl(projectId, promptName, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
