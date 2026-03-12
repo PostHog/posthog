@@ -1,4 +1,5 @@
 import signal
+
 from django.core.management.base import BaseCommand, CommandError
 
 from posthog.demo.matrix.session_data_fetcher import SessionDataFetcher
@@ -12,7 +13,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--team-id", type=int, required=True, help="Team ID to fetch session data from")
         parser.add_argument(
-            "--max-sessions", type=int, default=5, help="Maximum number of sessions to replay (default: 5)"
+            "--max-sessions", type=int, default=10, help="Maximum number of sessions to replay (default: 10)"
         )
         parser.add_argument(
             "--days-back", type=int, default=90, help="How many days back to look for sessions (default: 90)"

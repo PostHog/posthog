@@ -1,25 +1,25 @@
+import os
+import math
+import random
 import asyncio
 import datetime as dt
-import os
-import random
 import subprocess
-import math
+import urllib.parse
+from dataclasses import dataclass
 from pathlib import Path
 from time import sleep
 from typing import Optional
-from dataclasses import dataclass
-import urllib.parse
+
 import requests
+from playwright.async_api import Browser, async_playwright
 
 from posthog.demo.products.hedgebox.taxonomy import (
-    EVENT_SIGNED_UP,
-    EVENT_LOGGED_IN,
-    EVENT_UPLOADED_FILE,
-    EVENT_DOWNLOADED_FILE,
     EVENT_DELETED_FILE,
+    EVENT_DOWNLOADED_FILE,
+    EVENT_LOGGED_IN,
+    EVENT_SIGNED_UP,
+    EVENT_UPLOADED_FILE,
 )
-
-from playwright.async_api import Browser, async_playwright
 
 
 @dataclass
@@ -53,7 +53,7 @@ class ReplayableSession:
 
 
 LOCAL_POSTHOG_NETLOC = "localhost:8010"
-WEB_APP_NETLOC = "localhost:3000"
+WEB_APP_NETLOC = "localhost:3100"
 
 
 class SessionReplayGenerator:
@@ -70,36 +70,37 @@ class SessionReplayGenerator:
         *,
         headless: bool = False,
     ):
-        self.app_path = Path(__file__).parent.parent.parent / "demo" / "products" / "hedgebox" / "app"
+        # hedgebox-dummy/ is at the repo root
+        self.app_path = Path(__file__).parent.parent.parent.parent / "hedgebox-dummy"
         self.posthog_api_token = posthog_api_token
         self.headless = headless
 
     def generate_session_recordings(self, sessions: list[ReplayableSession], *, print_progress: bool = False) -> None:
         """Generate session replays for the given sessions."""
         if print_progress:
-            print("Starting the demo app in the background...")
+            print("Starting the demo app in the background...")  # noqa: T201
         self.start_demo_app(print_progress=print_progress)
         try:
             if print_progress:
-                print("Waiting for the demo app to be ready...")
+                print("Waiting for the demo app to be ready...")  # noqa: T201
             self._wait_for_netloc_ready(WEB_APP_NETLOC)  # Next.js app should be ready by now
             self._wait_for_netloc_ready(LOCAL_POSTHOG_NETLOC)
 
             if print_progress:
-                print("Beginning session replay automation...")
+                print("Beginning session replay automation...")  # noqa: T201
             asyncio.run(self._replay_sessions(sessions, print_progress))
         except:
             raise
         finally:
             self._stop_demo_app()
             if print_progress:
-                print("Session replay generation completed")
+                print("Session replay generation completed")  # noqa: T201
 
     def start_demo_app(self, *, print_progress: bool = False) -> None:
         """Start the demo app with PostHog configuration."""
         # Set environment variables for PostHog integration
         # Start the Next.js app
-        print(
+        print(  # noqa: T201
             f"Starting the app at {self.app_path} with API netloc {LOCAL_POSTHOG_NETLOC}, token {self.posthog_api_token}"
         )
         self._app_process = subprocess.Popen(
@@ -122,7 +123,7 @@ class SessionReplayGenerator:
                 if response.ok:
                     return  # Good to go!
             except Exception as e:
-                print(f"Failed to connect to {netloc}: {e}")
+                print(f"Failed to connect to {netloc}: {e}")  # noqa: T201
                 pass
             sleep(0.5)
         raise RuntimeError(f"{netloc} failed to start")
@@ -173,7 +174,7 @@ class SessionReplayGenerator:
                     )
                 except TimeoutError:
                     if print_progress:
-                        print("Session replay timed out, cleaning up...")
+                        print("Session replay timed out, cleaning up...")  # noqa: T201
                     # Cancel remaining tasks
                     for task in tasks:
                         if not task.done():
@@ -181,7 +182,7 @@ class SessionReplayGenerator:
 
             except Exception as e:
                 if print_progress:
-                    print(f"Error during session replay: {e}")
+                    print(f"Error during session replay: {e}")  # noqa: T201
                 raise
             finally:
                 if browser:
@@ -211,27 +212,25 @@ class SessionReplayGenerator:
             )
         except TimeoutError:
             if print_progress:
-                print(f"Session {session.session_id} timed out after 5 minutes")
+                print(f"Session {session.session_id} timed out after 5 minutes")  # noqa: T201
             # Session timed out - context cleanup will happen in main method
         except Exception as e:
             if print_progress:
-                print(f"Error replaying session {session.session_id}: {e}")
+                print(f"Error replaying session {session.session_id}: {e}")  # noqa: T201
             # Other errors - let them propagate but don't crash everything
 
     async def _replay_single_session(
         self, browser: Browser, session: ReplayableSession, *, print_progress: bool = False
     ) -> None:
         """
-        Replay a single session with Playwright using time control for compressed playback.
+        Replay a single session with Playwright using real-time compressed playback.
 
-        This method uses Playwright's Clock API to simulate the passage of time, allowing us to:
-        - Jump instantly between events that were originally minutes apart
-        - Maintain accurate timestamps for PostHog analytics
-        - Complete 10+ minute sessions in just a few seconds of real time
-        - Add small realistic delays only for visual mouse movements
+        We do NOT use the Clock API because it breaks posthog-js internals (setTimeout,
+        setInterval, Date.now) which are needed for session recording and event flushing.
+        Instead we use real wall-clock delays between events, compressed to keep things quick.
         """
         if print_progress:
-            print(f"Replaying session {session.session_id}")
+            print(f"Replaying session {session.session_id}")  # noqa: T201
         # Create new browser context for each session
         context = None
         page = None
@@ -239,10 +238,20 @@ class SessionReplayGenerator:
             context = await browser.new_context()
             page = await context.new_page()
 
-            # Set up time control - start at the session's actual start time
-            session_start_s = int(session.start_time.timestamp())
-            await page.clock.install(time=session_start_s)
-            await page.clock.pause_at(session_start_s)
+            # Forward browser console logs and network errors for debugging
+            if print_progress:
+                page.on("console", lambda msg: print(f"  [browser] {msg.type}: {msg.text}"))  # noqa: T201
+                page.on("pageerror", lambda err: print(f"  [browser error] {err}"))  # noqa: T201
+                page.on(
+                    "response",
+                    lambda resp: print(f"  [network] {resp.status} {resp.url[:100]}")  # noqa: T201
+                    if "posthog" in resp.url or "8010" in resp.url or resp.status >= 400
+                    else None,
+                )
+                page.on(
+                    "requestfailed",
+                    lambda req: print(f"  [network FAIL] {req.url[:100]} - {req.failure}"),  # noqa: T201
+                )
 
             # Track session state for more realistic behavior
             session_state = {
@@ -259,22 +268,10 @@ class SessionReplayGenerator:
             mouse_task = asyncio.create_task(self._continuous_mouse_movement(page, session_state))
 
             try:
-                current_time_s = session_start_s
-
                 for i, event in enumerate(session.events):
-                    # Jump to the event's timestamp instantly using Clock API
-                    event_timestamp_s = int(event.timestamp.timestamp())
-
-                    # Only fast-forward if we're moving forward in time
-                    if event_timestamp_s > current_time_s:
-                        time_diff_s = event_timestamp_s - current_time_s
-                        await page.clock.fast_forward(time_diff_s)
-                        current_time_s = event_timestamp_s
-
-                    # Add a small realistic delay for mouse movements between events
+                    # Add a realistic delay between events
                     if i > 0:
-                        # Very short delay (0.5-2 seconds max) for realism
-                        realistic_delay = min(2.0, random.uniform(0.5, 1.5))
+                        realistic_delay = random.uniform(0.5, 2.0)
                         await self._simulate_human_activity_during_delay(page, session_state, realistic_delay)
 
                     # Replay the event with session context
@@ -291,12 +288,8 @@ class SessionReplayGenerator:
                 except asyncio.CancelledError:
                     pass
 
-            # Final timestamp jump to session end and allow PostHog to flush
-            session_end_s = int(session.end_time.timestamp())
-            current_page_time = await page.evaluate("Date.now()")
-            if session_end_s > current_page_time:
-                await page.clock.fast_forward(session_end_s - current_page_time)
-            await asyncio.sleep(2)  # Brief real-time pause for PostHog flush
+            # Allow PostHog to flush remaining events
+            await asyncio.sleep(3)
         except:
             raise
         finally:

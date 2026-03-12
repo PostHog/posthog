@@ -2,17 +2,18 @@
 Fetch real session data from PostHog for session replay generation.
 """
 
-import datetime as dt
 import json
-import random
+import datetime as dt
 from typing import Optional
 
 from django.utils import timezone
 
-from posthog.models import Team
-from posthog.hogql.query import execute_hogql_query
 from posthog.hogql import ast
-from .session_replay_generator import ReplayPerson, ReplayEvent, ReplayableSession
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.models import Team
+
+from .session_replay_generator import ReplayableSession, ReplayEvent, ReplayPerson
 
 
 class SessionDataFetcher:
@@ -26,12 +27,10 @@ class SessionDataFetcher:
     def fetch_sessions_for_replay(self, max_sessions: int = 10, days_back: int = 90) -> list[ReplayableSession]:
         cutoff_date = timezone.now() - dt.timedelta(days=days_back)
 
-        session_ids = self._get_session_ids_in_range(cutoff_date)
+        session_ids = self._get_session_ids_in_range(cutoff_date, max_sessions)
 
         if not session_ids:
             return []
-
-        session_ids = random.sample(session_ids, min(max_sessions, len(session_ids)))
 
         sessions_data = self._get_events_for_sessions(session_ids)
 
@@ -44,11 +43,34 @@ class SessionDataFetcher:
 
         return replayable_sessions
 
-    def _get_session_ids_in_range(self, cutoff_date: dt.datetime) -> list[str]:
+    def _get_session_ids_in_range(self, cutoff_date: dt.datetime, max_sessions: int) -> list[str]:
+        # Get sessions between 1-5 minutes, pick the ones with the most events
+        # We fetch a pool of candidates and then select the most active ones
+        pool_size = max_sessions * 10  # Fetch a larger pool to select from
         response = execute_hogql_query(
-            query="""SELECT id FROM sessions WHERE $start_timestamp > {cutoff_date} AND duration >= 3 AND duration < 300""",
+            query="""
+            SELECT
+                properties.$session_id as sid,
+                count() as event_count
+            FROM events
+            WHERE properties.$session_id IN (
+                SELECT id
+                FROM sessions
+                WHERE $start_timestamp > {cutoff_date}
+                  AND duration >= 60
+                  AND duration < 300
+                LIMIT {pool_size}
+            )
+            GROUP BY sid
+            ORDER BY event_count DESC
+            LIMIT {limit}
+            """,
             team=self.team,
-            placeholders={"cutoff_date": ast.Constant(value=cutoff_date)},
+            placeholders={
+                "cutoff_date": ast.Constant(value=cutoff_date),
+                "pool_size": ast.Constant(value=pool_size),
+                "limit": ast.Constant(value=max_sessions),
+            },
         )
         return [row[0] for row in response.results]
 
