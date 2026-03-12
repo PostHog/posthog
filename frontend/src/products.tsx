@@ -1438,7 +1438,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'llm_playground' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
         href: urls.llmAnalyticsPlayground(),
-        tags: ['beta'],
         sceneKey: 'LLMAnalyticsPlayground',
         sceneKeys: [
             'LLMAnalytics',
@@ -1781,17 +1780,6 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         href: urls.sources(),
         sceneKey: 'Sources',
         sceneKeys: ['Sources'],
-    },
-    {
-        path: 'Support',
-        category: 'Behavior',
-        iconType: 'conversations' as FileSystemIconType,
-        iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
-        href: urls.supportTickets(),
-        sceneKey: 'SupportTickets',
-        flag: FEATURE_FLAGS.PRODUCT_SUPPORT,
-        tags: ['alpha'],
-        sceneKeys: ['SupportTickets', 'SupportTicketDetail', 'SupportSettings'],
     },
     {
         path: `Transformations`,

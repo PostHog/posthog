@@ -27,6 +27,8 @@ import {
     TickOptions,
     TooltipModel,
 } from 'lib/Chart'
+import { resolveVariableColor } from 'lib/charts/utils/color'
+import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -36,8 +38,6 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hexToRGBA, uuid } from 'lib/utils'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
-import { createXAxisTickCallback } from 'scenes/insights/views/LineGraph/formatXAxisTick'
-import { resolveVariableColor } from 'scenes/insights/views/LineGraph/LineGraph'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ChartSettings, GoalLine, YAxisSettings } from '~/queries/schema/schema-general'
@@ -463,8 +463,10 @@ export const LineGraph = ({
                                     }
                                 })
 
-                                const tooltipTotalData = filteredSeriesData.filter(
-                                    (n) => n.settings?.formatting?.style !== 'percent'
+                                const tooltipTotalData = ySeriesData.filter(
+                                    (n) =>
+                                        n.settings?.formatting?.style !== 'percent' &&
+                                        n.data[referenceDataPoint.dataIndex] !== null
                                 )
 
                                 // Don't show total row when highlighting a single bar

@@ -76,6 +76,9 @@ jobs:
               with:
                   node-version: 24.13.0
                   cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-nodejs.yml
 
             - name: Install package.json dependencies with pnpm
               env:
@@ -113,6 +116,9 @@ jobs:
               with:
                   node-version: 24.13.0
                   cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-nodejs.yml
 
             - name: Install package.json dependencies with pnpm
               env:
@@ -227,7 +233,9 @@ jobs:
               with:
                   node-version: 24.13.0
                   cache: pnpm
-                  cache-dependency-path: pnpm-lock.yaml
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-nodejs.yml
 
             - name: Download MaxMind Database
               run: |

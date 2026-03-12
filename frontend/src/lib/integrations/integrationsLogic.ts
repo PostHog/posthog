@@ -149,7 +149,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
 
                     await api.integrations.create({
                         kind: 'github',
-                        config: { installation_id },
+                        config: { installation_id, state: stateToken },
                     })
 
                     actions.loadIntegrations()

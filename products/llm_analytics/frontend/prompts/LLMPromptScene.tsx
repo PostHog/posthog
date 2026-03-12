@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
 
-import { IconPencil, IconTrash } from '@posthog/icons'
+import { IconPencil, IconPlay, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -59,6 +59,14 @@ export function LLMPromptScene(): JSX.Element {
 
     const { submitPromptForm, deletePrompt, setMode, setPromptFormValues, loadMoreVersions } =
         useActions(llmPromptLogic)
+    const sourcePromptName = !isNewPrompt && prompt && isPrompt(prompt) ? prompt.name : null
+    const sourcePromptVersion = isHistoricalVersion && isPrompt(prompt) ? prompt.version : null
+    const openInPlaygroundUrl = sourcePromptName
+        ? combineUrl(urls.llmAnalyticsPlayground(), {
+              source_prompt_name: sourcePromptName,
+              ...(sourcePromptVersion ? { source_prompt_version: sourcePromptVersion } : {}),
+          }).url
+        : undefined
 
     if (isPromptMissing) {
         return <NotFound object="prompt" />
@@ -82,6 +90,17 @@ export function LLMPromptScene(): JSX.Element {
                 isLoading={promptLoading}
                 actions={
                     <>
+                        {openInPlaygroundUrl ? (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconPlay />}
+                                to={openInPlaygroundUrl}
+                                data-attr="llma-playground-open-from-prompt"
+                            >
+                                Open in Playground
+                            </LemonButton>
+                        ) : null}
                         {isPrompt(prompt) && prompt.is_latest ? (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.LlmAnalytics}
@@ -92,7 +111,7 @@ export function LLMPromptScene(): JSX.Element {
                                     icon={<IconPencil />}
                                     onClick={() => setMode(PromptMode.Edit)}
                                     size="small"
-                                    data-attr="prompt-edit-button"
+                                    data-attr="llma-prompt-edit-button"
                                 >
                                     Edit latest
                                 </LemonButton>
@@ -111,7 +130,7 @@ export function LLMPromptScene(): JSX.Element {
                                         }
                                     }}
                                     size="small"
-                                    data-attr="prompt-use-as-latest-button"
+                                    data-attr="llma-prompt-use-as-latest-button"
                                 >
                                     Use as latest
                                 </LemonButton>
@@ -128,7 +147,7 @@ export function LLMPromptScene(): JSX.Element {
                                 icon={<IconTrash />}
                                 onClick={() => openArchivePromptDialog(deletePrompt)}
                                 size="small"
-                                data-attr="prompt-delete-button"
+                                data-attr="llma-prompt-delete-button"
                             >
                                 Archive
                             </LemonButton>
@@ -199,6 +218,18 @@ export function LLMPromptScene(): JSX.Element {
                     isLoading={promptLoading}
                     actions={
                         <>
+                            {openInPlaygroundUrl ? (
+                                <LemonButton
+                                    type="secondary"
+                                    icon={<IconPlay />}
+                                    to={openInPlaygroundUrl}
+                                    disabledReason={isPromptFormSubmitting ? 'Saving…' : undefined}
+                                    size="small"
+                                    data-attr="llma-playground-open-from-prompt"
+                                >
+                                    Open in Playground
+                                </LemonButton>
+                            ) : null}
                             <LemonButton
                                 type="secondary"
                                 onClick={() => {
@@ -212,7 +243,7 @@ export function LLMPromptScene(): JSX.Element {
                                 }}
                                 disabledReason={isPromptFormSubmitting ? 'Saving…' : undefined}
                                 size="small"
-                                data-attr="prompt-cancel-button"
+                                data-attr="llma-prompt-cancel-button"
                             >
                                 Cancel
                             </LemonButton>
@@ -243,7 +274,7 @@ export function LLMPromptScene(): JSX.Element {
                                         icon={<IconTrash />}
                                         onClick={() => openArchivePromptDialog(deletePrompt)}
                                         size="small"
-                                        data-attr="prompt-delete-button"
+                                        data-attr="llma-prompt-delete-button"
                                     >
                                         Archive
                                     </LemonButton>

@@ -209,6 +209,8 @@ export class MCP extends McpAgent<Env> {
 
             await this.resolveClientInfo()
 
+            const clientName = await this.cache.get('clientName')
+
             client.capture({
                 distinctId,
                 event,
@@ -218,6 +220,7 @@ export class MCP extends McpAgent<Env> {
                               $session_id: await this.sessionManager.getSessionUuid(this.requestProperties.sessionId),
                           }
                         : {}),
+                    ...(clientName ? { mcp_oauth_client_name: clientName } : {}),
                     ...(this._mcpClientName ? { mcp_client_name: this._mcpClientName } : {}),
                     ...(this._mcpClientVersion ? { mcp_client_version: this._mcpClientVersion } : {}),
                     ...(this._mcpProtocolVersion ? { mcp_protocol_version: this._mcpProtocolVersion } : {}),
@@ -238,7 +241,7 @@ export class MCP extends McpAgent<Env> {
             const spanId = generateId()
             const spanName = `mcp/${tool.name}`
             const startTime = performance.now()
-            const inputState = JSON.stringify(params)
+            const inputState = params
             const validation = tool.schema.safeParse(params)
 
             if (!validation.success) {
@@ -249,12 +252,13 @@ export class MCP extends McpAgent<Env> {
                 })
                 const latency = (performance.now() - startTime) / 1000
                 const errorOutput = `Invalid input: ${validation.error.message}`
-                const outputState = JSON.stringify(errorOutput)
+                const outputState = { error: errorOutput }
                 await this.trackEvent(AnalyticsEvent.AI_TRACE, {
                     $ai_trace_id: traceId,
                     $ai_span_name: spanName,
                     $ai_latency: latency,
                     $ai_is_error: true,
+                    ai_product: 'mcp',
                 })
                 await this.trackEvent(AnalyticsEvent.AI_SPAN, {
                     $ai_trace_id: traceId,
@@ -265,6 +269,7 @@ export class MCP extends McpAgent<Env> {
                     $ai_output_state: outputState,
                     $ai_latency: latency,
                     $ai_is_error: true,
+                    ai_product: 'mcp',
                 })
                 return [
                     {
@@ -282,7 +287,7 @@ export class MCP extends McpAgent<Env> {
             try {
                 const result = await handler(params)
                 const latency = (performance.now() - startTime) / 1000
-                const outputState = JSON.stringify(result)
+                const outputState = result
 
                 await this.trackEvent(AnalyticsEvent.MCP_TOOL_RESPONSE, {
                     tool: tool.name,
@@ -291,6 +296,7 @@ export class MCP extends McpAgent<Env> {
                     $ai_trace_id: traceId,
                     $ai_span_name: spanName,
                     $ai_latency: latency,
+                    ai_product: 'mcp',
                 })
                 await this.trackEvent(AnalyticsEvent.AI_SPAN, {
                     $ai_trace_id: traceId,
@@ -300,6 +306,7 @@ export class MCP extends McpAgent<Env> {
                     $ai_input_state: inputState,
                     $ai_output_state: outputState,
                     $ai_latency: latency,
+                    ai_product: 'mcp',
                 })
 
                 // For tools with UI resources, include structuredContent for better UI rendering
@@ -334,12 +341,13 @@ export class MCP extends McpAgent<Env> {
             } catch (error: any) {
                 const latency = (performance.now() - startTime) / 1000
                 const errorMessage = error instanceof Error ? error.message : String(error)
-                const outputState = JSON.stringify({ error: errorMessage })
+                const outputState = { error: errorMessage }
                 await this.trackEvent(AnalyticsEvent.AI_TRACE, {
                     $ai_trace_id: traceId,
                     $ai_span_name: spanName,
                     $ai_latency: latency,
                     $ai_is_error: true,
+                    ai_product: 'mcp',
                 })
                 await this.trackEvent(AnalyticsEvent.AI_SPAN, {
                     $ai_trace_id: traceId,
@@ -350,6 +358,7 @@ export class MCP extends McpAgent<Env> {
                     $ai_output_state: outputState,
                     $ai_latency: latency,
                     $ai_is_error: true,
+                    ai_product: 'mcp',
                 })
                 const distinctId = await this.getDistinctId()
                 return handleToolError(
@@ -433,6 +442,13 @@ export class MCP extends McpAgent<Env> {
             excludeTools,
             readOnly,
         })
+
+        // OAuth introspection has now run (triggered by getToolsFromContext → getApiKey),
+        // so update the ApiClient with the verified OAuth client name for header forwarding.
+        const oauthClientName = (await this.cache.get('clientName')) || undefined
+        if (oauthClientName && this._api) {
+            this._api.config.oauthClientName = oauthClientName
+        }
 
         for (const tool of allTools) {
             const typedTool = tool as Tool<z.ZodObject>

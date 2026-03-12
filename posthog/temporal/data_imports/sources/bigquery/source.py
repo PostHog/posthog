@@ -44,10 +44,13 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
             "NotFound: 404": "BigQuery dataset or table not found. Please verify your project, dataset, and table names.",
         }
 
-    def get_schemas(self, config: BigQuerySourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: BigQuerySourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
         bq_schemas = get_bigquery_schemas(
             config,
             logger=None,
+            names=names,
         )
 
         filtered_results = [
