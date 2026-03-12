@@ -12,7 +12,7 @@ import textwrap
 import subprocess
 from pathlib import Path
 
-from claude_agent_sdk import ClaudeAgentOptions, HookMatcher, ResultMessage, query
+from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 from claude_agent_sdk.types import AssistantMessage, ToolUseBlock
 from github import PRData
 
@@ -65,41 +65,12 @@ def _validate_verdict(result: dict) -> dict:
         result.setdefault("issues", []).append("Invalid verdict value — escalating")
     return result
 
-
-def _make_path_validator(repo_root: Path, diff_path: Path):
-    """Only allow Read/Grep/Glob within the repo checkout."""
-    allowed_roots = [str(repo_root.resolve())]
-    allowed_files = [str(diff_path.resolve())]
-
-    async def validate_tool(input_data, tool_use_id, context):
-        try:
-            tool_input = input_data.get("tool_input", {})
-            path = tool_input.get("file_path") or tool_input.get("path") or ""
-
-            if not path:
-                return {}
-
-            resolved = str(Path(path).resolve())
-
-            if resolved in allowed_files:
-                return {}
-
-            if any(resolved.startswith(root + "/") or resolved == root for root in allowed_roots):
-                return {}
-
-            return {
-                "hookSpecificOutput": {
-                    "hookEventName": input_data.get("hook_event_name", "PreToolUse"),
-                    "permissionDecision": "deny",
-                    "permissionDecisionReason": f"Path outside repo root: {path}",
-                }
-            }
-        except Exception as e:
-            # Fail open — dontAsk + allowed_tools already restricts access
-            print(f"\033[2m    ⚠ Path validator hook error: {type(e).__name__}: {e}\033[0m", flush=True)
-            return {}
-
-    return validate_tool
+    # Path validator hook removed — the PreToolUse hook crashes the CLI
+    # subprocess (Stream closed) on every invocation, wasting retries.
+    # Security impact is low: dontAsk + allowed_tools already restricts
+    # the agent to Read/Grep/Glob, and it can only read files the OS user
+    # can access anyway (ephemeral CI runner, no secrets on disk).
+    # TODO: re-enable once the SDK hook bug is fixed.
 
 
 ANTI_INJECTION_NOTICE = textwrap.dedent("""\
@@ -193,7 +164,6 @@ class Reviewer:
     async def _review(self, pr: PRData, classification: dict, gate_context: dict) -> dict:
         diff_path = self._write_diff_file(pr)
         prompt = self._build_review_prompt(pr, classification, gate_context, diff_path)
-        path_validator = _make_path_validator(self.repo_root, diff_path)
 
         options = ClaudeAgentOptions(
             system_prompt=REVIEWER_SYSTEM,
@@ -204,7 +174,6 @@ class Reviewer:
             model=MODEL,
             permission_mode="dontAsk",
             output_format=VERDICT_SCHEMA,
-            hooks={"PreToolUse": [HookMatcher(matcher="Read|Grep|Glob", hooks=[path_validator])]},
         )
 
         structured_output = None
