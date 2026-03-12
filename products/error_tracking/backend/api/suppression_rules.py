@@ -84,7 +84,7 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
     def create(self, request, *args, **kwargs) -> Response:
         json_filters = request.data.get("filters")
 
-        if json_filters:
+        if json_filters is not None:
             if _has_filter_values(json_filters):
                 try:
                     parsed_filters = PropertyGroupFilterValue(**json_filters)
@@ -132,61 +132,25 @@ def _has_filter_values(json_filters: dict) -> bool:
     return any(v.get("values") or "key" in v for v in values)
 
 
-NEGATIVE_OPERATORS = frozenset({"is_not", "not_regex", "not_icontains"})
-
 # Properties that require server-side symbol resolution to have meaningful
 # values. Client-side these will contain minified/bundled names.
 SERVER_ONLY_PROPERTIES = frozenset({"$exception_sources", "$exception_functions"})
 
 
-def _is_filter_client_safe(f: dict) -> bool:
-    """Check whether a single filter entry can be evaluated client-side."""
-    if f.get("key") in SERVER_ONLY_PROPERTIES:
-        return False
-    if f.get("operator") in NEGATIVE_OPERATORS:
-        return False
-    return True
-
-
 def _get_client_safe_filters(filters: dict) -> dict | None:
-    """Return a version of the filters suitable for client-side evaluation.
+    """Return the filters if every leaf is client-safe, otherwise None.
 
-    - OR rules: strip server-only filters, keep client-safe ones. If any
-      client-safe filter matches, the rule matches (short-circuit OR).
-    - AND rules: all filters must be client-safe. If any is server-only,
-      the entire group cannot be evaluated client-side.
-
-    Returns None if no client-safe evaluation is possible.
+    If any filter in the tree uses a server-only property, the entire rule
+    is not evaluated client-side.
     """
-    values = filters.get("values", [])
-    if not values:
-        return filters
-
-    filter_type = filters.get("type", "AND").upper()
-
-    if filter_type == "OR":
-        safe_values = []
-        for value in values:
-            if "key" in value:
-                if _is_filter_client_safe(value):
-                    safe_values.append(value)
-            elif "values" in value:
-                safe_group = _get_client_safe_filters(value)
-                if safe_group is not None:
-                    safe_values.append(safe_group)
-        if not safe_values:
-            return None
-        return {**filters, "values": safe_values}
-    else:
-        # AND: every filter must be client-safe
-        for value in values:
-            if "key" in value:
-                if not _is_filter_client_safe(value):
-                    return None
-            elif "values" in value:
-                if _get_client_safe_filters(value) is None:
-                    return None
-        return filters
+    for value in filters.get("values", []):
+        if "key" in value:
+            if value.get("key") in SERVER_ONLY_PROPERTIES:
+                return None
+        elif "values" in value:
+            if _get_client_safe_filters(value) is None:
+                return None
+    return filters
 
 
 def get_client_safe_suppression_rules(team: Team) -> list[dict]:

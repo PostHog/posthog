@@ -26,8 +26,8 @@ async fn insert_suppression_rule(db: &PgPool, team_id: i32, bytecode: JsonValue)
     sqlx::query(
         r#"
             INSERT INTO posthog_errortrackingsuppressionrule
-                (id, team_id, order_key, bytecode, filters, created_at, updated_at)
-            VALUES ($1, $2, 0, $3, '{}'::jsonb, NOW(), NOW())
+                (id, team_id, order_key, bytecode, filters, sampling_rate, created_at, updated_at)
+            VALUES ($1, $2, 0, $3, '{}'::jsonb, 1.0, NOW(), NOW())
         "#,
     )
     .bind(id)
