@@ -127,6 +127,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
 
     -- attribution
     entry_referring_domain AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+    entry_referrer AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
     entry_utm_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
     entry_utm_campaign AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
     entry_utm_medium AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
@@ -260,6 +261,7 @@ PROPERTIES = f"""
             `$geoip_subdivision_city_name` Nullable(String),
             `$geoip_time_zone` Nullable(String),
             `$referring_domain` Nullable(String),
+            `$referrer` Nullable(String),
             `utm_source` Nullable(String),
             `utm_campaign` Nullable(String),
             `utm_medium` Nullable(String),
@@ -285,6 +287,7 @@ PROPERTIES = f"""
         tupleElement(p, '$geoip_subdivision_city_name') as _geoip_subdivision_city_name,
         tupleElement(p, '$geoip_time_zone') as _geoip_time_zone,
         tupleElement(p, '$referring_domain') as _referring_domain,
+        tupleElement(p, '$referrer') as _referrer,
         tupleElement(p, 'utm_source') as _utm_source,
         tupleElement(p, 'utm_campaign') as _utm_campaign,
         tupleElement(p, 'utm_medium') as _utm_medium,
@@ -345,6 +348,7 @@ SELECT
 
     -- attribution
     initializeAggregation('argMinState', _referring_domain, pageview_prio_timestamp_min) as entry_referring_domain,
+    initializeAggregation('argMinState', _referrer, pageview_prio_timestamp_min) as entry_referrer,
     initializeAggregation('argMinState', _utm_source, pageview_prio_timestamp_min) as entry_utm_source,
     initializeAggregation('argMinState', _utm_campaign, pageview_prio_timestamp_min) as entry_utm_campaign,
     initializeAggregation('argMinState', _utm_medium, pageview_prio_timestamp_min) as entry_utm_medium,
@@ -471,6 +475,7 @@ SELECT
 
     -- attribution
     initializeAggregation('argMinState', null_s, max_ts_64) as entry_referring_domain,
+    initializeAggregation('argMinState', null_s, max_ts_64) as entry_referrer,
     initializeAggregation('argMinState', null_s, max_ts_64) as entry_utm_source,
     initializeAggregation('argMinState', null_s, max_ts_64) as entry_utm_campaign,
     initializeAggregation('argMinState', null_s, max_ts_64) as entry_utm_medium,
@@ -694,6 +699,7 @@ SELECT
     argMinMerge(entry_utm_term) as entry_utm_term,
     argMinMerge(entry_utm_content) as entry_utm_content,
     argMinMerge(entry_referring_domain) as entry_referring_domain,
+    argMinMerge(entry_referrer) as entry_referrer,
     argMinMerge(entry_gclid) as entry_gclid,
     argMinMerge(entry_gad_source) as entry_gad_source,
     argMinMerge(entry_fbclid) as entry_fbclid,

@@ -134,6 +134,16 @@ def DISTRIBUTED_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL(on_cluster=True):
     )
 
 
+# initial_referrer (full referrer URL, complementing initial_referring_domain which is just the domain)
+ADD_INITIAL_REFERRER_COLUMN_SQL = """
+ALTER TABLE {table_name} {on_cluster_clause}
+ADD COLUMN IF NOT EXISTS
+initial_referrer
+AggregateFunction(argMin, String, DateTime64(6, 'UTC'))
+AFTER initial_referring_domain
+"""
+
+
 # max_inserted_at
 ADD_MAX_INSERTED_AT_COLUMN_SQL = """
 ALTER TABLE {table_name} {on_cluster_clause}
