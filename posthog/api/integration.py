@@ -215,8 +215,14 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             if not all(isinstance(value, str) for value in (service_account_email, project_id)):
                 raise ValidationError("Service account email and project ID must be strings")
 
-            instance = GoogleCloudServiceAccountIntegration.integration_from_service_account_email(
+            get_organization = self.context.get("get_organization")
+            if get_organization is None:
+                raise ValidationError("Organization context is missing")
+            organization_id = str(get_organization().id)
+
+            instance = GoogleCloudServiceAccountIntegration.integration_from_service_account(
                 team_id=team_id,
+                organization_id=organization_id,
                 service_account_email=service_account_email,
                 project_id=project_id,
                 private_key=config.get("private_key", None),
