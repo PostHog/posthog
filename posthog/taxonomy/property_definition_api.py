@@ -656,7 +656,7 @@ class PropertyDefinitionViewSet(
                 .with_search(
                     search_query,
                     search_kwargs,
-                    order_by_search_relevance=bool(search),
+                    order_by_search_relevance=bool(search and search.strip()),
                 )
                 .with_excluded_properties(query.validated_data.get("excluded_properties"))
                 .with_excluded_core_properties(

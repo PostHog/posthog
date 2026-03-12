@@ -166,11 +166,15 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             ("URL-encoded search for properties starting with '$cur'", "$cur", ["$current_url"]),
             ("Fuzzy search: 'hase ' matches properties containing 'chase'", "hase ", ["purchase", "purchase_value"]),
             ("Search matching multiple properties", "brow", ["$browser", "$browser_version"]),
+            ("Shorter name preferred: 'visit' before 'first_visit'", "visit", ["visit", "first_visit"]),
         ]
     )
     def test_property_search_returns_expected_results(
         self, _name: str, search_term: str, expected_property_names: list[str]
     ) -> None:
+        if search_term == "visit":
+            PropertyDefinition.objects.create(team=self.team, name="visit")
+
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search={search_term}")
         assert response.status_code == status.HTTP_200_OK
 
@@ -179,12 +183,18 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         if search_term == "p ting":
             assert response.json()["results"][0]["is_seen_on_filtered_events"] is None
 
-    def test_search_results_prefer_shorter_names_over_alphabetical(self) -> None:
-        PropertyDefinition.objects.create(team=self.team, name="visit")
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search=visit")
-        assert response.status_code == status.HTTP_200_OK
-        result_names = [r["name"] for r in response.json()["results"]]
-        assert result_names == ["visit", "first_visit"]
+    def test_whitespace_search_does_not_change_default_ordering(self) -> None:
+        default_response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/")
+        assert default_response.status_code == status.HTTP_200_OK
+        default_names = [r["name"] for r in default_response.json()["results"]]
+
+        whitespace_search_response = self.client.get(
+            f"/api/projects/{self.team.pk}/property_definitions/?search=%20%20"
+        )
+        assert whitespace_search_response.status_code == status.HTTP_200_OK
+        whitespace_search_names = [r["name"] for r in whitespace_search_response.json()["results"]]
+
+        assert whitespace_search_names == default_names
 
     def test_property_search_with_event_filter_shows_event_association(self):
         # URL params: search=$ and event_names=["$pageview"]
