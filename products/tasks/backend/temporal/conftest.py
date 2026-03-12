@@ -5,6 +5,7 @@ import pytest
 
 from temporalio.testing import ActivityEnvironment
 
+from posthog.conftest import _runs_on_internal_pr
 from posthog.models import Integration, OAuthApplication, Organization, OrganizationMembership, Team, User
 from posthog.temporal.common.logger import configure_logger
 
@@ -24,6 +25,8 @@ def activity_environment():
 @pytest.fixture(autouse=True)
 def array_oauth_app():
     """Create the Array OAuth application for tests."""
+    if not _runs_on_internal_pr():
+        pytest.skip("Skipping test that requires internal secrets on external PRs")
     app, _ = OAuthApplication.objects.get_or_create(
         client_id=ARRAY_APP_CLIENT_ID_DEV,
         defaults={
