@@ -414,7 +414,11 @@ class HogQLQueryExecutor:
         from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 
         try:
-            source = ExternalDataSource.objects.get(team=self.team, id=self.direct_postgres_source_id)
+            source = (
+                ExternalDataSource.objects.filter(team=self.team, id=self.direct_postgres_source_id)
+                .exclude(deleted=True)
+                .get()
+            )
         except ExternalDataSource.DoesNotExist as e:
             raise ExposedHogQLError("Connection not found or has been deleted") from e
 

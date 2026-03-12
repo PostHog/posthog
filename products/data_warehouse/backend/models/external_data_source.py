@@ -133,25 +133,3 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 @database_sync_to_async
 def get_external_data_source(source_id: UUID) -> ExternalDataSource:
     return ExternalDataSource.objects.get(pk=source_id)
-
-
-def get_direct_external_data_source_for_connection(
-    team_id: int, connection_id: str | None
-) -> ExternalDataSource | None:
-    if not connection_id:
-        return None
-
-    try:
-        source_uuid = UUID(connection_id)
-    except ValueError:
-        return None
-
-    return (
-        ExternalDataSource.objects.filter(
-            team_id=team_id,
-            id=source_uuid,
-            access_method=ExternalDataSource.AccessMethod.DIRECT,
-        )
-        .exclude(deleted=True)
-        .first()
-    )
