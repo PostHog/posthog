@@ -46,7 +46,7 @@ fn attributes_to_map(attrs: &[KeyValue]) -> serde_json::Map<String, Value> {
 /// OTel SDK auto-detected resource attribute prefixes that are noise for AI
 /// events. User-set resource attributes (e.g. `user.id`, `posthog.ai.debug`)
 /// pass through since they don't match these prefixes.
-const NOISY_RESOURCE_PREFIXES: &[&str] = &["host.", "process.", "os.", "telemetry.", "service."];
+const NOISY_RESOURCE_PREFIXES: &[&str] = &["host.", "process.", "os.", "telemetry."];
 
 fn filter_resource_attributes(attrs: &[KeyValue]) -> serde_json::Map<String, Value> {
     attrs
@@ -282,10 +282,7 @@ mod tests {
         assert_eq!(props["$ai_trace_id"], "0102030405060708090a0b0c0d0e0f10");
         assert_eq!(props["$ai_span_id"], "0102030405060708");
         assert_eq!(props["$ai_ingestion_source"], "otel");
-        assert!(
-            !props.contains_key("service.name"),
-            "noisy resource attrs should be filtered"
-        );
+        assert_eq!(props["service.name"], "test-svc");
         assert_eq!(props["$otel_span_name"], "chat gpt-4");
         assert_eq!(props["$otel_start_time_unix_nano"], "1704067200000000000");
         assert_eq!(props["$otel_end_time_unix_nano"], "1704067201500000000");
@@ -329,7 +326,7 @@ mod tests {
 
         let events = expand_into_events(&request, "user");
         let props = events[0].properties.as_object().unwrap();
-        assert!(!props.contains_key("service.name"));
+        assert_eq!(props["service.name"], "my-svc");
         assert!(!props.contains_key("host.name"));
         assert!(!props.contains_key("process.pid"));
         assert_eq!(props["user.id"], "user-123");
