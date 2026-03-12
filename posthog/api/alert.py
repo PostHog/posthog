@@ -305,9 +305,7 @@ class AlertSerializer(serializers.ModelSerializer):
         if self.context["request"].method != "POST":
             return attrs
 
-        if msg := AlertConfiguration.check_alert_limit(
-            self.context["team_id"], self.context["get_organization"]()
-        ):
+        if msg := AlertConfiguration.check_alert_limit(self.context["team_id"], self.context["get_organization"]()):
             raise ValidationError({"alert": [msg]})
 
         return attrs
