@@ -23,7 +23,7 @@ export function ChartCanvas<TType extends ChartType = ChartType>({
     return (
         <div
             ref={containerRef}
-            className={`relative ${className ?? ''}`}
+            className={`relative w-full grow overflow-hidden ${className ?? ''}`}
             style={{
                 width: typeof width === 'number' ? `${width}px` : width,
                 height: typeof height === 'number' ? `${height}px` : height,

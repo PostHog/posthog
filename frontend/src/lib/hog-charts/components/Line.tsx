@@ -9,30 +9,15 @@ export function Line(props: LineProps): JSX.Element {
         () => buildLineConfig(props),
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [
-            props.data,
-            props.labels,
+            props.series,
             props.compare,
-            props.stacked,
-            props.cumulative,
-            props.interpolation,
-            props.isArea,
-            props.fillOpacity,
-            props.lineWidth,
-            props.showDots,
-            props.percentStacked,
-            props.incompletePoints,
-            props.hideXAxis,
-            props.hideYAxis,
-            props.crosshair,
+            props.options,
             props.goalLines,
             props.annotations,
-            props.showValues,
-            props.showTrendLine,
-            props.animate,
             props.theme,
             props.xAxis,
             props.yAxis,
-            props.maxSeries,
+            props.interval,
         ]
     )
     return <ChartCanvas config={config} {...props} />
