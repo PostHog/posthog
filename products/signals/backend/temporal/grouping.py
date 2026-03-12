@@ -969,6 +969,7 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
             query=query,
             team=team,
             placeholders=placeholders,
+            heartbeat_fn=temporalio.activity.heartbeat,
         )
 
         if result.results and result.results[0][0] >= expected_count:
