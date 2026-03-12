@@ -20,7 +20,6 @@ use std::time::Duration;
 
 use crate::checkpoint::{
     CheckpointConfig, CheckpointExporter, CheckpointMetadata, CheckpointWorker,
-    UploadCancelledError,
 };
 use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::types::Partition;
@@ -364,19 +363,13 @@ impl CheckpointManager {
                                 // handle releasing locks and reporting outcome
                                 let status = match &result {
                                     Ok(Some(new_checkpoint_info)) => {
-                                        // Update counter and metadata atomically on success
                                         worker_checkpoint_state.insert(partition.clone(), (counter + 1, new_checkpoint_info.metadata.clone()));
                                         "success"
                                     },
                                     Ok(None) => "skipped",
                                     Err(e) => {
-                                        // Cancellation is NOT an error - s3_uploader already logged the detail
-                                        if e.downcast_ref::<UploadCancelledError>().is_some() {
-                                            "cancelled"
-                                        } else {
-                                            error!(partition = partition_tag, "Checkpoint worker thread: attempt failed: {e:#}");
-                                            "error"
-                                        }
+                                        error!(partition = partition_tag, "Checkpoint worker thread: attempt failed: {e:#}");
+                                        "error"
                                     },
                                 };
                                 info!(worker_task_id, partition = partition_tag, result = status,

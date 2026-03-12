@@ -1053,8 +1053,11 @@ async fn test_export_mid_upload_cancellation() -> Result<()> {
         .await;
     let elapsed = start.elapsed();
 
-    // The result depends on timing - it may succeed if upload completed before cancellation,
-    // or fail with cancellation error if caught mid-upload
+    // The result depends on timing:
+    // - Ok(Some(info)): upload completed before cancellation
+    // - Ok(None): cancellation caught at any gate (pre-plan, during-plan,
+    //   post-plan, or during-upload — all return Ok(None) now)
+    // - Err: genuine non-cancellation failure (unexpected here)
     match &result {
         Ok(Some(info)) => {
             info!(
@@ -1066,40 +1069,11 @@ async fn test_export_mid_upload_cancellation() -> Result<()> {
         Ok(None) => {
             info!(
                 elapsed_ms = elapsed.as_millis(),
-                "Export was skipped before upload after cancellation"
+                "Export skipped due to cancellation"
             );
         }
         Err(e) => {
-            let err_msg = e.to_string();
-            info!(
-                elapsed_ms = elapsed.as_millis(),
-                error = err_msg,
-                "Upload cancelled mid-stream as expected"
-            );
-
-            // If cancelled, verify no metadata.json was uploaded (all-or-nothing)
-            let list_result = minio_client
-                .list_objects_v2()
-                .bucket(TEST_BUCKET)
-                .prefix(&test_prefix)
-                .send()
-                .await?;
-
-            let uploaded_keys: Vec<String> = list_result
-                .contents()
-                .iter()
-                .filter_map(|obj| obj.key().map(String::from))
-                .collect();
-
-            // metadata.json should NOT exist if cancelled mid-upload
-            // (it's uploaded last, after all files succeed)
-            let has_metadata = uploaded_keys.iter().any(|k| k.ends_with("metadata.json"));
-            if !has_metadata && !uploaded_keys.is_empty() {
-                info!(
-                    partial_files = uploaded_keys.len(),
-                    "Verified: No metadata.json uploaded (all-or-nothing semantics preserved)"
-                );
-            }
+            panic!("Unexpected error during mid-upload cancellation test: {e:#}");
         }
     }
 

@@ -213,7 +213,7 @@ fn build_candidate_file(
         String::default()
     } else {
         ensure_not_cancelled(cancel_token, "before hashing non-SST file")?;
-        load_and_hash_file(file_path, cancel_token).context("In load_and_hash_file")?
+        load_and_hash_file(file_path).context("In load_and_hash_file")?
     };
 
     Ok(LocalCheckpointFile::new(
@@ -223,11 +223,7 @@ fn build_candidate_file(
     ))
 }
 
-fn load_and_hash_file(
-    file_path: &Path,
-    cancel_token: Option<&CancellationToken>,
-) -> Result<String> {
-    ensure_not_cancelled(cancel_token, "before hashing non-SST file")?;
+fn load_and_hash_file(file_path: &Path) -> Result<String> {
     let mut file = std::fs::File::open(file_path)
         .with_context(|| format!("Failed to open file for hashing: {file_path:?}"))?;
 

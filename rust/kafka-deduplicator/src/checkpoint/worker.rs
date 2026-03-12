@@ -81,6 +81,14 @@ impl CheckpointWorker {
         }
     }
 
+    fn during_upload_skip_cause(cancel_cause: Option<&str>) -> &'static str {
+        match cancel_cause {
+            Some("rebalance") => "rebalance_during_upload",
+            Some("shutdown") => "shutdown_during_upload",
+            _ => "cancelled_during_upload",
+        }
+    }
+
     pub fn new(
         worker_id: u32,
         local_base_dir: &Path,
@@ -480,21 +488,29 @@ impl CheckpointWorker {
                     }
 
                     Err(e) => {
-                        // Cancellation is NOT an error - metrics only (s3_uploader already logged the detail)
                         if e.downcast_ref::<UploadCancelledError>().is_some() {
-                            let tags = [("result", "skipped"), ("cause", "cancelled")];
+                            let tags = [
+                                ("result", "skipped"),
+                                ("cause", Self::during_upload_skip_cause(cancel_cause)),
+                            ];
                             metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
-                        } else {
-                            let tags = [("result", "error"), ("cause", "export")];
-                            metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
-                            error!(
+                            info!(
                                 self.worker_id,
                                 local_attempt_path = local_attempt_path_tag,
                                 attempt_type,
-                                "Checkpoint worker: export failed: {e:#}"
+                                "Checkpoint worker: upload cancelled, skipping export"
                             );
+                            return Ok(None);
                         }
 
+                        let tags = [("result", "error"), ("cause", "export")];
+                        metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
+                        error!(
+                            self.worker_id,
+                            local_attempt_path = local_attempt_path_tag,
+                            attempt_type,
+                            "Checkpoint worker: export failed: {e:#}"
+                        );
                         Err(e)
                     }
                 }

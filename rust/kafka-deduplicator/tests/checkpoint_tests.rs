@@ -9,7 +9,7 @@ use tokio_util::sync::CancellationToken;
 
 use kafka_deduplicator::checkpoint::{
     hash_prefix_for_partition, CheckpointConfig, CheckpointExporter, CheckpointMetadata,
-    CheckpointPlan, CheckpointUploader, CheckpointWorker,
+    CheckpointPlan, CheckpointUploader, CheckpointWorker, UploadCancelledError,
 };
 use kafka_deduplicator::kafka::types::Partition;
 use kafka_deduplicator::store::TimestampMetadata;
@@ -116,11 +116,13 @@ impl CheckpointUploader for MockUploader {
         plan: &CheckpointPlan,
         cancel_token: Option<&CancellationToken>,
     ) -> Result<Vec<String>> {
-        // Check cancellation before starting (matching real S3Uploader behavior)
         if let Some(token) = cancel_token {
             if token.is_cancelled() {
                 info!("Mock uploader: cancelled before starting");
-                return Err(anyhow::anyhow!("Upload cancelled before starting"));
+                return Err(UploadCancelledError {
+                    reason: "before starting".to_string(),
+                }
+                .into());
             }
         }
 
@@ -141,13 +143,15 @@ impl CheckpointUploader for MockUploader {
             ));
         }
 
-        // Check cancellation before each file upload (simulating real behavior)
         let mut uploaded_keys = Vec::new();
         for (local_file_path, remote_file_path_str) in files_to_upload {
             if let Some(token) = cancel_token {
                 if token.is_cancelled() {
                     info!("Mock uploader: cancelled during file upload");
-                    return Err(anyhow::anyhow!("Upload cancelled during file upload"));
+                    return Err(UploadCancelledError {
+                        reason: "during file upload".to_string(),
+                    }
+                    .into());
                 }
             }
             let remote_file_path = self.upload_dir.join(&remote_file_path_str);
@@ -158,11 +162,13 @@ impl CheckpointUploader for MockUploader {
             uploaded_keys.push(remote_file_path_str);
         }
 
-        // Check cancellation before metadata upload (final gate, matching S3Uploader)
         if let Some(token) = cancel_token {
             if token.is_cancelled() {
                 info!("Mock uploader: cancelled before metadata upload");
-                return Err(anyhow::anyhow!("Upload cancelled before metadata upload"));
+                return Err(UploadCancelledError {
+                    reason: "before metadata upload".to_string(),
+                }
+                .into());
             }
         }
 
