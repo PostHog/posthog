@@ -7,7 +7,7 @@ import {
     llmAnalyticsScoreDefinitionsNewVersionCreate,
     llmAnalyticsScoreDefinitionsPartialUpdate,
 } from '../generated/api'
-import type { ScoreDefinitionApi as ScoreDefinition } from '../generated/api.schemas'
+import type { ScoreDefinitionApi } from '../generated/api.schemas'
 import { llmAnalyticsScoreDefinitionsLogic } from './llmAnalyticsScoreDefinitionsLogic'
 import type { scoreDefinitionModalLogicType } from './scoreDefinitionModalLogicType'
 import {
@@ -23,7 +23,7 @@ import {
 
 export interface ScoreDefinitionModalLogicProps {
     mode: ScoreDefinitionModalMode
-    scoreDefinition: ScoreDefinition | null
+    scoreDefinition: ScoreDefinitionApi | null
     tabId?: string
 }
 
@@ -52,7 +52,7 @@ export const scoreDefinitionModalLogic = kea<scoreDefinitionModalLogicType>([
 
     reducers({
         draft: [
-            ({ mode, scoreDefinition }) => createDraft(mode, scoreDefinition),
+            ({ mode, scoreDefinition }: ScoreDefinitionModalLogicProps) => createDraft(mode, scoreDefinition),
             {
                 initializeDraft: (_, { draft }) => draft,
                 setDraftField: (state, { field, value }) => ({

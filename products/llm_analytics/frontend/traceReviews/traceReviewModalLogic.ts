@@ -10,7 +10,13 @@ import type { ScoreDefinitionApi } from '../generated/api.schemas'
 import type { traceReviewModalLogicType } from './traceReviewModalLogicType'
 import { traceReviewsApi } from './traceReviewsApi'
 import { traceReviewsLazyLoaderLogic } from './traceReviewsLazyLoaderLogic'
-import type { TraceReview, TraceReviewFormScoreValue, TraceReviewScore, TraceReviewUpsertPayload } from './types'
+import type {
+    TraceReview,
+    TraceReviewFormScoreValue,
+    TraceReviewScore,
+    TraceReviewScoreUpsertPayload,
+    TraceReviewUpsertPayload,
+} from './types'
 import { getCategoricalConfig, getTraceReviewScores } from './utils'
 
 export interface TraceReviewModalLogicProps {
@@ -103,6 +109,29 @@ function buildScoreDefinitionFromReviewScore(score: TraceReviewScore, teamId: nu
 
 function getExistingScoreLookup(review: TraceReview | null): Record<string, TraceReviewScore> {
     return Object.fromEntries(getTraceReviewScores(review).map((score) => [score.definition_id, score]))
+}
+
+function buildScorePayload(
+    definition: ScoreDefinitionApi,
+    value: TraceReviewFormScoreValue | undefined,
+    existingScore: TraceReviewScore | undefined
+): TraceReviewScoreUpsertPayload[] {
+    const definitionVersionId = existingScore?.definition_version_id ?? undefined
+    const basePayload = {
+        definition_id: definition.id,
+        ...(definitionVersionId ? { definition_version_id: definitionVersionId } : {}),
+    }
+
+    if (definition.kind === 'categorical') {
+        const categoricalValues = getCategoricalSelections(value)
+        return categoricalValues.length > 0 ? [{ ...basePayload, categorical_values: categoricalValues }] : []
+    }
+
+    if (definition.kind === 'numeric') {
+        return typeof value === 'string' && value.trim() ? [{ ...basePayload, numeric_value: value.trim() }] : []
+    }
+
+    return typeof value === 'boolean' ? [{ ...basePayload, boolean_value: value }] : []
 }
 
 function mergeDefinitions(
@@ -418,46 +447,7 @@ export const traceReviewModalLogic = kea<traceReviewModalLogicType>([
                     scores: selectedDefinitions.flatMap((definition) => {
                         const value = scoreValues[definition.id]
                         const existingScore = existingScoresByDefinitionId[definition.id]
-                        const definitionVersionId = existingScore?.definition_version_id ?? undefined
-
-                        if (definition.kind === 'categorical') {
-                            const categoricalValues = getCategoricalSelections(value)
-                            return categoricalValues.length > 0
-                                ? [
-                                      {
-                                          definition_id: definition.id,
-                                          ...(definitionVersionId
-                                              ? { definition_version_id: definitionVersionId }
-                                              : {}),
-                                          categorical_values: categoricalValues,
-                                      },
-                                  ]
-                                : []
-                        }
-
-                        if (definition.kind === 'numeric') {
-                            return typeof value === 'string' && value.trim()
-                                ? [
-                                      {
-                                          definition_id: definition.id,
-                                          ...(definitionVersionId
-                                              ? { definition_version_id: definitionVersionId }
-                                              : {}),
-                                          numeric_value: value.trim(),
-                                      },
-                                  ]
-                                : []
-                        }
-
-                        return typeof value === 'boolean'
-                            ? [
-                                  {
-                                      definition_id: definition.id,
-                                      ...(definitionVersionId ? { definition_version_id: definitionVersionId } : {}),
-                                      boolean_value: value,
-                                  },
-                              ]
-                            : []
+                        return buildScorePayload(definition, value, existingScore)
                     }),
                 }
             },
