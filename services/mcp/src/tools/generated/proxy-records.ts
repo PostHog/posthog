@@ -9,7 +9,6 @@ import {
     ProxyRecordsListParams,
     ProxyRecordsListQueryParams,
     ProxyRecordsRetrieveParams,
-    ProxyRecordsRetryCreateBody,
     ProxyRecordsRetryCreateParams,
 } from '@/generated/proxy-records/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -68,20 +67,15 @@ const proxyCreate = (): ToolBase<typeof ProxyCreateSchema, Schemas.ProxyRecord> 
     },
 })
 
-const ProxyRetrySchema = ProxyRecordsRetryCreateParams.extend(ProxyRecordsRetryCreateBody.shape)
+const ProxyRetrySchema = ProxyRecordsRetryCreateParams
 
 const proxyRetry = (): ToolBase<typeof ProxyRetrySchema, Schemas.ProxyRecord> => ({
     name: 'proxy-retry',
     schema: ProxyRetrySchema,
     handler: async (context: Context, params: z.infer<typeof ProxyRetrySchema>) => {
-        const body: Record<string, unknown> = {}
-        if (params.domain !== undefined) {
-            body['domain'] = params.domain
-        }
         const result = await context.api.request<Schemas.ProxyRecord>({
             method: 'POST',
             path: `/api/organizations/${params.organization_id}/proxy_records/${params.id}/retry/`,
-            body,
         })
         return result
     },

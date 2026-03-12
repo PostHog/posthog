@@ -85,7 +85,7 @@ tools:
         annotations:
             readOnly: false
             destructive: true
-            idempotent: false
+            idempotent: true
         title: Delete reverse proxy
         description: >
             Delete a managed reverse proxy. For proxies still being set up (waiting,

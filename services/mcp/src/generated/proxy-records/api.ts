@@ -118,12 +118,6 @@ export const ProxyRecordsRetryCreateParams = zod.object({
     organization_id: zod.string(),
 })
 
-export const ProxyRecordsRetryCreateBody = zod.object({
-    domain: zod
-        .string()
-        .describe("The custom domain to proxy through, e.g. 'e.example.com'. Must be a valid subdomain you control."),
-})
-
 export const ProxyRecordsRetryCreateResponse = zod.object({
     id: zod.string().describe('Unique identifier for the proxy record.'),
     domain: zod

@@ -186,10 +186,14 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         description="Retry provisioning a failed reverse proxy. "
         "Only available for proxies in 'erroring' or 'timed_out' status. "
         "Resets the proxy to 'waiting' status and restarts the provisioning workflow.",
+        request=None,
     )
     @action(methods=["POST"], detail=True)
     def retry(self, request, *args, pk=None, **kwargs):
-        record = self.organization.proxy_records.get(id=pk)
+        try:
+            record = self.organization.proxy_records.get(id=pk)
+        except ProxyRecord.DoesNotExist:
+            raise NotFound()
 
         if record.status not in (
             ProxyRecord.Status.ERRORING,
@@ -239,7 +243,10 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         "For active proxies, a deletion workflow is started to clean up the provisioned infrastructure.",
     )
     def destroy(self, request, *args, pk=None, **kwargs):
-        record = self.organization.proxy_records.get(id=pk)
+        try:
+            record = self.organization.proxy_records.get(id=pk)
+        except ProxyRecord.DoesNotExist:
+            raise NotFound()
 
         if record and record.status in (
             ProxyRecord.Status.WAITING,

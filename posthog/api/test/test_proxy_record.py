@@ -229,3 +229,104 @@ class TestProxyRecordAPI(APIBaseTest):
             f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/retry/",
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_retry_proxy_record_from_other_org_not_found(self):
+        other_org = Organization.objects.create(name="Other Org")
+        record = ProxyRecord.objects.create(
+            organization=other_org,
+            created_by=self.user,
+            domain="other.example.com",
+            target_cname="abc123.proxy.posthog.com",
+            status=ProxyRecord.Status.ERRORING,
+        )
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/retry/",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            ("waiting", ProxyRecord.Status.WAITING),
+            ("erroring", ProxyRecord.Status.ERRORING),
+            ("timed_out", ProxyRecord.Status.TIMED_OUT),
+        ]
+    )
+    def test_destroy_proxy_in_pre_active_state_deletes_immediately(self, _name, initial_status):
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="destroyme.example.com",
+            target_cname="abc123.proxy.posthog.com",
+            status=initial_status,
+        )
+
+        response = self.client.delete(
+            f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(ProxyRecord.objects.filter(id=record.id).exists())
+
+    @parameterized.expand(
+        [
+            ("valid", ProxyRecord.Status.VALID),
+            ("issuing", ProxyRecord.Status.ISSUING),
+            ("warning", ProxyRecord.Status.WARNING),
+        ]
+    )
+    @patch("posthog.api.proxy_record.sync_connect")
+    @patch("posthoganalytics.capture")
+    def test_destroy_active_proxy_starts_deletion_workflow(
+        self, _name, initial_status, mock_capture, mock_sync_connect
+    ):
+        mock_temporal = AsyncMock()
+        mock_sync_connect.return_value = mock_temporal
+
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="activedestroy.example.com",
+            target_cname="abc123.proxy.posthog.com",
+            status=initial_status,
+        )
+
+        response = self.client.delete(
+            f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        record.refresh_from_db()
+        self.assertEqual(record.status, ProxyRecord.Status.DELETING)
+        mock_temporal.start_workflow.assert_called_once()
+
+    def test_destroy_proxy_record_from_other_org_not_found(self):
+        other_org = Organization.objects.create(name="Other Org")
+        record = ProxyRecord.objects.create(
+            organization=other_org,
+            created_by=self.user,
+            domain="other.example.com",
+            target_cname="abc123.proxy.posthog.com",
+            status=ProxyRecord.Status.VALID,
+        )
+
+        response = self.client.delete(
+            f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_non_admin_cannot_destroy_proxy_record(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="noadmindestroy.example.com",
+            target_cname="abc123.proxy.posthog.com",
+            status=ProxyRecord.Status.VALID,
+        )
+
+        response = self.client.delete(
+            f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

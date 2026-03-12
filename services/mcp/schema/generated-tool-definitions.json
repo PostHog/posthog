@@ -69,7 +69,7 @@
         "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
-            "idempotentHint": false,
+            "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
         }
