@@ -18,6 +18,7 @@ pub struct MockRedisClient {
     del_ret: HashMap<String, Result<(), CustomRedisError>>,
     hget_ret: HashMap<String, Result<String, CustomRedisError>>,
     scard_ret: HashMap<String, Result<u64, CustomRedisError>>,
+    sadd_ret: HashMap<String, Result<(), CustomRedisError>>,
     mget_ret: HashMap<String, Option<Vec<u8>>>,
     mget_error: Option<CustomRedisError>,
     calls: Arc<Mutex<Vec<MockRedisCall>>>,
@@ -37,6 +38,7 @@ impl Default for MockRedisClient {
             del_ret: HashMap::new(),
             hget_ret: HashMap::new(),
             scard_ret: HashMap::new(),
+            sadd_ret: HashMap::new(),
             mget_ret: HashMap::new(),
             mget_error: None,
             calls: Arc::new(Mutex::new(Vec::new())),
@@ -122,6 +124,11 @@ impl MockRedisClient {
 
     pub fn scard_ret(&mut self, key: &str, ret: Result<u64, CustomRedisError>) -> Self {
         self.scard_ret.insert(key.to_owned(), ret);
+        self.clone()
+    }
+
+    pub fn sadd_ret(&mut self, key: &str, ret: Result<(), CustomRedisError>) -> Self {
+        self.sadd_ret.insert(key.to_owned(), ret);
         self.clone()
     }
 
@@ -619,6 +626,10 @@ impl MockRedisClient {
             PipelineCommand::Scard { key } => {
                 self.record_call("pipeline_scard", &key, MockRedisValue::None);
                 Self::lookup_or_not_found(&self.scard_ret, &key).map(PipelineResult::Count)
+            }
+            PipelineCommand::SAdd { key, member } => {
+                self.record_call("pipeline_sadd", &key, MockRedisValue::String(member));
+                Self::lookup_or_ok(&self.sadd_ret, &key).map(|_| PipelineResult::Count(1))
             }
             PipelineCommand::ZRangeByScore { key, min, max } => {
                 self.record_call(

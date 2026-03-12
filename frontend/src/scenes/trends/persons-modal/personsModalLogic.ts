@@ -8,6 +8,7 @@ import api from 'lib/api'
 import { assignField, isGroupType, isSessionType } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -85,8 +86,8 @@ export const personsModalLogic = kea<personsModalLogicType>([
         loadActorsQueryOptions: (query: InsightActorsQuery) => ({ query }),
     }),
     connect(() => ({
-        values: [groupsModel, ['groupTypes', 'aggregationLabel']],
-        actions: [eventUsageLogic, ['reportPersonsModalViewed']],
+        values: [groupsModel, ['groupTypes', 'aggregationLabel'], teamLogic, ['currentTeamId']],
+        actions: [eventUsageLogic, ['reportPersonsModalViewed', 'reportPersonsModalSearched']],
     })),
 
     loaders(({ values, actions, props }) => ({
@@ -274,9 +275,16 @@ export const personsModalLogic = kea<personsModalLogicType>([
     })),
 
     listeners(({ actions, values, props }) => ({
-        setSearchTerm: async (_, breakpoint) => {
+        setSearchTerm: async ({ search }, breakpoint) => {
             await breakpoint(500)
             actions.loadActors({ url: props.url, clear: true })
+
+            if (search) {
+                actions.reportPersonsModalSearched({
+                    teamId: values.currentTeamId,
+                    actorType: values.actorLabel.singular,
+                })
+            }
         },
         saveAsCohort: async ({ cohortName }) => {
             const cohortParams = {

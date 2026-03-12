@@ -12,9 +12,6 @@ on:
             clickhouseServerVersion:
                 description: ClickHouse server version. Leave blank for default
                 type: string
-            clickhouseCompatShards:
-                description: Number of shards per ClickHouse compat version. Leave blank for default
-                type: string
     pull_request:
     merge_group:
 
@@ -30,7 +27,6 @@ env:
     CLICKHOUSE_VERIFY: 'False'
     TEST: 1
     CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
-    CLICKHOUSE_COMPAT_SHARDS: ${{ github.event.inputs.clickhouseCompatShards || '1' }}
     CLICKHOUSE_COMPAT_PYTEST_TARGETS: 'posthog/clickhouse ee/clickhouse'
     OBJECT_STORAGE_ENABLED: 'True'
     OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
@@ -1362,11 +1358,7 @@ jobs:
             - name: Read ClickHouse versions from JSON
               id: read-versions
               run: |
-                  compat_shards="${CLICKHOUSE_COMPAT_SHARDS:-1}"
-                  if ! [[ "$compat_shards" =~ ^[1-9][0-9]*$ ]]; then
-                    echo "::error::CLICKHOUSE_COMPAT_SHARDS must be a positive integer, got '$compat_shards'"
-                    exit 1
-                  fi
+                  compat_shards="2"
                   echo "Using $compat_shards shard(s) per compat version"
 
                   # Oldest supported version for main Django tests (for max compatibility, as JSON array for matrix)

@@ -8,7 +8,7 @@ import { funnelFlowGraphLogic } from './funnelFlowGraphLogic'
 
 export function usePathNodeAddability(): boolean {
     const { insightProps } = useValues(insightLogic)
-    const { expandedPath, funnelNodes } = useValues(funnelFlowGraphLogic({ ...insightProps, isProfileMode: false }))
+    const { expandedPath, funnelNodes } = useValues(funnelFlowGraphLogic(insightProps))
 
     if (!expandedPath) {
         return false

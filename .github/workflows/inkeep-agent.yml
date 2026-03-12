@@ -1,35 +1,32 @@
 name: Inkeep Agent
-
 on:
     pull_request:
         types: [closed]
-
     issue_comment:
         types: [created]
-
     pull_request_review_comment:
         types: [created]
-
     pull_request_review:
         types: [submitted]
-
 permissions:
     contents: read
     pull-requests: read
     id-token: write
-
 jobs:
     trigger-agent:
         if: |
-            (github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.user.login != 'inkeep[bot]') ||
-            (github.event_name == 'issue_comment' &&  github.event.issue.pull_request && contains(github.event.comment.body, '@inkeep')) ||
-            (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@inkeep')) ||
-            (github.event_name == 'pull_request_review' && contains(github.event.review.body || '', '@inkeep'))
+            !contains(github.event.pull_request.labels.*.name, 'skip-inkeep-docs') &&
+            !contains(github.event.issue.labels.*.name, 'skip-inkeep-docs') &&
+            (
+              (github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.user.login != 'inkeep[bot]') ||
+              (github.event_name == 'issue_comment' &&  github.event.issue.pull_request && contains(github.event.comment.body, '@inkeep')) ||
+              (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@inkeep')) ||
+              (github.event_name == 'pull_request_review' && contains(github.event.review.body || '', '@inkeep'))
+            )
         runs-on: ubuntu-latest
         steps:
             - name: Trigger Inkeep Agent
               uses: inkeep/inkeep-agents-action@39c725a2bf4d24acb89ae70139e13bf50f637c20 # v0.6.0
               with:
                   trigger-url: ${{ secrets.INKEEP_TRIGGER_URL }}
-                  # Filters out PRs that dont match the given regex. Update regex as desired or remove entirely
                   pr-title-regex: '^(feat|fix|docs|chore)(\(.+\))?:'
