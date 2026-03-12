@@ -1,3 +1,5 @@
+import json
+import difflib
 from dataclasses import dataclass
 from typing import Any
 
@@ -132,6 +134,65 @@ def publish_prompt_version(
             .first()
         )
         return fallback_prompt if fallback_prompt is not None else published_prompt
+
+
+def _prompt_to_text(prompt_payload: Any) -> str:
+    """Normalize a prompt payload to a text representation for diffing."""
+    if isinstance(prompt_payload, str):
+        return prompt_payload
+    return json.dumps(prompt_payload, indent=2, ensure_ascii=False)
+
+
+@dataclass
+class PromptCompareResult:
+    version_from: LLMPrompt
+    version_to: LLMPrompt
+    diff: str
+    additions: int
+    deletions: int
+
+
+def compare_prompt_versions(
+    team: Team,
+    prompt_name: str,
+    *,
+    version_from: int,
+    version_to: int,
+) -> PromptCompareResult:
+    queryset = LLMPrompt.objects.filter(team=team, name=prompt_name, deleted=False).select_related("created_by")
+
+    prompt_from = queryset.filter(version=version_from).first()
+    if prompt_from is None:
+        raise LLMPromptNotFoundError()
+
+    prompt_to = queryset.filter(version=version_to).first()
+    if prompt_to is None:
+        raise LLMPromptNotFoundError()
+
+    text_from = _prompt_to_text(prompt_from.prompt)
+    text_to = _prompt_to_text(prompt_to.prompt)
+
+    diff_lines = list(
+        difflib.unified_diff(
+            text_from.splitlines(keepends=True),
+            text_to.splitlines(keepends=True),
+            fromfile=f"v{version_from}",
+            tofile=f"v{version_to}",
+            lineterm="",
+        )
+    )
+    diff_text = "\n".join(diff_lines)
+
+    additions = sum(1 for line in diff_lines if line.startswith("+") and not line.startswith("+++"))
+    deletions = sum(1 for line in diff_lines if line.startswith("-") and not line.startswith("---"))
+
+    return PromptCompareResult(
+        version_from=prompt_from,
+        version_to=prompt_to,
+        diff=diff_text,
+        additions=additions,
+        deletions=deletions,
+    )
 
 
 def archive_prompt(team: Team, prompt_name: str) -> list[int]:

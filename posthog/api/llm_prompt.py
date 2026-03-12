@@ -16,6 +16,9 @@ from rest_framework.serializers import BaseSerializer
 
 from posthog.api.capture import capture_internal
 from posthog.api.llm_prompt_serializers import (
+    LLMPromptCompareQuerySerializer,
+    LLMPromptCompareResponseSerializer,
+    LLMPromptCompareVersionSerializer,
     LLMPromptFetchQuerySerializer,
     LLMPromptListQuerySerializer,
     LLMPromptPublicSerializer,
@@ -32,6 +35,7 @@ from posthog.api.services.llm_prompt import (
     LLMPromptVersionConflictError,
     LLMPromptVersionLimitError,
     archive_prompt,
+    compare_prompt_versions,
     get_active_prompt_queryset,
     get_latest_prompts_queryset,
     get_prompt_by_name_from_db,
@@ -109,7 +113,7 @@ class LLMPromptViewSet(
     def get_throttles(self):
         if self.action == "update_by_name":
             return [LLMPromptPublishBurstRateThrottle(), BurstRateThrottle(), SustainedRateThrottle()]
-        if self.action in ["get_by_name", "resolve_by_name"]:
+        if self.action in ["get_by_name", "resolve_by_name", "compare"]:
             return [BurstRateThrottle(), SustainedRateThrottle()]
 
         return super().get_throttles()
@@ -330,6 +334,44 @@ class LLMPromptViewSet(
                 "prompt": self._serialize_prompt(prompt),
                 "versions": self._serialize_version_summaries(versions),
                 "has_more": has_more,
+            }
+        )
+
+    @extend_schema(
+        parameters=[LLMPromptCompareQuerySerializer],
+        responses={200: LLMPromptCompareResponseSerializer},
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path=r"compare/name/(?P<prompt_name>[^/]+)",
+        required_scopes=["llm_prompt:read"],
+    )
+    @llma_track_latency("llma_prompts_compare")
+    @monitor(feature=None, endpoint="llma_prompts_compare", method="GET")
+    def compare(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
+        query_serializer = LLMPromptCompareQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        params = query_serializer.validated_data
+
+        try:
+            result = compare_prompt_versions(
+                self.team,
+                prompt_name,
+                version_from=params["version_from"],
+                version_to=params["version_to"],
+            )
+        except LLMPromptNotFoundError:
+            return self._prompt_not_found_response(prompt_name)
+
+        return Response(
+            {
+                "prompt_name": prompt_name,
+                "version_from": LLMPromptCompareVersionSerializer(result.version_from).data,
+                "version_to": LLMPromptCompareVersionSerializer(result.version_to).data,
+                "diff": result.diff,
+                "additions": result.additions,
+                "deletions": result.deletions,
             }
         )
 

@@ -597,6 +597,127 @@ class TestLLMPromptAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    def test_compare_returns_diff_between_string_versions(self, mock_feature_enabled):
+        self.create_prompt_version(name="diff-prompt", version=1, is_latest=False, prompt="Hello world")
+        self.create_prompt_version(name="diff-prompt", version=2, is_latest=True, prompt="Hello PostHog")
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_prompts/compare/name/diff-prompt/?version_from=1&version_to=2"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["prompt_name"] == "diff-prompt"
+        assert data["version_from"]["version"] == 1
+        assert data["version_to"]["version"] == 2
+        assert "-Hello world" in data["diff"]
+        assert "+Hello PostHog" in data["diff"]
+        assert data["additions"] == 1
+        assert data["deletions"] == 1
+
+    def test_compare_returns_diff_between_json_versions(self, mock_feature_enabled):
+        self.create_prompt_version(
+            name="json-prompt",
+            version=1,
+            is_latest=False,
+            prompt={"role": "system", "content": "You are helpful."},
+        )
+        self.create_prompt_version(
+            name="json-prompt",
+            version=2,
+            is_latest=True,
+            prompt={"role": "system", "content": "You are very helpful.", "temperature": 0.7},
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_prompts/compare/name/json-prompt/?version_from=1&version_to=2"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["additions"] > 0 or data["deletions"] > 0
+        assert "diff" in data
+
+    def test_compare_returns_empty_diff_for_identical_content_different_versions(self, mock_feature_enabled):
+        self.create_prompt_version(name="same-prompt", version=1, is_latest=False, prompt="Same content")
+        self.create_prompt_version(name="same-prompt", version=2, is_latest=True, prompt="Same content")
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_prompts/compare/name/same-prompt/?version_from=1&version_to=2"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["diff"] == ""
+        assert data["additions"] == 0
+        assert data["deletions"] == 0
+
+    def test_compare_rejects_same_version_numbers(self, mock_feature_enabled):
+        self.create_prompt_version(name="test-prompt", version=1, is_latest=True)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_prompts/compare/name/test-prompt/?version_from=1&version_to=1"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_compare_returns_404_for_nonexistent_prompt(self, mock_feature_enabled):
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_prompts/compare/name/nonexistent/?version_from=1&version_to=2"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_compare_returns_404_for_nonexistent_version(self, mock_feature_enabled):
+        self.create_prompt_version(name="test-prompt", version=1, is_latest=True)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_prompts/compare/name/test-prompt/?version_from=1&version_to=99"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_compare_requires_both_version_params(self, mock_feature_enabled):
+        self.create_prompt_version(name="test-prompt", version=1, is_latest=True)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_prompts/compare/name/test-prompt/?version_from=1"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_compare_supports_reverse_version_order(self, mock_feature_enabled):
+        self.create_prompt_version(name="diff-prompt", version=1, is_latest=False, prompt="Version one")
+        self.create_prompt_version(name="diff-prompt", version=2, is_latest=True, prompt="Version two")
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_prompts/compare/name/diff-prompt/?version_from=2&version_to=1"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["version_from"]["version"] == 2
+        assert data["version_to"]["version"] == 1
+
+    def test_compare_includes_version_metadata(self, mock_feature_enabled):
+        self.create_prompt_version(name="meta-prompt", version=1, is_latest=False, prompt="v1")
+        self.create_prompt_version(name="meta-prompt", version=2, is_latest=True, prompt="v2")
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_prompts/compare/name/meta-prompt/?version_from=1&version_to=2"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert "id" in data["version_from"]
+        assert "created_at" in data["version_from"]
+        assert "created_by" in data["version_from"]
+        assert "prompt" in data["version_from"]
+        assert "id" in data["version_to"]
+        assert "created_at" in data["version_to"]
+        assert "created_by" in data["version_to"]
+        assert "prompt" in data["version_to"]
+
     def test_get_by_name_patch_uses_write_scope(self, mock_feature_enabled):
         request = APIRequestFactory().patch("/api/environments/1/llm_prompts/name/example/")
         view = LLMPromptViewSet()
