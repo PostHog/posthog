@@ -434,7 +434,7 @@ class TestQueryRunner(BaseTest):
             query_type="TestQuery", status="success", error_type="none"
         )._value.get()
         before_failure = QUERY_EXECUTION_TOTAL.labels(
-            query_type="TestQuery", status="failure", error_type="ValueError"
+            query_type="TestQuery", status="error", error_type="ValueError"
         )._value.get()
         before_duration_sum = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
 
@@ -450,7 +450,7 @@ class TestQueryRunner(BaseTest):
             == success_delta
         )
         assert (
-            QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="failure", error_type="ValueError")._value.get()
+            QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="error", error_type="ValueError")._value.get()
             - before_failure
             == failure_delta
         )
@@ -469,7 +469,7 @@ class TestQueryRunner(BaseTest):
             query_type="TestQuery", status="success", error_type="none"
         )._value.get()
         before_failure = QUERY_EXECUTION_TOTAL.labels(
-            query_type="TestQuery", status="failure", error_type="ValueError"
+            query_type="TestQuery", status="error", error_type="ValueError"
         )._value.get()
         before_duration_sum = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
 
@@ -482,7 +482,7 @@ class TestQueryRunner(BaseTest):
             == before_success
         )
         assert (
-            QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="failure", error_type="ValueError")._value.get()
+            QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="error", error_type="ValueError")._value.get()
             == before_failure
         )
         assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() == before_duration_sum
