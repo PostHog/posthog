@@ -8,6 +8,7 @@ Activity logs track user and system actions across PostHog entities, providing a
 
 Column | Type | Nullable | Description
 `id` | uuid | NOT NULL | Primary key (auto-generated UUID)
+`team_id` | integer | NULL | Team the activity belongs to
 `activity` | varchar(79) | NOT NULL | Action performed (e.g., `created`, `updated`, `deleted`)
 `item_id` | varchar(72) | NULL | ID of the entity being logged (may be numeric ID, short ID, or UUID)
 `scope` | varchar(79) | NOT NULL | Entity type being logged (e.g., `FeatureFlag`, `Insight`)
