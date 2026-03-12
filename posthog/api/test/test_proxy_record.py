@@ -5,7 +5,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import ProxyRecord
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 
 
 class TestProxyRecordAPI(APIBaseTest):
@@ -178,6 +178,40 @@ class TestProxyRecordAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("Cannot retry", response.json()["detail"])
+
+    def test_retrieve_proxy_record(self):
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="retrieve.example.com",
+            target_cname="abc123.proxy.posthog.com",
+            status=ProxyRecord.Status.VALID,
+        )
+
+        response = self.client.get(
+            f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["domain"], "retrieve.example.com")
+        self.assertEqual(data["target_cname"], "abc123.proxy.posthog.com")
+        self.assertEqual(data["status"], "valid")
+        self.assertEqual(str(data["id"]), str(record.id))
+
+    def test_retrieve_proxy_record_from_other_org_not_found(self):
+        other_org = Organization.objects.create(name="Other Org")
+        record = ProxyRecord.objects.create(
+            organization=other_org,
+            created_by=self.user,
+            domain="other.example.com",
+            target_cname="abc123.proxy.posthog.com",
+            status=ProxyRecord.Status.VALID,
+        )
+
+        response = self.client.get(
+            f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_non_admin_cannot_retry_proxy_record(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER

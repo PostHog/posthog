@@ -5,6 +5,7 @@ import hashlib
 from django.conf import settings
 
 import posthoganalytics
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -60,11 +61,42 @@ class ProxyRecordSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("target_cname", "created_at", "created_by", "status", "message")
 
+    id = serializers.UUIDField(read_only=True, help_text="Unique identifier for the proxy record.")
+    domain = serializers.CharField(
+        help_text="The custom domain to proxy through, e.g. 'e.example.com'. Must be a valid subdomain you control."
+    )
+    target_cname = serializers.CharField(
+        read_only=True,
+        help_text="The CNAME target to add as a DNS record for your domain. Point your domain's CNAME to this value.",
+    )
+    status = serializers.ChoiceField(
+        choices=ProxyRecord.Status.choices,
+        read_only=True,
+        help_text=(
+            "Current provisioning status. "
+            "Values: waiting (DNS verification pending), issuing (SSL certificate being issued), "
+            "valid (proxy is live and working), warning (proxy has issues but is operational), "
+            "erroring (proxy setup failed), deleting (removal in progress), timed_out (DNS verification timed out)."
+        ),
+    )
+    message = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Human-readable status message with details about errors or warnings, if any.",
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When this proxy record was created.")
+    updated_at = serializers.DateTimeField(read_only=True, help_text="When this proxy record was last updated.")
+    created_by = serializers.PrimaryKeyRelatedField(
+        read_only=True, help_text="ID of the user who created this proxy record."
+    )
 
+
+@extend_schema(tags=["reverse_proxy"])
 class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     scope_object = "organization"
     serializer_class = ProxyRecordSerializer
     permission_classes = [OrganizationAdminWritePermissions, TimeSensitiveActionPermission]
+    queryset = ProxyRecord.objects.order_by("-created_at")
 
     DEFAULT_MAX_PROXY_RECORDS = 2
 
@@ -78,6 +110,10 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         limit = feature.get("limit")
         return limit if limit is not None else self.DEFAULT_MAX_PROXY_RECORDS
 
+    @extend_schema(
+        description="List all reverse proxies configured for the organization. "
+        "Returns proxy records along with the maximum number allowed by the current plan.",
+    )
     def list(self, request, *args, **kwargs):
         queryset = self.organization.proxy_records.order_by("-created_at")
         serializer = self.get_serializer(queryset, many=True)
@@ -88,6 +124,21 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
             }
         )
 
+    @extend_schema(
+        description="Get details of a specific reverse proxy by ID. "
+        "Returns the full configuration including domain, CNAME target, and current provisioning status.",
+    )
+    def retrieve(self, request, *args, pk=None, **kwargs):
+        record = self.organization.proxy_records.get(id=pk)
+        serializer = self.get_serializer(record)
+        return Response(serializer.data)
+
+    @extend_schema(
+        description="Create a new managed reverse proxy. "
+        "Provide the domain you want to proxy through. "
+        "The response includes the CNAME target you need to add as a DNS record. "
+        "Once the CNAME is configured, the proxy will be automatically verified and provisioned.",
+    )
     def create(self, request, *args, **kwargs):
         domain = request.data.get("domain")
         queryset = self.organization.proxy_records.order_by("-created_at")
@@ -127,6 +178,11 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         _capture_proxy_event(request, record, "created")
         return Response(serializer.data)
 
+    @extend_schema(
+        description="Retry provisioning a failed reverse proxy. "
+        "Only available for proxies in 'erroring' or 'timed_out' status. "
+        "Resets the proxy to 'waiting' status and restarts the provisioning workflow.",
+    )
     @action(methods=["POST"], detail=True)
     def retry(self, request, *args, pk=None, **kwargs):
         record = self.organization.proxy_records.get(id=pk)
@@ -173,6 +229,11 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         _capture_proxy_event(request, record, "retried")
         return Response(serializer.data)
 
+    @extend_schema(
+        description="Delete a reverse proxy. "
+        "For proxies in 'waiting', 'erroring', or 'timed_out' status, the record is deleted immediately. "
+        "For active proxies, a deletion workflow is started to clean up the provisioned infrastructure.",
+    )
     def destroy(self, request, *args, pk=None, **kwargs):
         record = self.organization.proxy_records.get(id=pk)
 
