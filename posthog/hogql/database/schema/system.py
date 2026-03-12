@@ -287,7 +287,6 @@ annotations: PostgresTable = PostgresTable(
     fields={
         "id": IntegerDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
-        "organization_id": StringDatabaseField(name="organization_id", nullable=True),
         "content": StringDatabaseField(name="content", nullable=True),
         "scope": StringDatabaseField(name="scope"),
         "creation_type": StringDatabaseField(name="creation_type"),
