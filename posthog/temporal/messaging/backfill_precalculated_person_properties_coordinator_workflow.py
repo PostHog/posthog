@@ -42,22 +42,16 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorInputs:
     batch_size: int = 1000  # Persons per batch within each worker
     workflows_per_batch: int = 5  # Number of workflows to start per batch
     batch_delay_minutes: int = 5  # Delay between batches in minutes
-    _cohort_ids: list[int] | None = dataclasses.field(default=None, init=False, repr=False)
-    _total_filters: int | None = dataclasses.field(default=None, init=False, repr=False)
 
     @property
     def cohort_ids(self) -> list[int]:
-        """Cached list of cohort IDs."""
-        if self._cohort_ids is None:
-            self._cohort_ids = [cf.cohort_id for cf in self.cohort_filters]
-        return self._cohort_ids
+        """List of cohort IDs."""
+        return [cf.cohort_id for cf in self.cohort_filters]
 
     @property
     def total_filters(self) -> int:
-        """Cached total number of filters across all cohorts."""
-        if self._total_filters is None:
-            self._total_filters = sum(len(cf.filters) for cf in self.cohort_filters)
-        return self._total_filters
+        """Total number of filters across all cohorts."""
+        return sum(len(cf.filters) for cf in self.cohort_filters)
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
