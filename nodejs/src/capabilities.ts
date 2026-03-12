@@ -23,7 +23,6 @@ export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     ...CAPABILITIES_CDP,
     cdpBatchHogFlow: true,
     cdpCyclotronWorkerHogFlow: true,
-    cdpCyclotronShadowWorker: isDevEnv(),
     cdpCyclotronV2Janitor: isDevEnv(),
 }
 
@@ -208,10 +207,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.cdp_data_warehouse_events:
             return {
                 cdpDataWarehouseEvents: true,
-            }
-        case PluginServerMode.cdp_cyclotron_shadow_worker:
-            return {
-                cdpCyclotronShadowWorker: true,
             }
         case PluginServerMode.cdp_cyclotron_v2_janitor:
             return {

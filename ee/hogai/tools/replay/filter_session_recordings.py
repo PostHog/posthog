@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery
 
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.session_recordings.playlist_counters import convert_filters_to_recordings_query
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.utils import SessionRecordingQueryResult
@@ -187,10 +188,11 @@ class FilterSessionRecordingsTool(MaxTool):
 
     def _get_recordings_with_filters(self, recordings_query: RecordingsQuery) -> SessionRecordingQueryResult:
         """Get recordings from DB with filters"""
-        query_runner = SessionRecordingListFromQuery(
-            team=self._team, query=recordings_query, hogql_query_modifiers=None
-        )
-        return query_runner.run()
+        with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
+            query_runner = SessionRecordingListFromQuery(
+                team=self._team, query=recordings_query, hogql_query_modifiers=None
+            )
+            return query_runner.run()
 
     def _format_recording_metadata(self, recording: dict[str, Any]) -> str:
         """Format recording metadata for display."""
