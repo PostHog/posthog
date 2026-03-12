@@ -347,9 +347,9 @@ impl DeduplicationStore {
 
         let sequence = self.store.latest_sequence_number();
 
-        let sst_files = self.get_sst_file_names()?;
-
         self.store.create_checkpoint(checkpoint_path)?;
+
+        let sst_files = self.get_sst_file_names()?;
 
         Ok(LocalCheckpointInfo {
             sst_files,
