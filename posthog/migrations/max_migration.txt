@@ -1,1 +1,1 @@
-1059_add_button_tile
+1060_alter_integration_kind
