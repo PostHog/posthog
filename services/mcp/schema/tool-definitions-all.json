@@ -807,6 +807,66 @@
             "readOnlyHint": false
         }
     },
+    "annotations-list": {
+        "description": "List annotations in the current project, newest first. Use this to review existing deployment markers and analysis notes before adding new annotations.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "List annotations",
+        "title": "List annotations",
+        "required_scopes": ["annotation:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "annotation-create": {
+        "description": "Create an annotation to mark an important change (for example, a deployment) on charts and trends. Provide a note in `content`, when it happened in `date_marker` (ISO 8601), and whether it is scoped to the current `project` or the whole `organization`.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "Create annotation",
+        "title": "Create annotation",
+        "required_scopes": ["annotation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "annotation-retrieve": {
+        "description": "Retrieve a single annotation by ID from the current project. Use this when you already know the annotation ID and want complete details.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "Retrieve annotation",
+        "title": "Retrieve annotation",
+        "required_scopes": ["annotation:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "annotation-delete": {
+        "description": "Soft-delete an annotation by ID. This hides the annotation from normal lists while preserving historical records.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "Delete annotation",
+        "title": "Delete annotation",
+        "required_scopes": ["annotation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "cdp-function-templates-list": {
         "description": "List available function templates. Templates are pre-built function configurations for common integrations (Slack, webhooks, email, etc.) and transformations (GeoIP, etc.). Filter by type (destination, site_destination, site_app, transformation, etc.) via the 'type' query parameter. Results are sorted by popularity (number of active functions using each template).",
         "category": "Function templates",
@@ -937,66 +997,6 @@
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "annotations-list": {
-        "description": "List annotations in the current project, newest first. Use this to review existing deployment markers and analysis notes before adding new annotations.",
-        "category": "Annotations",
-        "feature": "annotations",
-        "summary": "List annotations",
-        "title": "List annotations",
-        "required_scopes": ["annotation:read"],
-        "new_mcp": false,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "annotation-create": {
-        "description": "Create an annotation to mark an important change (for example, a deployment) on charts and trends. Provide a note in `content`, when it happened in `date_marker` (ISO 8601), and whether it is scoped to the current `project` or the whole `organization`.",
-        "category": "Annotations",
-        "feature": "annotations",
-        "summary": "Create annotation",
-        "title": "Create annotation",
-        "required_scopes": ["annotation:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "annotation-retrieve": {
-        "description": "Retrieve a single annotation by ID from the current project. Use this when you already know the annotation ID and want complete details.",
-        "category": "Annotations",
-        "feature": "annotations",
-        "summary": "Retrieve annotation",
-        "title": "Retrieve annotation",
-        "required_scopes": ["annotation:read"],
-        "new_mcp": false,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "annotation-delete": {
-        "description": "Soft-delete an annotation by ID. This hides the annotation from normal lists while preserving historical records.",
-        "category": "Annotations",
-        "feature": "annotations",
-        "summary": "Delete annotation",
-        "title": "Delete annotation",
-        "required_scopes": ["annotation:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
