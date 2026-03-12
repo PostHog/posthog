@@ -4,7 +4,18 @@ import * as ipaddr from 'ipaddr.js'
 import net from 'node:net'
 import { Counter } from 'prom-client'
 // eslint-disable-next-line no-restricted-imports
-import { Agent, Dispatcher, type HeadersInit, ProxyAgent, errors, request } from 'undici'
+import {
+    Agent,
+    Dispatcher,
+    type HeadersInit,
+    ProxyAgent,
+    RequestInfo,
+    RequestInit,
+    Response,
+    errors,
+    request,
+    fetch as undiciFetch,
+} from 'undici'
 import { URL } from 'url'
 
 import { defaultConfig } from '../config/config'
@@ -323,4 +334,26 @@ export async function fetch(url: string, options: FetchOptions = {}): Promise<Fe
     const parsed = new URL(url)
     validateHostnameIPLiteral(parsed.hostname, !isProdEnv())
     return await _fetch(url, options, sharedSecureAgent)
+}
+
+// Legacy fetch implementation that exposes the entire fetch implementation
+export function legacyFetch(input: RequestInfo, options?: RequestInit): Promise<Response> {
+    let parsed: URL
+    try {
+        parsed = typeof input === 'string' ? new URL(input) : input instanceof URL ? input : new URL(input.url)
+    } catch {
+        throw new Error('Invalid URL')
+    }
+
+    if (!parsed.hostname || !(parsed.protocol === 'http:' || parsed.protocol === 'https:')) {
+        throw new Error('URL must have HTTP or HTTPS protocol and a valid hostname')
+    }
+
+    validateHostnameIPLiteral(parsed.hostname, !isProdEnv())
+
+    const requestOptions = options ?? {}
+    requestOptions.dispatcher = sharedSecureAgent
+    requestOptions.signal = AbortSignal.timeout(defaultConfig.EXTERNAL_REQUEST_TIMEOUT_MS)
+
+    return undiciFetch(parsed.toString(), requestOptions)
 }
