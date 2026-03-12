@@ -3,8 +3,8 @@ import './Dashboard.scss'
 import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 
-import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { IconEllipsis, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
@@ -196,22 +196,18 @@ function DashboardScene(): JSX.Element {
                                 DashboardPlacement.Export,
                                 DashboardPlacement.FeatureFlag,
                                 DashboardPlacement.Group,
+                                DashboardPlacement.DataOps,
                                 DashboardPlacement.Builtin,
                             ].includes(placement) &&
                                 dashboard && <DashboardEditBar />}
-                            {[DashboardPlacement.FeatureFlag, DashboardPlacement.Group].includes(placement) &&
-                                dashboard?.id && (
-                                    <LemonButton type="secondary" size="small" to={urls.dashboard(dashboard.id)}>
-                                        {placement === DashboardPlacement.Group
-                                            ? 'Edit dashboard template'
-                                            : 'Edit dashboard'}
-                                    </LemonButton>
-                                )}
                             {![DashboardPlacement.Export, DashboardPlacement.Builtin].includes(placement) && (
                                 <div
-                                    className={clsx('flex shrink-0 deprecated-space-x-4 dashoard-items-actions', {
-                                        'mt-7': hasVariables,
-                                    })}
+                                    className={clsx(
+                                        'flex shrink-0 deprecated-space-x-4 dashoard-items-actions ml-auto',
+                                        {
+                                            'mt-7': hasVariables,
+                                        }
+                                    )}
                                 >
                                     <div
                                         className={`left-item ${
@@ -224,6 +220,30 @@ function DashboardScene(): JSX.Element {
                                             <DashboardReloadAction />
                                         ) : null}
                                     </div>
+                                    {[
+                                        DashboardPlacement.FeatureFlag,
+                                        DashboardPlacement.Group,
+                                        DashboardPlacement.DataOps,
+                                    ].includes(placement) &&
+                                        dashboard?.id && (
+                                            <LemonMenu
+                                                items={[
+                                                    {
+                                                        label: [DashboardPlacement.Group].includes(placement)
+                                                            ? 'Edit dashboard template'
+                                                            : 'Edit dashboard',
+                                                        to: urls.dashboard(dashboard.id),
+                                                    },
+                                                ]}
+                                                placement="bottom-end"
+                                                fallbackPlacements={['bottom-start', 'bottom']}
+                                            >
+                                                <LemonButton
+                                                    size="small"
+                                                    icon={<IconEllipsis className="text-secondary" />}
+                                                />
+                                            </LemonMenu>
+                                        )}
                                 </div>
                             )}
                         </div>
