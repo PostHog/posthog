@@ -194,15 +194,6 @@ impl FlagEvaluationState {
     }
 }
 
-/// Represents the group-related data needed for feature flag evaluation
-#[derive(Debug)]
-struct GroupEvaluationData {
-    /// Set of group type indexes required for flag evaluation
-    type_indexes: HashSet<GroupTypeIndex>,
-    /// Set of group keys that need to be evaluated
-    keys: HashSet<String>,
-}
-
 /// Evaluates feature flags for a specific user/group context.
 ///
 /// This struct maintains the state and logic needed to evaluate feature flags, including:
@@ -245,6 +236,9 @@ pub struct FeatureFlagMatcher {
     rayon_dispatcher: Option<RayonDispatcher>,
     /// When true, skip all writes to PostgreSQL and Redis.
     skip_writes: bool,
+    /// Flag IDs that should be skipped during evaluation.
+    /// Populated once per request from `FeatureFlagList::filtered_out_flag_ids`.
+    pub(crate) filtered_out_flag_ids: HashSet<i32>,
 }
 
 /// Lightweight snapshot of a flag's identity fields, saved before moving
@@ -253,7 +247,6 @@ pub struct FeatureFlagMatcher {
 struct FlagSnapshot {
     key: String,
     id: FeatureFlagId,
-    active: bool,
     version: Option<i32>,
 }
 
@@ -262,7 +255,6 @@ impl FlagSnapshot {
         FlagSnapshot {
             key: flag.key.clone(),
             id: flag.id,
-            active: flag.active,
             version: flag.version,
         }
     }
@@ -292,6 +284,7 @@ impl FeatureFlagMatcher {
             parallel_eval_threshold: DEFAULT_PARALLEL_EVAL_THRESHOLD,
             rayon_dispatcher: None,
             skip_writes: false,
+            filtered_out_flag_ids: HashSet::new(),
         }
     }
 
@@ -347,6 +340,10 @@ impl FeatureFlagMatcher {
             None => return Ok(FlagsResponse::new(true, HashMap::new(), None, request_id)),
         };
 
+        // Move the filter set onto the matcher now that the borrow from graph construction has ended.
+        // This is the single source of truth for "should this flag be skipped" during evaluation.
+        self.filtered_out_flag_ids = feature_flags.filtered_out_flag_ids;
+
         // Filter graph by flag_keys if specified (includes transitive dependencies)
         let (dependency_graph, flags_with_missing_deps) = if let Some(ref keys) = flag_keys {
             match filter_graph_by_keys(
@@ -375,7 +372,9 @@ impl FeatureFlagMatcher {
             let mut needs_override = false;
 
             for flag in dependency_graph.iter_nodes() {
-                if flag.has_experience_continuity() {
+                if !self.filtered_out_flag_ids.contains(&flag.id)
+                    && flag.has_experience_continuity()
+                {
                     continuity_count += 1;
                     if !needs_override && flag.needs_hash_key_override() {
                         needs_override = true;
@@ -594,7 +593,7 @@ impl FeatureFlagMatcher {
         cohorts: Vec<Cohort>,
     ) -> Result<bool, FlagError> {
         // Track cohort evaluations in canonical log
-        with_canonical_log(|log| log.cohorts_evaluated += cohort_property_filters.len());
+        with_canonical_log(|log| log.eval.cohorts_evaluated += cohort_property_filters.len());
 
         // Get cached static cohort results or evaluate them if not cached
         let static_cohort_matches = match self.flag_evaluation_state.get_static_cohort_matches() {
@@ -647,10 +646,10 @@ impl FeatureFlagMatcher {
         // Handle hash key override errors by creating error responses for flags that need experience continuity
         if overrides.hash_key_override_error && overrides.hash_key_overrides.is_none() {
             let hash_key_error = FlagError::HashKeyOverrideError;
-            for flag in flags
-                .iter()
-                .filter(|flag| flag.ensure_experience_continuity.unwrap_or(false))
-            {
+            for flag in flags.iter().filter(|flag| {
+                !self.filtered_out_flag_ids.contains(&flag.id)
+                    && flag.ensure_experience_continuity.unwrap_or(false)
+            }) {
                 evaluated_flags_map.insert(
                     flag.key.clone(),
                     FlagDetails::create_error(flag, &hash_key_error, None),
@@ -670,6 +669,13 @@ impl FeatureFlagMatcher {
             )
             .await;
         errors_while_computing_flags |= db_prep_errors;
+
+        // Pre-seed filtered-out flags as false so dependency conditions like
+        // `flag_evaluates_to=false` can match against them.
+        for &flag_id in &self.filtered_out_flag_ids {
+            self.flag_evaluation_state
+                .add_flag_evaluation_result(flag_id, FlagValue::Boolean(false));
+        }
 
         // Step 3: Evaluate flags using the dependency graph
         let graph_evaluation_errors = self
@@ -750,6 +756,7 @@ impl FeatureFlagMatcher {
             person_property_overrides
                 .as_ref()
                 .unwrap_or(&HashMap::new()),
+            &self.filtered_out_flag_ids,
         );
 
         if flags_requiring_db_preparation.is_empty() {
@@ -824,7 +831,12 @@ impl FeatureFlagMatcher {
 
         let flags_to_evaluate: Vec<FeatureFlag> = flags
             .into_iter()
-            .filter(|flag| !flag.deleted && !evaluated_flags_map.contains_key(&flag.key))
+            .filter(|flag| {
+                !flag.deleted
+                    && flag.active
+                    && !self.filtered_out_flag_ids.contains(&flag.id)
+                    && !evaluated_flags_map.contains_key(&flag.key)
+            })
             .collect();
 
         let precomputed_property_overrides = self.precompute_property_overrides(
@@ -840,7 +852,7 @@ impl FeatureFlagMatcher {
         };
 
         // Record evaluation type in canonical log for E2E latency metrics.
-        // Skip if no flags to evaluate (all deleted or already evaluated) — lets the
+        // Skip if no flags to evaluate (all deleted, filtered out, or already evaluated) — lets the
         // metric label stay None → "none" rather than incorrectly reporting Sequential.
         if !flags_to_evaluate.is_empty() {
             with_canonical_log(|log| {
@@ -955,10 +967,8 @@ impl FeatureFlagMatcher {
             Ok(flag_match) => {
                 self.flag_evaluation_state
                     .add_flag_evaluation_result(flag.id, flag_match.get_flag_value());
-                if flag.active {
-                    level_evaluated_flags_map
-                        .insert(flag.key.clone(), FlagDetails::create(flag, flag_match));
-                }
+                level_evaluated_flags_map
+                    .insert(flag.key.clone(), FlagDetails::create(flag, flag_match));
             }
             Err(e) => {
                 *errors_while_computing_flags = true;
@@ -982,10 +992,8 @@ impl FeatureFlagMatcher {
                     &[("reason".to_string(), reason)],
                     1,
                 );
-                if flag.active {
-                    level_evaluated_flags_map
-                        .insert(flag.key.clone(), FlagDetails::create_error(flag, e, None));
-                }
+                level_evaluated_flags_map
+                    .insert(flag.key.clone(), FlagDetails::create_error(flag, e, None));
             }
         }
     }
@@ -1115,7 +1123,7 @@ impl FeatureFlagMatcher {
                 let stub = FeatureFlag {
                     id: snapshot.id,
                     key: snapshot.key,
-                    active: snapshot.active,
+                    active: true,
                     version: snapshot.version,
                     filters: FlagFilters::default(),
                     team_id,
@@ -1175,15 +1183,6 @@ impl FeatureFlagMatcher {
         hash_key_overrides: Option<&HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Result<FeatureFlagMatch, FlagError> {
-        if !flag.active {
-            return Ok(FeatureFlagMatch {
-                matches: false,
-                variant: None,
-                reason: FeatureFlagMatchReason::FlagDisabled,
-                condition_index: None,
-                payload: None,
-            });
-        }
         // Check if this is a group-based flag with missing group
         let hashed_id =
             self.hashed_identifier(flag, hash_key_overrides, request_hash_key_override)?;
@@ -1207,7 +1206,7 @@ impl FeatureFlagMatcher {
                     .as_ref()
                     .is_some_and(|device_id| !device_id.is_empty())
                 {
-                    with_canonical_log(|log| log.flags_device_id_bucketing += 1);
+                    with_canonical_log(|log| log.eval.flags_device_id_bucketing += 1);
                 } else {
                     with_canonical_log(|log| {
                         tracing::warn!(
@@ -1855,8 +1854,7 @@ impl FeatureFlagMatcher {
             self.router.get_persons_reader().clone(),
             self.distinct_id.clone(),
             self.team_id,
-            &group_data.type_indexes,
-            &group_data.keys,
+            &group_data,
             static_cohort_ids,
         )
         .await
@@ -1877,52 +1875,45 @@ impl FeatureFlagMatcher {
         }
     }
 
-    /// Analyzes flags and prepares required group type data for flag evaluation.
-    /// This includes:
-    /// - Extracting required group type indexes from flags
-    /// - Mapping group names to group_type_index and group_keys
+    /// Builds a paired mapping from group type index to group key for flag
+    /// evaluation, filtered to only the group types required by the given flags.
     fn prepare_group_data(
         &mut self,
         flags: &[&FeatureFlag],
-    ) -> Result<GroupEvaluationData, FlagError> {
-        // Extract required group type indexes from flags
-        let type_indexes: HashSet<GroupTypeIndex> = flags
+    ) -> Result<HashMap<GroupTypeIndex, String>, FlagError> {
+        let required_type_indexes: HashSet<GroupTypeIndex> = flags
             .iter()
             .filter_map(|flag| flag.get_group_type_index())
             .collect();
 
-        // Map group names to group_type_index and group_keys
-        let group_type_to_key_map: HashMap<GroupTypeIndex, String> = self
+        if required_type_indexes.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let types_to_indexes = match self.group_type_mapping_cache.get_group_types_to_indexes() {
+            Ok(map) => map,
+            Err(FlagError::NoGroupTypeMappings) => return Ok(HashMap::new()),
+            Err(e) => return Err(e),
+        };
+
+        let group_type_to_key: HashMap<GroupTypeIndex, String> = self
             .groups
             .iter()
             .filter_map(|(group_type, group_key_value)| {
                 let group_key = match group_key_value {
                     Value::String(s) => s.clone(),
                     Value::Number(n) => n.to_string(),
-                    _ => return None, // Skip non-string, non-number group keys
+                    _ => return None,
                 };
-                self.group_type_mapping_cache
-                    .get_group_types_to_indexes()
-                    .ok()?
+                types_to_indexes
                     .get(group_type)
                     .cloned()
+                    .filter(|idx| required_type_indexes.contains(idx))
                     .map(|group_type_index| (group_type_index, group_key))
             })
             .collect();
 
-        // Extract group_keys that are relevant to the required group_type_indexes
-        let keys: HashSet<String> = group_type_to_key_map
-            .iter()
-            .filter_map(|(group_type_index, group_key)| {
-                if type_indexes.contains(group_type_index) {
-                    Some(group_key.clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        Ok(GroupEvaluationData { type_indexes, keys })
+        Ok(group_type_to_key)
     }
 
     /// Get person properties from the `FlagEvaluationState` only, returning empty HashMap if not found.
@@ -1935,7 +1926,7 @@ impl FeatureFlagMatcher {
                 &[("type".to_string(), "person_properties".to_string())],
                 1,
             );
-            with_canonical_log(|log| log.property_cache_hits += 1);
+            with_canonical_log(|log| log.eval.property_cache_hits += 1);
             let mut result = HashMap::new();
             result.clone_from(properties);
             Ok(result)
@@ -1946,8 +1937,8 @@ impl FeatureFlagMatcher {
                 1,
             );
             with_canonical_log(|log| {
-                log.property_cache_misses += 1;
-                log.person_properties_not_cached = true;
+                log.eval.property_cache_misses += 1;
+                log.eval.person_properties_not_cached = true;
             });
             // Return empty HashMap instead of error - no properties is a valid state
             // TODO probably worth error modeling empty cache vs error.
@@ -1973,7 +1964,7 @@ impl FeatureFlagMatcher {
                 &[("type".to_string(), "group_properties".to_string())],
                 1,
             );
-            with_canonical_log(|log| log.property_cache_hits += 1);
+            with_canonical_log(|log| log.eval.property_cache_hits += 1);
             let mut result = HashMap::new();
             result.clone_from(properties);
             Ok(result)
@@ -1984,8 +1975,8 @@ impl FeatureFlagMatcher {
                 1,
             );
             with_canonical_log(|log| {
-                log.property_cache_misses += 1;
-                log.group_properties_not_cached = true;
+                log.eval.property_cache_misses += 1;
+                log.eval.group_properties_not_cached = true;
             });
             // Return empty HashMap instead of error - no properties is a valid state
             Ok(HashMap::new())
@@ -2080,9 +2071,9 @@ impl FeatureFlagMatcher {
     /// It returns a boolean indicating if there were any errors while initializing the group type mapping cache.
     async fn initialize_group_type_mappings_if_needed(&mut self, flags: &[&FeatureFlag]) -> bool {
         // Check if we need to fetch group type mappings – we have flags that use group properties (have group type indices)
-        let has_type_indexes = flags
-            .iter()
-            .any(|flag| flag.active && !flag.deleted && flag.get_group_type_index().is_some());
+        let has_type_indexes = flags.iter().any(|flag| {
+            !self.filtered_out_flag_ids.contains(&flag.id) && flag.get_group_type_index().is_some()
+        });
 
         if !has_type_indexes {
             return false;
@@ -2166,19 +2157,16 @@ mod tests {
             FlagSnapshot {
                 key: "flag_a".to_string(),
                 id: 10,
-                active: true,
                 version: Some(3),
             },
             FlagSnapshot {
                 key: "flag_b".to_string(),
                 id: 20,
-                active: false,
                 version: None,
             },
             FlagSnapshot {
                 key: "flag_c".to_string(),
                 id: 30,
-                active: true,
                 version: Some(1),
             },
         ];
@@ -2190,26 +2178,24 @@ mod tests {
         let (stub_a, err_a) = &results[0];
         assert_eq!(stub_a.key, "flag_a");
         assert_eq!(stub_a.id, 10);
-        assert!(stub_a.active);
         assert_eq!(stub_a.version, Some(3));
         assert!(matches!(err_a, Err(FlagError::BatchEvaluationPanicked)));
 
         let (stub_b, err_b) = &results[1];
         assert_eq!(stub_b.key, "flag_b");
         assert_eq!(stub_b.id, 20);
-        assert!(!stub_b.active);
         assert_eq!(stub_b.version, None);
         assert!(matches!(err_b, Err(FlagError::BatchEvaluationPanicked)));
 
         let (stub_c, err_c) = &results[2];
         assert_eq!(stub_c.key, "flag_c");
         assert_eq!(stub_c.id, 30);
-        assert!(stub_c.active);
         assert_eq!(stub_c.version, Some(1));
         assert!(matches!(err_c, Err(FlagError::BatchEvaluationPanicked)));
 
         for (stub, _) in &results {
             assert_eq!(stub.team_id, team_id);
+            assert!(stub.active);
             assert_eq!(stub.name, None);
             assert!(!stub.deleted);
             assert!(stub.filters.groups.is_empty());

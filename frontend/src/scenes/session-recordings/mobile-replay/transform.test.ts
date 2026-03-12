@@ -1,13 +1,13 @@
 import Ajv, { ErrorObject } from 'ajv'
 
+import { transformEventToWeb, transformToWeb } from '@posthog/replay-shared'
+import { wireframe, wireframeText } from '@posthog/replay-shared/mobile/mobile.types'
+import { stripBarsFromWireframes } from '@posthog/replay-shared/mobile/transformer/transformers'
 import { EventType, eventWithTime } from '@posthog/rrweb-types'
 
-import { transformEventToWeb, transformToWeb } from '.'
 import * as incrementalSnapshotJson from './__mocks__/increment-with-child-duplication.json'
-import { wireframe, wireframeText } from './mobile.types'
 import mobileSchema from './schema/mobile/rr-mobile-schema.json'
 import webSchema from './schema/web/rr-web-schema.json'
-import { stripBarsFromWireframes } from './transformer/transformers'
 
 const ajv = new Ajv({
     allowUnionTypes: true,

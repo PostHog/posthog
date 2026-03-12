@@ -35,8 +35,10 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {"The DNS query name does not exist": None, "authentication failed": None, "SSL handshake failed": None}
 
-    def get_schemas(self, config: MongoDBSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
-        mongo_schemas = get_mongo_schemas(config, team_id=team_id)
+    def get_schemas(
+        self, config: MongoDBSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
+        mongo_schemas = get_mongo_schemas(config, team_id=team_id, names=names)
 
         connection_params = _parse_connection_string(config.connection_string)
         with mongo_client(config.connection_string, team_id=team_id) as client:

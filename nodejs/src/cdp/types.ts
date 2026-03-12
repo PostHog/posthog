@@ -251,7 +251,7 @@ export interface HogFunctionTiming {
 export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'hogoverflow', 'hogflow'] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
-export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'kafka', 'shadow'] as const
+export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'postgres-v2', 'kafka'] as const
 export type CyclotronJobQueueSource = (typeof CYCLOTRON_JOB_QUEUE_SOURCES)[number]
 
 // Agnostic job invocation type
@@ -284,6 +284,7 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     logs: MinimalLogEntry[]
     metrics: MinimalAppMetric[]
     capturedPostHogEvents: HogFunctionCapturedEvent[]
+    warehouseWebhookPayloads: WarehouseWebhookPayload[]
     execResult?: unknown
 }
 
@@ -445,6 +446,12 @@ export type HogFunctionCapturedEvent = {
     distinct_id: string
     timestamp: string
     properties: Record<string, any>
+}
+
+export type WarehouseWebhookPayload = {
+    team_id: number
+    schema_id: string
+    payload: Record<string, any>
 }
 
 export type Response = {

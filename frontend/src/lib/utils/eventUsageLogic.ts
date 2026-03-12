@@ -79,6 +79,7 @@ export enum DashboardEventSource {
     MainNavigation = 'main_nav',
     DashboardsList = 'dashboards_list',
     SceneCommonButtons = 'scene_common_buttons',
+    CardEdgeHover = 'card_edge_hover',
 }
 
 export enum InsightEventSource {
@@ -227,6 +228,7 @@ function sanitizeQuery(query: Node | null): Record<string, string | number | boo
         // funnels
         payload.funnel_viz_type = isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnelVizType : undefined
         payload.funnel_order_type = isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnelOrderType : undefined
+        payload.has_data_warehouse_series = !!getSeries(querySource)?.find((e) => isDataWarehouseNode(e))
     }
 
     return objectClean(payload)
@@ -806,8 +808,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             selected,
             recommendationSource,
         }),
-        reportOnboardingReverseProxyDomainEntered: (domain: string) => ({ domain }),
-        reportOnboardingReverseProxyDocsClicked: true,
         reportBillingCTAShown: true,
         reportBillingUsageInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportBillingSpendInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
@@ -1989,12 +1989,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('sdk selected', {
                 sdk: sdk.key,
             })
-        },
-        reportOnboardingReverseProxyDomainEntered: ({ domain }) => {
-            posthog.capture('onboarding reverse proxy domain entered', { domain })
-        },
-        reportOnboardingReverseProxyDocsClicked: () => {
-            posthog.capture('onboarding reverse proxy docs clicked')
         },
         // command bar
         reportCommandBarStatusChanged: ({ status }) => {

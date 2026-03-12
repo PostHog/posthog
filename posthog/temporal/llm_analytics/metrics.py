@@ -2,6 +2,8 @@ import time
 import typing
 import datetime as dt
 
+from django.conf import settings
+
 from temporalio import activity, workflow
 from temporalio.common import MetricMeter
 from temporalio.worker import (
@@ -108,6 +110,22 @@ def increment_tokens(token_type: str, count: int) -> None:
     counter.add(count)
 
 
+def increment_emit_event_outcome(outcome: str) -> None:
+    """Track $ai_evaluation event emission outcomes (success/failed).
+
+    Distinguishes Activity 4 failures from other workflow failures so we can
+    measure and alert on dropped eval events specifically.
+    """
+    if not activity.in_activity() and not workflow.in_workflow():
+        return
+    meter = get_metric_meter({"outcome": outcome})
+    counter = meter.create_counter(
+        "llma_eval_emit_event_outcome",
+        "Outcome of $ai_evaluation event emission (success/failed)",
+    )
+    counter.add(1)
+
+
 def record_schedule_to_start_latency(activity_type: str, latency_ms: int) -> None:
     """Record queue depth indicator for alerting."""
     meter = get_metric_meter({"activity_type": activity_type})
@@ -185,6 +203,8 @@ class ExecutionTimeRecorder:
 
 class EvalsMetricsInterceptor(Interceptor):
     """Interceptor to emit Prometheus metrics for evals workflows."""
+
+    task_queue = settings.LLMA_EVALS_TASK_QUEUE
 
     def intercept_activity(self, next: ActivityInboundInterceptor) -> ActivityInboundInterceptor:
         return _EvalsMetricsActivityInboundInterceptor(super().intercept_activity(next))

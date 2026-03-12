@@ -207,7 +207,14 @@ def _verify_and_fix_batch(
     db_batch_data = None
     if config.hypercache.batch_load_fn:
         try:
+            batch_load_start = time.time()
             db_batch_data = config.hypercache.batch_load_fn(teams)
+            logger.debug(
+                "Batch DB load completed",
+                cache_type=cache_type,
+                team_count=len(teams),
+                duration_seconds=time.time() - batch_load_start,
+            )
         except Exception as e:
             logger.warning("Batch load failed, falling back to individual loads", error=str(e))
 

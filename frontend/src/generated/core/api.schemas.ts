@@ -1433,6 +1433,7 @@ export interface SubscriptionApi {
     dashboard?: number | null
     /** @nullable */
     insight?: number | null
+    dashboard_export_insights?: number[]
     target_type: TargetTypeEnumApi
     target_value: string
     frequency: FrequencyEnumApi
@@ -1470,6 +1471,8 @@ export interface SubscriptionApi {
     /** @nullable */
     readonly next_delivery_date: string | null
     /** @nullable */
+    integration_id?: number | null
+    /** @nullable */
     invite_message?: string | null
 }
 
@@ -1491,6 +1494,7 @@ export interface PatchedSubscriptionApi {
     dashboard?: number | null
     /** @nullable */
     insight?: number | null
+    dashboard_export_insights?: number[]
     target_type?: TargetTypeEnumApi
     target_value?: string
     frequency?: FrequencyEnumApi
@@ -1527,6 +1531,8 @@ export interface PatchedSubscriptionApi {
     readonly summary?: string
     /** @nullable */
     readonly next_delivery_date?: string | null
+    /** @nullable */
+    integration_id?: number | null
     /** @nullable */
     invite_message?: string | null
 }

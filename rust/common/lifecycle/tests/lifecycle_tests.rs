@@ -1186,3 +1186,401 @@ async fn handle_shutdown_signal_method() {
     assert!(std_signalled.load(Ordering::SeqCst));
     assert!(obs_signalled.load(Ordering::SeqCst));
 }
+
+// ---------------------------------------------------------------------------
+// Section 8: Advisory handles
+//
+// Advisory handles participate in health monitoring (gauge updates,
+// is_healthy() queries) but stalls do NOT trigger global shutdown. The
+// monitor does not wait for advisory handles during shutdown.
+// ---------------------------------------------------------------------------
+
+fn advisory_opts() -> ComponentOptions {
+    ComponentOptions::new()
+        .is_advisory(true)
+        .with_liveness_deadline(Duration::from_millis(100))
+}
+
+/// Advisory handle stalls past its threshold — app stays running because
+/// advisory stalls are informational only. Standard handle controls shutdown.
+#[tokio::test]
+async fn advisory_handle_stall_does_not_trigger_shutdown() {
+    let mut manager = fast_poll_manager(50);
+    let std_handle = manager.register("worker", ComponentOptions::new());
+    let advisory_handle = manager.register(
+        "kafka-health",
+        ComponentOptions::new()
+            .is_advisory(true)
+            .with_liveness_deadline(Duration::from_millis(80))
+            .with_stall_threshold(1),
+    );
+    let guard = manager.monitor_background();
+
+    advisory_handle.report_healthy();
+    // Let advisory deadline expire + several polls — stall threshold exceeded
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    // App is still running — advisory stall did NOT trigger shutdown
+    assert!(!std_handle.is_shutting_down());
+
+    std_handle.request_shutdown();
+    drop(std_handle);
+    drop(advisory_handle);
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(result.is_ok());
+}
+
+/// Advisory handle's health_flag is updated by the poll task: true when
+/// healthy, false when stalled. Gauge also updates.
+#[tokio::test]
+async fn advisory_handle_health_gauge_still_updates() {
+    let mut manager = fast_poll_manager(50);
+    let handle = manager.register("kafka-health", advisory_opts());
+    let std_handle = manager.register("worker", ComponentOptions::new());
+    let guard = manager.monitor_background();
+
+    // Report healthy and wait for poll to update
+    handle.report_healthy();
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    assert!(handle.is_healthy());
+
+    // Let deadline expire, wait for poll to detect stall
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!handle.is_healthy());
+
+    // App still running — advisory doesn't trigger shutdown
+    assert!(!std_handle.is_shutting_down());
+
+    std_handle.request_shutdown();
+    drop(std_handle);
+    drop(handle);
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(result.is_ok());
+}
+
+/// Advisory handle is NOT waited on during shutdown. Monitor completes
+/// promptly even though advisory handle is still alive.
+#[tokio::test]
+async fn advisory_handle_not_waited_on_during_shutdown() {
+    let shutdown_token = CancellationToken::new();
+    let mut manager = Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_global_shutdown_timeout(Duration::from_secs(5))
+        .with_shutdown_token(shutdown_token.clone())
+        .build();
+
+    let std_handle = manager.register("worker", ComponentOptions::new());
+    let advisory_handle = manager.register("kafka-health", advisory_opts());
+    let guard = manager.monitor_background();
+
+    // Standard handle completes on shutdown
+    tokio::spawn(async move {
+        let _guard = std_handle.process_scope();
+        std_handle.shutdown_recv().await;
+    });
+
+    // Advisory handle hangs forever
+    tokio::spawn(async move {
+        advisory_handle.report_healthy();
+        std::future::pending::<()>().await;
+    });
+
+    shutdown_token.cancel();
+
+    let start = std::time::Instant::now();
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    let elapsed = start.elapsed();
+
+    // Should resolve quickly — not blocked by advisory handle
+    assert!(result.is_ok());
+    assert!(
+        elapsed < Duration::from_secs(2),
+        "took {elapsed:?}, should resolve promptly without waiting for advisory handle"
+    );
+}
+
+/// is_healthy() on advisory handle: true initially (Starting), true after
+/// report_healthy(), false after deadline expires, false after
+/// report_unhealthy(), true again after report_healthy().
+#[tokio::test]
+async fn advisory_handle_is_healthy() {
+    let mut manager = fast_poll_manager(50);
+    let handle = manager.register("kafka-health", advisory_opts());
+    let std_handle = manager.register("worker", ComponentOptions::new());
+    let guard = manager.monitor_background();
+
+    // Starting state — is_healthy returns true (health_flag initialized true)
+    assert!(handle.is_healthy());
+
+    // After report_healthy — still true
+    handle.report_healthy();
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    assert!(handle.is_healthy());
+
+    // Let deadline expire (100ms), wait for poll to detect
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!handle.is_healthy());
+
+    // report_unhealthy — poll detects, stays false
+    handle.report_unhealthy();
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    assert!(!handle.is_healthy());
+
+    // Recover via report_healthy
+    handle.report_healthy();
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    assert!(handle.is_healthy());
+
+    std_handle.request_shutdown();
+    drop(std_handle);
+    drop(handle);
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(result.is_ok());
+}
+
+/// is_advisory(true) + is_observability(true) panics at registration.
+#[tokio::test]
+#[should_panic(expected = "advisory handles cannot be observability handles")]
+async fn advisory_and_observability_mutually_exclusive() {
+    let mut manager = test_manager();
+    manager.register(
+        "bad",
+        ComponentOptions::new()
+            .is_advisory(true)
+            .is_observability(true)
+            .with_liveness_deadline(Duration::from_secs(5)),
+    );
+}
+
+/// is_advisory(true) without with_liveness_deadline panics at registration.
+#[tokio::test]
+#[should_panic(expected = "advisory handles require with_liveness_deadline")]
+async fn advisory_requires_liveness_deadline() {
+    let mut manager = test_manager();
+    manager.register("bad", ComponentOptions::new().is_advisory(true));
+}
+
+/// is_advisory(true) + with_graceful_shutdown panics — advisory handles are
+/// not in the component maps so graceful_shutdown would be silently ignored.
+#[tokio::test]
+#[should_panic(expected = "with_graceful_shutdown has no effect")]
+async fn advisory_rejects_graceful_shutdown() {
+    let mut manager = test_manager();
+    manager.register(
+        "bad",
+        ComponentOptions::new()
+            .is_advisory(true)
+            .with_liveness_deadline(Duration::from_secs(5))
+            .with_graceful_shutdown(Duration::from_secs(10)),
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Section 9: is_healthy() on non-liveness handles
+//
+// Handles without liveness_deadline return !is_shutting_down() from
+// is_healthy(). This gives a uniform "are things OK?" query on any handle.
+// ---------------------------------------------------------------------------
+
+/// is_healthy() on a standard handle without liveness_deadline: returns true
+/// while running, false after shutdown.
+#[tokio::test]
+async fn is_healthy_without_liveness_tracks_shutdown() {
+    let shutdown_token = CancellationToken::new();
+    let mut manager = Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_global_shutdown_timeout(Duration::from_secs(5))
+        .with_shutdown_token(shutdown_token.clone())
+        .build();
+
+    let handle = manager.register("worker", ComponentOptions::new());
+    let guard = manager.monitor_background();
+
+    assert!(handle.is_healthy());
+
+    let h = handle.clone();
+    tokio::spawn(async move {
+        h.shutdown_recv().await;
+    });
+
+    shutdown_token.cancel();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    assert!(!handle.is_healthy());
+
+    drop(handle);
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(result.is_ok());
+}
+
+/// is_healthy() on a standard handle WITH liveness_deadline: returns the
+/// health poll task's cached result. True after report_healthy(), false
+/// after deadline expires and stall threshold is met (which also triggers
+/// shutdown for standard handles).
+#[tokio::test]
+async fn is_healthy_with_liveness_tracks_health() {
+    let mut manager = fast_poll_manager(50);
+    let handle = manager.register(
+        "worker",
+        ComponentOptions::new().with_liveness_deadline(Duration::from_millis(100)),
+    );
+    let guard = manager.monitor_background();
+
+    // Starting state — health_flag initialized true
+    assert!(handle.is_healthy());
+
+    // After report_healthy, poll confirms
+    handle.report_healthy();
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    assert!(handle.is_healthy());
+
+    // Let deadline expire (100ms) + poll detects stall. Default stall_threshold=1,
+    // so first stalled poll flips health_flag AND triggers shutdown.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!handle.is_healthy());
+    assert!(handle.is_shutting_down());
+
+    drop(handle);
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(matches!(
+        result,
+        Err(LifecycleError::ComponentFailure { .. })
+    ));
+}
+
+/// is_healthy() on an observability handle: returns true during Phase 2
+/// (standard drain, obs handle still running) and false during Phase 3
+/// (obs drain, obs handle shutting down). Obs handles have no liveness_deadline,
+/// so is_healthy() uses !is_shutting_down() internally.
+#[tokio::test]
+async fn is_healthy_on_observability_handle() {
+    let shutdown_token = CancellationToken::new();
+    let mut manager = Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_global_shutdown_timeout(Duration::from_secs(5))
+        .with_shutdown_token(shutdown_token.clone())
+        .build();
+
+    let std_handle = manager.register("worker", ComponentOptions::new());
+    let obs_handle = manager.register("metrics", obs_opts());
+    let guard = manager.monitor_background();
+
+    // During normal operation
+    assert!(obs_handle.is_healthy());
+
+    let obs_clone = obs_handle.clone();
+    let obs_healthy_during_phase2 = Arc::new(AtomicBool::new(false));
+    let obs_healthy_check = obs_healthy_during_phase2.clone();
+
+    tokio::spawn(async move {
+        let _guard = std_handle.process_scope();
+        std_handle.shutdown_recv().await;
+        // Phase 2: standard drain. Obs handle should still be healthy.
+        obs_healthy_check.store(obs_clone.is_healthy(), Ordering::SeqCst);
+    });
+
+    tokio::spawn(async move {
+        let _guard = obs_handle.process_scope();
+        obs_handle.shutdown_recv().await;
+        // Phase 3: obs drain. is_healthy() should be false now.
+        assert!(!obs_handle.is_healthy());
+    });
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    shutdown_token.cancel();
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(result.is_ok());
+    assert!(obs_healthy_during_phase2.load(Ordering::SeqCst));
+}
+
+/// Advisory handle with stall_threshold(3): is_healthy() stays true through
+/// the first 2 stalled polls and flips false only on the 3rd. No shutdown
+/// is triggered. Recovery via report_healthy() resets the stall counter and
+/// flips is_healthy() back to true.
+///
+/// Uses 100ms poll / 250ms deadline for reliable timing margins:
+///   report_healthy at t=0 → deadline expires at t=250ms
+///   1st stalled poll ~300ms (count=1), 2nd ~400ms (count=2), 3rd ~500ms (count=3)
+#[tokio::test]
+async fn advisory_handle_stall_threshold_gates_is_healthy() {
+    let mut manager = Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_global_shutdown_timeout(Duration::from_secs(10))
+        .with_health_poll_interval(Duration::from_millis(100))
+        .build();
+
+    let advisory_handle = manager.register(
+        "kafka-health",
+        ComponentOptions::new()
+            .is_advisory(true)
+            .with_liveness_deadline(Duration::from_millis(250))
+            .with_stall_threshold(3),
+    );
+    let std_handle = manager.register("worker", ComponentOptions::new());
+    let guard = manager.monitor_background();
+
+    assert!(advisory_handle.is_healthy());
+
+    advisory_handle.report_healthy();
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    assert!(advisory_handle.is_healthy());
+
+    // Deadline expires at ~250ms. After 2 stalled polls (~400ms) stall_count=2 < 3.
+    // Check at ~450ms: still healthy.
+    tokio::time::sleep(Duration::from_millis(330)).await;
+    assert!(
+        advisory_handle.is_healthy(),
+        "should stay healthy below stall_threshold"
+    );
+    assert!(!std_handle.is_shutting_down(), "no shutdown triggered");
+
+    // 3rd stalled poll at ~500ms: stall_count=3 >= 3, health_flag flips false.
+    // Check at ~550ms.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(
+        !advisory_handle.is_healthy(),
+        "should flip unhealthy at stall_threshold"
+    );
+    assert!(
+        !std_handle.is_shutting_down(),
+        "advisory stall must not trigger shutdown"
+    );
+
+    // Recover: report_healthy resets stall counter on next poll
+    advisory_handle.report_healthy();
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    assert!(
+        advisory_handle.is_healthy(),
+        "should recover after report_healthy"
+    );
+
+    std_handle.request_shutdown();
+    drop(std_handle);
+    drop(advisory_handle);
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(result.is_ok());
+}

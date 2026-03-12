@@ -90,6 +90,7 @@ rules:
                               |DataWarehouseTable
                               |DesktopRecording
                               |EarlyAccessFeature
+                              |EvaluationContext
                               |Edge
                               |Endpoint
                               |EnterpriseEventDefinition
@@ -126,6 +127,8 @@ rules:
                               |Integration
                               |Link
                               |LiveDebuggerBreakpoint
+                              |LogsAlertCheck
+                              |LogsAlertConfiguration
                               |LLMModelConfiguration
                               |LLMPrompt
                               |LLMProviderKey
@@ -257,6 +260,7 @@ rules:
                         |DataWarehouseTable
                         |DesktopRecording
                         |EarlyAccessFeature
+                        |EvaluationContext
                         |Edge
                         |Endpoint
                         |EnterpriseEventDefinition

@@ -1,0 +1,72 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id::bigint as \"id!\", team_id::bigint as \"team_id!\",\n                   group_type_index, group_key, group_properties,\n                   created_at,\n                   properties_last_updated_at as \"properties_last_updated_at?: serde_json::Value\",\n                   properties_last_operation as \"properties_last_operation?: serde_json::Value\",\n                   version\n            FROM posthog_group\n            WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "team_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "group_type_index",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "group_key",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "group_properties",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "properties_last_updated_at?: serde_json::Value",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "properties_last_operation?: serde_json::Value",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "version",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int4",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "7153c106cc8be59b7efb7aec0ee7a368979effba33117ebb08cf5cf633dc0290"
+}

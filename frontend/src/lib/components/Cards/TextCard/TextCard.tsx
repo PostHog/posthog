@@ -4,8 +4,9 @@ import clsx from 'clsx'
 import React from 'react'
 
 import { Resizeable } from 'lib/components/Cards/CardMeta'
-import { ResizeHandle1D, ResizeHandle2D } from 'lib/components/Cards/handles'
-import { More, MoreProps } from 'lib/lemon-ui/LemonButton/More'
+import { DashboardResizeHandles } from 'lib/components/Cards/handles'
+import { EditModeEdgeOverlay } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import { DashboardPlacement, DashboardTile, QueryBasedInsightModel } from '~/types'
@@ -14,7 +15,11 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
     textTile: DashboardTile<QueryBasedInsightModel>
     placement: DashboardPlacement
     children?: JSX.Element
-    moreButtonOverlay?: MoreProps['overlay']
+    moreButtonOverlay?: JSX.Element
+    /** Whether hovering near the card edge should hint that edit mode is available. */
+    canEnterEditModeFromEdge?: boolean
+    /** Called when the user clicks an edge hint to enter edit mode. */
+    onEnterEditModeFromEdge?: () => void
 }
 
 interface TextCardBodyProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'className'> {
@@ -34,11 +39,12 @@ export function TextCardInternal(
     {
         textTile,
         showResizeHandles,
-        canResizeWidth,
         children,
         className,
         moreButtonOverlay,
         placement,
+        canEnterEditModeFromEdge,
+        onEnterEditModeFromEdge,
         ...divProps
     }: TextCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -53,11 +59,7 @@ export function TextCardInternal(
 
     return (
         <div
-            className={clsx(
-                'TextCard bg-surface-primary border rounded flex flex-col',
-                className,
-                showResizeHandles && 'border'
-            )}
+            className={clsx('TextCard bg-surface-primary border rounded flex flex-col', className)}
             data-attr="text-card"
             {...divProps}
             ref={ref}
@@ -72,13 +74,10 @@ export function TextCardInternal(
                 <TextContent text={text.body} className="p-4 pr-14" />
             </div>
 
-            {showResizeHandles && (
-                <>
-                    {canResizeWidth ? <ResizeHandle1D orientation="vertical" /> : null}
-                    <ResizeHandle1D orientation="horizontal" />
-                    {canResizeWidth ? <ResizeHandle2D /> : null}
-                </>
+            {canEnterEditModeFromEdge && !showResizeHandles && onEnterEditModeFromEdge && (
+                <EditModeEdgeOverlay onEnterEditMode={onEnterEditModeFromEdge} />
             )}
+            {showResizeHandles && <DashboardResizeHandles />}
             {children /* Extras, such as resize handles */}
         </div>
     )

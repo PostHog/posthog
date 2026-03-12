@@ -24,10 +24,12 @@ from posthog.hogql.database.models import (
     TableNode,
 )
 from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast, print_prepared_ast
 from posthog.hogql.resolver import ResolutionError, resolve_types
+from posthog.hogql.resolver_utils import extract_base_table_types
 from posthog.hogql.test.utils import pretty_dataclasses
 from posthog.hogql.visitor import clone_expr
 
@@ -199,6 +201,33 @@ class TestResolver(BaseTest):
         printed = self._print_hogql("with cte as (select event from events) select event from cte")
 
         assert printed == "WITH cte AS (SELECT event FROM events) SELECT event FROM cte LIMIT 50000"
+
+    @parameterized.expand(
+        [
+            ("SELECT event FROM (SELECT event FROM events) AS e", ["events"]),
+            ("WITH event_cte AS (SELECT event FROM events) SELECT event FROM event_cte", ["events"]),
+        ]
+    )
+    def test_extract_base_table_types(self, query: str, expected_tables: list[str]):
+        node = self._select(query)
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        assert node.type is not None
+        table_names = [table_type.table.to_printed_hogql() for table_type in extract_base_table_types(node.type)]
+
+        self.assertEqual(table_names, expected_tables)
+
+    def test_extract_base_table_types_from_select_set_type(self):
+        select_set_type = ast.SelectSetQueryType(
+            types=[
+                ast.SelectQueryType(tables={"events": ast.TableType(table=EventsTable())}),
+                ast.SelectQueryType(tables={"persons": ast.TableType(table=PersonsTable())}),
+            ]
+        )
+
+        table_names = [table_type.table.to_printed_hogql() for table_type in extract_base_table_types(select_set_type)]
+
+        self.assertEqual(table_names, ["events", "persons"])
 
     def test_ctes_loop(self):
         with self.assertRaises(QueryError) as e:
