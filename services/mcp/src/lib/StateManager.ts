@@ -168,7 +168,7 @@ export class StateManager {
 
     async invalidateAiConsent(): Promise<void> {
         await this._cache.delete('aiConsentGiven')
-        this._aiConsentFetchedAt = undefined
+        this._aiConsentFetchedAt = 0
     }
 
     async getAiConsentGiven(): Promise<boolean | undefined> {
