@@ -648,6 +648,73 @@ export interface TextReprResponseApi {
     metadata: TextReprMetadataApi
 }
 
+export interface LLMPromptApi {
+    readonly id: string
+    /**
+     * Unique prompt name using letters, numbers, hyphens, and underscores only.
+     * @maxLength 255
+     */
+    name: string
+    /** Prompt payload as JSON or string data. */
+    prompt: unknown
+    readonly version: number
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+    readonly deleted: boolean
+    readonly is_latest: boolean
+    readonly latest_version: number
+    readonly version_count: number
+    readonly first_version_created_at: string
+}
+
+export interface PaginatedLLMPromptListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LLMPromptApi[]
+}
+
+export interface LLMPromptPublicApi {
+    id: string
+    name: string
+    prompt: unknown
+    version: number
+    created_at: string
+    updated_at: string
+    deleted: boolean
+    is_latest: boolean
+    latest_version: number
+    version_count: number
+    first_version_created_at: string
+}
+
+export interface PatchedLLMPromptPublishApi {
+    /** Prompt payload to publish as a new version. */
+    prompt?: unknown
+    /**
+     * Latest version you are editing from. Used for optimistic concurrency checks.
+     * @minimum 1
+     */
+    base_version?: number
+}
+
+export interface LLMPromptVersionSummaryApi {
+    readonly id: string
+    readonly version: number
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly is_latest: boolean
+}
+
+export interface LLMPromptResolveResponseApi {
+    prompt: LLMPromptApi
+    versions: LLMPromptVersionSummaryApi[]
+    has_more: boolean
+}
+
 export interface DatasetItemApi {
     readonly id: string
     dataset: string
@@ -835,6 +902,57 @@ export type LlmAnalyticsTextReprCreate400 = { [key: string]: unknown }
 export type LlmAnalyticsTextReprCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsTextReprCreate503 = { [key: string]: unknown }
+
+export type LlmPromptsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Optional substring filter applied to prompt names and prompt content.
+     */
+    search?: string
+}
+
+export type LlmPromptsNameRetrieveParams = {
+    /**
+     * Specific prompt version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number
+}
+
+export type LlmPromptsResolveNameRetrieveParams = {
+    /**
+     * Return versions older than this version number. Mutually exclusive with offset.
+     * @minimum 1
+     */
+    before_version?: number
+    /**
+     * Maximum number of versions to return per page (1-100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Zero-based offset into version history for pagination. Mutually exclusive with before_version.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Specific prompt version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number
+    /**
+     * Exact prompt version UUID to resolve. Can be used together with version for extra safety.
+     */
+    version_id?: string
+}
 
 export type DatasetItemsListParams = {
     /**
