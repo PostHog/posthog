@@ -620,8 +620,11 @@ impl RedisClient {
             PipelineCommand::Set { .. }
             | PipelineCommand::SetEx { .. }
             | PipelineCommand::Del { .. }
-            | PipelineCommand::HIncrBy { .. }
-            | PipelineCommand::SAdd { .. } => Ok(PipelineResult::Ok),
+            | PipelineCommand::HIncrBy { .. } => Ok(PipelineResult::Ok),
+            PipelineCommand::SAdd { .. } => {
+                let count: u64 = redis::from_redis_value(&raw)?;
+                Ok(PipelineResult::Count(count))
+            }
             PipelineCommand::SetNxEx { .. } => {
                 // SET NX returns OK if set, nil if key existed
                 match raw {
