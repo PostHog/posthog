@@ -127,6 +127,80 @@ export function buildCrashFreeSessionsQuery(
     }
 }
 
+export const SUMMARY_STATS_QUERY = `
+    SELECT
+        countIf(event = '$exception') as total_exceptions,
+        uniqIf(person_id, event = '$exception') as affected_users,
+        uniqIf($session_id, notEmpty($session_id)) as total_sessions,
+        uniqIf($session_id, event = '$exception' AND notEmpty($session_id)) as crash_sessions
+    FROM events
+    WHERE {filters}
+`
+
+export const SESSION_ENDING_ISSUES_QUERY = `
+    WITH session_data AS (
+        SELECT
+            $session_id as sid,
+            argMax(event, timestamp) as last_event,
+            argMax(issue_id, timestamp) as last_issue_id,
+            arraySort(groupArray(timestamp)) as timestamps
+        FROM events
+        WHERE {filters}
+            AND notEmpty($session_id)
+        GROUP BY $session_id
+    ),
+    exception_ended AS (
+        SELECT
+            last_issue_id as issue_id,
+            count() as sessions,
+            groupArray(sid) as session_ids
+        FROM session_data
+        WHERE last_event = '$exception'
+            AND notEmpty(last_issue_id)
+            AND length(timestamps) >= 2
+            AND dateDiff('second', arrayElement(timestamps, -2), arrayElement(timestamps, -1)) <= 5
+        GROUP BY issue_id
+        ORDER BY sessions DESC
+        LIMIT 10
+    ),
+    recorded_sessions AS (
+        SELECT session_id
+        FROM session_replay_events
+        WHERE session_id IN (SELECT arrayJoin(session_ids) FROM exception_ended)
+    )
+    SELECT
+        ee.issue_id,
+        eti.name,
+        eti.description,
+        ee.sessions,
+        arrayFirst(s -> has(rs.recorded_sessions_arr, s), ee.session_ids) as example_recording_session_id
+    FROM exception_ended ee
+    LEFT JOIN (
+        SELECT id, name, description FROM system.error_tracking_issues
+        WHERE id IN (SELECT issue_id FROM exception_ended)
+    ) AS eti ON eti.id = ee.issue_id
+    CROSS JOIN (
+        SELECT groupArray(session_id) as recorded_sessions_arr FROM recorded_sessions
+    ) AS rs
+    ORDER BY sessions DESC
+`
+
+export const ERRORS_BY_PAGE_QUERY = `
+    SELECT
+        properties.$current_url as url,
+        countIf(event = '$pageview') as pageviews,
+        countIf(event = '$exception') as errors,
+        if(pageviews > 0, round(errors / pageviews * 100, 1), 0) as error_rate
+    FROM events
+    WHERE {filters}
+        AND event IN ('$pageview', '$exception')
+        AND notEmpty(properties.$current_url)
+    GROUP BY url
+    HAVING errors > 0 AND pageviews > 0
+    ORDER BY error_rate DESC
+    LIMIT 10
+`
+
 export function insightNewUrl(query: InsightVizNode<TrendsQuery>): string {
     const editorQuery: InsightVizNode<TrendsQuery> = {
         ...query,
