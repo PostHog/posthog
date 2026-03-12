@@ -1951,6 +1951,10 @@ export const WarehouseSavedQueriesPartialUpdateBody = zod
             .describe(
                 'HogQL query definition as a JSON object with a "query" key containing the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
             ),
+        edited_history_id: zod
+            .string()
+            .nullish()
+            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
     })
     .describe(
         'Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.'
