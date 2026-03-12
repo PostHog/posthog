@@ -2569,6 +2569,7 @@ export interface ErrorTrackingIssueCohort {
 export type QuickFilterType = 'manual-options' | 'auto-discovery'
 
 export enum QuickFilterContext {
+    Dashboards = 'dashboards',
     ErrorTrackingIssueFilters = 'error-tracking-issue-filters',
     LogsFilters = 'logs-filters',
 }
