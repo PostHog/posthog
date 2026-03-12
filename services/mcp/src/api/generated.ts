@@ -5376,6 +5376,13 @@ export namespace Schemas {
       explicit_datetime?: string | null;
     }
 
+    export interface BooleanScoreDefinitionConfig {
+      /** Optional label for a true value. */
+      true_label?: string;
+      /** Optional label for a false value. */
+      false_label?: string;
+    }
+
     export interface BreakdownItem {
       label: string;
       value: string | number;
@@ -5625,6 +5632,53 @@ export namespace Schemas {
       reason: string;
       /** Supporting evidence */
       evidence?: CapabilityStateEvidence;
+    }
+
+    export interface CategoricalScoreOption {
+      /**
+       * Stable option key. Use lowercase letters, numbers, underscores, or hyphens.
+       * @maxLength 128
+       */
+      key: string;
+      /**
+       * Human-readable option label.
+       * @maxLength 256
+       */
+      label: string;
+    }
+
+    /**
+     * * `single` - single
+    * `multiple` - multiple
+     */
+    export type SelectionModeEnum = typeof SelectionModeEnum[keyof typeof SelectionModeEnum];
+
+
+    export const SelectionModeEnum = {
+      Single: 'single',
+      Multiple: 'multiple',
+    } as const;
+
+    export interface CategoricalScoreDefinitionConfig {
+      /** Ordered categorical options available to the scorer. */
+      options: CategoricalScoreOption[];
+      /** Whether reviewers can select one option or multiple options. Defaults to `single`.
+
+    * `single` - single
+    * `multiple` - multiple */
+      selection_mode?: SelectionModeEnum;
+      /**
+       * Optional minimum number of options that can be selected when `selection_mode` is `multiple`.
+       * @minimum 1
+       * @nullable
+       */
+      min_selections?: number | null;
+      /**
+       * Optional maximum number of options that can be selected when `selection_mode` is `multiple`.
+       * @minimum 1
+       * @nullable
+       */
+      max_selections?: number | null;
     }
 
     /**
@@ -14167,7 +14221,7 @@ export namespace Schemas {
     } as const;
 
     export interface InputsItem {
-      value?: string;
+      value?: unknown;
       templating?: Templating186Enum;
       readonly bytecode: readonly unknown[];
       readonly order: number;
@@ -14457,6 +14511,36 @@ export namespace Schemas {
       _create_in_folder?: string;
       /** @nullable */
       readonly batch_export_id: string | null;
+    }
+
+    /**
+     * Mock global variables available during test invocation.
+     */
+    export type HogFunctionInvocationGlobals = {[key: string]: unknown};
+
+    /**
+     * Mock ClickHouse event data to test the function with.
+     */
+    export type HogFunctionInvocationClickhouseEvent = {[key: string]: unknown};
+
+    export interface HogFunctionInvocation {
+      /** Full function configuration to test. */
+      configuration: HogFunction;
+      /** Mock global variables available during test invocation. */
+      globals?: HogFunctionInvocationGlobals;
+      /** Mock ClickHouse event data to test the function with. */
+      clickhouse_event?: HogFunctionInvocationClickhouseEvent;
+      /** When true (default), async functions like fetch() are simulated. */
+      mock_async_functions?: boolean;
+      /** Invocation result status. */
+      readonly status: string;
+      /** Execution logs from the test invocation. */
+      readonly logs: readonly unknown[];
+      /**
+       * Optional invocation ID for correlation.
+       * @nullable
+       */
+      invocation_id?: string | null;
     }
 
     export interface HogFunctionMinimal {
@@ -16037,6 +16121,20 @@ export namespace Schemas {
       '20': '2.0',
     } as const;
 
+    /**
+     * * `categorical` - categorical
+    * `numeric` - numeric
+    * `boolean` - boolean
+     */
+    export type Kind01eEnum = typeof Kind01eEnum[keyof typeof Kind01eEnum];
+
+
+    export const Kind01eEnum = {
+      Categorical: 'categorical',
+      Numeric: 'numeric',
+      Boolean: 'boolean',
+    } as const;
+
     export interface LLMPrompt {
       readonly id: string;
       /**
@@ -16577,6 +16675,24 @@ export namespace Schemas {
        */
       readonly user_access_level: string | null;
       _create_in_folder?: string;
+    }
+
+    export interface NumericScoreDefinitionConfig {
+      /**
+       * Optional inclusive minimum score.
+       * @nullable
+       */
+      min?: number | null;
+      /**
+       * Optional inclusive maximum score.
+       * @nullable
+       */
+      max?: number | null;
+      /**
+       * Optional increment step for numeric input, for example 1 or 0.5.
+       * @nullable
+       */
+      step?: number | null;
     }
 
     export interface OAuthRedirectResponse {
@@ -18016,6 +18132,35 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: SchemaPropertyGroup[];
+    }
+
+    export type ScoreDefinitionConfig = CategoricalScoreDefinitionConfig | NumericScoreDefinitionConfig | BooleanScoreDefinitionConfig;
+
+    export interface ScoreDefinition {
+      readonly id: string;
+      readonly name: string;
+      readonly description: string;
+      readonly kind: Kind01eEnum;
+      readonly archived: boolean;
+      /** Current immutable configuration version number. */
+      readonly current_version: number;
+      /** Current immutable scorer configuration. */
+      readonly config: ScoreDefinitionConfig;
+      /** User who created the scorer. */
+      readonly created_by: UserBasic | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      readonly team: number;
+    }
+
+    export interface PaginatedScoreDefinitionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ScoreDefinition[];
     }
 
     export interface SessionGroupSummaryMinimal {
@@ -20568,6 +20713,16 @@ export namespace Schemas {
     }
 
     /**
+     * Map of hog function UUIDs to their new execution_order values.
+     */
+    export type PatchedHogFunctionRearrangeOrders = {[key: string]: number};
+
+    export interface PatchedHogFunctionRearrange {
+      /** Map of hog function UUIDs to their new execution_order values. */
+      orders?: PatchedHogFunctionRearrangeOrders;
+    }
+
+    /**
      * Simplified serializer to speed response times when loading large amounts of objects.
      */
     export interface PatchedInsight {
@@ -21332,6 +21487,21 @@ export namespace Schemas {
       readonly created_at?: string;
       readonly updated_at?: string;
       readonly created_by?: UserBasic;
+    }
+
+    export interface PatchedScoreDefinitionMetadata {
+      /**
+       * Updated scorer name.
+       * @maxLength 255
+       */
+      name?: string;
+      /**
+       * Updated scorer description.
+       * @nullable
+       */
+      description?: string | null;
+      /** Whether the scorer is archived. */
+      archived?: boolean;
     }
 
     export interface PatchedSessionGroupSummary {
@@ -25397,6 +25567,34 @@ export namespace Schemas {
       stale: number;
     }
 
+    export interface ScoreDefinitionCreate {
+      /**
+       * Human-readable scorer name.
+       * @maxLength 255
+       */
+      name: string;
+      /**
+       * Optional human-readable description.
+       * @nullable
+       */
+      description?: string | null;
+      /** Scorer kind. This cannot be changed after creation.
+
+    * `categorical` - categorical
+    * `numeric` - numeric
+    * `boolean` - boolean */
+      kind: Kind01eEnum;
+      /** New scorers are always created as active. */
+      archived?: boolean;
+      /** Initial immutable scorer configuration. */
+      config: ScoreDefinitionConfig;
+    }
+
+    export interface ScoreDefinitionNewVersion {
+      /** Next immutable scorer configuration. */
+      config: ScoreDefinitionConfig;
+    }
+
     export type SentimentResultScores = {[key: string]: number};
 
     export type SentimentResultMessages = {[key: string]: MessageSentiment};
@@ -27823,6 +28021,33 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type LlmAnalyticsScoreDefinitionsListParams = {
+    /**
+     * Filter by archived state.
+     */
+    archived?: boolean;
+    /**
+     * Filter by scorer kind.
+     */
+    kind?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Sort by name, kind, created_at, updated_at, or current_version.
+     */
+    order_by?: string;
+    /**
+     * Search scorers by name or description.
+     */
+    search?: string;
     };
 
     export type LlmAnalyticsSentimentCreate400 = {[key: string]: unknown};

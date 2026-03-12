@@ -36,7 +36,13 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.approvals.decorators import approval_gate
 from posthog.approvals.mixins import ApprovalHandlingMixin
-from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
+from posthog.auth import (
+    JwtAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
+    SessionAuthentication,
+)
 from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX, SURVEY_TARGETING_FLAG_PREFIX, FlagRequestType
 from posthog.date_util import thirty_days_ago
 from posthog.event_usage import report_user_action
@@ -74,7 +80,7 @@ from posthog.models.group.group import Group
 from posthog.models.property import Property
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.surveys.survey import Survey
-from posthog.permissions import ProjectSecretAPITokenPermission, is_authenticated_via_project_secret_api_token
+from posthog.permissions import ProjectSecretAPITokenPermission
 from posthog.queries.base import determine_parsed_date_for_property_matching
 from posthog.rate_limit import BurstRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -148,8 +154,20 @@ LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER = Counter(
 LOCAL_EVALUATION_AUTH_COUNTER = Counter(
     "posthog_local_evaluation_auth_total",
     "Local evaluation requests by authentication method",
-    labelnames=["method"],  # "secret_api_token" or "personal_api_key"
+    labelnames=["method"],  # "secret_api_key", "personal_api_key", "oauth", "jwt", "session", or "other"
 )
+
+_AUTH_METHOD_BY_CLASS: dict[type, str] = {
+    ProjectSecretAPIKeyAuthentication: "secret_api_key",
+    PersonalAPIKeyAuthentication: "personal_api_key",
+    OAuthAccessTokenAuthentication: "oauth",
+    JwtAuthentication: "jwt",
+    SessionAuthentication: "session",
+}
+
+
+def _classify_auth_method(authenticator: object | None) -> str:
+    return _AUTH_METHOD_BY_CLASS.get(type(authenticator), "other")
 
 
 def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
@@ -2555,9 +2573,7 @@ class FeatureFlagViewSet(
         # Track send_cohorts parameter usage
         LOCAL_EVALUATION_REQUEST_COUNTER.labels(send_cohorts=str(include_cohorts).lower()).inc()
 
-        auth_method = (
-            "secret_api_token" if is_authenticated_via_project_secret_api_token(request) else "personal_api_key"
-        )
+        auth_method = _classify_auth_method(request.successful_authenticator)
         LOCAL_EVALUATION_AUTH_COUNTER.labels(method=auth_method).inc()
 
         try:
