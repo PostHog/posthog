@@ -433,16 +433,27 @@ class HogQLQueryExecutor:
         try:
             with self.timings.measure("postgres_execute"):
                 with postgres_source.with_ssh_tunnel(source_config) as (host, port):
-                    with psycopg.connect(
-                        host=host,
-                        port=port,
-                        dbname=source_config.database,
-                        user=source_config.user,
-                        password=source_config.password,
-                        connect_timeout=DIRECT_POSTGRES_CONNECT_TIMEOUT_SECONDS,
-                        sslmode=_get_sslmode(require_ssl),
-                        options=(f"-c default_transaction_read_only=on -c statement_timeout={statement_timeout_ms}"),
-                    ) as connection:
+                    connection_kwargs: dict[str, str | int] = {
+                        "host": host,
+                        "port": port,
+                        "dbname": source_config.database,
+                        "user": source_config.user,
+                        "password": source_config.password,
+                        "connect_timeout": DIRECT_POSTGRES_CONNECT_TIMEOUT_SECONDS,
+                        "sslmode": _get_sslmode(require_ssl),
+                        "options": f"-c default_transaction_read_only=on -c statement_timeout={statement_timeout_ms}",
+                    }
+                    if host.endswith(".us.postwh.com"):
+                        connection_kwargs.update(
+                            {
+                                "sslmode": "require",
+                                "sslcert": "/tmp/no.txt",
+                                "sslkey": "/tmp/no.txt",
+                                "sslrootcert": "/tmp/no.txt",
+                            }
+                        )
+
+                    with psycopg.connect(**connection_kwargs) as connection:
                         with connection.cursor() as cursor:
                             cursor.execute(self.direct_postgres_sql, self.direct_postgres_values or None)
                             results = cursor.fetchall()
