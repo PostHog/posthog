@@ -1,3 +1,4 @@
+import equal from 'fast-deep-equal'
 import {
     BindLogic,
     actions,
@@ -393,9 +394,46 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             layouts: tile.layouts?.sm ? { sm: tile.layouts.sm } : {},
                         }))
 
+                        const currentDashboard = values.dashboard
+                        if (!currentDashboard) {
+                            return null
+                        }
+
+                        const persistedFilters = currentDashboard.persisted_filters || {}
+                        const persistedVariables = currentDashboard.persisted_variables || {}
+                        const persistedBreakdownColors = currentDashboard.breakdown_colors || []
+                        const persistedThemeId = currentDashboard.data_color_theme_id ?? null
+
+                        const filtersChanged = !equal(persistedFilters, values.effectiveEditBarFilters || {})
+                        const variablesChanged = !equal(
+                            persistedVariables,
+                            values.effectiveDashboardVariableOverrides || {}
+                        )
+                        const breakdownColorsChanged = !equal(
+                            persistedBreakdownColors,
+                            values.temporaryBreakdownColors || []
+                        )
+                        const themeChanged = (values.dataColorThemeId ?? null) !== persistedThemeId
+
+                        const layoutsChanged = (currentDashboard.tiles || []).some((tile) => {
+                            const originalLayouts = values.dashboardLayouts?.[tile.id]?.sm
+                            const updatedLayouts = layoutsToUpdate.find((t) => t.id === tile.id)?.layouts?.sm
+                            return !equal(originalLayouts || {}, updatedLayouts || {})
+                        })
+
+                        if (
+                            !filtersChanged &&
+                            !variablesChanged &&
+                            !breakdownColorsChanged &&
+                            !themeChanged &&
+                            !layoutsChanged
+                        ) {
+                            return currentDashboard
+                        }
+
                         breakpoint()
 
-                        const dashboard: DashboardType<InsightModel> = await api.update(
+                        const updatedDashboard: DashboardType<InsightModel> = await api.update(
                             `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
                             {
                                 filters: values.effectiveEditBarFilters,
@@ -407,7 +445,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         )
                         actions.resetUrlFilters()
                         actions.resetUrlVariables()
-                        return getQueryBasedDashboard(dashboard)
+                        return getQueryBasedDashboard(updatedDashboard)
                     } catch (e) {
                         lemonToast.error('Could not update dashboard: ' + String(e))
                         return values.dashboard
@@ -1949,7 +1987,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             if (mode || source) {
-                eventUsageLogic.actions.reportDashboardModeToggled(values.dashboard, mode, source)
+                eventUsageLogic.actions.reportDashboardModeToggled(values.dashboard, mode, source, null)
             }
         },
         setAutoRefresh: () => {
