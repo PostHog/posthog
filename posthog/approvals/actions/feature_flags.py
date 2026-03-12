@@ -222,10 +222,15 @@ class UpdateFeatureFlagAction(BaseAction):
         }
     }
 
+    # Each path is (keys_to_container..., field_name). The container can be a list of dicts
+    # (e.g. groups) or a single dict (e.g. holdout). Both are handled by _extract_rollout_percentages.
+    # TODO(Phase 5): remove holdout_groups path once legacy writing is dropped — during dual-write
+    # both paths detect the same holdout percentage change, producing redundant approval diff entries.
     ROLLOUT_PERCENTAGE_PATHS = [
         ("groups", "rollout_percentage"),
         ("super_groups", "rollout_percentage"),
         ("holdout_groups", "rollout_percentage"),
+        ("holdout", "exclusion_percentage"),
         ("multivariate", "variants", "rollout_percentage"),
     ]
 
@@ -260,18 +265,24 @@ class UpdateFeatureFlagAction(BaseAction):
                 if current is None:
                     break
 
-            if not isinstance(current, list):
-                continue
-
             path_str = ".".join(array_path)
-            for idx, item in enumerate(current):
-                if isinstance(item, dict) and field_name in item:
-                    results.append(
-                        {
-                            "path": f"{path_str}[{idx}].{field_name}",
-                            "value": item[field_name],
-                        }
-                    )
+
+            if isinstance(current, dict) and field_name in current:
+                results.append(
+                    {
+                        "path": f"{path_str}.{field_name}",
+                        "value": current[field_name],
+                    }
+                )
+            elif isinstance(current, list):
+                for idx, item in enumerate(current):
+                    if isinstance(item, dict) and field_name in item:
+                        results.append(
+                            {
+                                "path": f"{path_str}[{idx}].{field_name}",
+                                "value": item[field_name],
+                            }
+                        )
 
         return results
 

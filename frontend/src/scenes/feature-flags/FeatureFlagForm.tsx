@@ -51,7 +51,7 @@ import { tagsModel } from '~/models/tagsModel'
 import { FeatureFlagBucketingIdentifier, FeatureFlagEvaluationRuntime } from '~/types'
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
-import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
+import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { FeatureFlagLogicProps, featureFlagLogic, slugifyFeatureFlagKey } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
 
@@ -97,7 +97,10 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     const handleShowImplementation = (): void => {
         setShowImplementation(true)
         setTimeout(() => {
-            implementationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            implementationRef.current?.scrollIntoView({
+                behavior: 'smooth',
+                block: 'start',
+            })
         }, 150)
     }
 
@@ -108,17 +111,9 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     ): void => {
         const coercedValue = field === 'rollout_percentage' ? Number(value) || 0 : String(value)
         const currentVariants = [...variants]
-        const oldKey = currentVariants[index]?.key
-        currentVariants[index] = { ...currentVariants[index], [field]: coercedValue }
-
-        // If the key is being changed, migrate any existing payload to the new key
-        let updatedPayloads = { ...featureFlag?.filters?.payloads }
-        if (field === 'key' && oldKey && oldKey !== coercedValue) {
-            const existingPayload = updatedPayloads[oldKey]
-            if (existingPayload !== undefined) {
-                delete updatedPayloads[oldKey]
-                updatedPayloads[coercedValue as string] = existingPayload
-            }
+        currentVariants[index] = {
+            ...currentVariants[index],
+            [field]: coercedValue,
         }
 
         setFeatureFlag({
@@ -129,21 +124,16 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                     ...featureFlag?.filters?.multivariate,
                     variants: currentVariants,
                 },
-                payloads: updatedPayloads,
             },
         })
     }
 
     const updateVariantPayload = (index: number, value: string | undefined): void => {
-        const variantKey = variants[index]?.key
-        if (!variantKey) {
-            return
-        }
         const currentPayloads = { ...featureFlag?.filters?.payloads }
         if (value === '' || value === undefined) {
-            delete currentPayloads[variantKey]
+            delete currentPayloads[index]
         } else {
-            currentPayloads[variantKey] = value
+            currentPayloads[index] = value
         }
         setFeatureFlag({
             ...featureFlag,
@@ -178,7 +168,11 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                     }}
                     forceBackTo={
                         isNewFeatureFlag && featureFlagsV2Enabled
-                            ? { key: 'FeatureFlagTemplates', name: 'Templates', path: urls.featureFlagTemplates() }
+                            ? {
+                                  key: 'FeatureFlagTemplates',
+                                  name: 'Templates',
+                                  path: urls.featureFlagTemplates(),
+                              }
                             : undefined
                     }
                     actions={
@@ -317,51 +311,36 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         },
                                         content: (
                                             <div className="flex flex-col gap-4">
-                                                {/* Tags section */}
+                                                {/* Tags and evaluation contexts */}
                                                 <div className="flex flex-col gap-2">
-                                                    <label className="text-sm font-medium flex items-center gap-1">
-                                                        {hasEvaluationTags ? 'Tags & evaluation contexts' : 'Tags'}
-                                                        <Tooltip
-                                                            title={
-                                                                hasEvaluationTags ? (
-                                                                    <>
-                                                                        Use tags to organize flags. Mark a tag as an
-                                                                        evaluation context to restrict where this flag
-                                                                        can evaluate.{' '}
-                                                                        <Link
-                                                                            to="https://posthog.com/docs/feature-flags/evaluation-contexts"
-                                                                            target="_blank"
-                                                                        >
-                                                                            Learn more
-                                                                        </Link>
-                                                                    </>
-                                                                ) : (
-                                                                    'Organize and filter your flags.'
-                                                                )
-                                                            }
-                                                            interactive={hasEvaluationTags}
-                                                        >
-                                                            <IconInfo className="text-secondary text-base" />
-                                                        </Tooltip>
-                                                    </label>
+                                                    {!hasEvaluationTags && (
+                                                        <label className="text-sm font-medium flex items-center gap-1">
+                                                            Tags
+                                                            <Tooltip title="Organize and filter your flags.">
+                                                                <IconInfo className="text-secondary text-base" />
+                                                            </Tooltip>
+                                                        </label>
+                                                    )}
                                                     {hasEvaluationTags ? (
                                                         <LemonField name="tags">
                                                             {({ value: formTags, onChange: onChangeTags }) => (
-                                                                <LemonField name="evaluation_tags">
+                                                                <LemonField name="evaluation_contexts">
                                                                     {({
-                                                                        value: formEvalTags,
-                                                                        onChange: onChangeEvalTags,
+                                                                        value: formEvalContexts,
+                                                                        onChange: onChangeEvalContexts,
                                                                     }) => (
-                                                                        <FeatureFlagEvaluationTags
+                                                                        <FeatureFlagEvaluationContexts
                                                                             tags={formTags}
-                                                                            evaluationTags={formEvalTags || []}
+                                                                            evaluationContexts={formEvalContexts || []}
                                                                             context="form"
                                                                             onChange={(
                                                                                 updatedTags,
-                                                                                updatedEvaluationTags
+                                                                                updatedEvaluationContexts
                                                                             ) => {
                                                                                 onChangeTags(updatedTags)
-                                                                                onChangeEvalTags(updatedEvaluationTags)
+                                                                                onChangeEvalContexts(
+                                                                                    updatedEvaluationContexts
+                                                                                )
                                                                             }}
                                                                             tagsAvailable={availableTags.filter(
                                                                                 (tag: string) =>
@@ -686,7 +665,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                         </LemonLabel>
                                                         <JSONEditorInput
                                                             onChange={(value) => updateVariantPayload(index, value)}
-                                                            value={featureFlag.filters?.payloads?.[variant.key]}
+                                                            value={featureFlag.filters?.payloads?.[index]}
                                                             placeholder='{"key": "value"}'
                                                         />
 
@@ -701,7 +680,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                     const variantKey =
                                                                         variant.key || `Variant ${index + 1}`
                                                                     const hasPayload =
-                                                                        !!featureFlag.filters?.payloads?.[variant.key]
+                                                                        !!featureFlag.filters?.payloads?.[index]
                                                                     LemonDialog.open({
                                                                         title: `Remove variant "${variantKey}"?`,
                                                                         description: hasPayload
@@ -796,6 +775,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                 <div className="rounded border p-3 bg-bg-light">
                                     <FeatureFlagReleaseConditionsCollapsible
                                         id={String(props.id)}
+                                        flagId={props.id}
                                         filters={featureFlag.filters}
                                         onChange={setFeatureFlagFilters}
                                         variants={nonEmptyVariants}
@@ -809,6 +789,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                       setBucketingIdentifier(value)
                                                 : undefined
                                         }
+                                        evaluationRuntime={featureFlag.evaluation_runtime}
                                     />
                                 </div>
                             )}

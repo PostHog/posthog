@@ -42,7 +42,6 @@ from products.data_warehouse.backend.api.lineage import LineageViewSet
 from products.desktop_recordings.backend.api import DesktopRecordingViewSet
 from products.error_tracking.backend.api import (
     ErrorTrackingAssignmentRuleViewSet,
-    ErrorTrackingAutoCaptureControlsViewSet,
     ErrorTrackingExternalReferenceViewSet,
     ErrorTrackingFingerprintViewSet,
     ErrorTrackingGroupingRuleViewSet,
@@ -946,13 +945,6 @@ environments_router.register(
 )
 
 environments_router.register(
-    r"error_tracking/autocapture_controls",
-    ErrorTrackingAutoCaptureControlsViewSet,
-    "environment_error_tracking_autocapture_controls",
-    ["team_id"],
-)
-
-environments_router.register(
     r"signals",
     SignalViewSet,
     "environment_signals",
@@ -1105,6 +1097,9 @@ environments_router.register(
 
 # Logs endpoints
 register_grandfathered_environment_nested_viewset(r"logs", logs.LogsViewSet, "environment_logs", ["team_id"])
+register_grandfathered_environment_nested_viewset(
+    r"logs/alerts", logs.LogsAlertViewSet, "environment_logs_alerts", ["team_id"]
+)
 
 environments_router.register(
     r"logs/explainLogWithAI",

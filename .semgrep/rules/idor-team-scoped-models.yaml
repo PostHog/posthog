@@ -90,12 +90,12 @@ rules:
                               |DataWarehouseTable
                               |DesktopRecording
                               |EarlyAccessFeature
+                              |EvaluationContext
                               |Edge
                               |Endpoint
                               |EnterpriseEventDefinition
                               |EnterprisePropertyDefinition
                               |ErrorTrackingAssignmentRule
-                              |ErrorTrackingAutoCaptureControls
                               |ErrorTrackingGroupingRule
                               |ErrorTrackingIssue
                               |ErrorTrackingIssueFingerprintV2
@@ -127,6 +127,8 @@ rules:
                               |Integration
                               |Link
                               |LiveDebuggerBreakpoint
+                              |LogsAlertCheck
+                              |LogsAlertConfiguration
                               |LLMModelConfiguration
                               |LLMPrompt
                               |LLMProviderKey
@@ -258,12 +260,12 @@ rules:
                         |DataWarehouseTable
                         |DesktopRecording
                         |EarlyAccessFeature
+                        |EvaluationContext
                         |Edge
                         |Endpoint
                         |EnterpriseEventDefinition
                         |EnterprisePropertyDefinition
                         |ErrorTrackingAssignmentRule
-                        |ErrorTrackingAutoCaptureControls
                         |ErrorTrackingGroupingRule
                         |ErrorTrackingIssue
                         |ErrorTrackingIssueFingerprintV2

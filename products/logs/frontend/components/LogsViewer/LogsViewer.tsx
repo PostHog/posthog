@@ -7,6 +7,7 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
+import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 import { LogsFilterBar } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar/LogsFilterBar'
 import { logsFilterHistoryLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterHistoryLogic'
@@ -28,11 +29,12 @@ const SCROLL_AMOUNT_PX = 8
 export interface LogsViewerProps {
     id: string
     showFullScreenButton?: boolean
+    initialFilters?: Partial<LogsViewerFilters>
 }
 
-export function LogsViewer({ id, showFullScreenButton = true }: LogsViewerProps): JSX.Element {
+export function LogsViewer({ id, showFullScreenButton = true, initialFilters }: LogsViewerProps): JSX.Element {
     return (
-        <BindLogic logic={logsViewerFiltersLogic} props={{ id }}>
+        <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters }}>
             <BindLogic logic={logsViewerConfigLogic} props={{ id }}>
                 <BindLogic logic={logsViewerDataLogic} props={{ id }}>
                     <BindLogic logic={logDetailsModalLogic} props={{ id }}>

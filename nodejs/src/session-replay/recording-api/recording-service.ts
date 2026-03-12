@@ -1,4 +1,5 @@
 import { GetObjectCommand, NoSuchKey, S3Client } from '@aws-sdk/client-s3'
+import snappy from 'snappy'
 
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { logger, serializeError } from '../../utils/logger'
@@ -14,6 +15,7 @@ export interface GetBlockParams {
     key: string
     startByte: number
     endByte: number
+    decompress?: boolean
 }
 
 export type GetBlockResult =
@@ -47,7 +49,7 @@ export class RecordingService {
     }
 
     async getBlock(params: GetBlockParams): Promise<GetBlockResult> {
-        const { sessionId, teamId, key, startByte, endByte } = params
+        const { sessionId, teamId, key, startByte, endByte, decompress } = params
         const startTime = performance.now()
 
         logger.debug('[RecordingService] getBlock request', {
@@ -99,8 +101,29 @@ export class RecordingService {
                 sessionState,
             })
 
-            RecordingApiMetrics.observeGetBlock('success', (performance.now() - startTime) / 1000, sessionState)
-            return { ok: true, data }
+            let result = data
+            if (decompress) {
+                try {
+                    result = (await snappy.uncompress(data, { asBuffer: true })) as Buffer
+                } catch (decompressError) {
+                    logger.error('[RecordingService] Failed to decompress block', {
+                        sessionId,
+                        teamId,
+                        key,
+                        dataSize: data.length,
+                        error: serializeError(decompressError),
+                    })
+                    throw decompressError
+                }
+            }
+
+            RecordingApiMetrics.observeGetBlock(
+                'success',
+                (performance.now() - startTime) / 1000,
+                sessionState,
+                !!decompress
+            )
+            return { ok: true, data: result }
         } catch (error) {
             if (error instanceof NoSuchKey) {
                 logger.warn('[RecordingService] S3 object not found (NoSuchKey)', {

@@ -4,7 +4,7 @@ from rest_framework import status
 
 from posthog.api.data_color_theme import DataColorTheme
 from posthog.constants import AvailableFeature
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 
 
@@ -28,6 +28,8 @@ class TestDataColorTheme(APIBaseTest):
         assert response.data[1]["name"] == "Custom theme 1"
 
     def test_can_edit_own_themes(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         self.organization.available_product_features = [
             {"key": AvailableFeature.DATA_COLOR_THEMES, "name": AvailableFeature.DATA_COLOR_THEMES}
         ]
@@ -43,6 +45,8 @@ class TestDataColorTheme(APIBaseTest):
         assert DataColorTheme.objects.get(pk=theme.pk).name == "New name"
 
     def test_can_not_edit_own_themes_when_feature_disabled(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         theme = DataColorTheme.objects.create(name="Original name", colors=[], team=self.team)
 
         response = self.client.patch(
@@ -54,6 +58,8 @@ class TestDataColorTheme(APIBaseTest):
         assert DataColorTheme.objects.get(pk=theme.pk).name == "Original name"
 
     def test_can_not_edit_public_themes(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         theme = DataColorTheme.objects.first()
         assert theme
 
@@ -65,7 +71,19 @@ class TestDataColorTheme(APIBaseTest):
         assert response.json()["detail"] == "Only staff users can edit global themes."
         assert DataColorTheme.objects.get(pk=theme.pk).name == "Default Theme"
 
+    def test_member_can_not_edit_themes(self) -> None:
+        theme = DataColorTheme.objects.create(name="Original name", colors=[], team=self.team)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/data_color_themes/{theme.pk}", {"name": "New name"}
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert DataColorTheme.objects.get(pk=theme.pk).name == "Original name"
+
     def test_can_edit_public_themes_as_staff(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         self.user.is_staff = True
         self.user.save()
         theme = DataColorTheme.objects.first()

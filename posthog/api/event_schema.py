@@ -2,24 +2,16 @@ from rest_framework import mixins, serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.schema_property_group import SchemaPropertyGroupSerializer
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.models import EventDefinition, EventSchema, SchemaPropertyGroup
 
 
 class EventSchemaSerializer(serializers.ModelSerializer):
     property_group = SchemaPropertyGroupSerializer(read_only=True)
-    property_group_id = serializers.PrimaryKeyRelatedField(
-        queryset=SchemaPropertyGroup.objects.none(), source="property_group", write_only=True
+    property_group_id = TeamScopedPrimaryKeyRelatedField(
+        queryset=SchemaPropertyGroup.objects.all(), source="property_group", write_only=True
     )
-
-    def get_fields(self):
-        fields = super().get_fields()
-        request = self.context.get("request")
-        if request and hasattr(request, "user"):
-            team_id = self.context.get("team_id")
-            if team_id:
-                fields["property_group_id"].queryset = SchemaPropertyGroup.objects.filter(team_id=team_id)  # type: ignore
-                fields["event_definition"].queryset = EventDefinition.objects.filter(team_id=team_id)  # type: ignore
-        return fields
+    event_definition = TeamScopedPrimaryKeyRelatedField(queryset=EventDefinition.objects.all())
 
     class Meta:
         model = EventSchema

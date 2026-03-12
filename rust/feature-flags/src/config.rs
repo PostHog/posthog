@@ -163,6 +163,20 @@ pub struct Config {
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog_persons")]
     pub persons_read_database_url: String,
 
+    // Optional connection to the behavioral_cohorts database for realtime cohort membership.
+    // When empty, realtime cohort evaluation is disabled (graceful degradation).
+    #[envconfig(default = "")]
+    pub behavioral_cohorts_read_database_url: String,
+
+    // Cache TTL for realtime cohort membership lookups (seconds).
+    #[envconfig(from = "COHORT_MEMBERSHIP_CACHE_TTL_SECONDS", default = "60")]
+    pub cohort_membership_cache_ttl_seconds: u64,
+
+    // Max entries in the cohort membership cache.
+    // Each entry represents one (team_id, person_uuid) pair with a map of cohort memberships.
+    #[envconfig(from = "COHORT_MEMBERSHIP_CACHE_MAX_ENTRIES", default = "500000")]
+    pub cohort_membership_cache_max_entries: u64,
+
     #[envconfig(default = "1000")]
     pub max_concurrency: usize,
 
@@ -486,6 +500,13 @@ pub struct Config {
     #[envconfig(from = "MAX_CONCURRENT_BATCH_EVALS", default = "0")]
     pub max_concurrent_batch_evals: usize,
 
+    // Maximum time (ms) to wait for a Rayon semaphore permit before failing fast.
+    // When the wait exceeds this threshold, the request returns 504 so that
+    // ingress can retry it on a less-loaded pod.
+    // 0 = no timeout (await indefinitely, backwards-compatible).
+    #[envconfig(from = "RAYON_SEMAPHORE_TIMEOUT_MS", default = "0")]
+    pub rayon_semaphore_timeout_ms: u64,
+
     // When true, skip all writes to PostgreSQL and Redis.
     // Used to safely deploy and test the personhog migration path
     // without risking any data mutations.
@@ -637,6 +658,9 @@ impl Config {
                 .to_string(),
             persons_read_database_url: "postgres://posthog:posthog@localhost:5432/posthog_persons"
                 .to_string(),
+            behavioral_cohorts_read_database_url: "".to_string(),
+            cohort_membership_cache_ttl_seconds: 60,
+            cohort_membership_cache_max_entries: 50_000,
             max_concurrency: 1000,
             max_pg_connections: 10,
             min_non_persons_reader_connections: 0,
@@ -695,6 +719,7 @@ impl Config {
             optimize_experience_continuity_lookups: FlexBool(true),
             parallel_eval_threshold: 100,
             max_concurrent_batch_evals: 0,
+            rayon_semaphore_timeout_ms: 0,
             skip_writes: FlexBool(false),
             thread_pool_cores: 0,
             team_negative_cache_capacity: 10_000,
@@ -777,6 +802,10 @@ impl Config {
     /// Check if persons database routing is enabled
     pub fn is_persons_db_routing_enabled(&self) -> bool {
         !self.persons_read_database_url.is_empty() && !self.persons_write_database_url.is_empty()
+    }
+
+    pub fn is_behavioral_cohorts_db_configured(&self) -> bool {
+        !self.behavioral_cohorts_read_database_url.is_empty()
     }
 
     /// Get the database URL for persons reads, falling back to the default read URL

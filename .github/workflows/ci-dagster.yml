@@ -158,8 +158,7 @@ jobs:
                   save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
-              run: |
-                  cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+              uses: ./.github/actions/setup-sqlx-cli
 
             - name: Add Kafka and ClickHouse to /etc/hosts
               run: sudo echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts

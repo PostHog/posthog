@@ -1,12 +1,14 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from '../player/sessionRecordingDataCoordinatorLogic'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
@@ -618,6 +620,117 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         order_direction: 'DESC',
                     },
                 })
+        })
+
+        describe('deleting recordings', () => {
+            it('otherRecordings filters out deleted recording ids', async () => {
+                await expectLogic(logic)
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({ otherRecordings: [aRecording, bRecording] })
+
+                deletedRecordingsLogic.actions.addDeletedRecordings(['abc'])
+
+                await expectLogic(logic).toMatchValues({
+                    otherRecordings: [bRecording],
+                })
+            })
+
+            it('clears selectedRecordingId when the active recording is deleted', async () => {
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId('abc'))
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({ selectedRecordingId: 'abc' })
+
+                deletedRecordingsLogic.actions.addDeletedRecordings(['abc'])
+
+                await expectLogic(logic).toMatchValues({
+                    selectedRecordingId: null,
+                })
+            })
+
+            it('does not clear selectedRecordingId when a different recording is deleted', async () => {
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId('abc'))
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({ selectedRecordingId: 'abc' })
+
+                deletedRecordingsLogic.actions.addDeletedRecordings(['def'])
+
+                await expectLogic(logic).toMatchValues({
+                    selectedRecordingId: 'abc',
+                })
+            })
+
+            it('bulk delete marks recordings as deleted after API success', async () => {
+                jest.spyOn(api.recordings, 'bulkDeleteRecordings').mockResolvedValue({
+                    success: true,
+                    deleted_count: 2,
+                    total_requested: 2,
+                    failed_ids: [],
+                })
+
+                await expectLogic(logic)
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({ otherRecordings: [aRecording, bRecording] })
+
+                logic.actions.setSelectedRecordingsIds(['abc', 'def'])
+                logic.actions.setIsDeleteSelectedRecordingsDialogOpen(true)
+
+                await expectLogic(logic, () => logic.actions.handleDeleteSelectedRecordings(undefined))
+                    .toDispatchActions(['addDeletedRecordings', 'setSelectedRecordingsIds'])
+                    .toMatchValues({
+                        otherRecordings: [],
+                        selectedRecordingsIds: [],
+                    })
+
+                expect(api.recordings.bulkDeleteRecordings).toHaveBeenCalledWith(['abc', 'def'], '-3d')
+            })
+
+            it('deleted recordings are excluded from hiddenRecordings count', async () => {
+                playerSettingsLogic.mount()
+
+                await expectLogic(logic)
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({ otherRecordings: [aRecording, bRecording] })
+
+                // mark abc as viewed so it becomes "hidden" when hideViewedRecordings is on
+                logic.actions.setSelectedRecordingId('abc')
+                await expectLogic(logic).toFinishAllListeners()
+                // deselect so selectedRecordingId exclusion doesn't interfere
+                logic.actions.setSelectedRecordingId(null)
+                playerSettingsLogic.actions.setHideViewedRecordings('current-user')
+
+                // abc is now hidden (viewed but not selected)
+                await expectLogic(logic).toMatchValues({
+                    hiddenRecordings: [expect.objectContaining({ id: 'abc' })],
+                })
+
+                // delete abc — should no longer be in hiddenRecordings
+                deletedRecordingsLogic.actions.addDeletedRecordings(['abc'])
+
+                await expectLogic(logic).toMatchValues({
+                    hiddenRecordings: [],
+                })
+            })
+
+            it('bulk delete only marks successfully deleted recordings', async () => {
+                jest.spyOn(api.recordings, 'bulkDeleteRecordings').mockResolvedValue({
+                    success: true,
+                    deleted_count: 1,
+                    total_requested: 2,
+                    failed_ids: ['def'],
+                })
+
+                await expectLogic(logic)
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({ otherRecordings: [aRecording, bRecording] })
+
+                logic.actions.setSelectedRecordingsIds(['abc', 'def'])
+
+                await expectLogic(logic, () => logic.actions.handleDeleteSelectedRecordings(undefined))
+                    .toDispatchActions(['addDeletedRecordings'])
+                    .toMatchValues({
+                        otherRecordings: [bRecording],
+                    })
+            })
         })
     })
 

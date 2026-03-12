@@ -11,6 +11,7 @@ import { Experiment, FunnelExperimentVariant, InsightType, TrendExperimentVarian
 
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS } from '../../constants'
 import { experimentLogic } from '../../experimentLogic'
+import { isLaunched } from '../../experimentsLogic'
 import { VariantTag } from '../../ExperimentView/components'
 import {
     calculateDelta,
@@ -463,7 +464,7 @@ function DeltaChartContent({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSV
         <div className="relative w-full max-w-screen">
             <ChartEmptyState
                 height={chartHeight}
-                experimentStarted={!!experiment.start_date}
+                experimentStarted={isLaunched(experiment)}
                 metric={metric}
                 error={error}
             />

@@ -107,6 +107,12 @@ def remove_named_tuples(type):
                     i += 1
                 if i < len(tokenified_type):
                     filtered_tokens.append(tokenified_type[i])
+        elif token == "`":
+            # Skip backtick-quoted identifiers (field names like `1`, `deal_id`)
+            i += 1
+            while i < len(tokenified_type) and tokenified_type[i] != "`":
+                i += 1
+            # Skip closing backtick
         elif (
             token == "Nullable" or (len(token) == 1 and not token.isalnum()) or token in CLICKHOUSE_HOGQL_MAPPING.keys()
         ):
@@ -174,10 +180,84 @@ STR_TO_HOGQL_MAPPING = {
     "boolean": BooleanDatabaseField,
     "date": DateDatabaseField,
     "datetime": DateTimeDatabaseField,
+    "timestamp": DateTimeDatabaseField,
     "integer": IntegerDatabaseField,
+    "numeric": DecimalDatabaseField,
+    "decimal": DecimalDatabaseField,
     "float": FloatDatabaseField,
     "string": StringDatabaseField,
+    "text": StringDatabaseField,
+    "array": StringArrayDatabaseField,
+    "json": StringJSONDatabaseField,
+    "unknown": UnknownDatabaseField,
 }
+
+
+POSTGRES_TO_CLICKHOUSE_TYPE = {
+    "smallint": "Int16",
+    "integer": "Int32",
+    "bigint": "Int64",
+    "real": "Float32",
+    "double precision": "Float64",
+    "numeric": "Decimal",
+    "decimal": "Decimal",
+    "boolean": "Bool",
+    "date": "Date",
+    "timestamp without time zone": "DateTime64",
+    "timestamp with time zone": "DateTime64",
+    "character varying": "String",
+    "character": "String",
+    "text": "String",
+    "json": "String",
+    "jsonb": "String",
+    "uuid": "String",
+}
+
+
+CLICKHOUSE_TYPE_TO_HOGQL_LABEL = {
+    "Int16": "integer",
+    "Int32": "integer",
+    "Int64": "integer",
+    "Float32": "float",
+    "Float64": "float",
+    "Bool": "boolean",
+    "Date": "date",
+    "DateTime64": "datetime",
+    "String": "string",
+    "Decimal": "numeric",
+}
+
+
+def postgres_column_to_dwh_column(column_name: str, postgres_type: str, nullable: bool) -> dict[str, str | bool]:
+    normalized_type = postgres_type.lower()
+    clickhouse_type = POSTGRES_TO_CLICKHOUSE_TYPE.get(normalized_type)
+
+    if clickhouse_type is None:
+        if normalized_type.startswith("timestamp"):
+            clickhouse_type = "DateTime64"
+        elif normalized_type.startswith("numeric") or normalized_type.startswith("decimal"):
+            clickhouse_type = "Decimal"
+        elif "int" in normalized_type:
+            clickhouse_type = "Int64"
+        else:
+            clickhouse_type = "String"
+
+    if nullable:
+        clickhouse_type = f"Nullable({clickhouse_type})"
+
+    raw_clickhouse_type = clean_type(clickhouse_type)
+    return {
+        "clickhouse": clickhouse_type,
+        "hogql": CLICKHOUSE_TYPE_TO_HOGQL_LABEL.get(raw_clickhouse_type, "string"),
+        "valid": True,
+    }
+
+
+def postgres_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[str, dict[str, str | bool]]:
+    return {
+        column_name: postgres_column_to_dwh_column(column_name, postgres_type, nullable)
+        for column_name, postgres_type, nullable in columns
+    }
 
 
 def _is_safe_public_ip(host: str) -> bool:

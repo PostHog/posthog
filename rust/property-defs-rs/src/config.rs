@@ -114,6 +114,18 @@ pub struct Config {
     // TODO: rename deploy cfg var to "write_batch_size" and update this after to complete the cutover!
     #[envconfig(default = "100")]
     pub write_batch_size: usize,
+
+    #[envconfig(default = "")]
+    pub personhog_addr: String,
+
+    #[envconfig(default = "5000")]
+    pub personhog_timeout_ms: u64,
+
+    #[envconfig(default = "5000")]
+    pub personhog_connect_timeout_ms: u64,
+
+    #[envconfig(default = "0")]
+    pub personhog_rollout_percentage: u32,
 }
 
 #[derive(Clone)]

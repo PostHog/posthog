@@ -65,7 +65,7 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
         },
     })
 
-    const { workflow, hogFunctionTemplatesById } = useValues(workflowLogic(props))
+    const { workflow, hogFunctionTemplatesById } = useValues(workflowLogic)
 
     const { appMetricsTrendsLoading, appMetricsTrends, getSingleTrendSeries, params } = useValues(logic)
     const { setParams } = useActions(logic)
@@ -324,7 +324,15 @@ function WorkflowBatchMetrics(props: WorkflowLogicProps): JSX.Element {
 }
 
 export function WorkflowMetrics(props: WorkflowLogicProps): JSX.Element {
-    const { workflow } = useValues(workflowLogic(props))
+    const { workflow, workflowLoading } = useValues(workflowLogic(props))
+
+    if (workflowLoading) {
+        return (
+            <div className="flex justify-center">
+                <Spinner size="medium" />
+            </div>
+        )
+    }
 
     return workflow?.trigger?.type === 'batch' ? <WorkflowBatchMetrics {...props} /> : <WorkflowRunMetrics {...props} />
 }
