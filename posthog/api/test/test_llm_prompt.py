@@ -652,39 +652,26 @@ class TestLLMPromptAPI(APIBaseTest):
         assert data["additions"] == 0
         assert data["deletions"] == 0
 
-    def test_compare_rejects_same_version_numbers(self, mock_feature_enabled):
-        self.create_prompt_version(name="test-prompt", version=1, is_latest=True)
+    @parameterized.expand(
+        [
+            ("same_versions", "test-prompt", 1, "version_from=1&version_to=1", status.HTTP_400_BAD_REQUEST),
+            ("nonexistent_prompt", None, None, "version_from=1&version_to=2", status.HTTP_404_NOT_FOUND),
+            ("nonexistent_version", "test-prompt", 1, "version_from=1&version_to=99", status.HTTP_404_NOT_FOUND),
+            ("missing_version_to", "test-prompt", 1, "version_from=1", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_compare_error_cases(
+        self, mock_feature_enabled, _name, seed_name, seed_version, query_string, expected_status
+    ):
+        if seed_name is not None and seed_version is not None:
+            self.create_prompt_version(name=seed_name, version=seed_version, is_latest=True)
+        prompt_name = seed_name or "nonexistent"
 
         response = self.client.get(
-            f"/api/environments/{self.team.id}/llm_prompts/compare/name/test-prompt/?version_from=1&version_to=1"
+            f"/api/environments/{self.team.id}/llm_prompts/compare/name/{prompt_name}/?{query_string}"
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-    def test_compare_returns_404_for_nonexistent_prompt(self, mock_feature_enabled):
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/llm_prompts/compare/name/nonexistent/?version_from=1&version_to=2"
-        )
-
-        assert response.status_code == status.HTTP_404_NOT_FOUND
-
-    def test_compare_returns_404_for_nonexistent_version(self, mock_feature_enabled):
-        self.create_prompt_version(name="test-prompt", version=1, is_latest=True)
-
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/llm_prompts/compare/name/test-prompt/?version_from=1&version_to=99"
-        )
-
-        assert response.status_code == status.HTTP_404_NOT_FOUND
-
-    def test_compare_requires_both_version_params(self, mock_feature_enabled):
-        self.create_prompt_version(name="test-prompt", version=1, is_latest=True)
-
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/llm_prompts/compare/name/test-prompt/?version_from=1"
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == expected_status
 
     def test_compare_supports_reverse_version_order(self, mock_feature_enabled):
         self.create_prompt_version(name="diff-prompt", version=1, is_latest=False, prompt="Version one")

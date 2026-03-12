@@ -174,8 +174,8 @@ def compare_prompt_versions(
 
     diff_lines = list(
         difflib.unified_diff(
-            text_from.splitlines(keepends=True),
-            text_to.splitlines(keepends=True),
+            text_from.splitlines(),
+            text_to.splitlines(),
             fromfile=f"v{version_from}",
             tofile=f"v{version_to}",
             lineterm="",
@@ -183,8 +183,11 @@ def compare_prompt_versions(
     )
     diff_text = "\n".join(diff_lines)
 
-    additions = sum(1 for line in diff_lines if line.startswith("+") and not line.startswith("+++"))
-    deletions = sum(1 for line in diff_lines if line.startswith("-") and not line.startswith("---"))
+    # Skip the two header lines (--- fromfile / +++ tofile) so we don't
+    # mis-count content that happens to start with those prefixes.
+    change_lines = diff_lines[2:] if len(diff_lines) >= 2 else []
+    additions = sum(1 for line in change_lines if line.startswith("+"))
+    deletions = sum(1 for line in change_lines if line.startswith("-"))
 
     return PromptCompareResult(
         version_from=prompt_from,

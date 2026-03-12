@@ -350,6 +350,10 @@ class LLMPromptViewSet(
     @llma_track_latency("llma_prompts_compare")
     @monitor(feature=None, endpoint="llma_prompts_compare", method="GET")
     def compare(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+
         query_serializer = LLMPromptCompareQuerySerializer(data=request.query_params)
         query_serializer.is_valid(raise_exception=True)
         params = query_serializer.validated_data
