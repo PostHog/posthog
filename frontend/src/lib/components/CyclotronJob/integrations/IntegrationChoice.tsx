@@ -1,17 +1,19 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconExternal, IconX } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { urls } from 'scenes/urls'
 
 import { CyclotronJobInputSchemaType } from '~/types'
 
 import { getAllRegisteredIntegrationSetups, getIntegrationSetup } from './integrationSetupRegistry'
+
 // Side-effect import: register all integration setups
 import './integrationSetups'
 
@@ -38,6 +40,12 @@ export function IntegrationChoice({
 
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
     const integrationKind = integrationsOfKind?.find((integration) => integration.id === value)
+
+    useEffect(() => {
+        if (!integrationsLoading && !value && integrationsOfKind?.length) {
+            onChange?.(integrationsOfKind[0].id)
+        }
+    }, [integrationsLoading, onChange, integrationsOfKind?.length, value, integrationsOfKind])
 
     if (!kind) {
         return null

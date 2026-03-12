@@ -1,3 +1,4 @@
+import socket
 from collections.abc import Callable, Generator
 from contextlib import _GeneratorContextManager, contextmanager
 from typing import Any
@@ -7,6 +8,49 @@ from posthog.models.integration import Integration
 from posthog.utils import get_instance_region
 
 from products.data_warehouse.backend.models.ssh_tunnel import SSHTunnel
+from products.data_warehouse.backend.models.util import _is_safe_public_ip
+
+
+def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
+    """Validate that a host is not an internal/private IP address.
+
+    Only enforced on cloud deployments — self-hosted instances are allowed
+    to connect to any host.
+
+    Resolves hostnames via DNS and checks all resolved IPs against
+    _is_safe_public_ip to block private, loopback, link-local, multicast,
+    reserved, and IPv6-mapped internal addresses.
+
+    team whitelist: team_id 2 in US, team_id 1 in EU are allowed
+    to use internal IPs.
+    """
+    if not is_cloud():
+        return True, None
+
+    region = get_instance_region()
+    if (region == "US" and team_id == 2) or (region == "EU" and team_id == 1):
+        return True, None
+
+    normalized = host.lower().strip().rstrip(".")
+    if normalized in {"localhost"}:
+        return False, "Hosts with internal IP addresses are not allowed"
+
+    try:
+        if not _is_safe_public_ip(host):
+            return False, "Hosts with internal IP addresses are not allowed"
+    except ValueError:
+        pass
+
+    try:
+        addrinfo = socket.getaddrinfo(normalized, None, proto=socket.IPPROTO_TCP)
+        for _family, _type, _proto, _canonname, sockaddr in addrinfo:
+            resolved_ip = sockaddr[0]
+            if not _is_safe_public_ip(str(resolved_ip)):
+                return False, "Hosts with internal IP addresses are not allowed"
+    except socket.gaierror:
+        return False, "Host could not be resolved"
+
+    return True, None
 
 
 class SSHTunnelMixin:
@@ -44,8 +88,13 @@ class SSHTunnelMixin:
 
         return without_ssh_func
 
-    def ssh_tunnel_is_valid(self, config) -> tuple[bool, str | None]:
+    def ssh_tunnel_is_valid(self, config, team_id: int) -> tuple[bool, str | None]:
         if hasattr(config, "ssh_tunnel") and config.ssh_tunnel and config.ssh_tunnel.enabled:
+            if config.ssh_tunnel.host:
+                is_host_valid, host_errors = _is_host_safe(config.ssh_tunnel.host, team_id)
+                if not is_host_valid:
+                    return False, f"SSH tunnel host not allowed: {host_errors}"
+
             ssh_tunnel = SSHTunnel.from_config(config.ssh_tunnel)
             is_auth_valid, auth_errors = ssh_tunnel.is_auth_valid()
             if not is_auth_valid:
@@ -75,16 +124,10 @@ class OAuthMixin:
 class ValidateDatabaseHostMixin:
     """Mixin for database-based sources to validate connection host"""
 
-    def is_database_host_valid(self, host: str, team_id: int, using_ssh_tunnel: bool) -> tuple[bool, str | None]:
+    def is_database_host_valid(
+        self, host: str, team_id: int, using_ssh_tunnel: bool = False
+    ) -> tuple[bool, str | None]:
         if using_ssh_tunnel:
             return True, None
 
-        if host.startswith("172.") or host.startswith("10.") or host.startswith("localhost"):
-            if is_cloud():
-                region = get_instance_region()
-                if (region == "US" and team_id == 2) or (region == "EU" and team_id == 1):
-                    return True, None
-                else:
-                    return False, "Hosts with internal IP addresses are not allowed"
-
-        return True, None
+        return _is_host_safe(host, team_id)

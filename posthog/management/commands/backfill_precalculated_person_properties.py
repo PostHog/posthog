@@ -152,7 +152,6 @@ class Command(BaseCommand):
         # Map: condition_hash -> (bytecode, [cohort_ids])
         condition_map: dict[str, tuple[list, list[int]]] = {}
         cohort_ids = []
-
         for cohort in cohorts:
             if cohort.cohort_type != CohortType.REALTIME:
                 self.stdout.write(

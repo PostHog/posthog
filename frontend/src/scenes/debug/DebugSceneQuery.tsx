@@ -5,9 +5,9 @@ import { HogQLDebug } from 'scenes/debug/HogQLDebug'
 import { Modifiers } from 'scenes/debug/Modifiers'
 import { QueryTabs } from 'scenes/debug/QueryTabs'
 
-import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import { Node } from '~/queries/schema/schema-general'
 import { isDataTableNode, isHogQLQuery, isHogQuery, isInsightVizNode } from '~/queries/utils'
 

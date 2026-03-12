@@ -66,6 +66,7 @@ rules:
                               |BatchImport
                               |ChangeRequest
                               |ClusteringConfig
+                              |ClusteringJob
                               |Cohort
                               |Comment
                               |Conversation
@@ -89,12 +90,12 @@ rules:
                               |DataWarehouseTable
                               |DesktopRecording
                               |EarlyAccessFeature
+                              |EvaluationContext
                               |Edge
                               |Endpoint
                               |EnterpriseEventDefinition
                               |EnterprisePropertyDefinition
                               |ErrorTrackingAssignmentRule
-                              |ErrorTrackingAutoCaptureControls
                               |ErrorTrackingGroupingRule
                               |ErrorTrackingIssue
                               |ErrorTrackingIssueFingerprintV2
@@ -113,6 +114,7 @@ rules:
                               |ExternalDataSchema
                               |ExternalDataSource
                               |FeatureFlag
+                              |TeamFeatureFlagDefaultsConfig
                               |FileSystem
                               |HealthIssue
                               |HogFlow
@@ -125,6 +127,7 @@ rules:
                               |Integration
                               |Link
                               |LiveDebuggerBreakpoint
+                              |LogsAlertConfiguration
                               |LLMModelConfiguration
                               |LLMPrompt
                               |LLMProviderKey
@@ -142,7 +145,10 @@ rules:
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
+                              |Repo
+                              |RepoRoutingRule
                               |SandboxEnvironment
+                              |ScoreDefinition
                               |SavedHeatmap
                               |ScheduledChange
                               |SessionGroupSummary
@@ -151,7 +157,9 @@ rules:
                               |SharingConfiguration
                               |SignalReport
                               |SignalReportArtefact
+                              |SignalSourceConfig
                               |SingleSessionSummary
+                              |SlackThreadTaskMapping
                               |Subscription
                               |Survey
                               |SurveyResponseArchive
@@ -163,6 +171,7 @@ rules:
                               |Ticket
                               |UploadedMedia
                               |UserInterview
+                              |UserRepoPreference
                               |WebAnalyticsFilterPreset
                           )$
                 - focus-metavariable: $SINK
@@ -227,6 +236,7 @@ rules:
                         |BatchImport
                         |ChangeRequest
                         |ClusteringConfig
+                        |ClusteringJob
                         |Cohort
                         |Comment
                         |Conversation
@@ -250,12 +260,12 @@ rules:
                         |DataWarehouseTable
                         |DesktopRecording
                         |EarlyAccessFeature
+                        |EvaluationContext
                         |Edge
                         |Endpoint
                         |EnterpriseEventDefinition
                         |EnterprisePropertyDefinition
                         |ErrorTrackingAssignmentRule
-                        |ErrorTrackingAutoCaptureControls
                         |ErrorTrackingGroupingRule
                         |ErrorTrackingIssue
                         |ErrorTrackingIssueFingerprintV2
@@ -274,6 +284,7 @@ rules:
                         |ExternalDataSchema
                         |ExternalDataSource
                         |FeatureFlag
+                        |TeamFeatureFlagDefaultsConfig
                         |FileSystem
                         |HealthIssue
                         |HogFlow
@@ -303,7 +314,10 @@ rules:
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext
+                        |Repo
+                        |RepoRoutingRule
                         |SandboxEnvironment
+                        |ScoreDefinition
                         |SavedHeatmap
                         |ScheduledChange
                         |SessionGroupSummary
@@ -312,7 +326,9 @@ rules:
                         |SharingConfiguration
                         |SignalReport
                         |SignalReportArtefact
+                        |SignalSourceConfig
                         |SingleSessionSummary
+                        |SlackThreadTaskMapping
                         |Subscription
                         |Survey
                         |SurveyResponseArchive
@@ -324,6 +340,7 @@ rules:
                         |Ticket
                         |UploadedMedia
                         |UserInterview
+                        |UserRepoPreference
                         |WebAnalyticsFilterPreset
                     )$
           # Exclude when team filter is present
@@ -566,6 +583,7 @@ rules:
                           (?x)(
                               DashboardPrivilege
                               |PersonalAPIKey
+                              |ScoreDefinitionVersion
                               |WebauthnCredential
                           )$
                 - focus-metavariable: $SINK
@@ -615,6 +633,7 @@ rules:
                     (?x)(
                         DashboardPrivilege
                         |PersonalAPIKey
+                        |ScoreDefinitionVersion
                         |WebauthnCredential
                     )$
           - pattern-not: $M.objects. ... .$METHOD2(..., user=$U, ...)
@@ -699,6 +718,7 @@ rules:
                               |FileSystemViewLog
                               |InsightViewed
                               |KernelRuntime
+                              |MCPServerInstallation
                               |PersistedFolder
                               |SessionRecordingViewed
                               |UserHomeSettings

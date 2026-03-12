@@ -1,5 +1,6 @@
 import uuid
 import logging
+import itertools
 from typing import Any, cast
 
 from django.conf import settings
@@ -8,11 +9,10 @@ from django.http import HttpResponse, JsonResponse
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from loginas.utils import is_impersonated_session
 from nanoid import generate
-from pydantic import BaseModel, Field
-from rest_framework import filters, serializers, status, viewsets
+from rest_framework import exceptions, filters, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -21,7 +21,7 @@ from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSe
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_token
-from posthog.auth import TemporaryTokenAuthentication
+from posthog.cloud_utils import is_cloud
 from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX
 from posthog.event_usage import report_user_action
 from posthog.exceptions import generate_exception_response
@@ -32,15 +32,17 @@ from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.utils_cors import cors_response
 
-from products.product_tours.backend.constants import ProductTourEventName
+from products.product_tours.backend.constants import ProductTourEventName, ProductTourPersonProperties
+from products.product_tours.backend.generate_tour_content import ContentGenerationResult, generate_with_gemini
 from products.product_tours.backend.models import ProductTour
-from products.product_tours.backend.prompts import TOUR_GENERATION_SYSTEM_PROMPT, TOUR_GENERATION_USER_PROMPT
-
-from ee.hogai.llm import MaxChatAnthropic
 
 logger = logging.getLogger(__name__)
 
 TOUR_GENERATION_MODEL = "claude-haiku-4-5"
+
+DRAFTABLE_FIELDS = frozenset(
+    {"name", "description", "content", "auto_launch", "targeting_flag_filters", "linked_flag_id"}
+)
 
 
 def normalize_step(step: dict) -> dict:
@@ -86,36 +88,6 @@ def _validate_step_targeting(step: dict, idx: int):
         raise serializers.ValidationError(f"Step {idx + 1} requires an element to be selected")
 
 
-class TourStepContent(BaseModel):
-    """A single step in the generated tour."""
-
-    selector: str = Field(description="The CSS selector for this step's target element")
-    title: str = Field(description="Short, catchy title for this step (2-5 words)")
-    description: str = Field(description="Helpful description explaining what to do and why (1-2 sentences)")
-
-
-class TourGenerationResponse(BaseModel):
-    """Structured response from the tour generation LLM."""
-
-    name: str = Field(description="A short, descriptive name for this tour (3-6 words)")
-    steps: list[TourStepContent] = Field(description="List of tour steps with content for each element")
-
-
-class SuggestedElement(BaseModel):
-    """An element suggested for highlighting in the tour."""
-
-    selector: str = Field(description="The CSS selector for this element")
-    reason: str = Field(description="Why this element is important for the tour (1 sentence)")
-
-
-class TourSuggestionResponse(BaseModel):
-    """Structured response from the tour suggestion LLM."""
-
-    name: str = Field(description="Suggested tour name (3-6 words)")
-    goal: str = Field(description="What users will learn from this tour (1 sentence)")
-    elements: list[SuggestedElement] = Field(description="3-5 elements to highlight, in order")
-
-
 class ProductTourSerializer(serializers.ModelSerializer):
     """Read-only serializer for ProductTour."""
 
@@ -123,6 +95,8 @@ class ProductTourSerializer(serializers.ModelSerializer):
     linked_flag = MinimalFeatureFlagSerializer(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
     targeting_flag_filters = serializers.SerializerMethodField()
+    draft_content = serializers.JSONField(read_only=True, allow_null=True)
+    has_draft = serializers.SerializerMethodField()
 
     class Meta:
         model = ProductTour
@@ -134,6 +108,8 @@ class ProductTourSerializer(serializers.ModelSerializer):
             "linked_flag",
             "targeting_flag_filters",
             "content",
+            "draft_content",
+            "has_draft",
             "auto_launch",
             "start_date",
             "end_date",
@@ -151,6 +127,9 @@ class ProductTourSerializer(serializers.ModelSerializer):
             content["steps"] = [normalize_step(s) for s in content["steps"]]
             data["content"] = content
         return data
+
+    def get_has_draft(self, tour: ProductTour) -> bool:
+        return tour.draft_content is not None
 
     def get_targeting_flag_filters(self, tour: ProductTour) -> dict | None:
         """Return the targeting flag filters, excluding the base exclusion properties."""
@@ -317,10 +296,11 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         )
 
         report_user_action(
-            cast(User, request.user),
+            request.user,
             ProductTourEventName.CREATED,
             {**instance.get_analytics_metadata(), "creation_context": creation_context},
-            team,
+            team=team,
+            request=request,
         )
 
         return instance
@@ -349,17 +329,22 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         auto_launch_changed = "auto_launch" in validated_data and validated_data["auto_launch"] != instance.auto_launch
         auto_launch_enabled = validated_data.get("auto_launch", instance.auto_launch)
 
-        # Track displayFrequency before update for flag refresh
+        # Track displayFrequency and wait period before update for flag refresh
         old_display_frequency = instance.content.get("displayFrequency") if instance.content else None
+        old_conditions = (instance.content.get("conditions") or {}) if instance.content else {}
+        old_wait_period = old_conditions.get("seenTourWaitPeriod") if isinstance(old_conditions, dict) else None
 
         # Store previous content for survey step cleanup
         previous_content = instance.content.copy() if instance.content else None
 
         instance = super().update(instance, validated_data)
 
-        # Detect displayFrequency change
+        # Detect displayFrequency and wait period changes
         new_display_frequency = instance.content.get("displayFrequency") if instance.content else None
         display_frequency_changed = old_display_frequency != new_display_frequency
+        new_conditions = (instance.content.get("conditions") or {}) if instance.content else {}
+        new_wait_period = new_conditions.get("seenTourWaitPeriod") if isinstance(new_conditions, dict) else None
+        wait_period_changed = old_wait_period != new_wait_period
 
         # Handle auto_launch changes
         if auto_launch_changed:
@@ -382,8 +367,8 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         # Update targeting flag filters if explicitly provided (including null to reset)
         if targeting_flag_filters is not _NOT_PROVIDED and instance.internal_targeting_flag:
             self._update_targeting_flag_filters(instance, targeting_flag_filters)
-        elif display_frequency_changed and instance.internal_targeting_flag:
-            # displayFrequency changed but targeting_flag_filters wasn't provided - refresh base properties
+        elif (display_frequency_changed or wait_period_changed) and instance.internal_targeting_flag:
+            # displayFrequency or wait period changed but targeting_flag_filters wasn't provided
             self._refresh_targeting_flag_base_properties(instance)
 
         # Sync linked surveys for any survey steps (create/update/end as needed)
@@ -408,12 +393,16 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
             "creation_context": creation_context,
         }
 
-        report_user_action(user, ProductTourEventName.UPDATED, analytics_metadata, team)
+        report_user_action(user, ProductTourEventName.UPDATED, analytics_metadata, team=team, request=request)
 
         if before_start_date is None and instance.start_date is not None:
-            report_user_action(user, ProductTourEventName.LAUNCHED, analytics_metadata, team)
+            report_user_action(user, ProductTourEventName.LAUNCHED, analytics_metadata, team=team, request=request)
         elif before_end_date is None and instance.end_date is not None:
-            report_user_action(user, ProductTourEventName.STOPPED, analytics_metadata, team)
+            report_user_action(user, ProductTourEventName.STOPPED, analytics_metadata, team=team, request=request)
+
+        if instance.draft_content is not None:
+            instance.draft_content = None
+            instance.save(update_fields=["draft_content"])
 
         return instance
 
@@ -453,21 +442,64 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
             },
         ]
 
+    def _get_wait_period(self, instance: ProductTour) -> dict | None:
+        """Extract a valid seenTourWaitPeriod from content.conditions, or None."""
+        if not instance.content or not isinstance(instance.content, dict):
+            return None
+        conditions = instance.content.get("conditions")
+        if not conditions or not isinstance(conditions, dict):
+            return None
+        wait_period = conditions.get("seenTourWaitPeriod")
+        if not wait_period or not isinstance(wait_period, dict):
+            return None
+        days = wait_period.get("days")
+        types = wait_period.get("types")
+        if not days or not isinstance(days, (int, float)) or days < 1:
+            return None
+        if not types or not isinstance(types, list) or len(types) == 0:
+            return None
+        return {"days": int(days), "types": types}
+
+    def _build_flag_groups(self, instance: ProductTour, user_property_groups: list[list] | None = None) -> list[dict]:
+        """Build complete flag groups combining base exclusion, wait period, and user targeting properties.
+
+        Feature flag groups are OR'd, properties within a group are AND'd.
+        For the wait period we need each type's property to be (not_set OR before_date),
+        AND'd across types — so we enumerate all combinations as separate groups.
+        """
+        base_properties = self._get_base_exclusion_properties(instance)
+        wait_period = self._get_wait_period(instance)
+
+        if not wait_period:
+            combined_base_list = [base_properties]
+        else:
+            days = wait_period["days"]
+            per_type_options: list[list[dict]] = []
+            for type_name in wait_period["types"]:
+                prop_key = f"{ProductTourPersonProperties.TOUR_LAST_SEEN_DATE}/{type_name}"
+                per_type_options.append(
+                    [
+                        {"key": prop_key, "value": "is_not_set", "operator": "is_not_set", "type": "person"},
+                        {"key": prop_key, "value": f"{days}d", "operator": "is_date_before", "type": "person"},
+                    ]
+                )
+            combined_base_list = [base_properties + list(combo) for combo in itertools.product(*per_type_options)]
+
+        if not user_property_groups:
+            return [{"variant": "", "rollout_percentage": 100, "properties": props} for props in combined_base_list]
+
+        return [
+            {"variant": "", "rollout_percentage": 100, "properties": base_and_wait + user_props}
+            for user_props in user_property_groups
+            for base_and_wait in combined_base_list
+        ]
+
     def _create_internal_targeting_flag(self, instance: ProductTour) -> None:
         """Create the internal targeting flag for a product tour."""
         random_id = generate("0123456789abcdef", 8)
         flag_key = f"{PRODUCT_TOUR_TARGETING_FLAG_PREFIX}{slugify(instance.name)}-{random_id}"
 
-        base_properties = self._get_base_exclusion_properties(instance)
-        filters = {
-            "groups": [
-                {
-                    "variant": "",
-                    "rollout_percentage": 100,
-                    "properties": base_properties,
-                }
-            ]
-        }
+        filters = {"groups": self._build_flag_groups(instance)}
 
         flag_data = {
             "key": flag_key,
@@ -502,77 +534,60 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
     def _update_targeting_flag_filters(self, instance: ProductTour, new_filters: dict | None) -> None:
         """Update the internal targeting flag's filters with additional user targeting conditions.
 
-        If new_filters is None, resets to base filters only (no additional user targeting).
+        If new_filters is None, resets to base + wait period filters only (no additional user targeting).
         """
         flag = instance.internal_targeting_flag
         if not flag:
             return
 
-        # Get base exclusion properties based on display frequency
-        base_properties = self._get_base_exclusion_properties(instance)
-
-        # If new_filters is None, reset to base filters only
         if new_filters is None:
-            flag.filters = {
-                "groups": [
-                    {
-                        "variant": "",
-                        "rollout_percentage": 100,
-                        "properties": base_properties,
-                    }
-                ]
-            }
+            flag.filters = {"groups": self._build_flag_groups(instance)}
             flag.save(update_fields=["filters"])
             return
 
-        # Merge new filters with base properties
         new_groups = new_filters.get("groups", [])
-        merged_groups = []
+        user_property_groups = [group.get("properties", []) for group in new_groups]
 
-        for group in new_groups:
-            existing_properties = group.get("properties", [])
-            # Add base properties to each group
-            merged_group = {
-                **group,
-                "properties": base_properties + existing_properties,
-            }
-            merged_groups.append(merged_group)
-
-        # If no groups provided, use a default group with just the base properties
-        if not merged_groups:
-            merged_groups = [
-                {
-                    "variant": "",
-                    "rollout_percentage": 100,
-                    "properties": base_properties,
-                }
-            ]
-
-        # Update the flag's filters
-        flag.filters = {"groups": merged_groups}
+        if not user_property_groups or all(not p for p in user_property_groups):
+            flag.filters = {"groups": self._build_flag_groups(instance)}
+        else:
+            flag.filters = {"groups": self._build_flag_groups(instance, user_property_groups)}
         flag.save(update_fields=["filters"])
 
+    def _is_system_managed_property(self, instance: ProductTour, prop: dict) -> bool:
+        """Check whether a flag property is system-managed (base exclusion or wait period)."""
+        key = prop.get("key", "")
+        tour_key = str(instance.id)
+        return key in {
+            f"$product_tour_shown/{tour_key}",
+            f"$product_tour_completed/{tour_key}",
+            f"$product_tour_dismissed/{tour_key}",
+        } or key.startswith(f"{ProductTourPersonProperties.TOUR_LAST_SEEN_DATE}/")
+
     def _refresh_targeting_flag_base_properties(self, instance: ProductTour) -> None:
-        """Refresh base exclusion properties on targeting flag, preserving user targeting filters."""
+        """Rebuild the targeting flag, preserving only user-defined targeting properties."""
         flag = instance.internal_targeting_flag
         if not flag:
             return
 
-        tour_key = str(instance.id)
-        base_exclusion_keys = {
-            f"$product_tour_shown/{tour_key}",
-            f"$product_tour_completed/{tour_key}",
-            f"$product_tour_dismissed/{tour_key}",
-        }
+        # Extract user properties by stripping system-managed ones, then deduplicate
+        # (wait period expansion creates N groups with identical user props)
+        seen: set[frozenset] = set()
+        user_groups: list[list] = []
+        for g in flag.filters.get("groups", []):
+            props = [p for p in g.get("properties", []) if not self._is_system_managed_property(instance, p)]
+            sig = frozenset(
+                (p.get("key", ""), p.get("value", ""), p.get("operator", ""), p.get("type", "")) for p in props
+            )
+            if sig not in seen:
+                seen.add(sig)
+                user_groups.append(props)
 
-        current_groups = flag.filters.get("groups", [])
-        user_groups = [
-            {**g, "properties": [p for p in g.get("properties", []) if p.get("key") not in base_exclusion_keys]}
-            for g in current_groups
-        ]
-
-        has_user_properties = any(g.get("properties") for g in user_groups)
-        self._update_targeting_flag_filters(instance, {"groups": user_groups} if has_user_properties else None)
+        has_user_properties = any(user_groups)
+        self._update_targeting_flag_filters(
+            instance,
+            {"groups": [{"properties": props} for props in user_groups]} if has_user_properties else None,
+        )
 
     def _sync_survey_steps(self, instance: ProductTour, previous_content: dict | None = None) -> bool:
         """Create or update linked surveys for any survey steps in the tour.
@@ -701,12 +716,43 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         return content_changed
 
 
+class DraftStatusResponseSerializer(serializers.Serializer):
+    updated_at = serializers.DateTimeField()
+    has_draft = serializers.BooleanField()
+
+
+class GenerateRequestSerializer(serializers.Serializer):
+    title = serializers.CharField(required=False, default="", allow_blank=True)
+    goal = serializers.CharField(required=False, default="", allow_blank=True)
+    steps = serializers.ListField(child=serializers.DictField(), required=False, default=list)
+
+
+class GenerateStepResponseSerializer(serializers.Serializer):
+    step_id = serializers.CharField()
+    title = serializers.CharField()
+    description = serializers.CharField()
+
+
+class GenerateResponseSerializer(serializers.Serializer):
+    steps = GenerateStepResponseSerializer(many=True)
+
+
 class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "product_tour"
+    scope_object_read_actions = ["list", "retrieve", "draft_status"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "destroy",
+        "draft",
+        "publish_draft",
+        "discard_draft",
+        "generate",
+    ]
     queryset = ProductTour.all_objects.select_related("internal_targeting_flag", "linked_flag", "created_by").all()
     filter_backends = [filters.SearchFilter]
     search_fields = ["name", "description"]
-    authentication_classes = [TemporaryTokenAuthentication]
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.request.method in ("POST", "PATCH"):
@@ -755,10 +801,11 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
         )
 
         report_user_action(
-            cast(User, self.request.user),
+            self.request.user,
             ProductTourEventName.DELETED,
             analytics_metadata,
-            self.team,
+            team=self.team,
+            request=self.request,
         )
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -766,102 +813,173 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
         self.perform_destroy(instance)
         return Response(status=204)
 
-    @action(detail=False, methods=["POST"])
+    @extend_schema(
+        request=GenerateRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=GenerateResponseSerializer),
+        },
+    )
+    @action(detail=True, methods=["POST"])
     def generate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Generate tour step content using AI."""
-        screenshot = request.data.get("screenshot")
-        elements = request.data.get("elements", [])
+
+        environment_is_allowed = settings.DEBUG or is_cloud()
+        has_gemini_api_key = bool(settings.GEMINI_API_KEY)
+        if not environment_is_allowed or not has_gemini_api_key:
+            raise exceptions.ValidationError("Product Tour AI generation is only supported in PostHog Cloud.")
+
+        if not self.team.organization.is_ai_data_processing_approved:
+            return Response(
+                {"error": "AI data processing must be approved for Product Tour AI generation."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        tour_id = kwargs["pk"]
+        tour = ProductTour.objects.filter(id=tour_id, team__project_id=self.project_id).first()
+        if not tour:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        user = cast(User, self.request.user)
+
+        title = request.data.get("title", "")
+        existing_steps = request.data.get("steps", [])
         goal = request.data.get("goal", "")
 
-        if not elements:
-            return Response(
-                {"error": "No elements provided"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Goal is optional - AI will infer from context if not provided
-
-        if not getattr(settings, "ANTHROPIC_API_KEY", None):
-            return Response(
-                {"error": "ANTHROPIC_API_KEY not configured"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-        # Format elements for the prompt
-        elements_text = "\n".join(
-            f"{i + 1}. Selector: `{el.get('selector', 'unknown')}`\n"
-            f"   Tag: {el.get('tag', 'unknown')}\n"
-            f"   Text: {el.get('text', '')[:100] if el.get('text') else 'N/A'}\n"
-            f"   Attributes: {el.get('attributes', {})}"
-            for i, el in enumerate(elements)
-        )
-
-        user_prompt = TOUR_GENERATION_USER_PROMPT.format(
-            goal=goal,
-            elements=elements_text,
-            element_count=len(elements),
-        )
-
         try:
-            llm = MaxChatAnthropic(
-                model=TOUR_GENERATION_MODEL,
-                user=cast(User, request.user),
-                team=self.team,
-                inject_context=False,
-                billable=False,
-                # TODO: add the API manually here in case it doesn't work
-                # api_key="add-api-key-here",
+            result: ContentGenerationResult = generate_with_gemini(
+                tour_id, title, goal, existing_steps, self.team_id, distinct_id=str(user.distinct_id)
             )
 
-            # Use structured output for reliable JSON parsing
-            structured_llm = llm.with_structured_output(TourGenerationResponse)
+            report_user_action(
+                self.request.user,
+                ProductTourEventName.AI_CONTENT_GENERATED,
+                tour.get_analytics_metadata(),
+                team=self.team,
+                request=request,
+            )
 
-            # Build message content
-            message_content: list[str | dict[str, Any]] = [{"type": "text", "text": user_prompt}]
-
-            if screenshot:
-                message_content.insert(
-                    0,
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{screenshot}"},
-                    },
-                )
-
-            messages = [
-                SystemMessage(content=TOUR_GENERATION_SYSTEM_PROMPT),
-                HumanMessage(content=message_content),
-            ]
-
-            result = cast(TourGenerationResponse, structured_llm.invoke(messages))
-
-            # Convert to TipTap format
-            steps = []
-            for step in result.steps:
-                tiptap_content = {
-                    "type": "doc",
-                    "content": [
-                        {
-                            "type": "heading",
-                            "attrs": {"level": 1},
-                            "content": [{"type": "text", "text": step.title}],
-                        },
-                        {
-                            "type": "paragraph",
-                            "content": [{"type": "text", "text": step.description}],
-                        },
-                    ],
+            id_map = result.index_to_step_id
+            return Response(
+                {
+                    "steps": [
+                        {**step.model_dump(), "step_id": id_map[step.step_id]}
+                        for step in result.tour_content.steps
+                        if step.step_id in id_map
+                    ]
                 }
-                steps.append({"selector": step.selector, "content": tiptap_content})
+            )
 
-            return Response({"name": result.name, "steps": steps})
-
+        except exceptions.ValidationError:
+            raise
         except Exception:
             logger.exception("Error generating tour content")
             return Response(
                 {"error": "An internal error occurred while generating tour content."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+    def _get_or_init_draft(self, instance: ProductTour) -> dict[str, Any]:
+        """Return existing draft or initialize one from live fields."""
+        if instance.draft_content is not None:
+            return dict(instance.draft_content)
+        return {
+            "name": instance.name,
+            "description": instance.description,
+            "content": instance.content,
+            "auto_launch": instance.auto_launch,
+            "targeting_flag_filters": ProductTourSerializer(instance, context=self.get_serializer_context()).data.get(
+                "targeting_flag_filters"
+            ),
+            "linked_flag_id": instance.linked_flag_id,
+        }
+
+    def _merge_into_draft(self, instance: ProductTour, incoming: dict[str, Any]) -> None:
+        """Merge incoming data into draft_content and save. Filters to DRAFTABLE_FIELDS."""
+        filtered = {k: v for k, v in incoming.items() if k in DRAFTABLE_FIELDS}
+        if not filtered:
+            return
+        draft = self._get_or_init_draft(instance)
+        draft.update(filtered)
+        instance.draft_content = draft
+        instance.save(update_fields=["draft_content", "updated_at"])
+
+    @extend_schema(
+        request=ProductTourSerializerCreateUpdateOnly,
+        responses={200: ProductTourSerializer},
+    )
+    @action(detail=True, methods=["PATCH"], url_path="draft")
+    def draft(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Save draft content (server-side merge). No side effects triggered."""
+        instance = self.get_object()
+
+        self._merge_into_draft(instance, request.data)
+
+        return Response(
+            ProductTourSerializer(instance, context=self.get_serializer_context()).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(
+        request=ProductTourSerializerCreateUpdateOnly,
+        responses={200: ProductTourSerializer},
+    )
+    @action(detail=True, methods=["POST"], url_path="publish_draft")
+    def publish_draft(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Commit draft to live tour. Runs full validation and triggers side effects.
+
+        Accepts an optional body payload. If provided, merges it into the draft
+        before publishing so the caller can save + publish in a single request.
+        """
+        instance = self.get_object()
+
+        # Merge optional payload into draft before publishing
+        self._merge_into_draft(instance, request.data)
+
+        if instance.draft_content is None:
+            return Response(
+                {"detail": "No draft to publish."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        update_serializer = ProductTourSerializerCreateUpdateOnly(
+            instance,
+            data=instance.draft_content,
+            partial=True,
+            context=self.get_serializer_context(),
+        )
+        update_serializer.is_valid(raise_exception=True)
+        instance = update_serializer.save()
+
+        return Response(
+            ProductTourSerializer(instance, context=self.get_serializer_context()).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(responses={200: ProductTourSerializer})
+    @action(detail=True, methods=["DELETE"], url_path="discard_draft")
+    def discard_draft(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Discard draft content."""
+        instance = self.get_object()
+
+        instance.draft_content = None
+        instance.save(update_fields=["draft_content", "updated_at"])
+
+        return Response(
+            ProductTourSerializer(instance, context=self.get_serializer_context()).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(responses={200: DraftStatusResponseSerializer})
+    @action(detail=True, methods=["GET"], url_path="draft_status")
+    def draft_status(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Lightweight polling endpoint for draft change detection."""
+        instance = self.get_object()
+        return Response(
+            {
+                "updated_at": instance.updated_at.isoformat(),
+                "has_draft": instance.draft_content is not None,
+            }
+        )
 
 
 class ProductTourAPISerializer(serializers.ModelSerializer):
@@ -870,6 +988,7 @@ class ProductTourAPISerializer(serializers.ModelSerializer):
     Only exposes fields needed by the SDK, no sensitive data.
     """
 
+    tour_type = serializers.SerializerMethodField()
     internal_targeting_flag_key = serializers.CharField(source="internal_targeting_flag.key", read_only=True)
     linked_flag_key = serializers.SerializerMethodField()
     steps = serializers.SerializerMethodField()
@@ -882,6 +1001,7 @@ class ProductTourAPISerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "tour_type",
             "internal_targeting_flag_key",
             "linked_flag_key",
             "steps",
@@ -893,6 +1013,18 @@ class ProductTourAPISerializer(serializers.ModelSerializer):
             "end_date",
         ]
         read_only_fields = fields
+
+    def get_tour_type(self, tour: ProductTour) -> str:
+        if not tour.content:
+            return "tour"
+
+        tour_type = tour.content.get("type", "tour")
+        if tour_type == "announcement":
+            steps = tour.content.get("steps", [])
+            if len(steps) > 0:
+                return "banner" if steps[0].get("type") == "banner" else "announcement"
+
+        return tour_type
 
     def get_linked_flag_key(self, tour: ProductTour) -> str | None:
         return tour.linked_flag.key if tour.linked_flag else None
@@ -937,7 +1069,7 @@ def product_tours(request):
             request,
             generate_exception_response(
                 "product_tours",
-                "API key not provided. You can find your project API key in your PostHog project settings.",
+                "Project token not provided. You can find your project token in your PostHog project settings.",
                 type="authentication_error",
                 code="missing_api_key",
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -950,7 +1082,7 @@ def product_tours(request):
             request,
             generate_exception_response(
                 "product_tours",
-                "Project API key invalid. You can find your project API key in your PostHog project settings.",
+                "Project token invalid. You can find your project token in your PostHog project settings.",
                 type="authentication_error",
                 code="invalid_api_key",
                 status_code=status.HTTP_401_UNAUTHORIZED,

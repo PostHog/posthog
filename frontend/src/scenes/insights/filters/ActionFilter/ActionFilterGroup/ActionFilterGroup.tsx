@@ -11,6 +11,7 @@ import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import {
+    DefinitionPopoverRenderer,
     TaxonomicFilterGroupType,
     isQuickFilterItem,
     quickFilterToPropertyFilters,
@@ -20,9 +21,8 @@ import {
     TaxonomicPopoverProps,
     TaxonomicStringPopover,
 } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
+import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { teamLogic } from 'scenes/teamLogic'
 import { MathCategory, mathsLogic } from 'scenes/trends/mathsLogic'
 
@@ -58,6 +58,7 @@ interface ActionFilterGroupProps {
     groupTitle?: string
     trendsDisplayCategory?: any
     insightType?: InsightType
+    definitionPopoverRenderer?: DefinitionPopoverRenderer
 }
 
 export function ActionFilterGroup({
@@ -79,13 +80,12 @@ export function ActionFilterGroup({
     groupTitle,
     trendsDisplayCategory,
     insightType,
+    definitionPopoverRenderer,
 }: ActionFilterGroupProps): JSX.Element {
-    const showQuickFilters = useFeatureFlag('TAXONOMIC_QUICK_FILTERS', 'test')
-    const effectiveActionsTaxonomicGroupTypes = (
-        showQuickFilters
-            ? [TaxonomicFilterGroupType.SuggestedFilters, ...actionsTaxonomicGroupTypes]
-            : actionsTaxonomicGroupTypes
-    ).filter((groupType) => groupType !== TaxonomicFilterGroupType.DataWarehouse)
+    const effectiveActionsTaxonomicGroupTypes = [
+        TaxonomicFilterGroupType.SuggestedFilters,
+        ...actionsTaxonomicGroupTypes,
+    ].filter((groupType) => groupType !== TaxonomicFilterGroupType.DataWarehouse)
 
     const { currentTeamId } = useValues(teamLogic)
     const { removeLocalFilter, splitLocalFilter } = useActions(entityFilterLogic({ typeKey }))
@@ -163,8 +163,8 @@ export function ActionFilterGroup({
                                         mathAvailability={mathAvailability}
                                         trendsDisplayCategory={trendsDisplayCategory}
                                     />
-                                    {(mathDefinitions as Record<string, any>)[filter.math || BaseMathType.TotalCount]
-                                        ?.category === MathCategory.PropertyValue && (
+                                    {mathDefinitions[filter.math || BaseMathType.TotalCount]?.category ===
+                                        MathCategory.PropertyValue && (
                                         <TaxonomicStringPopover
                                             size="small"
                                             groupType={
@@ -189,9 +189,7 @@ export function ActionFilterGroup({
                                                         currentValue === '$session_duration' ? (
                                                             <>
                                                                 Calculate{' '}
-                                                                {(mathDefinitions as Record<string, any>)[
-                                                                    filter.math ?? ''
-                                                                ].name.toLowerCase()}{' '}
+                                                                {mathDefinitions[filter.math ?? '']?.name.toLowerCase()}{' '}
                                                                 of the session duration. This is based on the{' '}
                                                                 <code>$session_id</code> property associated with
                                                                 events. The duration is derived from the time difference
@@ -201,9 +199,7 @@ export function ActionFilterGroup({
                                                         ) : (
                                                             <>
                                                                 Calculate{' '}
-                                                                {(mathDefinitions as Record<string, any>)[
-                                                                    filter.math ?? ''
-                                                                ].name.toLowerCase()}{' '}
+                                                                {mathDefinitions[filter.math ?? '']?.name.toLowerCase()}{' '}
                                                                 from property <code>{currentValue}</code>. Note that
                                                                 only event occurrences where <code>{currentValue}</code>{' '}
                                                                 is set with a numeric value will be taken into account.
@@ -222,8 +218,8 @@ export function ActionFilterGroup({
                                         />
                                     )}
                                     {/* HogQL expression selector */}
-                                    {(mathDefinitions as Record<string, any>)[filter.math || BaseMathType.TotalCount]
-                                        ?.category === MathCategory.HogQLExpression && (
+                                    {mathDefinitions[filter.math || BaseMathType.TotalCount]?.category ===
+                                        MathCategory.HogQLExpression && (
                                         <LemonDropdown
                                             visible={isHogQLDropdownVisible}
                                             closeOnClickInside={false}
@@ -317,6 +313,7 @@ export function ActionFilterGroup({
                                     showNumericalPropsOnly={showNumericalPropsOnly}
                                     dataWarehousePopoverFields={dataWarehousePopoverFields}
                                     excludedProperties={excludedProperties}
+                                    definitionPopoverRenderer={definitionPopoverRenderer}
                                 />
                                 {eventIndex < nestedFilters.length - 1 && (
                                     <div className="flex items-center gap-3 mx-0.5 my-2.5">

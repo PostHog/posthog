@@ -11,8 +11,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { HedgehogConfig, MinimalHedgehogConfig, UserBasicType } from '~/types'
 
-import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
 import { IconRobot } from '../icons'
+import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
 
 export interface ProfilePictureProps {
     user?:

@@ -1,5 +1,3 @@
-from typing import cast
-
 from django.db.models import Q, QuerySet
 
 import structlog
@@ -18,7 +16,6 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models import User
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
@@ -155,7 +152,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDe
 
         # Track dataset created
         report_user_action(
-            cast(User, self.request.user),
+            self.request.user,
             "llma dataset created",
             {
                 "dataset_id": str(instance.id),
@@ -163,7 +160,8 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDe
                 "has_description": bool(instance.description),
                 "has_metadata": bool(instance.metadata),
             },
-            self.team,
+            team=self.team,
+            request=self.request,
         )
 
     def perform_update(self, serializer):
@@ -184,23 +182,25 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDe
         # Track appropriate event
         if is_deletion:
             report_user_action(
-                cast(User, self.request.user),
+                self.request.user,
                 "llma dataset deleted",
                 {
                     "dataset_id": str(instance.id),
                     "dataset_name": instance.name,
                 },
-                self.team,
+                team=self.team,
+                request=self.request,
             )
         elif changed_fields:
             report_user_action(
-                cast(User, self.request.user),
+                self.request.user,
                 "llma dataset updated",
                 {
                     "dataset_id": str(instance.id),
                     "changed_fields": changed_fields,
                 },
-                self.team,
+                team=self.team,
+                request=self.request,
             )
 
     @llma_track_latency("llma_datasets_list")
@@ -290,7 +290,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSe
 
         # Track dataset item created
         report_user_action(
-            cast(User, self.request.user),
+            self.request.user,
             "llma dataset item created",
             {
                 "dataset_item_id": str(instance.id),
@@ -302,7 +302,8 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSe
                 "has_ref_source_id": bool(instance.ref_source_id),
                 "source": source,
             },
-            self.team,
+            team=self.team,
+            request=self.request,
         )
 
     def perform_update(self, serializer):
@@ -323,24 +324,26 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSe
         # Track appropriate event
         if is_deletion:
             report_user_action(
-                cast(User, self.request.user),
+                self.request.user,
                 "llma dataset item deleted",
                 {
                     "dataset_item_id": str(instance.id),
                     "dataset_id": str(instance.dataset_id),
                 },
-                self.team,
+                team=self.team,
+                request=self.request,
             )
         elif changed_fields:
             report_user_action(
-                cast(User, self.request.user),
+                self.request.user,
                 "llma dataset item updated",
                 {
                     "dataset_item_id": str(instance.id),
                     "dataset_id": str(instance.dataset_id),
                     "changed_fields": changed_fields,
                 },
-                self.team,
+                team=self.team,
+                request=self.request,
             )
 
     @llma_track_latency("llma_dataset_items_retrieve")

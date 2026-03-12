@@ -35,10 +35,10 @@ import {
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
-import { SnoozeButton } from '../SnoozeButton'
 import { alertFormLogic, canCheckOngoingInterval } from '../alertFormLogic'
 import { alertLogic } from '../alertLogic'
 import { alertNotificationLogic } from '../alertNotificationLogic'
+import { SnoozeButton } from '../SnoozeButton'
 import { AlertType } from '../types'
 import { AlertDestinationSelector } from './AlertDestinationSelector'
 import { InlineAlertNotifications } from './InlineAlertNotifications'
@@ -413,7 +413,7 @@ export function EditAlertModal({
                                     </div>
                                 </div>
 
-                                <h4 className="mt-4">CDP Destinations</h4>
+                                <h4 className="mt-4">Destinations</h4>
                                 <div className="mt-4">
                                     {inlineNotificationsEnabled ? (
                                         <InlineAlertNotifications alertId={alertId} />

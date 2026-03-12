@@ -7,6 +7,9 @@ import { CyclotronInvocationQueueParametersFetchType } from '~/schema/cyclotron'
 import { logger } from '~/utils/logger'
 
 import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
+import { HogInputsService } from '../../../src/cdp/services/hog-inputs.service'
+import { EmailService } from '../../../src/cdp/services/messaging/email.service'
+import { RecipientTokensService } from '../../../src/cdp/services/messaging/recipient-tokens.service'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
@@ -14,7 +17,7 @@ import { parseJSON } from '../../utils/json-parse'
 import { promisifyCallback } from '../../utils/utils'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
-import { EXTEND_OBJECT_KEY, cdpTrackedFetch, shadowFetchContext } from './hog-executor.service'
+import { EXTEND_OBJECT_KEY, isConnectionLevelError } from './hog-executor.service'
 
 // Mock before importing fetch
 jest.mock('~/utils/request', () => {
@@ -46,7 +49,32 @@ describe('Hog Executor', () => {
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
         hub = await createHub()
-        executor = new HogExecutorService(hub)
+        const hogInputsService = new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        const emailService = new EmailService(
+            {
+                sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
+                sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
+                sesRegion: hub.SES_REGION,
+                sesEndpoint: hub.SES_ENDPOINT,
+            },
+            hub.integrationManager,
+            hub.ENCRYPTION_SALT_KEYS,
+            hub.SITE_URL
+        )
+        const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        executor = new HogExecutorService(
+            {
+                hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
+                googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
+                fetchRetries: hub.CDP_FETCH_RETRIES,
+                fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
+                fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+            },
+            { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
+            hogInputsService,
+            emailService,
+            recipientTokensService
+        )
     })
 
     afterEach(() => {
@@ -71,6 +99,7 @@ describe('Hog Executor', () => {
             const result = await executor.execute(invocation)
             expect(result).toEqual({
                 capturedPostHogEvents: [],
+                warehouseWebhookPayloads: [],
                 invocation: {
                     state: {
                         globals: invocation.state.globals,
@@ -296,7 +325,7 @@ describe('Hog Executor', () => {
 
             expect(results.invocations[0].state.globals.source).toEqual({
                 name: 'Hog Function',
-                url: `http://localhost:8000/projects/1/pipeline/destinations/hog-${fn.id}/configuration/`,
+                url: `http://localhost:8000/projects/1/functions/${fn.id}/configuration/`,
             })
         })
 
@@ -1061,7 +1090,7 @@ describe('Hog Executor', () => {
                 method: 'GET',
             })
 
-            const maxRetries = hub.CDP_FETCH_RETRIES
+            const maxRetries = executor['config'].fetchRetries
             let result = await executor.executeFetch(invocation)
 
             for (let attempt = 1; attempt < maxRetries; attempt++) {
@@ -1105,7 +1134,7 @@ describe('Hog Executor', () => {
 
             const result = await executor.executeFetch(invocation)
 
-            // Should be scheduled for retry
+            // Should not be scheduled for retry
             expect(result.invocation.queue).toBe('hog')
             expect(result.invocation.queueScheduledAt).toBeUndefined()
             expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
@@ -1128,9 +1157,6 @@ describe('Hog Executor', () => {
                 url: `${baseUrl}/test`,
                 method: 'GET',
             })
-
-            // Set a very short timeout
-            hub.EXTERNAL_REQUEST_TIMEOUT_MS = 100
 
             const result = await executor.executeFetch(invocation)
 
@@ -1263,7 +1289,7 @@ describe('Hog Executor', () => {
                 })
             })
 
-            hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN = 'ADWORDS_TOKEN'
+            executor['config'].googleAdwordsDeveloperToken = 'ADWORDS_TOKEN'
 
             let invocation = await createFetchInvocation({
                 url: 'https://googleads.googleapis.com/1234',
@@ -1343,69 +1369,19 @@ describe('Hog Executor', () => {
         })
     })
 
-    describe('shadowFetchContext', () => {
-        beforeEach(() => {
-            jest.mocked(fetch).mockClear()
-        })
-
-        it('returns no-op response when inside shadow context', async () => {
-            const result = await shadowFetchContext.run(true, () =>
-                cdpTrackedFetch({
-                    url: 'http://should-not-be-called.example.com/test',
-                    fetchParams: { method: 'GET' },
-                    templateId: 'test-template',
-                })
-            )
-
-            expect(result.fetchError).toBeNull()
-            expect(result.fetchResponse?.status).toBe(200)
-            expect(result.fetchDuration).toBe(0)
-            expect(fetch).not.toHaveBeenCalled()
-        })
-
-        it('makes real HTTP request when outside shadow context', async () => {
-            jest.mocked(fetch).mockResolvedValueOnce({
-                status: 200,
-                headers: {},
-            } as any)
-
-            const result = await cdpTrackedFetch({
-                url: 'http://example.com/test',
-                fetchParams: { method: 'GET' },
-                templateId: 'test-template',
-            })
-
-            expect(fetch).toHaveBeenCalledWith('http://example.com/test', { method: 'GET' })
-            expect(result.fetchResponse?.status).toBe(200)
-        })
-
-        it('isolates shadow context from concurrent non-shadow fetches', async () => {
-            jest.mocked(fetch).mockResolvedValue({
-                status: 200,
-                headers: {},
-            } as any)
-
-            const [shadowResult, normalResult] = await Promise.all([
-                shadowFetchContext.run(true, () =>
-                    cdpTrackedFetch({
-                        url: 'http://shadow.example.com/test',
-                        fetchParams: { method: 'GET' },
-                        templateId: 'shadow-template',
-                    })
-                ),
-                cdpTrackedFetch({
-                    url: 'http://normal.example.com/test',
-                    fetchParams: { method: 'GET' },
-                    templateId: 'normal-template',
-                }),
-            ])
-
-            expect(shadowResult.fetchDuration).toBe(0)
-            expect(shadowResult.fetchResponse?.status).toBe(200)
-
-            expect(fetch).toHaveBeenCalledTimes(1)
-            expect(fetch).toHaveBeenCalledWith('http://normal.example.com/test', { method: 'GET' })
-            expect(normalResult.fetchResponse?.status).toBe(200)
+    describe('isConnectionLevelError', () => {
+        it.each([
+            [{ code: 'UND_ERR_SOCKET', message: 'other side closed' }, true],
+            [{ code: 'ECONNRESET', message: 'read ECONNRESET' }, true],
+            [{ code: 'EPIPE', message: 'write EPIPE' }, true],
+            [{ code: undefined, message: 'other side closed' }, true],
+            [{ code: undefined, message: 'socket hang up' }, true],
+            [{ code: 'ENOTFOUND', message: 'getaddrinfo ENOTFOUND' }, false],
+            [{ code: undefined, message: 'some other error' }, false],
+            [null, false],
+            [undefined, false],
+        ])('returns %s for %j', (error, expected) => {
+            expect(isConnectionLevelError(error)).toBe(expected)
         })
     })
 })

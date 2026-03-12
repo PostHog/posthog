@@ -45,6 +45,7 @@ from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
+from posthog.temporal.data_modeling.activities.utils import strip_hostname_from_error
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
 from posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow import DuckLakeCopyDataModelingWorkflow
 from posthog.temporal.ducklake.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
@@ -393,13 +394,16 @@ async def handle_error(
     error_message: str,
     logger: FilteringBoundLogger,
 ):
+    error_str = str(error)
     if job:
         await logger.ainfo("Marking job %s as failed", job.id)
-        await logger.aerror(f"handle_error: error={error}. error_message={error_message}")
+        await logger.aerror(f"handle_error: error={error_str}. error_message={error_message}")
         job.status = DataModelingJob.Status.FAILED
-        job.error = str(error)
+        job.error = strip_hostname_from_error(error_str)
         await database_sync_to_async(job.save)()
-    await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label, error=str(error)))
+    await queue.put(
+        QueueMessage(status=ModelStatus.FAILED, label=model.label, error=strip_hostname_from_error(error_str))
+    )
 
 
 async def handle_cancelled(
@@ -410,12 +414,15 @@ async def handle_cancelled(
     error_message: str,
     logger: FilteringBoundLogger,
 ):
+    error_str = str(error)
     if job:
-        await logger.aerror(f"handle_cancelled: error={error}. error_message={error_message}")
+        await logger.aerror(f"handle_cancelled: error={error_str}. error_message={error_message}")
         job.status = DataModelingJob.Status.CANCELLED
-        job.error = str(error)
+        job.error = strip_hostname_from_error(error_str)
         await database_sync_to_async(job.save)()
-    await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label, error=str(error)))
+    await queue.put(
+        QueueMessage(status=ModelStatus.FAILED, label=model.label, error=strip_hostname_from_error(error_str))
+    )
 
 
 async def start_job_modeling_run(
@@ -515,31 +522,32 @@ async def materialize_model(
             batch = _transform_unsupported_decimals(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
 
-            if delta_table is None:
-                delta_table = deltalake.DeltaTable.create(
-                    table_uri=table_uri,
-                    schema=batch.schema,
-                    storage_options=storage_options,
+            if index == 0:
+                await logger.adebug(
+                    f"Writing batch to delta table. index={index}. mode=overwrite. schema_mode=overwrite. batch_row_count={batch.num_rows}"
                 )
 
-            mode: typing.Literal["error", "append", "overwrite", "ignore"] = "append"
-            schema_mode: typing.Literal["merge", "overwrite"] | None = None
-            if index == 0:
-                mode = "overwrite"
-                schema_mode = "overwrite"
+                write_start = dt.datetime.now()
+                deltalake.write_deltalake(
+                    table_or_uri=table_uri,
+                    storage_options=storage_options,
+                    data=batch,
+                    mode="overwrite",
+                    schema_mode="overwrite",
+                )
+                delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
+            else:
+                await logger.adebug(
+                    f"Writing batch to delta table. index={index}. mode=append. batch_row_count={batch.num_rows}"
+                )
 
-            await logger.adebug(
-                f"Writing batch to delta table. index={index}. mode={mode}. batch_row_count={batch.num_rows}"
-            )
-
-            write_start = dt.datetime.now()
-            deltalake.write_deltalake(
-                table_or_uri=delta_table,
-                storage_options=storage_options,
-                data=batch,
-                mode=mode,
-                schema_mode=schema_mode,
-            )
+                write_start = dt.datetime.now()
+                deltalake.write_deltalake(
+                    table_or_uri=delta_table,  # type: ignore[call-overload]
+                    storage_options=storage_options,
+                    data=batch,
+                    mode="append",
+                )
             write_duration = (dt.datetime.now() - write_start).total_seconds()
 
             row_count = row_count + batch.num_rows
@@ -623,13 +631,14 @@ async def materialize_model(
             await logger.ainfo("Paused temporal schedule for query: saved_query_id=%s", saved_query.id)
             raise NonRetryableException(f"Query exceeded timeout limit for model {model_label}: {error_message}") from e
         else:
-            saved_query.latest_error = f"Query failed to materialize: {error_message}"
+            sanitized_error = strip_hostname_from_error(error_message)
+            saved_query.latest_error = f"Query failed to materialize: {sanitized_error}"
             await logger.aerror("Failed to materialize model with unexpected error: %s", str(e))
             await database_sync_to_async(saved_query.save)()
             await mark_job_as_failed(job, error_message, logger)
             if isinstance(e, NonRetryableException):
                 raise
-            raise Exception(error_message) from e
+            raise Exception(sanitized_error) from e
 
     data_modeling_job = await database_sync_to_async(DataModelingJob.objects.get)(id=job.id)
     if data_modeling_job.status == DataModelingJob.Status.CANCELLED:
@@ -693,12 +702,15 @@ async def materialize_model(
 async def mark_job_as_failed(job: DataModelingJob, error_message: str, logger: FilteringBoundLogger) -> None:
     """
     Mark DataModelingJob as failed and send notification email if applicable.
+
+    The original error message (with hostnames) is logged for internal debugging,
+    but the user-facing error has hostnames stripped to avoid exposing infrastructure details.
     """
 
     await logger.aerror(f"mark_job_as_failed: {error_message}")
     await logger.ainfo("Marking job %s as failed", job.id)
     job.status = DataModelingJob.Status.FAILED
-    job.error = error_message
+    job.error = strip_hostname_from_error(error_message)
     await database_sync_to_async(job.save)()
 
     if job.saved_query_id:
@@ -784,7 +796,7 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
 
     await logger.adebug(f"Running count query: {printed}")
 
-    async with get_client() as client:
+    async with get_client(allow_experimental_analyzer=1) as client:
         result = await client.read_query(printed, query_parameters=context.values)
         count = int(result.decode("utf-8").strip())
         return count
@@ -845,7 +857,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
 
     # Query for types first, check for any types ArrowStream doesn't support
     # and rewrite the query wrapping those columns in a `toString(..)`
-    async with get_client() as client:
+    async with get_client(allow_experimental_analyzer=1) as client:
         query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
         has_type_to_convert = False
 
@@ -938,7 +950,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     await logger.adebug(f"Running clickhouse query: {arrow_printed}")
 
     # Set max block size to 50,000 rows
-    async with get_client(max_block_size=50_000) as client:
+    async with get_client(max_block_size=50_000, allow_experimental_analyzer=1) as client:
         batches = []
         batches_size = 0
         batch_count = 0

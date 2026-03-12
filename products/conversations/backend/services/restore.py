@@ -4,11 +4,13 @@ from dataclasses import dataclass
 from typing import Literal
 
 from django.db import transaction
-from django.db.models import Q
 from django.utils import timezone
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.models import Team
-from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 
 from products.conversations.backend.models import ConversationRestoreToken, Ticket
 from products.conversations.backend.models.restore_token import hash_token
@@ -28,32 +30,42 @@ class RestoreService:
     """Service for handling conversation ticket restore operations."""
 
     @staticmethod
+    def _find_distinct_ids_by_person_email(team: Team, email_lower: str) -> list[str]:
+        """
+        Find distinct_ids of persons whose email matches via HogQL (ClickHouse).
+        Uses the persons table's built-in pdi lazy join to person_distinct_ids.
+        """
+        query = parse_select(
+            "SELECT DISTINCT pdi.distinct_id FROM persons WHERE lower(properties.email) = {email} LIMIT 1000",
+            placeholders={"email": ast.Constant(value=email_lower)},
+        )
+        response = execute_hogql_query(query=query, team=team)
+        return [row[0] for row in (response.results or [])]
+
+    @staticmethod
     def find_tickets_by_email(team: Team, email: str) -> list[Ticket]:
         """
-        Find all tickets associated with an email address (case-insensitive).
+        Find all tickets associated with an email address.
 
         Checks both:
-        1. anonymous_traits.email - for anonymous users
-        2. Person properties.email - for identified users (via distinct_id)
+        1. anonymous_traits.email on Ticket (Postgres, fast)
+        2. Person properties.email → distinct_id → Ticket (via HogQL/ClickHouse)
         """
         email_lower = email.lower().strip()
 
-        # Find distinct_ids of persons with matching email
-        person_distinct_ids = list(
-            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
-            .filter(
-                team=team,
-                person__properties__email__iexact=email_lower,
+        person_distinct_ids: list[str] = []
+        try:
+            person_distinct_ids = RestoreService._find_distinct_ids_by_person_email(team, email_lower)
+        except Exception:
+            logger.warning(
+                "Person email lookup failed during restore, falling back to anonymous_traits only",
+                extra={"team_id": team.id},
             )
-            .values_list("distinct_id", flat=True)
-        )
 
-        # Query tickets matching either anonymous_traits.email OR person's distinct_id
-        query = Q(anonymous_traits__email__iexact=email_lower)
+        tickets = Ticket.objects.filter(team=team, anonymous_traits__email__iexact=email_lower)
         if person_distinct_ids:
-            query |= Q(distinct_id__in=person_distinct_ids)
-
-        return list(Ticket.objects.filter(team=team).filter(query).distinct())
+            tickets = tickets | Ticket.objects.filter(team=team, distinct_id__in=person_distinct_ids)
+        return list(tickets.distinct())
 
     @staticmethod
     def invalidate_existing_tokens(
@@ -124,19 +136,19 @@ class RestoreService:
 
         The order of checks is intentional to avoid information leakage:
         1. Lookup token scoped to team (invalid if not found)
-        2. Check consumed (used if already consumed - before expiry to avoid leaking token existence)
+        2. Check consumed (before expiry to avoid leaking token existence)
         3. Check expired
-        4. Consume and migrate atomically
+        4. Atomically consume the token (short PG transaction)
+        5. Find and migrate tickets (may hit ClickHouse, no row lock held)
         """
         token_hash_value = hash_token(raw_token)
 
         try:
             token = ConversationRestoreToken.objects.get(token_hash=token_hash_value, team=team)
         except ConversationRestoreToken.DoesNotExist:
-            logger.warning(f"Invalid restore token attempted: {token_hash_value[:8]}...")
+            logger.warning("Invalid restore token attempted")
             return RestoreResult(status="invalid", code="token_invalid")
 
-        # Check consumed BEFORE expiry to avoid leaking token existence
         if token.is_consumed:
             logger.warning(f"Restore token {token.id} already consumed")
             return RestoreResult(status="used", code="token_already_used")
@@ -145,32 +157,36 @@ class RestoreService:
             logger.warning(f"Restore token {token.id} expired")
             return RestoreResult(status="expired", code="token_expired")
 
-        # Atomic transaction: consume token and migrate tickets
+        # Phase 1: atomically consume the token (short PG transaction, no CH calls)
         with transaction.atomic():
-            # Re-fetch with lock to ensure atomic consume
             token = ConversationRestoreToken.objects.select_for_update().get(id=token.id)
 
-            # Double-check not consumed (race condition protection)
             if token.is_consumed:
                 return RestoreResult(status="used", code="token_already_used")
 
-            # Mark as consumed
+            if token.is_expired:
+                return RestoreResult(status="expired", code="token_expired")
+
             token.consumed_at = timezone.now()
             token.consumed_by_widget_session_id = widget_session_id
             token.save(update_fields=["consumed_at", "consumed_by_widget_session_id"])
 
-            # Find and migrate tickets
+        # Phase 2: find and migrate tickets (may hit ClickHouse, no row lock held).
+        # Token is already consumed — if this fails the user can request a new link.
+        try:
             tickets = RestoreService.find_tickets_by_email(token.team, token.recipient_email)
             migrated_ids = [t.id for t in tickets]
 
             if migrated_ids:
                 Ticket.objects.filter(team=token.team, id__in=migrated_ids).update(widget_session_id=widget_session_id)
-
-            # Invalidate any other unused tokens for the same email
+        except Exception:
+            logger.exception(f"Failed to migrate tickets after consuming token {token.id}")
+            return RestoreResult(status="success", code="migration_failed", widget_session_id=widget_session_id)
+        finally:
             RestoreService.invalidate_existing_tokens(token.team, token.recipient_email, exclude_token_id=token.id)
 
         logger.info(
-            f"Restore token {token.id} redeemed successfully, migrated {len(migrated_ids)} tickets",
+            f"Restore token {token.id} redeemed, migrated {len(migrated_ids)} tickets",
             extra={"token_id": str(token.id), "migrated_count": len(migrated_ids)},
         )
 

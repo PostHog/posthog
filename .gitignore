@@ -1,6 +1,7 @@
 # Misc stuff, should be categorized/explained in the future
 # This is sorted in ascending order, keep it that way if you wanna please
 # people's OCDs ^_^
+.pr-review-diff.patch
 __emails__
 __pycache__/
 .coverage
@@ -73,6 +74,7 @@ yalc.lock
 .vscode/*
 !.vscode/launch.json
 !.vscode/settings.example.json
+!.vscode/extensions.json
 
 # Ignoring local Zed config
 # but commit shared `debug.json` file
@@ -133,6 +135,7 @@ posthog/management/commands/clear_demo_data.py
 
 # Ignore Claude Code settings
 .claude/settings.local.json
+.claude/worktrees/
 
 # Ignore local mprocs configs
 bin/mprocs*.local.yaml
@@ -145,6 +148,9 @@ bin/*.lock
 bin/hobby-installer-*
 bin/hobby-installer/hobby-installer
 bin/hobby-installer/hobby-installer.log
+
+# phrocs binary
+bin/phrocs
 
 # Debug output of our session summaries product
 .session-summaries
@@ -171,8 +177,11 @@ agent-os/
 # MCP build files
 services/mcp/ui-apps-dist
 
-# Product skills
-.claude/skills/error-tracking
+# Product skills (synced by hogli sync:skill)
+.agents/skills/.gitignore
+
+# Test output
+junit.xml
 
 # Downloaded GitHub issues for signals
 products/signals/backend/github_issues/

@@ -11,6 +11,7 @@ import {
     IconPencil,
     IconPlusSmall,
     IconShortcut,
+    IconStar,
 } from '@posthog/icons'
 
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
@@ -29,18 +30,18 @@ import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry, UserProductListReason } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
+import { MenuItems } from './menus/MenuItems'
+import { projectTreeLogic } from './projectTreeLogic'
 import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
 import { TreeSearchField } from './TreeSearchField'
 import { TreeSortDropdownMenu } from './TreeSortDropdownMenu'
-import { MenuItems } from './menus/MenuItems'
-import { projectTreeLogic } from './projectTreeLogic'
 import { calculateMovePath } from './utils'
 
 export interface ProjectTreeProps {
@@ -177,6 +178,8 @@ export function ProjectTree({
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
 
+    const isAIFirst = useFeatureFlag('AI_FIRST')
+
     let treeData: TreeDataItem[] = [...fullFileSystemFiltered]
 
     // Filter out Data pipelines item if it's been clicked
@@ -188,19 +191,32 @@ export function ProjectTree({
         if (root === 'shortcuts://' && (fullFileSystemFiltered.length === 0 || !shortcutHelperDismissed)) {
             treeData.push({
                 id: 'products/shortcuts-helper-category',
-                name: 'Example shortcuts',
+                name: isAIFirst ? 'Starred items' : 'Example shortcuts',
                 type: 'category',
                 displayName: (
                     <div
-                        className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1', {
-                            'mt-2': fullFileSystemFiltered.length === 0,
+                        className={cn('border border-primary text-xs font-normal rounded-xs p-2 -mx-1', {
+                            'mt-2': fullFileSystemFiltered.length === 0 && !isAIFirst,
+                            'mb-2': !isAIFirst,
                         })}
                     >
-                        Shortcuts are added by pressing{' '}
-                        <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
-                        side-clicking a panel item, then "Add to shortcuts panel", or inside an app's resources file
-                        menu click{' '}
-                        <IconShortcut className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />.{' '}
+                        {isAIFirst ? (
+                            <>
+                                Starred items are added by pressing{' '}
+                                <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
+                                side-clicking a panel item, then "Add to starred", or inside an app's resources file
+                                menu click{' '}
+                                <IconStar className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />.
+                            </>
+                        ) : (
+                            <>
+                                Shortcuts are added by pressing{' '}
+                                <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
+                                side-clicking a panel item, then "Add to shortcuts panel", or inside an app's resources
+                                file menu click{' '}
+                                <IconShortcut className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />.
+                            </>
+                        )}{' '}
                         {fullFileSystemFiltered.length > 0 && (
                             <span className="cursor-pointer underline" onClick={() => setShortcutHelperDismissed(true)}>
                                 Dismiss.
@@ -218,7 +234,7 @@ export function ProjectTree({
                     item.reason === UserProductListReason.USED_ON_SEPARATE_TEAM
             )
 
-            if (fullFileSystemFiltered.length === 0 || !customProductHelperDismissed) {
+            if ((fullFileSystemFiltered.length === 0 || !customProductHelperDismissed) && !isAIFirst) {
                 const CustomIcon = isCustomProductsExperiment ? IconGear : IconPencil
                 treeData.push({
                     id: 'products/custom-products-helper-category',
@@ -290,7 +306,6 @@ export function ProjectTree({
             contentRef={mainContentRef as RefObject<HTMLElement>}
             className="px-0 py-1"
             data={treeData}
-            mode="tree"
             selectMode={selectMode}
             defaultSelectedFolderOrNodeId={lastViewedId || undefined}
             isItemActive={isItemActive}
@@ -700,7 +715,7 @@ export function ProjectTree({
                                             'text-primary': selectMode === 'multi',
                                         })}
                                     />
-                                    Add shortcut
+                                    {isAIFirst ? 'Add to starred' : 'Add shortcut'}
                                 </>
                             ),
                         }),

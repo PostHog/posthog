@@ -45,7 +45,7 @@ export const getNodeJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
             badge: 'required',
             content: (
                 <>
-                    <Markdown>Initialize the PostHog client with your project API key:</Markdown>
+                    <Markdown>Initialize the PostHog client with your project token:</Markdown>
                     <CodeBlock
                         blocks={[
                             {
@@ -55,7 +55,7 @@ export const getNodeJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 import { PostHog } from 'posthog-node'
 
                                 const client = new PostHog(
-                                    '<ph_project_api_key>',
+                                    '<ph_project_token>',
                                     {
                                         host: '<ph_client_api_host>'
                                     }

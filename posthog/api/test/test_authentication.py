@@ -1152,6 +1152,18 @@ class TestPasswordResetAPI(APIBaseTest):
             )
         )
 
+    def test_password_reset_is_case_insensitive(self):
+        set_instance_setting("EMAIL_HOST", "localhost")
+
+        # User registered as "user1@posthog.com", request reset with different casing
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+            response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL.upper()})
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        # Email should still be sent
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
+
     def test_reset_with_sso_available(self):
         """
         If the user has logged in / signed up with SSO, we let them know so they don't have to reset their password.
@@ -1464,6 +1476,23 @@ class TestPasswordResetAPI(APIBaseTest):
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))  # type: ignore
         self.assertFalse(self.user.check_password("a12345678"))
+
+    @patch("posthog.tasks.email.send_password_changed_email.delay")
+    def test_password_change_invalidates_reset_token(self, mock_send_email):
+        token = password_reset_token_generator.make_token(self.user)
+        self.assertTrue(password_reset_token_generator.check_token(self.user, token))
+
+        # change password via account settings
+        self.client.force_login(self.user)
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"current_password": self.CONFIG_PASSWORD, "password": VALID_TEST_PASSWORD},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.user.refresh_from_db()
+        self.assertFalse(password_reset_token_generator.check_token(self.user, token))
 
     def test_e2e_test_special_handlers(self):
         self.ensure_url_patterns_loaded()
@@ -1805,7 +1834,7 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         self.assertIsNone(result)
 
     def test_authenticate_with_matching_project_api_key_in_body(self):
-        # Test that when project API key in body matches the secret key's team, it passes
+        # Test that when project token in body matches the secret key's team, it passes
         wsgi_request = self.factory.post(
             "/",
             data=f'{{"project_api_key": "{self.team.api_token}"}}',
@@ -1824,7 +1853,7 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         self.assertEqual(user.team, self.team)
 
     def test_authenticate_with_no_project_api_key_in_body_passes(self):
-        # Test that when there's no project API key in body, it still works normally
+        # Test that when there's no project token in body, it still works normally
         wsgi_request = self.factory.post(
             "/",
             data='{"some_other_field": "value"}',

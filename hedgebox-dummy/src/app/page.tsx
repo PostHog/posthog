@@ -1,8 +1,9 @@
 'use client'
 
+import Link from 'next/link'
+
 import Header from '@/components/Header'
 import { useAuth } from '@/lib/auth'
-import Link from 'next/link'
 
 export default function HomePage(): JSX.Element {
     const { user } = useAuth()

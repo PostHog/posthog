@@ -30,12 +30,12 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
+import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { urls } from 'scenes/urls'
 
-import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
 import {
@@ -55,14 +55,14 @@ import {
     ActionFilter,
     AnyPropertyFilter,
     ExperimentConclusion,
-    ExperimentProgressStatus,
+    ExperimentStatus,
     InsightShortId,
 } from '~/types'
 
-import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
 import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
+import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
 import { experimentLogic } from '../experimentLogic'
-import { getExperimentStatusColor } from '../experimentsLogic'
+import { getExperimentStatusColor, getExperimentStatusLabel } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { getVariantColor } from '../utils'
 
@@ -89,8 +89,8 @@ export function VariantTag({
         return <></>
     }
 
-    const variantColor = experiment.parameters?.feature_flag_variants
-        ? getVariantColor(variantKey, experiment.parameters.feature_flag_variants)
+    const variantColor = experiment.feature_flag?.filters.multivariate?.variants
+        ? getVariantColor(variantKey, experiment.feature_flag?.filters.multivariate?.variants)
         : 'var(--text-muted)'
 
     if (experiment.holdout && variantKey === `holdout-${experiment.holdout_id}`) {
@@ -280,12 +280,9 @@ export function PageHeaderCustom(): JSX.Element {
         experiment,
         isExperimentDraft,
         isExperimentRunning,
+        isExperimentLaunched,
         isExperimentStopped,
-        hasPrimaryMetricSet,
         isCreatingExperimentDashboard,
-        primaryMetricsResults,
-        legacyPrimaryMetricsResults,
-        hasMinimumExposureForResults,
         experimentLoading,
     } = useValues(experimentLogic)
     const {
@@ -308,11 +305,6 @@ export function PageHeaderCustom(): JSX.Element {
 
     const exposureCohortId = experiment?.exposure_cohort
 
-    const shouldShowFinishExperimentButton =
-        !isExperimentDraft &&
-        hasMinimumExposureForResults &&
-        (legacyPrimaryMetricsResults.length > 0 || primaryMetricsResults.length > 0)
-
     return (
         <>
             <SceneTitleSection
@@ -333,24 +325,19 @@ export function PageHeaderCustom(): JSX.Element {
                 saveOnBlur
                 actions={
                     <>
-                        {experiment && !isExperimentRunning && (
+                        {experiment && isExperimentDraft && (
                             <div className="flex items-center">
                                 <LemonButton
                                     type="primary"
                                     data-attr="launch-experiment"
                                     onClick={() => launchExperiment()}
-                                    disabledReason={
-                                        !hasPrimaryMetricSet
-                                            ? 'Add at least one primary metric before launching the experiment'
-                                            : undefined
-                                    }
                                     size="small"
                                 >
                                     Launch
                                 </LemonButton>
                             </div>
                         )}
-                        {experiment && isExperimentRunning && (
+                        {experiment && isExperimentLaunched && (
                             <div className="flex flex-row gap-2">
                                 {isExperimentStopped && (
                                     <LemonButton
@@ -385,7 +372,7 @@ export function PageHeaderCustom(): JSX.Element {
                                 )}
                             </div>
                         )}
-                        {shouldShowFinishExperimentButton && (
+                        {experiment && isExperimentRunning && !isExperimentStopped && (
                             <>
                                 <Tooltip title="Conclude this experiment and decide which variant to keep">
                                     <LemonButton
@@ -412,7 +399,7 @@ export function PageHeaderCustom(): JSX.Element {
             />
             <HogfettiComponent />
 
-            {experiment && isExperimentRunning && (
+            {experiment && (
                 <ScenePanel>
                     <ScenePanelActionsSection>
                         <ButtonPrimitive menuItem onClick={() => setDuplicateModalOpen(true)}>
@@ -420,77 +407,81 @@ export function PageHeaderCustom(): JSX.Element {
                             Duplicate
                         </ButtonPrimitive>
 
-                        {exposureCohortId ? (
-                            // TODO: add custom back button to the destination page
-                            <Link
-                                to={urls.cohort(exposureCohortId)}
-                                buttonProps={{
-                                    menuItem: true,
-                                }}
-                                data-attr="view-exposure-cohort"
-                                onClick={() => newTab(urls.cohort(exposureCohortId))}
-                            >
-                                <IconEye /> View exposure cohort as new tab
-                            </Link>
-                        ) : (
-                            <ButtonPrimitive
-                                menuItem
-                                onClick={() => createExposureCohort()}
-                                data-attr="create-exposure-cohort"
-                            >
-                                <IconPlusSmall /> Create exposure cohort
-                            </ButtonPrimitive>
-                        )}
-                        <ButtonPrimitive
-                            menuItem
-                            onClick={() => createExperimentDashboard()}
-                            disabledReasons={{
-                                'Creating dashboard...': isCreatingExperimentDashboard,
-                            }}
-                        >
-                            <IconPlusSmall /> Create dashboard
-                        </ButtonPrimitive>
-
-                        {experiment.feature_flag && (
-                            <ButtonPrimitive
-                                menuItem
-                                onClick={() => {
-                                    setSurveyModalOpen(true)
-                                    void addProductIntentForCrossSell({
-                                        from: ProductKey.EXPERIMENTS,
-                                        to: ProductKey.SURVEYS,
-                                        intent_context: ProductIntentContext.QUICK_SURVEY_STARTED,
-                                    })
-                                }}
-                            >
-                                <IconPlusSmall /> Create survey
-                            </ButtonPrimitive>
-                        )}
-
-                        <LemonDivider />
-
-                        {!experiment.end_date &&
-                            experiment.feature_flag &&
-                            (experiment.feature_flag.active ? (
-                                <ButtonPrimitive
-                                    variant="danger"
-                                    menuItem
-                                    data-attr="pause-experiment"
-                                    onClick={() => openPauseExperimentModal()}
-                                >
-                                    <IconPause /> Pause experiment
-                                </ButtonPrimitive>
-                            ) : (
+                        {isExperimentLaunched && (
+                            <>
+                                {exposureCohortId ? (
+                                    // TODO: add custom back button to the destination page
+                                    <Link
+                                        to={urls.cohort(exposureCohortId)}
+                                        buttonProps={{
+                                            menuItem: true,
+                                        }}
+                                        data-attr="view-exposure-cohort"
+                                        onClick={() => newTab(urls.cohort(exposureCohortId))}
+                                    >
+                                        <IconEye /> View exposure cohort as new tab
+                                    </Link>
+                                ) : (
+                                    <ButtonPrimitive
+                                        menuItem
+                                        onClick={() => createExposureCohort()}
+                                        data-attr="create-exposure-cohort"
+                                    >
+                                        <IconPlusSmall /> Create exposure cohort
+                                    </ButtonPrimitive>
+                                )}
                                 <ButtonPrimitive
                                     menuItem
-                                    data-attr="resume-experiment"
-                                    onClick={() => openResumeExperimentModal()}
+                                    onClick={() => createExperimentDashboard()}
+                                    disabledReasons={{
+                                        'Creating dashboard...': isCreatingExperimentDashboard,
+                                    }}
                                 >
-                                    <IconPlay /> Resume experiment
+                                    <IconPlusSmall /> Create dashboard
                                 </ButtonPrimitive>
-                            ))}
 
-                        <ResetButton />
+                                {experiment.feature_flag && (
+                                    <ButtonPrimitive
+                                        menuItem
+                                        onClick={() => {
+                                            setSurveyModalOpen(true)
+                                            void addProductIntentForCrossSell({
+                                                from: ProductKey.EXPERIMENTS,
+                                                to: ProductKey.SURVEYS,
+                                                intent_context: ProductIntentContext.QUICK_SURVEY_STARTED,
+                                            })
+                                        }}
+                                    >
+                                        <IconPlusSmall /> Create survey
+                                    </ButtonPrimitive>
+                                )}
+
+                                <LemonDivider />
+
+                                {isExperimentRunning &&
+                                    experiment.feature_flag &&
+                                    (experiment.feature_flag.active ? (
+                                        <ButtonPrimitive
+                                            variant="danger"
+                                            menuItem
+                                            data-attr="pause-experiment"
+                                            onClick={() => openPauseExperimentModal()}
+                                        >
+                                            <IconPause /> Pause experiment
+                                        </ButtonPrimitive>
+                                    ) : (
+                                        <ButtonPrimitive
+                                            menuItem
+                                            data-attr="resume-experiment"
+                                            onClick={() => openResumeExperimentModal()}
+                                        >
+                                            <IconPlay /> Resume experiment
+                                        </ButtonPrimitive>
+                                    ))}
+
+                                <ResetButton />
+                            </>
+                        )}
 
                         <PauseExperimentModal />
                         <ResumeExperimentModal />
@@ -712,7 +703,7 @@ export function FinishExperimentModal(): JSX.Element {
             : 'users'
 
     const handleEndExperiment = (): void => {
-        if (isSingleVariantShipped) {
+        if (isSingleVariantShipped || !selectedVariantKey) {
             endExperimentWithoutShipping()
         } else {
             finishExperiment({ selectedVariantKey })
@@ -772,11 +763,13 @@ export function FinishExperimentModal(): JSX.Element {
                                     className="w-full"
                                     data-attr="metrics-selector"
                                     value={selectedVariantKey}
+                                    placeholder="Select a variant"
                                     onChange={(variantKey) => {
                                         setSelectedVariantKey(variantKey)
                                     }}
+                                    allowClear={true}
                                     options={
-                                        experiment.parameters?.feature_flag_variants?.map(({ key }) => ({
+                                        experiment.feature_flag?.filters.multivariate?.variants?.map(({ key }) => ({
                                             value: key,
                                             label: (
                                                 <div className="deprecated-space-x-2 inline-flex">
@@ -858,10 +851,10 @@ export const ResetButton = (): JSX.Element => {
     )
 }
 
-export function StatusTag({ status }: { status: ExperimentProgressStatus }): JSX.Element {
+export function StatusTag({ status, isPaused = false }: { status: ExperimentStatus; isPaused?: boolean }): JSX.Element {
     return (
-        <LemonTag type={getExperimentStatusColor(status)} className="cursor-default">
-            <b className="uppercase">{status}</b>
+        <LemonTag type={getExperimentStatusColor(status, isPaused)} className="cursor-default">
+            <b className="uppercase">{getExperimentStatusLabel(status, isPaused)}</b>
         </LemonTag>
     )
 }

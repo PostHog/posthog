@@ -14,7 +14,8 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.models import ActivityLog, ObjectMediaPreview, Tag, Team, UploadedMedia, User
-from posthog.models.event_definition import EventDefinition
+
+from products.event_definitions.backend.models.event_definition import EventDefinition
 
 from ee.models.event_definition import EnterpriseEventDefinition
 from ee.models.license import License, LicenseManager

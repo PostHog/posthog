@@ -12,18 +12,20 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { OnboardingStepKey, type SDK, SDKInstructionsMap, SDKTag, SDKTagOverrides } from '~/types'
 
-import { OnboardingStep } from '../OnboardingStep'
 import { OnboardingStepComponentType, onboardingLogic } from '../onboardingLogic'
-import { RealtimeCheckIndicator } from './RealtimeCheckIndicator'
-import { SDKSnippet } from './SDKSnippet'
+import { OnboardingStep } from '../OnboardingStep'
+import { type AdblockDetectionResult, useAdblockDetection } from './hooks/useAdblockDetection'
 import { useInstallationComplete } from './hooks/useInstallationComplete'
+import { AdblockWarning, RealtimeCheckIndicator } from './RealtimeCheckIndicator'
 import { sdksLogic } from './sdksLogic'
+import { SDKSnippet } from './SDKSnippet'
 
 interface SDKInstructionsModalProps {
     isOpen: boolean
     onClose: () => void
     sdk?: SDK
     sdkInstructionMap: SDKInstructionsMap
+    adblockResult: AdblockDetectionResult
     verifyingProperty?: string
     verifyingName?: string
 }
@@ -33,6 +35,7 @@ export function SDKInstructionsModal({
     onClose,
     sdk,
     sdkInstructionMap,
+    adblockResult,
     verifyingProperty = 'ingested_event',
     verifyingName = 'event',
 }: SDKInstructionsModalProps): JSX.Element {
@@ -56,6 +59,11 @@ export function SDKInstructionsModal({
                     <div className="flex-grow overflow-y-auto px-4 py-2">
                         <SDKSnippet sdk={sdk} sdkInstructions={sdkInstructions} />
                     </div>
+                    {!installationComplete && (
+                        <div className="px-4 py-2">
+                            <AdblockWarning adblockResult={adblockResult} />
+                        </div>
+                    )}
                     <footer className="sticky bottom-0 w-full bg-bg-light dark:bg-bg-depth rounded-b-sm p-2 flex justify-between items-center gap-2 px-4">
                         <RealtimeCheckIndicator
                             teamPropertyToVerify={verifyingProperty}
@@ -91,6 +99,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     const { currentTeam } = useValues(teamLogic)
 
     const installationComplete = useInstallationComplete(teamPropertyToVerify)
+    const adblockResult = useAdblockDetection()
     const isSkipButtonExperiment = useFeatureFlag('ONBOARDING_SKIP_INSTALL_STEP', 'test')
 
     useEffect(() => {
@@ -119,6 +128,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
             }
         >
             {header}
+            {!installationComplete && <AdblockWarning adblockResult={adblockResult} />}
             <div className="flex flex-col gap-y-4 mt-6">
                 <div className="flex flex-col gap-y-2">
                     <div className="flex flex-col-reverse md:flex-row justify-between gap-4">
@@ -132,11 +142,11 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
                             <LemonButton
                                 size="small"
                                 type="primary"
-                                onClick={() => void copyToClipboard(currentTeam?.api_token || '', 'Project API key')}
+                                onClick={() => void copyToClipboard(currentTeam?.api_token || '', 'Project token')}
                                 icon={<IconCopy />}
-                                data-attr="copy-api-key"
+                                data-attr="copy-project-token"
                             >
-                                Copy API key
+                                Copy project token
                             </LemonButton>
                             <InviteMembersButton
                                 type="primary"
@@ -211,6 +221,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
                     onClose={() => setInstructionsModalOpen(false)}
                     sdk={selectedSDK}
                     sdkInstructionMap={sdkInstructionMap}
+                    adblockResult={adblockResult}
                     verifyingProperty={teamPropertyToVerify}
                     verifyingName={listeningForName}
                 />

@@ -16,13 +16,6 @@ export interface PartitionOffset {
     offset: number
 }
 
-export type CaptureIngestionWarningFn = (
-    teamId: number,
-    type: string,
-    details: Record<string, any>,
-    debounce?: { key?: string; alwaysSend?: boolean }
-) => Promise<void>
-
 export interface BatchMessageProcessor<TInput, TOutput> {
     parseBatch(messages: TInput[]): Promise<TOutput[]>
 }

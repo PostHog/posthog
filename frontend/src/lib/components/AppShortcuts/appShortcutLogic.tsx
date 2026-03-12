@@ -1,8 +1,12 @@
 import { actions, afterMount, beforeUnmount, kea, path, reducers } from 'kea'
 
+import { isMac } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 
 import type { appShortcutLogicType } from './appShortcutLogicType'
+
+const IS_MAC = isMac()
+const COMMAND_OR_CTRL = IS_MAC ? 'command' : 'ctrl'
 
 const DISABLED_SHORTCUTS_KEY = 'posthog-disabled-shortcuts'
 
@@ -136,7 +140,7 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                 cache.sequenceKeys = []
                 cache.sequenceShortcut = null
 
-                const pressedKeys: string[] = ['command']
+                const pressedKeys: string[] = [COMMAND_OR_CTRL]
                 if (event.shiftKey) {
                     pressedKeys.push('shift')
                 }

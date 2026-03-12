@@ -333,6 +333,27 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("Search 'email a' matches via name substring", "type=person&search=email a", "email"),
+            ("Search 'email ad' matches via label alias", "type=person&search=email ad", "email"),
+            ("Search 'email address' matches via label alias", "type=person&search=email address", "email"),
+        ]
+    )
+    def test_person_property_search_matches_label_alias(
+        self, _name: str, query_params: str, expected_name: str
+    ) -> None:
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="email",
+            property_type="String",
+            type=PropertyDefinition.Type.PERSON,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?{query_params}")
+        assert response.status_code == status.HTTP_200_OK
+        assert any(prop["name"] == expected_name for prop in response.json()["results"])
+
+    @parameterized.expand(
+        [
             (
                 "Get all group1 properties",
                 "type=group&group_type_index=1",
@@ -405,9 +426,21 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert PropertyDefinition.objects.filter(id=property_definition.id).count() == 0
         mock_capture.assert_called_once_with(
-            event="property definition deleted",
             distinct_id=self.user.distinct_id,
-            properties={"name": "test_property", "type": "event"},
+            event="property definition deleted",
+            properties={
+                "source": ANY,
+                "$current_url": ANY,
+                "$session_id": ANY,
+                "was_impersonated": ANY,
+                "mcp_user_agent": ANY,
+                "mcp_client_name": ANY,
+                "mcp_client_version": ANY,
+                "mcp_protocol_version": ANY,
+                "mcp_oauth_client_name": ANY,
+                "name": "test_property",
+                "type": "event",
+            },
             groups={
                 "instance": ANY,
                 "organization": str(self.organization.id),

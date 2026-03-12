@@ -55,19 +55,19 @@ export interface PatchedDataWarehouseSavedQueryDraftApi {
 }
 
 /**
- * * `Running` - Running
+ * * `Cancelled` - Cancelled
  * `Completed` - Completed
  * `Failed` - Failed
- * `Cancelled` - Cancelled
+ * `Running` - Running
  */
 export type DataModelingJobStatusEnumApi =
     (typeof DataModelingJobStatusEnumApi)[keyof typeof DataModelingJobStatusEnumApi]
 
 export const DataModelingJobStatusEnumApi = {
-    Running: 'Running',
+    Cancelled: 'Cancelled',
     Completed: 'Completed',
     Failed: 'Failed',
-    Cancelled: 'Cancelled',
+    Running: 'Running',
 } as const
 
 export interface DataModelingJobApi {
@@ -288,9 +288,9 @@ export interface PaginatedExternalDataSchemaListApi {
  * `Granola` - Granola
  * `BuildBetter` - BuildBetter
  */
-export type SourceTypeEnumApi = (typeof SourceTypeEnumApi)[keyof typeof SourceTypeEnumApi]
+export type SourceTypeE09EnumApi = (typeof SourceTypeE09EnumApi)[keyof typeof SourceTypeE09EnumApi]
 
-export const SourceTypeEnumApi = {
+export const SourceTypeE09EnumApi = {
     Ashby: 'Ashby',
     Supabase: 'Supabase',
     CustomerIO: 'CustomerIO',
@@ -433,6 +433,17 @@ export const SourceTypeEnumApi = {
     BuildBetter: 'BuildBetter',
 } as const
 
+/**
+ * * `warehouse` - warehouse
+ * `direct` - direct
+ */
+export type AccessMethodEnumApi = (typeof AccessMethodEnumApi)[keyof typeof AccessMethodEnumApi]
+
+export const AccessMethodEnumApi = {
+    Warehouse: 'warehouse',
+    Direct: 'direct',
+} as const
+
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
     enabled?: boolean
     include_invoiceless_charges?: boolean
@@ -449,15 +460,19 @@ export interface ExternalDataSourceSerializersApi {
     readonly status: string
     client_secret: string
     account_id: string
-    readonly source_type: SourceTypeEnumApi
+    readonly source_type: SourceTypeE09EnumApi
     readonly latest_error: string
-    /** @nullable */
-    readonly prefix: string | null
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    prefix?: string | null
     /**
      * @maxLength 400
      * @nullable
      */
     description?: string | null
+    readonly access_method: AccessMethodEnumApi
     readonly last_run_at: string
     readonly schemas: string
     job_inputs?: unknown | null
@@ -489,15 +504,19 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly status?: string
     client_secret?: string
     account_id?: string
-    readonly source_type?: SourceTypeEnumApi
+    readonly source_type?: SourceTypeE09EnumApi
     readonly latest_error?: string
-    /** @nullable */
-    readonly prefix?: string | null
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    prefix?: string | null
     /**
      * @maxLength 400
      * @nullable
      */
     description?: string | null
+    readonly access_method?: AccessMethodEnumApi
     readonly last_run_at?: string
     readonly schemas?: string
     job_inputs?: unknown | null
@@ -511,7 +530,7 @@ export interface PatchedExternalDataSourceSerializersApi {
 
 export interface QueryTabStateApi {
     readonly id: string
-    /** 
+    /**
             Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
             and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
             ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
@@ -531,7 +550,7 @@ export interface PaginatedQueryTabStateListApi {
 
 export interface PatchedQueryTabStateApi {
     readonly id?: string
-    /** 
+    /**
             Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
             and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
             ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
@@ -821,8 +840,10 @@ export interface SimpleExternalDataSourceSerializersApi {
     /** @nullable */
     readonly created_by: number | null
     readonly status: string
-    readonly source_type: SourceTypeEnumApi
+    readonly source_type: SourceTypeE09EnumApi
 }
+
+export type TableApiOptions = { [key: string]: unknown }
 
 export interface TableApi {
     readonly id: string
@@ -839,6 +860,7 @@ export interface TableApi {
     readonly columns: string
     readonly external_data_source: SimpleExternalDataSourceSerializersApi
     readonly external_schema: string
+    options?: TableApiOptions
 }
 
 export interface PaginatedTableListApi {

@@ -139,12 +139,14 @@
 # name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_event_with_recordings.1
   '''
   
-  SELECT DISTINCT session_id
+  SELECT session_id
   FROM session_replay_events
   WHERE team_id = 99999
     and session_id in ['s2']
     AND min_first_timestamp >= '2020-12-31 00:00:00'
     AND max_last_timestamp <= '2021-01-09 23:59:59'
+  GROUP BY session_id
+  HAVING max(is_deleted) = 0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_event_with_recordings.2
@@ -355,12 +357,14 @@
 # name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_event_with_recordings.3
   '''
   
-  SELECT DISTINCT session_id
+  SELECT session_id
   FROM session_replay_events
   WHERE team_id = 99999
     and session_id in ['s2']
     AND min_first_timestamp >= '2020-12-31 00:00:00'
     AND max_last_timestamp <= '2021-01-09 23:59:59'
+  GROUP BY session_id
+  HAVING max(is_deleted) = 0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_properties_with_recordings
@@ -497,12 +501,14 @@
 # name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_properties_with_recordings.1
   '''
   
-  SELECT DISTINCT session_id
+  SELECT session_id
   FROM session_replay_events
   WHERE team_id = 99999
     and session_id in ['s2']
     AND min_first_timestamp >= '2020-12-31 00:00:00'
     AND max_last_timestamp <= '2021-01-09 23:59:59'
+  GROUP BY session_id
+  HAVING max(is_deleted) = 0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationsActors.test_strict_funnel_correlation_with_recordings
@@ -636,12 +642,14 @@
 # name: TestClickhouseFunnelCorrelationsActors.test_strict_funnel_correlation_with_recordings.1
   '''
   
-  SELECT DISTINCT session_id
+  SELECT session_id
   FROM session_replay_events
   WHERE team_id = 99999
     and session_id in ['s2']
     AND min_first_timestamp >= '2020-12-31 00:00:00'
     AND max_last_timestamp <= '2021-01-09 23:59:59'
+  GROUP BY session_id
+  HAVING max(is_deleted) = 0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationsActors.test_strict_funnel_correlation_with_recordings.2
@@ -775,11 +783,13 @@
 # name: TestClickhouseFunnelCorrelationsActors.test_strict_funnel_correlation_with_recordings.3
   '''
   
-  SELECT DISTINCT session_id
+  SELECT session_id
   FROM session_replay_events
   WHERE team_id = 99999
     and session_id in ['s3']
     AND min_first_timestamp >= '2020-12-31 00:00:00'
     AND max_last_timestamp <= '2021-01-09 23:59:59'
+  GROUP BY session_id
+  HAVING max(is_deleted) = 0
   '''
 # ---

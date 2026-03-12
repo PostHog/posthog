@@ -25,8 +25,8 @@ import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { isOptOutEligibleAction } from '../steps/types'
 import type { HogFlowAction } from '../types'
-import { OutputTestResultTree } from './OutputTestResultTree'
 import { hogFlowOutputMappingLogic } from './hogFlowOutputMappingLogic'
+import { OutputTestResultTree } from './OutputTestResultTree'
 
 export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     const { selectedNode, workflow, categories, categoriesLoading } = useValues(hogFlowEditorLogic)

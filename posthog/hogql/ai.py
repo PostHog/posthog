@@ -6,6 +6,7 @@ from django.conf import settings
 import openai
 import posthoganalytics
 from posthoganalytics.ai.openai import OpenAI
+from rest_framework.request import Request
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError
@@ -135,10 +136,13 @@ class PromptUnclear(Exception):
     pass
 
 
-def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, team: "Team", user: "User") -> str:
-    database = Database.create_for(team=team)
+def write_sql_from_prompt(
+    prompt: str, *, current_query: Optional[str] = None, team: "Team", user: "User", request: Optional["Request"] = None
+) -> str:
+    database = Database.create_for(team=team, user=user)
     context = HogQLContext(
         team_id=team.pk,
+        user=user,
         enable_select_queries=True,
         database=database,
         modifiers=create_default_modifiers_for_team(team),
@@ -220,6 +224,8 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
             "prompt_tokens_total": prompt_tokens_total,
             "completion_tokens_total": completion_tokens_total,
         },
+        team=team,
+        request=request,
     )
 
     if candidate_sql:
@@ -798,7 +804,7 @@ kvPairList: kvPair (COMMA kvPair)* COMMA?;
 // SELECT statement
 select: (selectSetStmt | selectStmt | hogqlxTagElement) EOF;
 selectStmtWithParens: selectStmt | LPAREN selectSetStmt RPAREN | placeholder;
-subsequentSelectSetClause: (EXCEPT | UNION ALL | UNION DISTINCT | INTERSECT | INTERSECT DISTINCT) selectStmtWithParens;
+subsequentSelectSetClause: (EXCEPT ALL | EXCEPT | UNION ALL (BY NAME)? | UNION DISTINCT (BY NAME)? | UNION (BY NAME)? | INTERSECT ALL | INTERSECT DISTINCT | INTERSECT) selectStmtWithParens;
 selectSetStmt: selectStmtWithParens (subsequentSelectSetClause)*;
 selectStmt:
     with=withClause?

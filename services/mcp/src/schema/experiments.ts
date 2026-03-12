@@ -68,8 +68,8 @@ export const ExperimentMeanMetricSchema = z
         metric_type: z.literal('mean'),
         source: ExperimentMetricSourceSchema,
     })
-    .merge(ExperimentMetricBasePropertiesSchema)
-    .merge(ExperimentMetricOutlierHandlingSchema)
+    .extend(ExperimentMetricBasePropertiesSchema.shape)
+    .extend(ExperimentMetricOutlierHandlingSchema.shape)
 
 export type ExperimentMeanMetric = z.infer<typeof ExperimentMeanMetricSchema>
 
@@ -84,7 +84,7 @@ export const ExperimentFunnelMetricSchema = z
         series: z.array(ExperimentFunnelMetricStepSchema),
         funnel_order_type: z.any().optional(), // StepOrderValue
     })
-    .merge(ExperimentMetricBasePropertiesSchema)
+    .extend(ExperimentMetricBasePropertiesSchema.shape)
 
 export type ExperimentFunnelMetric = z.infer<typeof ExperimentFunnelMetricSchema>
 
@@ -99,7 +99,7 @@ export const ExperimentRatioMetricSchema = z
         numerator: ExperimentMetricSourceSchema,
         denominator: ExperimentMetricSourceSchema,
     })
-    .merge(ExperimentMetricBasePropertiesSchema)
+    .extend(ExperimentMetricBasePropertiesSchema.shape)
 
 export type ExperimentRatioMetric = z.infer<typeof ExperimentRatioMetricSchema>
 
@@ -318,7 +318,7 @@ export const ExperimentCreatePayloadSchema = ToolExperimentCreateSchema.transfor
         name: input.name,
         description: input.description || null,
         feature_flag_key: input.feature_flag_key, // Maps to get_feature_flag_key in serializer
-        type: input.type || 'product',
+        type: 'product',
 
         // Metrics - ensure arrays are never null, always empty arrays when no metrics
         metrics: primaryMetrics,
@@ -364,7 +364,7 @@ export const ExperimentCreatePayloadSchema = ToolExperimentCreateSchema.transfor
         // Optional holdout
         holdout_id: input.holdout_id || null,
     }
-}).pipe(ExperimentApiPayloadSchema)
+})
 
 export type ExperimentCreatePayload = z.output<typeof ExperimentCreatePayloadSchema>
 
@@ -402,7 +402,14 @@ export const ExperimentUpdateTransformSchema = ToolExperimentUpdateInputSchema.t
         }
     }
 
-    // Handle experiment state management
+    // Handle experiment state management (restart first, then launch to allow restart+relaunch)
+    if (input.restart === true) {
+        updatePayload.start_date = null
+        updatePayload.end_date = null
+        updatePayload.conclusion = null
+        updatePayload.conclusion_comment = null
+    }
+
     if (input.launch === true) {
         updatePayload.start_date = new Date().toISOString()
     }
@@ -413,12 +420,6 @@ export const ExperimentUpdateTransformSchema = ToolExperimentUpdateInputSchema.t
         if (input.conclusion_comment !== undefined) {
             updatePayload.conclusion_comment = input.conclusion_comment
         }
-    }
-
-    if (input.restart === true) {
-        updatePayload.end_date = null
-        updatePayload.conclusion = null
-        updatePayload.conclusion_comment = null
     }
 
     if (input.archive !== undefined) {
@@ -466,60 +467,85 @@ export const ExperimentExposureQueryResponseSchema = z.object({
 
 export type ExperimentExposureQueryResponse = z.infer<typeof ExperimentExposureQueryResponseSchema>
 
-export const ExperimentResultsResponseSchema = z
-    .object({
-        experiment: ExperimentSchema.pick({
-            id: true,
-            name: true,
-            description: true,
-            feature_flag_key: true,
-            start_date: true,
-            end_date: true,
-            metrics: true,
-            metrics_secondary: true,
-            parameters: true, // Pick parameters to extract variants
-        }).transform((data) => ({
-            id: data.id,
-            name: data.name,
-            description: data.description,
-            feature_flag_key: data.feature_flag_key,
-            metrics: data.metrics,
-            metrics_secondary: data.metrics_secondary,
-            start_date: data.start_date,
-            end_date: data.end_date,
-            status: data.start_date ? (data.end_date ? 'completed' : 'running') : 'draft',
-            variants: data.parameters?.feature_flag_variants || [],
-        })),
-        exposures: ExperimentExposureQueryResponseSchema,
-        primaryMetricsResults: z.array(z.any()),
-        secondaryMetricsResults: z.array(z.any()),
-    })
-    .transform(({ experiment, exposures, primaryMetricsResults, secondaryMetricsResults }) => {
-        return {
-            experiment,
-            exposures,
-            metrics: {
-                primary: {
-                    count: primaryMetricsResults.length,
-                    results: primaryMetricsResults
-                        .map((result, index) => ({
-                            index,
-                            data: result,
-                        }))
-                        .filter((item) => item.data !== null),
-                },
-                secondary: {
-                    count: secondaryMetricsResults.length,
-                    results: secondaryMetricsResults
-                        .map((result, index) => ({
-                            index,
-                            data: result,
-                        }))
-                        .filter((item) => item.data !== null),
-                },
-            },
+export interface ExperimentResultsSummary {
+    experiment: {
+        id: number
+        name: string
+        description?: string | null | undefined
+        feature_flag_key: string
+        metrics?: unknown[] | null | undefined
+        metrics_secondary?: unknown[] | null | undefined
+        start_date?: string | null | undefined
+        end_date?: string | null | undefined
+        status: 'draft' | 'running' | 'completed'
+        variants: Array<{
+            key: string
+            name?: string | null | undefined
+            rollout_percentage?: number | null | undefined
+        }>
+    }
+    exposures: ExperimentExposureQueryResponse
+    metrics: {
+        primary: {
+            count: number
+            results: Array<{ index: number; data: unknown }>
         }
-    })
+        secondary: {
+            count: number
+            results: Array<{ index: number; data: unknown }>
+        }
+    }
+}
+
+export function transformExperimentResults(input: {
+    experiment: Experiment
+    exposures: ExperimentExposureQueryResponse
+    primaryMetricsResults: unknown[]
+    secondaryMetricsResults: unknown[]
+}): ExperimentResultsSummary {
+    const { experiment, exposures, primaryMetricsResults, secondaryMetricsResults } = input
+
+    const transformedExperiment = {
+        id: experiment.id,
+        name: experiment.name,
+        description: experiment.description,
+        feature_flag_key: experiment.feature_flag_key,
+        metrics: experiment.metrics,
+        metrics_secondary: experiment.metrics_secondary,
+        start_date: experiment.start_date,
+        end_date: experiment.end_date,
+        status: (experiment.start_date ? (experiment.end_date ? 'completed' : 'running') : 'draft') as
+            | 'draft'
+            | 'running'
+            | 'completed',
+        variants: experiment.parameters?.feature_flag_variants || [],
+    }
+
+    return {
+        experiment: transformedExperiment,
+        exposures,
+        metrics: {
+            primary: {
+                count: primaryMetricsResults.length,
+                results: primaryMetricsResults
+                    .map((result, index) => ({
+                        index,
+                        data: result,
+                    }))
+                    .filter((item) => item.data !== null),
+            },
+            secondary: {
+                count: secondaryMetricsResults.length,
+                results: secondaryMetricsResults
+                    .map((result, index) => ({
+                        index,
+                        data: result,
+                    }))
+                    .filter((item) => item.data !== null),
+            },
+        },
+    }
+}
 
 /**
  * Schema for updating existing experiments
@@ -547,7 +573,7 @@ export const ExperimentUpdatePayloadSchema = z
                 minimum_detectable_effect: z.number().nullish(),
                 recommended_running_time: z.number().nullish(),
                 recommended_sample_size: z.number().nullish(),
-                variant_screenshot_media_ids: z.record(z.array(z.string())).optional(),
+                variant_screenshot_media_ids: z.record(z.string(), z.array(z.string())).optional(),
             })
             .optional(),
 

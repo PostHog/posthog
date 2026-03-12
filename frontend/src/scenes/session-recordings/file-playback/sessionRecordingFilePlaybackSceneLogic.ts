@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { createWindowIdRegistry } from '@posthog/replay-shared'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
@@ -11,10 +12,9 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { SessionRecordingPlayerProps } from '../player/SessionRecordingPlayer'
 import { sessionRecordingDataCoordinatorLogic } from '../player/sessionRecordingDataCoordinatorLogic'
 import type { sessionRecordingDataCoordinatorLogicType } from '../player/sessionRecordingDataCoordinatorLogicType'
-import { createWindowIdRegistry } from '../player/snapshot-processing/process-all-snapshots'
+import { SessionRecordingPlayerProps } from '../player/SessionRecordingPlayer'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import type { sessionRecordingFilePlaybackSceneLogicType } from './sessionRecordingFilePlaybackSceneLogicType'
 import { ExportedSessionRecordingFileV1, ExportedSessionRecordingFileV2 } from './types'

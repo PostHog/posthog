@@ -9,9 +9,8 @@ import { userLogic } from 'scenes/userLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { DisableSurvey } from './DisableSurvey'
-import { ErrorTrackingIngestionControls } from './IngestionControls'
-import { ErrorTrackingClientSuppression } from './SuppressionRules'
 import { disableSurveyLogic } from './disableSurveyLogic'
+import { ErrorTrackingClientSuppression } from './SuppressionRules'
 
 export function ExceptionAutocaptureToggle(): JSX.Element {
     const { userLoading } = useValues(userLogic)
@@ -55,10 +54,4 @@ export function ExceptionSuppressionRules(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
     return <ErrorTrackingClientSuppression disabled={!currentTeam?.autocapture_exceptions_opt_in} />
-}
-
-export function ExceptionIngestionControls(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-
-    return <ErrorTrackingIngestionControls disabled={!currentTeam?.autocapture_exceptions_opt_in} />
 }

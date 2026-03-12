@@ -1,3 +1,4 @@
+// eslint-disable-next-line import/no-cycle
 import { SeriesColorDot } from './BillingLineGraph'
 
 export interface BillingLineGraphTooltipSeriesItem {

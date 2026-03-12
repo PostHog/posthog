@@ -29,6 +29,7 @@ from posthog.temporal.ai.session_summary.activities import (
     CaptureTimingInputs,
     analyze_video_segment_activity,
     capture_timing_activity,
+    cleanup_gemini_file_activity,
     consolidate_video_segments_activity,
     embed_and_store_segments_activity,
     prep_session_video_asset_activity,
@@ -662,62 +663,72 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
         inactivity_periods=inactivity_periods,
     )
 
-    # Activity 3: Analyze all segments in parallel (max 100 concurrent to limit blast radius)
-    semaphore = asyncio.Semaphore(100)
+    # Activity 7 (cleanup) must run even if activities 3-6 fail
+    try:
+        # Activity 3: Analyze all segments in parallel (max 100 concurrent to limit blast radius)
+        semaphore = asyncio.Semaphore(100)
 
-    async def _analyze_segment_with_semaphore(segment_spec: VideoSegmentSpec):
-        async with semaphore:
-            return await temporalio.workflow.execute_activity(
-                analyze_video_segment_activity,
-                args=(video_inputs, uploaded_video, segment_spec, trace_id, team_name),
-                start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=retry_policy,
-            )
+        async def _analyze_segment_with_semaphore(segment_spec: VideoSegmentSpec):
+            async with semaphore:
+                return await temporalio.workflow.execute_activity(
+                    analyze_video_segment_activity,
+                    args=(video_inputs, uploaded_video, segment_spec, trace_id, team_name),
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=retry_policy,
+                )
 
-    segment_tasks = [_analyze_segment_with_semaphore(segment_spec) for segment_spec in segment_specs]
-    segment_results = await asyncio.gather(*segment_tasks, return_exceptions=True)
+        segment_tasks = [_analyze_segment_with_semaphore(segment_spec) for segment_spec in segment_specs]
+        segment_results = await asyncio.gather(*segment_tasks, return_exceptions=True)
 
-    # Flatten results from all segments
-    raw_segments: list[VideoSegmentOutput] = []
-    for result in segment_results:
-        if isinstance(result, Exception):
-            posthoganalytics.capture_exception(
-                result,
-                distinct_id=inputs.user_distinct_id_to_log,
-                properties={"$session_id": inputs.session_id},
-            )
-            logger.exception(
-                f"Error analyzing video segment for session {inputs.session_id}: {result}",
-                signals_type="session-summaries",
-            )
-            continue
-        raw_segments.extend(cast(list[VideoSegmentOutput], result))
+        # Flatten results from all segments
+        raw_segments: list[VideoSegmentOutput] = []
+        for result in segment_results:
+            if isinstance(result, Exception):
+                posthoganalytics.capture_exception(
+                    result,
+                    distinct_id=inputs.user_distinct_id_to_log,
+                    properties={"$session_id": inputs.session_id},
+                )
+                logger.exception(
+                    f"Error analyzing video segment for session {inputs.session_id}: {result}",
+                    signals_type="session-summaries",
+                )
+                continue
+            raw_segments.extend(cast(list[VideoSegmentOutput], result))
 
-    # Activity 4: Consolidate raw segments into meaningful semantic segments
-    consolidated_analysis = await temporalio.workflow.execute_activity(
-        consolidate_video_segments_activity,
-        args=(video_inputs, raw_segments, trace_id),
-        start_to_close_timeout=timedelta(minutes=3),
-        retry_policy=retry_policy,
-    )
+        # Activity 4: Consolidate raw segments into meaningful semantic segments
+        consolidated_analysis = await temporalio.workflow.execute_activity(
+            consolidate_video_segments_activity,
+            args=(video_inputs, raw_segments, trace_id),
+            start_to_close_timeout=timedelta(minutes=3),
+            retry_policy=retry_policy,
+        )
 
-    # Activity 5: Generate embeddings for all segments and store in ClickHouse via Kafka
-    await temporalio.workflow.execute_activity(
-        embed_and_store_segments_activity,
-        args=(video_inputs, consolidated_analysis.segments),
-        start_to_close_timeout=timedelta(minutes=5),
-        retry_policy=retry_policy,
-    )
+        # Activity 5: Generate embeddings for all segments and store in ClickHouse via Kafka
+        await temporalio.workflow.execute_activity(
+            embed_and_store_segments_activity,
+            args=(video_inputs, consolidated_analysis.segments),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=retry_policy,
+        )
 
-    # Activity 6: Store video-based summary in database
-    # This activity retrieves the cached event data from Redis (from fetch_session_data_activity)
-    # and uses it to map video segments to real events
-    await temporalio.workflow.execute_activity(
-        store_video_session_summary_activity,
-        args=(video_inputs, consolidated_analysis),
-        start_to_close_timeout=timedelta(minutes=5),
-        retry_policy=retry_policy,
-    )
+        # Activity 6: Store video-based summary in database
+        # This activity retrieves the cached event data from Redis (from fetch_session_data_activity)
+        # and uses it to map video segments to real events
+        await temporalio.workflow.execute_activity(
+            store_video_session_summary_activity,
+            args=(video_inputs, consolidated_analysis),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=retry_policy,
+        )
+    finally:
+        # Activity 7: Delete uploaded video from Gemini to free storage quota
+        await temporalio.workflow.execute_activity(
+            cleanup_gemini_file_activity,
+            args=(uploaded_video.gemini_file_name, inputs.session_id),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
 
 
 async def _execute_single_session_summary_workflow(inputs: SingleSessionSummaryInputs, workflow_id: str) -> None:

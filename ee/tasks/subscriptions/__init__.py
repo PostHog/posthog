@@ -88,7 +88,7 @@ async def deliver_subscription_report_async(
     # Fetch subscription asynchronously
     logger.info("deliver_subscription_report_async.loading_subscription", subscription_id=subscription_id)
     subscription = await database_sync_to_async(
-        Subscription.objects.select_related("created_by", "insight", "dashboard", "team").get,
+        Subscription.objects.select_related("created_by", "insight", "dashboard", "team", "integration").get,
         thread_sensitive=False,
     )(pk=subscription_id)
 
@@ -203,9 +203,21 @@ async def deliver_subscription_report_async(
 
         try:
             logger.info("deliver_subscription_report_async.loading_slack_integration", subscription_id=subscription_id)
-            integration = await database_sync_to_async(get_slack_integration_for_team, thread_sensitive=False)(
-                subscription.team_id
-            )
+            integration = subscription.integration
+            if integration is None:
+                integration = await database_sync_to_async(get_slack_integration_for_team, thread_sensitive=False)(
+                    subscription.team_id
+                )
+            elif integration.kind != "slack":
+                logger.warn(
+                    "deliver_subscription_report_async.invalid_integration_kind",
+                    subscription_id=subscription_id,
+                    integration_id=integration.id,
+                    kind=integration.kind,
+                )
+                integration = await database_sync_to_async(get_slack_integration_for_team, thread_sensitive=False)(
+                    subscription.team_id
+                )
 
             if not integration:
                 logger.warn("deliver_subscription_report_async.no_slack_integration", subscription_id=subscription_id)

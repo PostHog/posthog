@@ -2,8 +2,8 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { liveEventsLogic } from 'scenes/activity/live/liveEventsLogic'
 

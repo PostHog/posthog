@@ -6,8 +6,8 @@ import { useState } from 'react'
 import { CSSTransition } from 'react-transition-group'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { WelcomeLogo } from 'scenes/authentication/WelcomeLogo'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { Region } from '~/types'
 

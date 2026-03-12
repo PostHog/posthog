@@ -1,0 +1,109 @@
+name: PR Approval Agent
+
+on:
+    pull_request:
+        types: [labeled, ready_for_review]
+
+permissions:
+    contents: read
+    pull-requests: write
+
+concurrency:
+    group: pr-approval-${{ github.event.pull_request.number }}
+
+jobs:
+    review:
+        # Write access is required to apply the stamphog label, so no
+        # additional author_association check is needed.
+        if: >-
+            !github.event.pull_request.draft
+            && (
+              github.event.label.name == 'stamphog'
+              || (github.event.action == 'ready_for_review' && contains(github.event.pull_request.labels.*.name, 'stamphog'))
+            )
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+
+        steps:
+            - name: Get app token
+              id: app-token
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              with:
+                  app_id: ${{ secrets.GH_APP_PR_APPROVAL_AGENT_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_PR_APPROVAL_AGENT_PRIVATE_KEY }}
+
+            # Always run the approval script from master — hardcoded so a PR
+            # targeting a non-master branch can't supply a tampered script.
+            - name: Checkout master (blobless, full history)
+              uses: actions/checkout@v6
+              with:
+                  token: ${{ steps.app-token.outputs.token }}
+                  ref: master
+                  filter: blob:none
+                  fetch-depth: 0
+
+            - name: Fetch PR head ref
+              run: git fetch --filter=blob:none origin pull/${{ github.event.pull_request.number }}/head
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: false
+
+            - name: Run review
+              env:
+                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  uv run tools/pr-approval-agent/review_pr.py \
+                    ${{ github.event.pull_request.number }} \
+                    --repo ${{ github.repository }} \
+                    --output-json /tmp/review.json
+
+            - name: Post review
+              if: success()
+              env:
+                  # Use GITHUB_TOKEN for approvals so github-actions[bot] is the
+                  # reviewer — its approvals count toward branch protection rules,
+                  # unlike GitHub App bot approvals which show author_association NONE.
+                  GH_TOKEN_APPROVE: ${{ github.token }}
+                  GH_TOKEN_COMMENT: ${{ steps.app-token.outputs.token }}
+              run: |
+                  VERDICT=$(jq -r '.final_verdict' /tmp/review.json)
+                  REASONING=$(jq -r '.reviewer.reasoning // "No reasoning provided"' /tmp/review.json)
+                  PR=${{ github.event.pull_request.number }}
+
+                  if [ "$VERDICT" = "APPROVED" ]; then
+                    GH_TOKEN="$GH_TOKEN_APPROVE" gh pr review "$PR" --approve --body "$REASONING" \
+                      --repo ${{ github.repository }}
+                  else
+                    GH_TOKEN="$GH_TOKEN_COMMENT" gh pr review "$PR" --comment --body "$REASONING" \
+                      --repo ${{ github.repository }}
+                  fi
+
+            - name: Post failure notice
+              if: failure()
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  gh pr comment "${{ github.event.pull_request.number }}" \
+                    --body "Review agent failed — check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) and re-apply the label to retry." \
+                    --repo ${{ github.repository }}
+
+            - name: Remove label
+              if: always()
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  gh pr edit "${{ github.event.pull_request.number }}" \
+                    --remove-label stamphog \
+                    --repo ${{ github.repository }}
+
+            - name: Upload evidence
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: review-${{ github.event.pull_request.number }}
+                  path: /tmp/review.json
+                  retention-days: 30

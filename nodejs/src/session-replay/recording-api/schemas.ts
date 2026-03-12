@@ -27,14 +27,15 @@ export const TeamParamsSchema = z.object({
     team_id: positiveIntString('team_id'),
 })
 
-const MAX_BULK_DELETE_SESSION_IDS = 100
+const MAX_DELETE_SESSION_IDS = 100
 
-// Body schema for bulk delete requests
-export const BulkDeleteBodySchema = z.object({
+// Body schema for delete requests
+export const DeleteRecordingsBodySchema = z.object({
     session_ids: z
         .array(z.string().min(1, 'Invalid session_id'))
         .min(1, 'session_ids must not be empty')
-        .max(MAX_BULK_DELETE_SESSION_IDS, `Too many session_ids (max ${MAX_BULK_DELETE_SESSION_IDS})`),
+        .max(MAX_DELETE_SESSION_IDS, `Too many session_ids (max ${MAX_DELETE_SESSION_IDS})`),
+    deleted_by: z.string().min(1, 'Missing deleted_by').max(254),
 })
 
 // Static schema for getBlock query params (validates structure only)
@@ -43,6 +44,10 @@ export const GetBlockQuerySchema = z
         key: z.string({ required_error: 'Missing key query parameter' }).min(1, 'Invalid key query parameter'),
         start: nonNegativeIntString('start'),
         end: nonNegativeIntString('end'),
+        decompress: z
+            .enum(['true', 'false', '1', '0'])
+            .optional()
+            .transform((v) => v === 'true' || v === '1'),
     })
     .refine((data) => data.start <= data.end, {
         message: 'start must be less than or equal to end',

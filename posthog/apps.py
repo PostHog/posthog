@@ -22,7 +22,12 @@ class PostHogConfig(AppConfig):
     def ready(self):
         self._setup_lazy_admin()
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
-        posthoganalytics.personal_api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
+        # Fall back to DEV_API_KEY in debug so feature flags work locally without manual env setup.
+        # DEV_API_KEY lives in ee/settings.py — getattr returns None in OSS mode.
+        posthoganalytics.personal_api_key = os.environ.get(
+            "POSTHOG_PERSONAL_API_KEY",
+            getattr(settings, "DEV_API_KEY", None) if settings.DEBUG else None,
+        )
         posthoganalytics.poll_interval = 90
         posthoganalytics.enable_exception_autocapture = True
         posthoganalytics.log_captured_exceptions = True
@@ -44,7 +49,7 @@ class PostHogConfig(AppConfig):
             posthoganalytics.disabled = True
         elif settings.DEBUG:
             # In dev, analytics is by default turned to self-capture, i.e. data going into this very instance of PostHog
-            # Due to ASGI's workings, we can't query for the right project API key in this `ready()` method
+            # Due to ASGI's workings, we can't query for the right project token in this `ready()` method
             # Instead, we configure self-capture with `self_capture_wrapper()` in posthog/asgi.py - see that file
             # Self-capture for WSGI is initialized here
             posthoganalytics.disabled = True

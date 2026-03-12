@@ -86,7 +86,7 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
             content: (
                 <>
                     <Markdown>
-                        Initialize PostHog with your project API key and host from [your project
+                        Initialize PostHog with your project token and host from [your project
                         settings](https://app.posthog.com/settings/project), then pass it to the LangChain
                         `CallbackHandler` wrapper. Optionally, you can provide a user distinct ID, trace ID, PostHog
                         properties, [groups](https://posthog.com/docs/product-analytics/group-analytics), and privacy
@@ -105,7 +105,7 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                     from posthog import Posthog
 
                                     posthog = Posthog(
-                                        "<ph_project_api_key>",
+                                        "<ph_project_token>",
                                         host="<ph_client_api_host>"
                                     )
 
@@ -129,7 +129,7 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                     import { ChatPromptTemplate } from '@langchain/core/prompts';
 
                                     const phClient = new PostHog(
-                                      '<ph_project_api_key>',
+                                      '<ph_project_token>',
                                       { host: '<ph_client_api_host>' }
                                     );
 

@@ -4,9 +4,9 @@ import { IconTrash } from '@posthog/icons'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
+import { IconLink } from '../icons'
 import { LemonButton } from '../LemonButton'
 import { LemonDivider } from '../LemonDivider'
-import { IconLink } from '../icons'
 import { LemonTable, LemonTableProps } from './LemonTable'
 import { LemonTableLink } from './LemonTableLink'
 

@@ -19,7 +19,7 @@ from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selec
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 from posthog.temporal.data_modeling.workflows.materialize_view import MaterializeViewWorkflowInputs
 
-from products.data_modeling.backend.models import Edge, Node, NodeType
+from products.data_modeling.backend.models import DAG, Edge, Node, NodeType
 from products.data_warehouse.backend.models.external_data_schema import sync_frequency_interval_to_sync_frequency
 
 
@@ -37,7 +37,8 @@ class NodeSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "type",
-            "dag_id_text",
+            "dag_fk",
+            "description",
             "saved_query_id",
             "created_at",
             "updated_at",
@@ -112,7 +113,7 @@ def _get_upstream_nodes(node: Node) -> set[str]:
             Edge.objects.exclude(source__type=NodeType.TABLE)
             .filter(
                 team_id=node.team_id,
-                dag_id_text=node.dag_id_text,
+                dag_fk_id=node.dag_fk_id,
                 target_id__in=current,
             )
             .values_list("source_id", flat=True)
@@ -130,7 +131,7 @@ def _get_downstream_nodes(node: Node) -> set[str]:
             Edge.objects.exclude(target__type=NodeType.TABLE)
             .filter(
                 team_id=node.team_id,
-                dag_id_text=node.dag_id_text,
+                dag_fk_id=node.dag_fk_id,
                 source_id__in=current,
             )
             .values_list("target_id", flat=True)
@@ -145,14 +146,15 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = NodeSerializer
     pagination_class = NodePagination
     filter_backends = [filters.SearchFilter]
-    search_fields = ["name", "dag_id_text"]
+    search_fields = ["name", "dag_fk__name"]
     ordering = "name"
 
     def get_serializer_context(self) -> dict[str, Any]:
         return super().get_serializer_context()
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(team_id=self.team_id, dag_id_text=f"posthog_{self.team_id}").order_by(self.ordering)
+        # TODO(andrew): remove the dag name filter after you have split up team 2 into multiple DAGs
+        return queryset.filter(team_id=self.team_id, dag_fk__name=f"posthog_{self.team_id}").order_by(self.ordering)
 
     @action(methods=["POST"], detail=True)
     def run(self, req: request.Request, *args, **kwargs) -> response.Response:
@@ -189,7 +191,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if _is_v2_backend_enabled(cast(User, req.user), self.team):
             inputs: ExecuteDAGInputs | RunWorkflowInputs = ExecuteDAGInputs(
                 team_id=self.team_id,
-                dag_id=node.dag_id_text,
+                dag_id=str(node.dag_fk_id),
                 node_ids=list(node_ids),
             )
             workflow_name = "data-modeling-execute-dag"
@@ -212,7 +214,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ]
             inputs = RunWorkflowInputs(team_id=self.team_id, select=selectors)
             workflow_name = "data-modeling-run"
-            workflow_id = f"data-modeling-run-{node.dag_id_text}-{uuid4()}"
+            workflow_id = f"data-modeling-run-{node.dag_fk_id}-{uuid4()}"
 
         temporal = sync_connect()
         asyncio.run(
@@ -235,12 +237,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def dag_ids(self, req: request.Request, *args, **kwargs) -> response.Response:
         """Get all distinct dag_ids for the team's nodes."""
-        dag_ids = list(
-            Node.objects.filter(team_id=self.team_id)
-            .values_list("dag_id_text", flat=True)
-            .distinct()
-            .order_by("dag_id_text")
-        )
+        dag_ids = list(DAG.objects.filter(team_id=self.team_id).values_list("name", flat=True).order_by("name"))
         return response.Response({"dag_ids": dag_ids}, status=status.HTTP_200_OK)
 
     @action(methods=["POST"], detail=True)
@@ -257,7 +254,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if _is_v2_backend_enabled(cast(User, req.user), self.team):
             inputs: MaterializeViewWorkflowInputs | RunWorkflowInputs = MaterializeViewWorkflowInputs(
                 team_id=self.team_id,
-                dag_id=node.dag_id_text,
+                dag_id=str(node.dag_fk_id),
                 node_id=str(node.id),
             )
             workflow_name = "data-modeling-materialize-view"

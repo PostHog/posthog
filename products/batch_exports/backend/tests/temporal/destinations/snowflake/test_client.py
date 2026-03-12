@@ -213,10 +213,34 @@ async def test_get_table_raises_incompatible_schema_on_missing_primary_key_field
         ),
         parents=test_table.parents,
         primary_key=("missing_key_one", "missing_key_two"),
-        version_key=("id"),
+        version_key=("id",),
     )
 
     with pytest.raises(SnowflakeIncompatibleSchemaError) as excinfo:
         await snowflake_client.get_table(table)
 
-    assert "'missing_key_one', 'missing_key_two'" in str(excinfo.value)
+    assert "'missing_key_one'" in str(excinfo.value)
+    assert "'missing_key_two'" in str(excinfo.value)
+
+
+async def test_get_table_raises_incompatible_schema_on_missing_version_key_fields(
+    snowflake_client, database, schema, test_table
+):
+    """Test attempting to get a table with missing version_key fields fails"""
+    table = SnowflakeTable(
+        name=test_table.name,
+        fields=(
+            *test_table.fields,
+            SnowflakeField("missing_key_one", SnowflakeType("INTEGER", False), pa.int64(), True),
+            SnowflakeField("missing_key_two", SnowflakeType("INTEGER", False), pa.int64(), True),
+        ),
+        parents=test_table.parents,
+        primary_key=("id",),
+        version_key=("missing_key_one", "missing_key_two"),
+    )
+
+    with pytest.raises(SnowflakeIncompatibleSchemaError) as excinfo:
+        await snowflake_client.get_table(table)
+
+    assert "'missing_key_one'" in str(excinfo.value)
+    assert "'missing_key_two'" in str(excinfo.value)

@@ -51,7 +51,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                     code={dedent`
                                                         import { PostHog } from 'posthog-node'
 
-                                                        const client = new PostHog('<ph_project_api_key>', {
+                                                        const client = new PostHog('<ph_project_token>', {
                                                             host: '<ph_client_api_host>'
                                                         })
                                                     `}
@@ -97,7 +97,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                     code={dedent`
                                                         from posthog import Posthog
 
-                                                        posthog = Posthog("<ph_project_api_key>", host="<ph_client_api_host>")
+                                                        posthog = Posthog("<ph_project_token>", host="<ph_client_api_host>")
                                                     `}
                                                 />
 
@@ -142,7 +142,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                     code={dedent`
                                                         import "github.com/posthog/posthog-go"
 
-                                                        client, _ := posthog.NewWithConfig("<ph_project_api_key>", posthog.Config{
+                                                        client, _ := posthog.NewWithConfig("<ph_project_token>", posthog.Config{
                                                             Endpoint: "<ph_client_api_host>",
                                                         })
                                                         defer client.Close()
@@ -186,7 +186,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                         require 'posthog-ruby'
 
                                                         posthog = PostHog::Client.new({
-                                                            api_key: '<ph_project_api_key>',
+                                                            api_key: '<ph_project_token>',
                                                             host: '<ph_client_api_host>'
                                                         })
                                                     `}
@@ -233,7 +233,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                         require_once __DIR__ . '/vendor/autoload.php';
                                                         use PostHog\\PostHog;
 
-                                                        PostHog::init('<ph_project_api_key>', [
+                                                        PostHog::init('<ph_project_token>', [
                                                             'host' => '<ph_client_api_host>'
                                                         ]);
                                                     `}
@@ -273,7 +273,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                         curl -X POST "<ph_client_api_host>/i/v0/e/" \\
                                                                 -H "Content-Type: application/json" \\
                                                                 -d '{
-                                                                    "api_key": "<ph_project_api_key>",
+                                                                    "api_key": "<ph_project_token>",
                                                                     "event": "$ai_generation",
                                                                     "properties": {
                                                                         "distinct_id": "user_123",

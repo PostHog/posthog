@@ -1,9 +1,11 @@
 import json
+import uuid
 from collections.abc import AsyncGenerator
 from contextlib import nullcontext
 from typing import Any, Optional, cast
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db.models import CharField, Count, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
 from django.db.models.functions import Cast
 from django.http import StreamingHttpResponse
@@ -16,6 +18,7 @@ import posthoganalytics
 from asgiref.sync import sync_to_async
 from drf_spectacular.utils import extend_schema
 from opentelemetry import trace
+from pydantic import BaseModel
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
@@ -23,11 +26,16 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 from rest_framework.utils.serializer_helpers import ReturnDict
 
+from posthog.schema import InsightVizNode
+
+from posthog.api.dashboards.dashboard_ai import generate_refresh_analysis
 from posthog.api.dashboards.dashboard_template_json_schema_parser import DashboardTemplateCreationJSONSchemaParser
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import InsightSerializer, InsightViewSet
+from posthog.api.insight_suggestions import summarize_insight_result
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.services.query import process_query_model
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
@@ -36,12 +44,14 @@ from posthog.constants import GENERATED_DASHBOARD_PREFIX
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Dashboard, DashboardTile, Insight, Text
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.alert import AlertConfiguration
 from posthog.models.dashboard_templates import DashboardTemplate
-from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.group_type_mapping import GroupTypeMapping, invalidate_group_types_cache
 from posthog.models.insight_variable import InsightVariable
+from posthog.models.quick_filter import QuickFilter
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
@@ -83,6 +93,7 @@ DASHBOARD_SHARED_FIELDS = [
     "persisted_filters",
     "persisted_variables",
     "team_id",
+    "quick_filter_ids",
 ]
 
 
@@ -127,6 +138,29 @@ class CanEditDashboard(BasePermission):
         if request.method in SAFE_METHODS:
             return True
         return view.user_permissions.dashboard(dashboard).can_edit
+
+
+class ClientResultItemSerializer(serializers.Serializer):
+    insight_name = serializers.CharField(required=True)
+
+    # `data` shadows Serializer.data so we declare it via get_fields to avoid the mypy conflict
+    def get_fields(self):
+        fields = super().get_fields()
+        fields["data"] = serializers.JSONField(required=True)
+        return fields
+
+    def validate_data(self, value):
+        if not value:
+            raise serializers.ValidationError("Data cannot be empty.")
+        return value
+
+
+class DashboardSnapshotSerializer(serializers.Serializer):
+    client_results = serializers.DictField(
+        child=ClientResultItemSerializer(),
+        required=False,
+        allow_null=True,
+    )
 
 
 class TextSerializer(serializers.ModelSerializer):
@@ -242,6 +276,12 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
     breakdown_colors = serializers.JSONField(required=False)
     data_color_theme_id = serializers.IntegerField(required=False, allow_null=True)
+    quick_filter_ids = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text="List of quick filter IDs associated with this dashboard",
+    )
     persisted_filters = serializers.SerializerMethodField()
     persisted_variables = serializers.SerializerMethodField()
 
@@ -263,6 +303,37 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
 
     def get_persisted_variables(self, dashboard: Dashboard) -> dict | None:
         return dashboard.variables if dashboard.variables else None
+
+    def to_representation(self, instance: Dashboard) -> ReturnDict:
+        ret = super().to_representation(instance)
+        if ret.get("quick_filter_ids") is None:
+            ret["quick_filter_ids"] = []
+        return ret
+
+    def _filter_out_non_existing_quick_filter_ids(self, quick_filter_ids: list[str], team_id: int) -> list[str]:
+        existing_quick_filter_ids = {
+            str(uid)
+            for uid in QuickFilter.objects.filter(team_id=team_id, id__in=quick_filter_ids).values_list("id", flat=True)
+        }
+        return [qf_id for qf_id in quick_filter_ids if qf_id in existing_quick_filter_ids]
+
+    def validate_quick_filter_ids(self, value: list[str] | None) -> list[str]:
+        if not value:
+            return []
+
+        normalized = []
+        for v in value:
+            try:
+                normalized.append(str(uuid.UUID(v)))
+            except ValueError:
+                raise serializers.ValidationError(f"Invalid UUID: {v}")
+
+        valid_ids = self._filter_out_non_existing_quick_filter_ids(normalized, self.context["get_team"]().id)
+        if len(valid_ids) != len(normalized):
+            missing = [v for v in normalized if v not in valid_ids]
+            raise serializers.ValidationError(f"Quick filters not found: {', '.join(missing)}")
+
+        return normalized
 
 
 class DashboardSerializer(DashboardMetadataSerializer):
@@ -306,9 +377,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
         validated_data.pop("delete_insights", None)  # not used during creation
         validated_data = self._update_creation_mode(validated_data, use_template, use_dashboard)
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
-        current_url = request.headers.get("Referer")
-        session_id = request.headers.get("X-Posthog-Session-Id")
-
         existing_dashboard: Dashboard | None = None
         if use_dashboard:
             try:
@@ -336,6 +404,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         if existing_dashboard and existing_dashboard.data_color_theme_id:
             validated_data["data_color_theme_id"] = existing_dashboard.data_color_theme_id
+
+        if existing_dashboard and existing_dashboard.quick_filter_ids:
+            validated_data["quick_filter_ids"] = self._filter_out_non_existing_quick_filter_ids(
+                existing_dashboard.quick_filter_ids, team_id
+            )
 
         dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
 
@@ -376,9 +449,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 "template_key": use_template,
                 "duplicated": bool(use_dashboard),
                 "dashboard_id": use_dashboard,
-                "$current_url": current_url,
-                "$session_id": session_id,
             },
+            team=dashboard.team,
+            request=request,
         )
 
         return dashboard
@@ -407,6 +480,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 layouts=existing_tile.layouts,
                 color=existing_tile.color,
                 filters_overrides=existing_tile.filters_overrides,
+                show_description=existing_tile.show_description,
             )
         elif existing_tile.text:
             new_data = {
@@ -424,6 +498,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 layouts=existing_tile.layouts,
                 color=existing_tile.color,
                 filters_overrides=existing_tile.filters_overrides,
+                show_description=existing_tile.show_description,
             )
 
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="PATCH")
@@ -456,6 +531,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             if group_type_mapping:
                 group_type_mapping.detail_dashboard_id = None
                 group_type_mapping.save()
+                invalidate_group_types_cache(instance.team.project_id)
 
         request_filters = initial_data.get("filters")
         if request_filters:
@@ -484,7 +560,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
             self._deep_duplicate_tiles(instance, existing_tile)
 
         if "request" in self.context:
-            report_user_action(user, "dashboard updated", instance.get_analytics_metadata())
+            report_user_action(
+                user,
+                "dashboard updated",
+                instance.get_analytics_metadata(),
+                team=instance.team,
+                request=self.context["request"],
+            )
 
         self.user_permissions.reset_insights_dashboard_cached_results()
         return instance
@@ -499,7 +581,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
             created_by_json = text_json.get("created_by", None)
             if created_by_json:
                 last_modified_by = user
-                created_by = User.objects.get(id=created_by_json.get("id"))
+                try:
+                    created_by = User.objects.get(
+                        id=created_by_json.get("id"),
+                        organization_membership__organization_id=instance.team.organization_id,
+                    )
+                except User.DoesNotExist:
+                    raise serializers.ValidationError("User not found in this organization.")
             else:
                 created_by = user
                 last_modified_by = None
@@ -524,7 +612,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 defaults={**tile_data, "text": text, "dashboard": instance},
             )
         elif (
-            "deleted" in tile_data or "color" in tile_data or "layouts" in tile_data or "filters_overrides" in tile_data
+            "deleted" in tile_data
+            or "color" in tile_data
+            or "layouts" in tile_data
+            or "filters_overrides" in tile_data
+            or "show_description" in tile_data
         ):
             tile_data.pop("insight", None)  # don't ever update insight tiles here
 
@@ -744,14 +836,122 @@ class DashboardsViewSet(
 
         return queryset
 
+    def _get_cached_results_for_analysis(self, dashboard: Dashboard, request: Request) -> dict[int, Any]:
+        """
+        Fetch currently cached results for all insight tiles on the dashboard.
+        Uses CACHE_ONLY_NEVER_CALCULATE to ensure we get the 'before' state without triggering recalc.
+        Returns dict mapping tile_id to summarized result data.
+        """
+        results = {}
+        tiles = dashboard.tiles.filter(insight__isnull=False).select_related("insight")
+
+        for tile in tiles:
+            insight = tile.insight
+            if not insight or not insight.query:
+                continue
+
+            try:
+                query = InsightVizNode.model_validate(insight.query)
+            except Exception:
+                logger.warning("dashboard_refresh_analysis_query_validation_failed", tile_id=tile.id)
+                continue
+
+            try:
+                result_ctx = process_query_model(
+                    self.team,
+                    query,
+                    execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+                    user=request.user if request.user.is_authenticated else None,
+                    request=request,
+                )
+
+                result_data = None
+                if isinstance(result_ctx, BaseModel):
+                    result_dict = result_ctx.model_dump()
+                    result_data = result_dict.get("results") or result_dict.get("result")
+                elif isinstance(result_ctx, dict):
+                    result_data = result_ctx.get("results") or result_ctx.get("result")
+
+                if result_data:
+                    results[tile.id] = {
+                        "insight_name": insight.name or insight.derived_name,
+                        "data": summarize_insight_result(result_data),
+                    }
+            except Exception:
+                logger.warning("dashboard_refresh_analysis_query_processing_failed", tile_id=tile.id)
+                continue
+
+        return results
+
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="GET")
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         dashboard = self.get_object()
+
         dashboard.last_accessed_at = now()
         dashboard.save(update_fields=["last_accessed_at"])
         serializer = DashboardSerializer(dashboard, context=self.get_serializer_context())
-        response = Response(serializer.data)
+        data = serializer.data
+
+        response = Response(data)
         return response
+
+    @action(methods=["POST"], detail=True)
+    def snapshot(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Snapshot the current dashboard state (from cache) for AI analysis.
+        Returns a cache_key representing the 'before' state, to be used with analyze_refresh_result.
+        """
+        dashboard = self.get_object()
+
+        input_serializer = DashboardSnapshotSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        client_results = input_serializer.validated_data.get("client_results")
+
+        if client_results:
+            before_results = {
+                int(tile_id): {
+                    "insight_name": item["insight_name"],
+                    "data": summarize_insight_result(item["data"]),
+                }
+                for tile_id, item in client_results.items()
+            }
+        else:
+            before_results = self._get_cached_results_for_analysis(dashboard, request)
+
+        cache_key = f"dashboard_refresh_before_{dashboard.id}_{request.user.id}_{now().timestamp()}"
+        cache.set(cache_key, before_results, timeout=1800)  # 30 minutes
+        return Response({"cache_key": cache_key})
+
+    @action(methods=["POST"], detail=True)
+    def analyze_refresh_result(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Generate AI analysis comparing before/after dashboard refresh.
+        Expects cache_key in request body pointing to the stored 'before' state.
+        """
+        dashboard = self.get_object()
+        cache_key = request.data.get("cache_key")
+
+        if not cache_key:
+            return Response({"error": "cache_key is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Get 'before' state from cache
+        before_results = cache.get(cache_key)
+        if before_results is None:
+            return Response(
+                {"error": "Analysis context expired or not found. Please refresh the dashboard again."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Get 'after' state (should be fresh in cache now)
+        after_results = self._get_cached_results_for_analysis(dashboard, request)
+
+        # Generate AI analysis
+        analysis = generate_refresh_analysis(before_results, after_results, self.team.id)
+
+        if not analysis:
+            return Response({"result": "No significant changes detected in the dashboard data."})
+
+        return Response({"result": analysis})
 
     # ******************************************
     # /projects/:id/dashboard/:id/stream_tiles
@@ -897,8 +1097,6 @@ class DashboardsViewSet(
         parser_classes=[DashboardTemplateCreationJSONSchemaParser],
     )
     def create_from_template_json(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        current_url = request.headers.get("Referer")
-        session_id = request.headers.get("X-Posthog-Session-Id")
         dashboard = Dashboard.objects.create(
             team_id=self.team_id,
             created_by=cast(User, request.user),
@@ -911,7 +1109,7 @@ class DashboardsViewSet(
             create_from_template(dashboard, dashboard_template, cast(User, request.user))
 
             report_user_action(
-                cast(User, request.user),
+                request.user,
                 "dashboard created",
                 {
                     **dashboard.get_analytics_metadata(),
@@ -920,9 +1118,9 @@ class DashboardsViewSet(
                     "duplicated": False,
                     "dashboard_id": dashboard.pk,
                     "creation_context": creation_context,
-                    "$current_url": current_url,
-                    "$session_id": session_id,
                 },
+                team=dashboard.team,
+                request=request,
             )
         except Exception:
             dashboard.delete()
@@ -959,7 +1157,10 @@ class DashboardsViewSet(
             Team.objects.select_for_update().filter(id=self.team_id).first()
 
             existing = Dashboard.objects.filter(
-                team=self.team, deleted=False, creation_mode="unlisted", tagged_items__tag__name=tag
+                team=self.team,
+                deleted=False,
+                creation_mode="unlisted",
+                tagged_items__tag__name=tag,
             ).first()
 
             if existing:

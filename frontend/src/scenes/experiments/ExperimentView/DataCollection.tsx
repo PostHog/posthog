@@ -7,13 +7,14 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { humanFriendlyNumber } from 'lib/utils'
 
-import { Experiment, InsightType } from '~/types'
+import { Experiment, ExperimentStatus, InsightType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
+import { getExperimentStatus } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { formatUnitByQuantity } from '../utils'
-import { DataCollectionCalculator } from './DataCollectionCalculator'
 import { EllipsisAnimation } from './components'
+import { DataCollectionCalculator } from './DataCollectionCalculator'
 
 function GoalTooltip({
     experiment,
@@ -70,6 +71,7 @@ export function DataCollection(): JSX.Element {
             : (actualRunningTime / recommendedRunningTime) * 100
 
     const hasHighRunningTime = recommendedRunningTime > 62
+    const hasEnded = getExperimentStatus(experiment) === ExperimentStatus.Stopped
 
     return (
         <div>
@@ -160,7 +162,7 @@ export function DataCollection(): JSX.Element {
                             <IconInfo className="text-secondary text-base" />
                         </Tooltip>
                     </div>
-                    {!experiment.end_date && (
+                    {!hasEnded && (
                         <div className="w-24">
                             <LemonButton
                                 className="mt-2"

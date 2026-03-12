@@ -3,8 +3,8 @@ import { useValues } from 'kea'
 import { IconTrending } from '@posthog/icons'
 import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 
-import { Link } from 'lib/lemon-ui/Link'
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ExperimentStatsMethod } from '~/types'

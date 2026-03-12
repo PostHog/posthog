@@ -108,7 +108,7 @@ Keep shared code minimal to avoid tight coupling.
   - `package.json` - describes the frontend dependencies. Ideally they should all be `peerDependencies` of whatever is in `frontend/package.json`
   - `__init__.py` - allows imports like `products.<product>.backend.*` (only if backend exists)
     - `backend/__init__.py` - marks the backend directory as a Python package/Django app (only if backend exists).
-    - `frontend/` - React frontend code. We run prettier/eslint only on files in the `frontend` folder on commit.
+    - `frontend/` - React frontend code. We run oxfmt/eslint only on files in the `frontend` folder on commit.
     - `backend/` - Python backend code. It's treated as a separate django app.
 
 ## Adding a new product

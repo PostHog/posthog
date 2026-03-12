@@ -8,6 +8,7 @@ import {
     Agent,
     Dispatcher,
     type HeadersInit,
+    ProxyAgent,
     RequestInfo,
     RequestInit,
     Response,
@@ -85,6 +86,46 @@ function validateUrl(url: string): URL {
     return parsedUrl
 }
 
+/**
+ * Validate IP literal hostnames directly. Undici skips the DNS lookup callback
+ * for IP literals (both IPv4 and IPv6), so staticLookupAsync never runs for them.
+ * We must check these before passing the URL to undici.
+ */
+function validateHostnameIPLiteral(hostname: string, allowUnsafe: boolean): void {
+    if (allowUnsafe) {
+        return
+    }
+
+    // Strip brackets from IPv6 literals — URL.hostname includes them for IPv6
+    const bare = hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname
+
+    let parsed: ipaddr.IPv4 | ipaddr.IPv6
+    try {
+        parsed = ipaddr.parse(bare)
+    } catch {
+        // Not an IP literal (it's a regular hostname) — DNS lookup will handle validation
+        return
+    }
+
+    let ipv4: ipaddr.IPv4 | null = null
+    if (isIPv4(parsed)) {
+        ipv4 = parsed
+    } else if (parsed.isIPv4MappedAddress()) {
+        ipv4 = parsed.toIPv4Address()
+    } else {
+        if (!isGlobalIPv6(parsed)) {
+            unsafeRequestCounter.inc({ reason: 'internal_ip_literal' })
+            throw new SecureRequestError('Hostname is not allowed')
+        }
+        return
+    }
+
+    if (!isGlobalIPv4(ipv4)) {
+        unsafeRequestCounter.inc({ reason: 'internal_ip_literal' })
+        throw new SecureRequestError('Hostname is not allowed')
+    }
+}
+
 function isGlobalIPv4(ip: ipaddr.IPv4): boolean {
     const [a, b, c, d] = ip.octets
     if (a === 0) {
@@ -105,6 +146,12 @@ function isGlobalIPv4(ip: ipaddr.IPv4): boolean {
     return true
 }
 
+function isGlobalIPv6(ip: ipaddr.IPv6): boolean {
+    const range = ip.range()
+    // Only allow globally routable unicast IPv6 addresses
+    return range === 'unicast'
+}
+
 function isIPv4(addr: ipaddr.IPv4 | ipaddr.IPv6): addr is ipaddr.IPv4 {
     return addr.kind().toLowerCase() === 'ipv4'
 }
@@ -119,8 +166,21 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
     }
     for (const addrInfo of addrinfo) {
         const parsed = ipaddr.parse(addrInfo.address)
-        // We don't support IPv6 for now
-        if (!isIPv4(parsed)) {
+
+        let ipv4: ipaddr.IPv4 | null = null
+        if (isIPv4(parsed)) {
+            ipv4 = parsed
+        } else if (parsed.isIPv4MappedAddress()) {
+            // IPv6-mapped IPv4 (e.g. ::ffff:169.254.169.254) must be unwrapped and validated
+            ipv4 = parsed.toIPv4Address()
+        } else {
+            // Pure IPv6 — validate directly
+            const allowUnsafe = !isProdEnv()
+            if (!allowUnsafe && !isGlobalIPv6(parsed)) {
+                unsafeRequestCounter.inc({ reason: 'internal_hostname' })
+                throw new SecureRequestError('Hostname is not allowed')
+            }
+            validAddrinfo.push(addrInfo)
             continue
         }
 
@@ -128,7 +188,7 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
         const allowUnsafe = !isProdEnv()
 
         // Check if the IPv4 address is global
-        if (!allowUnsafe && !isGlobalIPv4(parsed)) {
+        if (!allowUnsafe && !isGlobalIPv4(ipv4)) {
             unsafeRequestCounter.inc({ reason: 'internal_hostname' })
             throw new SecureRequestError('Hostname is not allowed')
         }
@@ -156,13 +216,14 @@ export const httpStaticLookup: net.LookupFunction = async (hostname, _options, c
  */
 export async function raiseIfUserProvidedUrlUnsafe(url: string): Promise<void> {
     const parsedUrl = validateUrl(url)
+    validateHostnameIPLiteral(parsedUrl.hostname, !isProdEnv())
     await staticLookupAsync(parsedUrl.hostname)
 }
 
 class SecureAgent extends Agent {
     constructor() {
         super({
-            keepAliveTimeout: defaultConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
+            keepAliveTimeout: Number(defaultConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS),
             connections: defaultConfig.EXTERNAL_REQUEST_CONNECTIONS,
             connect: {
                 lookup: httpStaticLookup,
@@ -185,7 +246,29 @@ class InsecureAgent extends Agent {
     }
 }
 
-const sharedSecureAgent = new SecureAgent()
+// When a proxy URL is available, external requests go through a CONNECT tunnel.
+// The proxy handles SSRF blocking (private IP rejection) at the network level,
+// so we skip the DNS lookup (httpStaticLookup) which would be redundant.
+function makeSecureDispatcher(): Dispatcher {
+    const proxyUrl =
+        (defaultConfig.OUTBOUND_PROXY_ENABLED && defaultConfig.OUTBOUND_PROXY_URL) ||
+        process.env.HTTPS_PROXY ||
+        process.env.HTTP_PROXY ||
+        process.env.https_proxy ||
+        process.env.http_proxy
+
+    if (proxyUrl) {
+        return new ProxyAgent({
+            uri: proxyUrl,
+            keepAliveTimeout: defaultConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
+            connections: defaultConfig.EXTERNAL_REQUEST_CONNECTIONS,
+            requestTls: {},
+        })
+    }
+    return new SecureAgent()
+}
+
+const sharedSecureAgent = makeSecureDispatcher()
 const sharedInsecureAgent = new InsecureAgent()
 
 export async function _fetch(url: string, options: FetchOptions = {}, dispatcher: Dispatcher): Promise<FetchResponse> {
@@ -248,6 +331,8 @@ export async function internalFetch(url: string, options: FetchOptions = {}): Pr
 }
 
 export async function fetch(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
+    const parsed = new URL(url)
+    validateHostnameIPLiteral(parsed.hostname, !isProdEnv())
     return await _fetch(url, options, sharedSecureAgent)
 }
 
@@ -263,6 +348,8 @@ export function legacyFetch(input: RequestInfo, options?: RequestInit): Promise<
     if (!parsed.hostname || !(parsed.protocol === 'http:' || parsed.protocol === 'https:')) {
         throw new Error('URL must have HTTP or HTTPS protocol and a valid hostname')
     }
+
+    validateHostnameIPLiteral(parsed.hostname, !isProdEnv())
 
     const requestOptions = options ?? {}
     requestOptions.dispatcher = sharedSecureAgent

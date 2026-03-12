@@ -5,12 +5,6 @@ import { subscriptions } from 'kea-subscriptions'
 import { windowValues } from 'kea-window-values'
 
 import {
-    DEFAULT_HEATMAP_FILTERS,
-    DEFAULT_HEATMAP_HEIGHT,
-    DEFAULT_HEATMAP_WIDTH,
-    calculateViewportRange,
-} from 'lib/components/IframedToolbarBrowser/utils'
-import {
     CommonFilters,
     HeatmapArea,
     HeatmapEventsResponse,
@@ -19,6 +13,12 @@ import {
     HeatmapJsData,
     HeatmapJsDataPoint,
 } from 'lib/components/heatmaps/types'
+import {
+    DEFAULT_HEATMAP_FILTERS,
+    DEFAULT_HEATMAP_HEIGHT,
+    DEFAULT_HEATMAP_WIDTH,
+    calculateViewportRange,
+} from 'lib/components/IframedToolbarBrowser/utils'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { dateFilterToText } from 'lib/utils'
 
