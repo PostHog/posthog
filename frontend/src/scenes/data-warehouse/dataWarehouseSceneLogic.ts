@@ -24,7 +24,6 @@ import { dataWarehouseViewsLogic } from './saved_queries/dataWarehouseViewsLogic
 
 export enum DataWarehouseTab {
     OVERVIEW = 'overview',
-    VIEWS = 'views',
     MODELING = 'modeling',
 }
 

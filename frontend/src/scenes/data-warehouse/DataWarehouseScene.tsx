@@ -16,7 +16,6 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { DataModelingTab } from './scene/DataModelingTab'
 import { OverviewTab } from './scene/OverviewTab'
-import { ViewsTab } from './scene/ViewsTab'
 
 export const scene: SceneExport = {
     component: DataWarehouseScene,
@@ -51,12 +50,6 @@ export function DataWarehouseScene(): JSX.Element {
                         label: 'Overview',
                         content: <OverviewTab />,
                         link: urls.dataOps(),
-                    },
-                    {
-                        key: DataWarehouseTab.VIEWS,
-                        label: 'Views',
-                        content: <ViewsTab />,
-                        link: combineUrl(urls.dataOps(), { ...searchParams, tab: DataWarehouseTab.VIEWS }).url,
                     },
                     ...(featureFlags[FEATURE_FLAGS.DATA_MODELING_TAB]
                         ? [
