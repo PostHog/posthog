@@ -74,6 +74,7 @@ describe('vercel-ai middleware', () => {
                 'ai.model.provider': 'openai.responses',
                 'ai.usage.promptTokens': 23,
                 'ai.usage.completionTokens': 14,
+                'ai.usage.tokens': 37,
                 'ai.settings.maxRetries': 2,
                 'ai.response.finishReason': 'stop',
                 'ai.response.id': 'resp-123',
@@ -97,14 +98,14 @@ describe('vercel-ai middleware', () => {
     })
 
     describe('$ai_trace (top-level span)', () => {
-        it('extracts input/output state from top-level generateText span', () => {
+        it('extracts input/output state from ai.prompt JSON array on top-level span', () => {
             const messages = [
                 { role: 'system', content: 'You are helpful.' },
                 { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
             ]
             const event = createEvent('$ai_span', {
                 'ai.operationId': 'ai.generateText',
-                'ai.prompt.messages': JSON.stringify(messages),
+                'ai.prompt': JSON.stringify(messages),
                 'ai.response.text': 'Hi there!',
             })
             convertOtelEvent(event)
@@ -112,6 +113,38 @@ describe('vercel-ai middleware', () => {
             expect(event.event).toBe('$ai_trace')
             expect(event.properties!['$ai_input_state']).toEqual(messages[1])
             expect(event.properties!['$ai_output_state']).toEqual({ role: 'assistant', content: 'Hi there!' })
+        })
+
+        it('wraps plain string ai.prompt as user message', () => {
+            const event = createEvent('$ai_span', {
+                'ai.operationId': 'ai.generateText',
+                'ai.prompt': 'Write a short story about a cat.',
+                'ai.response.text': 'Once upon a time...',
+            })
+            convertOtelEvent(event)
+
+            expect(event.event).toBe('$ai_trace')
+            expect(event.properties!['$ai_input_state']).toEqual({
+                role: 'user',
+                content: 'Write a short story about a cat.',
+            })
+            expect(event.properties!['$ai_output_state']).toEqual({ role: 'assistant', content: 'Once upon a time...' })
+        })
+
+        it('prefers ai.prompt.messages over ai.prompt on provider-level spans', () => {
+            const messages = [
+                { role: 'system', content: 'You are helpful.' },
+                { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
+            ]
+            const event = createEvent('$ai_span', {
+                'ai.operationId': 'ai.generateText',
+                'ai.prompt.messages': JSON.stringify(messages),
+                'ai.prompt': 'raw prompt',
+                'ai.response.text': 'Hi there!',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_input_state']).toEqual(messages[1])
         })
     })
 

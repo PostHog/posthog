@@ -14,6 +14,7 @@ const STRIP_KEYS = [
     'ai.settings.maxOutputTokens',
     'ai.usage.promptTokens',
     'ai.usage.completionTokens',
+    'ai.usage.tokens',
     'ai.response.finishReason',
     'ai.response.id',
     'ai.response.model',
@@ -49,9 +50,25 @@ function process(event: PluginEvent, next: () => void): void {
     const opId = props['ai.operationId']
 
     // Map ai.prompt.messages → gen_ai.input.messages before the standard mapping
-    // runs, so mapOtelAttributes() picks it up as $ai_input.
+    // runs, so mapOtelAttributes() picks it up as $ai_input. Provider-level spans
+    // (doGenerate/doStream) carry ai.prompt.messages, while top-level wrapper
+    // spans carry ai.prompt as a raw string.
     if (props['ai.prompt.messages'] !== undefined && props['gen_ai.input.messages'] === undefined) {
         props['gen_ai.input.messages'] = props['ai.prompt.messages']
+    } else if (props['ai.prompt'] !== undefined && props['gen_ai.input.messages'] === undefined) {
+        let prompt = props['ai.prompt']
+        if (typeof prompt === 'string') {
+            try {
+                prompt = parseJSON(prompt)
+            } catch {
+                // Keep original string
+            }
+        }
+        if (Array.isArray(prompt)) {
+            props['gen_ai.input.messages'] = prompt
+        } else if (typeof prompt === 'string') {
+            props['gen_ai.input.messages'] = [{ role: 'user', content: prompt }]
+        }
     }
     delete props['ai.prompt.messages']
 
@@ -66,14 +83,10 @@ function process(event: PluginEvent, next: () => void): void {
 
     next()
 
-    // For trace-level spans (top-level generateText/streamText), set input/output state
-    const isTopLevel =
-        event.event === '$ai_trace' ||
-        (typeof opId === 'string' &&
-            !opId.endsWith('.doGenerate') &&
-            !opId.endsWith('.doStream') &&
-            opId !== 'ai.toolCall' &&
-            !opId.includes('.doEmbed'))
+    // For trace-level spans (top-level generateText/streamText), set input/output state.
+    // Uses a positive allowlist so new Vercel AI operations default to non-top-level.
+    const TOP_LEVEL_OPS = ['ai.generateText', 'ai.streamText', 'ai.generateObject', 'ai.streamObject']
+    const isTopLevel = event.event === '$ai_trace' || (typeof opId === 'string' && TOP_LEVEL_OPS.includes(opId))
     if (isTopLevel && event.event !== '$ai_generation') {
         if (props['$ai_input'] !== undefined && props['$ai_input_state'] === undefined) {
             const input = props['$ai_input']
