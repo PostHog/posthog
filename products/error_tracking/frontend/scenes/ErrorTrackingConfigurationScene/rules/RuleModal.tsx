@@ -23,6 +23,7 @@ interface RuleModalProps {
     suffix: (issuesLink: JSX.Element, dateRangeLabel: string) => JSX.Element
     filterLabels?: ReactNode
     extraFields?: ReactNode
+    footerExtra?: ReactNode
     samplingRate?: number
     filtersOptional?: boolean
 }
@@ -38,6 +39,7 @@ export function RuleModal({
     suffix,
     filterLabels,
     extraFields,
+    footerExtra,
     samplingRate,
     filtersOptional = false,
 }: RuleModalProps): JSX.Element {
@@ -91,17 +93,6 @@ export function RuleModal({
             footer={
                 <div className="flex justify-between w-full">
                     <div className="flex gap-2">
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={matchResultLoading ? <Spinner textColored /> : <IconFlask />}
-                            disabledReason={
-                                !filtersOptional && !hasFilters ? 'Add at least one filter first' : undefined
-                            }
-                            onClick={loadMatchCount}
-                        >
-                            Test rule
-                        </LemonButton>
                         {isEditing && (
                             <LemonButton
                                 type="secondary"
@@ -122,8 +113,20 @@ export function RuleModal({
                                 {confirmingDelete ? 'Confirm delete' : 'Delete'}
                             </LemonButton>
                         )}
+                        {footerExtra}
                     </div>
                     <div className="flex gap-2">
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={matchResultLoading ? <Spinner textColored /> : <IconFlask />}
+                            disabledReason={
+                                !filtersOptional && !hasFilters ? 'Add at least one filter first' : undefined
+                            }
+                            onClick={loadMatchCount}
+                        >
+                            Test rule
+                        </LemonButton>
                         <LemonButton type="secondary" onClick={closeModal}>
                             Cancel
                         </LemonButton>

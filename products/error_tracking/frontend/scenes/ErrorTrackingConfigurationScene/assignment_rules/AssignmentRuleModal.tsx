@@ -29,7 +29,7 @@ export function AssignmentRuleModal(): JSX.Element {
                     across {issuesLink} would have been assigned in the last {dateRangeLabel}
                 </>
             )}
-            extraContent={
+            extraFields={
                 <div>
                     <LemonLabel className="mb-2">Assignee</LemonLabel>
                     <AssigneeSelect assignee={rule.assignee} onChange={(assignee) => updateRule({ ...rule, assignee })}>

@@ -4,13 +4,9 @@ import { Tooltip } from '@posthog/lemon-ui'
 import { AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 const SERVER_ONLY_PROPERTIES = new Set(['$exception_sources', '$exception_functions'])
-const NEGATIVE_OPERATORS = new Set(['is_not', 'not_regex', 'not_icontains'])
 
 function isFilterClientSafe(f: AnyPropertyFilter): boolean {
     if ('key' in f && f.key && SERVER_ONLY_PROPERTIES.has(f.key)) {
-        return false
-    }
-    if ('operator' in f && NEGATIVE_OPERATORS.has(f.operator ?? '')) {
         return false
     }
     return true
@@ -139,12 +135,14 @@ export function EvaluationIndicator({ mode }: { mode: EvalMode }): JSX.Element {
                     tooltip={CLIENT_TOOLTIPS[mode]}
                 />
             )}
-            <Pill
-                activeClasses="bg-warning-highlight text-warning"
-                icon={IconServer}
-                label="Server"
-                tooltip={SERVER_TOOLTIPS[mode]}
-            />
+            {mode !== 'client' && (
+                <Pill
+                    activeClasses="bg-warning-highlight text-warning"
+                    icon={IconServer}
+                    label="Server"
+                    tooltip={SERVER_TOOLTIPS[mode]}
+                />
+            )}
         </div>
     )
 }
