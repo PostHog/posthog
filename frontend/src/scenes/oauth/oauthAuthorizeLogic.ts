@@ -86,6 +86,16 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         cancel: () => ({}),
         setCanceling: (canceling: boolean) => ({ canceling }),
         setAuthorizationComplete: (complete: boolean) => ({ complete }),
+        setSelectedOrganization: (organizationId: string, preferredTeamId?: number) => ({
+            organizationId,
+            preferredTeamId,
+        }),
+        setShowCreateProject: (show: boolean) => ({ show }),
+        setShowCreateOrganization: (show: boolean) => ({ show }),
+        createNewProject: (name: string) => ({ name }),
+        createNewOrganization: (name: string) => ({ name }),
+        setNewProjectLoading: (loading: boolean) => ({ loading }),
+        setNewOrganizationLoading: (loading: boolean) => ({ loading }),
     }),
     loaders({
         allTeams: [
@@ -156,6 +166,46 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             // Fallback to hardcoded MCP scopes
             actions.setScopes(MCP_SERVER_OAUTH_SCOPES)
         },
+        createNewProject: async ({ name }) => {
+            actions.setNewProjectLoading(true)
+            try {
+                const orgId = values.selectedOrganization
+                const endpoint = orgId ? `api/organizations/${orgId}/projects/` : 'api/projects/'
+                await api.create(endpoint, { name })
+                lemonToast.success(`Project "${name}" created`)
+                actions.setShowCreateProject(false)
+                // Remember existing team IDs so we can find the new one after reload
+                const existingIds = new Set((values.allTeams ?? []).map((t) => t.id))
+                await oauthAuthorizeLogic.asyncActions.loadAllTeams()
+                // Find the newly created team and auto-select it
+                const newTeam = (values.allTeams ?? []).find((t) => !existingIds.has(t.id))
+                if (newTeam) {
+                    actions.setOauthAuthorizationValue('scoped_teams', [newTeam.id])
+                }
+            } catch (e: any) {
+                lemonToast.error(e.detail || 'Failed to create project')
+            } finally {
+                actions.setNewProjectLoading(false)
+            }
+        },
+        createNewOrganization: async ({ name }) => {
+            actions.setNewOrganizationLoading(true)
+            try {
+                const org = await api.create('api/organizations/', { name })
+                lemonToast.success(`Organization "${name}" created`)
+                actions.setShowCreateOrganization(false)
+                // Reload user to get the new org in user.organizations, then reload teams
+                await userLogic.asyncActions.loadUser()
+                await oauthAuthorizeLogic.asyncActions.loadAllTeams()
+                if (org?.id) {
+                    actions.setSelectedOrganization(org.id)
+                }
+            } catch (e: any) {
+                lemonToast.error(e.detail || 'Failed to create organization')
+            } finally {
+                actions.setNewOrganizationLoading(false)
+            }
+        },
     })),
     reducers({
         scopes: [
@@ -200,13 +250,74 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 setAuthorizationComplete: (_, { complete }) => complete,
             },
         ],
+        selectedOrganization: [
+            null as string | null,
+            {
+                setSelectedOrganization: (_, { organizationId }) => organizationId,
+            },
+        ],
+        showCreateProject: [
+            false,
+            {
+                setShowCreateProject: (_, { show }) => show,
+            },
+        ],
+        showCreateOrganization: [
+            false,
+            {
+                setShowCreateOrganization: (_, { show }) => show,
+            },
+        ],
+        newProjectLoading: [
+            false,
+            {
+                setNewProjectLoading: (_, { loading }) => loading,
+            },
+        ],
+        newOrganizationLoading: [
+            false,
+            {
+                setNewOrganizationLoading: (_, { loading }) => loading,
+            },
+        ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setRequiredAccessLevel: ({ requiredAccessLevel }) => {
             if (requiredAccessLevel === 'organization') {
                 actions.setOauthAuthorizationValue('access_type', 'organizations')
             } else if (requiredAccessLevel === 'team') {
                 actions.setOauthAuthorizationValue('access_type', 'teams')
+                const user = userLogic.values.user
+                if (user?.organization?.id) {
+                    actions.setSelectedOrganization(user.organization.id, user?.team?.id)
+                }
+            }
+        },
+        setSelectedOrganization: ({ preferredTeamId }) => {
+            // Auto-select the preferred team or the first team in the org
+            const teams = values.sortedTeams
+            const orgId = values.selectedOrganization
+            if (teams && orgId) {
+                const orgTeams = teams.filter((t) => t.organization === orgId)
+                const match = preferredTeamId ? orgTeams.find((t) => t.id === preferredTeamId) : orgTeams[0]
+                actions.setOauthAuthorizationValue('scoped_teams', match ? [match.id] : [])
+            } else {
+                // Teams not loaded yet — loadAllTeamsSuccess will handle it
+                actions.setOauthAuthorizationValue('scoped_teams', preferredTeamId ? [preferredTeamId] : [])
+            }
+        },
+        loadAllTeamsSuccess: () => {
+            // After teams load, auto-select first project if org is set but no project selected
+            const orgId = values.selectedOrganization
+            const currentTeams = values.oauthAuthorization.scoped_teams
+            if (orgId && (!currentTeams || currentTeams.length === 0)) {
+                const teams = values.sortedTeams
+                if (teams) {
+                    const orgTeams = teams.filter((t) => t.organization === orgId)
+                    if (orgTeams.length > 0) {
+                        actions.setOauthAuthorizationValue('scoped_teams', [orgTeams[0].id])
+                    }
+                }
             }
         },
     })),
@@ -275,6 +386,15 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                     }
                     return a.name.localeCompare(b.name)
                 })
+            },
+        ],
+        filteredTeams: [
+            (s) => [s.sortedTeams, s.selectedOrganization],
+            (teams: TeamBasicType[] | null, selectedOrg: string | null): TeamBasicType[] | null => {
+                if (!teams || !selectedOrg) {
+                    return teams
+                }
+                return teams.filter((t) => t.organization === selectedOrg)
             },
         ],
         scopeDescriptions: [
