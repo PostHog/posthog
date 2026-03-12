@@ -200,7 +200,7 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
                 "help_text": "Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.",
             },
             "query": {
-                "help_text": 'HogQL query definition as a JSON object with a "query" key containing the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}',
+                "help_text": 'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}',
             },
         }
 
