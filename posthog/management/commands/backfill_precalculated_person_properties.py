@@ -211,18 +211,9 @@ class Command(BaseCommand):
                 )
             )
 
-        # Build the deduplicated filters for reporting
-        deduplicated_filters = [
-            PersonPropertyFilter(
-                condition_hash=cond_hash,
-                bytecode=bytecode,
-            )
-            for cond_hash, (bytecode, _cids) in condition_map.items()
-        ]
-
         self.stdout.write(
             self.style.SUCCESS(
-                f"\nDeduplicated {len(deduplicated_filters)} unique conditions across {len(cohort_ids)} cohorts"
+                f"\nDeduplicated {len(condition_map)} unique conditions across {len(cohort_ids)} cohorts"
             )
         )
         for cond_hash, (_, cids) in condition_map.items():
@@ -231,7 +222,7 @@ class Command(BaseCommand):
         # Run single coordinator workflow for all cohorts with deduplicated filters
         self.stdout.write(
             self.style.SUCCESS(
-                f"\nProcessing {len(cohort_ids)} cohorts: reduced {total_original_filters} filters to {len(deduplicated_filters)} unique conditions"
+                f"\nProcessing {len(cohort_ids)} cohorts: reduced {total_original_filters} filters to {len(condition_map)} unique conditions"
             )
         )
 
@@ -249,7 +240,7 @@ class Command(BaseCommand):
                 f"\nSuccessfully started single coordinator workflow for team {team_id}\n"
                 f"  Workflow ID: {workflow_id}\n"
                 f"  Cohorts: {[cf.cohort_id for cf in cohort_filters_list]}\n"
-                f"  Unique conditions: {len(deduplicated_filters)}\n"
+                f"  Unique conditions: {len(condition_map)}\n"
                 f"  Parallelism: {parallelism} workers"
             )
         )
