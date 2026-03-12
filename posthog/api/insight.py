@@ -5,8 +5,7 @@ from functools import lru_cache
 from typing import Any, Union, cast
 
 from django.db import transaction
-from django.db.models import BooleanField, Count, F, Max, Prefetch, QuerySet
-from django.db.models.expressions import RawSQL
+from django.db.models import Count, F, Max, Prefetch, QuerySet
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
 from django.utils.text import slugify
@@ -1177,16 +1176,6 @@ class InsightViewSet(
             elif key == "feature_flag":
                 feature_flag = request.GET["feature_flag"]
                 feature_flag_breakdown = f"$feature/{feature_flag}"
-                # Match flag in series[i].properties only (not event names, labels, etc.)
-                table = Insight._meta.db_table
-                series_properties_contains_flag = RawSQL(
-                    "EXISTS (SELECT 1 FROM jsonb_array_elements(\"{table}\".query->'source'->'series') AS elem "
-                    "WHERE (elem->'properties') IS NOT NULL AND position(%s in (elem->'properties')::text) > 0)".format(
-                        table=table
-                    ),
-                    [feature_flag],
-                    output_field=BooleanField(),
-                )
                 queryset = queryset.filter(
                     Q(filters__breakdown__icontains=feature_flag_breakdown)
                     | Q(filters__properties__icontains=feature_flag)
@@ -1195,7 +1184,7 @@ class InsightViewSet(
                         & (
                             Q(query__source__breakdownFilter__breakdown__icontains=feature_flag_breakdown)
                             | Q(query__source__properties__icontains=feature_flag)
-                            | series_properties_contains_flag
+                            | Q(query__source__series__icontains=feature_flag)
                         )
                     )
                 )
