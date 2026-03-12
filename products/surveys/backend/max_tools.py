@@ -47,6 +47,11 @@ QUESTION_TYPE_MAP: dict[str, dict[str, Any]] = {
 class SimpleSurveyQuestion(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
+    id: str | None = Field(
+        default=None,
+        description="Question number from the survey context (e.g. '1', '2', '3'). "
+        "Reuse to preserve question identity and historical response data. Omit for new questions.",
+    )
     type: SEMANTIC_QUESTION_TYPE
     question: str
     description: str | None = None
@@ -305,6 +310,11 @@ SURVEY_EDIT_TOOL_DESCRIPTION = dedent("""
     - Set stop=true to stop collecting responses
     - Set archive=true to archive the survey
 
+    # Question identity
+    - When updating questions, use read_data(kind="survey") first to see the current questions
+    - Each question is shown with a number (1, 2, 3, ...) — pass that number as the question's `id` to preserve its identity and historical response data
+    - Omit `id` for entirely new questions; they will be assigned a fresh ID automatically
+
     # Important
     - Only include fields you want to change
     - When updating questions, provide the complete list (it replaces existing)
@@ -414,7 +424,18 @@ class EditSurveyTool(MaxTool):
             if description is not None:
                 update_data["description"] = description
             if questions is not None:
-                update_data["questions"] = [_build_question(q) for q in questions]
+                new_questions = [_build_question(q) for q in questions]
+                existing_questions = survey.questions or []
+
+                # Build numeric label -> real UUID mapping (1-indexed, matching read_data output)
+                id_map = {str(i + 1): eq["id"] for i, eq in enumerate(existing_questions) if "id" in eq}
+
+                # Resolve numeric labels back to real UUIDs; unknown/missing id -> new question
+                for new_q, simple_q in zip(new_questions, questions):
+                    if simple_q.id and simple_q.id in id_map:
+                        new_q["id"] = id_map[simple_q.id]
+
+                update_data["questions"] = new_questions
             if linked_flag_id is not None:
                 update_data["linked_flag_id"] = linked_flag_id
             if responses_limit is not None:

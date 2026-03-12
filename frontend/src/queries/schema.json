@@ -19332,7 +19332,7 @@
             "type": "string"
         },
         "LinkedinAdsTableKeywords": {
-            "enum": ["campaigns"],
+            "enum": ["campaign_groups"],
             "type": "string"
         },
         "LlmEvalSignalExtra": {
@@ -20468,7 +20468,7 @@
                     "additionalProperties": false,
                     "properties": {
                         "campaignTableName": {
-                            "const": "campaigns",
+                            "const": "campaign_groups",
                             "type": "string"
                         },
                         "defaultSources": {
@@ -20503,7 +20503,7 @@
                             "type": "string"
                         },
                         "statsTableName": {
-                            "const": "campaign_stats",
+                            "const": "campaign_group_stats",
                             "type": "string"
                         },
                         "tableExclusions": {
@@ -20517,7 +20517,7 @@
                         },
                         "tableKeywords": {
                             "items": {
-                                "const": "campaigns",
+                                "const": "campaign_groups",
                                 "type": "string"
                             },
                             "maxItems": 1,
@@ -35081,6 +35081,7 @@
                 "ScreenName",
                 "InitialChannelType",
                 "InitialReferringDomain",
+                "InitialReferringURL",
                 "InitialUTMSource",
                 "InitialUTMCampaign",
                 "InitialUTMMedium",

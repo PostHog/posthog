@@ -3363,6 +3363,7 @@ export namespace Schemas {
       ScreenName: 'ScreenName',
       InitialChannelType: 'InitialChannelType',
       InitialReferringDomain: 'InitialReferringDomain',
+      InitialReferringURL: 'InitialReferringURL',
       InitialUTMSource: 'InitialUTMSource',
       InitialUTMCampaign: 'InitialUTMCampaign',
       InitialUTMMedium: 'InitialUTMMedium',
@@ -11348,6 +11349,7 @@ export namespace Schemas {
     * `device_id` - Device ID */
       bucketing_identifier?: BucketingIdentifierEnum | BlankEnum | NullEnum | null;
       readonly evaluation_tags: readonly string[];
+      readonly evaluation_contexts: readonly string[];
     }
 
     /**

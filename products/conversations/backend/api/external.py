@@ -95,9 +95,28 @@ class ExternalTicketView(APIView):
         assert team is not None
 
         try:
-            ticket = Ticket.objects.get(id=ticket_id, team_id=team.id)
+            ticket = Ticket.objects.select_related("assignment", "assignment__user", "assignment__role").get(
+                id=ticket_id, team_id=team.id
+            )
         except Ticket.DoesNotExist:
             return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        assignee = None
+        assignment = getattr(ticket, "assignment", None)
+        if assignment:
+            assignee = {
+                "id": assignment.user_id
+                if assignment.user_id
+                else str(assignment.role_id)
+                if assignment.role_id
+                else None,
+                "type": "role" if assignment.role_id else "user",
+                "user": {"email": assignment.user.email} if assignment.user_id and assignment.user else None,
+                "role": {"name": assignment.role.name} if assignment.role_id and assignment.role else None,
+            }
+
+        session_context = ticket.session_context or {}
+        tags = list(ticket.tagged_items.values_list("tag__name", flat=True))
 
         return Response(
             {
@@ -115,6 +134,9 @@ class ExternalTicketView(APIView):
                 "unread_team_count": ticket.unread_team_count,
                 "unread_customer_count": ticket.unread_customer_count,
                 "sla_due_at": ticket.sla_due_at.isoformat() if ticket.sla_due_at else None,
+                "assignee": assignee,
+                "current_url": session_context.get("current_url"),
+                "tags": tags,
             }
         )
 

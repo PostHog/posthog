@@ -2358,7 +2358,7 @@ class LinkedinAdsTableExclusions(StrEnum):
 
 
 class LinkedinAdsTableKeywords(StrEnum):
-    CAMPAIGNS = "campaigns"
+    CAMPAIGN_GROUPS = "campaign_groups"
 
 
 class LlmEvalSignalExtra(BaseModel):
@@ -2502,13 +2502,13 @@ class MarketingIntegrationConfig2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    campaignTableName: Literal["campaigns"] = "campaigns"
+    campaignTableName: Literal["campaign_groups"] = "campaign_groups"
     defaultSources: list[str] = Field(..., max_length=2, min_length=2)
     idField: Literal["id"] = "id"
     nameField: Literal["name"] = "name"
     primarySource: Literal["linkedin"] = "linkedin"
     sourceType: Literal["LinkedinAds"] = "LinkedinAds"
-    statsTableName: Literal["campaign_stats"] = "campaign_stats"
+    statsTableName: Literal["campaign_group_stats"] = "campaign_group_stats"
     tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
     tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
@@ -4394,6 +4394,7 @@ class WebStatsBreakdown(StrEnum):
     SCREEN_NAME = "ScreenName"
     INITIAL_CHANNEL_TYPE = "InitialChannelType"
     INITIAL_REFERRING_DOMAIN = "InitialReferringDomain"
+    INITIAL_REFERRING_URL = "InitialReferringURL"
     INITIAL_UTM_SOURCE = "InitialUTMSource"
     INITIAL_UTM_CAMPAIGN = "InitialUTMCampaign"
     INITIAL_UTM_MEDIUM = "InitialUTMMedium"

@@ -11,6 +11,7 @@ import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -91,7 +92,6 @@ export function DashboardItems(): JSX.Element {
     })
 
     const { width: gridWrapperWidth, ref: gridWrapperRef } = useResizeObserver()
-    const canResizeWidth = !gridWrapperWidth || gridWrapperWidth > BREAKPOINTS['sm']
     const isMobileView = gridWrapperWidth && gridWrapperWidth <= BREAKPOINTS['sm']
     const isEditablePlacement = [
         DashboardPlacement.Dashboard,
@@ -130,7 +130,7 @@ export function DashboardItems(): JSX.Element {
                         updateContainerWidth(containerWidth, newCols)
                     }}
                     breakpoints={BREAKPOINTS}
-                    resizeHandles={canResizeWidth ? ['s', 'e', 'se'] : ['s']}
+                    resizeHandles={['s', 'e', 'se', 'n', 'w', 'nw', 'ne', 'sw']}
                     cols={BREAKPOINT_COLUMN_COUNTS}
                     onResize={(_layout: any, _oldItem: any, newItem: any) => {
                         if (!resizingItem || resizingItem.w !== newItem.w || resizingItem.h !== newItem.h) {
@@ -215,8 +215,8 @@ export function DashboardItems(): JSX.Element {
 
                         const commonTileProps = {
                             dashboardId: dashboard?.id,
-                            showResizeHandles: dashboardMode === DashboardMode.Edit && !isMobileView,
-                            canResizeWidth: canResizeWidth,
+                            showResizeHandles:
+                                dashboardMode === DashboardMode.Edit && !isMobileView && isEditablePlacement,
                             canEnterEditModeFromEdge,
                             onEnterEditModeFromEdge: canEnterEditModeFromEdge
                                 ? () => setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardEdgeHover)
@@ -335,7 +335,21 @@ export function DashboardItems(): JSX.Element {
                                             {commonTileProps.removeFromDashboard && (
                                                 <LemonButton
                                                     status="danger"
-                                                    onClick={() => commonTileProps.removeFromDashboard()}
+                                                    onClick={() =>
+                                                        LemonDialog.open({
+                                                            title: 'Remove text from dashboard',
+                                                            description:
+                                                                'Are you sure you want to remove this text card from the dashboard?',
+                                                            primaryButton: {
+                                                                children: 'Remove from dashboard',
+                                                                status: 'danger',
+                                                                onClick: () => commonTileProps.removeFromDashboard?.(),
+                                                            },
+                                                            secondaryButton: {
+                                                                children: 'Cancel',
+                                                            },
+                                                        })
+                                                    }
                                                     fullWidth
                                                     data-attr="remove-text-tile-from-dashboard"
                                                 >
