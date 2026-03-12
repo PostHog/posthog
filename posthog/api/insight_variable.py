@@ -15,6 +15,15 @@ class InsightVariableSerializer(serializers.ModelSerializer):
 
         read_only_fields = ["id", "code_name", "created_by", "created_at"]
 
+    def validate(self, attrs):
+        variable_type = attrs.get("type", getattr(self.instance, "type", None))
+        if variable_type == InsightVariable.Type.LIST:
+            values = attrs.get("values", getattr(self.instance, "values", None))
+            if values is None:
+                attrs["values"] = []
+
+        return attrs
+
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user

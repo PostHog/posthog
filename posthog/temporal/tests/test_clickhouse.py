@@ -143,32 +143,34 @@ def test_add_log_comment_param(params, qt, want):
     assert params == want
 
 
+def _mock_internal_session_post(return_value):
+    """Return a patch context manager that mocks internal_requests_session().post()."""
+    mock_session = MagicMock()
+    mock_session.post.return_value = return_value
+    mock_session.__enter__ = MagicMock(return_value=mock_session)
+    mock_session.__exit__ = MagicMock(return_value=False)
+    mock_factory = MagicMock(return_value=mock_session)
+    return patch("posthog.temporal.common.clickhouse.internal_requests_session", mock_factory)
+
+
 def test_clickhouse_memory_limit_exceeded_error(clickhouse_client):
     """Simulate a ClickHouse memory limit exceeded error and verify that the correct error is raised."""
-    with patch(
-        "posthog.temporal.common.clickhouse.requests.Session.post",
-        return_value=(
-            MagicMock(
-                status_code=500,
-                text="Code: 241. DB::Exception: (total) memory limit exceeded: would use 99.97 GiB (attempt to allocate chunk of 12.26 MiB bytes), current RSS: 111.22 GiB, maximum: 111.19 GiB. OvercommitTracker decision: Query was selected to stop by OvercommitTracker: While executing MergeSortingTransform. (MEMORY_LIMIT_EXCEEDED) (version x.x.x.x (official build))",
-            )
-        ),
-    ):
+    mock_response = MagicMock(
+        status_code=500,
+        text="Code: 241. DB::Exception: (total) memory limit exceeded: would use 99.97 GiB (attempt to allocate chunk of 12.26 MiB bytes), current RSS: 111.22 GiB, maximum: 111.19 GiB. OvercommitTracker decision: Query was selected to stop by OvercommitTracker: While executing MergeSortingTransform. (MEMORY_LIMIT_EXCEEDED) (version x.x.x.x (official build))",
+    )
+    with _mock_internal_session_post(mock_response):
         with pytest.raises(ClickHouseMemoryLimitExceededError):
             with clickhouse_client.post_query("SELECT 1", query_parameters={}, query_id=None):
                 pass
 
 
 def test_clickhouse_too_many_simultaneous_queries_error(clickhouse_client):
-    with patch(
-        "posthog.temporal.common.clickhouse.requests.Session.post",
-        return_value=(
-            MagicMock(
-                status_code=500,
-                text="Code: 202. DB::Exception: Received from dummy-ch-node.internal. DB::Exception: Too many simultaneous queries for all users. Current: 100, maximum: 100. (TOO_MANY_SIMULTANEOUS_QUERIES) (version x.x.x.x (official build))",
-            )
-        ),
-    ):
+    mock_response = MagicMock(
+        status_code=500,
+        text="Code: 202. DB::Exception: Received from dummy-ch-node.internal. DB::Exception: Too many simultaneous queries for all users. Current: 100, maximum: 100. (TOO_MANY_SIMULTANEOUS_QUERIES) (version x.x.x.x (official build))",
+    )
+    with _mock_internal_session_post(mock_response):
         with pytest.raises(ClickHouseTooManySimultaneousQueriesError):
             with clickhouse_client.post_query("SELECT 1", query_parameters={}, query_id=None):
                 pass

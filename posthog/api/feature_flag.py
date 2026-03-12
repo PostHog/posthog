@@ -32,7 +32,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin, tagify
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.approvals.decorators import approval_gate
 from posthog.approvals.mixins import ApprovalHandlingMixin
@@ -48,16 +48,16 @@ from posthog.helpers.encrypted_flag_payloads import (
     encrypt_flag_payloads,
     get_decrypted_flag_payloads_protected,
 )
-from posthog.models import FeatureFlag, Tag, Team
+from posthog.models import FeatureFlag, Team
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext, is_impersonated_session
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import get_all_cohort_dependencies
+from posthog.models.evaluation_context import normalize_context_name
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import (
     FeatureFlagDashboards,
-    FeatureFlagEvaluationTag,
     get_user_blast_radius,
     set_feature_flags_for_team_in_cache,
 )
@@ -74,7 +74,7 @@ from posthog.models.group.group import Group
 from posthog.models.property import Property
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.surveys.survey import Survey
-from posthog.permissions import ProjectSecretAPITokenPermission
+from posthog.permissions import ProjectSecretAPITokenPermission, is_authenticated_via_project_secret_api_token
 from posthog.queries.base import determine_parsed_date_for_property_matching
 from posthog.rate_limit import BurstRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -143,6 +143,12 @@ LOCAL_EVALUATION_ETAG_COUNTER = Counter(
 LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER = Counter(
     "posthog_local_evaluation_secret_api_key_in_body_total",
     "Local evaluation requests where secret_api_key was passed in request body instead of Authorization header",
+)
+
+LOCAL_EVALUATION_AUTH_COUNTER = Counter(
+    "posthog_local_evaluation_auth_total",
+    "Local evaluation requests by authentication method",
+    labelnames=["method"],  # "secret_api_token" or "personal_api_key"
 )
 
 
@@ -375,60 +381,39 @@ class EvaluationTagsChecker:
 
 class EvaluationTagSerializerMixin(serializers.Serializer):
     """
-    Serializer mixin that handles evaluation tags for feature flags.
-    Evaluation tags mark which organizational tags also serve as runtime evaluation constraints.
+    Serializer mixin that handles evaluation contexts for feature flags.
 
-    Note: SDK clients can send 'evaluation_contexts' or 'evaluation_environments' in their flag
-    evaluation requests for these constraints to take effect. Without this parameter, all flags
-    are evaluated regardless of their evaluation tags.
+    Evaluation contexts are independent from organizational tags — they control
+    where flags evaluate at runtime (e.g. "production", "staging"). Backed by
+    the EvaluationContext model, not the Tag model.
+
+    Accepts both 'evaluation_tags' (deprecated) and 'evaluation_contexts' as
+    input field names for backward compatibility.
     """
 
     evaluation_tags = serializers.ListField(required=False, write_only=True)
 
     def validate(self, attrs):
-        """Validate that evaluation_tags are a subset of tags.
-
-        This ensures that evaluation tags (which control runtime evaluation)
-        are always a subset of organizational tags. This maintains the conceptual
-        model where evaluation tags are tags that ALSO serve as constraints.
-        """
         attrs = super().validate(attrs)
 
-        # Only validate if we have initial_data (not during partial updates without these fields)
-        if not hasattr(self, "initial_data"):
-            return attrs
-
-        # If FLAG_EVALUATION_TAGS is disabled, skip validation
-        # Evaluation tags are preserved in DB but hidden from user (like regular tags)
-        if not self._is_evaluation_tags_feature_enabled():
-            return attrs
-
-        # Get evaluation_tags from the request
-        evaluation_tags = self.initial_data.get("evaluation_tags")
-
-        # Only validate if evaluation_tags are provided and non-empty
-        # Note: evaluation_tags=[] is valid (clears all evaluation tags)
-        if evaluation_tags is not None and evaluation_tags:
-            from posthog.api.tagged_item import tagify
-
-            # Get tags from initial_data, defaulting to empty list if not provided
-            # Important: We validate against the raw request data, not processed attrs,
-            # because TaggedItemSerializerMixin handles tags separately
-            tags = self.initial_data.get("tags", [])
-
-            # Normalize both lists using tagify for consistent comparison
-            # tagify handles case normalization and special characters
-            # NB: this _does_ make flag updates more expensive whenever we update flags with tags.
-            # It's a small use case, but wanted to call it out as a potential (but unlikely bottleneck)
-            normalized_tags = {tagify(t) for t in tags or []}
-            normalized_eval_tags = {tagify(t) for t in evaluation_tags}
-
-            # Evaluation tags must be a subset of organizational tags
-            invalid_tags = normalized_eval_tags - normalized_tags
-            if invalid_tags:
-                raise serializers.ValidationError(
-                    f"Evaluation tags must be a subset of tags. Invalid evaluation tags: {', '.join(sorted(invalid_tags))}"
-                )
+        # Accept both field names; prefer evaluation_contexts if provided.
+        # Use explicit `in` checks rather than `or` to avoid treating [] as falsy.
+        if hasattr(self, "initial_data"):
+            if "evaluation_contexts" in self.initial_data:
+                raw = self.initial_data["evaluation_contexts"]
+            elif "evaluation_tags" in self.initial_data:
+                raw = self.initial_data["evaluation_tags"]
+            else:
+                raw = None
+            if raw is not None:
+                if not isinstance(raw, list) or len(raw) > 50:
+                    raise serializers.ValidationError("evaluation_contexts must be a list of at most 50 items.")
+                for item in raw:
+                    if not isinstance(item, str) or len(item) > 255:
+                        raise serializers.ValidationError("Invalid evaluation context name.")
+                # Deduplicate: silently collapse duplicates rather than erroring,
+                # since the backend would deduplicate anyway via _attempt_set_evaluation_tags.
+                attrs["evaluation_tags"] = list(dict.fromkeys(raw))
 
         return attrs
 
@@ -440,83 +425,60 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
         return EvaluationTagsChecker.is_enabled(self.context["request"])
 
     def _attempt_set_evaluation_tags(self, evaluation_tags, obj):
-        """Update evaluation tags for a feature flag using efficient diff logic.
-
-        If FLAG_EVALUATION_TAGS is disabled,
-        preserve existing evaluation tags in database (don't update them).
-
-        Instead of deleting all tags and recreating them (which causes unnecessary
-        DB operations and activity logs), we calculate the diff and only modify
-        what has actually changed.
-        """
+        """Update evaluation contexts for a feature flag using efficient diff logic."""
         if not obj:
             return
 
-        # If FLAG_EVALUATION_TAGS is disabled, silently skip evaluation tag updates
-        # This preserves existing evaluation tags in the database (like TaggedItemSerializerMixin does)
         if not self._is_evaluation_tags_feature_enabled():
             return
 
-        # Normalize and dedupe tags (same as TaggedItemSerializerMixin does)
-        # evaluation_tags=[] is valid and means "clear all evaluation tags"
-        deduped_tags = list({tagify(t) for t in evaluation_tags or []})
+        from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 
-        # Get current evaluation tags from the database
-        # We fetch the tag names directly to avoid loading full objects
-        current_eval_tags = set(
-            FeatureFlagEvaluationTag.objects.filter(feature_flag=obj)
-            .select_related("tag")
-            .values_list("tag__name", flat=True)
+        deduped_names = list({normalize_context_name(t) for t in evaluation_tags or []})
+        deduped_set = set(deduped_names)
+
+        current_context_names = set(
+            FeatureFlagEvaluationContext.objects.filter(feature_flag=obj)
+            .select_related("evaluation_context")
+            .values_list("evaluation_context__name", flat=True)
         )
 
-        # Calculate the diff: what needs to be added vs removed
-        # This minimizes database operations and activity log noise
-        deduped_tags_set = set(deduped_tags)
-        tags_to_add = deduped_tags_set - current_eval_tags
-        tags_to_remove = current_eval_tags - deduped_tags_set
+        to_add = deduped_set - current_context_names
+        to_remove = current_context_names - deduped_set
 
-        # Remove evaluation tags that are no longer needed
-        if tags_to_remove:
-            FeatureFlagEvaluationTag.objects.filter(feature_flag=obj, tag__name__in=tags_to_remove).delete()
+        if to_remove:
+            FeatureFlagEvaluationContext.objects.filter(
+                feature_flag=obj, evaluation_context__name__in=to_remove
+            ).delete()
 
-        # Add new evaluation tags
-        if tags_to_add:
-            # Create tags if they don't exist (matching TaggedItemSerializerMixin behavior)
-            # Note: Our validation ensures these are subset of organizational tags,
-            # but we still create them here for consistency with TaggedItemSerializerMixin
-            for tag_name in tags_to_add:
-                tag, _ = Tag.objects.get_or_create(name=tag_name, team_id=obj.team_id)
-                FeatureFlagEvaluationTag.objects.create(feature_flag=obj, tag=tag)
+        if to_add:
+            for name in to_add:
+                ctx, _ = EvaluationContext.objects.get_or_create(name=name, team_id=obj.team_id)
+                FeatureFlagEvaluationContext.objects.create(feature_flag=obj, evaluation_context=ctx)
 
-        # Only invalidate cache if there were actual changes
-        # This avoids unnecessary cache churn on no-op updates
-        if tags_to_add or tags_to_remove:
+        if to_add or to_remove:
             try:
                 set_feature_flags_for_team_in_cache(obj.team.project_id)
             except Exception as e:
                 capture_exception(e)
-                pass  # Don't fail if cache invalidation fails
 
     def to_representation(self, obj):
         ret = super().to_representation(obj)
 
-        # Include evaluation tags in the serialized output
-        # The evaluation_tags are hidden (if user doesn't have access) in list and retrieve methods
-        evaluation_tag_names = []
+        context_names: list[str] = []
 
-        if hasattr(obj, "evaluation_tags"):
-            # Django's prefetch_related creates a cache in _prefetched_objects_cache.
-            # If the viewset used prefetch_related (which it should for performance),
-            # we can access the tags without hitting the database again.
-            if hasattr(obj, "_prefetched_objects_cache") and "evaluation_tags" in obj._prefetched_objects_cache:
-                # Use prefetched data (already in memory) - no DB query
-                evaluation_tag_names = [et.tag.name for et in obj.evaluation_tags.all()]
-            else:
-                # Fallback to database query with select_related to minimize queries
-                # This should rarely happen as the viewset prefetches evaluation_tags
-                evaluation_tag_names = [et.tag.name for et in obj.evaluation_tags.select_related("tag").all()]
+        if hasattr(obj, "_prefetched_objects_cache") and "flag_evaluation_contexts" in obj._prefetched_objects_cache:
+            context_names = [ec.evaluation_context.name for ec in obj.flag_evaluation_contexts.all()]
+        elif hasattr(obj, "flag_evaluation_contexts"):
+            context_names = [
+                ec.evaluation_context.name
+                for ec in obj.flag_evaluation_contexts.select_related("evaluation_context").all()
+            ]
 
-        ret["evaluation_tags"] = evaluation_tag_names
+        # Deprecated: evaluation_tags is kept for backward compatibility.
+        # Use evaluation_contexts instead. Will be removed in a future release.
+        ret["evaluation_tags"] = context_names
+        ret["evaluation_contexts"] = context_names
 
         return ret
 
@@ -700,14 +662,14 @@ class FeatureFlagSerializer(
             # This is intentional: we enforce eval tags going forward (new flags) without breaking
             # existing workflows (updating old flags that were created before the requirement).
 
-            # Check if evaluation tags are already loaded to avoid extra query
+            # Check if evaluation contexts are already loaded to avoid extra query
             if (
                 hasattr(self.instance, "_prefetched_objects_cache")
-                and "evaluation_tags" in self.instance._prefetched_objects_cache
+                and "flag_evaluation_contexts" in self.instance._prefetched_objects_cache
             ):
-                existing_eval_tag_count = len(self.instance.evaluation_tags.all())
+                existing_eval_tag_count = len(self.instance.flag_evaluation_contexts.all())
             else:
-                existing_eval_tag_count = self.instance.evaluation_tags.count()
+                existing_eval_tag_count = self.instance.flag_evaluation_contexts.count()
 
             if existing_eval_tag_count > 0:
                 # Flag currently has evaluation tags, so we need to enforce the requirement
@@ -1309,7 +1271,11 @@ class FeatureFlagSerializer(
 
         # Handle evaluation contexts (uses initial_data like TaggedItemSerializerMixin does)
         # Only update if explicitly provided in request, otherwise preserve existing contexts
-        if "evaluation_tags" in self.initial_data:
+        # Accept both field names; prefer evaluation_contexts if provided
+        if "evaluation_contexts" in self.initial_data:
+            evaluation_data = self.initial_data.get("evaluation_contexts")
+            self._attempt_set_evaluation_tags(evaluation_data, instance)
+        elif "evaluation_tags" in self.initial_data:
             evaluation_data = self.initial_data.get("evaluation_tags")
             self._attempt_set_evaluation_tags(evaluation_data, instance)
 
@@ -1637,6 +1603,7 @@ class EvaluationReasonsResponseSerializer(serializers.Serializer):
 class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
     filters = serializers.DictField(source="get_filters", required=False)
     evaluation_tags = serializers.SerializerMethodField()
+    evaluation_contexts = serializers.SerializerMethodField()
 
     class Meta:
         model = FeatureFlag
@@ -1654,17 +1621,39 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             "evaluation_runtime",
             "bucketing_identifier",
             "evaluation_tags",
+            "evaluation_contexts",
         ]
 
-    def get_evaluation_tags(self, feature_flag: FeatureFlag) -> list[str]:
-        # Prefer cached/provided names; fallback to relation.
+    def _get_context_names(self, feature_flag: FeatureFlag) -> list[str]:
         try:
-            names = getattr(feature_flag, "evaluation_tag_names", None)
-            if names is None:
-                names = [et.tag.name for et in feature_flag.evaluation_tags.select_related("tag").all()]
-            return names or []
+            # Check for _evaluation_tag_names cache attribute (set by Redis/local evaluation)
+            cached = getattr(feature_flag, "_evaluation_tag_names", None)
+            if cached is not None:
+                return cached or []
+
+            # Check prefetch cache (set by queryset.prefetch_related)
+            if (
+                hasattr(feature_flag, "_prefetched_objects_cache")
+                and "flag_evaluation_contexts" in feature_flag._prefetched_objects_cache
+            ):
+                return [ec.evaluation_context.name for ec in feature_flag.flag_evaluation_contexts.all()]
+
+            # Fallback: direct query
+            from posthog.models.evaluation_context import FeatureFlagEvaluationContext
+
+            return list(
+                FeatureFlagEvaluationContext.objects.filter(feature_flag=feature_flag)
+                .select_related("evaluation_context")
+                .values_list("evaluation_context__name", flat=True)
+            )
         except Exception:
             return []
+
+    def get_evaluation_tags(self, feature_flag: FeatureFlag) -> list[str]:
+        return self._get_context_names(feature_flag)
+
+    def get_evaluation_contexts(self, feature_flag: FeatureFlag) -> list[str]:
+        return self._get_context_names(feature_flag)
 
 
 class MyFlagsResponseSerializer(serializers.Serializer):
@@ -1714,7 +1703,7 @@ class FeatureFlagViewSet(
     def safely_get_queryset(self, queryset) -> QuerySet:
         from django.db.models import Exists, OuterRef
 
-        from posthog.models.feature_flag import FeatureFlagEvaluationTag
+        from posthog.models.evaluation_context import FeatureFlagEvaluationContext
 
         # Always prefetch experiment_set since it's used in both list and retrieve
         queryset = queryset.prefetch_related(
@@ -1725,14 +1714,11 @@ class FeatureFlagViewSet(
             )
         )
 
-        # Prefetch evaluation tags to avoid N+1 queries when serializing.
-        # Without this, each flag would trigger a separate query to fetch its
-        # evaluation tags. With prefetch_related, Django loads all evaluation
-        # tags in a single query and caches them on the model instances.
+        # Prefetch evaluation contexts to avoid N+1 queries when serializing.
         queryset = queryset.prefetch_related(
             Prefetch(
-                "evaluation_tags",
-                queryset=FeatureFlagEvaluationTag.objects.select_related("tag"),
+                "flag_evaluation_contexts",
+                queryset=FeatureFlagEvaluationContext.objects.select_related("evaluation_context"),
             )
         )
 
@@ -2518,7 +2504,7 @@ class FeatureFlagViewSet(
                 else:
                     filter_value = str(value).lower() in ("true", "1", "yes")
 
-                queryset = queryset.annotate(eval_tag_count=Count("evaluation_tags"))
+                queryset = queryset.annotate(eval_tag_count=Count("flag_evaluation_contexts"))
                 if filter_value:
                     queryset = queryset.filter(eval_tag_count__gt=0)
                 else:
@@ -2568,6 +2554,11 @@ class FeatureFlagViewSet(
 
         # Track send_cohorts parameter usage
         LOCAL_EVALUATION_REQUEST_COUNTER.labels(send_cohorts=str(include_cohorts).lower()).inc()
+
+        auth_method = (
+            "secret_api_token" if is_authenticated_via_project_secret_api_token(request) else "personal_api_key"
+        )
+        LOCAL_EVALUATION_AUTH_COUNTER.labels(method=auth_method).inc()
 
         try:
             # Check if team is quota limited for feature flags

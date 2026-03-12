@@ -20,8 +20,8 @@ class SensitiveConfig(TypedDict, total=False):
     needs_reauth: bool
 
 
-InstallSource = Literal["posthog", "twig"]
-INSTALL_SOURCE_CHOICES = [("posthog", "posthog"), ("twig", "twig")]
+InstallSource = Literal["posthog", "twig", "posthog-code"]
+INSTALL_SOURCE_CHOICES = [("posthog", "posthog"), ("twig", "twig"), ("posthog-code", "posthog-code")]
 
 
 # TRICKY: this is not a 1:1 mapping to MCPServer objects.
