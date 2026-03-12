@@ -1,5 +1,5 @@
 import posthog from 'posthog-js'
-import { Id, ToastOptions, toast } from 'react-toastify'
+import { toast, type ToastOptions } from 'react-toastify'
 
 import { IconCheckCircle, IconInfo, IconWarning, IconX } from '@posthog/icons'
 
@@ -32,7 +32,7 @@ interface ToastButton {
     className?: string
 }
 
-interface ToastOptionsWithButton extends ToastOptions<string> {
+interface ToastOptionsWithButton<T = string> extends ToastOptions<T> {
     button?: ToastButton
     hideButton?: boolean
 }
@@ -106,28 +106,26 @@ function withIncidentNote(message: string | JSX.Element): string | JSX.Element {
     )
 }
 
-type ToastSuccess = string
-
 interface ToastError {
     message: string
 }
 
 export const lemonToast = {
-    info(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}): Id {
+    info(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}) {
         const options = ensureToastId(toastOptions, 'info', message)
         return toast.info(<ToastContent type="info" message={message} button={button} id={options.toastId} />, {
             icon: <IconInfo />,
             ...options,
         })
     },
-    success(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}): Id {
+    success(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}) {
         const options = ensureToastId(toastOptions, 'success', message)
         return toast.success(<ToastContent type="success" message={message} button={button} id={options.toastId} />, {
             icon: isChristmas() ? <IconGift className="text-green-600" /> : <IconCheckCircle />,
             ...options,
         })
     },
-    warning(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}): Id {
+    warning(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}) {
         posthog.capture('toast warning', {
             message: String(message),
             button: button?.label,
@@ -139,7 +137,7 @@ export const lemonToast = {
             ...options,
         })
     },
-    error(message: string | JSX.Element, { button, hideButton, ...toastOptions }: ToastOptionsWithButton = {}): Id {
+    error(message: string | JSX.Element, { button, hideButton, ...toastOptions }: ToastOptionsWithButton = {}) {
         // when used inside the posthog toolbar, `posthog.capture` isn't loaded
         // check if the function is available before calling it.
         if (posthog.capture) {
@@ -169,12 +167,12 @@ export const lemonToast = {
         promise: Promise<any>,
         messages: { pending: string | JSX.Element; success: string | JSX.Element; error: string | JSX.Element },
         { button, ...toastOptions }: ToastOptionsWithButton = {}
-    ): Promise<string> {
+    ): Promise<any> {
         // Promise toasts always get random IDs (unless explicitly provided) because
         // different operations often share identical pending text like "Saving..."
         const options = ensureToastId(toastOptions, 'promise')
         // see https://fkhadra.github.io/react-toastify/promise
-        return toast.promise<ToastSuccess, ToastError>(
+        return toast.promise<string | undefined, ToastError>(
             promise,
             {
                 pending: {
