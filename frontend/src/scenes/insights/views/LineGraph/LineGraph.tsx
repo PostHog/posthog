@@ -820,7 +820,7 @@ export function LineGraph_({
                                                 )} (${percentageLabel}%)`
                                             })
                                         }
-                                        hideInspectActorsSection={!onClick || !showPersonsModal}
+                                        hideInspectActorsSection={!onClick || (!showPersonsModal && !inspectLabel)}
                                         inspectLabel={inspectLabel}
                                         {...tooltipProps}
                                         groupTypeLabel={
