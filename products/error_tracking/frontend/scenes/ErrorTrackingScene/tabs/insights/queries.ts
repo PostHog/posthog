@@ -127,39 +127,6 @@ export function buildCrashFreeSessionsQuery(
     }
 }
 
-export function buildErrorsByLocationQuery(
-    dateFrom: string,
-    dateTo: string | null,
-    { filterGroup, filterTestAccounts }: InsightQueryFilters
-): InsightVizNode<TrendsQuery> {
-    return {
-        kind: NodeKind.InsightVizNode,
-        source: {
-            kind: NodeKind.TrendsQuery,
-            series: [
-                {
-                    kind: NodeKind.EventsNode,
-                    event: '$exception',
-                    custom_name: 'Sessions with exception',
-                    math: BaseMathType.UniqueSessions,
-                },
-            ],
-            dateRange: { date_from: dateFrom, date_to: dateTo },
-            breakdownFilter: {
-                breakdown: '$geoip_country_code',
-                breakdown_type: 'event',
-            },
-            trendsFilter: {
-                display: ChartDisplayType.WorldMap,
-            },
-            filterTestAccounts,
-            properties: filterGroup as PropertyGroupFilter,
-        },
-        showHeader: false,
-        showTable: false,
-    }
-}
-
 export function insightNewUrl(query: InsightVizNode<TrendsQuery>): string {
     const editorQuery: InsightVizNode<TrendsQuery> = {
         ...query,

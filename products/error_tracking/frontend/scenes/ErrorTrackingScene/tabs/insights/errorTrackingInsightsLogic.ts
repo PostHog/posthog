@@ -14,7 +14,6 @@ import type { errorTrackingInsightsLogicType } from './errorTrackingInsightsLogi
 import {
     buildAffectedUsersRateQuery,
     buildCrashFreeSessionsQuery,
-    buildErrorsByLocationQuery,
     buildExceptionVolumeQuery,
     InsightQueryFilters,
 } from './queries'
@@ -32,6 +31,7 @@ export interface SessionEndingIssue {
     issueName: string
     issueDescription: string
     endedSessions: number
+    exampleRecordingSessionId: string | null
 }
 
 export interface PageErrorRate {
@@ -117,11 +117,6 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
             (dateRange, filters): InsightVizNode<TrendsQuery> =>
                 buildCrashFreeSessionsQuery(dateRange.date_from ?? '-7d', dateRange.date_to ?? null, filters),
         ],
-        errorsByLocationQuery: [
-            (s) => [s.dateRange, s.insightQueryFilters],
-            (dateRange, filters): InsightVizNode<TrendsQuery> =>
-                buildErrorsByLocationQuery(dateRange.date_from ?? '-7d', dateRange.date_to ?? null, filters),
-        ],
     }),
 
     loaders(({ values }) => ({
@@ -173,45 +168,54 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                 loadSessionEndingIssues: async (_, breakpoint) => {
                     await breakpoint(10)
                     // Group by issue_id: count how many distinct sessions ended
-                    // within 5s of that issue's exception
                     const response = await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: `
-                            WITH session_ends AS (
+                            WITH session_data AS (
                                 SELECT
                                     $session_id as sid,
-                                    max(timestamp) as session_end
+                                    argMax(event, timestamp) as last_event,
+                                    argMax(issue_id, timestamp) as last_issue_id,
+                                    arraySort(groupArray(timestamp)) as timestamps
                                 FROM events
                                 WHERE {filters}
                                     AND notEmpty($session_id)
                                 GROUP BY $session_id
                             ),
-                            top_issues AS (
+                            exception_ended AS (
                                 SELECT
-                                    issue_id,
-                                    uniq(exc.$session_id) as ended_sessions
-                                FROM events exc
-                                INNER JOIN session_ends se ON exc.$session_id = se.sid
-                                WHERE {filters}
-                                    AND exc.event = '$exception'
-                                    AND notEmpty(exc.$session_id)
-                                    AND notEmpty(exc.properties.$exception_issue_id)
-                                    AND dateDiff('second', exc.timestamp, se.session_end) <= 5
+                                    last_issue_id as issue_id,
+                                    count() as sessions,
+                                    groupArray(sid) as session_ids
+                                FROM session_data
+                                WHERE last_event = '$exception'
+                                    AND notEmpty(last_issue_id)
+                                    AND length(timestamps) >= 2
+                                    AND dateDiff('second', arrayElement(timestamps, -2), arrayElement(timestamps, -1)) <= 5
                                 GROUP BY issue_id
-                                ORDER BY ended_sessions DESC
+                                ORDER BY sessions DESC
                                 LIMIT 10
+                            ),
+                            recorded_sessions AS (
+                                SELECT session_id
+                                FROM session_replay_events
+                                WHERE session_id IN (SELECT arrayJoin(session_ids) FROM exception_ended)
                             )
                             SELECT
-                                ti.issue_id,
-                                eti.name as issue_name,
-                                eti.description as issue_description,
-                                ti.ended_sessions
-                            FROM top_issues ti
+                                ee.issue_id,
+                                eti.name,
+                                eti.description,
+                                ee.sessions,
+                                arrayFirst(s -> has(rs.recorded_sessions_arr, s), ee.session_ids) as example_recording_session_id
+                            FROM exception_ended ee
                             LEFT JOIN (
                                 SELECT id, name, description FROM system.error_tracking_issues
-                                WHERE id IN (SELECT issue_id FROM top_issues)
-                            ) AS eti ON eti.id = ti.issue_id
-                            ORDER BY ended_sessions DESC
+                                WHERE id IN (SELECT issue_id FROM exception_ended)
+                            ) AS eti ON eti.id = ee.issue_id
+                            CROSS JOIN (
+                                SELECT groupArray(session_id) as recorded_sessions_arr FROM recorded_sessions
+                            ) AS rs
+                            ORDER BY sessions DESC
                         `,
                         filters: getFilters(values),
                     })
@@ -221,6 +225,7 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                         issueName: row[1] as string,
                         issueDescription: row[2] as string,
                         endedSessions: row[3] as number,
+                        exampleRecordingSessionId: (row[4] as string) || null,
                     }))
                 },
             },

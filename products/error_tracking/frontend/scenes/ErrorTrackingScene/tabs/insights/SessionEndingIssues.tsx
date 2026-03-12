@@ -41,14 +41,26 @@ export function SessionEndingIssues(): JSX.Element {
                                 </td>
                                 <td className="py-1.5 px-2 text-sm text-right font-medium">{row.endedSessions}</td>
                                 <td className="py-1.5 px-2 text-right w-px whitespace-nowrap">
-                                    <LemonButton
-                                        type="secondary"
-                                        size="xsmall"
-                                        to={urls.errorTrackingIssue(row.issueId)}
-                                        targetBlank
-                                    >
-                                        View issue
-                                    </LemonButton>
+                                    <div className="flex gap-1 justify-end">
+                                        {row.exampleRecordingSessionId && (
+                                            <LemonButton
+                                                type="secondary"
+                                                size="xsmall"
+                                                to={urls.replaySingle(row.exampleRecordingSessionId)}
+                                                targetBlank
+                                            >
+                                                View recording
+                                            </LemonButton>
+                                        )}
+                                        <LemonButton
+                                            type="secondary"
+                                            size="xsmall"
+                                            to={urls.errorTrackingIssue(row.issueId)}
+                                            targetBlank
+                                        >
+                                            View issue
+                                        </LemonButton>
+                                    </div>
                                 </td>
                             </tr>
                         ))}
