@@ -8,7 +8,7 @@ import { SessionEndingIssues } from './SessionEndingIssues'
 import { SummaryStats } from './SummaryStats'
 
 export function ErrorTrackingInsights(): JSX.Element {
-    const { exceptionVolumeQuery, affectedUsersRateQuery, crashFreeSessionsQuery } =
+    const { exceptionVolumeQuery, affectedUsersRateQuery, crashFreeSessionsQuery, errorsByLocationQuery } =
         useValues(errorTrackingInsightsLogic)
 
     return (
@@ -38,6 +38,13 @@ export function ErrorTrackingInsights(): JSX.Element {
                     chartKey="crash_free_sessions"
                 />
             </div>
+
+            <ChartCard
+                title="Errors by location"
+                description="% of sessions with an exception by country"
+                query={errorsByLocationQuery}
+                chartKey="errors_by_location"
+            />
 
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
                 <SessionEndingIssues />

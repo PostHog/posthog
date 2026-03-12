@@ -14,6 +14,7 @@ import type { errorTrackingInsightsLogicType } from './errorTrackingInsightsLogi
 import {
     buildAffectedUsersRateQuery,
     buildCrashFreeSessionsQuery,
+    buildErrorsByLocationQuery,
     buildExceptionVolumeQuery,
     InsightQueryFilters,
 } from './queries'
@@ -115,6 +116,11 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
             (s) => [s.dateRange, s.insightQueryFilters],
             (dateRange, filters): InsightVizNode<TrendsQuery> =>
                 buildCrashFreeSessionsQuery(dateRange.date_from ?? '-7d', dateRange.date_to ?? null, filters),
+        ],
+        errorsByLocationQuery: [
+            (s) => [s.dateRange, s.insightQueryFilters],
+            (dateRange, filters): InsightVizNode<TrendsQuery> =>
+                buildErrorsByLocationQuery(dateRange.date_from ?? '-7d', dateRange.date_to ?? null, filters),
         ],
     }),
 
