@@ -397,20 +397,20 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
             if numeric_value is None:
                 return {"numeric_value": "This scorer requires `numeric_value`."}
 
-            minimum = self._decimal_from_config(definition_version.config.get("min"))
-            maximum = self._decimal_from_config(definition_version.config.get("max"))
-            step = self._decimal_from_config(definition_version.config.get("step"))
+            numeric_minimum = self._decimal_from_config(definition_version.config.get("min"))
+            numeric_maximum = self._decimal_from_config(definition_version.config.get("max"))
+            numeric_step = self._decimal_from_config(definition_version.config.get("step"))
 
-            if minimum is not None and numeric_value < minimum:
-                return {"numeric_value": f"Ensure this value is greater than or equal to {minimum}."}
+            if numeric_minimum is not None and numeric_value < numeric_minimum:
+                return {"numeric_value": f"Ensure this value is greater than or equal to {numeric_minimum}."}
 
-            if maximum is not None and numeric_value > maximum:
-                return {"numeric_value": f"Ensure this value is less than or equal to {maximum}."}
+            if numeric_maximum is not None and numeric_value > numeric_maximum:
+                return {"numeric_value": f"Ensure this value is less than or equal to {numeric_maximum}."}
 
-            if step is not None:
-                base = minimum if minimum is not None else Decimal("0")
-                if (numeric_value - base) % step != 0:
-                    return {"numeric_value": f"Ensure this value increments by {step}."}
+            if numeric_step is not None:
+                base = numeric_minimum if numeric_minimum is not None else Decimal("0")
+                if (numeric_value - base) % numeric_step != 0:
+                    return {"numeric_value": f"Ensure this value increments by {numeric_step}."}
 
             return {}
 
@@ -448,6 +448,7 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
     def create(self, validated_data: dict[str, Any]) -> TraceReview:
         request = cast(Request, self.context["request"])
         team = cast(Team, self.context["team"])
+        review_user = cast(User, request.user)
         resolved_scores = cast(list[dict[str, Any]], validated_data.pop("_resolved_scores", []))
         validated_data.pop("scores", None)
 
@@ -456,8 +457,8 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
                 team=team,
                 trace_id=validated_data["trace_id"],
                 comment=validated_data.get("comment"),
-                created_by=request.user,
-                reviewed_by=request.user,
+                created_by=review_user,
+                reviewed_by=review_user,
             )
         except IntegrityError as err:
             raise serializers.ValidationError({"trace_id": "An active review already exists for this trace."}) from err
@@ -467,6 +468,8 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
 
     @transaction.atomic
     def update(self, instance: TraceReview, validated_data: dict[str, Any]) -> TraceReview:
+        request = cast(Request, self.context["request"])
+        review_user = cast(User, request.user)
         resolved_scores = cast(list[dict[str, Any]] | None, validated_data.pop("_resolved_scores", None))
         validated_data.pop("scores", None)
         validated_data.pop("trace_id", None)
@@ -474,7 +477,7 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
         if "comment" in validated_data:
             instance.comment = validated_data["comment"]
 
-        instance.reviewed_by = cast(Request, self.context["request"]).user
+        instance.reviewed_by = review_user
         instance.save(update_fields=["comment", "reviewed_by", "updated_at"])
 
         if resolved_scores is not None:
