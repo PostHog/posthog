@@ -12,6 +12,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dags.common import JobOwners
 from posthog.dags.common.resources import PostHogAnalyticsResource
+from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_cache import DjangoCacheQueryCacheManager
 from posthog.hogql_queries.query_runner import get_query_runner
@@ -183,7 +184,7 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: dict) -> None:
                 tag_queries(team_id=team_id, trigger="webAnalyticsQueryWarming", feature=Feature.CACHE_WARMUP)
 
                 # TODO: We shouldn't try to run a query if it failed last run
-                runner.run()
+                runner.run(analytics_props={"source": EventSource.CACHE_WARMING})
                 increment_counter(team_id, normalized_query_hash, is_cached=False)
                 queries_warmed += 1
 
