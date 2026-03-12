@@ -433,14 +433,6 @@ export function SceneName({
     const textClasses =
         'text-lg font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-sm)] leading-[1.4] select-auto'
 
-    const debouncedOnBlurSave = useDebouncedCallback((value: string) => {
-        onChange?.(value)
-    }, renameDebounceMs)
-
-    const debouncedOnChange = useDebouncedCallback((value: string) => {
-        onChange?.(value)
-    }, renameDebounceMs)
-
     useEffect(() => {
         if (!isLoading && forceEdit) {
             setIsEditing(true)
@@ -448,6 +440,14 @@ export function SceneName({
             setIsEditing(false)
         }
     }, [isLoading, forceEdit])
+
+    const debouncedOnBlurSave = useDebouncedCallback((value: string) => {
+        onChange?.(value)
+    }, renameDebounceMs)
+
+    const debouncedOnChange = useDebouncedCallback((value: string) => {
+        onChange?.(value)
+    }, renameDebounceMs)
 
     const handleBlur = (e: React.FocusEvent): void => {
         const relatedTarget = e.relatedTarget as HTMLElement | null
@@ -608,14 +608,6 @@ function SceneDescription({
 
     const emptyText = canEdit ? 'Enter description (optional)' : 'No description'
 
-    const debouncedOnBlurSaveDescription = useDebouncedCallback((value: string) => {
-        onChange?.(value)
-    }, renameDebounceMs)
-
-    const debouncedOnDescriptionChange = useDebouncedCallback((value: string) => {
-        onChange?.(value)
-    }, renameDebounceMs)
-
     useEffect(() => {
         if (!isLoading && forceEdit) {
             setIsEditing(true)
@@ -623,6 +615,14 @@ function SceneDescription({
             setIsEditing(false)
         }
     }, [isLoading, forceEdit])
+
+    const debouncedOnBlurSaveDescription = useDebouncedCallback((value: string) => {
+        onChange?.(value)
+    }, renameDebounceMs)
+
+    const debouncedOnDescriptionChange = useDebouncedCallback((value: string) => {
+        onChange?.(value)
+    }, renameDebounceMs)
 
     const handleBlur = (): void => {
         if (saveOnBlur && !forceEdit && description !== initialDescription) {
