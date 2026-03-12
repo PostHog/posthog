@@ -375,7 +375,11 @@ mod tests {
             .expire("k15", 300)
             .zrangebyscore("k16", "0", "100");
 
-        assert_eq!(pipeline.len(), 16);
+        let (_, commands) = pipeline.into_commands();
+        assert_eq!(commands.len(), 16);
+        assert!(
+            matches!(&commands[14], PipelineCommand::Expire { key, seconds } if key == "k15" && *seconds == 300)
+        );
     }
 
     #[test]

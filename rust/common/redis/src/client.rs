@@ -623,8 +623,11 @@ impl RedisClient {
             PipelineCommand::Set { .. }
             | PipelineCommand::SetEx { .. }
             | PipelineCommand::Del { .. }
-            | PipelineCommand::HIncrBy { .. }
-            | PipelineCommand::Expire { .. } => Ok(PipelineResult::Ok),
+            | PipelineCommand::HIncrBy { .. } => Ok(PipelineResult::Ok),
+            PipelineCommand::Expire { .. } => {
+                // EXPIRE returns 1 if the timeout was set, 0 if the key does not exist
+                Ok(PipelineResult::Bool(matches!(raw, redis::Value::Int(1))))
+            }
             PipelineCommand::SAdd { .. } => {
                 let count: u64 = redis::from_redis_value(&raw)?;
                 Ok(PipelineResult::Count(count))

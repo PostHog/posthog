@@ -639,12 +639,9 @@ impl MockRedisClient {
                 Self::lookup_or_ok(&self.sadd_ret, &key).map(|_| PipelineResult::Count(1))
             }
             PipelineCommand::Expire { key, seconds } => {
-                self.record_call(
-                    "pipeline_expire",
-                    &key,
-                    MockRedisValue::I64(seconds as i64),
-                );
-                Self::lookup_or_ok(&self.expire_ret, &key).map(|_| PipelineResult::Ok)
+                let ttl_i64 = i64::try_from(seconds).unwrap_or(i64::MAX);
+                self.record_call("pipeline_expire", &key, MockRedisValue::I64(ttl_i64));
+                Self::lookup_or_ok(&self.expire_ret, &key).map(|_| PipelineResult::Bool(true))
             }
             PipelineCommand::ZRangeByScore { key, min, max } => {
                 self.record_call(
