@@ -207,12 +207,37 @@ class ManifestSyncError(Exception):
     pass
 
 
+def changed_pointers(before: dict[str, str], after: dict[str, str]) -> set[str]:
+    """Return pointers whose resolved version changed, was added, or was removed."""
+    all_keys = set(before) | set(after)
+    return {key for key in all_keys if before.get(key) != after.get(key)}
+
+
+def _purge_changed_pointers(before: dict[str, str], after: dict[str, str]) -> None:
+    """Purge CDN cache for any pointers that changed between two manifests."""
+    from posthog.models.remote_config import RemoteConfig
+
+    changed = changed_pointers(before, after)
+    for pointer in changed:
+        # NOTE: each of these calls is another HTTP request to the CDN. in practice,
+        # .      the number of changed pointers should be very small, but this is
+        #       technically unbounded
+        RemoteConfig.purge_cdn_by_tag(f"posthog-js-{pointer}")
+    if changed:
+        logger.info("Purged CDN for changed pointers", pointers=sorted(changed))
+
+
 def sync_manifest_from_s3() -> VersionManifest:
     """
-    Read versions.json from S3, compute manifest, validate major pins, and write to Redis.
+    Read versions.json from S3, compute manifest, validate major pins, write to Redis,
+    and purge CDN cache for any changed pointers.
 
     Raises ManifestSyncError if anything goes wrong.
     """
+    # Snapshot old pointers before overwriting
+    old_raw = cache.get(REDIS_POINTER_MAP_KEY)
+    old_pointers: dict[str, str] = json.loads(old_raw)["pointers"] if old_raw else {}
+
     raw = object_storage.read(
         S3_VERSIONS_KEY,
         bucket=settings.POSTHOG_JS_S3_BUCKET,
@@ -234,6 +259,7 @@ def sync_manifest_from_s3() -> VersionManifest:
             raise ManifestSyncError(f"Artifacts missing for major pin {pin} -> {version}")
 
     cache.set(REDIS_POINTER_MAP_KEY, json.dumps(manifest), timeout=None)
+    _purge_changed_pointers(old_pointers, manifest["pointers"])
     return manifest
 
 

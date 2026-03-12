@@ -9,9 +9,11 @@ import posthog.models.snippet_versioning as sv
 from posthog.models.snippet_versioning import (
     REDIS_JS_KEY_PREFIX,
     REDIS_POINTER_MAP_KEY,
+    changed_pointers,
     compute_version_manifest,
     get_js_content,
     resolve_version,
+    sync_manifest_from_s3,
     validate_version_artifacts,
 )
 from posthog.tasks.snippet_versioning import sync_snippet_manifest
@@ -250,3 +252,96 @@ class TestSyncTask(SimpleTestCase):
     def test_noop_when_versioning_disabled(self):
         sync_snippet_manifest()
         assert cache.get(REDIS_POINTER_MAP_KEY) is None
+
+
+class TestChangedPointers(SimpleTestCase):
+    def test_detects_changed_value(self):
+        assert changed_pointers({"1": "1.358.0"}, {"1": "1.359.0"}) == {"1"}
+
+    def test_detects_added_pointer(self):
+        assert changed_pointers({}, {"1": "1.359.0"}) == {"1"}
+
+    def test_detects_removed_pointer(self):
+        assert changed_pointers({"1": "1.359.0"}, {}) == {"1"}
+
+    def test_no_changes(self):
+        assert changed_pointers({"1": "1.359.0"}, {"1": "1.359.0"}) == set()
+
+
+class TestSyncManifestPurge(SimpleTestCase):
+    def setUp(self):
+        _reset_caches()
+
+    def tearDown(self):
+        cache.delete(REDIS_POINTER_MAP_KEY)
+        _reset_caches()
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    @patch("posthog.models.remote_config.RemoteConfig.purge_cdn_by_tag")
+    @patch("posthog.models.snippet_versioning.validate_version_artifacts")
+    @patch("posthog.models.snippet_versioning.object_storage.read")
+    def test_purges_changed_pointers(self, mock_read, mock_validate, mock_purge):
+        # Seed old manifest
+        old_manifest = _make_manifest(
+            versions=["1.358.0"],
+            pointers={"1": "1.358.0", "1.358": "1.358.0"},
+        )
+        cache.set(REDIS_POINTER_MAP_KEY, json.dumps(old_manifest))
+
+        # New versions.json adds 1.359.0 which becomes the new "1" pointer
+        mock_read.return_value = json.dumps(
+            [
+                {"version": "1.358.0", "timestamp": "2025-01-15T00:00:00Z"},
+                {"version": "1.359.0", "timestamp": "2025-01-20T00:00:00Z"},
+            ]
+        )
+        mock_validate.return_value = True
+
+        sync_manifest_from_s3()
+
+        purged_tags = {call.args[0] for call in mock_purge.call_args_list}
+        assert "posthog-js-1" in purged_tags
+        assert "posthog-js-1.359" in purged_tags
+        assert "posthog-js-1.358" not in purged_tags
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    @patch("posthog.models.remote_config.RemoteConfig.purge_cdn_by_tag")
+    @patch("posthog.models.snippet_versioning.validate_version_artifacts")
+    @patch("posthog.models.snippet_versioning.object_storage.read")
+    def test_no_purge_when_pointers_unchanged(self, mock_read, mock_validate, mock_purge):
+        # Seed old manifest with same data as new
+        old_manifest = _make_manifest(
+            versions=["1.358.0"],
+            pointers={"1": "1.358.0", "1.358": "1.358.0"},
+        )
+        cache.set(REDIS_POINTER_MAP_KEY, json.dumps(old_manifest))
+
+        mock_read.return_value = json.dumps(
+            [
+                {"version": "1.358.0", "timestamp": "2025-01-15T00:00:00Z"},
+            ]
+        )
+        mock_validate.return_value = True
+
+        sync_manifest_from_s3()
+
+        mock_purge.assert_not_called()
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    @patch("posthog.models.remote_config.RemoteConfig.purge_cdn_by_tag")
+    @patch("posthog.models.snippet_versioning.validate_version_artifacts")
+    @patch("posthog.models.snippet_versioning.object_storage.read")
+    def test_purges_all_pointers_on_first_sync(self, mock_read, mock_validate, mock_purge):
+        # No existing manifest in Redis
+        mock_read.return_value = json.dumps(
+            [
+                {"version": "1.358.0", "timestamp": "2025-01-15T00:00:00Z"},
+            ]
+        )
+        mock_validate.return_value = True
+
+        sync_manifest_from_s3()
+
+        purged_tags = {call.args[0] for call in mock_purge.call_args_list}
+        assert "posthog-js-1" in purged_tags
+        assert "posthog-js-1.358" in purged_tags

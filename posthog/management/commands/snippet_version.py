@@ -11,18 +11,12 @@ from posthog.models.snippet_versioning import (
     S3_VERSIONS_KEY,
     ManifestSyncError,
     VersionManifest,
+    changed_pointers,
     compute_version_manifest,
     sync_manifest_from_s3,
     validate_version_artifacts,
 )
 from posthog.storage import object_storage
-
-
-def _changed_pointers(before: dict[str, str], after: dict[str, str]) -> set[str]:
-    """Return pointers whose resolved version changed, was added, or was removed."""
-    all_keys = set(before) | set(after)
-    return {key for key in all_keys if before.get(key) != after.get(key)}
-
 
 # Usage:
 #
@@ -93,7 +87,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"Redis updated with manifest: {manifest}"))
 
     def _purge_changed(self, before: dict[str, str], after: dict[str, str]) -> None:
-        changed = _changed_pointers(before, after)
+        changed = changed_pointers(before, after)
         if not changed:
             self.stdout.write("No pointers changed, nothing to purge")
             return
@@ -103,7 +97,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"CDN purge triggered for {len(changed)} pointer(s)"))
 
     def _print_diff(self, before: dict[str, str], after: dict[str, str]) -> None:
-        changed = _changed_pointers(before, after)
+        changed = changed_pointers(before, after)
         if not changed:
             self.stdout.write("No pointer changes")
             return
