@@ -10593,11 +10593,11 @@ export namespace Schemas {
       /** @nullable */
       deleted?: boolean | null;
       /**
-       * Unique name for the view. Used as the table name in HogQL queries.
+       * Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.
        * @maxLength 128
        */
       name: string;
-      /** HogQL query definition as a JSON object with a "query" key containing the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"} */
+      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
       query?: unknown | null;
       readonly created_by: UserBasic;
       readonly created_at: string;
@@ -19689,11 +19689,11 @@ export namespace Schemas {
       /** @nullable */
       deleted?: boolean | null;
       /**
-       * Unique name for the view. Used as the table name in HogQL queries.
+       * Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.
        * @maxLength 128
        */
       name?: string;
-      /** HogQL query definition as a JSON object with a "query" key containing the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"} */
+      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
       query?: unknown | null;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
