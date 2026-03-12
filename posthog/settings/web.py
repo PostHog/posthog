@@ -60,6 +60,7 @@ PRODUCTS_APPS = [
     "products.mcp_store.backend.apps.McpStoreConfig",
     "products.event_definitions.backend.apps.EventDefinitionsConfig",
     "products.logs.backend.apps.LogsConfig",
+    "products.tracing.backend.apps.TracingConfig",
 ]
 
 INSTALLED_APPS = [
