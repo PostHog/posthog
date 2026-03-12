@@ -1026,11 +1026,11 @@ async fn test_mixed_log_only_modes() -> Result<()> {
 
 #[tokio::test]
 async fn test_rate_limit_warn_then_enforce() -> Result<()> {
-    // Set warn_capacity=2, enforce_capacity=5
+    // warn at 40% of 5 = 2, enforce at 5
     let mut config = Config::default_test_config();
     config.flags_rate_limit_enabled = FlexBool(true);
     config.flags_rate_limit_log_only = FlexBool(false);
-    config.flags_bucket_warn_capacity = 2;
+    config.flags_warn_capacity_ratio = 0.4;
     config.flags_bucket_capacity = 5;
     config.flags_bucket_replenish_rate = 0.1;
 
@@ -1128,10 +1128,11 @@ async fn test_rate_limit_warn_then_enforce() -> Result<()> {
 #[tokio::test]
 async fn test_rate_limit_warn_header_absent_below_threshold() -> Result<()> {
     // Verify the warning header is absent on normal responses
+    // warn at 50% of 200 = 100
     let mut config = Config::default_test_config();
     config.flags_rate_limit_enabled = FlexBool(true);
     config.flags_rate_limit_log_only = FlexBool(false);
-    config.flags_bucket_warn_capacity = 100;
+    config.flags_warn_capacity_ratio = 0.5;
     config.flags_bucket_capacity = 200;
     config.flags_bucket_replenish_rate = 10.0;
 
@@ -1191,9 +1192,10 @@ async fn test_rate_limit_warn_header_absent_below_threshold() -> Result<()> {
 #[tokio::test]
 async fn test_ip_rate_limit_warn_then_enforce() -> Result<()> {
     let mut config = Config::default_test_config();
+    // warn at 50% of 4 = 2, enforce at 4
     config.flags_ip_rate_limit_enabled = FlexBool(true);
     config.flags_ip_rate_limit_log_only = FlexBool(false);
-    config.flags_ip_warn_burst_size = 2;
+    config.flags_warn_capacity_ratio = 0.5;
     config.flags_ip_burst_size = 4;
     config.flags_ip_replenish_rate = 0.1;
 
@@ -1287,7 +1289,6 @@ async fn test_rate_limit_backwards_compat_log_only() -> Result<()> {
     let mut config = Config::default_test_config();
     config.flags_rate_limit_enabled = FlexBool(true);
     config.flags_rate_limit_log_only = FlexBool(true);
-    config.flags_bucket_warn_capacity = 0; // no explicit warn tier
     config.flags_bucket_capacity = 2;
     config.flags_bucket_replenish_rate = 0.1;
 
@@ -1339,12 +1340,11 @@ async fn test_rate_limit_backwards_compat_log_only() -> Result<()> {
 
 #[tokio::test]
 async fn test_rate_limit_backwards_compat_enforce() -> Result<()> {
-    // When log_only=false and no warn capacity, should hard-block at enforce capacity
-    // (matches today's enforced behavior)
+    // When log_only=false and ratio=0, should hard-block at enforce capacity with no warn tier
     let mut config = Config::default_test_config();
     config.flags_rate_limit_enabled = FlexBool(true);
     config.flags_rate_limit_log_only = FlexBool(false);
-    config.flags_bucket_warn_capacity = 0; // no warn tier
+    config.flags_warn_capacity_ratio = 0.0; // disable warn tier
     config.flags_bucket_capacity = 2;
     config.flags_bucket_replenish_rate = 0.1;
 
@@ -1413,7 +1413,7 @@ async fn test_rate_limit_per_team_override() -> Result<()> {
     let mut config = Config::default_test_config();
     config.flags_rate_limit_enabled = FlexBool(true);
     config.flags_rate_limit_log_only = FlexBool(false);
-    config.flags_bucket_warn_capacity = 0;
+    config.flags_warn_capacity_ratio = 0.0; // disable warn tier, rely on per-token override
     config.flags_bucket_capacity = 100; // high default
     config.flags_bucket_replenish_rate = 0.1;
 
@@ -1427,7 +1427,7 @@ async fn test_rate_limit_per_team_override() -> Result<()> {
     // Configure a very restrictive custom rate for this specific token
     let mut custom_rates = HashMap::new();
     custom_rates.insert(token.clone(), "1/hour".to_string());
-    config.flags_rate_limits = feature_flags::config::FlagsRateLimits(custom_rates);
+    config.flags_token_rate_limit_overrides = feature_flags::config::FlagsTokenRateLimitOverrides(custom_rates);
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();

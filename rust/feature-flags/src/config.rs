@@ -144,23 +144,23 @@ impl FromStr for FlagDefinitionsRateLimits {
 }
 
 /// Per-token rate limit overrides for the /flags endpoint.
-/// Parses JSON from FLAGS_RATE_LIMITS_JSON environment variable.
+/// Parses JSON from FLAGS_TOKEN_RATE_LIMIT_OVERRIDES environment variable.
 /// Format: {"token_string": "rate_string", ...}
 /// Example: {"phc_abc123": "1200/minute", "phc_xyz789": "2400/hour"}
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct FlagsRateLimits(pub HashMap<String, String>);
+pub struct FlagsTokenRateLimitOverrides(pub HashMap<String, String>);
 
 /// Maximum number of per-token rate limit overrides allowed.
 pub const MAX_FLAGS_RATE_LIMIT_OVERRIDES: usize = 100;
 
-impl FromStr for FlagsRateLimits {
+impl FromStr for FlagsTokenRateLimitOverrides {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.trim();
 
         if s.is_empty() {
-            return Ok(FlagsRateLimits::default());
+            return Ok(FlagsTokenRateLimitOverrides::default());
         }
 
         let parsed: HashMap<String, String> = serde_json::from_str(s)
@@ -173,7 +173,7 @@ impl FromStr for FlagsRateLimits {
             ));
         }
 
-        Ok(FlagsRateLimits(parsed))
+        Ok(FlagsTokenRateLimitOverrides(parsed))
     }
 }
 
@@ -455,13 +455,6 @@ pub struct Config {
     #[envconfig(from = "FLAGS_BUCKET_REPLENISH_RATE", default = "10.0")]
     pub flags_bucket_replenish_rate: f64,
 
-    // Warn-tier bucket capacity for token-based rate limiting.
-    // When > 0, enables two-tier warn-then-enforce model. Requests that exceed this
-    // capacity (but are below FLAGS_BUCKET_CAPACITY) get a warning header.
-    // 0 = no warn tier (backwards-compatible behavior).
-    #[envconfig(from = "FLAGS_BUCKET_WARN_CAPACITY", default = "0")]
-    pub flags_bucket_warn_capacity: u32,
-
     // IP-based rate limiting configuration
     // Provides defense-in-depth against DDoS attacks with rotating fake tokens
     // This limits ALL requests per IP address, regardless of token validity
@@ -477,30 +470,29 @@ pub struct Config {
     #[envconfig(from = "FLAGS_IP_REPLENISH_RATE", default = "50.0")]
     pub flags_ip_replenish_rate: f64,
 
-    // Warn-tier burst size for IP-based rate limiting.
-    // When > 0, enables two-tier warn-then-enforce model. Requests that exceed this
-    // capacity (but are below FLAGS_IP_BURST_SIZE) get a warning header.
-    // 0 = no warn tier (backwards-compatible behavior).
-    #[envconfig(from = "FLAGS_IP_WARN_BURST_SIZE", default = "0")]
-    pub flags_ip_warn_burst_size: u32,
+    // Warn-tier ratio: the warn threshold is derived as this fraction of the enforce
+    // capacity for both token and IP limiters. E.g., 0.8 means warn at 80% of enforce.
+    // Set to 0.0 to disable the warn tier entirely.
+    #[envconfig(from = "FLAGS_WARN_CAPACITY_RATIO", default = "0.8")]
+    pub flags_warn_capacity_ratio: f64,
 
     // Log-only mode for rate limiting (defaults to true for safe rollout)
     // When true, rate limits are checked and violations logged, but requests are not blocked
     // This allows gathering metrics to tune limits before enforcing them
-    // DEPRECATED: use FLAGS_BUCKET_WARN_CAPACITY for the new warn-then-enforce model
+    // DEPRECATED: set FLAGS_RATE_LIMIT_LOG_ONLY=false and use FLAGS_WARN_CAPACITY_RATIO instead
     #[envconfig(from = "FLAGS_RATE_LIMIT_LOG_ONLY", default = "true")]
     pub flags_rate_limit_log_only: FlexBool,
 
     // Log-only mode for IP-based rate limiting (defaults to true for safe rollout)
-    // DEPRECATED: use FLAGS_IP_WARN_BURST_SIZE for the new warn-then-enforce model
+    // DEPRECATED: set FLAGS_IP_RATE_LIMIT_LOG_ONLY=false and use FLAGS_WARN_CAPACITY_RATIO instead
     #[envconfig(from = "FLAGS_IP_RATE_LIMIT_LOG_ONLY", default = "true")]
     pub flags_ip_rate_limit_log_only: FlexBool,
 
     // Per-token rate limit overrides for the /flags endpoint
     // JSON format: {"token_string": "rate_string", ...}
     // Example: {"phc_abc123": "1200/minute", "phc_xyz789": "2400/hour"}
-    #[envconfig(from = "FLAGS_RATE_LIMITS_JSON", default = "")]
-    pub flags_rate_limits: FlagsRateLimits,
+    #[envconfig(from = "FLAGS_TOKEN_RATE_LIMIT_OVERRIDES", default = "")]
+    pub flags_token_rate_limit_overrides: FlagsTokenRateLimitOverrides,
 
     // How often to clean up stale rate limiter entries (seconds)
     // The governor crate's keyed rate limiters accumulate entries for every unique key.
@@ -747,14 +739,13 @@ impl Config {
             flags_rate_limit_enabled: FlexBool(false),
             flags_bucket_capacity: 500,
             flags_bucket_replenish_rate: 10.0,
-            flags_bucket_warn_capacity: 0,
             flags_ip_rate_limit_enabled: FlexBool(false),
             flags_ip_burst_size: 500,
             flags_ip_replenish_rate: 100.0,
-            flags_ip_warn_burst_size: 0,
+            flags_warn_capacity_ratio: 0.8,
             flags_rate_limit_log_only: FlexBool(true),
             flags_ip_rate_limit_log_only: FlexBool(true),
-            flags_rate_limits: FlagsRateLimits::default(),
+            flags_token_rate_limit_overrides: FlagsTokenRateLimitOverrides::default(),
             rate_limiter_cleanup_interval_secs: 60,
             redis_compression_enabled: FlexBool(true),
             redis_client_retry_count: 3,
