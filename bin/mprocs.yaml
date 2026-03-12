@@ -77,6 +77,17 @@ procs:
             fi
         capability: temporal_workflows
 
+    recording-rasterizer:
+        shell: |-
+            bin/wait-for-docker temporal && \
+            bin/temporal-recording-rasterizer-worker
+        capability: recording_rasterizer
+        env:
+            VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
+            VIDEO_EXPORT_OBJECT_STORAGE_REGION: 'us-east-1'
+            AWS_ACCESS_KEY_ID: 'object_storage_root_user'
+            AWS_SECRET_ACCESS_KEY: 'object_storage_root_password'
+
     dagster:
         shell: |-
             bin/wait-for-docker && \
@@ -92,16 +103,6 @@ procs:
     cyclotron-janitor:
         shell: |-
             bin/wait-for-docker && \
-            bin/start-rust-service cyclotron-janitor
-        capability: cyclotron
-
-    cyclotron-janitor-shadow:
-        shell: |-
-            bin/wait-for-docker && \
-            DATABASE_URL=postgres://posthog:posthog@localhost:5432/cyclotron_shadow \
-            BIND_PORT=3304 \
-            JANITOR_ID=shadow-janitor \
-            SHARD_ID=shadow \
             bin/start-rust-service cyclotron-janitor
         capability: cyclotron
 
@@ -203,10 +204,6 @@ procs:
 
     migrate-cyclotron:
         shell: 'bin/wait-for-docker && bin/migrate --scope=cyclotron'
-        capability: cyclotron
-
-    migrate-cyclotron-shadow:
-        shell: 'bin/wait-for-docker && bin/migrate --scope=cyclotron-shadow'
         capability: cyclotron
 
     migrate-persons-db:

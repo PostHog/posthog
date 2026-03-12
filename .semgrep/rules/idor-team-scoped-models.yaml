@@ -90,6 +90,7 @@ rules:
                               |DataWarehouseTable
                               |DesktopRecording
                               |EarlyAccessFeature
+                              |EvaluationContext
                               |Edge
                               |Endpoint
                               |EnterpriseEventDefinition
@@ -259,6 +260,7 @@ rules:
                         |DataWarehouseTable
                         |DesktopRecording
                         |EarlyAccessFeature
+                        |EvaluationContext
                         |Edge
                         |Endpoint
                         |EnterpriseEventDefinition
