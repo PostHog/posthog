@@ -7,7 +7,6 @@ from dataclasses import dataclass
 import httpx
 import httpx_sse
 import structlog
-from asgiref.sync import sync_to_async
 from temporalio import activity
 
 from products.tasks.backend.models import TaskRun as TaskRunModel
@@ -55,8 +54,8 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
     redis_stream = TaskRunRedisStream(stream_key)
     await redis_stream.initialize()
 
-    task_run = await sync_to_async(lambda: TaskRunModel.objects.select_related("task").get(id=input.run_id))()
-    created_by = await sync_to_async(lambda: task_run.task.created_by)()
+    task_run = await TaskRunModel.objects.select_related("task__created_by").aget(id=input.run_id)
+    created_by = task_run.task.created_by
     connection_token = create_sandbox_connection_token(
         task_run=task_run,
         user_id=created_by.id if created_by else 0,

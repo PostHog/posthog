@@ -10,9 +10,10 @@ from django.http import StreamingHttpResponse
 import structlog
 from asgiref.sync import async_to_sync as asgi_async_to_sync
 from django_redis import get_redis_connection
+from pydantic import ValidationError as PydanticValidationError
 from rest_framework import exceptions
 
-from posthog.schema import AssistantEventType
+from posthog.schema import AssistantEventType, AssistantMessage, HumanMessage
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -24,8 +25,16 @@ from products.tasks.backend.temporal.client import execute_task_processing_workf
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
 
 from ee.hogai.api.serializers import ConversationMinimalSerializer
-from ee.hogai.sandbox import TURN_COMPLETE_METHOD
 from ee.hogai.sandbox.mapping import get_sandbox_mapping, set_sandbox_mapping
+from ee.hogai.sandbox.types import (
+    ACP_METHOD_SESSION_UPDATE,
+    ACP_NOTIFICATION_TYPE,
+    ACP_SESSION_UPDATE_AGENT_MESSAGE_CHUNK,
+    TURN_COMPLETE_METHOD,
+    ACPNotification,
+    ACPSessionUpdateParams,
+    SandboxSeedEvent,
+)
 from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.feature_flags import has_sandbox_mode_feature_flag
 from ee.models.assistant import Conversation
@@ -33,6 +42,7 @@ from ee.models.assistant import Conversation
 logger = structlog.get_logger(__name__)
 
 SANDBOX_TURN_IDLE_TIMEOUT = 60  # seconds of silence before ending the per-turn stream (safety fallback)
+SANDBOX_STREAM_TTL = 3600  # seconds before the Redis stream key expires
 
 
 def handle_sandbox_message(
@@ -216,14 +226,14 @@ def _seed_sandbox_stream(run_id: str) -> None:
     conn = get_redis_connection("default")
     conn.xadd(
         stream_key,
-        {"data": json.dumps({"type": "STREAM_STATUS", "status": "initializing"})},
+        {"data": SandboxSeedEvent().model_dump_json()},
         maxlen=2000,
     )
-    conn.expire(stream_key, 3600)
+    conn.expire(stream_key, SANDBOX_STREAM_TTL)
 
 
 def _is_turn_complete(event: dict) -> bool:
-    if event.get("type") != "notification":
+    if event.get("type") != ACP_NOTIFICATION_TYPE:
         return False
     notification = event.get("notification", {})
     return notification.get("method") == TURN_COMPLETE_METHOD
@@ -272,8 +282,8 @@ async def _sandbox_stream(
     # Use a queue to decouple the idle-timeout from the async generator.
     # asyncio.wait_for on __anext__() would cancel and close the generator,
     # so we run the reader in a background task instead.
-    _SENTINEL: dict = {}  # identity sentinel for stream end
-    event_queue: asyncio.Queue[dict] = asyncio.Queue()
+    _SENTINEL = object()  # identity sentinel for stream end
+    event_queue: asyncio.Queue[dict | object] = asyncio.Queue()
 
     async def _reader() -> None:
         try:
@@ -326,7 +336,9 @@ async def _sandbox_stream(
                     event_count=event_count,
                     event_type=event.get("type"),
                     notification_method=(
-                        event.get("notification", {}).get("method") if event.get("type") == "notification" else None
+                        event.get("notification", {}).get("method")
+                        if event.get("type") == ACP_NOTIFICATION_TYPE
+                        else None
                     ),
                 )
             event_data = json.dumps(event)
@@ -348,31 +360,26 @@ async def _sandbox_stream(
             await _persist_sandbox_turn(conversation_id, user_content, agent_text, team_id=team_id)
 
 
-async def _sandbox_error_stream(conv_data: str, error_message: str) -> AsyncGenerator[bytes, None]:
-    """Emit a conversation event followed by an error, for when the sandbox command fails."""
-    yield f"event: {AssistantEventType.CONVERSATION}\ndata: {conv_data}\n\n".encode()
-    error_data = json.dumps({"type": "generation_error", "message": error_message})
-    yield f"event: {AssistantEventType.STATUS}\ndata: {error_data}\n\n".encode()
-
-
 def _accumulate_agent_text(event: dict, chunks: list[str]) -> None:
     """Extract agent message text from session/update notifications."""
-    if event.get("type") != "notification":
+    if event.get("type") != ACP_NOTIFICATION_TYPE:
         return
-    notification = event.get("notification", {})
-    if notification.get("method") != "session/update":
+    raw_notification = event.get("notification")
+    if not isinstance(raw_notification, dict):
         return
-    params = notification.get("params", {})
-    update = params.get("update", {}) if isinstance(params, dict) else {}
-    if not isinstance(update, dict):
+    try:
+        notification = ACPNotification.model_validate(raw_notification)
+    except PydanticValidationError:
         return
-    if update.get("sessionUpdate") != "agent_message_chunk":
+    if notification.method != ACP_METHOD_SESSION_UPDATE:
         return
-    content = update.get("content")
-    if isinstance(content, dict) and content.get("type") == "text":
-        text = content.get("text", "")
-        if text:
-            chunks.append(text)
+    if not isinstance(notification.params, ACPSessionUpdateParams):
+        return
+    update = notification.params.update
+    if update is None or update.sessionUpdate != ACP_SESSION_UPDATE_AGENT_MESSAGE_CHUNK:
+        return
+    if update.content and update.content.type == "text" and update.content.text:
+        chunks.append(update.content.text)
 
 
 async def _persist_sandbox_turn(
@@ -386,9 +393,11 @@ async def _persist_sandbox_turn(
         conversation = await Conversation.objects.aget(**lookup)
         messages: list[dict[str, Any]] = conversation.messages_json or []
         if user_content:
-            messages.append({"type": "human", "content": user_content, "id": str(uuid.uuid4())})
+            messages.append(HumanMessage(content=user_content, id=str(uuid.uuid4())).model_dump(exclude_none=True))
         if agent_text:
-            messages.append({"type": "ai", "content": agent_text, "id": f"sandbox-{uuid.uuid4()}"})
+            messages.append(
+                AssistantMessage(content=agent_text, id=f"sandbox-{uuid.uuid4()}").model_dump(exclude_none=True)
+            )
         conversation.messages_json = messages
         await conversation.asave(update_fields=["messages_json"])
     except Exception as e:

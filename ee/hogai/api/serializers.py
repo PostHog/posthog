@@ -53,12 +53,20 @@ class ConversationMinimalSerializer(serializers.ModelSerializer):
 class ConversationSerializer(ConversationMinimalSerializer):
     class Meta:
         model = Conversation
-        fields = [*_conversation_fields, "messages", "has_unsupported_content", "agent_mode", "pending_approvals"]
+        fields = [
+            *_conversation_fields,
+            "messages",
+            "has_unsupported_content",
+            "agent_mode",
+            "is_sandbox",
+            "pending_approvals",
+        ]
         read_only_fields = fields
 
     messages = serializers.SerializerMethodField()
     has_unsupported_content = serializers.SerializerMethodField()
     agent_mode = serializers.SerializerMethodField()
+    is_sandbox = serializers.SerializerMethodField()
     pending_approvals = serializers.SerializerMethodField()
 
     def get_messages(self, conversation: Conversation) -> list[dict[str, Any]]:
@@ -87,13 +95,13 @@ class ConversationSerializer(ConversationMinimalSerializer):
         return has_unsupported_content
 
     def get_agent_mode(self, conversation: Conversation) -> str | None:
-        if conversation.sandbox_task_id is not None:
-            return "sandbox"
-
         state, _, _ = self._get_cached_state(conversation)
         if state:
             return state.agent_mode_or_default
         return None
+
+    def get_is_sandbox(self, conversation: Conversation) -> bool:
+        return conversation.sandbox_task_id is not None
 
     def get_pending_approvals(self, conversation: Conversation) -> list[dict[str, Any]]:
         """

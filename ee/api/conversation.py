@@ -95,6 +95,7 @@ class MessageSerializer(MessageMinimalSerializer):
     trace_id = serializers.UUIDField(required=True)
     session_id = serializers.CharField(required=False)
     agent_mode = serializers.ChoiceField(required=False, choices=[mode.value for mode in AgentMode])
+    is_sandbox = serializers.BooleanField(required=False, default=False)
     resume_payload = serializers.JSONField(required=False, allow_null=True)
 
     def validate(self, attrs):
@@ -353,7 +354,10 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         is_idle = conversation.status == Conversation.Status.IDLE
         has_message = serializer.validated_data.get("message") is not None
         has_resume_payload = serializer.validated_data.get("resume_payload") is not None
-        is_sandbox = serializer.validated_data.get("agent_mode") == AgentMode.SANDBOX
+        is_sandbox = (
+            serializer.validated_data.get("is_sandbox", False)
+            or serializer.validated_data.get("agent_mode") == AgentMode.SANDBOX
+        )
 
         if conversation.type == Conversation.Type.DEEP_RESEARCH:
             if not is_new_conversation and is_idle and has_message and not has_resume_payload:
