@@ -282,7 +282,10 @@ mod tests {
         assert_eq!(props["$ai_trace_id"], "0102030405060708090a0b0c0d0e0f10");
         assert_eq!(props["$ai_span_id"], "0102030405060708");
         assert_eq!(props["$ai_ingestion_source"], "otel");
-        assert!(!props.contains_key("service.name"), "noisy resource attrs should be filtered");
+        assert!(
+            !props.contains_key("service.name"),
+            "noisy resource attrs should be filtered"
+        );
         assert_eq!(props["$otel_span_name"], "chat gpt-4");
         assert_eq!(props["$otel_start_time_unix_nano"], "1704067200000000000");
         assert_eq!(props["$otel_end_time_unix_nano"], "1704067201500000000");
@@ -303,10 +306,7 @@ mod tests {
                             "host.name",
                             any_value::Value::StringValue("my-host".to_string()),
                         ),
-                        make_kv(
-                            "process.pid",
-                            any_value::Value::IntValue(1234),
-                        ),
+                        make_kv("process.pid", any_value::Value::IntValue(1234)),
                         make_kv(
                             "user.id",
                             any_value::Value::StringValue("user-123".to_string()),
@@ -320,15 +320,7 @@ mod tests {
                 }),
                 scope_spans: vec![ScopeSpans {
                     scope: None,
-                    spans: vec![make_span(
-                        vec![0; 16],
-                        vec![0; 8],
-                        vec![],
-                        0,
-                        0,
-                        "",
-                        vec![],
-                    )],
+                    spans: vec![make_span(vec![0; 16], vec![0; 8], vec![], 0, 0, "", vec![])],
                     schema_url: String::new(),
                 }],
                 schema_url: String::new(),
