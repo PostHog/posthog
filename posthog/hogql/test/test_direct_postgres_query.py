@@ -328,6 +328,61 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         self.assertEqual(str(error.exception), "Unknown table `persons`.")
 
+    def test_selected_connection_uses_direct_tables_named_like_posthog_tables(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+
+        DataWarehouseTable.objects.create(
+            name="events",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+        DataWarehouseTable.objects.create(
+            name="persons",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+
+        events_executor = HogQLQueryExecutor(
+            query="SELECT id FROM events",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+        persons_executor = HogQLQueryExecutor(
+            query="SELECT id FROM persons",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+
+        events_sql, _events_context = events_executor.generate_clickhouse_sql()
+        persons_sql, _persons_context = persons_executor.generate_clickhouse_sql()
+
+        self.assertIn("FROM\n    ph3.events", events_sql)
+        self.assertIn("FROM\n    ph3.persons", persons_sql)
+        self.assertEqual(events_executor.direct_postgres_source_id, str(source.id))
+        self.assertEqual(persons_executor.direct_postgres_source_id, str(source.id))
+
     @patch("posthog.hogql.query.psycopg.connect")
     def test_selected_connection_allows_table_less_sql(self, mock_connect):
         source = ExternalDataSource.objects.create(
