@@ -40,7 +40,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         oauthApplication,
         oauthApplicationLoading,
         allOrganizations,
-        allTeams,
+        sortedTeams,
         oauthAuthorization,
         isOauthAuthorizationSubmitting,
         isCanceling,
@@ -108,7 +108,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                         <ScopeAccessSelector
                             accessType={oauthAuthorization.access_type}
                             organizations={allOrganizations}
-                            teams={allTeams ?? undefined}
+                            teams={sortedTeams ?? undefined}
                             requiredAccessLevel={requiredAccessLevel}
                             autoSelectFirst={true}
                         />

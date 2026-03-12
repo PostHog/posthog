@@ -92,7 +92,16 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             null as TeamBasicType[] | null,
             {
                 loadAllTeams: async () => {
-                    return await api.loadPaginatedResults('api/projects')
+                    const user = userLogic.values.user
+                    if (!user?.organizations?.length) {
+                        return await api.loadPaginatedResults('api/projects')
+                    }
+                    const results = await Promise.all(
+                        user.organizations.map((org) =>
+                            api.loadPaginatedResults<TeamBasicType>(`api/organizations/${org.id}/projects`)
+                        )
+                    )
+                    return results.flat()
                 },
             },
         ],
@@ -237,6 +246,35 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             (s) => [s.user],
             (user: UserType): OrganizationBasicType[] => {
                 return user?.organizations ?? []
+            },
+        ],
+        sortedTeams: [
+            (s) => [s.allTeams, s.allOrganizations, s.user],
+            (
+                teams: TeamBasicType[] | null,
+                organizations: OrganizationBasicType[],
+                user: UserType
+            ): TeamBasicType[] | null => {
+                if (!teams) {
+                    return null
+                }
+                const currentTeamId = user?.team?.id
+                const orgNameMap = new Map(organizations.map((org) => [org.id, org.name]))
+                return [...teams].sort((a, b) => {
+                    // Current team always comes first
+                    if (a.id === currentTeamId) {
+                        return -1
+                    }
+                    if (b.id === currentTeamId) {
+                        return 1
+                    }
+                    const orgA = orgNameMap.get(a.organization) ?? ''
+                    const orgB = orgNameMap.get(b.organization) ?? ''
+                    if (orgA !== orgB) {
+                        return orgA.localeCompare(orgB)
+                    }
+                    return a.name.localeCompare(b.name)
+                })
             },
         ],
         scopeDescriptions: [
