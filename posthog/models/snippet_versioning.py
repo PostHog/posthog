@@ -163,18 +163,23 @@ def resolve_version(requested_version: Optional[str]) -> Optional[str]:
     Resolve a requested version to a concrete version string.
 
     - None -> defaults to "1" (major version)
-    - "1.358.0" -> exact version (returned as-is)
+    - "1.358.0" -> exact version (verified against known versions)
     - "1" -> latest 1.x.x via pointers
     - "1.358" -> latest 1.358.x via pointers
+
+    Returns None if the version can't be resolved or isn't known.
     """
     if not settings.POSTHOG_JS_S3_BUCKET:
         return None
 
-    if requested_version is not None and _EXACT_VERSION_RE.match(requested_version):
-        return requested_version
-
     pointers = _get_pointer_map()
     if pointers is None:
+        return None
+
+    if requested_version is not None and _EXACT_VERSION_RE.match(requested_version):
+        # Verify exact versions are known (present as a pointer map value)
+        if requested_version in pointers.values():
+            return requested_version
         return None
 
     if requested_version is None:

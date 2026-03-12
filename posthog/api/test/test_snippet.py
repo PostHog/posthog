@@ -1,7 +1,6 @@
 import json
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
 
 from django.core.cache import cache
 from django.test import override_settings
@@ -17,7 +16,7 @@ class TestSnippetResolveAPI(APIBaseTest):
         super().setUp()
         sv._pointer_map_cache = None
         sv._pointer_map_cache_time = 0
-        pointers = {"1": "1.359.0"}
+        pointers = {"1": "1.359.0", "1.358": "1.358.0", "1.359": "1.359.0"}
         cache.set(REDIS_POINTER_MAP_KEY, json.dumps(pointers))
 
     def tearDown(self):
@@ -33,19 +32,21 @@ class TestSnippetResolveAPI(APIBaseTest):
         assert response.json()["error"] == "pin query parameter is required"
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
-    @patch("posthog.api.snippet.validate_version_artifacts")
-    def test_resolve_with_exact_pin(self, mock_validate):
-        mock_validate.return_value = True
+    def test_resolve_with_exact_pin(self):
         response = self.client.get(f"/api/projects/{self.team.id}/snippet/resolve/?pin=1.358.0")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["resolved"] == "1.358.0"
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
-    @patch("posthog.api.snippet.validate_version_artifacts")
-    def test_resolve_with_invalid_pin(self, mock_validate):
-        mock_validate.return_value = False
+    def test_resolve_with_unknown_exact_version(self):
         response = self.client.get(f"/api/projects/{self.team.id}/snippet/resolve/?pin=99.99.99")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    def test_resolve_with_major_pin(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/snippet/resolve/?pin=1")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["resolved"] == "1.359.0"
 
 
 class TestSnippetVersionAPI(APIBaseTest):
@@ -53,7 +54,7 @@ class TestSnippetVersionAPI(APIBaseTest):
         super().setUp()
         sv._pointer_map_cache = None
         sv._pointer_map_cache_time = 0
-        pointers = {"1": "1.359.0"}
+        pointers = {"1": "1.359.0", "1.358": "1.358.0", "1.359": "1.359.0"}
         cache.set(REDIS_POINTER_MAP_KEY, json.dumps(pointers))
 
     def tearDown(self):
@@ -71,9 +72,7 @@ class TestSnippetVersionAPI(APIBaseTest):
         assert data["resolved_version"] == "1.359.0"
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
-    @patch("posthog.api.snippet.validate_version_artifacts")
-    def test_patch_version_updates_pin(self, mock_validate):
-        mock_validate.return_value = True
+    def test_patch_version_updates_pin(self):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/snippet/version/",
             {"snippet_version_pin": "1.358.0"},
@@ -83,3 +82,12 @@ class TestSnippetVersionAPI(APIBaseTest):
         data = response.json()
         assert data["snippet_version_pin"] == "1.358.0"
         assert data["resolved_version"] == "1.358.0"
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    def test_patch_unknown_version_rejected(self):
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/snippet/version/",
+            {"snippet_version_pin": "99.99.99"},
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

@@ -66,6 +66,17 @@ class TestComputePointerMap(SimpleTestCase):
 
 
 class TestGetJsContent(SimpleTestCase):
+    def setUp(self):
+        sv._pointer_map_cache = None
+        sv._pointer_map_cache_time = 0
+        pointers = {"1": "1.358.0", "1.358": "1.358.0"}
+        cache.set(REDIS_POINTER_MAP_KEY, json.dumps(pointers))
+
+    def tearDown(self):
+        cache.delete(REDIS_POINTER_MAP_KEY)
+        sv._pointer_map_cache = None
+        sv._pointer_map_cache_time = 0
+
     @override_settings(POSTHOG_JS_S3_BUCKET="")
     def test_returns_disk_content_when_versioning_disabled(self):
         content = get_js_content("1.358.0")
@@ -103,6 +114,12 @@ class TestGetJsContent(SimpleTestCase):
     @patch("posthog.models.snippet_versioning.object_storage.read")
     def test_falls_back_to_disk_when_s3_misses(self, mock_read):
         mock_read.return_value = None
+        content = get_js_content("1.358.0")
+        assert content is not None
+        assert len(content) > 0
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    def test_returns_disk_for_unknown_exact_version(self):
         content = get_js_content("99.99.99")
         assert content is not None
         assert len(content) > 0
@@ -133,7 +150,7 @@ class TestResolveVersion(SimpleTestCase):
     def setUp(self):
         sv._pointer_map_cache = None
         sv._pointer_map_cache_time = 0
-        pointers = {"1": "1.359.0", "1.358": "1.358.3"}
+        pointers = {"1": "1.359.0", "1.358": "1.358.3", "1.359": "1.359.0"}
         cache.set(REDIS_POINTER_MAP_KEY, json.dumps(pointers))
 
     def tearDown(self):
@@ -142,8 +159,12 @@ class TestResolveVersion(SimpleTestCase):
         sv._pointer_map_cache_time = 0
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
-    def test_exact_version_returned_as_is(self):
-        assert resolve_version("1.358.0") == "1.358.0"
+    def test_exact_known_version_returned_as_is(self):
+        assert resolve_version("1.359.0") == "1.359.0"
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    def test_exact_unknown_version_returns_none(self):
+        assert resolve_version("99.99.99") is None
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
     def test_major_pin_resolved_via_pointers(self):

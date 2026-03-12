@@ -5,7 +5,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models.snippet_versioning import resolve_version, validate_version_artifacts
+from posthog.models.snippet_versioning import resolve_version
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.snippet_config import TeamSnippetConfig
 
@@ -35,11 +35,6 @@ class SnippetViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
         resolved = resolve_version(pin)
         if resolved is None:
-            return Response(
-                {"error": "Version not found"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if resolved == pin and not validate_version_artifacts(resolved):
             return Response(
                 {"error": "Version not found"},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -75,11 +70,6 @@ class SnippetViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             if resolved is None:
                 return Response(
                     {"error": "Version not found"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            if resolved == pin and not validate_version_artifacts(resolved):
-                return Response(
-                    {"error": "Version not found in artifact store"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
