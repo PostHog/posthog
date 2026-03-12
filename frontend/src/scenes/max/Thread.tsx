@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { useFeatureFlag } from 'posthog-js/react'
 import React, { useLayoutEffect, useMemo, useState } from 'react'
 
 import {
@@ -40,6 +41,7 @@ import {
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { inStorybookTestRunner, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -116,6 +118,7 @@ function isErrorMessage(message: ThreadMessage): boolean {
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
     const { threadGrouped, streamingActive, threadLoading, sandboxEntries } = useValues(maxThreadLogic)
+    const sandboxModeEnabled = useFeatureFlag(FEATURE_FLAGS.PHAI_SANDBOX_MODE)
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
 
     const ticketPromptData = useMemo(
@@ -229,7 +232,8 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                                             isSlashCommandResponse={isSlashCommandResponse || isTicketConfirmation}
                                         />
                                     </TraceIdProvider>
-                                    {sandboxEntries.length > 0 &&
+                                    {sandboxModeEnabled &&
+                                        sandboxEntries.length > 0 &&
                                         isAssistantMessage(message) &&
                                         message.id?.startsWith('sandbox-') &&
                                         isLastInGroup && <SandboxActivityPanel entries={sandboxEntries} />}
