@@ -8,7 +8,8 @@ import type { ScoreDefinitionApi } from '../generated/api.schemas'
 import type { traceReviewModalLogicType } from './traceReviewModalLogicType'
 import { traceReviewsApi } from './traceReviewsApi'
 import { traceReviewsLazyLoaderLogic } from './traceReviewsLazyLoaderLogic'
-import type { TraceReview, TraceReviewUpsertPayload } from './types'
+import type { TraceReview, TraceReviewFormScoreValue, TraceReviewUpsertPayload } from './types'
+import { getCategoricalConfig } from './utils'
 
 export interface TraceReviewModalLogicProps {
     traceId: string
@@ -30,6 +31,48 @@ function loadActiveScoreDefinitions(teamId: number): Promise<ScoreDefinitionApi[
     }).then((response) => response.results)
 }
 
+function getCategoricalSelections(value: TraceReviewFormScoreValue | undefined): string[] {
+    if (Array.isArray(value)) {
+        return value
+    }
+
+    if (typeof value === 'string' && value) {
+        return [value]
+    }
+
+    return []
+}
+
+function isCategoricalSelectionValid(
+    definition: ScoreDefinitionApi,
+    value: TraceReviewFormScoreValue | undefined
+): boolean {
+    const selections = getCategoricalSelections(value)
+
+    if (selections.length === 0) {
+        return true
+    }
+
+    const config = getCategoricalConfig(definition.config)
+
+    if ((config.selection_mode || 'single') === 'single') {
+        return selections.length === 1
+    }
+
+    const minimumSelections = config.min_selections ?? null
+    const maximumSelections = config.max_selections ?? null
+
+    if (minimumSelections !== null && selections.length < minimumSelections) {
+        return false
+    }
+
+    if (maximumSelections !== null && selections.length > maximumSelections) {
+        return false
+    }
+
+    return true
+}
+
 export const traceReviewModalLogic = kea<traceReviewModalLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'traceReviews', 'traceReviewModalLogic']),
     props({} as TraceReviewModalLogicProps),
@@ -45,7 +88,7 @@ export const traceReviewModalLogic = kea<traceReviewModalLogicType>([
         closeModal: true,
         resetForm: true,
         populateForm: (review: TraceReview | null) => ({ review }),
-        setScoreValue: (definitionId: string, value: string | boolean | null) => ({ definitionId, value }),
+        setScoreValue: (definitionId: string, value: TraceReviewFormScoreValue) => ({ definitionId, value }),
         setComment: (comment: string) => ({ comment }),
         loadModalData: true,
         loadModalDataSuccess: (review: TraceReview | null, definitions: ScoreDefinitionApi[]) => ({
@@ -119,7 +162,7 @@ export const traceReviewModalLogic = kea<traceReviewModalLogicType>([
         ],
 
         scoreValues: [
-            {} as Record<string, string | boolean | null>,
+            {} as Record<string, TraceReviewFormScoreValue>,
             {
                 resetForm: () => ({}),
                 setScoreValue: (state, { definitionId, value }) => ({
@@ -131,7 +174,7 @@ export const traceReviewModalLogic = kea<traceReviewModalLogicType>([
                         (review?.scores || []).map((score) => [
                             score.definition_id,
                             score.definition_kind === 'categorical'
-                                ? score.categorical_value
+                                ? score.categorical_values
                                 : score.definition_kind === 'numeric'
                                   ? score.numeric_value
                                   : score.boolean_value,
@@ -157,11 +200,16 @@ export const traceReviewModalLogic = kea<traceReviewModalLogicType>([
             (s) => [s.activeDefinitions, s.scoreValues],
             (activeDefinitions, scoreValues): boolean =>
                 activeDefinitions.every((definition) => {
+                    const value = scoreValues[definition.id]
+
+                    if (definition.kind === 'categorical') {
+                        return isCategoricalSelectionValid(definition, value)
+                    }
+
                     if (definition.kind !== 'numeric') {
                         return true
                     }
 
-                    const value = scoreValues[definition.id]
                     if (value === undefined || value === null || value === '') {
                         return true
                     }
@@ -186,8 +234,9 @@ export const traceReviewModalLogic = kea<traceReviewModalLogicType>([
                     const value = scoreValues[definition.id]
 
                     if (definition.kind === 'categorical') {
-                        return typeof value === 'string' && value
-                            ? [{ definition_id: definition.id, categorical_value: value }]
+                        const categoricalValues = getCategoricalSelections(value)
+                        return categoricalValues.length > 0
+                            ? [{ definition_id: definition.id, categorical_values: categoricalValues }]
                             : []
                     }
 

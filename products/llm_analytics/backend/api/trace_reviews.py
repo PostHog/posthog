@@ -38,7 +38,7 @@ from products.llm_analytics.backend.score_definition_configs import (
 )
 
 TRACE_REVIEW_FEATURE_FLAG = "llma-trace-review"
-TRACE_REVIEW_SCORE_VALUE_FIELDS = ("categorical_value", "numeric_value", "boolean_value")
+TRACE_REVIEW_SCORE_VALUE_FIELDS = ("categorical_values", "numeric_value", "boolean_value")
 
 
 def is_trace_review_feature_enabled(user: User, team: Team) -> bool:
@@ -62,6 +62,12 @@ class TraceReviewFeatureFlagPermission(BasePermission):
 
 
 class TraceReviewScoreSerializer(serializers.ModelSerializer):
+    categorical_values = serializers.ListField(
+        read_only=True,
+        allow_null=True,
+        child=serializers.CharField(),
+        help_text="Categorical option keys selected for this score.",
+    )
     definition_id = serializers.UUIDField(
         source="definition_id",
         read_only=True,
@@ -109,7 +115,7 @@ class TraceReviewScoreSerializer(serializers.ModelSerializer):
             "definition_version_id",
             "definition_version",
             "definition_config",
-            "categorical_value",
+            "categorical_values",
             "numeric_value",
             "boolean_value",
             "created_at",
@@ -159,12 +165,12 @@ class TraceReviewScoreWriteSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Optional immutable scorer version ID. Defaults to the scorer's current version.",
     )
-    categorical_value = serializers.CharField(
+    categorical_values = serializers.ListField(
         required=False,
         allow_null=True,
-        allow_blank=False,
-        max_length=128,
-        help_text="Categorical option key selected for this score.",
+        min_length=1,
+        child=serializers.CharField(allow_blank=False, max_length=128),
+        help_text="Categorical option keys selected for this score.",
     )
     numeric_value = serializers.DecimalField(
         required=False,
@@ -179,8 +185,15 @@ class TraceReviewScoreWriteSerializer(serializers.Serializer):
         help_text="Boolean value selected for this score.",
     )
 
-    def validate_categorical_value(self, value: str) -> str:
-        return normalize_score_definition_key(value, field_name="categorical_value")
+    def validate_categorical_values(self, value: list[str]) -> list[str]:
+        normalized_values = [
+            normalize_score_definition_key(option_key, field_name="categorical_values") for option_key in value
+        ]
+
+        if len(normalized_values) != len(set(normalized_values)):
+            raise serializers.ValidationError("Provide unique categorical option keys.")
+
+        return normalized_values
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         provided_fields = [
@@ -252,6 +265,16 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
         except (InvalidOperation, TypeError, ValueError):
             return None
 
+    @staticmethod
+    def _int_from_config(value: Any) -> int | None:
+        if value is None:
+            return None
+
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
     def _resolve_scores(self, score_payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
         team = cast(Team, self.context["team"])
         score_errors: list[dict[str, str]] = [{} for _ in score_payloads]
@@ -320,7 +343,7 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
                 {
                     "definition": definition,
                     "definition_version": definition_version,
-                    "categorical_value": score_payload.get("categorical_value"),
+                    "categorical_values": score_payload.get("categorical_values"),
                     "numeric_value": score_payload.get("numeric_value"),
                     "boolean_value": score_payload.get("boolean_value"),
                 }
@@ -338,17 +361,36 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
         score_payload: dict[str, Any],
     ) -> dict[str, str]:
         if definition.kind == ScoreDefinition.Kind.CATEGORICAL:
-            categorical_value = score_payload.get("categorical_value")
-            if categorical_value is None:
-                return {"categorical_value": "This scorer requires `categorical_value`."}
+            categorical_values = score_payload.get("categorical_values")
+            if categorical_values is None:
+                return {"categorical_values": "This scorer requires `categorical_values`."}
 
             option_keys = {
                 option["key"]
                 for option in definition_version.config.get("options", [])
                 if isinstance(option, dict) and isinstance(option.get("key"), str)
             }
-            if categorical_value not in option_keys:
-                return {"categorical_value": "Select a valid categorical option key."}
+
+            invalid_values = [option_key for option_key in categorical_values if option_key not in option_keys]
+            if invalid_values:
+                return {"categorical_values": "Select valid categorical option keys."}
+
+            selection_mode = definition_version.config.get("selection_mode") or "single"
+            selection_count = len(categorical_values)
+
+            if selection_mode == "single":
+                if selection_count != 1:
+                    return {"categorical_values": "This scorer allows exactly one categorical option."}
+                return {}
+
+            minimum = self._int_from_config(definition_version.config.get("min_selections"))
+            maximum = self._int_from_config(definition_version.config.get("max_selections"))
+
+            if minimum is not None and selection_count < minimum:
+                return {"categorical_values": f"Select at least {minimum} categorical options."}
+
+            if maximum is not None and selection_count > maximum:
+                return {"categorical_values": f"Select no more than {maximum} categorical options."}
 
             return {}
 
@@ -395,7 +437,7 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
                     definition_version=score_payload["definition_version"].id,
                     definition_version_number=score_payload["definition_version"].version,
                     definition_config=score_payload["definition_version"].config,
-                    categorical_value=score_payload["categorical_value"],
+                    categorical_values=score_payload["categorical_values"],
                     numeric_value=score_payload["numeric_value"],
                     boolean_value=score_payload["boolean_value"],
                     created_by=cast(User, self.context["request"].user),

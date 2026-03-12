@@ -1,4 +1,6 @@
 import django.db.models.deletion
+import django.contrib.postgres.fields
+import django.contrib.postgres.indexes
 from django.db import migrations, models
 
 import posthog.models.utils
@@ -77,7 +79,15 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("updated_at", models.DateTimeField(auto_now=True, blank=True, null=True)),
-                ("categorical_value", models.CharField(blank=True, max_length=128, null=True)),
+                (
+                    "categorical_values",
+                    django.contrib.postgres.fields.ArrayField(
+                        base_field=models.CharField(max_length=128),
+                        blank=True,
+                        null=True,
+                        size=None,
+                    ),
+                ),
                 ("numeric_value", models.DecimalField(blank=True, decimal_places=6, max_digits=12, null=True)),
                 ("boolean_value", models.BooleanField(blank=True, null=True)),
                 ("definition_version", models.UUIDField()),
@@ -126,17 +136,17 @@ class Migration(migrations.Migration):
                 check=(
                     models.Q(
                         models.Q(
-                            ("categorical_value__isnull", False),
+                            ("categorical_values__isnull", False),
                             ("numeric_value__isnull", True),
                             ("boolean_value__isnull", True),
                         ),
                         models.Q(
-                            ("categorical_value__isnull", True),
+                            ("categorical_values__isnull", True),
                             ("numeric_value__isnull", False),
                             ("boolean_value__isnull", True),
                         ),
                         models.Q(
-                            ("categorical_value__isnull", True),
+                            ("categorical_values__isnull", True),
                             ("numeric_value__isnull", True),
                             ("boolean_value__isnull", False),
                         ),
@@ -161,5 +171,9 @@ class Migration(migrations.Migration):
         migrations.AddIndex(
             model_name="tracereviewscore",
             index=models.Index(fields=["team", "review"], name="llma_tr_score_rev_idx"),
+        ),
+        migrations.AddIndex(
+            model_name="tracereviewscore",
+            index=django.contrib.postgres.indexes.GinIndex(fields=["categorical_values"], name="llma_tr_score_cat_gin"),
         ),
     ]

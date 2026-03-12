@@ -5,6 +5,8 @@ import type {
     ScoreDefinitionConfigApi as ScoreDefinitionConfig,
 } from '../generated/api.schemas'
 
+export type TraceReviewFormScoreValue = string | string[] | boolean | null
+
 export interface TraceReviewScore {
     id: string
     definition_id: string
@@ -14,7 +16,7 @@ export interface TraceReviewScore {
     definition_version_id: string
     definition_version: number
     definition_config: ScoreDefinitionConfig
-    categorical_value: string | null
+    categorical_values: string[] | null
     numeric_value: string | null
     boolean_value: boolean | null
     created_at: string
@@ -36,7 +38,7 @@ export interface TraceReview {
 export interface TraceReviewScoreUpsertPayload {
     definition_id: string
     definition_version_id?: string | null
-    categorical_value?: string | null
+    categorical_values?: string[] | null
     numeric_value?: string | null
     boolean_value?: boolean | null
 }

@@ -49,6 +49,30 @@ class TestTraceReviewsApi(APIBaseTest):
         )
         return definition
 
+    def _create_multi_select_definition(
+        self,
+        *,
+        name: str = "Themes",
+        minimum_selections: int | None = None,
+        maximum_selections: int | None = None,
+    ) -> ScoreDefinition:
+        config: dict = {
+            "options": [
+                {"key": "helpful", "label": "Helpful"},
+                {"key": "accurate", "label": "Accurate"},
+                {"key": "complete", "label": "Complete"},
+            ],
+            "selection_mode": "multiple",
+        }
+
+        if minimum_selections is not None:
+            config["min_selections"] = minimum_selections
+
+        if maximum_selections is not None:
+            config["max_selections"] = maximum_selections
+
+        return self._create_definition(name=name, config=config)
+
     def _create_review(self, *, trace_id: str, comment: str | None = None) -> TraceReview:
         return TraceReview.objects.create(
             team=self.team,
@@ -76,7 +100,7 @@ class TestTraceReviewsApi(APIBaseTest):
         self.assertEqual(review.scores.count(), 0)
 
     def test_can_create_review_with_multiple_scores(self):
-        quality = self._create_definition()
+        themes = self._create_multi_select_definition(minimum_selections=1, maximum_selections=2)
         resolved = self._create_definition(
             name="Resolved",
             kind="boolean",
@@ -94,7 +118,10 @@ class TestTraceReviewsApi(APIBaseTest):
                 "trace_id": "trace_multi",
                 "comment": "Needs a follow-up prompt tweak",
                 "scores": [
-                    {"definition_id": str(quality.id), "categorical_value": "good"},
+                    {
+                        "definition_id": str(themes.id),
+                        "categorical_values": ["helpful", "accurate"],
+                    },
                     {"definition_id": str(resolved.id), "boolean_value": True},
                     {"definition_id": str(confidence.id), "numeric_value": "4.500000"},
                 ],
@@ -107,14 +134,14 @@ class TestTraceReviewsApi(APIBaseTest):
         self.assertEqual(review.comment, "Needs a follow-up prompt tweak")
         self.assertEqual(review.scores.count(), 3)
 
-        quality_score = review.scores.get(definition=quality)
+        themes_score = review.scores.get(definition=themes)
         resolved_score = review.scores.get(definition=resolved)
         confidence_score = review.scores.get(definition=confidence)
 
-        self.assertEqual(quality_score.definition_version, quality.current_version.id)
-        self.assertEqual(quality_score.definition_version_number, quality.current_version.version)
-        self.assertEqual(quality_score.definition_config, quality.current_version.config)
-        self.assertEqual(quality_score.categorical_value, "good")
+        self.assertEqual(themes_score.definition_version, themes.current_version.id)
+        self.assertEqual(themes_score.definition_version_number, themes.current_version.version)
+        self.assertEqual(themes_score.definition_config, themes.current_version.config)
+        self.assertEqual(themes_score.categorical_values, ["helpful", "accurate"])
         self.assertEqual(resolved_score.boolean_value, True)
         self.assertEqual(str(confidence_score.numeric_value), "4.500000")
 
@@ -140,7 +167,7 @@ class TestTraceReviewsApi(APIBaseTest):
                     {
                         "definition_id": str(definition.id),
                         "definition_version_id": str(original_version.id),
-                        "categorical_value": "good",
+                        "categorical_values": ["good"],
                     }
                 ],
             },
@@ -169,7 +196,17 @@ class TestTraceReviewsApi(APIBaseTest):
             (
                 "categorical_invalid_option",
                 None,
-                "categorical_value",
+                "categorical_values",
+            ),
+            (
+                "categorical_single_rejects_multiple_values",
+                None,
+                "categorical_values",
+            ),
+            (
+                "categorical_multiple_rejects_too_many_values",
+                None,
+                "categorical_values",
             ),
             (
                 "numeric_out_of_range",
@@ -185,6 +222,7 @@ class TestTraceReviewsApi(APIBaseTest):
     )
     def test_score_validation(self, name: str, payload: dict | None, field: str):
         quality = self._create_definition()
+        themes = self._create_multi_select_definition(maximum_selections=2)
         confidence = self._create_definition(
             name="Confidence",
             kind="numeric",
@@ -200,14 +238,29 @@ class TestTraceReviewsApi(APIBaseTest):
             payload = {
                 "trace_id": "trace_invalid",
                 "scores": [
-                    {"definition_id": str(quality.id), "categorical_value": "good"},
-                    {"definition_id": str(quality.id), "categorical_value": "bad"},
+                    {"definition_id": str(quality.id), "categorical_values": ["good"]},
+                    {"definition_id": str(quality.id), "categorical_values": ["bad"]},
                 ],
             }
         elif name == "categorical_invalid_option":
             payload = {
                 "trace_id": "trace_invalid",
-                "scores": [{"definition_id": str(quality.id), "categorical_value": "excellent"}],
+                "scores": [{"definition_id": str(quality.id), "categorical_values": ["excellent"]}],
+            }
+        elif name == "categorical_single_rejects_multiple_values":
+            payload = {
+                "trace_id": "trace_invalid",
+                "scores": [{"definition_id": str(quality.id), "categorical_values": ["good", "bad"]}],
+            }
+        elif name == "categorical_multiple_rejects_too_many_values":
+            payload = {
+                "trace_id": "trace_invalid",
+                "scores": [
+                    {
+                        "definition_id": str(themes.id),
+                        "categorical_values": ["helpful", "accurate", "complete"],
+                    }
+                ],
             }
         elif name == "numeric_out_of_range":
             payload = {
@@ -221,7 +274,7 @@ class TestTraceReviewsApi(APIBaseTest):
                     {
                         "definition_id": str(quality.id),
                         "definition_version_id": str(resolved.current_version.id),
-                        "categorical_value": "good",
+                        "categorical_values": ["good"],
                     }
                 ],
             }
@@ -266,7 +319,7 @@ class TestTraceReviewsApi(APIBaseTest):
             definition_version=quality.current_version.id,
             definition_version_number=quality.current_version.version,
             definition_config=quality.current_version.config,
-            categorical_value="good",
+            categorical_values=["good"],
             created_by=self.user,
         )
 
@@ -312,7 +365,7 @@ class TestTraceReviewsApi(APIBaseTest):
             definition_version=quality.current_version.id,
             definition_version_number=quality.current_version.version,
             definition_config=quality.current_version.config,
-            categorical_value="good",
+            categorical_values=["good"],
             created_by=self.user,
         )
         TraceReviewScore.objects.create(
@@ -357,7 +410,7 @@ class TestTraceReviewsApi(APIBaseTest):
             definition_version=quality.current_version.id,
             definition_version_number=quality.current_version.version,
             definition_config=quality.current_version.config,
-            categorical_value="good",
+            categorical_values=["good"],
             created_by=self.user,
         )
 
