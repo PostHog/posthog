@@ -280,6 +280,18 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
 
         return value
 
+    elif property.type == "session":
+        from posthog.hogql.database.models import BooleanDatabaseField
+        from posthog.hogql.database.schema.sessions_v3 import LAZY_SESSIONS_FIELDS
+
+        field_definition = LAZY_SESSIONS_FIELDS.get(property.key)
+        if isinstance(field_definition, BooleanDatabaseField):
+            if value == "true":
+                return True
+            if value == "false":
+                return False
+        return value
+
     else:
         property_types = PropertyDefinition.objects.alias(
             effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
