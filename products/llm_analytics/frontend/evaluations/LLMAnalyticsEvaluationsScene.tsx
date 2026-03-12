@@ -277,7 +277,15 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
             )}
 
             <LemonBanner type="info" dismissKey="evals-billing-notice">
-                Each evaluation run counts as an LLM analytics event.
+                Each{' '}
+                <Link to="https://posthog.com/docs/llm-analytics/evaluations#llm-as-a-judge-evaluations" target="_blank">
+                    LLM Judge
+                </Link>{' '}
+                evaluation run counts as an LLM analytics event.{' '}
+                <Link to="https://posthog.com/docs/llm-analytics/evaluations#code-based-evaluations-hog" target="_blank">
+                    Hog code evals
+                </Link>{' '}
+                are free.
             </LemonBanner>
 
             <div className="flex justify-between items-center">
