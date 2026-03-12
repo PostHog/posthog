@@ -1,18 +1,16 @@
 import { useValues } from 'kea'
 
 import { ChartCard } from './ChartCard'
-import { ErrorsByBrowser } from './ErrorsByBrowser'
+import { ErrorsByFeatureFlag } from './ErrorsByFeatureFlag'
 import { ErrorsByPage } from './ErrorsByPage'
-import { ErrorsNewVsReturning } from './ErrorsNewVsReturning'
 import { errorTrackingInsightsLogic } from './errorTrackingInsightsLogic'
 import { InsightsFilters } from './InsightsFilters'
-import { SessionEndingErrors } from './SessionEndingErrors'
+import { SessionEndingIssues } from './SessionEndingIssues'
 import { SummaryStats } from './SummaryStats'
-import { TopSessionsByErrors } from './TopSessionsByErrors'
-import { TopUsersByErrors } from './TopUsersByErrors'
 
 export function ErrorTrackingInsights(): JSX.Element {
-    const { exceptionVolumeQuery, affectedUsersQuery, crashFreeSessionsQuery } = useValues(errorTrackingInsightsLogic)
+    const { exceptionVolumeQuery, affectedUsersRateQuery, crashFreeSessionsQuery } =
+        useValues(errorTrackingInsightsLogic)
 
     return (
         <div className="space-y-4">
@@ -29,10 +27,10 @@ export function ErrorTrackingInsights(): JSX.Element {
                     chartKey="exception_volume"
                 />
                 <ChartCard
-                    title="Affected users"
-                    description="Unique users experiencing exceptions"
-                    query={affectedUsersQuery}
-                    chartKey="affected_users"
+                    title="Affected users rate"
+                    description="Percentage of users experiencing exceptions"
+                    query={affectedUsersRateQuery}
+                    chartKey="affected_users_rate"
                 />
                 <ChartCard
                     title="Crash-free sessions"
@@ -43,15 +41,9 @@ export function ErrorTrackingInsights(): JSX.Element {
             </div>
 
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
-                <SessionEndingErrors />
-                <TopUsersByErrors />
-                <TopSessionsByErrors />
-            </div>
-
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
+                <SessionEndingIssues />
                 <ErrorsByPage />
-                <ErrorsByBrowser />
-                <ErrorsNewVsReturning />
+                <ErrorsByFeatureFlag />
             </div>
         </div>
     )

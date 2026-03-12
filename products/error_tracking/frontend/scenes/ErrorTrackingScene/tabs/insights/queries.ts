@@ -49,7 +49,7 @@ export function buildExceptionVolumeQuery(
     }
 }
 
-export function buildAffectedUsersQuery(
+export function buildAffectedUsersRateQuery(
     dateFrom: string,
     dateTo: string | null,
     { filterGroup, filterTestAccounts }: InsightQueryFilters
@@ -62,6 +62,12 @@ export function buildAffectedUsersQuery(
             series: [
                 {
                     kind: NodeKind.EventsNode,
+                    event: null,
+                    custom_name: 'Total users',
+                    math: BaseMathType.UniqueUsers,
+                },
+                {
+                    kind: NodeKind.EventsNode,
                     event: '$exception',
                     custom_name: 'Affected users',
                     math: BaseMathType.UniqueUsers,
@@ -69,7 +75,11 @@ export function buildAffectedUsersQuery(
             ],
             interval,
             dateRange: { date_from: dateFrom, date_to: dateTo },
-            trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+            trendsFilter: {
+                display: ChartDisplayType.ActionsLineGraph,
+                formulaNodes: [{ formula: 'B / A * 100', custom_name: 'Affected users %' }],
+                aggregationAxisPostfix: '%',
+            },
             filterTestAccounts,
             properties: filterGroup as PropertyGroupFilter,
         },

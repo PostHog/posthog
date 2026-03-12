@@ -9,19 +9,24 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 import { errorTrackingInsightsLogic } from './errorTrackingInsightsLogic'
 import { TableCard } from './TableCard'
 
-interface PageError {
+interface PageErrorRate {
     url: string
-    errorCount: number
-    userCount: number
+    pageviews: number
+    errors: number
+    errorRate: number
 }
 
 export function ErrorsByPage(): JSX.Element {
     const { errorsByPage, errorsByPageLoading } = useValues(errorTrackingInsightsLogic)
 
-    const rows = (errorsByPage ?? []) as PageError[]
+    const rows = (errorsByPage ?? []) as PageErrorRate[]
 
     return (
-        <TableCard title="Errors by page" description="Pages with the most exceptions" loading={errorsByPageLoading}>
+        <TableCard
+            title="Error rate by page"
+            description="% of page visits that resulted in an exception"
+            loading={errorsByPageLoading}
+        >
             {rows.length === 0 ? (
                 <div className="flex items-center justify-center h-full text-secondary text-sm">No data</div>
             ) : (
@@ -29,19 +34,33 @@ export function ErrorsByPage(): JSX.Element {
                     <thead>
                         <tr className="text-xs text-secondary border-b">
                             <th className="text-left font-medium py-1.5 px-2">Page URL</th>
+                            <th className="text-right font-medium py-1.5 px-2">Visits</th>
                             <th className="text-right font-medium py-1.5 px-2">Errors</th>
-                            <th className="text-right font-medium py-1.5 px-2">Users</th>
+                            <th className="text-right font-medium py-1.5 px-2">Error rate</th>
                             <th className="text-right font-medium py-1.5 px-2">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         {rows.map((row, i) => (
                             <tr key={i} className="border-b last:border-b-0 hover:bg-surface-secondary">
-                                <td className="py-1.5 px-2 text-sm max-w-60 truncate font-mono text-xs" title={row.url}>
+                                <td className="py-1.5 px-2 max-w-48 truncate font-mono text-xs" title={row.url}>
                                     {formatUrl(row.url)}
                                 </td>
-                                <td className="py-1.5 px-2 text-sm text-right font-medium">{row.errorCount}</td>
-                                <td className="py-1.5 px-2 text-sm text-right text-secondary">{row.userCount}</td>
+                                <td className="py-1.5 px-2 text-sm text-right text-secondary">{row.pageviews}</td>
+                                <td className="py-1.5 px-2 text-sm text-right">{row.errors}</td>
+                                <td className="py-1.5 px-2 text-right">
+                                    <span
+                                        className={`text-sm font-medium ${
+                                            row.errorRate > 10
+                                                ? 'text-danger'
+                                                : row.errorRate > 5
+                                                  ? 'text-warning'
+                                                  : 'text-success'
+                                        }`}
+                                    >
+                                        {row.errorRate.toFixed(1)}%
+                                    </span>
+                                </td>
                                 <td className="py-1.5 px-2 text-right">
                                     <LemonButton
                                         type="secondary"
