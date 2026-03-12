@@ -51,8 +51,8 @@ def _check_only_person_properties(properties: Any) -> set[str]:
                     _walk(v)
             return
 
-        if node_type and node_type != "person":
-            non_person_types.add(node_type)
+        if node_type != "person":
+            non_person_types.add(node_type or "<unknown>")
 
     _walk(properties)
     return non_person_types

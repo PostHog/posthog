@@ -718,7 +718,7 @@ class TestCohortInlining(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.team.save()
 
         result = compile_filters_bytecode({"filter_test_accounts": True}, self.team)
-        # Falls through to property_to_expr which creates a CohortMembership node
+        # Empty properties caught by _try_inline_cohort_filter, raises CohortInlineError
         assert result["bytecode"] is None
         assert _normalize_error(result["bytecode_error"]) == (
             "Your internal/test user filters include cohorts that can't be used in real-time filters: "
