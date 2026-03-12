@@ -2,6 +2,7 @@ from django.db import IntegrityError
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
+from rest_framework.exceptions import NotFound
 
 from posthog.api.organization_member import OrganizationMemberSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -52,7 +53,7 @@ class RoleSerializer(serializers.ModelSerializer):
             return False
         try:
             organization = view.organization
-        except Exception:
+        except NotFound:
             return False
         return organization.default_role_id == role.id
 
