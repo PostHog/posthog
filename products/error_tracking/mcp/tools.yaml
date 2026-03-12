@@ -80,6 +80,9 @@ tools:
     error-tracking-grouping-rules-destroy:
         operation: error_tracking_grouping_rules_destroy
         enabled: false
+    error-tracking-grouping-rules-issue-retrieve:
+        operation: error_tracking_grouping_rules_issue_retrieve
+        enabled: false
     error-tracking-grouping-rules-reorder-partial-update:
         operation: error_tracking_grouping_rules_reorder_partial_update
         enabled: false
