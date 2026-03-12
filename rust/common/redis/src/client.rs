@@ -1202,6 +1202,36 @@ mod integration_tests {
 
     #[tokio::test]
     #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_pipeline_expire() {
+        let (client, _container) = create_test_client().await;
+
+        // EXPIRE on a key that exists should return true
+        let results = client
+            .pipeline()
+            .set("expirable_key", "value")
+            .expire("expirable_key", 3600)
+            .execute()
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert!(matches!(results[0], Ok(PipelineResult::Ok)));
+        assert!(matches!(results[1], Ok(PipelineResult::Bool(true))));
+
+        // EXPIRE on a key that doesn't exist should return false
+        let results = client
+            .pipeline()
+            .expire("nonexistent_key", 3600)
+            .execute()
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0], Ok(PipelineResult::Bool(false))));
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
     async fn test_pipeline_empty() {
         let (client, _container) = create_test_client().await;
 
