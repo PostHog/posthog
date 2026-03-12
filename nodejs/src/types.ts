@@ -14,6 +14,7 @@ import { InternalCaptureService } from './common/services/internal-capture'
 import { InternalFetchService } from './common/services/internal-fetch'
 import type { IngestionConsumerConfig } from './ingestion/config'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
+import type { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
 import { KafkaProducerWrapper } from './kafka/producer'
 import type { LogsIngestionConsumerConfig } from './logs-ingestion/config'
 import type { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
@@ -41,12 +42,12 @@ export {
     stringToPluginServerMode,
 } from './common/config'
 export {
-    ErrorTrackingConsumerConfig,
     IngestionConsumerConfig,
     IngestionLane,
     PersonBatchWritingDbWriteMode,
     PersonBatchWritingMode,
 } from './ingestion/config'
+export { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
 export { LogsIngestionConsumerConfig } from './logs-ingestion/config'
 export { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
 
