@@ -4,7 +4,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
-from products.llm_analytics.backend.models.score_definitions import ScoreDefinition
+from products.llm_analytics.backend.models.score_definitions import ScoreDefinition, ScoreDefinitionVersion
 from products.llm_analytics.backend.models.trace_reviews import TraceReview, TraceReviewScore
 
 
@@ -48,6 +48,11 @@ class TestTraceReviewsApi(APIBaseTest):
             created_by=self.user,
         )
         return definition
+
+    def _current_version(self, definition: ScoreDefinition) -> ScoreDefinitionVersion:
+        current_version = definition.current_version
+        assert current_version is not None
+        return current_version
 
     def _create_multi_select_definition(
         self,
@@ -101,6 +106,7 @@ class TestTraceReviewsApi(APIBaseTest):
 
     def test_can_create_review_with_multiple_scores(self):
         themes = self._create_multi_select_definition(minimum_selections=1, maximum_selections=2)
+        themes_version = self._current_version(themes)
         resolved = self._create_definition(
             name="Resolved",
             kind="boolean",
@@ -138,16 +144,16 @@ class TestTraceReviewsApi(APIBaseTest):
         resolved_score = review.scores.get(definition=resolved)
         confidence_score = review.scores.get(definition=confidence)
 
-        self.assertEqual(themes_score.definition_version, themes.current_version.id)
-        self.assertEqual(themes_score.definition_version_number, themes.current_version.version)
-        self.assertEqual(themes_score.definition_config, themes.current_version.config)
+        self.assertEqual(themes_score.definition_version, themes_version.id)
+        self.assertEqual(themes_score.definition_version_number, themes_version.version)
+        self.assertEqual(themes_score.definition_config, themes_version.config)
         self.assertEqual(themes_score.categorical_values, ["helpful", "accurate"])
         self.assertEqual(resolved_score.boolean_value, True)
         self.assertEqual(str(confidence_score.numeric_value), "4.500000")
 
     def test_can_create_review_with_an_explicit_definition_version(self):
         definition = self._create_definition()
-        original_version = definition.current_version
+        original_version = self._current_version(definition)
         definition.create_new_version(
             config={
                 "options": [
@@ -233,6 +239,7 @@ class TestTraceReviewsApi(APIBaseTest):
             kind="boolean",
             config={"true_label": "Yes", "false_label": "No"},
         )
+        resolved_version = self._current_version(resolved)
 
         if name == "duplicate_definition":
             payload = {
@@ -273,7 +280,7 @@ class TestTraceReviewsApi(APIBaseTest):
                 "scores": [
                     {
                         "definition_id": str(quality.id),
-                        "definition_version_id": str(resolved.current_version.id),
+                        "definition_version_id": str(resolved_version.id),
                         "categorical_values": ["good"],
                     }
                 ],
@@ -305,20 +312,22 @@ class TestTraceReviewsApi(APIBaseTest):
 
     def test_can_list_reviews_filtered_by_definition_id(self):
         quality = self._create_definition()
+        quality_version = self._current_version(quality)
         resolved = self._create_definition(
             name="Resolved",
             kind="boolean",
             config={"true_label": "Yes", "false_label": "No"},
         )
+        resolved_version = self._current_version(resolved)
 
         reviewed_quality = self._create_review(trace_id="trace_quality")
         TraceReviewScore.objects.create(
             team=self.team,
             review=reviewed_quality,
             definition=quality,
-            definition_version=quality.current_version.id,
-            definition_version_number=quality.current_version.version,
-            definition_config=quality.current_version.config,
+            definition_version=quality_version.id,
+            definition_version_number=quality_version.version,
+            definition_config=quality_version.config,
             categorical_values=["good"],
             created_by=self.user,
         )
@@ -328,9 +337,9 @@ class TestTraceReviewsApi(APIBaseTest):
             team=self.team,
             review=reviewed_resolved,
             definition=resolved,
-            definition_version=resolved.current_version.id,
-            definition_version_number=resolved.current_version.version,
-            definition_config=resolved.current_version.config,
+            definition_version=resolved_version.id,
+            definition_version_number=resolved_version.version,
+            definition_config=resolved_version.config,
             boolean_value=True,
             created_by=self.user,
         )
@@ -352,19 +361,21 @@ class TestTraceReviewsApi(APIBaseTest):
 
     def test_patch_replaces_the_full_score_set(self):
         quality = self._create_definition()
+        quality_version = self._current_version(quality)
         resolved = self._create_definition(
             name="Resolved",
             kind="boolean",
             config={"true_label": "Yes", "false_label": "No"},
         )
+        resolved_version = self._current_version(resolved)
         review = self._create_review(trace_id="trace_patch", comment="Original")
         TraceReviewScore.objects.create(
             team=self.team,
             review=review,
             definition=quality,
-            definition_version=quality.current_version.id,
-            definition_version_number=quality.current_version.version,
-            definition_config=quality.current_version.config,
+            definition_version=quality_version.id,
+            definition_version_number=quality_version.version,
+            definition_config=quality_version.config,
             categorical_values=["good"],
             created_by=self.user,
         )
@@ -372,9 +383,9 @@ class TestTraceReviewsApi(APIBaseTest):
             team=self.team,
             review=review,
             definition=resolved,
-            definition_version=resolved.current_version.id,
-            definition_version_number=resolved.current_version.version,
-            definition_config=resolved.current_version.config,
+            definition_version=resolved_version.id,
+            definition_version_number=resolved_version.version,
+            definition_config=resolved_version.config,
             boolean_value=True,
             created_by=self.user,
         )
@@ -402,14 +413,15 @@ class TestTraceReviewsApi(APIBaseTest):
 
     def test_patch_can_clear_all_scores_while_keeping_the_review(self):
         quality = self._create_definition()
+        quality_version = self._current_version(quality)
         review = self._create_review(trace_id="trace_clear")
         TraceReviewScore.objects.create(
             team=self.team,
             review=review,
             definition=quality,
-            definition_version=quality.current_version.id,
-            definition_version_number=quality.current_version.version,
-            definition_config=quality.current_version.config,
+            definition_version=quality_version.id,
+            definition_version_number=quality_version.version,
+            definition_config=quality_version.config,
             categorical_values=["good"],
             created_by=self.user,
         )
