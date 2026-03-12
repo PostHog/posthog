@@ -677,6 +677,8 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     language: HogLanguage
     /** Query to validate */
     query: string
+    /** Optional direct external data source id for running against a specific source */
+    connectionId?: string
     /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
     sourceQuery?: AnyDataNode
     /** Extra globals for the query */
@@ -695,6 +697,8 @@ export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
     language: HogLanguage
     /** Query to validate */
     query: string
+    /** Optional direct external data source id for running against a specific source */
+    connectionId?: string
     /** Query in whose context to validate. */
     sourceQuery?: AnyDataNode
     /** Global values in scope */
@@ -789,6 +793,8 @@ export interface EventsQueryResponse extends AnalyticsQueryResponseBase {
     hasMore?: boolean
     limit?: integer
     offset?: integer
+    /** Cursor for fetching the next page of results */
+    nextCursor?: string
 }
 
 export type CachedEventsQueryResponse = CachedQueryResponse<EventsQueryResponse>
@@ -1067,6 +1073,7 @@ export interface ChartSettings {
     showYAxisBorder?: boolean
     showLegend?: boolean
     showTotalRow?: boolean
+    showNullsAsZero?: boolean
     heatmap?: HeatmapSettings
 }
 
@@ -1342,10 +1349,25 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'hideWeekends',
 ])
 
+export interface BoxPlotDatum {
+    day: string
+    label: string
+    min: number
+    p25: number
+    median: number
+    p75: number
+    max: number
+    mean: number
+    series_index?: integer
+    series_label?: string
+}
+
 export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {
     results: Record<string, any>[]
     /** Wether more breakdown values are available. */
     hasMore?: boolean
+    /** Box plot data when display type is BoxPlot */
+    boxplot_data?: BoxPlotDatum[]
 }
 
 export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
@@ -2172,6 +2194,7 @@ export enum WebStatsBreakdown {
     ScreenName = 'ScreenName',
     InitialChannelType = 'InitialChannelType',
     InitialReferringDomain = 'InitialReferringDomain',
+    InitialReferringURL = 'InitialReferringURL',
     InitialUTMSource = 'InitialUTMSource',
     InitialUTMCampaign = 'InitialUTMCampaign',
     InitialUTMMedium = 'InitialUTMMedium',
@@ -2445,10 +2468,8 @@ export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     issueId?: ErrorTrackingIssue['id']
-    orderBy: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions' | 'revenue'
+    orderBy: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     orderDirection?: 'ASC' | 'DESC'
-    revenuePeriod?: 'all_time' | 'mrr'
-    revenueEntity?: 'person' | 'group_0' | 'group_1' | 'group_2' | 'group_3' | 'group_4'
     dateRange: DateRange
     status?: ErrorTrackingQueryStatus
     assignee?: ErrorTrackingIssueAssignee | null
@@ -2585,7 +2606,6 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
         timestamp: string
         properties: string
     }
-    revenue?: number
     aggregations?: ErrorTrackingIssueAggregations
     library: string | null
 }
@@ -2929,6 +2949,7 @@ export type FileSystemIconType =
     | 'folder_open'
     | 'conversations'
     | 'toolbar'
+    | 'visual_review'
     | 'settings'
     | 'health'
     | 'inbox'
@@ -3593,6 +3614,7 @@ export interface DatabaseSchemaSource {
     source_type: string
     prefix: string
     last_synced_at?: string
+    access_method?: string
 }
 
 export interface DatabaseSchemaField {
@@ -3701,6 +3723,8 @@ export interface DatabaseSchemaQueryResponse {
 
 export interface DatabaseSchemaQuery extends DataNode<DatabaseSchemaQueryResponse> {
     kind: NodeKind.DatabaseSchemaQuery
+    /** Optional direct external data source id for schema introspection */
+    connectionId?: string
 }
 
 export type DatabaseSerializedFieldType =
@@ -3861,10 +3885,17 @@ export type TeamTaxonomyResponse = TeamTaxonomyItem[]
 
 export interface TeamTaxonomyQuery extends DataNode<TeamTaxonomyQueryResponse> {
     kind: NodeKind.TeamTaxonomyQuery
+    /** Number of rows to return */
+    limit?: integer
+    /** Number of rows to skip before returning rows */
+    offset?: integer
 }
 
 export interface TeamTaxonomyQueryResponse extends AnalyticsQueryResponseBase {
     results: TeamTaxonomyResponse
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
 }
 
 export type CachedTeamTaxonomyQueryResponse = CachedQueryResponse<TeamTaxonomyQueryResponse>
@@ -4990,6 +5021,7 @@ export const VALID_NATIVE_MARKETING_SOURCES = [
     'RedditAds',
     'BingAds',
     'SnapchatAds',
+    'PinterestAds',
 ] as const
 
 export type NativeMarketingSource = (typeof VALID_NATIVE_MARKETING_SOURCES)[number]
@@ -5021,9 +5053,9 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         sourceType: 'LinkedinAds' as const,
         nameField: 'name',
         idField: 'id',
-        campaignTableName: 'campaigns',
-        statsTableName: 'campaign_stats',
-        tableKeywords: ['campaigns'] as const,
+        campaignTableName: 'campaign_groups',
+        statsTableName: 'campaign_group_stats',
+        tableKeywords: ['campaign_groups'] as const,
         tableExclusions: ['stats'] as const,
         defaultSources: ['linkedin', 'li'] as const,
         primarySource: 'linkedin',
@@ -5124,6 +5156,17 @@ export const MARKETING_INTEGRATION_CONFIGS = {
             'conversion_subscribe_value',
         ] as const,
     },
+    PinterestAds: {
+        sourceType: 'PinterestAds' as const,
+        nameField: 'name',
+        idField: 'id',
+        campaignTableName: 'campaigns',
+        statsTableName: 'campaign_analytics',
+        tableKeywords: ['campaigns'] as const,
+        tableExclusions: ['analytics'] as const,
+        defaultSources: ['pinterest'] as const,
+        primarySource: 'pinterest',
+    },
 } as const
 
 export type MarketingIntegrationConfig = (typeof MARKETING_INTEGRATION_CONFIGS)[NativeMarketingSource]
@@ -5135,6 +5178,8 @@ export type TikTokAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['Ti
 export type RedditAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['defaultSources'][number]
 export type BingAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['BingAds']['defaultSources'][number]
 export type SnapchatAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['SnapchatAds']['defaultSources'][number]
+export type PinterestAdsDefaultSources =
+    (typeof MARKETING_INTEGRATION_CONFIGS)['PinterestAds']['defaultSources'][number]
 
 export type GoogleAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['tableKeywords'][number]
 export type LinkedinAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['LinkedinAds']['tableKeywords'][number]
@@ -5143,6 +5188,7 @@ export type TikTokAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['Tik
 export type RedditAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['tableKeywords'][number]
 export type BingAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['BingAds']['tableKeywords'][number]
 export type SnapchatAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['SnapchatAds']['tableKeywords'][number]
+export type PinterestAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['PinterestAds']['tableKeywords'][number]
 
 export type GoogleAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['tableExclusions'][number]
 export type LinkedinAdsTableExclusions =
@@ -5153,6 +5199,8 @@ export type RedditAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['R
 export type BingAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['BingAds']['tableExclusions'][number]
 export type SnapchatAdsTableExclusions =
     (typeof MARKETING_INTEGRATION_CONFIGS)['SnapchatAds']['tableExclusions'][number]
+export type PinterestAdsTableExclusions =
+    (typeof MARKETING_INTEGRATION_CONFIGS)['PinterestAds']['tableExclusions'][number]
 
 // Conversion fields for Snapchat Ads - extracted as types so they generate as StrEnum in Python
 export type SnapchatAdsConversionFields =
@@ -5433,6 +5481,7 @@ export enum ProductKey {
     TEAMS = 'teams',
     TOOLBAR = 'toolbar',
     USER_INTERVIEWS = 'user_interviews',
+    VISUAL_REVIEW = 'visual_review',
     WEB_ANALYTICS = 'web_analytics',
     WORKFLOWS = 'workflows',
 }

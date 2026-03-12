@@ -143,6 +143,10 @@ class TestEventDefinitionAPI(APIBaseTest):
                 "$session_id": ANY,
                 "was_impersonated": ANY,
                 "mcp_user_agent": ANY,
+                "mcp_client_name": ANY,
+                "mcp_client_version": ANY,
+                "mcp_protocol_version": ANY,
+                "mcp_oauth_client_name": ANY,
                 "name": "test_event",
             },
             groups={

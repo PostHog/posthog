@@ -300,7 +300,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             if (router.values.location.pathname.includes('data-warehouse')) {
                 cache.disposables.add(() => {
                     const timerId = setTimeout(() => {
-                        actions.loadSources(null)
+                        actions.loadSources()
                     }, REFRESH_INTERVAL)
                     return () => clearTimeout(timerId)
                 }, 'refreshTimeout')
@@ -308,7 +308,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         },
     })),
     afterMount(({ actions }) => {
-        actions.loadSources(null)
+        actions.loadSources()
         actions.loadRunningActivityResponse()
         actions.loadCompletedActivityResponse()
         actions.loadTotalRowsStats()

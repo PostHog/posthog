@@ -338,11 +338,15 @@ export function isLifecycleQuery(node?: Record<string, any> | null): node is Lif
     return node?.kind === NodeKind.LifecycleQuery
 }
 
-export function isInsightQueryWithDisplay(node?: Record<string, any> | null): node is TrendsQuery | StickinessQuery {
-    return isTrendsQuery(node) || isStickinessQuery(node)
+export function isInsightQueryWithDisplay(
+    node?: Record<string, any> | null
+): node is TrendsQuery | RetentionQuery | StickinessQuery {
+    return isTrendsQuery(node) || isStickinessQuery(node) || isRetentionQuery(node)
 }
 
-export function isInsightQueryWithBreakdown(node?: Record<string, any> | null): node is TrendsQuery | FunnelsQuery {
+export function isInsightQueryWithBreakdown(
+    node?: Record<string, any> | null
+): node is TrendsQuery | FunnelsQuery | RetentionQuery {
     return isTrendsQuery(node) || isFunnelsQuery(node) || isRetentionQuery(node)
 }
 
@@ -798,7 +802,12 @@ export function isValidBreakdown(breakdownFilter?: BreakdownFilter | null): brea
 }
 
 export function isValidQueryForExperiment(query: Node): boolean {
-    return isNodeWithSource(query) && isFunnelsQuery(query.source) && query.source.series.length >= 2
+    if (!isNodeWithSource(query) || !isFunnelsQuery(query.source)) {
+        return false
+    }
+
+    const { series } = query.source
+    return series.length >= 2 && !series?.some((node) => isDataWarehouseNode(node))
 }
 
 export function isGroupsQuery(node?: Record<string, any> | null): node is GroupsQuery {
