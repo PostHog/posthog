@@ -48,6 +48,9 @@ class TestHyperCacheFlagProvider(SimpleTestCase):
     )
     @patch("posthog.models.feature_flag.local_evaluation.flag_definitions_hypercache")
     def test_get_flag_definitions(self, _name, cache_return, side_effect, expected, mock_hypercache):
+        # Reset cached reference so the mock is picked up
+        self.provider._hypercache = None
+
         if side_effect:
             mock_hypercache.get_from_cache.side_effect = side_effect
         else:
@@ -59,6 +62,23 @@ class TestHyperCacheFlagProvider(SimpleTestCase):
             assert result is None
         else:
             assert result == expected
+
+    @patch(
+        "posthog.feature_flags.sdk_cache_provider.HyperCacheFlagProvider._get_hypercache",
+        side_effect=ImportError("circular import"),
+    )
+    def test_get_flag_definitions_returns_none_on_circular_import(self, _mock):
+        assert self.provider.get_flag_definitions() is None
+
+    @patch("posthog.models.feature_flag.local_evaluation.flag_definitions_hypercache")
+    def test_caches_hypercache_reference(self, mock_hypercache):
+        self.provider._hypercache = None
+        mock_hypercache.get_from_cache.return_value = None
+
+        self.provider.get_flag_definitions()
+        self.provider.get_flag_definitions()
+
+        assert self.provider._hypercache is not None
 
     def test_implements_protocol(self):
         from posthoganalytics.flag_definition_cache import FlagDefinitionCacheProvider

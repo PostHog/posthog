@@ -18,12 +18,26 @@ class HyperCacheFlagProvider:
 
     def __init__(self, team_id: int):
         self._team_id = team_id
+        self._hypercache = None
+
+    def _get_hypercache(self):
+        """Lazily resolve the hypercache reference.
+
+        The import is deferred because local_evaluation.py triggers a deep
+        import chain (cohort.util → hogql → api → ... → cohort.util) that
+        causes a circular ImportError when called during AppConfig.ready().
+        By caching the reference after the first successful import, subsequent
+        calls skip the import entirely.
+        """
+        if self._hypercache is None:
+            from posthog.models.feature_flag.local_evaluation import flag_definitions_hypercache
+
+            self._hypercache = flag_definitions_hypercache
+        return self._hypercache
 
     def get_flag_definitions(self) -> Optional[FlagDefinitionCacheData]:
         try:
-            from posthog.models.feature_flag.local_evaluation import flag_definitions_hypercache
-
-            data = flag_definitions_hypercache.get_from_cache(self._team_id)
+            data = self._get_hypercache().get_from_cache(self._team_id)
             if data is not None:
                 # Defensive: ensure a valid FlagDefinitionCacheData even if
                 # the HyperCache shape drifts in the future.
@@ -32,6 +46,12 @@ class HyperCacheFlagProvider:
                     "group_type_mapping": data.get("group_type_mapping", {}),
                     "cohorts": data.get("cohorts", {}),
                 }
+            return None
+        except ImportError:
+            # Expected during Django startup — local_evaluation.py has a
+            # circular import chain through cohort.util that resolves once
+            # all modules finish loading. The SDK's next poll cycle will retry.
+            logger.debug("hypercache_flag_provider_import_pending", team_id=self._team_id)
             return None
         except Exception:
             logger.exception("hypercache_flag_provider_read_error", team_id=self._team_id)
