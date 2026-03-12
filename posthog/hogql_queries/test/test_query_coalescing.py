@@ -27,10 +27,12 @@ class TestQueryCoalescer(TestCase):
         self.redis.delete(f"{LOCK_KEY_PREFIX}:{self.cache_key}")
         self.redis.delete(f"{ERROR_KEY_PREFIX}:{self.cache_key}")
 
-    def _set_lock(self, query_id="leader"):
+    def _set_lock(self, query_id="leader", timestamp=None):
+        if timestamp is None:
+            timestamp = time.time()
         self.redis.set(
             f"{LOCK_KEY_PREFIX}:{self.cache_key}",
-            query_id,
+            f"{query_id}:{timestamp}",
             ex=60,
         )
 

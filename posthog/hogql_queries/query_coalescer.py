@@ -148,7 +148,15 @@ class QueryCoalescer:
                     pass
 
         log.info("query_coalescing_follower_waiting", dry_run=self.dry_run)
-        fresh_after = time.time()
+        fresh_after = self._read_leader_start_time()
+        if fresh_after is None:
+            # Lock disappeared between _try_acquire and now — check cache once
+            data = get_cache_data()
+            if data is not None:
+                return build_response(data)
+            if self.dry_run:
+                return execute()
+            self._raise_stored_error()
         cached_data = self._wait_for_result(get_cache_data, fresh_after=fresh_after, max_wait=max_wait)
         if cached_data is not None:
             log.info("query_coalescing_follower_hit")
@@ -160,7 +168,7 @@ class QueryCoalescer:
         self._raise_stored_error()
 
     def _try_acquire(self) -> bool:
-        self._lock_value = self.query_id
+        self._lock_value = f"{self.query_id}:{time.time()}"
         acquired = self._redis.set(self._lock_key, self._lock_value, nx=True, ex=LOCK_TTL_SECONDS)
         self._is_leader = bool(acquired)
         if self._is_leader:
@@ -188,6 +196,16 @@ class QueryCoalescer:
         except RedisError:
             pass
         raise QueryCoalescingError(error_msg or "Leader failed or crashed without storing an error")
+
+    def _read_leader_start_time(self) -> Optional[float]:
+        lock_value = self._redis.get(self._lock_key)
+        if lock_value is None:
+            return None
+        raw = lock_value.decode("utf-8") if isinstance(lock_value, bytes) else lock_value
+        try:
+            return float(raw.rsplit(":", 1)[1])
+        except (IndexError, ValueError):
+            return None
 
     @staticmethod
     def _is_fresh(data: dict, fresh_after: float) -> bool:

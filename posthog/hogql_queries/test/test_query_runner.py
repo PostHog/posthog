@@ -599,9 +599,15 @@ class TestQueryCoalescing(BaseTest):
         with freeze_time(datetime(2023, 2, 4, 13, 48, 42)):
             follower_runner = Runner(query={"some_attr": "bla"}, team=self.team)
             # Follower can't acquire lock and wait returns stale cache → raises
-            with mock.patch(
-                "posthog.hogql_queries.query_coalescer.QueryCoalescer._try_acquire",
-                return_value=False,
+            with (
+                mock.patch(
+                    "posthog.hogql_queries.query_coalescer.QueryCoalescer._try_acquire",
+                    return_value=False,
+                ),
+                mock.patch(
+                    "posthog.hogql_queries.query_coalescer.QueryCoalescer._read_leader_start_time",
+                    return_value=datetime(2023, 2, 4, 13, 48, 42).timestamp(),
+                ),
             ):
                 with self.assertRaises(QueryCoalescingError):
                     follower_runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
