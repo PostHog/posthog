@@ -52,16 +52,6 @@ class ErrorCodeMeta:
     """Whether this error code is safe to show to the user and couldn't be caught at HogQL level.
     If a string is set, it will be used as the error message instead of the ClickHouse one.
     """
-    category: QueryErrorCategory | None = None
-    """High-level error category for observability dashboards.
-    When None, defaults to USER_ERROR if user_safe is set, otherwise ERROR.
-    """
-
-    @property
-    def resolved_category(self) -> QueryErrorCategory:
-        if self.category is not None:
-            return self.category
-        return QueryErrorCategory.USER_ERROR if self.user_safe else QueryErrorCategory.ERROR
 
     @property
     def label(self) -> str:
@@ -153,30 +143,28 @@ def look_up_clickhouse_error_code_meta(error: ServerException) -> ErrorCodeMeta:
     return CLICKHOUSE_ERROR_CODE_LOOKUP[code]
 
 
+_CANCELLED_CODE_NAMES = frozenset({"query_was_cancelled", "query_was_cancelled_by_client", "aborted"})
+
+
 def classify_query_error(e: Exception) -> QueryErrorCategory:
     """Classify a query execution exception into a high-level category for observability."""
     from posthog.hogql.errors import ExposedHogQLError
 
     from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 
-    # App-level rate limiting (APIException subclasses, checked before ServerException)
+    # Cancelled — check code_name on wrapped CH errors
+    if isinstance(e, InternalCHQueryError) and getattr(e, "code_name", None) in _CANCELLED_CODE_NAMES:
+        return QueryErrorCategory.CANCELLED
+
+    # Rate limited
     if isinstance(e, (ClickHouseAtCapacity, ConcurrencyLimitExceeded)):
         return QueryErrorCategory.RATE_LIMITED
 
-    # HogQL validation errors are user errors
-    if isinstance(e, ExposedHogQLError):
+    # User errors
+    if isinstance(e, (ExposedHogQLError, ExposedCHQueryError)):
         return QueryErrorCategory.USER_ERROR
 
-    # Wrapped CH errors that already went through wrap_clickhouse_query_error —
-    # ExposedCHQueryError inherits from ServerException so must be checked first
-    if isinstance(e, ExposedCHQueryError):
-        return QueryErrorCategory.USER_ERROR
-
-    # Raw ClickHouse errors — use the category from ErrorCodeMeta
-    if isinstance(e, ServerException):
-        return look_up_clickhouse_error_code_meta(e).resolved_category
-
-    # Everything else is an internal error
+    # Everything else
     return QueryErrorCategory.ERROR
 
 
@@ -277,11 +265,7 @@ class CHQueryErrorInvalidJoinOnExpression(InternalCHQueryError):
 #         print(f'    {code}: ErrorCodeMeta("{name}"),')
 # ```
 #
-# Remember to add back the `user_safe` and `category` args though!
-#
-# Category shorthand for cancelled — the only category that can't be inferred
-# from user_safe or isinstance checks in classify_query_error.
-_C = QueryErrorCategory.CANCELLED
+# Remember to add back the `user_safe` args though!
 
 CLICKHOUSE_UNKNOWN_EXCEPTION = ErrorCodeMeta("UNKNOWN_EXCEPTION")
 CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
@@ -471,7 +455,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     233: ErrorCodeMeta("BAD_DATA_PART_NAME"),
     234: ErrorCodeMeta("NO_REPLICA_HAS_PART"),
     235: ErrorCodeMeta("DUPLICATE_DATA_PART"),
-    236: ErrorCodeMeta("ABORTED", category=_C),
+    236: ErrorCodeMeta("ABORTED"),
     237: ErrorCodeMeta("NO_REPLICA_NAME_GIVEN"),
     238: ErrorCodeMeta("FORMAT_VERSION_TOO_OLD"),
     239: ErrorCodeMeta("CANNOT_MUNMAP"),
@@ -587,7 +571,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     391: ErrorCodeMeta("EXTERNAL_LIBRARY_ERROR"),
     392: ErrorCodeMeta("QUERY_IS_PROHIBITED"),
     393: ErrorCodeMeta("THERE_IS_NO_QUERY"),
-    394: ErrorCodeMeta("QUERY_WAS_CANCELLED", category=_C),
+    394: ErrorCodeMeta("QUERY_WAS_CANCELLED"),
     395: ErrorCodeMeta("FUNCTION_THROW_IF_VALUE_IS_NON_ZERO", user_safe=True),
     396: ErrorCodeMeta("TOO_MANY_ROWS_OR_BYTES"),
     397: ErrorCodeMeta("QUERY_IS_NOT_SUPPORTED_IN_MATERIALIZED_VIEW"),
@@ -890,7 +874,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     731: ErrorCodeMeta("QUERY_CACHE_USED_WITH_NON_THROW_OVERFLOW_MODE"),
     733: ErrorCodeMeta("TABLE_IS_BEING_RESTARTED"),
     734: ErrorCodeMeta("CANNOT_WRITE_AFTER_BUFFER_CANCELED"),
-    735: ErrorCodeMeta("QUERY_WAS_CANCELLED_BY_CLIENT", category=_C),
+    735: ErrorCodeMeta("QUERY_WAS_CANCELLED_BY_CLIENT"),
     736: ErrorCodeMeta("DATALAKE_DATABASE_ERROR"),
     737: ErrorCodeMeta("GOOGLE_CLOUD_ERROR"),
     738: ErrorCodeMeta("PART_IS_LOCKED"),
