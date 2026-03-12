@@ -109,6 +109,14 @@ class ActivityLogQueryParamsSerializer(serializers.Serializer):
         required=False,
         help_text="Filter by the ID of the affected resource.",
     )
+    page = serializers.IntegerField(
+        required=False,
+        help_text="Page number for pagination. When provided, uses page-based pagination ordered by most recent first.",
+    )
+    page_size = serializers.IntegerField(
+        required=False,
+        help_text="Number of results per page (default: 100, max: 1000). Only used with page-based pagination.",
+    )
 
 
 @extend_schema(tags=["activity_logs"])
