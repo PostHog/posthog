@@ -246,6 +246,7 @@ export const FEATURE_FLAGS = {
     CDP_NEW_PRICING: 'cdp-new-pricing', // owner: #team-workflows
     CDP_PERSON_UPDATES: 'cdp-person-updates', // owner: #team-workflows-cdp
     CDP_DWH_TABLE_SOURCE: 'cdp-dwh-table-source', // owner: #team-workflows-cdp
+    COHORT_ALLOW_CUSTOM_HOGQL: 'cohorts-allow-custom-hogql', // owner: @fcgomes #team-feature-flags
     COHORT_CALCULATION_HISTORY: 'cohort-calculation-history', // owner: @gustavo #team-feature-flags
     COHORT_EMAIL_LOOKUP_CLICKHOUSE: 'cohort-email-lookup-clickhouse', // owner: @gustavo #team-feature-flags
     COHORT_INLINE_CALCULATION: 'inline-cohort-calculation', // owner: #team-analytics-platform, inlines fast dynamic cohort queries instead of using precomputed cohortpeople table
@@ -473,6 +474,7 @@ export const RETENTION_MEAN_NONE = 'none' as const
 export enum CohortTypeEnum {
     Static = 'static',
     Dynamic = 'dynamic',
+    DynamicHogQL = 'dynamic_hogql',
 }
 
 /**

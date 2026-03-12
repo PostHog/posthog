@@ -1038,6 +1038,7 @@ export const CRITERIA_VALIDATIONS: Record<
 export const COHORT_TYPE_OPTIONS: LemonSelectOptions<CohortTypeEnum> = [
     { value: CohortTypeEnum.Static, label: 'Static · Updated manually' },
     { value: CohortTypeEnum.Dynamic, label: 'Dynamic · Updates automatically' },
+    { value: CohortTypeEnum.DynamicHogQL, label: 'Dynamic (SQL) · Define with HogQL' },
 ]
 
 export const NEW_CRITERIA = {

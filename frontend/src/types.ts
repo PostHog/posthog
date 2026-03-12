@@ -1514,6 +1514,7 @@ export interface CohortType {
     filters: {
         properties: CohortCriteriaGroupFilter
     }
+    query?: Record<string, any> | null
     experiment_set?: number[]
     _create_in_folder?: string | null
     _create_static_person_ids?: string[]
