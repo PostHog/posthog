@@ -30,7 +30,7 @@ The pipeline is a Temporal child workflow, fire-and-forget from the main import 
 3. **Registry** (`posthog/temporal/data_imports/signals/registry.py`) maps (source type, schema name) pairs to their config.
    All emitters are auto-registered at module load time.
 
-Gated behind the team's `proactive_tasks_enabled` config (checked together with AI consent at the parent workflow level before spawning the child).
+Gated behind AI consent (`organization.is_ai_data_processing_approved`) and a `SignalSourceConfig` row with `enabled=True` for the matching `source_product`/`source_type` — both checked at the parent workflow level before spawning the child. Users enable sources via the Inbox Sources modal.
 
 ## Adding a new source
 

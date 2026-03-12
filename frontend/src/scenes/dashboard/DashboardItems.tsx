@@ -221,6 +221,31 @@ export function DashboardItems(): JSX.Element {
                             onEnterEditModeFromEdge: canEnterEditModeFromEdge
                                 ? () => setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardEdgeHover)
                                 : undefined,
+                            onDragHandleMouseDown: canEnterEditModeFromEdge
+                                ? (e: React.MouseEvent) => {
+                                      const target = e.target as Element | null
+                                      if (!target) {
+                                          return
+                                      }
+
+                                      const gridItem = target.closest('.react-grid-item')
+                                      if (!gridItem) {
+                                          return
+                                      }
+
+                                      // Don't trigger when clicking obvious interactive controls
+                                      if (
+                                          target.closest(
+                                              'input,textarea,button,select,a,p,h4,[contenteditable="true"],[role="textbox"]'
+                                          )
+                                      ) {
+                                          return
+                                      }
+                                      e.preventDefault()
+                                      e.stopPropagation()
+                                      setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardDragHandle)
+                                  }
+                                : undefined,
                             showEditingControls: isEditablePlacement,
                             moveToDashboard: ({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
                                 if (!dashboard) {
