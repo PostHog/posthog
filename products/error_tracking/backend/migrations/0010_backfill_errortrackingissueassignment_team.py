@@ -3,7 +3,7 @@ from django.db import migrations
 
 def backfill_team_id(apps, schema_editor):
     ErrorTrackingIssueAssignment = apps.get_model("error_tracking", "ErrorTrackingIssueAssignment")
-    batch_size = 5000
+    batch_size = 100
 
     while True:
         ids = list(
