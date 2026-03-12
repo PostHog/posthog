@@ -86,12 +86,16 @@ def _make_paginated_shopify_request(
         retryable_error = _get_retryable_error(payload)
         if retryable_error:
             raise retryable_error
-        if "data" in payload:
-            return payload
-        elif "errors" in payload:
-            raise Exception(f"Shopify GraphQL error: {payload['errors']}")
-        else:
+
+        if "errors" in payload:
+            error_messages = [e.get("message", "") for e in payload["errors"]]
+            joined = "; ".join(error_messages)
+            raise Exception(f"Shopify GraphQL error: {joined}")
+
+        if "data" not in payload:
             raise Exception(f"Unexpected graphql response format in Shopify rows read. Keys: {list(payload.keys())}")
+
+        return payload
 
     pageSize = SHOPIFY_PAGE_SIZE_OVERRIDES.get(graphql_object.name, SHOPIFY_DEFAULT_PAGE_SIZE)
     vars: dict[str, Any] = {"pageSize": pageSize}

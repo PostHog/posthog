@@ -43,6 +43,8 @@ from posthog.models.integration import (
     SlackIntegration,
     TwilioIntegration,
 )
+from posthog.permissions import TeamMemberStrictManagementPermission
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 
 class NativeEmailIntegrationSerializer(serializers.Serializer):
@@ -70,7 +72,7 @@ class GitHubBranchesResponseSerializer(serializers.Serializer):
     branches = serializers.ListField(child=serializers.CharField(), help_text="List of branch names")
 
 
-class IntegrationSerializer(serializers.ModelSerializer):
+class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     """Standard Integration serializer."""
 
     created_by = UserBasicSerializer(read_only=True)
@@ -124,9 +126,19 @@ class IntegrationSerializer(serializers.ModelSerializer):
         elif validated_data["kind"] == "github":
             config = validated_data.get("config", {})
             installation_id = config.get("installation_id")
+            state = config.get("state")
 
             if not installation_id:
                 raise ValidationError("An installation_id must be provided")
+
+            if not state:
+                raise ValidationError("A state token must be provided")
+
+            cache_key = f"github_state:{request.user.id}"
+            expected_state = cache.get(cache_key)
+            if not expected_state or expected_state != state:
+                raise ValidationError("Invalid or expired state token")
+            cache.delete(cache_key)
 
             instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, request.user)
             return instance
@@ -235,6 +247,7 @@ class IntegrationViewSet(
 ):
     scope_object = "integration"
     scope_object_read_actions = ["list", "retrieve", "github_repos", "github_branches"]
+    permission_classes = [TeamMemberStrictManagementPermission]
     queryset = Integration.objects.all()
     serializer_class = IntegrationSerializer
 
@@ -268,6 +281,9 @@ class IntegrationViewSet(
             response = redirect(installation_url)
             # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (OAuth state, short-lived, needed for cross-site redirect)
             response.set_cookie("ph_github_state", token, max_age=60 * 5)
+            # Store server-side so the backend can enforce that the same user who
+            # initiated the flow is the one completing it (not just cookie-validated).
+            cache.set(f"github_state:{request.user.id}", token, timeout=60 * 5)
 
             return response
 

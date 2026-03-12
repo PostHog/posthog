@@ -23,6 +23,7 @@ from posthog.models.experiment import (
     ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
+    holdout_filters_for_flag,
 )
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
@@ -281,7 +282,6 @@ class ExperimentService:
             variants = parameters.get("feature_flag_variants", [])
             aggregation_group_type_index = parameters.get("aggregation_group_type_index")
 
-        holdout_groups = holdout.filters if holdout else None
         params = parameters or {}
         experiment_rollout_percentage = params.get("rollout_percentage", DEFAULT_ROLLOUT_PERCENTAGE)
 
@@ -289,7 +289,7 @@ class ExperimentService:
             "groups": [{"properties": [], "rollout_percentage": experiment_rollout_percentage}],
             "multivariate": {"variants": variants or list(DEFAULT_VARIANTS)},
             "aggregation_group_type_index": aggregation_group_type_index,
-            "holdout_groups": holdout_groups,
+            **holdout_filters_for_flag(holdout.id if holdout else None, holdout.filters if holdout else None),
         }
 
         feature_flag_data: dict[str, Any] = {
@@ -521,9 +521,9 @@ class ExperimentService:
 
         # --- feature flag variant sync for draft experiments ---------------
         if experiment.is_draft:
-            holdout_groups = experiment.holdout.filters if experiment.holdout else None
+            holdout = experiment.holdout
             if "holdout" in update_data:
-                holdout_groups = update_data["holdout"].filters if update_data["holdout"] else None
+                holdout = update_data["holdout"]
 
             if update_data.get("parameters"):
                 variants = update_data["parameters"].get("feature_flag_variants", [])
@@ -538,7 +538,9 @@ class ExperimentService:
                 feature_flag_filters["groups"] = existing_groups
                 feature_flag_filters["multivariate"] = {"variants": variants or list(DEFAULT_VARIANTS)}
                 feature_flag_filters["aggregation_group_type_index"] = aggregation_group_type_index
-                feature_flag_filters["holdout_groups"] = holdout_groups
+                feature_flag_filters.update(
+                    holdout_filters_for_flag(holdout.id if holdout else None, holdout.filters if holdout else None)
+                )
 
                 existing_flag_serializer = FeatureFlagSerializer(
                     feature_flag,
@@ -551,7 +553,14 @@ class ExperimentService:
             elif "holdout" in update_data:
                 existing_flag_serializer = FeatureFlagSerializer(
                     feature_flag,
-                    data={"filters": {**feature_flag.filters, "holdout_groups": holdout_groups}},
+                    data={
+                        "filters": {
+                            **feature_flag.filters,
+                            **holdout_filters_for_flag(
+                                holdout.id if holdout else None, holdout.filters if holdout else None
+                            ),
+                        }
+                    },
                     partial=True,
                     context=context,
                 )

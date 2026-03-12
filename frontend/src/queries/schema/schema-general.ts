@@ -470,6 +470,8 @@ export interface HogQLVariable {
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     kind: NodeKind.HogQLQuery
     query: string
+    /** Optional direct external data source id for running against a specific source */
+    connectionId?: string
     filters?: HogQLFilters
     /** Variables to be substituted into the query */
     variables?: Record<string, HogQLVariable>
@@ -677,6 +679,8 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     language: HogLanguage
     /** Query to validate */
     query: string
+    /** Optional direct external data source id for running against a specific source */
+    connectionId?: string
     /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
     sourceQuery?: AnyDataNode
     /** Extra globals for the query */
@@ -695,6 +699,8 @@ export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
     language: HogLanguage
     /** Query to validate */
     query: string
+    /** Optional direct external data source id for running against a specific source */
+    connectionId?: string
     /** Query in whose context to validate. */
     sourceQuery?: AnyDataNode
     /** Global values in scope */
@@ -2190,6 +2196,7 @@ export enum WebStatsBreakdown {
     ScreenName = 'ScreenName',
     InitialChannelType = 'InitialChannelType',
     InitialReferringDomain = 'InitialReferringDomain',
+    InitialReferringURL = 'InitialReferringURL',
     InitialUTMSource = 'InitialUTMSource',
     InitialUTMCampaign = 'InitialUTMCampaign',
     InitialUTMMedium = 'InitialUTMMedium',
@@ -2562,6 +2569,7 @@ export interface ErrorTrackingIssueCohort {
 export type QuickFilterType = 'manual-options' | 'auto-discovery'
 
 export enum QuickFilterContext {
+    Dashboards = 'dashboards',
     ErrorTrackingIssueFilters = 'error-tracking-issue-filters',
     LogsFilters = 'logs-filters',
 }
@@ -2913,6 +2921,7 @@ export type FileSystemIconType =
     | 'link'
     | 'live_debugger'
     | 'logs'
+    | 'tracing'
     | 'workflows'
     | 'notebook'
     | 'action'
@@ -3609,6 +3618,7 @@ export interface DatabaseSchemaSource {
     source_type: string
     prefix: string
     last_synced_at?: string
+    access_method?: string
 }
 
 export interface DatabaseSchemaField {
@@ -3717,6 +3727,8 @@ export interface DatabaseSchemaQueryResponse {
 
 export interface DatabaseSchemaQuery extends DataNode<DatabaseSchemaQueryResponse> {
     kind: NodeKind.DatabaseSchemaQuery
+    /** Optional direct external data source id for schema introspection */
+    connectionId?: string
 }
 
 export type DatabaseSerializedFieldType =
@@ -3877,10 +3889,17 @@ export type TeamTaxonomyResponse = TeamTaxonomyItem[]
 
 export interface TeamTaxonomyQuery extends DataNode<TeamTaxonomyQueryResponse> {
     kind: NodeKind.TeamTaxonomyQuery
+    /** Number of rows to return */
+    limit?: integer
+    /** Number of rows to skip before returning rows */
+    offset?: integer
 }
 
 export interface TeamTaxonomyQueryResponse extends AnalyticsQueryResponseBase {
     results: TeamTaxonomyResponse
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
 }
 
 export type CachedTeamTaxonomyQueryResponse = CachedQueryResponse<TeamTaxonomyQueryResponse>
@@ -5079,9 +5098,9 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         sourceType: 'LinkedinAds' as const,
         nameField: 'name',
         idField: 'id',
-        campaignTableName: 'campaigns',
-        statsTableName: 'campaign_stats',
-        tableKeywords: ['campaigns'] as const,
+        campaignTableName: 'campaign_groups',
+        statsTableName: 'campaign_group_stats',
+        tableKeywords: ['campaign_groups'] as const,
         tableExclusions: ['stats'] as const,
         defaultSources: ['linkedin', 'li'] as const,
         primarySource: 'linkedin',
@@ -5114,20 +5133,16 @@ export const MARKETING_INTEGRATION_CONFIGS = {
                 'omni_app_install',
                 'omni_subscribe',
             ] as const,
-            fallback: [
-                'purchase',
+            fallback: ['purchase', 'lead', 'complete_registration', 'app_install', 'subscribe'] as const,
+            specific: [
                 'offsite_conversion.fb_pixel_purchase',
                 'app_custom_event.fb_mobile_purchase',
-                'lead',
                 'offsite_conversion.fb_pixel_lead',
                 'onsite_conversion.lead_grouped',
-                'complete_registration',
                 'offsite_conversion.fb_pixel_complete_registration',
                 'app_custom_event.fb_mobile_complete_registration',
                 'offsite_complete_registration_add_meta_leads',
-                'app_install',
                 'mobile_app_install',
-                'subscribe',
                 'offsite_conversion.fb_pixel_subscribe',
             ] as const,
         },
@@ -5239,6 +5254,8 @@ export type MetaAdsConversionOmniActionTypes =
     (typeof MARKETING_INTEGRATION_CONFIGS)['MetaAds']['conversionActionTypes']['omni'][number]
 export type MetaAdsConversionFallbackActionTypes =
     (typeof MARKETING_INTEGRATION_CONFIGS)['MetaAds']['conversionActionTypes']['fallback'][number]
+export type MetaAdsConversionSpecificActionTypes =
+    (typeof MARKETING_INTEGRATION_CONFIGS)['MetaAds']['conversionActionTypes']['specific'][number]
 
 export const MARKETING_INTEGRATION_FIELD_MAP = Object.fromEntries(
     VALID_NATIVE_MARKETING_SOURCES.map((source) => [
@@ -5506,6 +5523,7 @@ export enum ProductKey {
     TASKS = 'tasks',
     TEAMS = 'teams',
     TOOLBAR = 'toolbar',
+    TRACING = 'tracing',
     USER_INTERVIEWS = 'user_interviews',
     VISUAL_REVIEW = 'visual_review',
     WEB_ANALYTICS = 'web_analytics',

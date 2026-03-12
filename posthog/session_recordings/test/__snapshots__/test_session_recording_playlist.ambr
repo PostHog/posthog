@@ -856,6 +856,7 @@
   '''
   SELECT "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."updated_at",
          "posthog_datawarehousesavedquery"."deleted",
          "posthog_datawarehousesavedquery"."deleted_at",
          "posthog_datawarehousesavedquery"."id",
@@ -917,6 +918,7 @@
   '''
   SELECT "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."updated_at",
          "posthog_datawarehousesavedquery"."deleted",
          "posthog_datawarehousesavedquery"."deleted_at",
          "posthog_datawarehousesavedquery"."id",
@@ -1846,6 +1848,7 @@
   '''
   SELECT "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."updated_at",
          "posthog_datawarehousesavedquery"."deleted",
          "posthog_datawarehousesavedquery"."deleted_at",
          "posthog_datawarehousesavedquery"."id",
@@ -1907,6 +1910,7 @@
   '''
   SELECT "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."updated_at",
          "posthog_datawarehousesavedquery"."deleted",
          "posthog_datawarehousesavedquery"."deleted_at",
          "posthog_datawarehousesavedquery"."id",

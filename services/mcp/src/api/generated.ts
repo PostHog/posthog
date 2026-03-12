@@ -3363,6 +3363,7 @@ export namespace Schemas {
       ScreenName: 'ScreenName',
       InitialChannelType: 'InitialChannelType',
       InitialReferringDomain: 'InitialReferringDomain',
+      InitialReferringURL: 'InitialReferringURL',
       InitialUTMSource: 'InitialUTMSource',
       InitialUTMCampaign: 'InitialUTMCampaign',
       InitialUTMMedium: 'InitialUTMMedium',
@@ -3985,6 +3986,11 @@ export namespace Schemas {
     export type HogQLQueryVariables = {[key: string]: HogQLVariable} | null | null;
 
     export interface HogQLQuery {
+      /**
+       * Optional direct external data source id for running against a specific source
+       * @nullable
+       */
+      connectionId?: string | null;
       /** @nullable */
       explain?: boolean | null;
       filters?: HogQLFilters | null;
@@ -5014,6 +5020,7 @@ export namespace Schemas {
     * `day` - day
     * `week` - week
     * `every 5 minutes` - every 5 minutes
+    * `every 15 minutes` - every 15 minutes
      */
     export type IntervalEnum = typeof IntervalEnum[keyof typeof IntervalEnum];
 
@@ -5023,6 +5030,7 @@ export namespace Schemas {
       Day: 'day',
       Week: 'week',
       Every5Minutes: 'every 5 minutes',
+      Every15Minutes: 'every 15 minutes',
     } as const;
 
     /**
@@ -5368,6 +5376,13 @@ export namespace Schemas {
       explicit_datetime?: string | null;
     }
 
+    export interface BooleanScoreDefinitionConfig {
+      /** Optional label for a true value. */
+      true_label?: string;
+      /** Optional label for a false value. */
+      false_label?: string;
+    }
+
     export interface BreakdownItem {
       label: string;
       value: string | number;
@@ -5617,6 +5632,53 @@ export namespace Schemas {
       reason: string;
       /** Supporting evidence */
       evidence?: CapabilityStateEvidence;
+    }
+
+    export interface CategoricalScoreOption {
+      /**
+       * Stable option key. Use lowercase letters, numbers, underscores, or hyphens.
+       * @maxLength 128
+       */
+      key: string;
+      /**
+       * Human-readable option label.
+       * @maxLength 256
+       */
+      label: string;
+    }
+
+    /**
+     * * `single` - single
+    * `multiple` - multiple
+     */
+    export type SelectionModeEnum = typeof SelectionModeEnum[keyof typeof SelectionModeEnum];
+
+
+    export const SelectionModeEnum = {
+      Single: 'single',
+      Multiple: 'multiple',
+    } as const;
+
+    export interface CategoricalScoreDefinitionConfig {
+      /** Ordered categorical options available to the scorer. */
+      options: CategoricalScoreOption[];
+      /** Whether reviewers can select one option or multiple options. Defaults to `single`.
+
+    * `single` - single
+    * `multiple` - multiple */
+      selection_mode?: SelectionModeEnum;
+      /**
+       * Optional minimum number of options that can be selected when `selection_mode` is `multiple`.
+       * @minimum 1
+       * @nullable
+       */
+      min_selections?: number | null;
+      /**
+       * Optional maximum number of options that can be selected when `selection_mode` is `multiple`.
+       * @minimum 1
+       * @nullable
+       */
+      max_selections?: number | null;
     }
 
     /**
@@ -6955,6 +7017,11 @@ export namespace Schemas {
       /** @nullable */
       readonly persisted_variables: DashboardPersistedVariables;
       readonly team_id: number;
+      /**
+       * List of quick filter IDs associated with this dashboard
+       * @nullable
+       */
+      quick_filter_ids?: string[] | null;
       /** @nullable */
       readonly tiles: readonly DashboardTilesItem[] | null;
       use_template?: string;
@@ -10860,6 +10927,8 @@ export namespace Schemas {
     }
 
     export interface DatabaseSchemaSource {
+      /** @nullable */
+      access_method?: string | null;
       id: string;
       /** @nullable */
       last_synced_at?: string | null;
@@ -11029,6 +11098,11 @@ export namespace Schemas {
     }
 
     export interface DatabaseSchemaQuery {
+      /**
+       * Optional direct external data source id for schema introspection
+       * @nullable
+       */
+      connectionId?: string | null;
       kind?: DatabaseSchemaQueryKind;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -11347,6 +11421,7 @@ export namespace Schemas {
     * `device_id` - Device ID */
       bucketing_identifier?: BucketingIdentifierEnum | BlankEnum | NullEnum | null;
       readonly evaluation_tags: readonly string[];
+      readonly evaluation_contexts: readonly string[];
     }
 
     /**
@@ -11401,7 +11476,8 @@ export namespace Schemas {
       readonly id: string;
       readonly source_id: string;
       readonly target_id: string;
-      readonly dag_id_text: string;
+      /** @nullable */
+      dag_fk?: string | null;
       properties?: unknown;
       readonly created_at: string;
       /** @nullable */
@@ -14158,7 +14234,7 @@ export namespace Schemas {
     } as const;
 
     export interface InputsItem {
-      value?: string;
+      value?: unknown;
       templating?: Templating186Enum;
       readonly bytecode: readonly unknown[];
       readonly order: number;
@@ -14448,6 +14524,36 @@ export namespace Schemas {
       _create_in_folder?: string;
       /** @nullable */
       readonly batch_export_id: string | null;
+    }
+
+    /**
+     * Mock global variables available during test invocation.
+     */
+    export type HogFunctionInvocationGlobals = {[key: string]: unknown};
+
+    /**
+     * Mock ClickHouse event data to test the function with.
+     */
+    export type HogFunctionInvocationClickhouseEvent = {[key: string]: unknown};
+
+    export interface HogFunctionInvocation {
+      /** Full function configuration to test. */
+      configuration: HogFunction;
+      /** Mock global variables available during test invocation. */
+      globals?: HogFunctionInvocationGlobals;
+      /** Mock ClickHouse event data to test the function with. */
+      clickhouse_event?: HogFunctionInvocationClickhouseEvent;
+      /** When true (default), async functions like fetch() are simulated. */
+      mock_async_functions?: boolean;
+      /** Invocation result status. */
+      readonly status: string;
+      /** Execution logs from the test invocation. */
+      readonly logs: readonly unknown[];
+      /**
+       * Optional invocation ID for correlation.
+       * @nullable
+       */
+      invocation_id?: string | null;
     }
 
     export interface HogFunctionMinimal {
@@ -15714,6 +15820,11 @@ export namespace Schemas {
 
     export interface HogQLMetadata {
       /**
+       * Optional direct external data source id for running against a specific source
+       * @nullable
+       */
+      connectionId?: string | null;
+      /**
        * Enable more verbose output, usually run from the /debug page
        * @nullable
        */
@@ -15749,6 +15860,11 @@ export namespace Schemas {
     }
 
     export interface HogQLAutocomplete {
+      /**
+       * Optional direct external data source id for running against a specific source
+       * @nullable
+       */
+      connectionId?: string | null;
       /** End position of the editor word */
       endPosition: number;
       /** Table to validate the expression against */
@@ -15979,6 +16095,7 @@ export namespace Schemas {
     /**
      * * `posthog` - posthog
     * `twig` - twig
+    * `posthog-code` - posthog-code
      */
     export type InstallSourceEnum = typeof InstallSourceEnum[keyof typeof InstallSourceEnum];
 
@@ -15986,6 +16103,7 @@ export namespace Schemas {
     export const InstallSourceEnum = {
       Posthog: 'posthog',
       Twig: 'twig',
+      PosthogCode: 'posthog-code',
     } as const;
 
     export interface InstallCustom {
@@ -16016,10 +16134,28 @@ export namespace Schemas {
       '20': '2.0',
     } as const;
 
+    /**
+     * * `categorical` - categorical
+    * `numeric` - numeric
+    * `boolean` - boolean
+     */
+    export type Kind01eEnum = typeof Kind01eEnum[keyof typeof Kind01eEnum];
+
+
+    export const Kind01eEnum = {
+      Categorical: 'categorical',
+      Numeric: 'numeric',
+      Boolean: 'boolean',
+    } as const;
+
     export interface LLMPrompt {
       readonly id: string;
-      /** @maxLength 255 */
+      /**
+       * Unique prompt name using letters, numbers, hyphens, and underscores only.
+       * @maxLength 255
+       */
       name: string;
+      /** Prompt payload as JSON or string data. */
       prompt: unknown;
       readonly version: number;
       readonly created_by: UserBasic;
@@ -16486,10 +16622,10 @@ export namespace Schemas {
       /** @maxLength 2048 */
       name: string;
       type?: NodeTypeEnum;
+      /** @nullable */
+      dag_fk?: string | null;
       /** @maxLength 1024 */
       description?: string;
-      /** @maxLength 256 */
-      dag_id_text?: string;
       /** @nullable */
       readonly saved_query_id: string | null;
       readonly created_at: string;
@@ -16552,6 +16688,24 @@ export namespace Schemas {
        */
       readonly user_access_level: string | null;
       _create_in_folder?: string;
+    }
+
+    export interface NumericScoreDefinitionConfig {
+      /**
+       * Optional inclusive minimum score.
+       * @nullable
+       */
+      min?: number | null;
+      /**
+       * Optional inclusive maximum score.
+       * @nullable
+       */
+      max?: number | null;
+      /**
+       * Optional increment step for numeric input, for example 1 or 0.5.
+       * @nullable
+       */
+      step?: number | null;
     }
 
     export interface OAuthRedirectResponse {
@@ -17993,6 +18147,35 @@ export namespace Schemas {
       results: SchemaPropertyGroup[];
     }
 
+    export type ScoreDefinitionConfig = CategoricalScoreDefinitionConfig | NumericScoreDefinitionConfig | BooleanScoreDefinitionConfig;
+
+    export interface ScoreDefinition {
+      readonly id: string;
+      readonly name: string;
+      readonly description: string;
+      readonly kind: Kind01eEnum;
+      readonly archived: boolean;
+      /** Current immutable configuration version number. */
+      readonly current_version: number;
+      /** Current immutable scorer configuration. */
+      readonly config: ScoreDefinitionConfig;
+      /** User who created the scorer. */
+      readonly created_by: UserBasic | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      readonly team: number;
+    }
+
+    export interface PaginatedScoreDefinitionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ScoreDefinition[];
+    }
+
     export interface SessionGroupSummaryMinimal {
       readonly id: string;
       /** Title of the group session summary */
@@ -18130,6 +18313,9 @@ export namespace Schemas {
     /**
      * * `session_replay` - Session replay
     * `llm_analytics` - LLM analytics
+    * `github` - GitHub
+    * `linear` - Linear
+    * `zendesk` - Zendesk
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -18137,11 +18323,16 @@ export namespace Schemas {
     export const SourceProductEnum = {
       SessionReplay: 'session_replay',
       LlmAnalytics: 'llm_analytics',
+      Github: 'github',
+      Linear: 'linear',
+      Zendesk: 'zendesk',
     } as const;
 
     /**
      * * `session_analysis_cluster` - Session analysis cluster
     * `evaluation` - Evaluation
+    * `issue` - Issue
+    * `ticket` - Ticket
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -18149,6 +18340,8 @@ export namespace Schemas {
     export const SignalSourceConfigSourceTypeEnum = {
       SessionAnalysisCluster: 'session_analysis_cluster',
       Evaluation: 'evaluation',
+      Issue: 'issue',
+      Ticket: 'ticket',
     } as const;
 
     export interface SignalSourceConfig {
@@ -19575,6 +19768,11 @@ export namespace Schemas {
       /** @nullable */
       readonly persisted_variables?: PatchedDashboardPersistedVariables;
       readonly team_id?: number;
+      /**
+       * List of quick filter IDs associated with this dashboard
+       * @nullable
+       */
+      quick_filter_ids?: string[] | null;
       /** @nullable */
       readonly tiles?: readonly PatchedDashboardTilesItem[] | null;
       use_template?: string;
@@ -19815,7 +20013,8 @@ export namespace Schemas {
       readonly id?: string;
       readonly source_id?: string;
       readonly target_id?: string;
-      readonly dag_id_text?: string;
+      /** @nullable */
+      dag_fk?: string | null;
       properties?: unknown;
       readonly created_at?: string;
       /** @nullable */
@@ -20527,6 +20726,16 @@ export namespace Schemas {
     }
 
     /**
+     * Map of hog function UUIDs to their new execution_order values.
+     */
+    export type PatchedHogFunctionRearrangeOrders = {[key: string]: number};
+
+    export interface PatchedHogFunctionRearrange {
+      /** Map of hog function UUIDs to their new execution_order values. */
+      orders?: PatchedHogFunctionRearrangeOrders;
+    }
+
+    /**
      * Simplified serializer to speed response times when loading large amounts of objects.
      */
     export interface PatchedInsight {
@@ -20637,8 +20846,12 @@ export namespace Schemas {
     }
 
     export interface PatchedLLMPromptPublish {
+      /** Prompt payload to publish as a new version. */
       prompt?: unknown;
-      /** @minimum 1 */
+      /**
+       * Latest version you are editing from. Used for optimistic concurrency checks.
+       * @minimum 1
+       */
       base_version?: number;
     }
 
@@ -20802,10 +21015,10 @@ export namespace Schemas {
       /** @maxLength 2048 */
       name?: string;
       type?: NodeTypeEnum;
+      /** @nullable */
+      dag_fk?: string | null;
       /** @maxLength 1024 */
       description?: string;
-      /** @maxLength 256 */
-      dag_id_text?: string;
       /** @nullable */
       readonly saved_query_id?: string | null;
       readonly created_at?: string;
@@ -21287,6 +21500,21 @@ export namespace Schemas {
       readonly created_at?: string;
       readonly updated_at?: string;
       readonly created_by?: UserBasic;
+    }
+
+    export interface PatchedScoreDefinitionMetadata {
+      /**
+       * Updated scorer name.
+       * @maxLength 255
+       */
+      name?: string;
+      /**
+       * Updated scorer description.
+       * @nullable
+       */
+      description?: string | null;
+      /** Whether the scorer is archived. */
+      archived?: boolean;
     }
 
     export interface PatchedSessionGroupSummary {
@@ -22838,13 +23066,19 @@ export namespace Schemas {
        * @nullable
        */
       error?: string | null;
+      /** @nullable */
+      hasMore?: boolean | null;
       /**
        * Generated HogQL query.
        * @nullable
        */
       hogql?: string | null;
+      /** @nullable */
+      limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** @nullable */
+      offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
@@ -22859,8 +23093,18 @@ export namespace Schemas {
 
     export interface TeamTaxonomyQuery {
       kind?: TeamTaxonomyQueryKind;
+      /**
+       * Number of rows to return
+       * @nullable
+       */
+      limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /**
+       * Number of rows to skip before returning rows
+       * @nullable
+       */
+      offset?: number | null;
       response?: TeamTaxonomyQueryResponse | null;
       tags?: QueryLogTags | null;
       /**
@@ -24975,13 +25219,19 @@ export namespace Schemas {
        * @nullable
        */
       error?: string | null;
+      /** @nullable */
+      hasMore?: boolean | null;
       /**
        * Generated HogQL query.
        * @nullable
        */
       hogql?: string | null;
+      /** @nullable */
+      limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** @nullable */
+      offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
@@ -25328,6 +25578,34 @@ export namespace Schemas {
       clean: number;
       processing: number;
       stale: number;
+    }
+
+    export interface ScoreDefinitionCreate {
+      /**
+       * Human-readable scorer name.
+       * @maxLength 255
+       */
+      name: string;
+      /**
+       * Optional human-readable description.
+       * @nullable
+       */
+      description?: string | null;
+      /** Scorer kind. This cannot be changed after creation.
+
+    * `categorical` - categorical
+    * `numeric` - numeric
+    * `boolean` - boolean */
+      kind: Kind01eEnum;
+      /** New scorers are always created as active. */
+      archived?: boolean;
+      /** Initial immutable scorer configuration. */
+      config: ScoreDefinitionConfig;
+    }
+
+    export interface ScoreDefinitionNewVersion {
+      /** Next immutable scorer configuration. */
+      config: ScoreDefinitionConfig;
     }
 
     export type SentimentResultScores = {[key: string]: number};
@@ -27758,6 +28036,33 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type LlmAnalyticsScoreDefinitionsListParams = {
+    /**
+     * Filter by archived state.
+     */
+    archived?: boolean;
+    /**
+     * Filter by scorer kind.
+     */
+    kind?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Sort by name, kind, created_at, updated_at, or current_version.
+     */
+    order_by?: string;
+    /**
+     * Search scorers by name or description.
+     */
+    search?: string;
+    };
+
     export type LlmAnalyticsSentimentCreate400 = {[key: string]: unknown};
 
     export type LlmAnalyticsSentimentCreate500 = {[key: string]: unknown};
@@ -27787,10 +28092,15 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Optional substring filter applied to prompt names and prompt content.
+     */
+    search?: string;
     };
 
     export type LlmPromptsNameRetrieveParams = {
     /**
+     * Specific prompt version to fetch. If omitted, the latest version is returned.
      * @minimum 1
      */
     version?: number;
@@ -27798,22 +28108,29 @@ export namespace Schemas {
 
     export type LlmPromptsResolveNameRetrieveParams = {
     /**
+     * Return versions older than this version number. Mutually exclusive with offset.
      * @minimum 1
      */
     before_version?: number;
     /**
+     * Maximum number of versions to return per page (1-100).
      * @minimum 1
      * @maximum 100
      */
     limit?: number;
     /**
+     * Zero-based offset into version history for pagination. Mutually exclusive with before_version.
      * @minimum 0
      */
     offset?: number;
     /**
+     * Specific prompt version to fetch. If omitted, the latest version is returned.
      * @minimum 1
      */
     version?: number;
+    /**
+     * Exact prompt version UUID to resolve. Can be used together with version for extra safety.
+     */
     version_id?: string;
     };
 
@@ -27843,6 +28160,7 @@ export namespace Schemas {
     /**
      * * `posthog` - posthog
     * `twig` - twig
+    * `posthog-code` - posthog-code
      * @minLength 1
      */
     install_source?: McpServerInstallationsAuthorizeRetrieveInstallSource;
@@ -27856,6 +28174,7 @@ export namespace Schemas {
     export const McpServerInstallationsAuthorizeRetrieveInstallSource = {
       Posthog: 'posthog',
       Twig: 'twig',
+      PosthogCode: 'posthog-code',
     } as const;
 
     export type McpServersListParams = {

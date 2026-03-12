@@ -19,7 +19,16 @@ user-controlled URL:
     async with external_aiohttp_session() as session:
         async with session.get("https://api.example.com/data") as resp: ...
 
-Internal service-to-service calls should keep using the plain libraries.
+Internal service-to-service calls should use the ``internal_*`` helpers
+from this module, which explicitly bypass env proxy vars:
+
+    from posthog.security.outbound_proxy import internal_requests_session
+    session = internal_requests_session()
+    session.get("http://plugin-server:6738/status")
+
+    from posthog.security.outbound_proxy import internal_httpx_client
+    with internal_httpx_client() as client:
+        client.post("http://chromium-service:3020/screenshot", json=payload)
 """
 
 from __future__ import annotations
@@ -127,6 +136,41 @@ def external_aiohttp_session(**kwargs: Any) -> Any:
     if proxy_url:
         return _ProxiedAiohttpSession(proxy_url=proxy_url, **kwargs)
     return aiohttp.ClientSession(**kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers — bypass HTTP_PROXY / HTTPS_PROXY env vars
+# ---------------------------------------------------------------------------
+
+
+def internal_requests_session() -> requests.Session:
+    """Create a requests.Session that explicitly bypasses env proxy vars.
+
+    Use for internal service-to-service calls that must not go through
+    HTTP_PROXY/HTTPS_PROXY.
+    """
+    session = requests.Session()
+    session.trust_env = False
+    return session
+
+
+internal_requests: requests.Session = internal_requests_session()
+
+
+def internal_httpx_client(**kwargs: Any) -> Any:
+    """Create an ``httpx.Client`` that bypasses env proxy vars."""
+    import httpx
+
+    kwargs.setdefault("trust_env", False)
+    return httpx.Client(**kwargs)
+
+
+def internal_httpx_async_client(**kwargs: Any) -> Any:
+    """Create an ``httpx.AsyncClient`` that bypasses env proxy vars."""
+    import httpx
+
+    kwargs.setdefault("trust_env", False)
+    return httpx.AsyncClient(**kwargs)
 
 
 class _ProxiedAiohttpSession:

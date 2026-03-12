@@ -162,9 +162,9 @@ export interface PluginServerCapabilities {
     cdpApi?: boolean
     appManagementSingleton?: boolean
     evaluationScheduler?: boolean
-    cdpCyclotronShadowWorker?: boolean
     cdpCyclotronV2Janitor?: boolean
     recordingApi?: boolean
+    ingestionV2Testing?: boolean
 }
 
 export type TeamId = Team['id']
@@ -294,6 +294,7 @@ export interface Team {
     available_features: OrganizationAvailableFeature[]
     drop_events_older_than_seconds: number | null
     logs_settings?: LogsSettings | null
+    extra_settings: Record<string, string | number | boolean> | null
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */
