@@ -1,11 +1,5 @@
 import { hasScopes } from '@/lib/api'
 
-// Actions
-import createAction from './actions/create'
-import deleteAction from './actions/delete'
-import getAction from './actions/get'
-import getAllActions from './actions/getAll'
-import updateAction from './actions/update'
 // Dashboards
 import addInsightToDashboard from './dashboards/addInsight'
 import createDashboard from './dashboards/create'
@@ -44,7 +38,13 @@ import getInsight from './insights/get'
 import getAllInsights from './insights/getAll'
 import queryInsight from './insights/query'
 import updateInsight from './insights/update'
-// LLM Observability
+// LLM Analytics
+import evaluationCreate from './llmAnalytics/evaluations/create'
+import evaluationDelete from './llmAnalytics/evaluations/delete'
+import evaluationGet from './llmAnalytics/evaluations/get'
+import evaluationsGet from './llmAnalytics/evaluations/getAll'
+import evaluationRun from './llmAnalytics/evaluations/run'
+import evaluationUpdate from './llmAnalytics/evaluations/update'
 import getLLMCosts from './llmAnalytics/getLLMCosts'
 import logsListAttributes from './logs/listAttributes'
 import logsListAttributeValues from './logs/listAttributeValues'
@@ -62,11 +62,6 @@ import getProjects from './projects/getProjects'
 import getProperties from './projects/propertyDefinitions'
 import setActiveProject from './projects/setActive'
 import updateEventDefinition from './projects/updateEventDefinition'
-// Prompts
-import createPrompt from './prompts/create'
-import getPrompt from './prompts/get'
-import listPrompts from './prompts/list'
-import updatePrompt from './prompts/update'
 // Query
 import generateHogQLFromQuestion from './query/generateHogQLFromQuestion'
 import queryRun from './query/run'
@@ -151,8 +146,14 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'dashboard-reorder-tiles': reorderDashboardTiles,
     'add-insight-to-dashboard': addInsightToDashboard,
 
-    // LLM Observability
+    // LLM Analytics
     'get-llm-total-costs-for-project': getLLMCosts,
+    'evaluations-get': evaluationsGet,
+    'evaluation-get': evaluationGet,
+    'evaluation-create': evaluationCreate,
+    'evaluation-update': evaluationUpdate,
+    'evaluation-delete': evaluationDelete,
+    'evaluation-run': evaluationRun,
 
     // Surveys
     'surveys-get-all': getAllSurveys,
@@ -163,24 +164,11 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'surveys-global-stats': surveysGlobalStats,
     'survey-stats': surveyStats,
 
-    // Actions
-    'actions-get-all': getAllActions,
-    'action-get': getAction,
-    'action-create': createAction,
-    'action-update': updateAction,
-    'action-delete': deleteAction,
-
     // Search
     'entity-search': entitySearch,
 
     // Debug
     'debug-mcp-ui-apps': debugMcpUiApps,
-
-    // Prompts
-    'prompt-list': listPrompts,
-    'prompt-get': getPrompt,
-    'prompt-create': createPrompt,
-    'prompt-update': updatePrompt,
 
     // PostHog AI tools
     'execute-sql': executeSql,

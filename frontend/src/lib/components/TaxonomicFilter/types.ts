@@ -98,6 +98,8 @@ export interface TaxonomicFilterProps {
     hogQLGlobals?: Record<string, any>
     /** Optionally customize definition popover contents for selected items. */
     definitionPopoverRenderer?: DefinitionPopoverRenderer
+    /** Override the group-level minSearchQueryLength for all groups in this instance. */
+    minSearchQueryLength?: number
 }
 
 export interface DataWarehousePopoverField {
@@ -253,6 +255,16 @@ export type ListFuse = Fuse<{
     name: string
     item: EventDefinition | CohortType
 }> // local alias for typegen
+
+export interface SkeletonItem {
+    _skeleton: true
+    group: TaxonomicFilterGroupType
+    groupName: string
+}
+
+export function isSkeletonItem(item: unknown): item is SkeletonItem {
+    return typeof item === 'object' && item !== null && '_skeleton' in item
+}
 
 export type TaxonomicDefinitionTypes =
     | EventDefinition

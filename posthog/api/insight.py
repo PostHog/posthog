@@ -44,6 +44,7 @@ from posthog.api.insight_suggestions import generate_insight_name, get_insight_a
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.query import process_query_model
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -371,7 +372,7 @@ class InsightSerializer(InsightBasicSerializer):
     effective_privilege_level = serializers.SerializerMethodField()
     timezone = serializers.SerializerMethodField(help_text="The timezone this chart is displayed in.")
     last_viewed_at = serializers.SerializerMethodField(read_only=True)
-    dashboards = serializers.PrimaryKeyRelatedField(
+    dashboards = TeamScopedPrimaryKeyRelatedField(
         help_text="""
         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
         A dashboard ID for each of the dashboards that this insight is displayed on.
@@ -1539,7 +1540,7 @@ When set, the specified dashboard's filters and date range override will be appl
         filter = Filter(request=request, team=team)
         query = filter_to_query(filter.to_dict()).model_dump()
         query = upgrade(query)  # should not be necessary, but just in case
-        query_runner = get_query_runner(query, team, limit_context=None)
+        query_runner = get_query_runner(query, team, limit_context=None, request=request)
 
         # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
         result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
@@ -1604,7 +1605,7 @@ When set, the specified dashboard's filters and date range override will be appl
         filter = filter.shallow_clone(overrides={"insight": "FUNNELS"})
         query = filter_to_query(filter.to_dict()).model_dump()
         query = upgrade(query)  # should not be necessary, but just in case
-        query_runner = get_query_runner(query, team, limit_context=None)
+        query_runner = get_query_runner(query, team, limit_context=None, request=request)
 
         # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
         result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)

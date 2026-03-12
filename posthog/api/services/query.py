@@ -5,6 +5,8 @@ import pydantic_core
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+
 if TYPE_CHECKING:
     from rest_framework.request import Request
 
@@ -25,9 +27,8 @@ from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.compiler.bytecode import execute_hog
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from posthog.hogql.direct_connection import resolve_database_for_connection
 from posthog.hogql.metadata import get_hogql_metadata
-from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
@@ -57,6 +58,7 @@ def process_query_dict(
     dashboard_id: Optional[int] = None,
     is_query_service: bool = False,
     request: Optional["Request"] = None,
+    pagination_cursor: Optional[str] = None,
 ) -> dict | BaseModel:
     upgraded_query_json = upgrade(query_json)
     try:
@@ -106,6 +108,7 @@ def process_query_dict(
         dashboard_id=dashboard_id,
         is_query_service=is_query_service,
         request=request,
+        pagination_cursor=pagination_cursor,
     )
 
 
@@ -124,23 +127,41 @@ def process_query_model(
     is_query_service: bool = False,
     cache_age_seconds: Optional[int] = None,
     request: Optional["Request"] = None,
+    pagination_cursor: Optional[str] = None,
 ) -> dict | BaseModel:
     result: dict | BaseModel
 
     if isinstance(query, HogQLAutocomplete):
-        return get_hogql_autocomplete(query=query, team=team, user=user)
+        _, database = resolve_database_for_connection(
+            team,
+            query.connectionId,
+            user=user,
+            error_factory=ValidationError,
+            modifiers=create_default_modifiers_for_team(team),
+        )
+        return get_hogql_autocomplete(query=query, team=team, database_arg=database, user=user)
 
     if isinstance(query, HogQLMetadata):
         metadata_query = HogQLMetadata.model_validate(query)
         return get_hogql_metadata(query=metadata_query, team=team, user=user)
 
     if isinstance(query, DatabaseSchemaQuery):
-        joins = DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
-        database = Database.create_for(team=team, modifiers=create_default_modifiers_for_team(team), user=user)
+        _, database = resolve_database_for_connection(
+            team,
+            query.connectionId,
+            user=user,
+            error_factory=ValidationError,
+            modifiers=create_default_modifiers_for_team(team),
+        )
         context = HogQLContext(team_id=team.pk, team=team, database=database, user=user)
-        return DatabaseSchemaQueryResponse(
-            tables=database.serialize(context, include_hidden_posthog_tables=True),
-            joins=[
+        serialized_tables = database.serialize(context, include_hidden_posthog_tables=True)
+        table_names = set(serialized_tables.keys())
+        joins = DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
+        joins = joins.filter(source_table_name__in=table_names, joining_table_name__in=table_names)
+
+        join_models: list[DataWarehouseViewLink] = []
+        for join in joins.iterator():
+            join_models.append(
                 DataWarehouseViewLink.model_validate(
                     {
                         "id": str(join.id),
@@ -152,12 +173,15 @@ def process_query_model(
                         "created_at": join.created_at.isoformat(),
                     }
                 )
-                for join in joins
-            ],
+            )
+
+        return DatabaseSchemaQueryResponse(
+            tables=serialized_tables,
+            joins=join_models,
         )
 
     try:
-        query_runner = get_query_runner(query, team, limit_context=limit_context)
+        query_runner = get_query_runner(query, team, limit_context=limit_context, request=request)
     except ValueError:  # This query doesn't run via query runner
         if hasattr(query, "source") and isinstance(query.source, BaseModel):
             result = process_query_model(
@@ -200,6 +224,8 @@ def process_query_model(
             query_runner.apply_dashboard_filters(dashboard_filters)
         if variables_override:
             query_runner.apply_variable_overrides(variables_override)
+        if pagination_cursor:
+            query_runner.apply_pagination_cursor(pagination_cursor)
         query_runner.is_query_service = is_query_service
 
         result = query_runner.run(
@@ -209,7 +235,6 @@ def process_query_model(
             insight_id=insight_id,
             dashboard_id=dashboard_id,
             cache_age_seconds=cache_age_seconds,
-            request=request,
         )
 
     return result

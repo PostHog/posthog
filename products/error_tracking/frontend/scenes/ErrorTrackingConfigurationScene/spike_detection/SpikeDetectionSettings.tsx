@@ -27,8 +27,8 @@ export function SpikeDetectionSettings(): JSX.Element {
         <Form logic={spikeDetectionConfigLogic} formKey="configForm" enableFormOnSubmit className="space-y-4">
             <LemonBanner type="info" action={{ children: 'Send feedback', id: 'spike-detection-feedback-button' }}>
                 <p>
-                    Spike detection is in alpha. We may make changes to the defaults or replace these settings as we
-                    iterate. We'd love your feedback!
+                    Spike detection is in early stage. We may make changes to the defaults or replace these settings as
+                    we iterate. We'd love your feedback!
                 </p>
             </LemonBanner>
 

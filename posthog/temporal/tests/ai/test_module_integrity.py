@@ -23,6 +23,9 @@ class TestAITemporalModuleIntegrity:
             "SignalReportReingestionWorkflow",
             "SignalReportDeletionWorkflow",
             "EmitEvalSignalWorkflow",
+            "TeamSignalGroupingV2Workflow",
+            "BufferSignalsWorkflow",
+            "SignalEmitterWorkflow",
         ]
         actual_workflow_names = [workflow.__name__ for workflow in ai.AI_WORKFLOWS + ai.SIGNALS_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -105,6 +108,10 @@ class TestAITemporalModuleIntegrity:
             "wait_for_signal_in_clickhouse_activity",
             "summarize_signals_activity",
             "delete_report_activity",
+            "flush_signals_to_s3_activity",
+            "read_signals_from_s3_activity",
+            "signal_with_start_grouping_v2_activity",
+            "submit_signal_to_buffer_activity",
             "emit_eval_signal_activity",
         ]
         actual_activity_names = [activity.__name__ for activity in ai.AI_ACTIVITIES + ai.SIGNALS_ACTIVITIES]

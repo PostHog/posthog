@@ -54,7 +54,7 @@ jobs:
                   cache: 'pnpm'
 
             - name: Install dependencies
-              run: pnpm install --frozen-lockfile
+              run: pnpm --filter=@posthog/auth-proxy... install --frozen-lockfile
 
             - name: Type check
               run: cd services/oauth-proxy && pnpm typecheck

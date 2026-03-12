@@ -125,10 +125,13 @@ def normalize_and_validate_app_url(team: Team, app_url: str) -> str:
             403,
         )
 
-    # Strip __posthog hash params — posthog-js toolbar launch params must not
-    # survive the OAuth round-trip or they cause a re-initialization loop.
+    # Strip __posthog and __posthog_toolbar hash params — posthog-js toolbar
+    # launch params must not survive the OAuth round-trip or they cause a
+    # re-initialization loop, and leftover __posthog_toolbar params cause
+    # duplicate params on re-authentication.
     if parsed.fragment and "__posthog" in parsed.fragment:
-        clean_fragment = re.sub(r"&?__posthog=[^&]*", "", parsed.fragment).strip("&")
+        clean_fragment = re.sub(r"&?__posthog_toolbar=[^&]*", "", parsed.fragment)
+        clean_fragment = re.sub(r"&?__posthog=[^&]*", "", clean_fragment).strip("&")
         return urlunparse(parsed._replace(fragment=clean_fragment))
 
     return app_url

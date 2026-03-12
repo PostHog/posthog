@@ -1,6 +1,7 @@
 # Misc stuff, should be categorized/explained in the future
 # This is sorted in ascending order, keep it that way if you wanna please
 # people's OCDs ^_^
+.pr-review-diff.patch
 __emails__
 __pycache__/
 .coverage
@@ -147,6 +148,9 @@ bin/*.lock
 bin/hobby-installer-*
 bin/hobby-installer/hobby-installer
 bin/hobby-installer/hobby-installer.log
+
+# phrocs binary
+bin/phrocs
 
 # Debug output of our session summaries product
 .session-summaries

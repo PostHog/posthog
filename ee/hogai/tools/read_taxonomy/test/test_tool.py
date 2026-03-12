@@ -67,4 +67,4 @@ class TestReadTaxonomyTool(NonAtomicBaseTest):
         result = execute_taxonomy_query(ReadEvents(), mock_toolkit_class.return_value, self.team)
 
         self.assertIn("events:", result)
-        mock_format_events.assert_called_once_with([], self.team)
+        mock_format_events.assert_called_once_with([], self.team, limit=500, offset=0)

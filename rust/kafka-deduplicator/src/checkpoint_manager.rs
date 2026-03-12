@@ -530,6 +530,7 @@ impl Drop for CheckpointManager {
 mod tests {
     use super::*;
     use crate::checkpoint::{CheckpointPlan, CheckpointUploader};
+    use crate::rocksdb::store::RocksDbConfig;
     use crate::store::{
         DeduplicationStore, DeduplicationStoreConfig, TimestampKey, TimestampMetadata,
     };
@@ -598,6 +599,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: TempDir::new().unwrap().path().to_path_buf(),
             max_capacity: 1_000_000,
+            rocksdb: RocksDbConfig::default(),
         };
         Arc::new(StoreManager::new(config, create_test_tracker()))
     }
@@ -606,6 +608,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: TempDir::new().unwrap().path().to_path_buf(),
             max_capacity: 1_000_000,
+            rocksdb: RocksDbConfig::default(),
         };
         DeduplicationStore::new(config.clone(), topic.to_string(), partition).unwrap()
     }

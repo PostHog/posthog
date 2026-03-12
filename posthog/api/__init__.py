@@ -42,7 +42,6 @@ from products.data_warehouse.backend.api.lineage import LineageViewSet
 from products.desktop_recordings.backend.api import DesktopRecordingViewSet
 from products.error_tracking.backend.api import (
     ErrorTrackingAssignmentRuleViewSet,
-    ErrorTrackingAutoCaptureControlsViewSet,
     ErrorTrackingExternalReferenceViewSet,
     ErrorTrackingFingerprintViewSet,
     ErrorTrackingGroupingRuleViewSet,
@@ -72,6 +71,7 @@ from products.llm_analytics.backend.api import (
     LLMProviderKeyValidationViewSet,
     LLMProviderKeyViewSet,
     LLMProxyViewSet,
+    ScoreDefinitionViewSet,
 )
 from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.posthog_ai.backend.api import MCPToolsViewSet
@@ -946,13 +946,6 @@ environments_router.register(
 )
 
 environments_router.register(
-    r"error_tracking/autocapture_controls",
-    ErrorTrackingAutoCaptureControlsViewSet,
-    "environment_error_tracking_autocapture_controls",
-    ["team_id"],
-)
-
-environments_router.register(
     r"signals",
     SignalViewSet,
     "environment_signals",
@@ -1105,6 +1098,9 @@ environments_router.register(
 
 # Logs endpoints
 register_grandfathered_environment_nested_viewset(r"logs", logs.LogsViewSet, "environment_logs", ["team_id"])
+register_grandfathered_environment_nested_viewset(
+    r"logs/alerts", logs.LogsAlertViewSet, "environment_logs_alerts", ["team_id"]
+)
 
 environments_router.register(
     r"logs/explainLogWithAI",
@@ -1288,6 +1284,13 @@ environments_router.register(
     r"llm_analytics/sentiment",
     LLMAnalyticsSentimentViewSet,
     "environment_llm_analytics_sentiment",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/score_definitions",
+    ScoreDefinitionViewSet,
+    "environment_llm_analytics_score_definitions",
     ["team_id"],
 )
 

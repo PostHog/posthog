@@ -6,6 +6,7 @@ from posthog.dags import slack_alerts
 
 from products.cdp.dags.ingestion_warnings import ingestion_warnings_check
 from products.web_analytics.dags.no_live_events import no_live_events_check
+from products.web_analytics.dags.no_pageleave_events import no_pageleave_events_check
 
 from . import resources
 
@@ -27,10 +28,10 @@ def report_job_status_metric(
 defs = dagster.Definitions(
     jobs=[
         # Health Checks
-        # Web Analytics
+        # Ingestion
         no_live_events_check.job,
-        # CDP / Ingestion
         ingestion_warnings_check.job,
+        no_pageleave_events_check.job,
     ],
     schedules=[s for s in [ingestion_warnings_check.schedule] if s],
     sensors=[

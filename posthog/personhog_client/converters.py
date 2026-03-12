@@ -6,7 +6,8 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from posthog.personhog_client.proto.generated.personhog.types.v1 import group_pb2
+    from posthog.models.person import Person
+    from posthog.personhog_client.proto.generated.personhog.types.v1 import group_pb2, person_pb2
 
 
 def proto_group_type_mapping_to_dict(mapping: group_pb2.GroupTypeMapping) -> dict[str, Any]:
@@ -21,7 +22,7 @@ def proto_group_type_mapping_to_dict(mapping: group_pb2.GroupTypeMapping) -> dic
 
     created_at: datetime | None = None
     if mapping.created_at:
-        created_at = datetime.fromtimestamp(mapping.created_at, tz=UTC)
+        created_at = datetime.fromtimestamp(mapping.created_at / 1000, tz=UTC)
 
     return {
         "group_type": mapping.group_type or None,
@@ -47,6 +48,31 @@ def proto_group_type_mapping_to_result(mapping: group_pb2.GroupTypeMapping) -> G
         group_type=mapping.group_type,
         group_type_index=mapping.group_type_index,
     )
+
+
+def proto_person_to_model(
+    person: person_pb2.Person,
+    distinct_ids: list[str] | None = None,
+) -> Person:
+    """Convert a proto Person to a Django Person model instance (unsaved).
+
+    The instance is NOT saved to the database.  It carries data in memory
+    so that existing serializers and property accessors work without modification.
+    """
+    from posthog.models.person import Person as PersonModel
+
+    obj = PersonModel(
+        id=person.id,
+        uuid=person.uuid,
+        team_id=person.team_id,
+        properties=json.loads(person.properties) if person.properties else {},
+        is_identified=person.is_identified,
+        created_at=datetime.fromtimestamp(person.created_at / 1000, tz=UTC) if person.created_at else datetime.now(UTC),
+        last_seen_at=datetime.fromtimestamp(person.last_seen_at / 1000, tz=UTC) if person.last_seen_at else None,
+    )
+    if distinct_ids is not None:
+        obj._distinct_ids = distinct_ids
+    return obj
 
 
 def fetch_group_type_mapping_result(project_id: int, group_type_index: int) -> GroupTypeMappingResult | None:
