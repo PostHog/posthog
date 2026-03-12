@@ -27,6 +27,7 @@ class AIEventType(StrEnum):
     FIELD_AI_GENERATION_SUMMARY = "$ai_generation_summary"
     FIELD_AI_TRACE_CLUSTERS = "$ai_trace_clusters"
     FIELD_AI_GENERATION_CLUSTERS = "$ai_generation_clusters"
+    FIELD_AI_EVALUATION_REPORT = "$ai_evaluation_report"
 
 
 class MathGroupTypeIndex(float, Enum):

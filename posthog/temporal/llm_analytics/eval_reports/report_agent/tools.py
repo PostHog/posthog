@@ -6,6 +6,7 @@ All tools query ClickHouse live via HogQL since the dataset is too large/variabl
 
 import re
 import json
+from datetime import UTC
 from typing import Annotated
 
 from langchain_core.tools import tool
@@ -18,6 +19,21 @@ from posthog.temporal.llm_analytics.eval_reports.report_agent.schema import (
 )
 
 UUID_PATTERN = re.compile(r"`([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`")
+
+
+def _ch_ts(iso_str: str) -> str:
+    """Convert an ISO-8601 timestamp to a ClickHouse-compatible format.
+
+    ClickHouse DateTime64 can't parse 'T' separator or '+00:00' timezone directly.
+    Converts '2026-03-12T10:05:48.034000+00:00' → '2026-03-12 10:05:48.034000'.
+    """
+    from datetime import datetime
+
+    dt = datetime.fromisoformat(iso_str)
+    # Ensure UTC
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(UTC).replace(tzinfo=None)
+    return dt.strftime("%Y-%m-%d %H:%M:%S.%f")
 
 
 def _execute_hogql(team_id: int, query_str: str, placeholders: dict | None = None) -> list[list]:
@@ -57,6 +73,10 @@ def get_summary_metrics(
     period_end = state["period_end"]
     previous_period_start = state["previous_period_start"]
 
+    ts_start = _ch_ts(period_start)
+    ts_end = _ch_ts(period_end)
+    ts_prev_start = _ch_ts(previous_period_start)
+
     # Current period
     current_rows = _execute_hogql(
         team_id,
@@ -69,8 +89,8 @@ def get_summary_metrics(
         FROM events
         WHERE event = '$ai_evaluation'
             AND properties.$ai_evaluation_id = '{evaluation_id}'
-            AND timestamp >= '{period_start}'
-            AND timestamp < '{period_end}'
+            AND timestamp >= '{ts_start}'
+            AND timestamp < '{ts_end}'
         """,
     )
 
@@ -86,8 +106,8 @@ def get_summary_metrics(
         FROM events
         WHERE event = '$ai_evaluation'
             AND properties.$ai_evaluation_id = '{evaluation_id}'
-            AND timestamp >= '{previous_period_start}'
-            AND timestamp < '{period_start}'
+            AND timestamp >= '{ts_prev_start}'
+            AND timestamp < '{ts_start}'
         """,
     )
 
@@ -149,8 +169,8 @@ def get_pass_rate_over_time(
     """
     team_id = state["team_id"]
     evaluation_id = state["evaluation_id"]
-    period_start = state["period_start"]
-    period_end = state["period_end"]
+    ts_start = _ch_ts(state["period_start"])
+    ts_end = _ch_ts(state["period_end"])
 
     trunc_fn = "toStartOfHour" if bucket == "hour" else "toStartOfDay"
 
@@ -165,8 +185,8 @@ def get_pass_rate_over_time(
         FROM events
         WHERE event = '$ai_evaluation'
             AND properties.$ai_evaluation_id = '{evaluation_id}'
-            AND timestamp >= '{period_start}'
-            AND timestamp < '{period_end}'
+            AND timestamp >= '{ts_start}'
+            AND timestamp < '{ts_end}'
         GROUP BY bucket
         ORDER BY bucket
         """,
@@ -206,8 +226,8 @@ def sample_eval_results(
     """
     team_id = state["team_id"]
     evaluation_id = state["evaluation_id"]
-    period_start = state["period_start"]
-    period_end = state["period_end"]
+    ts_start = _ch_ts(state["period_start"])
+    ts_end = _ch_ts(state["period_end"])
 
     filter_clause = ""
     if filter == "pass":
@@ -228,8 +248,8 @@ def sample_eval_results(
         FROM events
         WHERE event = '$ai_evaluation'
             AND properties.$ai_evaluation_id = '{evaluation_id}'
-            AND timestamp >= '{period_start}'
-            AND timestamp < '{period_end}'
+            AND timestamp >= '{ts_start}'
+            AND timestamp < '{ts_end}'
             {filter_clause}
         ORDER BY timestamp DESC
         LIMIT {limit}
@@ -356,8 +376,8 @@ def get_top_failure_reasons(
     """
     team_id = state["team_id"]
     evaluation_id = state["evaluation_id"]
-    period_start = state["period_start"]
-    period_end = state["period_end"]
+    ts_start = _ch_ts(state["period_start"])
+    ts_end = _ch_ts(state["period_end"])
 
     rows = _execute_hogql(
         team_id,
@@ -370,8 +390,8 @@ def get_top_failure_reasons(
             AND properties.$ai_evaluation_id = '{evaluation_id}'
             AND properties.$ai_evaluation_result = false
             AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != false)
-            AND timestamp >= '{period_start}'
-            AND timestamp < '{period_end}'
+            AND timestamp >= '{ts_start}'
+            AND timestamp < '{ts_end}'
         GROUP BY reasoning
         ORDER BY cnt DESC
         LIMIT {limit}

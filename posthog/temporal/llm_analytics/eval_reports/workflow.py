@@ -122,11 +122,13 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
             retry_policy=AGENT_RETRY_POLICY,
         )
 
-        # 3. Store report run
+        # 3. Store report run + emit event
         store_result = await temporalio.workflow.execute_activity(
             store_report_run_activity,
             StoreReportRunInput(
                 report_id=agent_result.report_id,
+                team_id=context.team_id,
+                evaluation_id=context.evaluation_id,
                 content=agent_result.content,
                 metadata=agent_result.metadata,
                 period_start=agent_result.period_start,

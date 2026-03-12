@@ -59,6 +59,8 @@ class RunEvalReportAgentOutput:
 @dataclasses.dataclass
 class StoreReportRunInput:
     report_id: str
+    team_id: int
+    evaluation_id: str
     content: dict[str, Any]
     metadata: dict[str, Any] | None
     period_start: str
