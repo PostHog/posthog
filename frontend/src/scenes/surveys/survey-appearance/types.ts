@@ -17,4 +17,5 @@ export interface CommonProps {
 export interface CustomizationProps extends CommonProps {
     hasBranchingLogic: boolean
     deleteBranchingLogic?: () => void
+    disabledReason?: string
 }
