@@ -149,10 +149,11 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             ["entered_free_trial", "enterprise event"],
         )
 
-        self.assertEqual(response_data["results"][1]["name"], "enterprise event")
-        self.assertEqual(response_data["results"][1]["description"], "")
-        self.assertEqual(response_data["results"][1]["tags"], ["deprecated"])
-        self.assertEqual(response_data["results"][1]["owner"]["id"], self.user.id)
+        enterprise_event = next((r for r in response_data["results"] if r["name"] == "enterprise event"), None)
+        assert enterprise_event is not None
+        assert enterprise_event["description"] == ""
+        assert enterprise_event["tags"] == ["deprecated"]
+        assert enterprise_event["owner"]["id"] == self.user.id
 
         response = self.client.get(f"/api/projects/@current/event_definitions/?search=enterprise")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
