@@ -554,21 +554,23 @@ class DockerSandbox:
 
     def _build_agent_server_command(
         self,
-        repo_path: str,
+        repo_path: str | None,
         task_id: str,
         run_id: str,
         mode: str,
         interaction_origin: str | None = None,
         branch: str | None = None,
         mcp_servers_arg: str = "",
+        output_schema_arg: str = "",
     ) -> str:
+        repo_path_arg = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
         env_prefix = f"env TWIG_INTERACTION_ORIGIN={shlex.quote(interaction_origin)} " if interaction_origin else ""
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         return (
             f"cd /scripts && "
-            f"nohup {env_prefix}npx agent-server --port {AGENT_SERVER_PORT} --repositoryPath {shlex.quote(repo_path)} "
+            f"nohup {env_prefix}npx agent-server --port {AGENT_SERVER_PORT}{repo_path_arg} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{branch_flag}{mcp_servers_arg} "
+            f"{branch_flag}{mcp_servers_arg}{output_schema_arg} "
             f"> /tmp/agent-server.log 2>&1 &"
         )
 
@@ -585,13 +587,14 @@ class DockerSandbox:
 
     def start_agent_server(
         self,
-        repository: str,
+        repository: str | None,
         task_id: str,
         run_id: str,
         mode: str = "background",
         interaction_origin: str | None = None,
         branch: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
+        output_schema: dict | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -604,16 +607,24 @@ class DockerSandbox:
         if self._host_port is None:
             raise RuntimeError("Sandbox was not created with port exposure.")
 
-        org, repo = repository.lower().split("/")
-        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+        # Build repository path only if repository is provided
+        if repository:
+            org, repo = repository.lower().split("/")
+            repo_path: str | None = f"/tmp/workspace/repos/{org}/{repo}"
+        else:
+            repo_path = None
 
         mcp_servers_arg = ""
         if mcp_configs:
             mcp_json = json.dumps([c.to_dict() for c in mcp_configs])
             mcp_servers_arg = f" --mcpServers {shlex.quote(mcp_json)}"
 
+        output_schema_arg = ""
+        if output_schema:
+            output_schema_arg = f" --outputSchema {shlex.quote(json.dumps(output_schema))}"
+
         command = self._build_agent_server_command(
-            repo_path, task_id, run_id, mode, interaction_origin, branch, mcp_servers_arg
+            repo_path, task_id, run_id, mode, interaction_origin, branch, mcp_servers_arg, output_schema_arg
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository}")
@@ -633,7 +644,14 @@ class DockerSandbox:
             self.execute("pkill -f agent-server || true", timeout_seconds=5)
 
             command = self._build_agent_server_command(
-                repo_path, task_id, run_id, mode, interaction_origin, branch=None, mcp_servers_arg=mcp_servers_arg
+                repo_path,
+                task_id,
+                run_id,
+                mode,
+                interaction_origin,
+                branch=None,
+                mcp_servers_arg=mcp_servers_arg,
+                output_schema_arg=output_schema_arg,
             )
             if self._launch_and_check(command):
                 logger.info(f"Agent-server started on port {self._host_port} (without --baseBranch)")

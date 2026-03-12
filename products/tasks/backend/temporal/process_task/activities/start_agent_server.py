@@ -77,13 +77,14 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
 
         try:
             sandbox.start_agent_server(
-                repository=ctx.repository,
+                repository=ctx.repository if ctx.repository else None,
                 task_id=ctx.task_id,
                 run_id=ctx.run_id,
                 mode=ctx.mode,
                 interaction_origin=ctx.interaction_origin,
                 branch=ctx.branch,
                 mcp_configs=mcp_configs or None,
+                output_schema=ctx.output_schema,
             )
         except Exception as e:
             raise SandboxExecutionError(

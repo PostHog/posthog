@@ -157,22 +157,25 @@ class Task(DeletedMetaFields, models.Model):
         description: str,
         origin_product: "Task.OriginProduct",
         user_id: int,  # Will be used to validate the tasks feature flag and create a personal api key for interacting with PostHog.
-        repository: str,  # Format: "organization/repository", e.g. "posthog/posthog-js"
+        repository: str | None = None,
         create_pr: bool = True,
         mode: str = "background",
         slack_thread_context: Optional["SlackThreadContext"] = None,
         slack_thread_url: str | None = None,
         start_workflow: bool = True,
         posthog_mcp_scopes: PosthogMcpScopes = "full",
+        output_schema: dict | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
         created_by = User.objects.get(id=user_id)
 
-        github_integration = Integration.objects.filter(team=team, kind="github").first()
-
-        if not github_integration:
-            raise ValueError(f"Team {team.id} does not have a GitHub integration")
+        if repository:
+            github_integration = Integration.objects.filter(team=team, kind="github").first()
+            if not github_integration:
+                raise ValueError(f"Team {team.id} does not have a GitHub integration")
+        else:
+            github_integration = None
 
         task = Task.objects.create(
             team=team,
@@ -182,6 +185,7 @@ class Task(DeletedMetaFields, models.Model):
             created_by=created_by,
             github_integration=github_integration,
             repository=repository,
+            json_schema=output_schema,
         )
 
         extra_state: dict[str, str] | None = None
