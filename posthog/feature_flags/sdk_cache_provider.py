@@ -1,7 +1,7 @@
 from typing import Optional
 
 import structlog
-from posthoganalytics.flag_definition_cache import FlagDefinitionCacheData, FlagDefinitionCacheProvider
+from posthoganalytics.flag_definition_cache import FlagDefinitionCacheData
 
 logger = structlog.get_logger(__name__)
 
@@ -25,6 +25,8 @@ class HyperCacheFlagProvider:
 
             data = flag_definitions_hypercache.get_from_cache(self._team_id)
             if data is not None:
+                # Defensive: ensure a valid FlagDefinitionCacheData even if
+                # the HyperCache shape drifts in the future.
                 return {
                     "flags": data.get("flags", []),
                     "group_type_mapping": data.get("group_type_mapping", {}),
@@ -45,7 +47,3 @@ class HyperCacheFlagProvider:
 
     def shutdown(self) -> None:
         pass  # No-op — no locks or resources to release
-
-
-# Runtime check that the class implements the protocol
-assert isinstance(HyperCacheFlagProvider(team_id=0), FlagDefinitionCacheProvider)

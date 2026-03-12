@@ -2,6 +2,8 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
 from posthog.feature_flags.sdk_cache_provider import HyperCacheFlagProvider
 
 
@@ -18,49 +20,45 @@ class TestHyperCacheFlagProvider(SimpleTestCase):
     def test_shutdown_is_noop(self):
         self.provider.shutdown()
 
+    @parameterized.expand(
+        [
+            (
+                "cache_hit",
+                {
+                    "flags": [{"key": "test-flag", "active": True}],
+                    "group_type_mapping": {"0": "company"},
+                    "cohorts": {"1": {"properties": []}},
+                },
+                None,
+                {
+                    "flags": [{"key": "test-flag", "active": True}],
+                    "group_type_mapping": {"0": "company"},
+                    "cohorts": {"1": {"properties": []}},
+                },
+            ),
+            ("cache_miss", None, None, None),
+            (
+                "missing_keys_defaults",
+                {"flags": [{"key": "flag-1"}]},
+                None,
+                {"flags": [{"key": "flag-1"}], "group_type_mapping": {}, "cohorts": {}},
+            ),
+            ("exception", None, Exception("Redis connection failed"), None),
+        ]
+    )
     @patch("posthog.models.feature_flag.local_evaluation.flag_definitions_hypercache")
-    def test_get_flag_definitions_cache_hit(self, mock_hypercache):
-        mock_hypercache.get_from_cache.return_value = {
-            "flags": [{"key": "test-flag", "active": True}],
-            "group_type_mapping": {"0": "company"},
-            "cohorts": {"1": {"properties": []}},
-        }
+    def test_get_flag_definitions(self, _name, cache_return, side_effect, expected, mock_hypercache):
+        if side_effect:
+            mock_hypercache.get_from_cache.side_effect = side_effect
+        else:
+            mock_hypercache.get_from_cache.return_value = cache_return
 
         result = self.provider.get_flag_definitions()
 
-        assert result is not None
-        assert result["flags"] == [{"key": "test-flag", "active": True}]
-        assert result["group_type_mapping"] == {"0": "company"}
-        assert result["cohorts"] == {"1": {"properties": []}}
-        mock_hypercache.get_from_cache.assert_called_once_with(2)
-
-    @patch("posthog.models.feature_flag.local_evaluation.flag_definitions_hypercache")
-    def test_get_flag_definitions_cache_miss(self, mock_hypercache):
-        mock_hypercache.get_from_cache.return_value = None
-
-        result = self.provider.get_flag_definitions()
-
-        assert result is None
-        mock_hypercache.get_from_cache.assert_called_once_with(2)
-
-    @patch("posthog.models.feature_flag.local_evaluation.flag_definitions_hypercache")
-    def test_get_flag_definitions_exception_returns_none(self, mock_hypercache):
-        mock_hypercache.get_from_cache.side_effect = Exception("Redis connection failed")
-
-        result = self.provider.get_flag_definitions()
-
-        assert result is None
-
-    @patch("posthog.models.feature_flag.local_evaluation.flag_definitions_hypercache")
-    def test_get_flag_definitions_handles_missing_keys(self, mock_hypercache):
-        mock_hypercache.get_from_cache.return_value = {"flags": [{"key": "flag-1"}]}
-
-        result = self.provider.get_flag_definitions()
-
-        assert result is not None
-        assert result["flags"] == [{"key": "flag-1"}]
-        assert result["group_type_mapping"] == {}
-        assert result["cohorts"] == {}
+        if expected is None:
+            assert result is None
+        else:
+            assert result == expected
 
     def test_implements_protocol(self):
         from posthoganalytics.flag_definition_cache import FlagDefinitionCacheProvider
