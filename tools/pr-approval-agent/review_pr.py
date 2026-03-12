@@ -104,16 +104,11 @@ class Pipeline:
         self.repo = repo
         self.dry_run = dry_run
         self.verbose = verbose
-        self._pr: PRData | None = None
+        self.pr: PRData | None = None
         self.classification: dict = {}
         self.gate_results: list[GateResult] = []
         self.reviewer_output: dict | None = None
         self.final_verdict: str = ""
-
-    @property
-    def pr(self) -> PRData:
-        assert self._pr is not None, "PR data not fetched yet — call run() first"
-        return self._pr
 
     def run(self) -> str:
         """Run the full pipeline, return final verdict string."""
@@ -142,7 +137,7 @@ class Pipeline:
 
     def _fetch(self) -> None:
         print(_dim("Fetching PR data..."))
-        self._pr = fetch_pr(self.pr_number, self.repo, repo_root=REPO_ROOT)
+        self.pr = fetch_pr(self.pr_number, self.repo, repo_root=REPO_ROOT)
         print(_dim(f"  {self.pr.title}"))
         print(
             _dim(
@@ -337,7 +332,6 @@ class Pipeline:
                         "issues": [str(e)],
                     }
 
-        assert self.reviewer_output is not None
         llm_verdict = self.reviewer_output.get("verdict", "UNKNOWN")
         print(f"  Verdict: {llm_verdict}")
         print(f"  Reasoning: {self.reviewer_output.get('reasoning', '?')}")
