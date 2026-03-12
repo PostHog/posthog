@@ -5,6 +5,7 @@ import { template as accoilTemplate } from './_destinations/accoil/accoil.templa
 import { template as clickupTemplate } from './_destinations/clickup/clickup.template'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
 import { template as emailTemplate } from './_destinations/email/email.template'
+import { template as flywheelTemplate } from './_destinations/flywheel/flywheel.template'
 import { template as firebasePushTemplate } from './_destinations/firebase_push/firebase_push.template'
 import { template as githubTemplate } from './_destinations/github/github.template'
 import { template as gitlabTemplate } from './_destinations/gitlab/gitlab.template'
@@ -61,6 +62,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     emailTemplate,
     firebasePushTemplate,
     clickupTemplate,
+    flywheelTemplate,
     posthogCaptureTemplate,
     posthogGroupIdentifyTemplate,
     posthogUpdatePersonPropertiesTemplate,
