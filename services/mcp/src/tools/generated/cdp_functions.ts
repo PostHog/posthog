@@ -47,7 +47,7 @@ const cdpFunctionsList = (): ToolBase<
     },
 })
 
-const CdpFunctionsCreateSchema = HogFunctionsCreateBody.omit({ _create_in_folder: true })
+const CdpFunctionsCreateSchema = HogFunctionsCreateBody
 
 const cdpFunctionsCreate = (): ToolBase<typeof CdpFunctionsCreateSchema, Schemas.HogFunction> => ({
     name: 'cdp-functions-create',
@@ -66,9 +66,6 @@ const cdpFunctionsCreate = (): ToolBase<typeof CdpFunctionsCreateSchema, Schemas
         }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
-        }
-        if (params.deleted !== undefined) {
-            body['deleted'] = params.deleted
         }
         if (params.hog !== undefined) {
             body['hog'] = params.hog
@@ -122,7 +119,7 @@ const cdpFunctionsRetrieve = (): ToolBase<typeof CdpFunctionsRetrieveSchema, Sch
 })
 
 const CdpFunctionsPartialUpdateSchema = HogFunctionsPartialUpdateParams.omit({ project_id: true }).extend(
-    HogFunctionsPartialUpdateBody.omit({ deleted: true, _create_in_folder: true }).shape
+    HogFunctionsPartialUpdateBody.shape
 )
 
 const cdpFunctionsPartialUpdate = (): ToolBase<typeof CdpFunctionsPartialUpdateSchema, Schemas.HogFunction> => ({
