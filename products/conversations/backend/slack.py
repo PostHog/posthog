@@ -343,10 +343,10 @@ def create_or_update_slack_ticket(
     # Resolve in-message @mentions to display names
     mentioned_ids = extract_slack_user_ids(text, blocks)
     user_names: dict[str, str] = {}
-    if slack_user_id and user_info["name"] != "Unknown":
-        user_names[slack_user_id] = user_info["name"]
     for uid in mentioned_ids:
-        if uid not in user_names:
+        if uid == slack_user_id and user_info["name"] != "Unknown":
+            user_names[uid] = user_info["name"]
+        elif uid not in user_names:
             info = resolve_slack_user(client, uid)
             if info["name"] != "Unknown":
                 user_names[uid] = info["name"]

@@ -141,78 +141,89 @@ class TestSlackFormatting(SimpleTestCase):
             {"url": "https://example.com/b.png", "alt": "b.png"},
         ]
 
-    def test_extract_slack_user_ids_from_mrkdwn(self) -> None:
-        ids = extract_slack_user_ids("Hey <@U09CNH9SUKY> and <@U084M0KUNHF>!")
-        assert ids == {"U09CNH9SUKY", "U084M0KUNHF"}
-
-    def test_extract_slack_user_ids_from_blocks(self) -> None:
-        blocks = [
-            {
-                "type": "rich_text",
-                "elements": [
+    @parameterized.expand(
+        [
+            (
+                "mrkdwn",
+                "Hey <@U09CNH9SUKY> and <@U084M0KUNHF>!",
+                None,
+                {"U09CNH9SUKY", "U084M0KUNHF"},
+            ),
+            (
+                "blocks_section",
+                "",
+                [
                     {
-                        "type": "rich_text_section",
-                        "elements": [
-                            {"type": "text", "text": "cc "},
-                            {"type": "user", "user_id": "U111AAA"},
-                            {"type": "text", "text": " and "},
-                            {"type": "user", "user_id": "U222BBB"},
-                        ],
-                    }
-                ],
-            }
-        ]
-        ids = extract_slack_user_ids("", blocks)
-        assert ids == {"U111AAA", "U222BBB"}
-
-    def test_extract_slack_user_ids_from_nested_list_block(self) -> None:
-        blocks = [
-            {
-                "type": "rich_text",
-                "elements": [
-                    {
-                        "type": "rich_text_list",
+                        "type": "rich_text",
                         "elements": [
                             {
                                 "type": "rich_text_section",
                                 "elements": [
-                                    {"type": "user", "user_id": "U333CCC"},
-                                    {"type": "text", "text": " item one"},
+                                    {"type": "text", "text": "cc "},
+                                    {"type": "user", "user_id": "U111AAA"},
+                                    {"type": "text", "text": " and "},
+                                    {"type": "user", "user_id": "U222BBB"},
                                 ],
                             }
                         ],
                     }
                 ],
-            }
-        ]
-        ids = extract_slack_user_ids("", blocks)
-        assert ids == {"U333CCC"}
-
-    def test_extract_slack_user_ids_deduplicates(self) -> None:
-        blocks = [
-            {
-                "type": "rich_text",
-                "elements": [
+                {"U111AAA", "U222BBB"},
+            ),
+            (
+                "nested_list_block",
+                "",
+                [
                     {
-                        "type": "rich_text_section",
-                        "elements": [{"type": "user", "user_id": "U111AAA"}],
+                        "type": "rich_text",
+                        "elements": [
+                            {
+                                "type": "rich_text_list",
+                                "elements": [
+                                    {
+                                        "type": "rich_text_section",
+                                        "elements": [
+                                            {"type": "user", "user_id": "U333CCC"},
+                                            {"type": "text", "text": " item one"},
+                                        ],
+                                    }
+                                ],
+                            }
+                        ],
                     }
                 ],
-            }
+                {"U333CCC"},
+            ),
+            (
+                "deduplicates_across_text_and_blocks",
+                "<@U111AAA> hello",
+                [
+                    {
+                        "type": "rich_text",
+                        "elements": [
+                            {"type": "rich_text_section", "elements": [{"type": "user", "user_id": "U111AAA"}]}
+                        ],
+                    }
+                ],
+                {"U111AAA"},
+            ),
         ]
-        ids = extract_slack_user_ids("<@U111AAA> hello", blocks)
-        assert ids == {"U111AAA"}
+    )
+    def test_extract_slack_user_ids(self, _name: str, text: str, blocks: list | None, expected: set[str]) -> None:
+        assert extract_slack_user_ids(text, blocks) == expected
 
-    def test_mrkdwn_user_mention_resolved_to_name(self) -> None:
-        content, rich_content = slack_to_content_and_rich_content(
-            "Hey <@U123ABC> check this", None, user_names={"U123ABC": "Alice"}
-        )
-        assert content == "Hey @Alice check this"
+    @parameterized.expand(
+        [
+            ("mrkdwn_resolved", "Hey <@U123ABC> check this", None, {"U123ABC": "Alice"}, "Hey @Alice check this"),
+            ("mrkdwn_unresolved", "Hey <@U123ABC> check this", None, None, "Hey  check this"),
+        ]
+    )
+    def test_mrkdwn_user_mention(
+        self, _name: str, text: str, blocks: list | None, user_names: dict | None, expected: str
+    ) -> None:
+        content, rich_content = slack_to_content_and_rich_content(text, blocks, user_names=user_names)
+        assert content == expected
         assert rich_content is None
-
-    def test_mrkdwn_user_mention_stripped_when_unresolved(self) -> None:
-        content, _ = slack_to_content_and_rich_content("Hey <@U123ABC> check this", None)
-        assert content == "Hey  check this"
 
     def test_blocks_user_element_resolved_to_name(self) -> None:
         blocks = [
