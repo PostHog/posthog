@@ -279,11 +279,9 @@ class CHQueryErrorInvalidJoinOnExpression(InternalCHQueryError):
 #
 # Remember to add back the `user_safe` and `category` args though!
 #
-# Category shorthand aliases for readability in the lookup table below.
+# Category shorthand for cancelled — the only category that can't be inferred
+# from user_safe or isinstance checks in classify_query_error.
 _C = QueryErrorCategory.CANCELLED
-_R = QueryErrorCategory.RATE_LIMITED
-_U = QueryErrorCategory.USER_ERROR
-# _E (ERROR) is the default on ErrorCodeMeta, so it doesn't need to be specified.
 
 CLICKHOUSE_UNKNOWN_EXCEPTION = ErrorCodeMeta("UNKNOWN_EXCEPTION")
 CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
@@ -312,15 +310,15 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     28: ErrorCodeMeta("CANNOT_PRINT_FLOAT_OR_DOUBLE_NUMBER"),
     32: ErrorCodeMeta("ATTEMPT_TO_READ_AFTER_EOF"),
     33: ErrorCodeMeta("CANNOT_READ_ALL_DATA"),
-    34: ErrorCodeMeta("TOO_MANY_ARGUMENTS_FOR_FUNCTION", category=_U),
-    35: ErrorCodeMeta("TOO_FEW_ARGUMENTS_FOR_FUNCTION", category=_U),
+    34: ErrorCodeMeta("TOO_MANY_ARGUMENTS_FOR_FUNCTION"),
+    35: ErrorCodeMeta("TOO_FEW_ARGUMENTS_FOR_FUNCTION"),
     36: ErrorCodeMeta("BAD_ARGUMENTS", user_safe=True),
     37: ErrorCodeMeta("UNKNOWN_ELEMENT_IN_AST"),
     38: ErrorCodeMeta("CANNOT_PARSE_DATE", user_safe=True),
     39: ErrorCodeMeta("TOO_LARGE_SIZE_COMPRESSED"),
     40: ErrorCodeMeta("CHECKSUM_DOESNT_MATCH"),
     41: ErrorCodeMeta("CANNOT_PARSE_DATETIME", user_safe=True),
-    42: ErrorCodeMeta("NUMBER_OF_ARGUMENTS_DOESNT_MATCH", category=_U),
+    42: ErrorCodeMeta("NUMBER_OF_ARGUMENTS_DOESNT_MATCH"),
     43: ErrorCodeMeta("ILLEGAL_TYPE_OF_ARGUMENT", user_safe=True),
     44: ErrorCodeMeta("ILLEGAL_COLUMN"),
     46: ErrorCodeMeta("UNKNOWN_FUNCTION", user_safe=True),
@@ -337,7 +335,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     58: ErrorCodeMeta("TABLE_METADATA_ALREADY_EXISTS"),
     59: ErrorCodeMeta("ILLEGAL_TYPE_OF_COLUMN_FOR_FILTER"),
     60: ErrorCodeMeta("UNKNOWN_TABLE"),
-    62: ErrorCodeMeta("SYNTAX_ERROR", category=_U),
+    62: ErrorCodeMeta("SYNTAX_ERROR"),
     63: ErrorCodeMeta("UNKNOWN_AGGREGATE_FUNCTION", user_safe=True),
     68: ErrorCodeMeta("CANNOT_GET_SIZE_OF_FIELD"),
     69: ErrorCodeMeta("ARGUMENT_OUT_OF_BOUND"),
@@ -440,8 +438,8 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     196: ErrorCodeMeta("UNKNOWN_ADDRESS_PATTERN_TYPE"),
     198: ErrorCodeMeta("DNS_ERROR"),
     199: ErrorCodeMeta("UNKNOWN_QUOTA"),
-    201: ErrorCodeMeta("QUOTA_EXCEEDED", category=_R),
-    202: ErrorCodeMeta("TOO_MANY_SIMULTANEOUS_QUERIES", user_safe=True, category=_R),
+    201: ErrorCodeMeta("QUOTA_EXCEEDED"),
+    202: ErrorCodeMeta("TOO_MANY_SIMULTANEOUS_QUERIES", user_safe=True),
     203: ErrorCodeMeta("NO_FREE_CONNECTION"),
     204: ErrorCodeMeta("CANNOT_FSYNC"),
     206: ErrorCodeMeta("ALIAS_REQUIRED"),
@@ -563,7 +561,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     361: ErrorCodeMeta("SEEK_POSITION_OUT_OF_BOUND"),
     362: ErrorCodeMeta("CURRENT_WRITE_BUFFER_IS_EXHAUSTED"),
     363: ErrorCodeMeta("CANNOT_CREATE_IO_BUFFER"),
-    364: ErrorCodeMeta("RECEIVED_ERROR_TOO_MANY_REQUESTS", category=_R),
+    364: ErrorCodeMeta("RECEIVED_ERROR_TOO_MANY_REQUESTS"),
     366: ErrorCodeMeta("SIZES_OF_NESTED_COLUMNS_ARE_INCONSISTENT"),
     369: ErrorCodeMeta("ALL_REPLICAS_ARE_STALE"),
     370: ErrorCodeMeta("DATA_TYPE_CANNOT_BE_USED_IN_TABLES"),
@@ -629,7 +627,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     436: ErrorCodeMeta("PROTOBUF_BAD_CAST"),
     437: ErrorCodeMeta("PROTOBUF_FIELD_NOT_REPEATED"),
     438: ErrorCodeMeta("DATA_TYPE_CANNOT_BE_PROMOTED"),
-    439: ErrorCodeMeta("CANNOT_SCHEDULE_TASK", category=_R),
+    439: ErrorCodeMeta("CANNOT_SCHEDULE_TASK"),
     440: ErrorCodeMeta("INVALID_LIMIT_EXPRESSION"),
     441: ErrorCodeMeta("CANNOT_PARSE_DOMAIN_VALUE_FROM_STRING"),
     442: ErrorCodeMeta("BAD_DATABASE_FOR_TEMPORARY_TABLE"),
@@ -858,7 +856,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     697: ErrorCodeMeta("CANNOT_RESTORE_TO_NONENCRYPTED_DISK"),
     698: ErrorCodeMeta("INVALID_REDIS_STORAGE_TYPE"),
     699: ErrorCodeMeta("INVALID_REDIS_TABLE_STRUCTURE"),
-    700: ErrorCodeMeta("USER_SESSION_LIMIT_EXCEEDED", category=_R),
+    700: ErrorCodeMeta("USER_SESSION_LIMIT_EXCEEDED"),
     701: ErrorCodeMeta("CLUSTER_DOESNT_EXIST"),
     702: ErrorCodeMeta("CLIENT_INFO_DOES_NOT_MATCH"),
     703: ErrorCodeMeta("INVALID_IDENTIFIER"),
@@ -902,7 +900,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     742: ErrorCodeMeta("DELTA_KERNEL_ERROR"),
     743: ErrorCodeMeta("ICEBERG_SPECIFICATION_VIOLATION"),
     744: ErrorCodeMeta("SESSION_ID_EMPTY"),
-    745: ErrorCodeMeta("SERVER_OVERLOADED", category=_R),
+    745: ErrorCodeMeta("SERVER_OVERLOADED"),
     746: ErrorCodeMeta("DEPENDENCIES_NOT_FOUND"),
     747: ErrorCodeMeta("FILECACHE_CANNOT_WRITE_THROUGH_CACHE_WITH_CONCURRENT_READS"),
     748: ErrorCodeMeta("AVRO_EXCEPTION"),
