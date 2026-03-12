@@ -2,6 +2,25 @@ import api, { ApiConfig, CountedPaginatedResponse } from '~/lib/api'
 
 import type { TraceReview, TraceReviewListParams, TraceReviewUpsertPayload } from './types'
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function normalizeTraceReview(review: TraceReview): TraceReview {
+    return {
+        ...review,
+        scores: Array.isArray(review.scores)
+            ? review.scores.map((score) => ({
+                  ...score,
+                  definition_config: isRecord(score.definition_config) ? score.definition_config : {},
+                  categorical_values: Array.isArray(score.categorical_values)
+                      ? score.categorical_values.filter((value): value is string => typeof value === 'string')
+                      : null,
+              }))
+            : [],
+    }
+}
+
 function isDuplicateTraceReviewError(error: unknown): boolean {
     if (!error || typeof error !== 'object' || !('data' in error)) {
         return false
@@ -46,7 +65,12 @@ export const traceReviewsApi = {
         params?: TraceReviewListParams,
         teamId: number = ApiConfig.getCurrentTeamId()
     ): Promise<CountedPaginatedResponse<TraceReview>> {
-        return api.get<CountedPaginatedResponse<TraceReview>>(buildTraceReviewsListUrl(teamId, params))
+        return api
+            .get<CountedPaginatedResponse<TraceReview>>(buildTraceReviewsListUrl(teamId, params))
+            .then((response) => ({
+                ...response,
+                results: response.results.map(normalizeTraceReview),
+            }))
     },
 
     async getByTraceId(traceId: string, teamId: number = ApiConfig.getCurrentTeamId()): Promise<TraceReview | null> {
@@ -55,7 +79,9 @@ export const traceReviewsApi = {
     },
 
     create(data: TraceReviewUpsertPayload, teamId: number = ApiConfig.getCurrentTeamId()): Promise<TraceReview> {
-        return api.create<TraceReview, TraceReviewUpsertPayload>(getTraceReviewsBaseUrl(teamId), data)
+        return api
+            .create<TraceReview, TraceReviewUpsertPayload>(getTraceReviewsBaseUrl(teamId), data)
+            .then(normalizeTraceReview)
     },
 
     update(
@@ -63,10 +89,12 @@ export const traceReviewsApi = {
         data: Partial<Omit<TraceReviewUpsertPayload, 'trace_id'>>,
         teamId: number = ApiConfig.getCurrentTeamId()
     ): Promise<TraceReview> {
-        return api.update<TraceReview, Partial<Omit<TraceReviewUpsertPayload, 'trace_id'>>>(
-            `${getTraceReviewsBaseUrl(teamId)}${id}/`,
-            data
-        )
+        return api
+            .update<TraceReview, Partial<Omit<TraceReviewUpsertPayload, 'trace_id'>>>(
+                `${getTraceReviewsBaseUrl(teamId)}${id}/`,
+                data
+            )
+            .then(normalizeTraceReview)
     },
 
     delete(id: string, teamId: number = ApiConfig.getCurrentTeamId()): Promise<void> {

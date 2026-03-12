@@ -69,7 +69,6 @@ class TraceReviewScoreSerializer(serializers.ModelSerializer):
         help_text="Categorical option keys selected for this score.",
     )
     definition_id = serializers.UUIDField(
-        source="definition_id",
         read_only=True,
         help_text="Stable scorer definition ID.",
     )
@@ -99,7 +98,6 @@ class TraceReviewScoreSerializer(serializers.ModelSerializer):
         help_text="Immutable scorer version number used to validate this score.",
     )
     definition_config = ScoreDefinitionConfigField(
-        source="definition_config",
         read_only=True,
         help_text="Immutable scorer configuration snapshot used to validate this score.",
     )
