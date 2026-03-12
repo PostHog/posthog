@@ -30,8 +30,21 @@ def get_strategy(name: str):
         from pr_specificity_and_group_aware import PRSpecificityAndGroupAwareStrategy
 
         return PRSpecificityAndGroupAwareStrategy()
+    elif name == "hello_world":
+        from hello_world import HelloWorldStrategy
+
+        return HelloWorldStrategy()
+    elif name.startswith("direct_embedding"):
+        from direct_embedding import DirectEmbeddingStrategy
+
+        # Support direct_embedding_128, direct_embedding_256, etc.
+        parts = name.split("_")
+        dims = int(parts[-1]) if len(parts) == 3 and parts[-1].isdigit() else 128
+        return DirectEmbeddingStrategy(dims=dims)
     else:
-        raise ValueError(f"Unknown strategy: {name}. Available: pr_specificity_and_group_aware")
+        raise ValueError(
+            f"Unknown strategy: {name}. Available: pr_specificity_and_group_aware, hello_world, direct_embedding_128, direct_embedding_256"
+        )
 
 
 def save_run(
