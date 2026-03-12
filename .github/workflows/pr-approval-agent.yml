@@ -34,12 +34,13 @@ jobs:
 
             # Always run the approval script from master — hardcoded so a PR
             # targeting a non-master branch can't supply a tampered script.
-            - name: Checkout master (blobless)
+            - name: Checkout master (blobless, full history)
               uses: actions/checkout@v6
               with:
                   token: ${{ steps.app-token.outputs.token }}
                   ref: master
                   filter: blob:none
+                  fetch-depth: 0
 
             - name: Fetch PR head ref
               run: git fetch --filter=blob:none origin pull/${{ github.event.pull_request.number }}/head
