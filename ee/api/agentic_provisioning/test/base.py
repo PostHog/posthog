@@ -4,10 +4,13 @@ from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest
 
+from django.conf import settings
 from django.core.cache import cache
 from django.test import override_settings
 
 from rest_framework.test import APIClient
+
+from posthog.api.oauth.test_dcr import generate_rsa_key
 
 from ee.api.agentic_provisioning.signature import compute_signature
 from ee.api.agentic_provisioning.views import AUTH_CODE_CACHE_PREFIX
@@ -16,7 +19,14 @@ HMAC_SECRET = "test_hmac_secret"
 TEST_STRIPE_OAUTH_CLIENT_ID = "test_stripe_oauth_client_id"
 
 
-@override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET, STRIPE_POSTHOG_OAUTH_CLIENT_ID=TEST_STRIPE_OAUTH_CLIENT_ID)
+@override_settings(
+    STRIPE_APP_SECRET_KEY=HMAC_SECRET,
+    STRIPE_POSTHOG_OAUTH_CLIENT_ID=TEST_STRIPE_OAUTH_CLIENT_ID,
+    OAUTH2_PROVIDER={
+        **settings.OAUTH2_PROVIDER,
+        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+    },
+)
 class StripeProvisioningTestBase(APIBaseTest):
     def setUp(self):
         super().setUp()
