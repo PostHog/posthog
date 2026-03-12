@@ -204,7 +204,7 @@ procs:
 
     migrate-cyclotron:
         shell: 'bin/wait-for-docker && bin/migrate --scope=cyclotron'
-        capability: cyclotron
+        # no capability - always_required via intent-map.yaml
 
     migrate-persons-db:
         shell: 'bin/wait-for-docker && bin/migrate --scope=persons'

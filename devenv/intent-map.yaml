@@ -278,6 +278,7 @@ always_required:
     # Migrations (DBs created by postgres init scripts, run for everyone)
     - migrate-postgres
     - migrate-clickhouse
+    - migrate-cyclotron
     - migrate-persons-db
     - migrate-behavioral-cohorts
     # Core services
