@@ -3,10 +3,8 @@ from datetime import datetime, timedelta
 
 from django.conf import settings
 
-
-import temporalio
 import tiktoken
-
+import temporalio
 
 from posthog.schema import EmbeddingModelName, SignalInput
 
@@ -122,10 +120,11 @@ async def emit_signal(
             extra={"html_url": "https://github.com/posthog/posthog/issues/12345", "number": 12345, ...},
         )
     """
+
     organization = await database_sync_to_async(lambda: team.organization)()
     if not organization.is_ai_data_processing_approved:
         return
-      
+
     token_count = len(_tiktoken_encoding.encode(description))
     if token_count > MAX_SIGNAL_DESCRIPTION_TOKENS:
         raise ValueError(
