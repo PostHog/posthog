@@ -1,4 +1,5 @@
 import uuid
+import typing as t
 import datetime as dt
 
 import pytest
@@ -76,7 +77,7 @@ class TestGetBackfillInfoForEvents:
             include_events: list[str] | None = None,
             exclude_events: list[str] | None = None,
         ) -> BatchExport:
-            config = {
+            config: dict[str, t.Any] = {
                 "bucket_name": "test",
                 "region": "us-east-1",
                 "prefix": "/",
@@ -540,9 +541,9 @@ class TestGetBackfillInfoForPersons:
         ]
         counts = [3, 7, 4]
 
-        for t, c in zip(times, counts):
-            persons = await generate_persons(start_time=t, count=c)
-            await generate_person_distinct_ids(timestamp=t, count=c, person_ids=[p["id"] for p in persons])
+        for time, count in zip(times, counts):
+            persons = await generate_persons(start_time=time, count=count)
+            await generate_person_distinct_ids(timestamp=time, count=count, person_ids=[p["id"] for p in persons])
 
         batch_export = await create_batch_export()
         result = await run_get_backfill_info(
