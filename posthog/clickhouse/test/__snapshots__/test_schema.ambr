@@ -3158,6 +3158,7 @@
   
       -- attribution
       initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_referrer AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -3248,6 +3249,7 @@
   
       -- attribution
       argMinState(JSONExtractString(properties, '$referring_domain'), timestamp) as initial_referring_domain,
+      argMinState(JSONExtractString(properties, '$referrer'), timestamp) as initial_referrer,
       argMinState(JSONExtractString(properties, 'utm_source'), timestamp) as initial_utm_source,
       argMinState(JSONExtractString(properties, 'utm_campaign'), timestamp) as initial_utm_campaign,
       argMinState(JSONExtractString(properties, 'utm_medium'), timestamp) as initial_utm_medium,
@@ -3351,6 +3353,7 @@
   
       -- attribution
       entry_referring_domain AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_referrer AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       entry_utm_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       entry_utm_campaign AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       entry_utm_medium AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
@@ -3423,6 +3426,7 @@
               `$geoip_subdivision_city_name` Nullable(String),
               `$geoip_time_zone` Nullable(String),
               `$referring_domain` Nullable(String),
+              `$referrer` Nullable(String),
               `utm_source` Nullable(String),
               `utm_campaign` Nullable(String),
               `utm_medium` Nullable(String),
@@ -3462,6 +3466,7 @@
           tupleElement(p, '$geoip_subdivision_city_name') as _geoip_subdivision_city_name,
           tupleElement(p, '$geoip_time_zone') as _geoip_time_zone,
           tupleElement(p, '$referring_domain') as _referring_domain,
+          tupleElement(p, '$referrer') as _referrer,
           tupleElement(p, 'utm_source') as _utm_source,
           tupleElement(p, 'utm_campaign') as _utm_campaign,
           tupleElement(p, 'utm_medium') as _utm_medium,
@@ -3558,6 +3563,7 @@
   
       -- attribution
       initializeAggregation('argMinState', _referring_domain, pageview_prio_timestamp_min) as entry_referring_domain,
+      initializeAggregation('argMinState', _referrer, pageview_prio_timestamp_min) as entry_referrer,
       initializeAggregation('argMinState', _utm_source, pageview_prio_timestamp_min) as entry_utm_source,
       initializeAggregation('argMinState', _utm_campaign, pageview_prio_timestamp_min) as entry_utm_campaign,
       initializeAggregation('argMinState', _utm_medium, pageview_prio_timestamp_min) as entry_utm_medium,
@@ -3652,6 +3658,7 @@
   
       -- attribution
       initializeAggregation('argMinState', null_s, max_ts_64) as entry_referring_domain,
+      initializeAggregation('argMinState', null_s, max_ts_64) as entry_referrer,
       initializeAggregation('argMinState', null_s, max_ts_64) as entry_utm_source,
       initializeAggregation('argMinState', null_s, max_ts_64) as entry_utm_campaign,
       initializeAggregation('argMinState', null_s, max_ts_64) as entry_utm_medium,
@@ -4524,6 +4531,7 @@
   
       -- attribution
       initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_referrer AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -4634,6 +4642,7 @@
   
       -- attribution
       entry_referring_domain AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_referrer AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       entry_utm_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       entry_utm_campaign AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       entry_utm_medium AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
@@ -5594,6 +5603,7 @@
   
       -- attribution
       initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_referrer AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -5695,6 +5705,7 @@
   
       -- attribution
       entry_referring_domain AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_referrer AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       entry_utm_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       entry_utm_campaign AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       entry_utm_medium AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
@@ -7230,6 +7241,7 @@
   
       -- attribution
       initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_referrer AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -7340,6 +7352,7 @@
   
       -- attribution
       entry_referring_domain AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_referrer AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       entry_utm_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       entry_utm_campaign AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       entry_utm_medium AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
