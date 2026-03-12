@@ -71,7 +71,7 @@ async def _run_workflows_batched(
                     workflow_inputs,
                     id=workflow_id,
                     task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-                    execution_timeout=timedelta(minutes=30),
+                    execution_timeout=timedelta(minutes=90),
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
                 handles.append((report_id, title, handle))
@@ -169,7 +169,7 @@ class Command(BaseCommand):
             execution_failed,
             report_count,
         )
-        if total_failed > 0 and completed == 0:
+        if total_failed > 0 and completed == 0 and skipped == 0:
             raise CommandError(f"All {total_failed} workflow(s) failed out of {report_count}")
         elif total_failed > 0:
             logger.warning("%d workflow(s) failed out of %d", total_failed, report_count)
