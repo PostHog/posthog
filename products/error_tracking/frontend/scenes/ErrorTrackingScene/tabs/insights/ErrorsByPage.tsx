@@ -66,6 +66,7 @@ export function ErrorsByPage(): JSX.Element {
                                         type="secondary"
                                         size="xsmall"
                                         to={urls.errorTracking({
+                                            activeTab: 'issues',
                                             filterGroup: {
                                                 type: 'AND',
                                                 values: [
@@ -85,7 +86,7 @@ export function ErrorsByPage(): JSX.Element {
                                         })}
                                         targetBlank
                                     >
-                                        View errors
+                                        View issues
                                     </LemonButton>
                                 </td>
                             </tr>
