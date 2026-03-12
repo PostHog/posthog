@@ -162,47 +162,23 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
                 },
             ),
             "linkedin_campaigns": DataConfig(
-                csv_filename="test/linkedin_ads/campaigns.csv",
-                table_name="linkedin_campaigns_table",
+                csv_filename="test/linkedin_ads/campaign_groups.csv",
+                table_name="linkedin_campaign_groups_table",
                 platform="LinkedIn Ads",
                 source_type="LinkedinAds",
                 bucket_suffix="linkedin_campaigns",
                 column_schema={
                     "id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                     "name": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
-                    "type": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
-                    "locale": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
-                    "status": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                     "account": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
-                    "version": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
-                    "cost_type": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
-                    "unit_cost": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
-                    "account_id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "status": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "total_budget": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                     "created_time": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
-                    "daily_budget": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
-                    "run_schedule": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
-                    "campaign_group": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
-                    "campaign_group_id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
-                    "last_modified_time": {
-                        "hogql": "StringDatabaseField",
-                        "clickhouse": "String",
-                        "schema_valid": True,
-                    },
-                    "targeting_criteria": {
-                        "hogql": "StringDatabaseField",
-                        "clickhouse": "String",
-                        "schema_valid": True,
-                    },
-                    "change_audit_stamps": {
-                        "hogql": "StringDatabaseField",
-                        "clickhouse": "String",
-                        "schema_valid": True,
-                    },
                 },
             ),
             "linkedin_stats": DataConfig(
-                csv_filename="test/linkedin_ads/campaign_stats.csv",
-                table_name="linkedin_campaign_stats_table",
+                csv_filename="test/linkedin_ads/campaign_group_stats.csv",
+                table_name="linkedin_campaign_group_stats_table",
                 platform="LinkedIn Ads",
                 source_type="LinkedinAds",
                 bucket_suffix="linkedin_stats",
@@ -212,7 +188,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
                     "date_end": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                     "date_range": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                     "date_start": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
-                    "campaign_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "campaign_group_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                     "cost_in_usd": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
                     "impressions": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
                     "video_views": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
@@ -1080,8 +1056,8 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert isinstance(result.errors, list), "GoogleCloudAdapter should return list of errors"
 
     def test_linkedin_ads_adapter_validation_consistency(self):
-        campaign_table = self._create_mock_table("linkedin_campaigns_table", "linkedin_ads")
-        stats_table = self._create_mock_table("linkedin_campaign_stats_table", "linkedin_ads")
+        campaign_table = self._create_mock_table("linkedin_campaign_groups_table", "linkedin_ads")
+        stats_table = self._create_mock_table("linkedin_campaign_group_stats_table", "linkedin_ads")
 
         config = LinkedinAdsConfig(
             campaign_table=campaign_table,
@@ -1377,8 +1353,8 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert self._execute_and_snapshot(query) == self.snapshot
 
     def test_linkedin_ads_query_generation(self):
-        campaign_table = self._create_mock_table("linkedin_campaigns", "LinkedinAds")
-        stats_table = self._create_mock_table("linkedin_stats", "LinkedinAds")
+        campaign_table = self._create_mock_table("linkedin_campaign_groups", "LinkedinAds")
+        stats_table = self._create_mock_table("linkedin_campaign_group_stats", "LinkedinAds")
 
         config = LinkedinAdsConfig(
             campaign_table=campaign_table,
@@ -1632,7 +1608,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         total_impressions = sum(int(row[4] or 0) for row in results)
         total_clicks = sum(int(row[5] or 0) for row in results)
 
-        assert len(results) == 5, "Expected 5 campaigns from LinkedIn Ads JOIN"
+        assert len(results) == 3, "Expected 3 campaign groups from LinkedIn Ads JOIN"
         assert abs(total_cost - 1600.00) < 0.01, f"Expected cost $1600.00, got ${total_cost}"
         assert total_impressions == 485, f"Expected 485 impressions, got {total_impressions}"
         assert total_clicks == 26, f"Expected 26 clicks, got {total_clicks}"

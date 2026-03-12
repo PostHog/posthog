@@ -1782,17 +1782,6 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         sceneKeys: ['Sources'],
     },
     {
-        path: 'Support',
-        category: 'Behavior',
-        iconType: 'conversations' as FileSystemIconType,
-        iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
-        href: urls.supportTickets(),
-        sceneKey: 'SupportTickets',
-        flag: FEATURE_FLAGS.PRODUCT_SUPPORT,
-        tags: ['alpha'],
-        sceneKeys: ['SupportTickets', 'SupportTicketDetail', 'SupportSettings'],
-    },
-    {
         path: `Transformations`,
         category: 'Pipeline',
         type: 'hog_function/transformation',
