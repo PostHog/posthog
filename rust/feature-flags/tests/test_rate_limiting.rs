@@ -1427,7 +1427,8 @@ async fn test_rate_limit_per_team_override() -> Result<()> {
     // Configure a very restrictive custom rate for this specific token
     let mut custom_rates = HashMap::new();
     custom_rates.insert(token.clone(), "1/hour".to_string());
-    config.flags_token_rate_limit_overrides = feature_flags::config::FlagsTokenRateLimitOverrides(custom_rates);
+    config.flags_token_rate_limit_overrides =
+        feature_flags::config::FlagsTokenRateLimitOverrides(custom_rates);
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
