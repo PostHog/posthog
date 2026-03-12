@@ -121,16 +121,23 @@ class QueryCoalescer:
         Raises QueryCoalescingError if followers can't obtain a fresh result (leader
             error, leader heartbeat stops, or max_wait exceeded).
         """
+        log = logger.bind(query_id=self.query_id, cache_key=self.cache_key)
+
         try:
             is_leader = self._try_acquire()
         except RedisError:
+            log.warning("query_coalescing_redis_error", msg="redis unavailable, skipping coalescing")
             return execute()
 
         if is_leader:
+            log.info("query_coalescing_leader_start")
             heartbeat = _Heartbeat(self._redis, self._lock_key, self._lock_value)
             try:
-                return execute()
+                result = execute()
+                log.info("query_coalescing_leader_done")
+                return result
             except Exception as e:
+                log.warning("query_coalescing_leader_error", error=str(e))
                 self._store_error(e)
                 raise
             finally:
@@ -140,12 +147,16 @@ class QueryCoalescer:
                 except RedisError:
                     pass
 
+        log.info("query_coalescing_follower_waiting", dry_run=self.dry_run)
         fresh_after = time.time()
         cached_data = self._wait_for_result(get_cache_data, fresh_after=fresh_after, max_wait=max_wait)
         if cached_data is not None:
+            log.info("query_coalescing_follower_hit")
             return build_response(cached_data)
         if self.dry_run:
+            log.info("query_coalescing_follower_dry_run_fallback")
             return execute()
+        log.warning("query_coalescing_follower_failed")
         self._raise_stored_error()
 
     def _try_acquire(self) -> bool:
@@ -212,9 +223,17 @@ class QueryCoalescer:
                     coalesce_counter.labels(outcome="follower_hit").inc()
                     return data
                 coalesce_counter.labels(outcome="follower_leader_gone").inc()
+                log = logger.bind(query_id=self.query_id, cache_key=self.cache_key)
+                log.info(
+                    "query_coalescing_leader_gone",
+                    waited_seconds=round(time.monotonic() - start, 2),
+                    had_cache=data is not None,
+                )
                 return None
 
             time.sleep(poll_interval * (0.5 + random.random()))
 
         coalesce_counter.labels(outcome="follower_timeout").inc()
+        log = logger.bind(query_id=self.query_id, cache_key=self.cache_key)
+        log.warning("query_coalescing_follower_timeout", waited_seconds=round(time.monotonic() - start, 2))
         return None
