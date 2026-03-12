@@ -50,6 +50,7 @@ export function Customization({
                     hasPlaceholderText={hasPlaceholderText}
                     hasRatingButtons={hasRatingButtons}
                     validationErrors={validationErrors}
+                    disabledReason={disabledReason}
                 />
                 {survey.type !== SurveyType.ExternalSurvey && (
                     <>
@@ -58,6 +59,7 @@ export function Customization({
                             onAppearanceChange={onAppearanceChange}
                             validationErrors={validationErrors}
                             surveyType={survey.type}
+                            disabledReason={disabledReason}
                         />
                         <LemonDivider />
                     </>
@@ -68,6 +70,7 @@ export function Customization({
                     validationErrors={validationErrors}
                     customizeRatingButtons={hasRatingButtons}
                     customizePlaceholderText={hasPlaceholderText}
+                    disabledReason={disabledReason}
                 />
                 <LemonDivider />
                 <div className="flex flex-col gap-1">
