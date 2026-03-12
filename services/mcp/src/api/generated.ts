@@ -28,6 +28,7 @@ export namespace Schemas {
       AiGenerationSummary: '$ai_generation_summary',
       AiTraceClusters: '$ai_trace_clusters',
       AiGenerationClusters: '$ai_generation_clusters',
+      AiEvaluationReport: '$ai_evaluation_report',
     } as const;
 
     /**
@@ -14395,6 +14396,44 @@ export namespace Schemas {
     }
 
     /**
+     * * `hourly` - Hourly
+    * `daily` - Daily
+    * `weekly` - Weekly
+     */
+    export type EvaluationReportFrequencyEnum = typeof EvaluationReportFrequencyEnum[keyof typeof EvaluationReportFrequencyEnum];
+
+
+    export const EvaluationReportFrequencyEnum = {
+      Hourly: 'hourly',
+      Daily: 'daily',
+      Weekly: 'weekly',
+    } as const;
+
+    export interface EvaluationReport {
+      readonly id: string;
+      evaluation: string;
+      frequency: EvaluationReportFrequencyEnum;
+      /** @nullable */
+      byweekday?: ByweekdayEnum[] | null;
+      start_date: string;
+      /** @nullable */
+      readonly next_delivery_date: string | null;
+      delivery_targets?: unknown;
+      /**
+       * @minimum -2147483648
+       * @maximum 2147483647
+       */
+      max_sample_size?: number;
+      enabled?: boolean;
+      deleted?: boolean;
+      /** @nullable */
+      readonly last_delivered_at: string | null;
+      /** @nullable */
+      readonly created_by: number | null;
+      readonly created_at: string;
+    }
+
+    /**
      * * `all` - all
     * `pass` - pass
     * `fail` - fail
@@ -16004,22 +16043,6 @@ export namespace Schemas {
       results: FlagValueItem[];
       refreshing: boolean;
     }
-
-    /**
-     * * `daily` - Daily
-    * `weekly` - Weekly
-    * `monthly` - Monthly
-    * `yearly` - Yearly
-     */
-    export type FrequencyEnum = typeof FrequencyEnum[keyof typeof FrequencyEnum];
-
-
-    export const FrequencyEnum = {
-      Daily: 'daily',
-      Weekly: 'weekly',
-      Monthly: 'monthly',
-      Yearly: 'yearly',
-    } as const;
 
     export type GenerateRequestStepsItem = {[key: string]: unknown};
 
@@ -20279,6 +20302,15 @@ export namespace Schemas {
       results: Evaluation[];
     }
 
+    export interface PaginatedEvaluationReportList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: EvaluationReport[];
+    }
+
     export interface PaginatedEventSchemaList {
       count: number;
       /** @nullable */
@@ -21494,6 +21526,22 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `daily` - Daily
+    * `weekly` - Weekly
+    * `monthly` - Monthly
+    * `yearly` - Yearly
+     */
+    export type SubscriptionFrequencyEnum = typeof SubscriptionFrequencyEnum[keyof typeof SubscriptionFrequencyEnum];
+
+
+    export const SubscriptionFrequencyEnum = {
+      Daily: 'daily',
+      Weekly: 'weekly',
+      Monthly: 'monthly',
+      Yearly: 'yearly',
+    } as const;
+
+    /**
      * Standard Subscription serializer.
      */
     export interface Subscription {
@@ -21509,7 +21557,7 @@ export namespace Schemas {
       dashboard_export_insights?: number[];
       target_type: TargetTypeEnum;
       target_value: string;
-      frequency: FrequencyEnum;
+      frequency: SubscriptionFrequencyEnum;
       /**
        * @minimum -2147483648
        * @maximum 2147483647
@@ -23687,6 +23735,30 @@ export namespace Schemas {
       deleted?: boolean;
     }
 
+    export interface PatchedEvaluationReport {
+      readonly id?: string;
+      evaluation?: string;
+      frequency?: EvaluationReportFrequencyEnum;
+      /** @nullable */
+      byweekday?: ByweekdayEnum[] | null;
+      start_date?: string;
+      /** @nullable */
+      readonly next_delivery_date?: string | null;
+      delivery_targets?: unknown;
+      /**
+       * @minimum -2147483648
+       * @maximum 2147483647
+       */
+      max_sample_size?: number;
+      enabled?: boolean;
+      deleted?: boolean;
+      /** @nullable */
+      readonly last_delivered_at?: string | null;
+      /** @nullable */
+      readonly created_by?: number | null;
+      readonly created_at?: string;
+    }
+
     export interface PatchedEventSchema {
       readonly id?: string;
       event_definition?: string;
@@ -25283,7 +25355,7 @@ export namespace Schemas {
       dashboard_export_insights?: number[];
       target_type?: TargetTypeEnum;
       target_value?: string;
-      frequency?: FrequencyEnum;
+      frequency?: SubscriptionFrequencyEnum;
       /**
        * @minimum -2147483648
        * @maximum 2147483647
@@ -33250,6 +33322,17 @@ export namespace Schemas {
     };
 
     export type LlmAnalyticsClusteringJobsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type LlmAnalyticsEvaluationReportsListParams = {
     /**
      * Number of results to return per page.
      */
