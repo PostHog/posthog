@@ -89,9 +89,7 @@ test.describe('Workflows', () => {
             await expect(page.getByText('Loading', { exact: true })).not.toBeVisible({ timeout: 5000 })
 
             // Wait for loading skeletons to disappear
-            await expect(page.locator('[data-attr="message-channels"] .LemonSkeleton').first()).not.toBeVisible({
-                timeout: 10000,
-            })
+            await expect(page.locator('[data-attr="message-channels"] .LemonSkeleton').first()).not.toBeVisible()
 
             await expect(page).toHaveScreenshot('channels-tab.png', { fullPage: true })
         })
@@ -194,8 +192,7 @@ test.describe('Workflows', () => {
         test('history tab shows activity log', async ({ page }) => {
             // Click on History tab
             await page.getByRole('tab', { name: 'History' }).click()
-            // ActivityLog doesn't have a specific data-attr, wait for content
-            await expect(page.getByText('History')).toBeVisible()
+            await page.waitForSelector('[data-attr="activity-log"]', { timeout: 10000 })
 
             await expect(page).toHaveScreenshot('workflow-view-history.png', { fullPage: true })
         })
