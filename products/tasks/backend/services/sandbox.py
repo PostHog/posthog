@@ -118,13 +118,14 @@ class SandboxProtocol(Protocol):
 
     def start_agent_server(
         self,
-        repository: str,
+        repository: str | None,
         task_id: str,
         run_id: str,
         mode: str = "background",
         interaction_origin: str | None = None,
         branch: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
+        output_schema: dict | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 

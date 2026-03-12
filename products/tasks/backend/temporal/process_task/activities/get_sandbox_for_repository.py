@@ -49,25 +49,41 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         "get_sandbox_for_repository",
         **ctx.to_log_context(),
     ):
-        with StepTimer("snapshot_lookup") as snapshot_lookup_timer:
-            snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(ctx.github_integration_id, [ctx.repository])
-            used_snapshot = snapshot is not None
-            snapshot_lookup_timer.set_used_snapshot(used_snapshot)
-        increment_snapshot_usage(used_snapshot)
+        has_repository = bool(ctx.repository)
+
+        # Snapshot lookup - skip if no repository
+        if has_repository:
+            with StepTimer("snapshot_lookup") as snapshot_lookup_timer:
+                snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(ctx.github_integration_id, [ctx.repository])
+                used_snapshot = snapshot is not None
+                snapshot_lookup_timer.set_used_snapshot(used_snapshot)
+            increment_snapshot_usage(used_snapshot)
+        else:
+            snapshot = None
+            used_snapshot = False
+
+        if used_snapshot:
+            emit_agent_log(ctx.run_id, "info", f"Found existing environment for {ctx.repository}")
+        elif has_repository:
+            emit_agent_log(ctx.run_id, "debug", f"Creating environment from base image for {ctx.repository}")
 
         try:
             task = Task.objects.select_related("created_by").get(id=ctx.task_id)
         except Task.DoesNotExist as e:
             raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
 
-        try:
-            github_token = get_github_token(ctx.github_integration_id) or ""
-        except Exception as e:
-            raise GitHubAuthenticationError(
-                f"Failed to get GitHub token for integration {ctx.github_integration_id}",
-                {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id, "error": str(e)},
-                cause=e,
-            )
+        # GitHub token - skip if no repository
+        if has_repository:
+            try:
+                github_token = get_github_token(ctx.github_integration_id) or ""
+            except Exception as e:
+                raise GitHubAuthenticationError(
+                    f"Failed to get GitHub token for integration {ctx.github_integration_id}",
+                    {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id, "error": str(e)},
+                    cause=e,
+                )
+        else:
+            github_token = ""
 
         try:
             access_token = create_oauth_access_token(task)
@@ -79,12 +95,13 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             )
 
         environment_variables = {
-            "GITHUB_TOKEN": github_token,
             "POSTHOG_PERSONAL_API_KEY": access_token,
             "POSTHOG_API_URL": get_sandbox_api_url(),
             "POSTHOG_PROJECT_ID": str(ctx.team_id),
             "JWT_PUBLIC_KEY": get_sandbox_jwt_public_key(),
         }
+        if github_token:
+            environment_variables["GITHUB_TOKEN"] = github_token
 
         if settings.SANDBOX_LLM_GATEWAY_URL:
             environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
@@ -116,7 +133,8 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         with StepTimer("sandbox_creation", used_snapshot=used_snapshot):
             sandbox = Sandbox.create(config)
 
-        if not used_snapshot:
+        # Clone - skip if no repository
+        if not used_snapshot and has_repository:
             emit_agent_log(ctx.run_id, "info", f"Cloning {ctx.repository} into sandbox")
             with StepTimer("repository_clone", used_snapshot=used_snapshot):
                 clone_result = sandbox.clone_repository(ctx.repository, github_token=github_token)
@@ -124,7 +142,8 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                 sandbox.destroy()
                 raise RuntimeError(f"Failed to clone repository {ctx.repository}: {clone_result.stderr}")
 
-        if ctx.branch:
+        # Branch checkout - skip if no repository
+        if ctx.branch and has_repository:
             emit_agent_log(ctx.run_id, "info", f"Checking out branch {ctx.branch}")
             org, repo = ctx.repository.lower().split("/")
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
