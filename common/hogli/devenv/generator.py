@@ -310,15 +310,19 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
 
     def _add_logging(self, proc_config: dict[str, Any], process_name: str) -> dict[str, Any]:
         """Wrap shell command to log output and write a JSON status file.
+
         Delegates to bin/process-monitor, which:
         - Tees stdout/stderr to /tmp/posthog-{name}.log
         - Writes/updates /tmp/posthog-{name}.json with pid, status, ready flag,
           exit code, and a rolling tail of recent log lines
+
         The ready_pattern from mprocs config is forwarded so both phrocs (TUI)
         and the JSON status file track readiness independently.
+
         Args:
             proc_config: The process configuration dict
             process_name: Name of the process (used in file paths)
+
         Returns:
             Modified process configuration wrapping the original shell command
         """
