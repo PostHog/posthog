@@ -154,7 +154,7 @@ class Command(BaseCommand):
             logger.info("Dry run complete. %d report(s) would be affected.", report_count)
             return
 
-        report_data = [(str(r.id), r.title or "") for r in reports]
+        report_data = [(str(id), title or "") for id, title in reports.values_list("id", "title")]
         started, skipped, start_failed, execution_failed = async_to_sync(_run_workflows_batched)(
             team_id, report_data, action, batch_size
         )
