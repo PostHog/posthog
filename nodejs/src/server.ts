@@ -41,6 +41,7 @@ import { IngestionTestingConsumer } from './ingestion/ingestion-testing-consumer
 import { KafkaProducerWrapper } from './kafka/producer'
 import { onShutdown } from './lifecycle'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
+import { TracesIngestionConsumer } from './logs-ingestion/traces-ingestion-consumer'
 import { SessionRecordingIngester } from './session-recording/consumer'
 import { RecordingApi } from './session-replay/recording-api/recording-api'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
@@ -142,6 +143,7 @@ export class PluginServer {
             capabilities.cdpBatchHogFlow
         )
         const needsLogs = !!capabilities.logsIngestion
+        const needsTraces = !!capabilities.tracesIngestion
 
         try {
             // 1. Shared infrastructure (always needed)
@@ -161,7 +163,7 @@ export class PluginServer {
 
             // 4. CDP + Logs services (posthog redis, quota limiting)
             let cdpLogsServices: ReturnType<typeof this.createCdpLogsServices> | undefined
-            if (needsCdp || needsLogs) {
+            if (needsCdp || needsLogs || needsTraces) {
                 cdpLogsServices = this.createCdpLogsServices(teamManager)
             }
 
@@ -443,6 +445,17 @@ export class PluginServer {
             if (capabilities.logsIngestion) {
                 serviceLoaders.push(async () => {
                     const consumer = new LogsIngestionConsumer(this.config, {
+                        teamManager,
+                        quotaLimiting: cdpLogsServices!.quotaLimiting,
+                    })
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
+            if (capabilities.tracesIngestion) {
+                serviceLoaders.push(async () => {
+                    const consumer = new TracesIngestionConsumer(this.config, {
                         teamManager,
                         quotaLimiting: cdpLogsServices!.quotaLimiting,
                     })

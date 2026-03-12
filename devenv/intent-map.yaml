@@ -124,6 +124,11 @@ capabilities:
         requires: [event_ingestion]
         docker_profiles: [observability]
 
+    nodejs_traces:
+        description: 'Node.js Traces - trace ingestion'
+        requires: [event_ingestion]
+        docker_profiles: [observability]
+
     nodejs_feature_flags:
         description: 'Node.js Feature Flags - evaluation scheduler'
         requires: [flag_evaluation]
@@ -236,7 +241,7 @@ intents:
 
     logs:
         description: 'Log aggregation and viewing'
-        capabilities: [event_ingestion, property_definitions, nodejs_logs]
+        capabilities: [event_ingestion, property_definitions, nodejs_logs, nodejs_traces]
 
     workflows:
         description: 'Workflow automation and orchestration'

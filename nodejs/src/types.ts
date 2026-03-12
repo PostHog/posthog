@@ -15,7 +15,7 @@ import { InternalFetchService } from './common/services/internal-fetch'
 import type { IngestionConsumerConfig } from './ingestion/config'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from './kafka/producer'
-import type { LogsIngestionConsumerConfig } from './logs-ingestion/config'
+import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from './logs-ingestion/config'
 import type { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
@@ -115,6 +115,7 @@ export interface PluginsServerConfig
         CdpConfig,
         IngestionConsumerConfig,
         LogsIngestionConsumerConfig,
+        TracesIngestionConsumerConfig,
         SessionRecordingConfig,
         SessionRecordingApiConfig {}
 
@@ -147,6 +148,7 @@ export interface PluginServerCapabilities {
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
     logsIngestion?: boolean
+    tracesIngestion?: boolean
     sessionRecordingBlobIngestionV2?: boolean
     sessionRecordingBlobIngestionV2Overflow?: boolean
     cdpProcessedEvents?: boolean

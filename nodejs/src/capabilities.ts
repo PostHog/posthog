@@ -53,6 +53,11 @@ export const CAPABILITIES_LOGS: PluginServerCapabilities = {
     logsIngestion: true,
 }
 
+/** Traces - trace ingestion */
+export const CAPABILITIES_TRACES: PluginServerCapabilities = {
+    tracesIngestion: true,
+}
+
 /** Feature Flags - evaluation scheduler for flags and experiments */
 export const CAPABILITIES_FEATURE_FLAGS: PluginServerCapabilities = {
     evaluationScheduler: true,
@@ -83,6 +88,7 @@ const CAPABILITY_GROUP_MAP: Record<string, PluginServerCapabilities> = {
     session_replay: CAPABILITIES_SESSION_REPLAY,
     recording_api: CAPABILITIES_RECORDING_API,
     logs: CAPABILITIES_LOGS,
+    traces: CAPABILITIES_TRACES,
     feature_flags: CAPABILITIES_FEATURE_FLAGS,
 }
 
@@ -120,16 +126,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             }
 
             // Default local dev: run everything for full functionality
-            return mergeCapabilities(
-                CAPABILITIES_INGESTION_ONLY,
-                CAPABILITIES_CDP_WORKFLOWS,
-                CAPABILITIES_REALTIME_COHORTS,
-                CAPABILITIES_SESSION_REPLAY,
-                { sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED },
-                CAPABILITIES_RECORDING_API,
-                CAPABILITIES_LOGS,
-                CAPABILITIES_FEATURE_FLAGS
-            )
+            return mergeCapabilities(CAPABILITIES_LOGS, CAPABILITIES_TRACES)
 
         case PluginServerMode.local_cdp:
             // Local CDP development: CDP + workflows + realtime cohorts
@@ -199,6 +196,10 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.ingestion_logs:
             return {
                 logsIngestion: true,
+            }
+        case PluginServerMode.ingestion_traces:
+            return {
+                tracesIngestion: true,
             }
         case PluginServerMode.cdp_batch_hogflow_requests:
             return {
