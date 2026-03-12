@@ -20,6 +20,7 @@ from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.plugin import PluginConfig
+from posthog.models.snippet_versioning import DEFAULT_SNIPPET_VERSION, get_js_content, resolve_version
 from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -196,7 +197,10 @@ class RemoteConfig(UUIDTModel):
                 linked_flag_key = linked_flag_config.get("key", None)
                 linked_flag_variant = linked_flag_config.get("variant", None)
                 if linked_flag_variant is not None:
-                    linked_flag = {"flag": linked_flag_key, "variant": linked_flag_variant}
+                    linked_flag = {
+                        "flag": linked_flag_key,
+                        "variant": linked_flag_variant,
+                    }
                 else:
                     linked_flag = linked_flag_key
 
@@ -325,10 +329,9 @@ class RemoteConfig(UUIDTModel):
         from posthog.models.team.snippet_config import TeamSnippetConfig
 
         snippet_config = get_or_create_team_extension(team, TeamSnippetConfig)
-        config["_snippetVersionPin"] = snippet_config.snippet_version_pin
+        config["_snippetVersion"] = snippet_config.snippet_version_pin
 
         # MARK: SDK version info
-        from posthog.models.snippet_versioning import resolve_version
 
         resolved_version = resolve_version(snippet_config.snippet_version_pin)
         if resolved_version:
@@ -357,7 +360,12 @@ class RemoteConfig(UUIDTModel):
             )
         site_functions = (
             HogFunction.objects.select_related("team")
-            .filter(team=self.team, enabled=True, deleted=False, type__in=("site_destination", "site_app"))
+            .filter(
+                team=self.team,
+                enabled=True,
+                deleted=False,
+                type__in=("site_destination", "site_app"),
+            )
             .all()
         )
 
@@ -405,7 +413,7 @@ class RemoteConfig(UUIDTModel):
     def get_config_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> dict:
         config = cls._get_config_via_cache(token)
         config = sanitize_config_for_public_cdn(config, request=request)
-        config.pop("_snippetVersionPin", None)
+        config.pop("_snippetVersion", None)
 
         return config
 
@@ -417,7 +425,7 @@ class RemoteConfig(UUIDTModel):
         site_apps_js = config.pop("siteAppsJS", None)
         # We don't want to include the minimal site apps content as we have the JS now
         config.pop("siteApps", None)
-        config.pop("_snippetVersionPin", None)
+        config.pop("_snippetVersion", None)
         config = sanitize_config_for_public_cdn(config, request=request)
 
         js_content = f"""(function() {{
@@ -434,11 +442,9 @@ class RemoteConfig(UUIDTModel):
     @classmethod
     @tracer.start_as_current_span("RemoteConfig.get_array_js_via_token")
     def get_array_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
-        from posthog.models.snippet_versioning import get_js_content, resolve_version
-
         # NOTE: Unlike the other methods we dont store this in the cache as it is cheap to build at runtime
         config = cls._get_config_via_cache(token)
-        version = resolve_version(config.get("_snippetVersionPin"))
+        version = resolve_version(config.get("_snippetVersion"))
 
         if version:
             array_js = get_js_content(version)
@@ -450,13 +456,14 @@ class RemoteConfig(UUIDTModel):
         return f"""{array_js}\n\n{js_content}"""
 
     @classmethod
-    def get_snippet_version_pin(cls, token: str) -> Optional[str]:
-        """Get the snippet version pin from cached config."""
+    def get_requested_snippet_version(cls, token: str) -> str:
+        """Get the requested snippet version from cached config. Defaults to major pin."""
+
         try:
             config = cls._get_config_via_cache(token)
-            return config.get("_snippetVersionPin")
+            return config.get("_snippetVersion") or DEFAULT_SNIPPET_VERSION
         except cls.DoesNotExist:
-            return None
+            return DEFAULT_SNIPPET_VERSION
 
     def sync(self, force: bool = False):
         """

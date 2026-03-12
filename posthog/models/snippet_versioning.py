@@ -2,7 +2,7 @@ import os
 import re
 import json
 import time
-from typing import Optional
+from typing import NotRequired, Optional, TypedDict
 
 from django.conf import settings
 from django.core.cache import cache
@@ -17,17 +17,56 @@ logger = structlog.get_logger(__name__)
 # Disk fallback: the array.js shipped with the current deploy
 _disk_js_content: Optional[str] = None
 
+DEFAULT_SNIPPET_VERSION = "1"
+S3_VERSIONS_KEY = "posthog-js/versions.json"
+
 REDIS_JS_CONTENT_TTL = 60 * 60 * 24 * 30  # 30 days — version content is immutable
 REDIS_JS_KEY_PREFIX = "posthog_js_content"
-REDIS_LATEST_KEY = "posthog_js_latest_pointers"
+REDIS_POINTER_MAP_KEY = "posthog_js_latest_pointers"
 
-# In-process cache for latest pointers
-_latest_pointers_cache: Optional[dict] = None
-_latest_pointers_cache_time: float = 0
-LATEST_POINTERS_IN_PROCESS_TTL = 60  # seconds
+# In-process cache for pointer map
+_pointer_map_cache: Optional[dict] = None
+_pointer_map_cache_time: float = 0
+POINTER_MAP_IN_PROCESS_TTL = 60  # seconds
 
 # Matches exact version like "1.358.0"
 _EXACT_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
+
+
+class VersionEntry(TypedDict):
+    version: str
+    timestamp: str
+    yanked: NotRequired[bool | None]
+
+
+def _parse_version(version: str) -> tuple[int, int, int]:
+    parts = version.split(".")
+    return (int(parts[0]), int(parts[1]), int(parts[2]))
+
+
+def compute_pointer_map(entries: list[VersionEntry]) -> dict[str, str]:
+    """
+    Compute the version pointer map from a versions manifest.
+
+    For each non-yanked version, tracks the highest version for each
+    major ("1") and minor ("1.358") pointer.
+    """
+    pointers: dict[str, str] = {}
+    best: dict[str, tuple[int, int, int]] = {}
+
+    for entry in entries:
+        if entry.get("yanked", False):
+            continue
+        version = entry["version"]
+        parsed = _parse_version(version)
+        major, minor, _patch = parsed
+
+        for pointer in [str(major), f"{major}.{minor}"]:
+            if pointer not in best or parsed > best[pointer]:
+                best[pointer] = parsed
+                pointers[pointer] = version
+
+    return pointers
 
 
 def _get_disk_js_content() -> str:
@@ -76,31 +115,21 @@ def get_js_content(version: str) -> str:
     return _get_disk_js_content()
 
 
-def _get_latest_pointers() -> Optional[dict]:
-    """Get latest.json pointers from in-process cache -> Redis."""
-    global _latest_pointers_cache, _latest_pointers_cache_time
+def _get_pointer_map() -> Optional[dict]:
+    """Get pointer map from in-process cache -> Redis."""
+    global _pointer_map_cache, _pointer_map_cache_time
 
     now = time.time()
-    if _latest_pointers_cache is not None and (now - _latest_pointers_cache_time) < LATEST_POINTERS_IN_PROCESS_TTL:
-        return _latest_pointers_cache
+    if _pointer_map_cache is not None and (now - _pointer_map_cache_time) < POINTER_MAP_IN_PROCESS_TTL:
+        return _pointer_map_cache
 
-    raw = cache.get(REDIS_LATEST_KEY)
+    raw = cache.get(REDIS_POINTER_MAP_KEY)
     if raw is not None:
-        _latest_pointers_cache = json.loads(raw) if isinstance(raw, str) else raw
-        _latest_pointers_cache_time = now
-        return _latest_pointers_cache
+        _pointer_map_cache = json.loads(raw) if isinstance(raw, str) else raw
+        _pointer_map_cache_time = now
+        return _pointer_map_cache
 
     return None
-
-
-def resolve_latest() -> Optional[str]:
-    """Resolve the 'latest' pointer to a concrete version string."""
-    if not settings.POSTHOG_JS_S3_BUCKET:
-        return None
-    pointers = _get_latest_pointers()
-    if pointers is None:
-        return None
-    return pointers.get("latest")
 
 
 def validate_version_artifacts(version: str) -> bool:
@@ -119,11 +148,11 @@ def validate_version_artifacts(version: str) -> bool:
         return False
 
 
-def resolve_version(pin: Optional[str]) -> Optional[str]:
+def resolve_version(requested_version: Optional[str]) -> Optional[str]:
     """
-    Resolve a version pin to a concrete version string.
+    Resolve a requested version to a concrete version string.
 
-    - None -> defaults to "1" (major pin)
+    - None -> defaults to "1" (major version)
     - "1.358.0" -> exact version (returned as-is)
     - "1" -> latest 1.x.x via pointers
     - "1.358" -> latest 1.358.x via pointers
@@ -131,15 +160,14 @@ def resolve_version(pin: Optional[str]) -> Optional[str]:
     if not settings.POSTHOG_JS_S3_BUCKET:
         return None
 
-    if pin is not None and _EXACT_VERSION_RE.match(pin):
-        return pin
+    if requested_version is not None and _EXACT_VERSION_RE.match(requested_version):
+        return requested_version
 
-    pointers = _get_latest_pointers()
+    pointers = _get_pointer_map()
     if pointers is None:
         return None
 
-    # Default to major pin "1" when no pin is set
-    if pin is None:
-        pin = "1"
+    if requested_version is None:
+        requested_version = DEFAULT_SNIPPET_VERSION
 
-    return pointers.get(pin)
+    return pointers.get(requested_version)

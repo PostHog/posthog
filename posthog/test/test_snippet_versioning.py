@@ -8,13 +8,61 @@ from django.test import SimpleTestCase, override_settings
 import posthog.models.snippet_versioning as sv
 from posthog.models.snippet_versioning import (
     REDIS_JS_KEY_PREFIX,
-    REDIS_LATEST_KEY,
+    REDIS_POINTER_MAP_KEY,
+    compute_pointer_map,
     get_js_content,
-    resolve_latest,
     resolve_version,
     validate_version_artifacts,
 )
-from posthog.tasks.snippet_versioning import sync_posthog_js_latest
+from posthog.tasks.snippet_versioning import _LAST_HASH_REDIS_KEY, sync_posthog_js_versions
+
+
+class TestComputePointerMap(SimpleTestCase):
+    def test_empty_entries(self):
+        assert compute_pointer_map([]) == {}
+
+    def test_single_version(self):
+        entries = [{"version": "1.358.0", "timestamp": "2025-01-15T00:00:00Z"}]
+        result = compute_pointer_map(entries)
+        assert result == {"1": "1.358.0", "1.358": "1.358.0"}
+
+    def test_multiple_versions_picks_highest(self):
+        entries = [
+            {"version": "1.358.0", "timestamp": "2025-01-15T00:00:00Z"},
+            {"version": "1.358.3", "timestamp": "2025-01-16T00:00:00Z"},
+            {"version": "1.359.0", "timestamp": "2025-01-20T00:00:00Z"},
+        ]
+        result = compute_pointer_map(entries)
+        assert result == {"1": "1.359.0", "1.358": "1.358.3", "1.359": "1.359.0"}
+
+    def test_yanked_versions_excluded(self):
+        entries = [
+            {"version": "1.358.0", "timestamp": "2025-01-15T00:00:00Z"},
+            {"version": "1.359.0", "timestamp": "2025-01-20T00:00:00Z", "yanked": True},
+        ]
+        result = compute_pointer_map(entries)
+        assert result == {"1": "1.358.0", "1.358": "1.358.0"}
+
+    def test_all_yanked_returns_empty(self):
+        entries = [
+            {"version": "1.358.0", "timestamp": "2025-01-15T00:00:00Z", "yanked": True},
+        ]
+        assert compute_pointer_map(entries) == {}
+
+    def test_order_independent(self):
+        entries = [
+            {"version": "1.359.0", "timestamp": "2025-01-20T00:00:00Z"},
+            {"version": "1.358.0", "timestamp": "2025-01-15T00:00:00Z"},
+        ]
+        result = compute_pointer_map(entries)
+        assert result["1"] == "1.359.0"
+
+    def test_yanked_false_not_excluded(self):
+        entries = [
+            {"version": "1.358.0", "timestamp": "2025-01-15T00:00:00Z", "yanked": False},
+        ]
+        result = compute_pointer_map(entries)
+        assert result == {"1": "1.358.0", "1.358": "1.358.0"}
 
 
 class TestGetJsContent(SimpleTestCase):
@@ -54,28 +102,6 @@ class TestGetJsContent(SimpleTestCase):
         assert len(content) > 0
 
 
-class TestResolveLatest(SimpleTestCase):
-    def setUp(self):
-        sv._latest_pointers_cache = None
-        sv._latest_pointers_cache_time = 0
-
-    def tearDown(self):
-        cache.delete(REDIS_LATEST_KEY)
-        sv._latest_pointers_cache = None
-        sv._latest_pointers_cache_time = 0
-
-    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
-    def test_returns_version_from_redis(self):
-        cache.set(REDIS_LATEST_KEY, json.dumps({"latest": "1.359.0"}))
-        version = resolve_latest()
-        assert version == "1.359.0"
-
-    @override_settings(POSTHOG_JS_S3_BUCKET="")
-    def test_returns_none_when_versioning_disabled(self):
-        version = resolve_latest()
-        assert version is None
-
-
 class TestValidateArtifacts(SimpleTestCase):
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
     @patch("posthog.models.snippet_versioning.object_storage.read")
@@ -93,15 +119,15 @@ class TestValidateArtifacts(SimpleTestCase):
 
 class TestResolveVersion(SimpleTestCase):
     def setUp(self):
-        sv._latest_pointers_cache = None
-        sv._latest_pointers_cache_time = 0
-        pointers = {"latest": "1.359.0", "1": "1.359.0", "1.358": "1.358.3"}
-        cache.set(REDIS_LATEST_KEY, json.dumps(pointers))
+        sv._pointer_map_cache = None
+        sv._pointer_map_cache_time = 0
+        pointers = {"1": "1.359.0", "1.358": "1.358.3"}
+        cache.set(REDIS_POINTER_MAP_KEY, json.dumps(pointers))
 
     def tearDown(self):
-        cache.delete(REDIS_LATEST_KEY)
-        sv._latest_pointers_cache = None
-        sv._latest_pointers_cache_time = 0
+        cache.delete(REDIS_POINTER_MAP_KEY)
+        sv._pointer_map_cache = None
+        sv._pointer_map_cache_time = 0
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
     def test_exact_version_returned_as_is(self):
@@ -126,53 +152,62 @@ class TestResolveVersion(SimpleTestCase):
 
 class TestSyncTask(SimpleTestCase):
     def setUp(self):
-        sv._latest_pointers_cache = None
-        sv._latest_pointers_cache_time = 0
+        sv._pointer_map_cache = None
+        sv._pointer_map_cache_time = 0
 
     def tearDown(self):
-        cache.delete(REDIS_LATEST_KEY)
-        sv._latest_pointers_cache = None
-        sv._latest_pointers_cache_time = 0
+        cache.delete(REDIS_POINTER_MAP_KEY)
+        cache.delete(_LAST_HASH_REDIS_KEY)
+        sv._pointer_map_cache = None
+        sv._pointer_map_cache_time = 0
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
     @patch("posthog.tasks.snippet_versioning.validate_version_artifacts")
     @patch("posthog.tasks.snippet_versioning.object_storage.read")
-    def test_syncs_latest_json_to_redis(self, mock_read, mock_validate):
-        mock_read.return_value = json.dumps({"latest": "1.359.0"})
+    def test_syncs_versions_json_to_redis(self, mock_read, mock_validate):
+        manifest = [
+            {"version": "1.358.0", "timestamp": "2025-01-15T00:00:00Z"},
+            {"version": "1.359.0", "timestamp": "2025-01-20T00:00:00Z"},
+        ]
+        mock_read.return_value = json.dumps(manifest)
         mock_validate.return_value = True
 
-        sync_posthog_js_latest()
+        sync_posthog_js_versions()
 
-        raw = cache.get(REDIS_LATEST_KEY)
+        raw = cache.get(REDIS_POINTER_MAP_KEY)
         pointers = json.loads(raw)
-        assert pointers["latest"] == "1.359.0"
+        assert pointers["1"] == "1.359.0"
+        assert pointers["1.358"] == "1.358.0"
+        assert pointers["1.359"] == "1.359.0"
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
     @patch("posthog.tasks.snippet_versioning.validate_version_artifacts")
     @patch("posthog.tasks.snippet_versioning.object_storage.read")
     def test_skips_update_when_unchanged(self, mock_read, mock_validate):
-        pointers = {"latest": "1.359.0"}
-        cache.set(REDIS_LATEST_KEY, json.dumps(pointers))
-        mock_read.return_value = json.dumps(pointers)
+        manifest = json.dumps([{"version": "1.359.0", "timestamp": "2025-01-20T00:00:00Z"}])
+        mock_read.return_value = manifest
         mock_validate.return_value = True
 
-        sync_posthog_js_latest()
+        # First sync
+        sync_posthog_js_versions()
+        # Second sync with same content
+        sync_posthog_js_versions()
 
-        mock_validate.assert_not_called()
+        mock_validate.assert_called_once()
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
     @patch("posthog.tasks.snippet_versioning.validate_version_artifacts")
     @patch("posthog.tasks.snippet_versioning.object_storage.read")
     def test_rejects_update_when_artifacts_missing(self, mock_read, mock_validate):
-        cache.delete(REDIS_LATEST_KEY)
-        mock_read.return_value = json.dumps({"latest": "99.99.99"})
+        manifest = [{"version": "99.99.99", "timestamp": "2025-01-20T00:00:00Z"}]
+        mock_read.return_value = json.dumps(manifest)
         mock_validate.return_value = False
 
-        sync_posthog_js_latest()
+        sync_posthog_js_versions()
 
-        assert cache.get(REDIS_LATEST_KEY) is None
+        assert cache.get(REDIS_POINTER_MAP_KEY) is None
 
     @override_settings(POSTHOG_JS_S3_BUCKET="")
     def test_noop_when_versioning_disabled(self):
-        sync_posthog_js_latest()
-        assert cache.get(REDIS_LATEST_KEY) is None
+        sync_posthog_js_versions()
+        assert cache.get(REDIS_POINTER_MAP_KEY) is None

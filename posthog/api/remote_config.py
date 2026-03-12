@@ -8,6 +8,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.views import APIView
 
 from posthog.models.remote_config import RemoteConfig
+from posthog.models.snippet_versioning import DEFAULT_SNIPPET_VERSION
 
 tracer = trace.get_tracer(__name__)
 
@@ -24,18 +25,29 @@ def compute_etag(content: str) -> str:
     return f'"{hashlib.sha256(content.encode()).hexdigest()[:16]}"'
 
 
-def add_cache_headers(response, token: str, content: str, pin: str | None = None):
-    """Add ETag, Cache-Control, and Cache-Tag headers."""
+def add_cache_headers(response, token: str, content: str, snippet_version: str = DEFAULT_SNIPPET_VERSION):
+    """Add caching headers for CDN-served array.js responses.
+
+    ETag: content hash for conditional requests. Clients send If-None-Match
+    on subsequent requests and get a 304 if the content hasn't changed,
+    avoiding a full re-download.
+
+    Cache-Control: serve from CDN cache for up to 1 hour (max-age=3600).
+    After that, the CDN can still serve stale content for up to 24 hours
+    (stale-while-revalidate=86400) while revalidating in the background.
+
+    Cache-Tag: used for targeted CDN purges. Tags by requested version and
+    token so we can invalidate at two granularities:
+    - posthog-js-{snippet_version}: purge all responses for a given
+      snippet version when a new version is published or yanked. Uses the
+      snippet version (e.g. "1", "1.358"), not the resolved version, so
+      only affected versions are purged.
+    - token:{token}: purge all responses for a specific project (e.g.
+      when a team changes their snippet version).
+    """
     response["ETag"] = compute_etag(content)
     response["Cache-Control"] = "public, max-age=3600, stale-while-revalidate=86400"
-
-    # Cache-Tag based on pin type
-    if pin is None:
-        version_tag = "posthog-js-latest"
-    else:
-        version_tag = f"posthog-js-{pin}" if not pin[0].isdigit() else f"posthog-js-v{pin}"
-
-    response["Cache-Tag"] = f"{version_tag}, token:{token}"
+    response["Cache-Tag"] = f"posthog-js-{snippet_version}, token:{token}"
     return response
 
 
@@ -93,8 +105,7 @@ class RemoteConfigArrayJSAPIView(BaseRemoteConfigAPIView):
             response["ETag"] = etag
             return add_vary_headers(response)
 
-        pin = RemoteConfig.get_snippet_version_pin(token)
-
+        requested_version = RemoteConfig.get_requested_snippet_version(token)
         response = HttpResponse(script_content, content_type="application/javascript")
-        add_cache_headers(response, token, script_content, pin=pin)
+        add_cache_headers(response, token, script_content, snippet_version=requested_version)
         return add_vary_headers(response)

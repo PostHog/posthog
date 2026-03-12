@@ -9,21 +9,21 @@ from django.test import override_settings
 from rest_framework import status
 
 import posthog.models.snippet_versioning as sv
-from posthog.models.snippet_versioning import REDIS_LATEST_KEY
+from posthog.models.snippet_versioning import REDIS_POINTER_MAP_KEY
 
 
 class TestSnippetResolveAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
-        sv._latest_pointers_cache = None
-        sv._latest_pointers_cache_time = 0
-        pointers = {"latest": "1.359.0", "1": "1.359.0"}
-        cache.set(REDIS_LATEST_KEY, json.dumps(pointers))
+        sv._pointer_map_cache = None
+        sv._pointer_map_cache_time = 0
+        pointers = {"1": "1.359.0"}
+        cache.set(REDIS_POINTER_MAP_KEY, json.dumps(pointers))
 
     def tearDown(self):
-        cache.delete(REDIS_LATEST_KEY)
-        sv._latest_pointers_cache = None
-        sv._latest_pointers_cache_time = 0
+        cache.delete(REDIS_POINTER_MAP_KEY)
+        sv._pointer_map_cache = None
+        sv._pointer_map_cache_time = 0
         super().tearDown()
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
@@ -51,15 +51,15 @@ class TestSnippetResolveAPI(APIBaseTest):
 class TestSnippetVersionAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
-        sv._latest_pointers_cache = None
-        sv._latest_pointers_cache_time = 0
-        pointers = {"latest": "1.359.0", "1": "1.359.0"}
-        cache.set(REDIS_LATEST_KEY, json.dumps(pointers))
+        sv._pointer_map_cache = None
+        sv._pointer_map_cache_time = 0
+        pointers = {"1": "1.359.0"}
+        cache.set(REDIS_POINTER_MAP_KEY, json.dumps(pointers))
 
     def tearDown(self):
-        cache.delete(REDIS_LATEST_KEY)
-        sv._latest_pointers_cache = None
-        sv._latest_pointers_cache_time = 0
+        cache.delete(REDIS_POINTER_MAP_KEY)
+        sv._pointer_map_cache = None
+        sv._pointer_map_cache_time = 0
         super().tearDown()
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
