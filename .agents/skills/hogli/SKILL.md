@@ -12,34 +12,27 @@ Unified CLI for PostHog development. Wraps all repo scripts, bin commands, and t
 
 Run `hogli --help` to get the full, current command list. Run `hogli <command> --help` for any subcommand.
 
-## Process logging (for agents/debugging)
+## MCP tools (for agents)
 
-`hogli dev:setup --log` enables file logging for all phrocs processes.
-Each process writes two files:
+phrocs exposes a built-in MCP HTTP server on `http://127.0.0.1:5835/mcp` while the TUI is
+running. This is registered in `.mcp.json`, so two tools are available automatically whenever
+agents are used in this repo:
 
-- `/tmp/posthog-<process>.log` — full stdout/stderr stream
-- `/tmp/posthog-<process>.json` — structured status (pid, status, ready flag, exit code, timestamps)
-
-The `status` field transitions `starting` → `running` → `stopped` or `crashed`. A separate `ready` boolean flips to `true` once `ready_pattern` matches.
-
-### MCP tools (preferred for agents)
-
-The project ships a local MCP server (`bin/dev-env-mcp-server`) registered in `.mcp.json`.
-When Claude Code loads the project, two tools are available automatically:
-
-- **`get_process_status`** — returns status JSON for one or all processes;
+- **`get_process_status`** — returns status, PID, and line count for one or all processes;
   pass no argument for a dashboard of all running processes
 - **`get_process_logs`** — returns recent log lines for a named process;
   accepts `lines` (default 100, max 500) and `grep` (regex filter) arguments
 
-### Direct file access (fallback)
+The server reads live in-memory data from phrocs directly — no `--log` mode or file setup
+required. The default port can be changed with the `--mcp-addr` flag: `phrocs --mcp-addr 0.0.0.0:5836 …`.
 
-If the MCP server is not configured, read files directly:
+## Process logging (for debugging)
 
-```bash
-cat /tmp/posthog-backend.json      # status snapshot
-tail -100 /tmp/posthog-backend.log # recent log lines
-```
+`hogli dev:setup --log` enables file logging for all phrocs processes (separate from MCP).
+Each process writes two files:
+
+- `/tmp/posthog-<process>.log` — full stdout/stderr stream
+- `/tmp/posthog-<process>.json` — structured status (pid, status, ready flag, exit code, timestamps)
 
 ## Key references
 

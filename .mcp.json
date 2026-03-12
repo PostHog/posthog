@@ -1,8 +1,8 @@
 {
     "mcpServers": {
         "posthog-dev-env": {
-            "command": "uv",
-            "args": ["run", "python", "bin/dev-env-mcp-server"]
+            "type": "http",
+            "url": "http://127.0.0.1:5835/mcp"
         }
     }
 }
