@@ -304,21 +304,27 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
                 is_resumable_source = isinstance(source, ResumableSource)
 
-            timeout_params = (
-                {
+            if is_resumable_source:
+                timeout_params = {
+                    "start_to_close_timeout": dt.timedelta(weeks=1),
+                    "retry_policy": RetryPolicy(
+                        maximum_attempts=15, non_retryable_error_types=["NonRetryableException"]
+                    ),
+                }
+            elif incremental_or_append:
+                timeout_params = {
                     "start_to_close_timeout": dt.timedelta(weeks=1),
                     "retry_policy": RetryPolicy(
                         maximum_attempts=9, non_retryable_error_types=["NonRetryableException"]
                     ),
                 }
-                if incremental_or_append or is_resumable_source
-                else {
+            else:
+                timeout_params = {
                     "start_to_close_timeout": dt.timedelta(hours=24),
                     "retry_policy": RetryPolicy(
                         maximum_attempts=3, non_retryable_error_types=["NonRetryableException"]
                     ),
                 }
-            )
 
             pipeline_result = await workflow.execute_activity(
                 import_data_activity_sync,
