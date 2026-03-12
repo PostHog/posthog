@@ -55,7 +55,7 @@ class ProcessTaskOutput:
     sandbox_id: Optional[str] = None
 
 
-INACTIVITY_TIMEOUT_MINUTES = 1  # TODO: restore to 5 minutes after validating resume flow
+INACTIVITY_TIMEOUT_MINUTES = 5
 PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS = 180
 
 
