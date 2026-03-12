@@ -266,7 +266,11 @@ const hasTimeSeriesData = (columns: Column[], response: AnyResponseType | null):
     const hasDateColumn = columns.some((column) => ['DATE', 'DATETIME'].includes(column.type.name))
     const hasNumericColumn = columns.some((column) => column.type.isNumerical)
     const results =
-        response && 'results' in response ? response.results : response && 'result' in response ? response.result : []
+        (response && 'results' in response
+            ? response.results
+            : response && 'result' in response
+              ? response.result
+              : null) ?? []
 
     return hasDateColumn && hasNumericColumn && results.length > 1
 }
