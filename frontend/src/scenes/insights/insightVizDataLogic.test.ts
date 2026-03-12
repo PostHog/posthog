@@ -17,7 +17,15 @@ import {
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { BaseMathType, ChartDisplayType, InsightModel, InsightShortId, InsightType } from '~/types'
+import {
+    BaseMathType,
+    ChartDisplayType,
+    InsightModel,
+    InsightShortId,
+    InsightType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
 
@@ -180,7 +188,14 @@ describe('insightVizDataLogic', () => {
                 kind: NodeKind.LifecycleQuery,
                 filterTestAccounts: true,
                 samplingFactor: 0.1,
-                properties: [{ key: '$browser', value: 'Chrome', type: 'event', operator: 'exact' }],
+                properties: [
+                    {
+                        key: '$browser',
+                        value: 'Chrome',
+                        type: PropertyFilterType.Event,
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
                 series: [
                     {
                         kind: NodeKind.EventsNode,
