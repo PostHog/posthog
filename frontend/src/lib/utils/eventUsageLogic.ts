@@ -635,6 +635,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 triggered_by: 'page_load' | 'manual' | 'auto_refresh' | 'config_change'
                 force_refresh: boolean
                 refresh_id: string
+                experiment_duration_hours: number | null
+                experiment_status: string | null
+                total_metrics_count: number
             }
         ) => ({
             experimentId,
