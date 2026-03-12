@@ -200,6 +200,9 @@ class EventDefinitionViewSet(
         params = {"project_id": self.project_id, "is_posthog_event": "$%", **search_kwargs}
         order_expressions = self._ordering_params_from_request()
 
+        if search:
+            order_expressions = [("length(name)", "ASC"), *order_expressions]
+
         event_definition_object_manager: Manager
         if EE_AVAILABLE:
             from ee.models.event_definition import EnterpriseEventDefinition

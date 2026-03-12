@@ -239,6 +239,20 @@ class TestEventDefinitionAPI(APIBaseTest):
         for item in response.json()["results"]:
             assert item["name"] in ["watched_movie"]
 
+    @parameterized.expand(
+        [
+            ("shorter match first for 'app'", "app", ["rated_app", "installed_app"]),
+            ("shorter match first for 'purchase'", "purchase", ["purchase"]),
+        ]
+    )
+    def test_search_results_ordered_by_name_length(
+        self, _name: str, search_term: str, expected_names: list[str]
+    ) -> None:
+        response = self.client.get(f"/api/projects/@current/event_definitions/?search={search_term}")
+        assert response.status_code == status.HTTP_200_OK
+        result_names = [r["name"] for r in response.json()["results"]]
+        assert result_names == expected_names
+
     def test_event_type_event(self):
         action = Action.objects.create(team=self.demo_team, name="action1_app")
 

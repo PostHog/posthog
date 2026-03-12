@@ -179,6 +179,13 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         if search_term == "p ting":
             assert response.json()["results"][0]["is_seen_on_filtered_events"] is None
 
+    def test_search_results_prefer_shorter_names_over_alphabetical(self) -> None:
+        PropertyDefinition.objects.create(team=self.team, name="visit")
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search=visit")
+        assert response.status_code == status.HTTP_200_OK
+        result_names = [r["name"] for r in response.json()["results"]]
+        assert result_names == ["visit", "first_visit"]
+
     def test_property_search_with_event_filter_shows_event_association(self):
         # URL params: search=$ and event_names=["$pageview"]
         response = self.client.get(
@@ -190,9 +197,9 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
         assert actual_results == [
             ("$browser", True),
-            ("$browser_version", False),
-            ("$current_url", False),
             ("$lib", False),
+            ("$current_url", False),
+            ("$browser_version", False),
         ]
 
     def test_is_event_property_filter(self):
