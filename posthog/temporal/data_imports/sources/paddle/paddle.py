@@ -56,10 +56,10 @@ def get_rows(
     api_key: str,
     endpoint: str,
     db_incremental_field_last_value: Optional[Any],
-    db_incremental_field_earliest_value: Optional[Any],
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[PaddleResumeConfig],
     should_use_incremental_field: bool = False,
+):
 ):
     headers = {
         "Authorization": f"Bearer {api_key}",
