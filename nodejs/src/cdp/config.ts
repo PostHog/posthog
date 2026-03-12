@@ -61,8 +61,6 @@ export type CdpConfig = {
     // Cyclotron (CDP job queue)
     CYCLOTRON_DATABASE_URL: string
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
-    CYCLOTRON_SHADOW_DATABASE_URL?: string
-    CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: boolean
     CYCLOTRON_NODE_DATABASE_URL?: string
     // SES (Workflows email sending)
     SES_ENDPOINT: string
