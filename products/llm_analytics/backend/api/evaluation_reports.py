@@ -1,7 +1,9 @@
 """API endpoints for evaluation report configuration and report run history."""
 
+import asyncio
 import datetime as dt
 
+from django.conf import settings
 from django.db.models import QuerySet
 
 import structlog
@@ -139,12 +141,14 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             from posthog.temporal.llm_analytics.eval_reports.constants import GENERATE_EVAL_REPORT_WORKFLOW_NAME
             from posthog.temporal.llm_analytics.eval_reports.types import GenerateAndDeliverEvalReportWorkflowInput
 
-            temporal_client = sync_connect()
-            temporal_client.start_workflow(
-                GENERATE_EVAL_REPORT_WORKFLOW_NAME,
-                GenerateAndDeliverEvalReportWorkflowInput(report_id=str(report.id)),
-                id=f"eval-report-manual-{report.id}-{dt.datetime.now(tz=dt.UTC).timestamp():.0f}",
-                task_queue="general-purpose",
+            client = sync_connect()
+            asyncio.run(
+                client.start_workflow(
+                    GENERATE_EVAL_REPORT_WORKFLOW_NAME,
+                    GenerateAndDeliverEvalReportWorkflowInput(report_id=str(report.id)),
+                    id=f"eval-report-manual-{report.id}-{dt.datetime.now(tz=dt.UTC).timestamp():.0f}",
+                    task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                )
             )
         except Exception:
             logger.exception("Failed to trigger evaluation report generation", report_id=str(report.id))

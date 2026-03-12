@@ -138,10 +138,15 @@ async def run_eval_report_agent_activity(
 async def store_report_run_activity(
     inputs: StoreReportRunInput,
 ) -> StoreReportRunOutput:
-    """Save the generated report as an EvaluationReportRun."""
+    """Save the generated report as an EvaluationReportRun and emit a $ai_evaluation_report event."""
 
     @database_sync_to_async(thread_sensitive=False)
     def store() -> str:
+        import uuid
+
+        from posthog.models.event.util import create_event
+        from posthog.models.team import Team
+
         from products.llm_analytics.backend.models.evaluation_reports import EvaluationReportRun
 
         run = EvaluationReportRun.objects.create(
@@ -151,6 +156,43 @@ async def store_report_run_activity(
             period_start=inputs.period_start,
             period_end=inputs.period_end,
         )
+
+        # Emit $ai_evaluation_report event to ClickHouse
+        team = Team.objects.get(id=inputs.team_id)
+        metadata = inputs.metadata or {}
+
+        # Collect all referenced generation IDs across sections
+        all_referenced_ids: list[str] = []
+        for section_data in (inputs.content or {}).values():
+            if isinstance(section_data, dict):
+                all_referenced_ids.extend(section_data.get("referenced_generation_ids", []))
+
+        properties: dict = {
+            "$ai_evaluation_id": inputs.evaluation_id,
+            "$ai_evaluation_report_id": str(run.report_id),
+            "$ai_evaluation_report_run_id": str(run.id),
+            "$ai_report_period_start": inputs.period_start,
+            "$ai_report_period_end": inputs.period_end,
+            # Metrics for querying/alerting
+            "$ai_report_total_runs": metadata.get("total_runs", 0),
+            "$ai_report_pass_count": metadata.get("pass_count", 0),
+            "$ai_report_fail_count": metadata.get("fail_count", 0),
+            "$ai_report_na_count": metadata.get("na_count", 0),
+            "$ai_report_pass_rate": metadata.get("pass_rate", 0.0),
+            "$ai_report_previous_pass_rate": metadata.get("previous_pass_rate"),
+            # Full content for downstream consumption
+            "$ai_report_content": inputs.content,
+            "$ai_report_referenced_generation_ids": all_referenced_ids,
+        }
+
+        create_event(
+            event_uuid=uuid.uuid4(),
+            event="$ai_evaluation_report",
+            team=team,
+            distinct_id=f"eval_report_{inputs.team_id}",
+            properties=properties,
+        )
+
         return str(run.id)
 
     run_id = await store()
