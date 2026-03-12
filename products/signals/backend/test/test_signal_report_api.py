@@ -29,26 +29,31 @@ class TestSignalReportDeleteAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("from_ready", SignalReport.Status.READY),
-            ("from_potential", SignalReport.Status.POTENTIAL),
-            ("from_candidate", SignalReport.Status.CANDIDATE),
-            ("from_suppressed", SignalReport.Status.SUPPRESSED),
-            ("from_failed", SignalReport.Status.FAILED),
+            ("from_ready", SignalReport.Status.READY, status.HTTP_202_ACCEPTED),
+            ("from_potential", SignalReport.Status.POTENTIAL, status.HTTP_202_ACCEPTED),
+            ("from_candidate", SignalReport.Status.CANDIDATE, status.HTTP_202_ACCEPTED),
+            # Suppressed reports are excluded from the base queryset when no status
+            # filter is supplied, so detail delete returns 404.
+            ("from_suppressed", SignalReport.Status.SUPPRESSED, status.HTTP_404_NOT_FOUND),
+            ("from_failed", SignalReport.Status.FAILED, status.HTTP_202_ACCEPTED),
         ]
     )
-    def test_delete_report_soft_deletes(self, _name, initial_status):
+    def test_delete_report_starts_deletion_workflow(self, _name, initial_status, expected_status):
         report = self._create_report(report_status=initial_status)
         response = self.client.delete(self._url(str(report.id)))
-        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert response.status_code == expected_status
+        if expected_status == status.HTTP_202_ACCEPTED:
+            assert response.json() == {"status": "deletion_started", "report_id": str(report.id)}
         report.refresh_from_db()
-        assert report.status == SignalReport.Status.DELETED
+        # Deletion happens asynchronously in the Temporal workflow.
+        assert report.status == initial_status
 
-    def test_deleted_report_excluded_from_list(self):
+    def test_delete_report_not_immediately_excluded_from_list(self):
         report = self._create_report()
         self.client.delete(self._url(str(report.id)))
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
-        assert all(r["id"] != str(report.id) for r in response.json()["results"])
+        assert any(r["id"] == str(report.id) for r in response.json()["results"])
 
     def test_delete_other_teams_report_forbidden(self):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
