@@ -3,7 +3,7 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from products.data_modeling.backend.models import CycleDetectionError, Edge, Node
+from products.data_modeling.backend.models import DAG, CycleDetectionError, Edge, Node
 from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
 LINKED_LIST_DAG_ID = "linked_list"
@@ -15,10 +15,13 @@ def _basic_saved_query_with_label(label: str):
 
 
 class LinkedListCycleDetectionTest(BaseTest):
+    ll_dag: DAG
+
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
         with freeze_time("2025-01-01T12:00:00.000Z"):
+            cls.ll_dag = DAG.objects.create(team=cls.team, name=LINKED_LIST_DAG_ID)
             ll_queries = [
                 DataWarehouseSavedQuery.objects.create(
                     name=f"ll_{i}",
@@ -28,12 +31,15 @@ class LinkedListCycleDetectionTest(BaseTest):
                 for i in range(25)
             ]
             ll_nodes = [
-                Node.objects.create(team=cls.team, dag_id_text=LINKED_LIST_DAG_ID, saved_query=query, name=f"ll_{i}")
+                Node.objects.create(
+                    team=cls.team, dag_fk=cls.ll_dag, dag_id_text=LINKED_LIST_DAG_ID, saved_query=query, name=f"ll_{i}"
+                )
                 for i, query in enumerate(ll_queries)
             ]
             for i in range(len(ll_nodes) - 1):
                 Edge.objects.create(
                     team=cls.team,
+                    dag_fk=cls.ll_dag,
                     dag_id_text=LINKED_LIST_DAG_ID,
                     source=ll_nodes[i],
                     target=ll_nodes[i + 1],
@@ -58,17 +64,24 @@ class LinkedListCycleDetectionTest(BaseTest):
         target = Node.objects.get(saved_query__name=f"ll_{target_label}")
         if should_raise:
             with self.assertRaises(Exception):
-                Edge.objects.create(team=source.team, dag_id_text=LINKED_LIST_DAG_ID, source=source, target=target)
+                Edge.objects.create(
+                    team=source.team, dag_fk=self.ll_dag, dag_id_text=LINKED_LIST_DAG_ID, source=source, target=target
+                )
         else:
-            edge = Edge.objects.create(team=source.team, dag_id_text=LINKED_LIST_DAG_ID, source=source, target=target)
+            edge = Edge.objects.create(
+                team=source.team, dag_fk=self.ll_dag, dag_id_text=LINKED_LIST_DAG_ID, source=source, target=target
+            )
             edge.delete()
 
 
 class TreeCycleDetectionTest(BaseTest):
+    bt_dag: DAG
+
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
         with freeze_time("2025-01-01T12:00:00.000Z"):
+            cls.bt_dag = DAG.objects.create(team=cls.team, name=BALANCED_TREE_DAG_ID)
             bt_root = [
                 DataWarehouseSavedQuery.objects.create(
                     name="bt_root",
@@ -94,17 +107,26 @@ class TreeCycleDetectionTest(BaseTest):
                 for j in range(5)
             ]
             bt_nodes = [
-                Node.objects.create(team=cls.team, dag_id_text=BALANCED_TREE_DAG_ID, saved_query=query, name=query.name)
+                Node.objects.create(
+                    team=cls.team,
+                    dag_fk=cls.bt_dag,
+                    dag_id_text=BALANCED_TREE_DAG_ID,
+                    saved_query=query,
+                    name=query.name,
+                )
                 for query in bt_root + bt_children + bt_grandchildren
             ]
             root = bt_nodes[0]
             children = bt_nodes[1:6]
             for i, child in enumerate(children):
-                Edge.objects.create(team=cls.team, dag_id_text=BALANCED_TREE_DAG_ID, source=root, target=child)
+                Edge.objects.create(
+                    team=cls.team, dag_fk=cls.bt_dag, dag_id_text=BALANCED_TREE_DAG_ID, source=root, target=child
+                )
                 for j in range(5):
                     grandchild = bt_nodes[6 + i * 5 + j]
                     Edge.objects.create(
                         team=cls.team,
+                        dag_fk=cls.bt_dag,
                         dag_id_text=BALANCED_TREE_DAG_ID,
                         source=child,
                         target=grandchild,
@@ -153,9 +175,13 @@ class TreeCycleDetectionTest(BaseTest):
         target = Node.objects.get(saved_query__name=f"bt_{target_label}")
         if should_raise:
             with self.assertRaises(CycleDetectionError):
-                Edge.objects.create(team=source.team, dag_id_text=BALANCED_TREE_DAG_ID, source=source, target=target)
+                Edge.objects.create(
+                    team=source.team, dag_fk=self.bt_dag, dag_id_text=BALANCED_TREE_DAG_ID, source=source, target=target
+                )
         else:
-            edge = Edge.objects.create(team=source.team, dag_id_text=BALANCED_TREE_DAG_ID, source=source, target=target)
+            edge = Edge.objects.create(
+                team=source.team, dag_fk=self.bt_dag, dag_id_text=BALANCED_TREE_DAG_ID, source=source, target=target
+            )
             edge.delete()
 
     def test_disallowed_object_functions(self):
@@ -166,7 +192,9 @@ class TreeCycleDetectionTest(BaseTest):
         for key in disallowed:
             # test update disallowed for each key
             with self.assertRaises(NotImplementedError):
-                if key.endswith("id") or key == "dag_id_text":
+                if key in ("dag",):
+                    bt_edges.update(dag_fk=self.bt_dag)
+                elif key.endswith("id") or key == "dag_id_text":
                     bt_edges.update(**{key: "test"})
                 elif key == "source":
                     bt_edges.update(source=test_node)
@@ -176,10 +204,13 @@ class TreeCycleDetectionTest(BaseTest):
                     bt_edges.update(team=test_team)
             # test bulk_update disallowed for each key
             mock_edges = [
-                Edge(source=test_node, target=test_node, team=test_team, dag_id_text="test") for _ in range(3)
+                Edge(source=test_node, target=test_node, team=test_team, dag_fk=self.bt_dag, dag_id_text="test")
+                for _ in range(3)
             ]
             for edge in mock_edges:
-                if key.endswith("id"):
+                if key == "dag":
+                    setattr(edge, key, self.bt_dag)
+                elif key.endswith("id") or key == "dag_id_text":
                     setattr(edge, key, "test")
                 elif key in ("source", "target"):
                     setattr(edge, key, test_node)
