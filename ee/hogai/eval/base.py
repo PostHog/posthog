@@ -6,7 +6,7 @@ from functools import partial
 import pytest
 
 from braintrust import EvalAsync, EvalCase, Metadata, init_logger
-from braintrust.framework import EvalData, EvalScorer, EvalTask, Input, Output
+from braintrust.framework import EvalData, EvalResultWithSummary, EvalScorer, EvalTask, Input, Output
 
 from posthog.models.utils import uuid7
 
@@ -90,7 +90,63 @@ async def BaseMaxEval(
         with open("eval_results.jsonl", "a") as f:
             f.write(result.summary.as_json() + "\n")
 
+    _print_eval_stats(experiment_name, result)
+
     return result
+
+
+def _print_eval_stats(experiment_name: str, result: EvalResultWithSummary) -> None:
+    """Print eval stats to the console so agents can parse them."""
+    summary = result.summary
+    results = result.results
+
+    lines: list[str] = []
+    lines.append("")
+    lines.append(f"{'=' * 60}")
+    lines.append(f"EVAL STATS: {experiment_name} ({len(results)} cases)")
+    lines.append(f"{'=' * 60}")
+
+    # Score summary
+    if summary.scores:
+        lines.append("")
+        lines.append("Score Summary:")
+        for score_summary in summary.scores.values():
+            pct = f"{score_summary.score * 100:.1f}%"
+            diff_str = ""
+            if score_summary.diff is not None:
+                sign = "+" if score_summary.diff > 0 else ""
+                diff_str = f" ({sign}{score_summary.diff * 100:.1f}%)"
+            imp_reg = ""
+            if score_summary.improvements is not None or score_summary.regressions is not None:
+                imp_reg = (
+                    f" [{score_summary.improvements or 0} improvements, {score_summary.regressions or 0} regressions]"
+                )
+            lines.append(f"  {score_summary.name}: {pct}{diff_str}{imp_reg}")
+
+    # Per-case results
+    if results:
+        lines.append("")
+        lines.append("Per-case Results:")
+        for eval_result in results:
+            input_str = str(eval_result.input)
+            # Truncate long inputs
+            if len(input_str) > 80:
+                input_str = input_str[:77] + "..."
+            score_parts = []
+            for score_name, score_val in eval_result.scores.items():
+                if score_val is not None:
+                    score_parts.append(f"{score_name}={score_val:.2f}")
+                else:
+                    score_parts.append(f"{score_name}=N/A")
+            scores_str = ", ".join(score_parts)
+            error_str = " [ERROR]" if eval_result.error else ""
+            lines.append(f"  - {input_str}")
+            lines.append(f"    Scores: {scores_str}{error_str}")
+
+    lines.append(f"{'=' * 60}")
+    lines.append("")
+
+    print("\n".join(lines))  # noqa: T201
 
 
 MaxPublicEval = partial(BaseMaxEval, is_public=True, no_send_logs=False)
