@@ -5,10 +5,9 @@ import { LemonTag } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useOpenAi } from 'scenes/max/useOpenAi'
 
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { FEATURE_FLAGS } from '~/lib/constants'
-import { SidePanelTab } from '~/types'
 import type { Experiment } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
@@ -28,7 +27,12 @@ export const SummarizeSessionReplaysButton = ({
 }: SummarizeSessionReplaysButtonProps): JSX.Element | null => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { openMax } = useSessionReplaySummaryMaxTool()
-    const { openSidePanel } = useActions(sidePanelLogic)
+    /**
+     * The useOpenAi hook is not using OpenAI directly, but rather using the
+     * side panel logic to open the AI in a new tab.
+     * I know, it has a terrible name. But the side panel logic is being deprecated.
+     */
+    const { openAi: openPostHogAI } = useOpenAi()
     const { reportExperimentSessionReplaySummaryRequested } = useActions(experimentLogic)
 
     const useSkill = featureFlags[FEATURE_FLAGS.EXPERIMENT_SESSION_REPLAYS_SKILL]
@@ -38,8 +42,7 @@ export const SummarizeSessionReplaysButton = ({
         return null
     }
 
-    const experimentName = experiment.name || 'Unnamed experiment'
-    const skillPrompt = `Analyze session replays for experiment "${experimentName}" (ID: ${experiment.id}). Compare user behavior patterns across all variants.`
+    const skillPrompt = `Analyze session replays for experiment "${experiment.name}" (ID: ${experiment.id}). Compare user behavior patterns across all variants.`
 
     return (
         <LemonButton
@@ -47,9 +50,9 @@ export const SummarizeSessionReplaysButton = ({
             onClick={() => {
                 reportExperimentSessionReplaySummaryRequested(experiment)
                 if (useSkill) {
-                    // Open PostHog AI with skill-based prompt
-                    openSidePanel(SidePanelTab.Max, skillPrompt)
-                } else {
+                    // Open PostHog AI in a new tab with skill-based prompt
+                    openPostHogAI(skillPrompt)
+                } else if (openMax) {
                     // Use legacy MaxTool approach
                     openMax()
                 }
