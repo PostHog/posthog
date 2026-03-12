@@ -1077,6 +1077,51 @@
             "readOnlyHint": false
         }
     },
+    "conversations-tickets-list": {
+        "description": "List all support tickets in the project. Returns tickets with status, priority, channel source, assignee, message counts, and timestamps. Supports filtering by status, priority, channel, assignee, and date range.",
+        "category": "Support",
+        "feature": "conversations",
+        "summary": "List support tickets",
+        "title": "List support tickets",
+        "required_scopes": ["ticket:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "conversations-tickets-retrieve": {
+        "description": "Get a specific support ticket by ID or ticket number. Returns full ticket details including status, priority, assignee, message stats, and person data.",
+        "category": "Support",
+        "feature": "conversations",
+        "summary": "Get support ticket",
+        "title": "Get support ticket",
+        "required_scopes": ["ticket:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "conversations-tickets-partial-update": {
+        "description": "Update a support ticket. Can change status (new, open, pending, on_hold, resolved), priority (low, medium, high), assignee, or SLA due date.",
+        "category": "Support",
+        "feature": "conversations",
+        "summary": "Update support ticket",
+        "title": "Update support ticket",
+        "required_scopes": ["ticket:write"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "error-tracking-issues-list": {
         "description": "List all error tracking issues in the project. Returns issues with status, volume, first/last seen timestamps, and assignee info.",
         "category": "Error tracking",

@@ -1,6 +1,7 @@
 // AUTO-GENERATED from products/conversations/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Schemas } from '@/api/generated'
 import {
     ConversationsTicketsListQueryParams,
     ConversationsTicketsPartialUpdateBody,
@@ -11,12 +12,15 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ConversationsTicketsListSchema = ConversationsTicketsListQueryParams
 
-const conversationsTicketsList = (): ToolBase<typeof ConversationsTicketsListSchema> => ({
+const conversationsTicketsList = (): ToolBase<
+    typeof ConversationsTicketsListSchema,
+    Schemas.PaginatedTicketList & { _posthogUrl: string }
+> => ({
     name: 'conversations-tickets-list',
     schema: ConversationsTicketsListSchema,
     handler: async (context: Context, params: z.infer<typeof ConversationsTicketsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request({
+        const result = await context.api.request<Schemas.PaginatedTicketList>({
             method: 'GET',
             path: `/api/projects/${projectId}/conversations/tickets/`,
             query: {
@@ -24,18 +28,21 @@ const conversationsTicketsList = (): ToolBase<typeof ConversationsTicketsListSch
                 offset: params.offset,
             },
         })
-        return result
+        return {
+            ...(result as any),
+            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/conversations`,
+        }
     },
 })
 
 const ConversationsTicketsRetrieveSchema = ConversationsTicketsRetrieveParams.omit({ project_id: true })
 
-const conversationsTicketsRetrieve = (): ToolBase<typeof ConversationsTicketsRetrieveSchema> => ({
+const conversationsTicketsRetrieve = (): ToolBase<typeof ConversationsTicketsRetrieveSchema, Schemas.Ticket> => ({
     name: 'conversations-tickets-retrieve',
     schema: ConversationsTicketsRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof ConversationsTicketsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request({
+        const result = await context.api.request<Schemas.Ticket>({
             method: 'GET',
             path: `/api/projects/${projectId}/conversations/tickets/${params.id}/`,
         })
@@ -47,7 +54,10 @@ const ConversationsTicketsPartialUpdateSchema = ConversationsTicketsPartialUpdat
     project_id: true,
 }).extend(ConversationsTicketsPartialUpdateBody.shape)
 
-const conversationsTicketsPartialUpdate = (): ToolBase<typeof ConversationsTicketsPartialUpdateSchema> => ({
+const conversationsTicketsPartialUpdate = (): ToolBase<
+    typeof ConversationsTicketsPartialUpdateSchema,
+    Schemas.Ticket
+> => ({
     name: 'conversations-tickets-partial-update',
     schema: ConversationsTicketsPartialUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof ConversationsTicketsPartialUpdateSchema>) => {
@@ -71,7 +81,10 @@ const conversationsTicketsPartialUpdate = (): ToolBase<typeof ConversationsTicke
         if (params.sla_due_at !== undefined) {
             body['sla_due_at'] = params.sla_due_at
         }
-        const result = await context.api.request({
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        const result = await context.api.request<Schemas.Ticket>({
             method: 'PATCH',
             path: `/api/projects/${projectId}/conversations/tickets/${params.id}/`,
             body,
