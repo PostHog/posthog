@@ -3,6 +3,8 @@ from typing import cast
 
 from django.db.models import QuerySet
 
+import django_filters
+from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import exceptions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -26,33 +28,32 @@ from posthog.permissions import (
 logger = logging.getLogger(__name__)
 
 
+class CharInFilter(django_filters.BaseInFilter, django_filters.CharFilter):
+    pass
+
+
+class ChangeRequestFilterSet(django_filters.FilterSet):
+    state = CharInFilter(field_name="state", lookup_expr="in")
+    action_key = django_filters.CharFilter(field_name="action_key")
+    requester = django_filters.NumberFilter(field_name="created_by_id")
+    resource_type = django_filters.CharFilter(field_name="resource_type")
+    resource_id = django_filters.CharFilter(field_name="resource_id")
+
+    class Meta:
+        model = ChangeRequest
+        fields: list[str] = []
+
+
 class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "INTERNAL"
     queryset = ChangeRequest.objects.all().order_by("-created_at")
     permission_classes = [OrganizationMemberPermissions, PremiumFeaturePermission]
     premium_feature_on_cloud = AvailableFeature.APPROVALS
     serializer_class = ChangeRequestSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = ChangeRequestFilterSet
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        filters = self.request.query_params
-
-        if "state" in filters:
-            states = filters["state"].split(",")
-            queryset = queryset.filter(state__in=states)
-
-        action_filter = filters.get("action_type") or filters.get("action_key")
-        if action_filter:
-            queryset = queryset.filter(action_key=action_filter)
-
-        if "requester" in filters:
-            queryset = queryset.filter(created_by_id=filters["requester"])
-
-        if "resource_type" in filters:
-            queryset = queryset.filter(resource_type=filters["resource_type"])
-
-        if "resource_id" in filters:
-            queryset = queryset.filter(resource_id=filters["resource_id"])
-
         return queryset.select_related("created_by", "applied_by").prefetch_related("approvals")
 
     @action(methods=["POST"], detail=True, permission_classes=[PremiumFeaturePermission, CanApprove])
@@ -62,7 +63,7 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
         If quorum is reached, automatically applies the change immediately.
         """
         change_request: ChangeRequest = self.get_object()
-        service = ChangeRequestService(change_request, cast(User, request.user))
+        service = ChangeRequestService(change_request, cast(User, request.user), request=request)
 
         try:
             result = service.approve(reason=request.data.get("reason", ""))
@@ -94,7 +95,7 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
     def reject(self, request: Request, pk=None, **kwargs) -> Response:
         """Reject a change request."""
         change_request: ChangeRequest = self.get_object()
-        service = ChangeRequestService(change_request, cast(User, request.user))
+        service = ChangeRequestService(change_request, cast(User, request.user), request=request)
 
         try:
             result = service.reject(reason=request.data.get("reason", ""))
@@ -130,7 +131,7 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
         Only the requester can cancel their own pending change request.
         """
         change_request: ChangeRequest = self.get_object()
-        service = ChangeRequestService(change_request, cast(User, request.user))
+        service = ChangeRequestService(change_request, cast(User, request.user), request=request)
 
         try:
             result = service.cancel(reason=request.data.get("reason", "Canceled by requester"))

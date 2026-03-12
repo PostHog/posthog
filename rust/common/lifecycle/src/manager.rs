@@ -103,6 +103,7 @@ pub struct ComponentOptions {
     liveness_deadline: Option<Duration>,
     stall_threshold: u32,
     pub(crate) is_observability: bool,
+    pub(crate) is_advisory: bool,
     config_errors: Vec<String>,
 }
 
@@ -114,6 +115,7 @@ impl ComponentOptions {
             liveness_deadline: None,
             stall_threshold: 1,
             is_observability: false,
+            is_advisory: false,
             config_errors: Vec::new(),
         }
     }
@@ -126,6 +128,17 @@ impl ComponentOptions {
     /// (see test `observability_handle_shuts_down_after_standard_handles`)
     pub fn is_observability(mut self, enabled: bool) -> Self {
         self.is_observability = enabled;
+        self
+    }
+
+    /// Mark this component as advisory. Advisory handles participate in health
+    /// monitoring (gauge updates, `is_healthy()` queries) but stalls do NOT
+    /// trigger global shutdown. The monitor does not wait for advisory handles
+    /// during shutdown. Requires `with_liveness_deadline`. Cannot combine with
+    /// `is_observability`.
+    /// (see test `advisory_handle_stall_does_not_trigger_shutdown`)
+    pub fn is_advisory(mut self, enabled: bool) -> Self {
+        self.is_advisory = enabled;
         self
     }
 
@@ -238,8 +251,26 @@ impl Manager {
             options.config_errors.join("; ")
         );
         assert!(
-            !self.components.contains_key(tag) && !self.observability_components.contains_key(tag),
+            !self.components.contains_key(tag)
+                && !self.observability_components.contains_key(tag)
+                && !self.liveness_components.iter().any(|c| c.tag == tag),
             "component '{}' registered more than once",
+            tag
+        );
+        assert!(
+            !(options.is_advisory && options.is_observability),
+            "component '{}': advisory handles cannot be observability handles",
+            tag
+        );
+        assert!(
+            !(options.is_advisory && options.liveness_deadline.is_none()),
+            "component '{}': advisory handles require with_liveness_deadline",
+            tag
+        );
+        assert!(
+            !(options.is_advisory && options.graceful_shutdown.is_some()),
+            "component '{}': advisory handles are not waited on during shutdown; \
+             with_graceful_shutdown has no effect",
             tag
         );
         assert!(
@@ -249,6 +280,7 @@ impl Manager {
         );
 
         let healthy_until_ms = Arc::new(AtomicI64::new(HEALTH_STARTING));
+        let health_flag = Arc::new(std::sync::atomic::AtomicBool::new(true));
         let tag_owned = tag.to_string();
         let is_obs = options.is_observability;
 
@@ -264,10 +296,13 @@ impl Manager {
                 healthy_until_ms: healthy_until_ms.clone(),
                 stall_threshold: options.stall_threshold,
                 health_gauge,
+                advisory: options.is_advisory,
+                health_flag: health_flag.clone(),
             });
 
             debug!(
                 component = %tag_owned,
+                advisory = options.is_advisory,
                 graceful_shutdown_secs = options.graceful_shutdown.map(|d| d.as_secs_f64()),
                 liveness_deadline_secs = deadline.as_secs_f64(),
                 stall_threshold = options.stall_threshold,
@@ -282,18 +317,20 @@ impl Manager {
             );
         }
 
-        let target_map = if is_obs {
-            &mut self.observability_components
-        } else {
-            &mut self.components
-        };
-        target_map.insert(
-            tag_owned.clone(),
-            ComponentState {
-                graceful_shutdown: options.graceful_shutdown,
-                phase: ShutdownPhase::Running,
-            },
-        );
+        if !options.is_advisory {
+            let target_map = if is_obs {
+                &mut self.observability_components
+            } else {
+                &mut self.components
+            };
+            target_map.insert(
+                tag_owned.clone(),
+                ComponentState {
+                    graceful_shutdown: options.graceful_shutdown,
+                    phase: ShutdownPhase::Running,
+                },
+            );
+        }
 
         let shutdown_token = if is_obs {
             self.observability_shutdown_token.clone()
@@ -307,6 +344,7 @@ impl Manager {
             event_tx: self.event_tx_slot.clone(),
             healthy_until_ms,
             liveness_deadline: options.liveness_deadline,
+            health_flag,
             completed: std::sync::atomic::AtomicBool::new(false),
             process_scope_signalled: std::sync::atomic::AtomicBool::new(false),
         });
@@ -457,21 +495,25 @@ impl Manager {
 
                                 if healthy {
                                     stall_counts[i] = 0;
+                                    comp.health_flag.store(true, Ordering::Relaxed);
                                 } else {
                                     stall_counts[i] += 1;
                                     if stall_counts[i] >= comp.stall_threshold {
-                                        warn!(
-                                            component = %comp.tag,
-                                            status,
-                                            stall_count = stall_counts[i],
-                                            stall_threshold = comp.stall_threshold,
-                                            "Lifecycle: health stall threshold reached"
-                                        );
-                                        drop(health_event_tx.try_send(ComponentEvent::Failure {
-                                            tag: comp.tag.clone(),
-                                            reason: format!("health check {status} (stall count {}/{})", stall_counts[i], comp.stall_threshold),
-                                        }));
-                                        return;
+                                        comp.health_flag.store(false, Ordering::Relaxed);
+                                        if !comp.advisory {
+                                            warn!(
+                                                component = %comp.tag,
+                                                status,
+                                                stall_count = stall_counts[i],
+                                                stall_threshold = comp.stall_threshold,
+                                                "Lifecycle: health stall threshold reached"
+                                            );
+                                            drop(health_event_tx.try_send(ComponentEvent::Failure {
+                                                tag: comp.tag.clone(),
+                                                reason: format!("health check {status} (stall count {}/{})", stall_counts[i], comp.stall_threshold),
+                                            }));
+                                            return;
+                                        }
                                     }
                                 }
                             }

@@ -280,6 +280,50 @@ actions: PostgresTable = PostgresTable(
     },
 )
 
+hog_flows: PostgresTable = PostgresTable(
+    name="hog_flows",
+    postgres_table_name="posthog_hogflow",
+    access_scope="hog_flow",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "description": StringDatabaseField(name="description"),
+        "status": StringDatabaseField(name="status"),
+        "version": IntegerDatabaseField(name="version"),
+        "exit_condition": StringDatabaseField(name="exit_condition"),
+        "trigger": StringJSONDatabaseField(name="trigger"),
+        "edges": StringJSONDatabaseField(name="edges"),
+        "actions": StringJSONDatabaseField(name="actions"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
+hog_functions: PostgresTable = PostgresTable(
+    name="hog_functions",
+    postgres_table_name="posthog_hogfunction",
+    access_scope="hog_function",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "description": StringDatabaseField(name="description"),
+        "type": StringDatabaseField(name="type"),
+        "_enabled": BooleanDatabaseField(name="enabled", hidden=True),
+        "enabled": ExpressionField(name="enabled", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_enabled"])])),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "icon_url": StringDatabaseField(name="icon_url"),
+        "template_id": StringDatabaseField(name="template_id"),
+        "execution_order": IntegerDatabaseField(name="execution_order"),
+        "inputs_schema": StringJSONDatabaseField(name="inputs_schema"),
+        "filters": StringJSONDatabaseField(name="filters"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
 notebooks: PostgresTable = PostgresTable(
     name="notebooks",
     postgres_table_name="posthog_notebook",
@@ -330,6 +374,8 @@ class SystemTables(TableNode):
         "feature_flags": TableNode(name="feature_flags", table=feature_flags),
         "groups": TableNode(name="groups", table=groups),
         "group_type_mappings": TableNode(name="group_type_mappings", table=group_type_mappings),
+        "hog_flows": TableNode(name="hog_flows", table=hog_flows),
+        "hog_functions": TableNode(name="hog_functions", table=hog_functions),
         "ingestion_warnings": TableNode(name="ingestion_warnings", table=IngestionWarningsTable()),
         "insight_variables": TableNode(name="insight_variables", table=insight_variables),
         "insights": TableNode(name="insights", table=insights),

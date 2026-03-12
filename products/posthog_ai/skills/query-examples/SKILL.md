@@ -1,6 +1,6 @@
 ---
 name: query-examples
-description: 'HogQL query examples and reference material for PostHog data. Read when writing SQL queries to find patterns for analytics (trends, funnels, retention, lifecycle, paths, stickiness, web analytics, error tracking, logs, sessions, LLM traces) and system data (insights, dashboards, cohorts, feature flags, experiments, surveys, data warehouse). Includes HogQL syntax differences, system model schemas, and available functions.'
+description: 'HogQL query examples and reference material for PostHog data. Read when writing SQL queries to find patterns for analytics (trends, funnels, retention, lifecycle, paths, stickiness, web analytics, error tracking, logs, sessions, LLM traces) and system data (insights, dashboards, cohorts, feature flags, experiments, surveys, hog flows, data warehouse). Includes HogQL syntax differences, system model schemas, and available functions.'
 ---
 
 # Querying data in PostHog
@@ -18,9 +18,11 @@ Schema reference for PostHog's core system models, organized by domain:
 - [Error Tracking](./references/models-error-tracking.md)
 - [Flags & Experiments](./references/models-flags-experiments.md)
 - [Groups](./references/models-groups.md)
+- [Hog Flows](./references/models-hog-flows.md)
 - [Notebooks](./references/models-notebooks.md)
 - [Surveys](./references/models-surveys.md)
 - [SQL Variables](./references/models-variables.md)
+- [Skipped events in the read-data-schema tool](./references/taxonomy-skipped-events.md)
 
 ## HogQL References
 
@@ -49,3 +51,4 @@ Use the examples below to create optimized analytical queries.
 - [Logs (filtering by severity and searching for a term)](./references/example-logs.md)
 - [Sessions (listing sessions with duration, pageviews, and bounce rate)](./references/example-sessions.md)
 - [Session replay (listing recordings with activity filters)](./references/example-session-replay.md)
+- [Team taxonomy (top events by count, paginated)](./references/example-team-taxonomy.md)

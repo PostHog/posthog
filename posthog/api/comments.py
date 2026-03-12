@@ -164,6 +164,10 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
 
         if params.get("scope"):
             queryset = queryset.filter(scope=params.get("scope"))
+        else:
+            # Exclude conversations_ticket comments by default - they use rich content
+            # from SupportEditor and should only be viewed in the conversations product
+            queryset = queryset.exclude(scope="conversations_ticket")
 
         if params.get("item_id"):
             queryset = queryset.filter(item_id=params.get("item_id"))

@@ -6,20 +6,17 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import TemporaryTokenAuthentication
 from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 from posthog.rbac.user_access_control import UserAccessControlError
 
 
-# This is a simple wrapper around a basic query, so that's why `scope_object = "query"`
-# This `Viewset` does need to exist, however, because we need to support the `TemporaryTokenAuthentication` method
 class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "query"
-    authentication_classes = [TemporaryTokenAuthentication]
-
     """
     Get web vitals for a specific pathname.
+    Toolbar accesses this via OAuth (handled by TeamAndOrgViewSetMixin.get_authenticators).
     """
+
+    scope_object = "query"
 
     @extend_schema(
         parameters=[
@@ -35,6 +32,7 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.ValidationError({"pathname": "This field is required."})
 
         query_runner = get_query_runner(
+            request=request,
             query={
                 "kind": "TrendsQuery",
                 "dateRange": {"date_from": "-7d", "explicitDate": False},

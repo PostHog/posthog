@@ -2042,6 +2042,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Whether the evaluation criteria was applicable to this generation (only present when N/A is allowed).",
             "examples": [True, False],
         },
+        "$ai_evaluation_runtime": {
+            "label": "AI Evaluation Runtime (LLM)",
+            "description": "The runtime used to execute the evaluation (e.g., llm_judge for LLM-based, hog for code-based).",
+            "examples": ["llm_judge", "hog"],
+        },
         "$ai_target_event_id": {
             "label": "AI Target Event ID (LLM)",
             "description": "The unique identifier of the event being evaluated.",
@@ -2576,3 +2581,9 @@ PROPERTY_NAME_ALIASES_BY_TYPE: dict[str, dict[str, str]] = {
     }
     for prop_type, group_name in _PROP_TYPE_TO_TAXONOMY_GROUP.items()
 }
+
+IGNORED_EVENT_NAMES: list[str] = [
+    name
+    for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items()
+    if defn.get("system") or defn.get("ignored_in_assistant")
+]

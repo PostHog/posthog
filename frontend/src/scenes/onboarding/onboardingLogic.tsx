@@ -2,8 +2,8 @@ import { actions, connect, kea, listeners, path, props, reducers, selectors } fr
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isKeyOf } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -67,7 +67,7 @@ export const getOnboardingCompleteRedirectUri = (productKey: ProductKey): string
         case ProductKey.FEATURE_FLAGS:
             return urls.featureFlags()
         case ProductKey.SURVEYS:
-            return urls.surveyTemplates()
+            return urls.surveyWizard()
         case ProductKey.ERROR_TRACKING:
             return urls.errorTracking()
         case ProductKey.LLM_ANALYTICS:
@@ -241,29 +241,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 return !billingProduct?.subscribed || subscribedDuringOnboarding
             },
         ],
-        shouldShowReverseProxyStep: [
-            (s) => [s.productKey, s.isCloudOrDev, s.preflight, s.featureFlags],
-            (productKey, isCloudOrDev, preflight, featureFlags) => {
-                if (
-                    !featureFlags[FEATURE_FLAGS.ONBOARDING_REVERSE_PROXY] ||
-                    !isCloudOrDev ||
-                    !preflight?.instance_preferences?.cloudflare_proxy_enabled
-                ) {
-                    return false
-                }
-                const clientSideProducts = [
-                    ProductKey.PRODUCT_ANALYTICS,
-                    ProductKey.WEB_ANALYTICS,
-                    ProductKey.SESSION_REPLAY,
-                    ProductKey.FEATURE_FLAGS,
-                    ProductKey.EXPERIMENTS,
-                    ProductKey.SURVEYS,
-                    ProductKey.ERROR_TRACKING,
-                    ProductKey.LLM_ANALYTICS,
-                ]
-                return productKey && clientSideProducts.includes(productKey as ProductKey)
-            },
-        ],
         shouldShowDataWarehouseStep: [
             (s) => [s.productKey],
             (productKey) => {
@@ -315,7 +292,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
         },
         setProductKey: ({ productKey }) => {
-            if (!productKey) {
+            if (!productKey || !isKeyOf(productKey, availableOnboardingProducts)) {
                 window.location.href = urls.default()
                 return
             }

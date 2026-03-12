@@ -9,6 +9,7 @@ import {
     type CreatedResources,
     SAMPLE_FUNNEL_QUERIES,
     SAMPLE_HOGQL_QUERIES,
+    SAMPLE_PATHS_QUERIES,
     SAMPLE_TREND_QUERIES,
     TEST_ORG_ID,
     TEST_PROJECT_ID,
@@ -311,6 +312,54 @@ describe('Query Integration Tests', () => {
             } catch (error: any) {
                 expect(error).toBeTruthy()
             }
+        })
+    })
+
+    describe('Paths Query Execution', () => {
+        it('should execute basic pageview paths query successfully', async () => {
+            const query = SAMPLE_PATHS_QUERIES.basicPageviewPaths
+
+            const result = await executeQuery(context, query, 'basicPageviewPaths')
+            const { results, query: queryResponse } = assertQueryResponse(result, 'PathsQuery')
+            assertSeriesResults(results)
+
+            expect(queryResponse.pathsFilter).not.toBeUndefined()
+            expect(queryResponse.pathsFilter.includeEventTypes).toContain('$pageview')
+        })
+
+        it('should execute custom event paths query successfully', async () => {
+            const query = SAMPLE_PATHS_QUERIES.customEventPaths
+
+            const result = await executeQuery(context, query, 'customEventPaths')
+            const { results, query: queryResponse } = assertQueryResponse(result, 'PathsQuery')
+            assertSeriesResults(results)
+
+            expect(queryResponse.pathsFilter).not.toBeUndefined()
+            expect(queryResponse.pathsFilter.includeEventTypes).toContain('custom_event')
+            expect(queryResponse.pathsFilter.excludeEvents).toContain('$feature_flag_called')
+        })
+
+        it('should execute paths query with start point successfully', async () => {
+            const query = SAMPLE_PATHS_QUERIES.pathsWithStartPoint
+
+            const result = await executeQuery(context, query, 'pathsWithStartPoint')
+            const { results, query: queryResponse } = assertQueryResponse(result, 'PathsQuery')
+            assertSeriesResults(results)
+
+            expect(queryResponse.pathsFilter).not.toBeUndefined()
+            expect(queryResponse.pathsFilter.startPoint).toBe(query.source.pathsFilter.startPoint)
+        })
+
+        it('should execute paths query with HogQL expression successfully', async () => {
+            const query = SAMPLE_PATHS_QUERIES.pathsWithHogQL
+
+            const result = await executeQuery(context, query, 'pathsWithHogQL')
+            const { results, query: queryResponse } = assertQueryResponse(result, 'PathsQuery')
+            assertSeriesResults(results)
+
+            expect(queryResponse.pathsFilter).not.toBeUndefined()
+            expect(queryResponse.pathsFilter.includeEventTypes).toContain('hogql')
+            expect(queryResponse.pathsFilter.pathsHogQLExpression).toBe(query.source.pathsFilter.pathsHogQLExpression)
         })
     })
 })

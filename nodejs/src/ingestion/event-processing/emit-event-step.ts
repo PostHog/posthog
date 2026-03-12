@@ -1,32 +1,40 @@
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { ingestionLagGauge, ingestionLagHistogram } from '../../common/metrics'
-import { KafkaProducerWrapper } from '../../kafka/producer'
-import { EventHeaders, RawKafkaEvent } from '../../types'
+import { EventHeaders, ProcessedEvent, RawKafkaEvent, TimestampFormat } from '../../types'
 import { MessageSizeTooLarge } from '../../utils/db/error'
+import { safeClickhouseString } from '../../utils/db/utils'
+import { castTimestampOrNow, castTimestampToClickhouseFormat } from '../../utils/utils'
 import { eventProcessedAndIngestedCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
-import { PipelineResult, ok } from '../pipelines/results'
+import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
+import { IngestionOutputs } from './ingestion-outputs'
 
-export interface EmitEventStepConfig {
-    kafkaProducer: KafkaProducerWrapper
-    clickhouseJsonEventsTopic: string
+export interface EventToEmit<O extends string> {
+    event: ProcessedEvent
+    output: O
+}
+
+export interface EmitEventStepConfig<O extends string> {
+    outputs: IngestionOutputs<O>
     groupId: string
 }
 
-export interface EmitEventStepInput {
-    eventToEmit: RawKafkaEvent
+export interface EmitEventStepInput<O extends string> {
+    eventsToEmit: EventToEmit<O>[]
+    teamId: number
     headers: EventHeaders
     message: Message
 }
 
-export function createEmitEventStep<T extends EmitEventStepInput>(
-    config: EmitEventStepConfig
+export function createEmitEventStep<O extends string, T extends EmitEventStepInput<O>>(
+    config: EmitEventStepConfig<O>
 ): ProcessingStep<T, void> {
-    return function emitEventStep(input: T): Promise<PipelineResult<void>> {
-        const { eventToEmit, headers, message } = input
-        const { kafkaProducer, clickhouseJsonEventsTopic, groupId } = config
+    return function emitEventStep(input) {
+        const { eventsToEmit, headers, message } = input
+        const { outputs, groupId } = config
 
         // Record ingestion lag metric if we have the required data
         if (headers?.now && message?.topic !== undefined && message?.partition !== undefined) {
@@ -35,40 +43,71 @@ export function createEmitEventStep<T extends EmitEventStepInput>(
             ingestionLagHistogram.labels({ groupId, partition: String(message.partition) }).observe(lag)
         }
 
-        // TODO: It's not great that we put the produce outcome in side effects, we should probably await it here
-        //       but it might slow the pipeline down. Historically, it has always been like that.
-        //       We should investigate this later.
-        const emitPromise = kafkaProducer
-            .produce({
-                topic: clickhouseJsonEventsTopic,
-                key: eventToEmit.uuid,
-                value: Buffer.from(JSON.stringify(eventToEmit)),
-                headers: { productTrack: productTrackHeader(eventToEmit) },
-            })
-            .then((result) => {
-                // Increment the metric when event is successfully emitted
-                eventProcessedAndIngestedCounter.inc()
-                return result
-            })
-            .catch(async (error) => {
-                // TODO: For now we have to live with the ingestion warning happening here
-                //       Once the batch pipelines support warnings, we'll put it in the result
-                // Some messages end up significantly larger than the original
-                // after plugin processing, person & group enrichment, etc.
-                if (error instanceof MessageSizeTooLarge) {
-                    await captureIngestionWarning(kafkaProducer, eventToEmit.team_id, 'message_size_too_large', {
-                        eventUuid: eventToEmit.uuid,
-                        distinctId: eventToEmit.distinct_id,
-                    })
-                } else {
-                    throw error
-                }
-            })
+        const sideEffects: Promise<void>[] = []
 
-        return Promise.resolve(ok(undefined, [emitPromise]))
+        for (const { event, output } of eventsToEmit) {
+            const { topic, producer } = outputs.resolve(output)
+            const serialized = serializeEvent(event)
+
+            // TODO: It's not great that we put the produce outcome in side effects, we should probably await it here
+            //       but it might slow the pipeline down. Historically, it has always been like that.
+            //       We should investigate this later.
+            const emitPromise = producer
+                .produce({
+                    topic,
+                    key: serialized.uuid,
+                    value: Buffer.from(JSON.stringify(serialized)),
+                    headers: { productTrack: productTrackHeader(event) },
+                })
+                .then((result) => {
+                    eventProcessedAndIngestedCounter.inc()
+                    return result
+                })
+                .catch(async (error) => {
+                    // TODO: For now we have to live with the ingestion warning happening here
+                    //       Once the batch pipelines support warnings, we'll put it in the result
+                    // Some messages end up significantly larger than the original
+                    // after plugin processing, person & group enrichment, etc.
+                    if (error instanceof MessageSizeTooLarge) {
+                        await captureIngestionWarning(producer, serialized.team_id, 'message_size_too_large', {
+                            eventUuid: serialized.uuid,
+                            distinctId: serialized.distinct_id,
+                        })
+                    } else {
+                        throw error
+                    }
+                })
+
+            sideEffects.push(emitPromise)
+        }
+
+        return Promise.resolve(ok(undefined, sideEffects))
     }
 }
 
-export function productTrackHeader(event: RawKafkaEvent): string {
+export function serializeEvent(event: ProcessedEvent): RawKafkaEvent {
+    return {
+        uuid: event.uuid,
+        event: safeClickhouseString(event.event),
+        properties: JSON.stringify(event.properties ?? {}),
+        timestamp: castTimestampOrNow(event.timestamp, TimestampFormat.ClickHouse),
+        team_id: event.team_id,
+        project_id: event.project_id,
+        distinct_id: safeClickhouseString(event.distinct_id),
+        elements_chain: safeClickhouseString(event.elements_chain),
+        created_at: castTimestampOrNow(null, TimestampFormat.ClickHouse),
+        captured_at:
+            event.captured_at !== null
+                ? castTimestampToClickhouseFormat(DateTime.fromJSDate(event.captured_at), TimestampFormat.ClickHouse)
+                : null,
+        person_id: event.person_id,
+        person_properties: JSON.stringify(event.person_properties ?? {}),
+        person_created_at: castTimestampOrNow(event.person_created_at, TimestampFormat.ClickHouseSecondPrecision),
+        person_mode: event.person_mode,
+        ...(event.historical_migration ? { historical_migration: true } : {}),
+    }
+}
+
+export function productTrackHeader(event: ProcessedEvent): string {
     return event.event.startsWith('$ai_') ? 'llma' : 'general'
 }

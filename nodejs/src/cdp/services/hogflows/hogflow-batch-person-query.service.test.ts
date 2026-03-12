@@ -30,7 +30,7 @@ describe('HogFlowBatchPersonQueryService', () => {
     })
 
     const createService = (): HogFlowBatchPersonQueryService => {
-        return new HogFlowBatchPersonQueryService('http://localhost:8000', { fetch: fetchMock } as any)
+        return new HogFlowBatchPersonQueryService({ fetch: fetchMock } as any)
     }
 
     describe('getBlastRadius', () => {

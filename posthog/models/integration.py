@@ -40,6 +40,7 @@ from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
+from posthog.rbac.decorators import field_access_control
 from posthog.security.outbound_proxy import external_requests
 from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
@@ -91,6 +92,7 @@ ERROR_TOKEN_REFRESH_FAILED = "TOKEN_REFRESH_FAILED"
 class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
         SLACK = "slack"
+        SLACK_TWIG = "slack-twig"
         SALESFORCE = "salesforce"
         HUBSPOT = "hubspot"
         GOOGLE_PUBSUB = "google-pubsub"
@@ -120,14 +122,18 @@ class Integration(models.Model):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
     # The integration type identifier
-    kind = models.CharField(max_length=20, choices=IntegrationKind.choices)
+    kind = field_access_control(models.CharField(max_length=20, choices=IntegrationKind.choices), "project", "admin")
     # The ID of the integration in the external system
-    integration_id = models.TextField(null=True, blank=True)
+    integration_id = field_access_control(models.TextField(null=True, blank=True), "project", "admin")
     # Any config that COULD be passed to the frontend
-    config = models.JSONField(default=dict)
-    sensitive_config = EncryptedJSONField(
-        default=dict,
-        ignore_decrypt_errors=True,  # allows us to load previously unencrypted data
+    config = field_access_control(models.JSONField(default=dict), "project", "admin")
+    sensitive_config = field_access_control(
+        EncryptedJSONField(
+            default=dict,
+            ignore_decrypt_errors=True,  # allows us to load previously unencrypted data
+        ),
+        "project",
+        "admin",
     )
 
     errors = models.TextField()
@@ -219,6 +225,7 @@ POSTHOG_SLACK_SCOPE = ",".join(
 class OauthIntegration:
     supported_kinds = [
         "slack",
+        "slack-twig",
         "salesforce",
         "hubspot",
         "google-ads",
@@ -264,6 +271,19 @@ class OauthIntegration:
                 client_id=from_settings["SLACK_APP_CLIENT_ID"],
                 client_secret=from_settings["SLACK_APP_CLIENT_SECRET"],
                 scope=POSTHOG_SLACK_SCOPE,
+                id_path="team.id",
+                name_path="team.name",
+            )
+        elif kind == "slack-twig":
+            if not settings.SLACK_TWIG_CLIENT_ID or not settings.SLACK_TWIG_CLIENT_SECRET:
+                raise NotImplementedError("Twig Slack app not configured")
+
+            return OauthConfig(
+                authorize_url="https://slack.com/oauth/v2/authorize",
+                token_url="https://slack.com/api/oauth.v2.access",
+                client_id=settings.SLACK_TWIG_CLIENT_ID,
+                client_secret=settings.SLACK_TWIG_CLIENT_SECRET,
+                scope="app_mentions:read,channels:read,groups:read,channels:history,groups:history,chat:write,reactions:write,users:read,users:read.email",
                 id_path="team.id",
                 name_path="team.name",
             )
@@ -520,6 +540,8 @@ class OauthIntegration:
     @classmethod
     def redirect_uri(cls, kind: str) -> str:
         # The redirect uri is fixed but should always be https and include the "next" parameter for the frontend to redirect
+        if settings.DEBUG and settings.NGROK_URL:
+            return f"{settings.NGROK_URL}/integrations/{kind}/callback"
         return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
 
     @classmethod
@@ -870,6 +892,13 @@ class OauthIntegration:
             logger.info(f"Refreshed access token for {self}")
             self.integration.sensitive_config["access_token"] = config["access_token"]
 
+            # Some providers (e.g. Atlassian/Jira) rotate refresh tokens — each
+            # refresh response includes a new refresh_token and the old one is
+            # invalidated.  Always store the latest one to avoid "invalid refresh
+            # token" errors on subsequent refreshes.
+            if config.get("refresh_token"):
+                self.integration.sensitive_config["refresh_token"] = config["refresh_token"]
+
             # Handle case where Salesforce doesn't provide expires_in in refresh response
             expires_in = config.get("expires_in")
             if not expires_in and self.integration.kind == "salesforce":
@@ -892,7 +921,7 @@ class SlackIntegration:
     integration: Integration
 
     def __init__(self, integration: Integration) -> None:
-        if integration.kind != "slack":
+        if integration.kind not in ("slack", "slack-twig"):
             raise Exception("SlackIntegration init called with Integration with wrong 'kind'")
 
         self.integration = integration
@@ -973,36 +1002,8 @@ class SlackIntegration:
 
     @classmethod
     def validate_request(cls, request: HttpRequest | Request):
-        """
-        Based on https://api.slack.com/authentication/verifying-requests-from-slack
-        """
         slack_config = cls.slack_config()
-        slack_signature = request.headers.get("X-SLACK-SIGNATURE")
-        slack_time = request.headers.get("X-SLACK-REQUEST-TIMESTAMP")
-
-        if not slack_config["SLACK_APP_SIGNING_SECRET"] or not slack_signature or not slack_time:
-            raise SlackIntegrationError("Invalid")
-
-        # Check the token is not older than 5mins
-        try:
-            if time.time() - float(slack_time) > 300:
-                raise SlackIntegrationError("Expired")
-        except ValueError:
-            raise SlackIntegrationError("Invalid")
-
-        sig_basestring = f"v0:{slack_time}:{request.body.decode('utf-8')}"
-
-        my_signature = (
-            "v0="
-            + hmac.new(
-                slack_config["SLACK_APP_SIGNING_SECRET"].encode("utf-8"),
-                sig_basestring.encode("utf-8"),
-                digestmod=hashlib.sha256,
-            ).hexdigest()
-        )
-
-        if not hmac.compare_digest(my_signature, slack_signature):
-            raise SlackIntegrationError("Invalid")
+        validate_slack_request(request, slack_config["SLACK_APP_SIGNING_SECRET"])
 
     @classmethod
     @cache_for(timedelta(minutes=5))
@@ -1016,6 +1017,46 @@ class SlackIntegration:
         )
 
         return config
+
+    @classmethod
+    def twig_slack_config(cls) -> dict[str, str]:
+        return {
+            "SLACK_TWIG_CLIENT_ID": settings.SLACK_TWIG_CLIENT_ID,
+            "SLACK_TWIG_CLIENT_SECRET": settings.SLACK_TWIG_CLIENT_SECRET,
+            "SLACK_TWIG_SIGNING_SECRET": settings.SLACK_TWIG_SIGNING_SECRET,
+        }
+
+
+def validate_slack_request(request: HttpRequest | Request, signing_secret: str) -> None:
+    """
+    Validate a Slack request using HMAC-SHA256 signature verification.
+    Based on https://api.slack.com/authentication/verifying-requests-from-slack
+    """
+    slack_signature = request.headers.get("X-SLACK-SIGNATURE")
+    slack_time = request.headers.get("X-SLACK-REQUEST-TIMESTAMP")
+
+    if not signing_secret or not slack_signature or not slack_time:
+        raise SlackIntegrationError("Invalid")
+
+    try:
+        if time.time() - float(slack_time) > 300:
+            raise SlackIntegrationError("Expired")
+    except ValueError:
+        raise SlackIntegrationError("Invalid")
+
+    sig_basestring = f"v0:{slack_time}:{request.body.decode('utf-8')}"
+
+    my_signature = (
+        "v0="
+        + hmac.new(
+            signing_secret.encode("utf-8"),
+            sig_basestring.encode("utf-8"),
+            digestmod=hashlib.sha256,
+        ).hexdigest()
+    )
+
+    if not hmac.compare_digest(my_signature, slack_signature):
+        raise SlackIntegrationError("Invalid")
 
 
 class GoogleAdsIntegration:
@@ -1822,7 +1863,7 @@ class GitHubIntegration:
     def organization(self) -> str:
         return dot_get(self.integration.config, "account.name")
 
-    def list_repositories(self, page: int = 1) -> list[str]:
+    def list_repositories(self, page: int = 1) -> list[dict]:
         # Proactively refresh token if it's close to expiring to avoid intermittent 401s
         try:
             if self.access_token_expired():
@@ -1841,38 +1882,66 @@ class GitHubIntegration:
                 },
             )
 
-        response = fetch()
+        transient_status_codes = {502, 503, 504}
 
-        # If unauthorized, try a single refresh and retry
-        if response.status_code == 401:
+        for attempt in range(2):
+            response = fetch()
+
+            # If unauthorized, try a single refresh and retry
+            if response.status_code == 401:
+                try:
+                    self.refresh_access_token()
+                except Exception:
+                    logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
+                else:
+                    response = fetch()
+
             try:
-                self.refresh_access_token()
+                body = response.json()
             except Exception:
-                logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
-            else:
-                response = fetch()
+                if response.status_code in transient_status_codes and attempt == 0:
+                    logger.info(
+                        "GitHubIntegration: list_repositories retrying transient non-JSON response",
+                        status_code=response.status_code,
+                    )
+                    continue
 
-        try:
-            body = response.json()
-        except Exception:
+                logger.warning(
+                    "GitHubIntegration: list_repositories non-JSON response",
+                    status_code=response.status_code,
+                )
+                return []
+
+            repositories = body.get("repositories")
+            if response.status_code == 200 and isinstance(repositories, list):
+                return [
+                    {
+                        "id": repo["id"],
+                        "name": repo["name"],
+                        "full_name": repo["full_name"],
+                    }
+                    for repo in repositories
+                    if isinstance(repo, dict)
+                    and isinstance(repo.get("id"), int)
+                    and isinstance(repo.get("name"), str)
+                    and isinstance(repo.get("full_name"), str)
+                ]
+
+            if response.status_code in transient_status_codes and attempt == 0:
+                logger.info(
+                    "GitHubIntegration: list_repositories retrying transient error",
+                    status_code=response.status_code,
+                    error=body if isinstance(body, dict) else None,
+                )
+                continue
+
             logger.warning(
-                "GitHubIntegration: list_repositories non-JSON response",
+                "GitHubIntegration: failed to list repositories",
                 status_code=response.status_code,
+                error=body if isinstance(body, dict) else None,
             )
             return []
 
-        repositories = body.get("repositories")
-        if response.status_code == 200 and isinstance(repositories, list):
-            names: list[str] = [
-                repo["name"] for repo in repositories if isinstance(repo, dict) and isinstance(repo.get("name"), str)
-            ]
-            return names
-
-        logger.warning(
-            "GitHubIntegration: failed to list repositories",
-            status_code=response.status_code,
-            error=body if isinstance(body, dict) else None,
-        )
         return []
 
     def get_top_starred_repository(self) -> str | None:
@@ -1929,6 +1998,67 @@ class GitHubIntegration:
             return full_name.lower()
 
         return None
+
+    def list_branches(self, repo: str) -> list[str]:
+        """List branches for a given repository via the GitHub API."""
+        try:
+            if self.access_token_expired():
+                self.refresh_access_token()
+        except Exception:
+            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
+
+        def fetch(page: int = 1) -> requests.Response:
+            access_token = self.integration.sensitive_config.get("access_token")
+            return external_requests.get(
+                f"https://api.github.com/repos/{repo}/branches?per_page=100&page={page}",
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                timeout=10,
+            )
+
+        try:
+            response = fetch()
+        except requests.RequestException:
+            logger.warning("GitHubIntegration: list_branches network error", repo=repo, exc_info=True)
+            return []
+
+        if response.status_code == 401:
+            try:
+                self.refresh_access_token()
+            except Exception:
+                logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
+                return []
+            else:
+                try:
+                    response = fetch()
+                except requests.RequestException:
+                    logger.warning("GitHubIntegration: list_branches network error on retry", repo=repo, exc_info=True)
+                    return []
+
+        if response.status_code != 200:
+            logger.warning(
+                "GitHubIntegration: failed to list branches",
+                status_code=response.status_code,
+                repo=repo,
+            )
+            return []
+
+        try:
+            body = response.json()
+        except Exception:
+            logger.warning(
+                "GitHubIntegration: list_branches non-JSON response",
+                status_code=response.status_code,
+            )
+            return []
+
+        if not isinstance(body, list):
+            return []
+
+        return [branch["name"] for branch in body if isinstance(branch, dict) and isinstance(branch.get("name"), str)]
 
     def create_issue(self, config: dict[str, str]):
         title: str = config.pop("title")
@@ -2565,3 +2695,29 @@ class AzureBlobIntegration:
             if part.startswith("AccountName="):
                 return part.split("=", 1)[1]
         return None
+
+
+# TODO: This is a placeholder currently only used to store the scopes we use for Stripe
+# It should be extended with the actual integration code once we move over to OAuth for Stripe as well
+class StripeIntegration:
+    integration: Integration
+
+    # These are the scopes we'll give Stripe when creating a local OAuth App
+    # and sending them access
+    SCOPES = " ".join(
+        [
+            "query:read",
+            "conversation:read",
+            "conversation:write",
+            "experiment:read",
+            "feature_flag:read",
+            "organization:read",
+            "person:read",
+            "project:read",
+            "ticket:read",
+            "ticket:write",
+            "user:read",
+            "hog_flow:read",
+            "hog_flow:write",
+        ]
+    )

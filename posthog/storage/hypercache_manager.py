@@ -15,7 +15,10 @@ import random
 import statistics
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
+
+if TYPE_CHECKING:
+    from django.db.models import QuerySet
 
 from django.conf import settings
 from django.db import connection
@@ -185,12 +188,10 @@ class HyperCacheManagementConfig:
     update_fn: UpdateFn  # Function to update cache for a team
     cache_name: str  # Canonical cache name (e.g., "flags", "team_metadata")
 
-    # Optional properties for verification optimization
-    # If set, only teams in this set will have full DB data loaded during verification.
-    # Teams not in this set will use a fast-path check against empty_cache_value.
-    get_team_ids_needing_full_verification_fn: Callable[[], set[int]] | None = None
-    # The expected cache value for teams that don't need full verification (e.g., {"flags": []})
-    empty_cache_value: dict | None = None
+    # Optional queryset function to scope which teams are processed during
+    # verification and management commands. When set, only teams returned by
+    # this queryset are iterated. Teams outside the queryset are skipped entirely.
+    get_teams_queryset_fn: Callable[[], "QuerySet"] | None = None
 
     # Optional batch function to determine which teams should skip fixes.
     # Used to implement grace periods for recently updated data, avoiding race
@@ -198,17 +199,6 @@ class HyperCacheManagementConfig:
     # Takes a list of team IDs, returns a set of team IDs that should skip fixes.
     # Called once per batch for efficiency (avoids N+1 queries).
     get_team_ids_to_skip_fix_fn: Callable[[list[int]], set[int]] | None = None
-
-    def __post_init__(self) -> None:
-        """Validate that optimization fields are set together."""
-        has_team_ids_fn = self.get_team_ids_needing_full_verification_fn is not None
-        has_empty_value = self.empty_cache_value is not None
-
-        if has_team_ids_fn != has_empty_value:
-            raise ValueError(
-                "Verification optimization requires both get_team_ids_needing_full_verification_fn "
-                "and empty_cache_value to be set together (either both set or both None)"
-            )
 
     # Derived properties (computed from required properties using conventions)
     @property
@@ -256,6 +246,12 @@ class HyperCacheManagementConfig:
     def management_command_name(self) -> str:
         """Name of management command for detailed analysis."""
         return f"analyze_{self.cache_name}_cache_sizes"
+
+    def get_teams_queryset(self) -> "QuerySet":
+        """Return the base queryset of teams to process, falling back to all teams."""
+        if self.get_teams_queryset_fn is not None:
+            return self.get_teams_queryset_fn()
+        return Team.objects.all()
 
 
 def invalidate_all_caches(config: HyperCacheManagementConfig) -> int:
@@ -322,7 +318,8 @@ def warm_caches(
         stagger_ttl: If True, randomize TTLs between min/max to avoid synchronized expiration
         min_ttl_days: Minimum TTL in days (when staggering)
         max_ttl_days: Maximum TTL in days (when staggering)
-        team_ids: Optional list of team IDs to warm (if None, warms all teams)
+        team_ids: Optional list of team IDs to warm. Bypasses config scoping when provided.
+            If None, warms teams from config.get_teams_queryset().
         progress_callback: Optional callback for progress reporting.
             Called with (processed, total, successful, failed) after each batch.
         batch_start_callback: Optional callback called before each batch starts.
@@ -349,10 +346,10 @@ def warm_caches(
                 invalidated = invalidate_all_caches(config)
                 logger.info("Invalidated caches", count=invalidated)
 
-        # Filter to specific teams if requested
-        teams_queryset = Team.objects.select_related("organization", "project")
         if team_ids:
-            teams_queryset = teams_queryset.filter(id__in=team_ids)
+            teams_queryset = Team.objects.filter(id__in=team_ids).select_related("organization", "project")
+        else:
+            teams_queryset = config.get_teams_queryset().select_related("organization", "project")
 
         total_teams = teams_queryset.count()
 

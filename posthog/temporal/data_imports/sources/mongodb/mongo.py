@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import contextlib
 import collections
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 
@@ -12,6 +12,7 @@ from bson import ObjectId
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from pymongo import MongoClient
 from pymongo.collection import Collection
+from pymongo.server_description import ServerDescription
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
@@ -19,6 +20,7 @@ from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
+from posthog.temporal.data_imports.sources.common.mixins import _is_host_safe
 from posthog.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
@@ -98,11 +100,34 @@ def _build_query(
     return query
 
 
+def _make_safe_server_selector(team_id: int) -> Callable[[list[ServerDescription]], list[ServerDescription]]:
+    """Create a PyMongo server_selector that rejects servers resolving to internal IPs.
+
+    Runs on every topology update (including SRV re-resolution), preventing
+    TOCTOU attacks where DNS records change after initial validation.
+    """
+
+    def selector(server_descriptions: list[ServerDescription]) -> list[ServerDescription]:
+        safe = []
+        for server in server_descriptions:
+            host = server.address[0]
+            is_safe, _ = _is_host_safe(host, team_id)
+            if is_safe:
+                safe.append(server)
+        return safe
+
+    return selector
+
+
 @contextlib.contextmanager
-def mongo_client(connection_string: str) -> Iterator[MongoClient]:
-    client: MongoClient = MongoClient(
-        connection_string, serverSelectionTimeoutMS=10000, tls=True, tlsCAFile=certifi.where()
-    )
+def mongo_client(connection_string: str, team_id: int) -> Iterator[MongoClient]:
+    kwargs: dict[str, Any] = {
+        "serverSelectionTimeoutMS": 10000,
+        "tls": True,
+        "tlsCAFile": certifi.where(),
+        "server_selector": _make_safe_server_selector(team_id),
+    }
+    client: MongoClient = MongoClient(connection_string, **kwargs)
     try:
         yield client
     finally:
@@ -266,12 +291,14 @@ def _determine_field_type_from_bson_types(bson_types: list[str]) -> str:
     return "string"
 
 
-def get_schemas(config: MongoDBSourceConfig) -> dict[str, list[tuple[str, str]]]:
+def get_schemas(
+    config: MongoDBSourceConfig, team_id: int, names: list[str] | None = None
+) -> dict[str, list[tuple[str, str]]]:
     """Get all collections from MongoDB source database to sync."""
 
     connection_params = _parse_connection_string(config.connection_string)
 
-    with mongo_client(config.connection_string) as client:
+    with mongo_client(config.connection_string, team_id=team_id) as client:
         if not connection_params["database"]:
             raise ValueError("Database name is required in connection string")
 
@@ -280,6 +307,10 @@ def get_schemas(config: MongoDBSourceConfig) -> dict[str, list[tuple[str, str]]]
 
         # Get collection names
         collection_names = db.list_collection_names(authorizedCollections=True)
+
+        if names is not None:
+            names_set = set(names)
+            collection_names = [n for n in collection_names if n in names_set]
 
         if not collection_names:
             return schema_list
@@ -294,9 +325,9 @@ def get_schemas(config: MongoDBSourceConfig) -> dict[str, list[tuple[str, str]]]
     return schema_list
 
 
-def get_collection_names(config: MongoDBSourceConfig) -> list[str]:
+def get_collection_names(config: MongoDBSourceConfig, team_id: int) -> list[str]:
     connection_params = _parse_connection_string(config.connection_string)
-    with mongo_client(config.connection_string) as client:
+    with mongo_client(config.connection_string, team_id=team_id) as client:
         if not connection_params["database"]:
             raise ValueError("Database name is required in connection string")
         db = client[connection_params["database"]]
@@ -323,6 +354,7 @@ def mongo_source(
     connection_string: str,
     collection_name: str,
     logger: FilteringBoundLogger,
+    team_id: int,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Optional[Any],
     incremental_field: Optional[str] = None,
@@ -334,7 +366,7 @@ def mongo_source(
         raise ValueError("Database name is required in connection string")
 
     # Create MongoDB client
-    with mongo_client(connection_string) as client:
+    with mongo_client(connection_string, team_id=team_id) as client:
         db = client[connection_params["database"]]
         collection = db[collection_name]
 
@@ -354,7 +386,7 @@ def mongo_source(
 
     def get_rows() -> Iterator[dict[str, Any]]:
         # New connection for data reading
-        with mongo_client(connection_string) as read_client:
+        with mongo_client(connection_string, team_id=team_id) as read_client:
             read_db = read_client[connection_params["database"]]
             read_collection = read_db[collection_name]
 

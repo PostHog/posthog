@@ -18,6 +18,11 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         WEB = "web", "web"
         PRODUCT = "product", "product"
 
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        RUNNING = "running", "Running"
+        STOPPED = "stopped", "Stopped"
+
     name = models.CharField(max_length=400)
     description = models.CharField(max_length=400, null=True, blank=True)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
@@ -67,6 +72,14 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
 
     exposure_preaggregation_enabled = models.BooleanField(default=False)
 
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=None,
+        null=True,
+        blank=True,
+    )
+
     conclusion = models.CharField(
         max_length=30,
         choices=[
@@ -87,15 +100,47 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     def __str__(self):
         return self.name or "Untitled"
 
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        self.status = Experiment.compute_status(self.start_date, self.end_date)
+        if "update_fields" in kwargs:
+            kwargs["update_fields"] = [*list(kwargs["update_fields"]), "status"]
+        super().save(*args, **kwargs)
+
+    @staticmethod
+    def compute_status(start_date: Any, end_date: Any) -> "Experiment.Status":
+        if start_date is not None and end_date is not None:
+            return Experiment.Status.STOPPED
+        if start_date is not None:
+            return Experiment.Status.RUNNING
+        return Experiment.Status.DRAFT
+
     def get_feature_flag_key(self):
         return self.feature_flag.key
+
+    def get_analytics_metadata(self) -> dict[str, Any]:
+        variants = (self.parameters or {}).get("feature_flag_variants")
+        if not variants:
+            variants = self.feature_flag.filters.get("multivariate", {}).get("variants", [])
+
+        return {
+            "experiment_id": self.id,
+            "experiment_name": self.name,
+            "feature_flag_key": self.get_feature_flag_key(),
+            "type": self.type,
+            "status": self.status or Experiment.compute_status(self.start_date, self.end_date),
+            "metrics_count": len(self.metrics or []),
+            "secondary_metrics_count": len(self.metrics_secondary or []),
+            "has_description": bool(self.description),
+            "variant_count": len(variants),
+            "created_at": self.created_at,
+        }
 
     def get_stats_config(self, key: str):
         return self.stats_config.get(key) if self.stats_config else None
 
     @property
     def is_draft(self):
-        return not self.start_date
+        return (self.status or Experiment.compute_status(self.start_date, self.end_date)) == Experiment.Status.DRAFT
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Experiment"]:
@@ -115,6 +160,16 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
             },
             should_delete=False,  # always keep in FileSystem
         )
+
+
+def holdout_filters_for_flag(holdout_id: int | None, filters: list | None) -> dict:
+    """Return both legacy `holdout_groups` and new `holdout` fields for a feature flag's filters."""
+    if not holdout_id or not filters:
+        return {"holdout_groups": None, "holdout": None}
+    return {
+        "holdout_groups": filters,
+        "holdout": {"id": holdout_id, "exclusion_percentage": filters[0]["rollout_percentage"]},
+    }
 
 
 class ExperimentHoldout(ModelActivityMixin, RootTeamMixin, models.Model):

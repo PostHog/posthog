@@ -79,6 +79,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
         addPersonToCreateStaticCohort,
         removePersonFromCreateStaticCohort,
         setCreationPersonQuery,
+        submitCohort,
     } = useActions(logic)
     const modalLogic = addPersonToCohortModalLogic(logicProps)
     const { showAddPersonToCohortModal } = useActions(modalLogic)
@@ -328,14 +329,22 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                 <LemonBanner
                                                     type="error"
                                                     action={{
-                                                        onClick: () =>
-                                                            openSidePanel(SidePanelTab.Support, 'bug:cohorts::true'),
-                                                        children: 'Contact support',
+                                                        onClick: () => submitCohort(),
+                                                        children: 'Retry',
                                                     }}
                                                 >
                                                     <strong>Calculation failed:</strong>{' '}
                                                     {cohort.last_error_message ||
-                                                        'Unable to calculate this cohort. Please check your matching criteria and try again.'}
+                                                        'Unable to calculate this cohort. Please check your matching criteria and try again.'}{' '}
+                                                    If it fails again,{' '}
+                                                    <Link
+                                                        onClick={() =>
+                                                            openSidePanel(SidePanelTab.Support, 'bug:cohorts::true')
+                                                        }
+                                                    >
+                                                        contact support
+                                                    </Link>
+                                                    .
                                                 </LemonBanner>
                                             ) : null}
                                         </div>

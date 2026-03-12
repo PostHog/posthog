@@ -63,7 +63,6 @@ export function SurveyViewRedesign(): JSX.Element {
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { deleteSurvey, duplicateSurvey, setSurveyToDuplicate } = useActions(surveysLogic)
-    const { guidedEditorEnabled } = useValues(surveysLogic)
     const { sidePanelOpen, selectedTab: selectedSidePanelTab } = useValues(sidePanelStateLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { location, searchParams, hashParams } = useValues(router)
@@ -289,16 +288,8 @@ export function SurveyViewRedesign(): JSX.Element {
                         >
                             <LemonButton
                                 data-attr="edit-survey"
-                                onClick={
-                                    guidedEditorEnabled && survey.type === SurveyType.Popover
-                                        ? undefined
-                                        : () => editingSurvey(true)
-                                }
-                                to={
-                                    guidedEditorEnabled && survey.type === SurveyType.Popover
-                                        ? urls.surveyWizard(survey.id)
-                                        : undefined
-                                }
+                                onClick={survey.type === SurveyType.Popover ? undefined : () => editingSurvey(true)}
+                                to={survey.type === SurveyType.Popover ? urls.surveyWizard(survey.id) : undefined}
                                 type="secondary"
                                 size="small"
                             >

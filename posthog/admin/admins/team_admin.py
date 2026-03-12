@@ -22,6 +22,7 @@ from structlog import get_logger
 from temporalio import common
 from temporalio.client import WorkflowExecutionStatus
 
+from posthog.admin.inlines.organization_member_for_related_inline import OrganizationMemberForRelatedInline
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
 from posthog.admin.inlines.user_product_list_inline import UserProductListInline
 from posthog.cloud_utils import is_cloud
@@ -91,7 +92,7 @@ class TeamAdmin(admin.ModelAdmin):
     ]
 
     exclude = DEPRECATED_ATTRS
-    inlines = [TeamMarketingAnalyticsConfigInline, UserProductListInline]
+    inlines = [OrganizationMemberForRelatedInline, TeamMarketingAnalyticsConfigInline, UserProductListInline]
 
     def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
         self._current_request = request
@@ -627,7 +628,12 @@ class TeamAdmin(admin.ModelAdmin):
         """Return just the workflow table rows as an HTML fragment for AJAX polling."""
         team = Team.objects.get(pk=object_id)
         workflows = self._get_delete_workflows(team.id)
-        context = {"team": team, "workflows": workflows}
+        context = {
+            "team": team,
+            "workflows": workflows,
+            "temporal_ui_host": settings.TEMPORAL_UI_HOST,
+            "temporal_namespace": settings.TEMPORAL_NAMESPACE,
+        }
         return render(request, "admin/posthog/team/_delete_recordings_workflows.html", context)
 
     def delete_recordings_view(self, request, object_id):
@@ -640,6 +646,8 @@ class TeamAdmin(admin.ModelAdmin):
                 "team": team,
                 "title": f"Delete Recordings - {team.name}",
                 "workflows": workflows,
+                "temporal_ui_host": settings.TEMPORAL_UI_HOST,
+                "temporal_namespace": settings.TEMPORAL_NAMESPACE,
             }
             return render(request, "admin/posthog/team/delete_recordings.html", context)
 

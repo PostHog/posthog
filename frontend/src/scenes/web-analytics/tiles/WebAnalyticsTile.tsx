@@ -28,8 +28,13 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import {
+    BREAKDOWN_NULL_DISPLAY,
+    BREAKDOWN_REFERRER_PREFIX,
+    DEVICE_DRILL_DOWN_MAP,
+    GEOGRAPHY_DRILL_DOWN_MAP,
     GeographyTab,
     ProductTab,
+    SOURCE_DRILL_DOWN_MAP,
     TileId,
     faviconUrl,
     webStatsBreakdownToPropertyName,
@@ -53,7 +58,7 @@ import {
     WebVitalsPathBreakdownQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import { ChartDisplayType, InsightLogicProps, PropertyFilterType } from '~/types'
+import { ChartDisplayType, InsightLogicProps, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { NewActionButton } from 'products/actions/frontend/components/NewActionButton'
 
@@ -256,6 +261,8 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>Channel Type</>
         case WebStatsBreakdown.InitialReferringDomain:
             return <>Referring Domain</>
+        case WebStatsBreakdown.InitialReferringURL:
+            return <>Referring URL</>
         case WebStatsBreakdown.InitialUTMSource:
             return <>UTM Source</>
         case WebStatsBreakdown.InitialUTMCampaign:
@@ -422,6 +429,11 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                         </div>
                     )
                 }
+            }
+            break
+        case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
+            if (typeof value === 'string') {
+                return <>{value.replace(BREAKDOWN_REFERRER_PREFIX, '')}</>
             }
             break
     }
@@ -792,35 +804,123 @@ export const WebStatsTableTile = ({
 }): JSX.Element => {
     const { togglePropertyFilter } = useActions(webAnalyticsLogic)
     const { productTab } = useValues(webAnalyticsLogic)
+    const { rawWebAnalyticsFilters } = useValues(webAnalyticsFilterLogic)
 
     const { key, type } = webStatsBreakdownToPropertyName(breakdownBy) || {}
 
+    const isCompoundBreakdown =
+        breakdownBy === WebStatsBreakdown.InitialUTMSourceMediumCampaign ||
+        breakdownBy === WebStatsBreakdown.Viewport ||
+        breakdownBy === WebStatsBreakdown.Timezone
+
+    const utmSource = webStatsBreakdownToPropertyName(WebStatsBreakdown.InitialUTMSource)!
+    const utmMedium = webStatsBreakdownToPropertyName(WebStatsBreakdown.InitialUTMMedium)!
+    const utmCampaign = webStatsBreakdownToPropertyName(WebStatsBreakdown.InitialUTMCampaign)!
+    const referringDomain = webStatsBreakdownToPropertyName(WebStatsBreakdown.InitialReferringDomain)!
+
+    const getDrillDownTabChange = useCallback(
+        (
+            filterKey: string,
+            filterValue: string | number | null
+        ): { sourceTab?: string; geographyTab?: string; deviceTab?: string } | undefined => {
+            const sourceTab = SOURCE_DRILL_DOWN_MAP[breakdownBy]
+            const geographyTab = GEOGRAPHY_DRILL_DOWN_MAP[breakdownBy]
+            const deviceTab = DEVICE_DRILL_DOWN_MAP[breakdownBy]
+            const drillDownTab = sourceTab || geographyTab || deviceTab
+            if (!drillDownTab || filterValue === null) {
+                return undefined
+            }
+            const isAlreadyFiltered = rawWebAnalyticsFilters.some(
+                (f) =>
+                    f.key === filterKey &&
+                    f.operator === PropertyOperator.Exact &&
+                    (Array.isArray(f.value) ? f.value.includes(filterValue) : f.value === filterValue)
+            )
+            if (isAlreadyFiltered) {
+                return undefined
+            }
+            return {
+                ...(sourceTab ? { sourceTab } : {}),
+                ...(geographyTab ? { geographyTab } : {}),
+                ...(deviceTab ? { deviceTab } : {}),
+            }
+        },
+        [breakdownBy, rawWebAnalyticsFilters]
+    )
+
     const onClick = useCallback(
         (breakdownValue: string | null) => {
-            if (!key || !type) {
-                return
-            }
-
             if (productTab === ProductTab.PAGE_REPORTS) {
                 lemonToast.info('Filters are not yet supported in this tile')
                 return
             }
 
-            togglePropertyFilter(type, key, breakdownValue)
+            if (breakdownBy === WebStatsBreakdown.InitialUTMSourceMediumCampaign && breakdownValue) {
+                const values = breakdownValue.split(' / ')
+                const sourceValue = values[0]
+                if (sourceValue && sourceValue !== BREAKDOWN_NULL_DISPLAY) {
+                    if (sourceValue.startsWith(BREAKDOWN_REFERRER_PREFIX)) {
+                        togglePropertyFilter(
+                            referringDomain.type,
+                            referringDomain.key,
+                            sourceValue.slice(BREAKDOWN_REFERRER_PREFIX.length)
+                        )
+                    } else {
+                        togglePropertyFilter(utmSource.type, utmSource.key, sourceValue)
+                    }
+                }
+                if (values[1] && values[1] !== BREAKDOWN_NULL_DISPLAY) {
+                    togglePropertyFilter(utmMedium.type, utmMedium.key, values[1])
+                }
+                if (values[2] && values[2] !== BREAKDOWN_NULL_DISPLAY) {
+                    const drillDownTabChange = getDrillDownTabChange(utmCampaign.key, values[2])
+                    togglePropertyFilter(utmCampaign.type, utmCampaign.key, values[2], drillDownTabChange)
+                }
+                return
+            }
+
+            if (breakdownBy === WebStatsBreakdown.Viewport && breakdownValue) {
+                const [width, height] = breakdownValue.split('x')
+                if (width) {
+                    togglePropertyFilter(PropertyFilterType.Event, '$viewport_width', Number(width))
+                }
+                if (height) {
+                    togglePropertyFilter(PropertyFilterType.Event, '$viewport_height', Number(height))
+                }
+                return
+            }
+
+            if (breakdownBy === WebStatsBreakdown.Timezone && breakdownValue) {
+                // Backend displays -(offset_minutes)/60, so reverse: offset = -(display * 60)
+                const offsetMinutes = -(Number(breakdownValue) * 60)
+                togglePropertyFilter(PropertyFilterType.Event, '$timezone_offset', offsetMinutes)
+                return
+            }
+
+            if (!key || !type) {
+                return
+            }
+
+            togglePropertyFilter(type, key, breakdownValue, getDrillDownTabChange(key, breakdownValue))
         },
-        [togglePropertyFilter, type, key, productTab]
+        [
+            togglePropertyFilter,
+            type,
+            key,
+            productTab,
+            breakdownBy,
+            utmSource,
+            utmMedium,
+            utmCampaign,
+            referringDomain,
+            getDrillDownTabChange,
+        ]
     )
 
     const context = useMemo((): QueryContext => {
         const rowProps: QueryContext['rowProps'] = (record: unknown) => {
-            // `onClick` won't know how to handle the breakdown value if these don't exist,
-            // so let's prevent from `onClick` from being set up in the first place to avoid a noop click
-            if (!key || !type) {
-                return {}
-            }
-
-            // Tricky to calculate because the breakdown is a computed value rather than a DB column, make it non-filterable for now
-            if (breakdownBy === WebStatsBreakdown.Language || breakdownBy === WebStatsBreakdown.Timezone) {
+            // Compound breakdowns (UTM s/m/c, Viewport, Timezone) have dedicated handling in onClick
+            if (!key && !type && !isCompoundBreakdown) {
                 return {}
             }
 
@@ -838,7 +938,7 @@ export const WebStatsTableTile = ({
             rowProps,
             compareFilter: 'compareFilter' in query.source ? query.source.compareFilter : undefined,
         }
-    }, [onClick, insightProps, breakdownBy, key, type, query])
+    }, [onClick, insightProps, breakdownBy, key, type, isCompoundBreakdown, query])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
@@ -879,6 +979,16 @@ const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): str
         case WebStatsBreakdown.City:
             if (Array.isArray(breakdownValue)) {
                 return breakdownValue[1]
+            }
+            break
+        case WebStatsBreakdown.Viewport:
+            if (Array.isArray(breakdownValue)) {
+                return `${breakdownValue[0]}x${breakdownValue[1]}`
+            }
+            break
+        case WebStatsBreakdown.Timezone:
+            if (typeof breakdownValue === 'number') {
+                return String(breakdownValue)
             }
             break
         case WebStatsBreakdown.FrustrationMetrics:

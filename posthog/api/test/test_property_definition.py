@@ -426,9 +426,21 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert PropertyDefinition.objects.filter(id=property_definition.id).count() == 0
         mock_capture.assert_called_once_with(
-            event="property definition deleted",
             distinct_id=self.user.distinct_id,
-            properties={"name": "test_property", "type": "event"},
+            event="property definition deleted",
+            properties={
+                "source": ANY,
+                "$current_url": ANY,
+                "$session_id": ANY,
+                "was_impersonated": ANY,
+                "mcp_user_agent": ANY,
+                "mcp_client_name": ANY,
+                "mcp_client_version": ANY,
+                "mcp_protocol_version": ANY,
+                "mcp_oauth_client_name": ANY,
+                "name": "test_property",
+                "type": "event",
+            },
             groups={
                 "instance": ANY,
                 "organization": str(self.organization.id),

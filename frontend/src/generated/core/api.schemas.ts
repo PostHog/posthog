@@ -1109,6 +1109,7 @@ export interface SharingConfigurationApi {
 
 /**
  * * `slack` - Slack
+ * `slack-twig` - Slack Twig
  * `salesforce` - Salesforce
  * `hubspot` - Hubspot
  * `google-pubsub` - Google Pubsub
@@ -1135,10 +1136,11 @@ export interface SharingConfigurationApi {
  * `jira` - Jira
  * `pinterest-ads` - Pinterest Ads
  */
-export type KindE61EnumApi = (typeof KindE61EnumApi)[keyof typeof KindE61EnumApi]
+export type Kind439EnumApi = (typeof Kind439EnumApi)[keyof typeof Kind439EnumApi]
 
-export const KindE61EnumApi = {
+export const Kind439EnumApi = {
     Slack: 'slack',
+    SlackTwig: 'slack-twig',
     Salesforce: 'salesforce',
     Hubspot: 'hubspot',
     GooglePubsub: 'google-pubsub',
@@ -1171,7 +1173,7 @@ export const KindE61EnumApi = {
  */
 export interface IntegrationApi {
     readonly id: number
-    kind: KindE61EnumApi
+    kind: Kind439EnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -1193,12 +1195,27 @@ export interface PaginatedIntegrationListApi {
  */
 export interface PatchedIntegrationApi {
     readonly id?: number
-    kind?: KindE61EnumApi
+    kind?: Kind439EnumApi
     config?: unknown
     readonly created_at?: string
     readonly created_by?: UserBasicApi
     readonly errors?: string
     readonly display_name?: string
+}
+
+export interface GitHubBranchesResponseApi {
+    /** List of branch names */
+    branches: string[]
+}
+
+export interface GitHubRepoApi {
+    id: number
+    name: string
+    full_name: string
+}
+
+export interface GitHubReposResponseApi {
+    repositories: GitHubRepoApi[]
 }
 
 /**
@@ -1416,6 +1433,7 @@ export interface SubscriptionApi {
     dashboard?: number | null
     /** @nullable */
     insight?: number | null
+    dashboard_export_insights?: number[]
     target_type: TargetTypeEnumApi
     target_value: string
     frequency: FrequencyEnumApi
@@ -1453,6 +1471,8 @@ export interface SubscriptionApi {
     /** @nullable */
     readonly next_delivery_date: string | null
     /** @nullable */
+    integration_id?: number | null
+    /** @nullable */
     invite_message?: string | null
 }
 
@@ -1474,6 +1494,7 @@ export interface PatchedSubscriptionApi {
     dashboard?: number | null
     /** @nullable */
     insight?: number | null
+    dashboard_export_insights?: number[]
     target_type?: TargetTypeEnumApi
     target_value?: string
     frequency?: FrequencyEnumApi
@@ -1510,6 +1531,8 @@ export interface PatchedSubscriptionApi {
     readonly summary?: string
     /** @nullable */
     readonly next_delivery_date?: string | null
+    /** @nullable */
+    integration_id?: number | null
     /** @nullable */
     invite_message?: string | null
 }
@@ -1991,6 +2014,14 @@ export type IntegrationsList2Params = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type IntegrationsGithubBranchesRetrieveParams = {
+    /**
+     * Repository in owner/repo format
+     * @minLength 1
+     */
+    repo: string
 }
 
 export type PropertyDefinitionsListParams = {
