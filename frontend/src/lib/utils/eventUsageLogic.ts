@@ -246,6 +246,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportPersonsModalViewed: (params: any) => ({
             params,
         }),
+        reportPersonsModalSearched: (params: { teamId?: number | null; actorType?: string }) => ({ params }),
         // timing
         reportTimeToSeeData: (payload: TimeToSeeDataPayload) => ({ payload }),
         reportGroupTypeDetailDashboardCreated: () => ({}),
@@ -636,6 +637,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 triggered_by: 'page_load' | 'manual' | 'auto_refresh' | 'config_change'
                 force_refresh: boolean
                 refresh_id: string
+                experiment_duration_hours: number | null
+                experiment_status: string | null
+                total_metrics_count: number
             }
         ) => ({
             experimentId,
@@ -1011,6 +1015,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportPersonsModalViewed: async ({ params }) => {
             posthog.capture('insight person modal viewed', params)
+        },
+        reportPersonsModalSearched: async ({ params }) => {
+            posthog.capture('insight person modal searched', params)
         },
         reportDashboardViewed: async ({ dashboard, lastRefreshed, delay }, breakpoint) => {
             if (!delay) {

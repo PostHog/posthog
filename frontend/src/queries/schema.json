@@ -15906,6 +15906,7 @@
                 "link",
                 "live_debugger",
                 "logs",
+                "tracing",
                 "workflows",
                 "notebook",
                 "action",
@@ -23535,6 +23536,7 @@
                 "tasks",
                 "teams",
                 "toolbar",
+                "tracing",
                 "user_interviews",
                 "visual_review",
                 "web_analytics",
@@ -28691,7 +28693,7 @@
             "type": "object"
         },
         "QuickFilterContext": {
-            "enum": ["error-tracking-issue-filters", "logs-filters"],
+            "enum": ["dashboards", "error-tracking-issue-filters", "logs-filters"],
             "type": "string"
         },
         "QuickFilterType": {

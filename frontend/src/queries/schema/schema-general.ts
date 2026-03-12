@@ -2569,6 +2569,7 @@ export interface ErrorTrackingIssueCohort {
 export type QuickFilterType = 'manual-options' | 'auto-discovery'
 
 export enum QuickFilterContext {
+    Dashboards = 'dashboards',
     ErrorTrackingIssueFilters = 'error-tracking-issue-filters',
     LogsFilters = 'logs-filters',
 }
@@ -2920,6 +2921,7 @@ export type FileSystemIconType =
     | 'link'
     | 'live_debugger'
     | 'logs'
+    | 'tracing'
     | 'workflows'
     | 'notebook'
     | 'action'
@@ -5482,6 +5484,7 @@ export enum ProductKey {
     TASKS = 'tasks',
     TEAMS = 'teams',
     TOOLBAR = 'toolbar',
+    TRACING = 'tracing',
     USER_INTERVIEWS = 'user_interviews',
     VISUAL_REVIEW = 'visual_review',
     WEB_ANALYTICS = 'web_analytics',

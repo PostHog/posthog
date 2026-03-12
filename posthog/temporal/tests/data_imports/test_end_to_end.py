@@ -3268,8 +3268,8 @@ async def test_non_retryable_error_short_circuiting(team, stripe_customer, mock_
                 ignore_assertions=True,
             )
 
-    # Incremental and resumable source syncs retry up to 9 times
-    assert mock_get_rows.call_count == 9
+    # Resumable source syncs retry up to 15 times
+    assert mock_get_rows.call_count == 15
 
     source_cls = SourceRegistry.get_source(ExternalDataSourceType.STRIPE)
     non_retryable_errors = source_cls.get_non_retryable_errors()
