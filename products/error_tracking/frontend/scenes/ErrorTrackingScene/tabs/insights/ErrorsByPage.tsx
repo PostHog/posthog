@@ -61,7 +61,7 @@ export function ErrorsByPage(): JSX.Element {
                                         {row.errorRate.toFixed(1)}%
                                     </span>
                                 </td>
-                                <td className="py-1.5 px-2 text-right">
+                                <td className="py-1.5 px-2 text-right w-px whitespace-nowrap">
                                     <LemonButton
                                         type="secondary"
                                         size="xsmall"

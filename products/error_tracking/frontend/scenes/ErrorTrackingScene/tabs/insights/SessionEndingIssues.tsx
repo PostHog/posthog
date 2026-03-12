@@ -33,19 +33,14 @@ export function SessionEndingIssues(): JSX.Element {
                     <tbody>
                         {rows.map((row, i) => (
                             <tr key={i} className="border-b last:border-b-0 hover:bg-surface-secondary">
-                                <td className="py-1.5 px-2 text-sm max-w-60 truncate">
-                                    <LemonButton
-                                        type="tertiary"
-                                        size="xsmall"
-                                        to={urls.errorTrackingIssue(row.issueId)}
-                                        className="max-w-full"
-                                        truncate
-                                    >
-                                        {row.issueName || 'Unknown error'}
-                                    </LemonButton>
+                                <td className="py-1.5 px-2 text-sm max-w-60">
+                                    <p className="m-0 truncate font-medium">{row.issueName || 'Unknown error'}</p>
+                                    {row.issueDescription && (
+                                        <p className="text-xs text-secondary m-0 truncate">{row.issueDescription}</p>
+                                    )}
                                 </td>
                                 <td className="py-1.5 px-2 text-sm text-right font-medium">{row.endedSessions}</td>
-                                <td className="py-1.5 px-2 text-right">
+                                <td className="py-1.5 px-2 text-right w-px whitespace-nowrap">
                                     <LemonButton
                                         type="secondary"
                                         size="xsmall"
