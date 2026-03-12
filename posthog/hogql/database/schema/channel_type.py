@@ -100,7 +100,11 @@ def create_initial_channel_type(
                 url=ast.Call(
                     name="coalesce",
                     args=[
-                        ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_current_url"])]),
+                        wrap_with_null_if_empty(
+                            ast.Call(
+                                name="toString", args=[ast.Field(chain=[*properties_path, "$initial_current_url"])]
+                            )
+                        ),
                         ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_url"])]),
                     ],
                 ),
