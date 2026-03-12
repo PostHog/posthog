@@ -47,9 +47,7 @@ def _get_paddle_session() -> requests.Session:
     return requests.Session()
 
 
-def paddle_request(
-    session: requests.Session, method: str, url: str, **kwargs
-) -> requests.Response:
+def paddle_request(session: requests.Session, method: str, url: str, **kwargs) -> requests.Response:
     # No retry adapter on the session — errors surface immediately so the
     # caller (get_rows / validate_credentials) can decide how to handle them.
     response = session.request(method, url, **kwargs)
@@ -63,7 +61,6 @@ def get_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[PaddleResumeConfig],
     should_use_incremental_field: bool = False,
-):
 ):
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -125,17 +122,16 @@ def get_rows(
             if py_table.num_rows > 0:
                 yield py_table
 
-            if url:
-                resumable_source_manager.save_state(PaddleResumeConfig(next_url=url))
-            else:
-                resumable_source_manager.save_state(PaddleResumeConfig(next_url=""))
+        if url:
+            resumable_source_manager.save_state(PaddleResumeConfig(next_url=url))
+        else:
+            resumable_source_manager.save_state(PaddleResumeConfig(next_url=""))
 
 
 def paddle_source(
     api_key: str,
     endpoint: str,
     db_incremental_field_last_value: Optional[Any],
-    db_incremental_field_earliest_value: Optional[Any],
     should_use_incremental_field: bool,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[PaddleResumeConfig],
@@ -144,14 +140,13 @@ def paddle_source(
     column_hints = {key: value.get("data_type") for key, value in column_mapping.items()}
 
     incremental_field_config = INCREMENTAL_FIELDS.get(endpoint, [])
-    incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else "updated_at"
+    incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else None
 
     def items():
         yield from get_rows(
             api_key=api_key,
             endpoint=endpoint,
             db_incremental_field_last_value=db_incremental_field_last_value,
-            db_incremental_field_earliest_value=db_incremental_field_earliest_value,
             should_use_incremental_field=should_use_incremental_field,
             resumable_source_manager=resumable_source_manager,
             logger=logger,
@@ -163,11 +158,11 @@ def paddle_source(
         name=endpoint,
         column_hints=column_hints,
         sort_mode="asc",
-        partition_keys=[incremental_field_name],
-        partition_mode="datetime",
+        partition_keys=[incremental_field_name] if incremental_field_name else None,
+        partition_mode="datetime" if incremental_field_name else None,
         partition_count=1,
         partition_size=1,
-        partition_format="week",
+        partition_format="week" if incremental_field_name else None,
     )
 
 
