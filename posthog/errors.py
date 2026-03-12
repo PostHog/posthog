@@ -160,7 +160,19 @@ def classify_query_error(e: Exception) -> QueryErrorCategory:
     if isinstance(e, (ClickHouseAtCapacity, ConcurrencyLimitExceeded)):
         return QueryErrorCategory.RATE_LIMITED
 
-    # User errors
+    # User errors — query too big/slow (APIException subclasses from wrap_clickhouse_query_error)
+    if isinstance(
+        e,
+        (
+            ClickHouseQueryTimeOut,
+            ClickHouseQueryMemoryLimitExceeded,
+            ClickHouseEstimatedQueryExecutionTimeTooLong,
+            ClickHouseQuerySizeExceeded,
+        ),
+    ):
+        return QueryErrorCategory.USER_ERROR
+
+    # User errors — bad query construction
     if isinstance(e, (ExposedHogQLError, ExposedCHQueryError)):
         return QueryErrorCategory.USER_ERROR
 
