@@ -42,9 +42,23 @@ export const AnnotationsListResponse = zod.object({
     results: zod.array(
         zod.object({
             id: zod.number(),
-            content: zod.string().max(annotationsListResponseResultsItemContentMax).nullish(),
-            date_marker: zod.string().datetime({}).nullish(),
-            creation_type: zod.enum(['USR', 'GIT']).optional().describe('* `USR` - user\n* `GIT` - GitHub'),
+            content: zod
+                .string()
+                .max(annotationsListResponseResultsItemContentMax)
+                .nullish()
+                .describe('Annotation text shown on charts to describe the change, release, or incident.'),
+            date_marker: zod
+                .string()
+                .datetime({})
+                .nullish()
+                .describe('When this annotation happened (ISO 8601 timestamp). Used to position it on charts.'),
+            creation_type: zod
+                .enum(['USR', 'GIT'])
+                .describe('* `USR` - user\n* `GIT` - GitHub')
+                .optional()
+                .describe(
+                    'Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.\n\n* `USR` - user\n* `GIT` - GitHub'
+                ),
             dashboard_item: zod.number().nullish(),
             dashboard_id: zod.number().nullish(),
             dashboard_name: zod.string().nullable(),
@@ -83,12 +97,18 @@ export const AnnotationsListResponse = zod.object({
             }),
             created_at: zod.string().datetime({}).nullable(),
             updated_at: zod.string().datetime({}),
-            deleted: zod.boolean().optional(),
+            deleted: zod
+                .boolean()
+                .optional()
+                .describe('Soft-delete flag. Set to true to hide the annotation, or false to restore it.'),
             scope: zod
                 .enum(['dashboard_item', 'dashboard', 'project', 'organization', 'recording'])
-                .optional()
                 .describe(
                     '* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording'
+                )
+                .optional()
+                .describe(
+                    'Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.\n\n* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording'
                 ),
         })
     ),
@@ -108,17 +128,37 @@ export const AnnotationsCreateParams = zod.object({
 export const annotationsCreateBodyContentMax = 8192
 
 export const AnnotationsCreateBody = zod.object({
-    content: zod.string().max(annotationsCreateBodyContentMax).nullish(),
-    date_marker: zod.string().datetime({}).nullish(),
-    creation_type: zod.enum(['USR', 'GIT']).optional().describe('* `USR` - user\n* `GIT` - GitHub'),
-    dashboard_item: zod.number().nullish(),
-    dashboard_id: zod.number().nullish(),
-    deleted: zod.boolean().optional(),
-    scope: zod
-        .enum(['dashboard_item', 'dashboard', 'project', 'organization', 'recording'])
+    content: zod
+        .string()
+        .max(annotationsCreateBodyContentMax)
+        .nullish()
+        .describe('Annotation text shown on charts to describe the change, release, or incident.'),
+    date_marker: zod
+        .string()
+        .datetime({})
+        .nullish()
+        .describe('When this annotation happened (ISO 8601 timestamp). Used to position it on charts.'),
+    creation_type: zod
+        .enum(['USR', 'GIT'])
+        .describe('* `USR` - user\n* `GIT` - GitHub')
         .optional()
         .describe(
+            'Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.\n\n* `USR` - user\n* `GIT` - GitHub'
+        ),
+    dashboard_item: zod.number().nullish(),
+    dashboard_id: zod.number().nullish(),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe('Soft-delete flag. Set to true to hide the annotation, or false to restore it.'),
+    scope: zod
+        .enum(['dashboard_item', 'dashboard', 'project', 'organization', 'recording'])
+        .describe(
             '* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording'
+        )
+        .optional()
+        .describe(
+            'Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.\n\n* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording'
         ),
 })
 
@@ -146,9 +186,23 @@ export const annotationsRetrieveResponseCreatedByOneEmailMax = 254
 
 export const AnnotationsRetrieveResponse = zod.object({
     id: zod.number(),
-    content: zod.string().max(annotationsRetrieveResponseContentMax).nullish(),
-    date_marker: zod.string().datetime({}).nullish(),
-    creation_type: zod.enum(['USR', 'GIT']).optional().describe('* `USR` - user\n* `GIT` - GitHub'),
+    content: zod
+        .string()
+        .max(annotationsRetrieveResponseContentMax)
+        .nullish()
+        .describe('Annotation text shown on charts to describe the change, release, or incident.'),
+    date_marker: zod
+        .string()
+        .datetime({})
+        .nullish()
+        .describe('When this annotation happened (ISO 8601 timestamp). Used to position it on charts.'),
+    creation_type: zod
+        .enum(['USR', 'GIT'])
+        .describe('* `USR` - user\n* `GIT` - GitHub')
+        .optional()
+        .describe(
+            'Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.\n\n* `USR` - user\n* `GIT` - GitHub'
+        ),
     dashboard_item: zod.number().nullish(),
     dashboard_id: zod.number().nullish(),
     dashboard_name: zod.string().nullable(),
@@ -178,12 +232,18 @@ export const AnnotationsRetrieveResponse = zod.object({
     }),
     created_at: zod.string().datetime({}).nullable(),
     updated_at: zod.string().datetime({}),
-    deleted: zod.boolean().optional(),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe('Soft-delete flag. Set to true to hide the annotation, or false to restore it.'),
     scope: zod
         .enum(['dashboard_item', 'dashboard', 'project', 'organization', 'recording'])
-        .optional()
         .describe(
             '* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording'
+        )
+        .optional()
+        .describe(
+            'Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.\n\n* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording'
         ),
 })
 
@@ -202,17 +262,37 @@ export const AnnotationsUpdateParams = zod.object({
 export const annotationsUpdateBodyContentMax = 8192
 
 export const AnnotationsUpdateBody = zod.object({
-    content: zod.string().max(annotationsUpdateBodyContentMax).nullish(),
-    date_marker: zod.string().datetime({}).nullish(),
-    creation_type: zod.enum(['USR', 'GIT']).optional().describe('* `USR` - user\n* `GIT` - GitHub'),
-    dashboard_item: zod.number().nullish(),
-    dashboard_id: zod.number().nullish(),
-    deleted: zod.boolean().optional(),
-    scope: zod
-        .enum(['dashboard_item', 'dashboard', 'project', 'organization', 'recording'])
+    content: zod
+        .string()
+        .max(annotationsUpdateBodyContentMax)
+        .nullish()
+        .describe('Annotation text shown on charts to describe the change, release, or incident.'),
+    date_marker: zod
+        .string()
+        .datetime({})
+        .nullish()
+        .describe('When this annotation happened (ISO 8601 timestamp). Used to position it on charts.'),
+    creation_type: zod
+        .enum(['USR', 'GIT'])
+        .describe('* `USR` - user\n* `GIT` - GitHub')
         .optional()
         .describe(
+            'Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.\n\n* `USR` - user\n* `GIT` - GitHub'
+        ),
+    dashboard_item: zod.number().nullish(),
+    dashboard_id: zod.number().nullish(),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe('Soft-delete flag. Set to true to hide the annotation, or false to restore it.'),
+    scope: zod
+        .enum(['dashboard_item', 'dashboard', 'project', 'organization', 'recording'])
+        .describe(
             '* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording'
+        )
+        .optional()
+        .describe(
+            'Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.\n\n* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording'
         ),
 })
 
@@ -228,9 +308,23 @@ export const annotationsUpdateResponseCreatedByOneEmailMax = 254
 
 export const AnnotationsUpdateResponse = zod.object({
     id: zod.number(),
-    content: zod.string().max(annotationsUpdateResponseContentMax).nullish(),
-    date_marker: zod.string().datetime({}).nullish(),
-    creation_type: zod.enum(['USR', 'GIT']).optional().describe('* `USR` - user\n* `GIT` - GitHub'),
+    content: zod
+        .string()
+        .max(annotationsUpdateResponseContentMax)
+        .nullish()
+        .describe('Annotation text shown on charts to describe the change, release, or incident.'),
+    date_marker: zod
+        .string()
+        .datetime({})
+        .nullish()
+        .describe('When this annotation happened (ISO 8601 timestamp). Used to position it on charts.'),
+    creation_type: zod
+        .enum(['USR', 'GIT'])
+        .describe('* `USR` - user\n* `GIT` - GitHub')
+        .optional()
+        .describe(
+            'Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.\n\n* `USR` - user\n* `GIT` - GitHub'
+        ),
     dashboard_item: zod.number().nullish(),
     dashboard_id: zod.number().nullish(),
     dashboard_name: zod.string().nullable(),
@@ -260,12 +354,18 @@ export const AnnotationsUpdateResponse = zod.object({
     }),
     created_at: zod.string().datetime({}).nullable(),
     updated_at: zod.string().datetime({}),
-    deleted: zod.boolean().optional(),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe('Soft-delete flag. Set to true to hide the annotation, or false to restore it.'),
     scope: zod
         .enum(['dashboard_item', 'dashboard', 'project', 'organization', 'recording'])
-        .optional()
         .describe(
             '* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording'
+        )
+        .optional()
+        .describe(
+            'Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.\n\n* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording'
         ),
 })
 
@@ -284,17 +384,37 @@ export const AnnotationsPartialUpdateParams = zod.object({
 export const annotationsPartialUpdateBodyContentMax = 8192
 
 export const AnnotationsPartialUpdateBody = zod.object({
-    content: zod.string().max(annotationsPartialUpdateBodyContentMax).nullish(),
-    date_marker: zod.string().datetime({}).nullish(),
-    creation_type: zod.enum(['USR', 'GIT']).optional().describe('* `USR` - user\n* `GIT` - GitHub'),
-    dashboard_item: zod.number().nullish(),
-    dashboard_id: zod.number().nullish(),
-    deleted: zod.boolean().optional(),
-    scope: zod
-        .enum(['dashboard_item', 'dashboard', 'project', 'organization', 'recording'])
+    content: zod
+        .string()
+        .max(annotationsPartialUpdateBodyContentMax)
+        .nullish()
+        .describe('Annotation text shown on charts to describe the change, release, or incident.'),
+    date_marker: zod
+        .string()
+        .datetime({})
+        .nullish()
+        .describe('When this annotation happened (ISO 8601 timestamp). Used to position it on charts.'),
+    creation_type: zod
+        .enum(['USR', 'GIT'])
+        .describe('* `USR` - user\n* `GIT` - GitHub')
         .optional()
         .describe(
+            'Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.\n\n* `USR` - user\n* `GIT` - GitHub'
+        ),
+    dashboard_item: zod.number().nullish(),
+    dashboard_id: zod.number().nullish(),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe('Soft-delete flag. Set to true to hide the annotation, or false to restore it.'),
+    scope: zod
+        .enum(['dashboard_item', 'dashboard', 'project', 'organization', 'recording'])
+        .describe(
             '* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording'
+        )
+        .optional()
+        .describe(
+            'Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.\n\n* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording'
         ),
 })
 
@@ -310,9 +430,23 @@ export const annotationsPartialUpdateResponseCreatedByOneEmailMax = 254
 
 export const AnnotationsPartialUpdateResponse = zod.object({
     id: zod.number(),
-    content: zod.string().max(annotationsPartialUpdateResponseContentMax).nullish(),
-    date_marker: zod.string().datetime({}).nullish(),
-    creation_type: zod.enum(['USR', 'GIT']).optional().describe('* `USR` - user\n* `GIT` - GitHub'),
+    content: zod
+        .string()
+        .max(annotationsPartialUpdateResponseContentMax)
+        .nullish()
+        .describe('Annotation text shown on charts to describe the change, release, or incident.'),
+    date_marker: zod
+        .string()
+        .datetime({})
+        .nullish()
+        .describe('When this annotation happened (ISO 8601 timestamp). Used to position it on charts.'),
+    creation_type: zod
+        .enum(['USR', 'GIT'])
+        .describe('* `USR` - user\n* `GIT` - GitHub')
+        .optional()
+        .describe(
+            'Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.\n\n* `USR` - user\n* `GIT` - GitHub'
+        ),
     dashboard_item: zod.number().nullish(),
     dashboard_id: zod.number().nullish(),
     dashboard_name: zod.string().nullable(),
@@ -342,12 +476,18 @@ export const AnnotationsPartialUpdateResponse = zod.object({
     }),
     created_at: zod.string().datetime({}).nullable(),
     updated_at: zod.string().datetime({}),
-    deleted: zod.boolean().optional(),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe('Soft-delete flag. Set to true to hide the annotation, or false to restore it.'),
     scope: zod
         .enum(['dashboard_item', 'dashboard', 'project', 'organization', 'recording'])
-        .optional()
         .describe(
             '* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording'
+        )
+        .optional()
+        .describe(
+            'Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.\n\n* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording'
         ),
 })
 
