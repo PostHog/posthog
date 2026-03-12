@@ -1888,10 +1888,11 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     }
     json["args"] = std::move(args);
     json["expr"] = std::move(expr_json);
+    json["style"] = "arrow";
     return json;
   }
 
-  VISIT(DuckDBLambda) {
+  VISIT(ColonLambda) {
     vector<string> args_vec = visitAsVectorOfStrings(ctx->identifier());
 
     Json json = Json::object();
@@ -1903,6 +1904,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     }
     json["args"] = std::move(args);
     json["expr"] = visitAsJSON(ctx->columnExpr());
+    json["style"] = "colon";
     return json;
   }
 

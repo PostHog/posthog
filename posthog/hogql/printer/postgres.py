@@ -36,6 +36,12 @@ class PostgresPrinter(HogQLPrinter):
         args = [self.visit(arg) for arg in node.args]
         return f"{node.name}({', '.join(args)})"
 
+    def visit_lambda(self, node: ast.Lambda):
+        identifiers = [self._print_identifier(arg) for arg in node.args]
+        if len(identifiers) == 0:
+            raise ValueError("Lambdas require at least one argument")
+        return f"lambda {', '.join(identifiers)}: {self.visit(node.expr)}"
+
     def _print_table_sql(self, table) -> str:
         if isinstance(table, DirectPostgresTable):
             return table.to_printed_postgres(self.context)

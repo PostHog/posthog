@@ -634,8 +634,8 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#DuckDBLambda.
-    def visitDuckDBLambda(self, ctx:HogQLParser.DuckDBLambdaContext):
+    # Visit a parse tree produced by HogQLParser#ColonLambda.
+    def visitColonLambda(self, ctx:HogQLParser.ColonLambdaContext):
         return self.visitChildren(ctx)
 
 

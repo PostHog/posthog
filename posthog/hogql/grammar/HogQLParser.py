@@ -8779,7 +8779,7 @@ class HogQLParser ( Parser ):
                 return visitor.visitChildren(self)
 
 
-    class DuckDBLambdaContext(ColumnLambdaExprContext):
+    class ColonLambdaContext(ColumnLambdaExprContext):
 
         def __init__(self, parser, ctx:ParserRuleContext): # actually a HogQLParser.ColumnLambdaExprContext
             super().__init__(parser)
@@ -8805,8 +8805,8 @@ class HogQLParser ( Parser ):
                 return self.getToken(HogQLParser.COMMA, i)
 
         def accept(self, visitor:ParseTreeVisitor):
-            if hasattr( visitor, "visitDuckDBLambda" ):
-                return visitor.visitDuckDBLambda(self)
+            if hasattr( visitor, "visitColonLambda" ):
+                return visitor.visitColonLambda(self)
             else:
                 return visitor.visitChildren(self)
 
@@ -8910,7 +8910,7 @@ class HogQLParser ( Parser ):
                 pass
 
             elif la_ == 2:
-                localctx = HogQLParser.DuckDBLambdaContext(self, localctx)
+                localctx = HogQLParser.ColonLambdaContext(self, localctx)
                 self.enterOuterAlt(localctx, 2)
                 self.state = 1235
                 self.match(HogQLParser.LAMBDA)

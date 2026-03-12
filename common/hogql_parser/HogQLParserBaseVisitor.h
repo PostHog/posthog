@@ -515,7 +515,7 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitDuckDBLambda(HogQLParser::DuckDBLambdaContext *ctx) override {
+  virtual std::any visitColonLambda(HogQLParser::ColonLambdaContext *ctx) override {
     return visitChildren(ctx);
   }
 

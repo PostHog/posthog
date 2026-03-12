@@ -269,7 +269,7 @@ public:
 
     virtual std::any visitArrowLambda(HogQLParser::ArrowLambdaContext *context) = 0;
 
-    virtual std::any visitDuckDBLambda(HogQLParser::DuckDBLambdaContext *context) = 0;
+    virtual std::any visitColonLambda(HogQLParser::ColonLambdaContext *context) = 0;
 
     virtual std::any visitHogqlxChildElement(HogQLParser::HogqlxChildElementContext *context) = 0;
 

@@ -248,6 +248,30 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
             self.assertEqual(
+                self._expr("lambda x: x * 2"),
+                ast.Lambda(
+                    args=["x"],
+                    expr=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Mult,
+                        left=ast.Field(chain=["x"]),
+                        right=ast.Constant(value=2),
+                    ),
+                    style="colon",
+                ),
+            )
+            self.assertEqual(
+                self._expr("lambda x, y: x * y"),
+                ast.Lambda(
+                    args=["x", "y"],
+                    expr=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Mult,
+                        left=ast.Field(chain=["x"]),
+                        right=ast.Field(chain=["y"]),
+                    ),
+                    style="colon",
+                ),
+            )
+            self.assertEqual(
                 self._expr("arrayMap(x -> x * 2)"),
                 ast.Call(
                     name="arrayMap",

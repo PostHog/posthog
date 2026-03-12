@@ -177,6 +177,12 @@ class TestPrinter(BaseTest):
             "Table column aliases are not allowed in clickhouse dialect",
         )
 
+    def test_lambda_style_non_postgres_error(self):
+        self._assert_query_error(
+            "select lambda x: x + 1",
+            "Colon-style lambdas are not allowed in clickhouse dialect",
+        )
+
     def test_limit_percent_non_postgres_error(self):
         self._assert_query_error(
             "select 1 from events limit 10 %",
@@ -4384,23 +4390,27 @@ class TestPostgresPrinter(BaseTest):
             "SELECT accounts.id FROM public.accounts AS accounts LIMIT 50000",
         )
 
-    def test_column_aliases_postgres_dialect(self):
+    def test_column_aliases(self):
         printed = self._select("SELECT 1 FROM events AS e (event_alias, ts_alias)")
         self.assertIn("AS e (event_alias, ts_alias)", printed)
 
-    def test_limit_percent_postgres_dialect(self):
+    def test_limit_percent_basic(self):
         printed = self._select("SELECT 1 FROM events LIMIT 10 %")
         self.assertIn("LIMIT 10 %", printed)
 
-    def test_limit_percent_postgres_dialect_with_expression(self):
+    def test_limit_percent_expr(self):
         printed = self._select("SELECT 1 FROM events LIMIT (60 + 7) %")
         self.assertIn("LIMIT (60 + 7) %", printed)
 
-    def test_limit_percent_postgres_dialect_with_subquery(self):
+    def test_lambda_style(self):
+        printed = self._select("SELECT lambda x, y: x + y")
+        self.assertIn("lambda x, y: (x + y)", printed)
+
+    def test_limit_percent_with_subquery(self):
         printed = self._select("SELECT 1 FROM events LIMIT (SELECT avg(team_id) FROM events) %")
         self.assertIn("LIMIT (SELECT avg(events.team_id) FROM events) %", printed)
 
-    def test_limit_percent_postgres_dialect_with_offset(self):
+    def test_limit_percent_with_offset(self):
         printed = self._select("SELECT 1 FROM events LIMIT 42% OFFSET 20")
         self.assertIn("LIMIT 42 % OFFSET 20", printed)
 

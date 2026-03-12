@@ -828,6 +828,8 @@ class Resolver(CloningVisitor):
 
     def visit_lambda(self, node: ast.Lambda):
         """Visit each SELECT query or subquery."""
+        if node.style == "colon" and self.dialect != "postgres":
+            raise QueryError(f"Colon-style lambdas are not allowed in {self.dialect} dialect")
 
         # Each Lambda is a new scope in field name resolution.
         # This type keeps track of all lambda arguments that are in scope.

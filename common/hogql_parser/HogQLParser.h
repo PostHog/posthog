@@ -2155,9 +2155,9 @@ public:
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
 
-  class  DuckDBLambdaContext : public ColumnLambdaExprContext {
+  class  ColonLambdaContext : public ColumnLambdaExprContext {
   public:
-    DuckDBLambdaContext(ColumnLambdaExprContext *ctx);
+    ColonLambdaContext(ColumnLambdaExprContext *ctx);
 
     antlr4::tree::TerminalNode *LAMBDA();
     std::vector<IdentifierContext *> identifier();

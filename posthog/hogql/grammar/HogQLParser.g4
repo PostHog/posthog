@@ -241,7 +241,7 @@ columnLambdaExpr:
     | LPAREN RPAREN
     )
     ARROW (columnExpr | block)                                                              # ArrowLambda
-    | LAMBDA identifier (COMMA identifier)* COMMA? COLON columnExpr                        # DuckDBLambda
+    | LAMBDA identifier (COMMA identifier)* COMMA? COLON columnExpr                        # ColonLambda
     ;
 
 hogqlxChildElement

@@ -1124,10 +1124,11 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             expr=self.visit(ctx.columnExpr() or ctx.block()),
         )
 
-    def visitDuckDBLambda(self, ctx: HogQLParser.DuckDBLambdaContext):
+    def visitColonLambda(self, ctx: HogQLParser.ColonLambdaContext):
         return ast.Lambda(
             args=[self.visit(identifier) for identifier in ctx.identifier()],
             expr=self.visit(ctx.columnExpr()),
+            style="colon",
         )
 
     def visitWithExprList(self, ctx: HogQLParser.WithExprListContext):

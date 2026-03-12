@@ -10140,42 +10140,42 @@ std::any HogQLParser::ArrowLambdaContext::accept(tree::ParseTreeVisitor *visitor
   else
     return visitor->visitChildren(this);
 }
-//----------------- DuckDBLambdaContext ------------------------------------------------------------------
+//----------------- ColonLambdaContext ------------------------------------------------------------------
 
-tree::TerminalNode* HogQLParser::DuckDBLambdaContext::LAMBDA() {
+tree::TerminalNode* HogQLParser::ColonLambdaContext::LAMBDA() {
   return getToken(HogQLParser::LAMBDA, 0);
 }
 
-std::vector<HogQLParser::IdentifierContext *> HogQLParser::DuckDBLambdaContext::identifier() {
+std::vector<HogQLParser::IdentifierContext *> HogQLParser::ColonLambdaContext::identifier() {
   return getRuleContexts<HogQLParser::IdentifierContext>();
 }
 
-HogQLParser::IdentifierContext* HogQLParser::DuckDBLambdaContext::identifier(size_t i) {
+HogQLParser::IdentifierContext* HogQLParser::ColonLambdaContext::identifier(size_t i) {
   return getRuleContext<HogQLParser::IdentifierContext>(i);
 }
 
-tree::TerminalNode* HogQLParser::DuckDBLambdaContext::COLON() {
+tree::TerminalNode* HogQLParser::ColonLambdaContext::COLON() {
   return getToken(HogQLParser::COLON, 0);
 }
 
-HogQLParser::ColumnExprContext* HogQLParser::DuckDBLambdaContext::columnExpr() {
+HogQLParser::ColumnExprContext* HogQLParser::ColonLambdaContext::columnExpr() {
   return getRuleContext<HogQLParser::ColumnExprContext>(0);
 }
 
-std::vector<tree::TerminalNode *> HogQLParser::DuckDBLambdaContext::COMMA() {
+std::vector<tree::TerminalNode *> HogQLParser::ColonLambdaContext::COMMA() {
   return getTokens(HogQLParser::COMMA);
 }
 
-tree::TerminalNode* HogQLParser::DuckDBLambdaContext::COMMA(size_t i) {
+tree::TerminalNode* HogQLParser::ColonLambdaContext::COMMA(size_t i) {
   return getToken(HogQLParser::COMMA, i);
 }
 
-HogQLParser::DuckDBLambdaContext::DuckDBLambdaContext(ColumnLambdaExprContext *ctx) { copyFrom(ctx); }
+HogQLParser::ColonLambdaContext::ColonLambdaContext(ColumnLambdaExprContext *ctx) { copyFrom(ctx); }
 
 
-std::any HogQLParser::DuckDBLambdaContext::accept(tree::ParseTreeVisitor *visitor) {
+std::any HogQLParser::ColonLambdaContext::accept(tree::ParseTreeVisitor *visitor) {
   if (auto parserVisitor = dynamic_cast<HogQLParserVisitor*>(visitor))
-    return parserVisitor->visitDuckDBLambda(this);
+    return parserVisitor->visitColonLambda(this);
   else
     return visitor->visitChildren(this);
 }
@@ -10297,7 +10297,7 @@ HogQLParser::ColumnLambdaExprContext* HogQLParser::columnLambdaExpr() {
     }
 
     case 2: {
-      _localctx = _tracker.createInstance<HogQLParser::DuckDBLambdaContext>(_localctx);
+      _localctx = _tracker.createInstance<HogQLParser::ColonLambdaContext>(_localctx);
       enterOuterAlt(_localctx, 2);
       setState(1235);
       match(HogQLParser::LAMBDA);
