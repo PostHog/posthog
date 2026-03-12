@@ -285,7 +285,7 @@ RUN --mount=type=cache,id=playwright-browsers,target=/tmp/playwright-cache \
     PLAYWRIGHT_BROWSERS_PATH=/tmp/playwright-cache \
     /python-runtime/bin/python -m playwright install --with-deps chromium && \
     mkdir -p /ms-playwright && \
-    cp -r /tmp/playwright-cache/. /ms-playwright/ && \
+    cp -r /tmp/playwright-cache/* /ms-playwright/ && \
     chown -R posthog:posthog /ms-playwright
 USER posthog
 
