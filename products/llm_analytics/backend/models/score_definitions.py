@@ -34,9 +34,12 @@ class ScoreDefinition(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
 
     @transaction.atomic
     def create_new_version(self, *, config: dict[str, Any], created_by: User | None) -> ScoreDefinitionVersion:
-        definition = ScoreDefinition.objects.select_for_update().select_related("current_version").get(pk=self.pk)
-        current_version = definition.current_version
-        current_version_number = current_version.version if current_version is not None else 0
+        definition = ScoreDefinition.objects.select_for_update().get(pk=self.pk)
+        current_version_number = (
+            ScoreDefinitionVersion.objects.only("version").get(pk=definition.current_version_id).version
+            if definition.current_version_id is not None
+            else 0
+        )
 
         version = ScoreDefinitionVersion.objects.create(
             definition=definition,

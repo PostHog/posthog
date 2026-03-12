@@ -122,7 +122,8 @@ class TestScoreDefinitionsApi(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("archived", response.data)
+        self.assertEqual(response.data["attr"], "archived")
+        self.assertEqual(response.data["detail"], "New scorers must be created as active.")
 
     def test_new_version_creates_immutable_snapshot_and_advances_current_version(self):
         definition = self._create_definition()
