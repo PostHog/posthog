@@ -167,6 +167,7 @@ class QueryCoalescer:
         acquired = self._redis.set(self._lock_key, self._lock_value, nx=True, ex=LOCK_TTL_SECONDS)
         self._is_leader = bool(acquired)
         if self._is_leader:
+            self._redis.delete(self._done_key, self._error_key)
             coalesce_counter.labels(outcome="leader").inc()
         elif self.dry_run:
             coalesce_counter.labels(outcome="follower_dry_run").inc()
