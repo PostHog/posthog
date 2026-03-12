@@ -74,6 +74,141 @@
             "readOnlyHint": false
         }
     },
+    "cdp-function-templates-list": {
+        "description": "List available function templates. Templates are pre-built function configurations for common integrations (Slack, webhooks, email, etc.) and transformations (GeoIP, etc.). Filter by type (destination, site_destination, site_app, transformation, etc.) via the 'type' query parameter. Results are sorted by popularity (number of active functions using each template).",
+        "category": "Function templates",
+        "feature": "hog_function_templates",
+        "summary": "List function templates",
+        "title": "List function templates",
+        "required_scopes": ["hog_function:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "cdp-function-templates-retrieve": {
+        "description": "Get a specific function template by its template ID (e.g. 'template-slack', 'template-geoip'). Returns the full template including source code, inputs schema, default filters, and mapping templates. Use this to understand what inputs a template requires before creating a function from it.",
+        "category": "Function templates",
+        "feature": "hog_function_templates",
+        "summary": "Get function template",
+        "title": "Get function template",
+        "required_scopes": ["hog_function:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "cdp-functions-list": {
+        "description": "List all functions (destinations, transformations, site apps, and source webhooks) in the project. Returns each function's name, type, enabled status, execution order, and template info. Filter by type (destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation) and enabled status via query parameters.",
+        "category": "Functions",
+        "feature": "hog_functions",
+        "summary": "List functions",
+        "title": "List functions",
+        "required_scopes": ["hog_function:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "cdp-functions-create": {
+        "description": "Create a new function. Requires 'type' (destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation) and either 'hog' source code or a 'template_id' to derive code from a template. Provide 'inputs_schema' to define configurable parameters and 'inputs' with their values. Use 'filters' to control which events trigger the function. Transformations run during ingestion and have an 'execution_order' field.",
+        "category": "Functions",
+        "feature": "hog_functions",
+        "summary": "Create function",
+        "title": "Create function",
+        "required_scopes": ["hog_function:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "cdp-functions-retrieve": {
+        "description": "Get a specific function by ID. Returns the full configuration including source code, inputs schema, input values (secrets are masked), filters, mappings, masking config, and runtime status.",
+        "category": "Functions",
+        "feature": "hog_functions",
+        "summary": "Get function",
+        "title": "Get function",
+        "required_scopes": ["hog_function:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "cdp-functions-partial-update": {
+        "description": "Partially update a function. Can enable/disable the function, change its name, description, source code, inputs, filters, mappings, or masking config. The 'type' field cannot be changed after creation. To delete a function, use the cdp-functions-delete tool instead.",
+        "category": "Functions",
+        "feature": "hog_functions",
+        "summary": "Update function",
+        "title": "Update function",
+        "required_scopes": ["hog_function:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "cdp-functions-delete": {
+        "description": "Delete a function by ID (soft delete). The function will no longer appear in lists or process events, but historical data is preserved.",
+        "category": "Functions",
+        "feature": "hog_functions",
+        "summary": "Delete function",
+        "title": "Delete function",
+        "required_scopes": ["hog_function:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "cdp-functions-invocations-create": {
+        "description": "Test-invoke a function with a mock event payload. Sends the function configuration and test data to the plugin server for execution and returns logs and status. Use 'mock_async_functions: true' (default) to simulate external calls like fetch() without making real HTTP requests.",
+        "category": "Functions",
+        "feature": "hog_functions",
+        "summary": "Test-invoke function",
+        "title": "Test-invoke function",
+        "required_scopes": ["hog_function:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "cdp-functions-rearrange-partial-update": {
+        "description": "Update the execution order of transformation functions. Send an 'orders' object mapping function UUIDs to their new execution_order integer values. Only applies to functions with type=transformation. Returns the updated list of transformations.",
+        "category": "Functions",
+        "feature": "hog_functions",
+        "summary": "Reorder transformation execution",
+        "title": "Reorder transformation execution",
+        "required_scopes": ["hog_function:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "cohorts-list": {
         "description": "List all cohorts in the project. Returns both static cohorts (manually defined user lists) and dynamic cohorts (automatically updated based on property filters).",
         "category": "Cohorts",

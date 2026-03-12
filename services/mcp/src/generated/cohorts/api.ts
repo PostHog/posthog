@@ -36,7 +36,7 @@ export const CohortsListResponse = zod.object({
     previous: zod.string().url().nullish(),
     results: zod.array(
         zod.object({
-            id: zod.number(),
+            id: zod.number().optional(),
             name: zod.string().max(cohortsListResponseResultsItemNameMax).nullish(),
             description: zod.string().max(cohortsListResponseResultsItemDescriptionMax).optional(),
             filters: zod
@@ -286,7 +286,7 @@ export const cohortsRetrieveResponseFiltersOnePropertiesValuesItemThreeNegationD
 export const cohortsRetrieveResponseCreateStaticPersonIdsDefault = []
 
 export const CohortsRetrieveResponse = zod.object({
-    id: zod.number(),
+    id: zod.number().optional(),
     name: zod.string().max(cohortsRetrieveResponseNameMax).nullish(),
     description: zod.string().max(cohortsRetrieveResponseDescriptionMax).optional(),
     filters: zod
@@ -518,7 +518,7 @@ export const cohortsUpdateResponseFiltersOnePropertiesValuesItemThreeNegationDef
 export const cohortsUpdateResponseCreateStaticPersonIdsDefault = []
 
 export const CohortsUpdateResponse = zod.object({
-    id: zod.number(),
+    id: zod.number().optional(),
     name: zod.string().max(cohortsUpdateResponseNameMax).nullish(),
     description: zod.string().max(cohortsUpdateResponseDescriptionMax).optional(),
     filters: zod
@@ -753,7 +753,7 @@ export const cohortsPartialUpdateResponseFiltersOnePropertiesValuesItemThreeNega
 export const cohortsPartialUpdateResponseCreateStaticPersonIdsDefault = []
 
 export const CohortsPartialUpdateResponse = zod.object({
-    id: zod.number(),
+    id: zod.number().optional(),
     name: zod.string().max(cohortsPartialUpdateResponseNameMax).nullish(),
     description: zod.string().max(cohortsPartialUpdateResponseDescriptionMax).optional(),
     filters: zod
