@@ -143,7 +143,7 @@ class TestGetDagStructureActivity:
         assert len(dag.edges) == 2
 
     async def test_empty_dag(self, activity_environment, ateam):
-        inputs = GetDAGStructureInputs(team_id=ateam.pk, dag_id="nonexistent-dag")
+        inputs = GetDAGStructureInputs(team_id=ateam.pk, dag_id=str(uuid.uuid4()))
         dag = await activity_environment.run(get_dag_structure_activity, inputs)
         assert len(dag.nodes) == 0
         assert len(dag.executable_nodes) == 0
