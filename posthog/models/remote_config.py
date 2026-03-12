@@ -1,4 +1,3 @@
-import os
 import json
 from typing import Any, Optional
 
@@ -53,21 +52,6 @@ REMOTE_CONFIG_CDN_PURGE_COUNTER = Counter(
 
 
 logger = structlog.get_logger(__name__)
-
-
-# Load the JS content from the frontend build
-_array_js_content: Optional[str] = None
-
-
-@tracer.start_as_current_span("RemoteConfig.get_array_js_content")
-def get_array_js_content():
-    global _array_js_content
-
-    if _array_js_content is None:
-        with open(os.path.join(settings.BASE_DIR, "frontend/dist/array.js")) as f:
-            _array_js_content = f.read()
-
-    return _array_js_content
 
 
 @tracer.start_as_current_span("RemoteConfig.indent_js")
@@ -444,13 +428,7 @@ class RemoteConfig(UUIDTModel):
     def get_array_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
         # NOTE: Unlike the other methods we dont store this in the cache as it is cheap to build at runtime
         config = cls._get_config_via_cache(token)
-        version = resolve_version(config.get("_snippetVersion"))
-
-        if version:
-            array_js = get_js_content(version)
-        else:
-            array_js = get_array_js_content()
-
+        array_js = get_js_content(config.get("_snippetVersion"))
         js_content = cls.get_config_js_via_token(token, request=request)
 
         return f"""{array_js}\n\n{js_content}"""

@@ -73,6 +73,12 @@ class TestGetJsContent(SimpleTestCase):
         assert len(content) > 0
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    def test_returns_disk_content_when_version_not_resolved(self):
+        content = get_js_content(None)
+        assert content is not None
+        assert len(content) > 0
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
     def test_returns_redis_content_when_cached(self):
         cache.set(f"{REDIS_JS_KEY_PREFIX}:1.358.0", "cached-js-content", 3600)
         try:
@@ -88,7 +94,7 @@ class TestGetJsContent(SimpleTestCase):
         try:
             content = get_js_content("1.358.0")
             assert content == "s3-js-content"
-            mock_read.assert_called_once_with("posthog-js/v1.358.0/array.js", bucket="test-bucket", missing_ok=True)
+            mock_read.assert_called_once_with("v1.358.0/array.js", bucket="test-bucket", missing_ok=True)
             assert cache.get(f"{REDIS_JS_KEY_PREFIX}:1.358.0") == "s3-js-content"
         finally:
             cache.delete(f"{REDIS_JS_KEY_PREFIX}:1.358.0")
@@ -101,6 +107,12 @@ class TestGetJsContent(SimpleTestCase):
         assert content is not None
         assert len(content) > 0
 
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    def test_rejects_invalid_resolved_version(self):
+        content = get_js_content("../../../etc/passwd")
+        assert content is not None
+        assert len(content) > 0  # falls back to disk
+
 
 class TestValidateArtifacts(SimpleTestCase):
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
@@ -108,7 +120,7 @@ class TestValidateArtifacts(SimpleTestCase):
     def test_returns_true_when_array_js_exists(self, mock_read):
         mock_read.return_value = "js-content"
         assert validate_version_artifacts("1.358.0") is True
-        mock_read.assert_called_once_with("posthog-js/v1.358.0/array.js", bucket="test-bucket", missing_ok=True)
+        mock_read.assert_called_once_with("v1.358.0/array.js", bucket="test-bucket", missing_ok=True)
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
     @patch("posthog.models.snippet_versioning.object_storage.read")

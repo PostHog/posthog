@@ -108,7 +108,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
         assert response.headers["Content-Type"] == "application/javascript"
         assert response.content == self.snapshot
 
-    @patch("posthog.models.remote_config.get_array_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
+    @patch("posthog.models.remote_config.get_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
     def test_valid_array_js(self, mock_get_array_js_content):
         with self.assertNumQueries(FuzzyInt(CONFIG_REFRESH_QUERY_COUNT - 1, CONFIG_REFRESH_QUERY_COUNT + 1)):
             response = self.client.get(
@@ -126,7 +126,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
 
         # NOT actually testing the content here as it will change dynamically
 
-    @patch("posthog.models.remote_config.get_array_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
+    @patch("posthog.models.remote_config.get_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
     def test_valid_array_uses_config_js_cache(self, mock_get_array_js_content):
         with self.assertNumQueries(FuzzyInt(CONFIG_REFRESH_QUERY_COUNT, CONFIG_REFRESH_QUERY_COUNT + 1)):
             response = self.client.get(

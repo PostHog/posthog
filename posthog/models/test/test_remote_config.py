@@ -482,7 +482,7 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
             data = RemoteConfig.get_config_js_via_token(self.team.api_token)
             self._assert_matches_config_js(data)
 
-    @patch("posthog.models.remote_config.get_array_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
+    @patch("posthog.models.remote_config.get_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
     def test_gets_array_js_via_redis_cache(self, mock_get_array_js_content):
         with self.assertNumQueries(CONFIG_REFRESH_QUERY_COUNT):
             data = RemoteConfig.get_array_js_via_token(self.team.api_token)
