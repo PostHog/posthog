@@ -32,9 +32,11 @@ type SourceProps =
           /** Whether enabling requires going through a setup flow (shows an arrow icon on the enable button) */
           requiresSetup?: boolean
           onToggle: () => void
-          configSection?: React.ReactNode
-          configButtonLabel?: string
-          onConfigClick?: () => void
+          config?: {
+              display: React.ReactNode
+              buttonLabel: string
+              onClick: () => void
+          }
           onClearClick?: () => void
           statusSection?: React.ReactNode
       }
@@ -94,7 +96,7 @@ function Source(props: SourceProps): JSX.Element {
                     )}
                 </div>
                 <p className="text-xs text-secondary mt-0.25 mb-0">{props.description}</p>
-                {!isComingSoon && props.checked && props.configSection !== undefined && (
+                {!isComingSoon && props.checked && props.config !== undefined && (
                     <>
                         <div className="mt-2 border rounded">
                             <div className="flex items-center justify-between px-2 pt-2">
@@ -105,14 +107,12 @@ function Source(props: SourceProps): JSX.Element {
                                             Clear
                                         </LemonButton>
                                     )}
-                                    {props.onConfigClick && (
-                                        <LemonButton type="secondary" size="xsmall" onClick={props.onConfigClick}>
-                                            {props.configButtonLabel}
-                                        </LemonButton>
-                                    )}
+                                    <LemonButton type="secondary" size="xsmall" onClick={props.config.onClick}>
+                                        {props.config.buttonLabel}
+                                    </LemonButton>
                                 </div>
                             </div>
-                            {props.configSection}
+                            {props.config.display}
                         </div>
                         {props.statusSection}
                     </>
@@ -173,19 +173,19 @@ export function SourcesList(): JSX.Element {
                 checked={!!sessionAnalysisConfig?.enabled}
                 loading={isSessionAnalysisToggling}
                 onToggle={() => toggleSessionAnalysis()}
-                configButtonLabel={recordingFilters ? 'Edit' : 'Configure'}
-                onConfigClick={openSessionAnalysisSetup}
-                onClearClick={hasNonEmptyFilters ? clearSessionAnalysisFilters : undefined}
-                statusSection={<ClusteringStatusIndicator status={sessionAnalysisConfig?.status ?? null} />}
-                configSection={
-                    recordingFilters ? (
+                config={{
+                    buttonLabel: recordingFilters ? 'Edit' : 'Configure',
+                    onClick: openSessionAnalysisSetup,
+                    display: recordingFilters ? (
                         <RecordingsUniversalFiltersDisplay filters={recordingFilters} />
                     ) : (
                         <div className="px-2 pb-2">
                             <span className="text-xs text-secondary">All sessions</span>
                         </div>
-                    )
-                }
+                    ),
+                }}
+                onClearClick={hasNonEmptyFilters ? clearSessionAnalysisFilters : undefined}
+                statusSection={<ClusteringStatusIndicator status={sessionAnalysisConfig?.status ?? null} />}
             />
 
             <Source
