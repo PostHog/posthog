@@ -1729,15 +1729,6 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         sceneKeys: ['DataWarehouse', 'Models', 'SQLEditor'],
     },
     {
-        path: 'Marketing settings',
-        category: 'Unreleased',
-        iconType: 'marketing_settings',
-        href: urls.marketingAnalytics(),
-        flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
-        sceneKey: 'WebAnalyticsMarketing',
-        sceneKeys: ['WebAnalyticsMarketing'],
-    },
-    {
         path: 'Models',
         category: 'Tools',
         type: 'sql',
