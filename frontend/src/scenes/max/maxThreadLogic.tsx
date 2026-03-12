@@ -1110,8 +1110,20 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // (those which aren't included in the streaming response)
             actions.loadConversation(values.conversation.id)
 
-            if (values.queueingEnabled && values.conversation?.id) {
+            const shouldConsumeSandboxQueue = values.isSandboxMode && values.queuedMessages.length > 0
+
+            if (values.queueingEnabled && values.conversation?.id && !shouldConsumeSandboxQueue) {
                 actions.loadQueueData()
+            }
+
+            // Process queued messages for sandbox conversations.
+            // Regular conversations handle queue consumption on the backend
+            // (process_chat_agent_activity pops and starts new workflows).
+            // Sandbox mode doesn't have this, so the frontend drives it.
+            if (shouldConsumeSandboxQueue) {
+                const nextMessage = values.queuedMessages[0]
+                actions.consumeQueuedMessage(nextMessage)
+                actions.askMax(nextMessage.content)
             }
 
             // Must go last. Otherwise, the logic will be unmounted before the lifecycle finishes.
