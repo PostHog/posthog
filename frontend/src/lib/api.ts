@@ -4349,6 +4349,9 @@ const api = {
         async run(id: Task['id']): Promise<Task> {
             return await new ApiRequest().task(id).withAction('run').create()
         },
+        async runWizard(data: { repository: string; github_integration?: number | null }): Promise<Task> {
+            return await new ApiRequest().tasks().withAction('run_wizard').create({ data })
+        },
         runs: {
             async list(taskId: Task['id']): Promise<PaginatedResponse<TaskRun>> {
                 return await new ApiRequest().taskRuns(taskId).get()

@@ -188,6 +188,35 @@ DEFAULT_TRUSTED_DOMAINS = [
     "www.schemastore.org",
 ]
 
+POSTHOG_WIZARD_PROMPT = """
+Your goal is to run the PostHog wizard to update PostHog instrumentation in this repository.
+
+You are operating in a sandbox environment that is completely isolated and safe.
+
+CONTEXT:
+
+CWD: {cwd}
+
+REPOSITORY: {repository}
+
+INSTRUCTIONS:
+
+1. Navigate to the repository root directory
+2. Run `npx @posthog/wizard@latest` to start the PostHog wizard
+   - The wizard will analyze the project and suggest instrumentation updates
+   - It may ask interactive questions — answer them based on the project's needs
+   - If the wizard asks for a PostHog API key or project, use reasonable defaults or skip if possible
+3. Review the changes the wizard has made
+4. Commit all changes to a new branch
+5. Create a pull request with a clear description of the instrumentation changes
+
+Rules:
+- You MUST create a pull request with all changes made by the wizard
+- Provide a descriptive PR title like "chore: update PostHog instrumentation via wizard"
+- In the PR description, summarize what the wizard changed (new events tracked, SDK updates, configuration changes, etc.)
+- If the wizard fails or encounters errors, report them clearly
+""".strip()
+
 SETUP_REPOSITORY_PROMPT = """
 Your goal is to setup the repository in the current environment.
 

@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconPlus } from '@posthog/icons'
+import { IconPlus, IconTerminal } from '@posthog/icons'
 import {
     LemonBadge,
     LemonButton,
@@ -20,6 +21,7 @@ import { Task, TaskRunStatus } from '../types'
 import { TaskCreateModal } from './TaskCreateModal'
 import { TaskStatusBadge } from './TaskStatusBadge'
 import { UserFilter } from './UserFilter'
+import { WizardModal } from './WizardModal'
 
 export function TasksList(): JSX.Element {
     const { filteredTasks, searchQuery, repository, status, isCreateModalOpen } = useValues(taskTrackerSceneLogic)
@@ -27,6 +29,7 @@ export function TasksList(): JSX.Element {
     const { setSearchQuery, setRepository, setStatus, openCreateModal, closeCreateModal } =
         useActions(taskTrackerSceneLogic)
     const { openTask } = useActions(tasksLogic)
+    const [isWizardModalOpen, setIsWizardModalOpen] = useState(false)
 
     const columns: LemonTableColumn<Task, keyof Task | undefined>[] = [
         {
@@ -141,9 +144,14 @@ export function TasksList(): JSX.Element {
                     <LemonSelect value={status} onChange={setStatus} options={statusOptions} className="min-w-32" />
                     <UserFilter />
                 </div>
-                <LemonButton type="primary" icon={<IconPlus />} onClick={openCreateModal}>
-                    New task
-                </LemonButton>
+                <div className="flex items-center gap-2">
+                    <LemonButton type="secondary" icon={<IconTerminal />} onClick={() => setIsWizardModalOpen(true)}>
+                        Run wizard
+                    </LemonButton>
+                    <LemonButton type="primary" icon={<IconPlus />} onClick={openCreateModal}>
+                        New task
+                    </LemonButton>
+                </div>
             </div>
 
             {tasksLoading ? (
@@ -168,6 +176,7 @@ export function TasksList(): JSX.Element {
             )}
 
             <TaskCreateModal isOpen={isCreateModalOpen} onClose={closeCreateModal} />
+            <WizardModal isOpen={isWizardModalOpen} onClose={() => setIsWizardModalOpen(false)} />
         </div>
     )
 }

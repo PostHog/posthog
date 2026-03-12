@@ -11,6 +11,7 @@ from products.tasks.backend.max_tools import (
     ListRepositoriesTool,
     ListTaskRunsTool,
     ListTasksTool,
+    RunPostHogWizardTool,
     RunTaskTool,
 )
 
@@ -53,6 +54,7 @@ DEFAULT_TOOLS: list[type[MaxTool]] = [
 TASK_TOOLS: list[type[MaxTool]] = [
     CreateTaskTool,
     RunTaskTool,
+    RunPostHogWizardTool,
     GetTaskRunTool,
     GetTaskRunLogsTool,
     ListTasksTool,

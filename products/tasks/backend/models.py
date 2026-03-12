@@ -40,6 +40,7 @@ class Task(DeletedMetaFields, models.Model):
         SLACK = "slack", "Slack"
         SUPPORT_QUEUE = "support_queue", "Support Queue"
         SESSION_SUMMARIES = "session_summaries", "Session Summaries"
+        POSTHOG_WIZARD = "posthog_wizard", "PostHog Wizard"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)

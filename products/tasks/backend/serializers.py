@@ -334,6 +334,27 @@ class ConnectionTokenResponseSerializer(serializers.Serializer):
     token = serializers.CharField(help_text="JWT token for authenticating with the sandbox")
 
 
+class RunWizardRequestSerializer(serializers.Serializer):
+    """Request body for running the PostHog wizard on a repository"""
+
+    repository = serializers.CharField(
+        max_length=255,
+        help_text="Repository in format 'org/repo' (e.g., 'posthog/posthog-js')",
+    )
+    github_integration = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="GitHub integration ID. If not provided, the default integration for the team will be used.",
+    )
+
+    def validate_repository(self, value: str) -> str:
+        normalized = value.strip().lower()
+        parts = normalized.split("/")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise serializers.ValidationError("Repository must be in the format organization/repository")
+        return normalized
+
+
 class TaskRunCreateRequestSerializer(serializers.Serializer):
     """Request body for creating a new task run"""
 

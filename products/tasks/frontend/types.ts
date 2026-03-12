@@ -6,6 +6,7 @@ export enum OriginProduct {
     USER_CREATED = 'user_created',
     SUPPORT_QUEUE = 'support_queue',
     SESSION_SUMMARIES = 'session_summaries',
+    POSTHOG_WIZARD = 'posthog_wizard',
 }
 
 export enum TaskRunStatus {

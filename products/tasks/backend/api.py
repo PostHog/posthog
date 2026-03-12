@@ -29,6 +29,7 @@ from posthog.permissions import APIScopePermission
 from posthog.rate_limit import CodeInviteThrottle
 from posthog.storage import object_storage
 
+from .constants import POSTHOG_WIZARD_PROMPT
 from .models import CodeInvite, CodeInviteRedemption, Task, TaskRun
 from .repository_readiness import compute_repository_readiness
 from .serializers import (
@@ -37,6 +38,7 @@ from .serializers import (
     ErrorResponseSerializer,
     RepositoryReadinessQuerySerializer,
     RepositoryReadinessResponseSerializer,
+    RunWizardRequestSerializer,
     TaskListQuerySerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
@@ -223,6 +225,57 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task_run = task.create_run(mode=mode, branch=branch)
 
         logger.info(f"Triggering workflow for task {task.id}, run {task_run.id}")
+
+        self._trigger_workflow(task, task_run)
+
+        task.refresh_from_db()
+
+        return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
+
+    @validated_request(
+        request_serializer=RunWizardRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskSerializer, description="Created wizard task with run"),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid request"),
+        },
+        summary="Run PostHog wizard",
+        description="Create a task that runs the PostHog wizard (npx @posthog/wizard@latest) on the specified repository and creates a PR with instrumentation updates.",
+    )
+    @action(detail=False, methods=["post"], url_path="run_wizard", required_scopes=["task:write"])
+    def run_wizard(self, request, **kwargs):
+        repository = request.validated_data["repository"]
+        github_integration_id = request.validated_data.get("github_integration")
+
+        from posthog.models.integration import Integration
+
+        if github_integration_id:
+            github_integration = Integration.objects.filter(
+                id=github_integration_id, team=self.team, kind="github"
+            ).first()
+        else:
+            github_integration = Integration.objects.filter(team=self.team, kind="github").first()
+
+        if not github_integration:
+            return Response(
+                ErrorResponseSerializer({"error": "No GitHub integration found for this project"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        org, repo = repository.lower().split("/")
+        cwd = f"/tmp/workspace/repos/{org}/{repo}"
+        description = POSTHOG_WIZARD_PROMPT.format(cwd=cwd, repository=repository)
+
+        task = Task.objects.create(
+            team=self.team,
+            created_by=request.user,
+            title=f"Run PostHog wizard on {repository}",
+            description=description,
+            origin_product=Task.OriginProduct.POSTHOG_WIZARD,
+            repository=repository,
+            github_integration=github_integration,
+        )
+
+        task_run = task.create_run()
 
         self._trigger_workflow(task, task_run)
 

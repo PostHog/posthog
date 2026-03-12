@@ -7,6 +7,7 @@ from posthog.storage import object_storage
 
 from ee.hogai.tool import MaxTool
 
+from .constants import POSTHOG_WIZARD_PROMPT
 from .models import Task, TaskRun
 from .temporal.client import execute_task_processing_workflow_async
 
@@ -43,6 +44,10 @@ class ListTasksArgs(BaseModel):
 class ListTaskRunsArgs(BaseModel):
     task_id: str = Field(description="UUID of the task to list runs for")
     limit: int = Field(default=10, ge=1, le=50, description="Maximum number of runs to return")
+
+
+class RunPostHogWizardArgs(BaseModel):
+    repository: str = Field(description="Repository in format 'org/repo' (e.g., 'posthog/posthog-js')")
 
 
 class ListRepositoriesArgs(BaseModel):
@@ -536,3 +541,74 @@ Use this tool when the user wants to:
             lines.append(f"- {repo['repository']}")
 
         return "\n".join(lines), {"repositories": repos}
+
+
+class RunPostHogWizardTool(MaxTool):
+    name: str = "run_posthog_wizard"
+    description: str = """
+Run the PostHog wizard (npx @posthog/wizard@latest) on a repository to update PostHog instrumentation.
+
+Use this tool when the user wants to:
+- Set up or update PostHog instrumentation in a repository
+- Run the PostHog wizard to configure analytics, session replay, or error tracking
+- Update PostHog SDK configuration in a project
+
+This creates a task that runs the wizard in a sandbox and creates a pull request with the changes.
+    """.strip()
+    args_schema: type[BaseModel] = RunPostHogWizardArgs
+
+    async def _arun_impl(self, repository: str) -> tuple[str, dict[str, Any]]:
+        from posthog.models.integration import Integration
+
+        @sync_to_async
+        def create_wizard_task():
+            github_integration = Integration.objects.filter(team=self._team, kind="github").first()
+
+            org, repo = repository.lower().split("/") if "/" in repository else ("", repository)
+            cwd = f"/tmp/workspace/repos/{org}/{repo}"
+
+            description = POSTHOG_WIZARD_PROMPT.format(cwd=cwd, repository=repository)
+
+            task = Task.objects.create(
+                team=self._team,
+                created_by=self._user,
+                title=f"Run PostHog wizard on {repository}",
+                description=description,
+                origin_product=Task.OriginProduct.POSTHOG_WIZARD,
+                repository=repository,
+                github_integration=github_integration,
+            )
+
+            task_run = task.create_run()
+
+            task_url = f"/project/{self._team.project.id}/tasks/{task.id}?runId={task_run.id}"
+
+            return {
+                "task_id": str(task.id),
+                "run_id": str(task_run.id),
+                "slug": task.slug,
+                "title": task.title,
+                "url": task_url,
+                "team_id": task.team.id,
+            }
+
+        result = await create_wizard_task()
+
+        slack_thread_context = (self._config.get("configurable") or {}).get("slack_thread_context")
+
+        await execute_task_processing_workflow_async(
+            task_id=result["task_id"],
+            run_id=result["run_id"],
+            team_id=result["team_id"],
+            user_id=self._user.id,
+            slack_thread_context=slack_thread_context,
+        )
+
+        return (
+            f"Started PostHog wizard on {repository}.\n"
+            f"Task: {result['title']} ({result['slug']})\n"
+            f"Run ID: {result['run_id']}\n"
+            f"The wizard will analyze the project, update instrumentation, and create a pull request.\n"
+            f"View progress at {result['url']}",
+            result,
+        )
