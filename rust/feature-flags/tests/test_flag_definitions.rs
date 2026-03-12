@@ -1674,3 +1674,50 @@ async fn test_etag_graceful_degradation_without_stored_etag() {
         "Should not include ETag header when no ETag is stored"
     );
 }
+
+#[tokio::test]
+async fn test_flag_definitions_billing_limited_returns_402() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    // Create team with secret token in real PG (needed for auth)
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    // Start server with mock Redis where the team's token is billing-limited
+    let server = common::ServerHandle::for_config_with_mock_redis(
+        config,
+        vec![team.api_token.clone()],            // billing-limited
+        vec![(team.api_token.clone(), team.id)], // valid for team lookup
+    )
+    .await;
+
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    let status = response.status();
+    let body_text = response.text().await.unwrap();
+
+    assert_eq!(
+        status, 402,
+        "Should return 402 when billing quota is exceeded. Body: {body_text}"
+    );
+    // Response body matches Django's JSON format for SDK compatibility
+    let body: serde_json::Value = serde_json::from_str(&body_text).unwrap();
+    assert_eq!(body["type"], "quota_limited");
+    assert_eq!(body["code"], "payment_required");
+}
