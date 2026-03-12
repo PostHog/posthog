@@ -119,7 +119,7 @@ const config: Config = {
         '^~/(.*)$': '<rootDir>/src/$1',
         '^@posthog/lemon-ui(|/.*)$': '<rootDir>/@posthog/lemon-ui/src/$1',
         '^lib/(.*)$': '<rootDir>/src/lib/$1',
-        '^chart\\.js$': '<rootDir>/src/test/insight-harness/chartjs-mock',
+        '^chart\\.js$': '<rootDir>/src/test/insight-testing/chartjs-mock',
         '@sgratzl/chartjs-chart-boxplot': '<rootDir>/src/test/mocks/emptyMock.js',
         'chartjs-plugin-crosshair': '<rootDir>/src/test/mocks/emptyMock.js',
         'chartjs-plugin-annotation': '<rootDir>/src/test/mocks/chartjsPluginMock.js',

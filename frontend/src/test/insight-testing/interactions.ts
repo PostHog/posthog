@@ -6,12 +6,12 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { TrendsQuery } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
-import { HARNESS_INSIGHT_ID } from './InsightHarness'
+import { INSIGHT_TEST_ID } from './render-insight'
 
 const DEBOUNCE_TIMEOUT = 3000
 
 function getLogic(): ReturnType<typeof insightVizDataLogic.build> {
-    const props: InsightLogicProps = { dashboardItemId: HARNESS_INSIGHT_ID }
+    const props: InsightLogicProps = { dashboardItemId: INSIGHT_TEST_ID }
     return insightVizDataLogic(props)
 }
 
@@ -45,7 +45,9 @@ export const series = {
     async select(eventName: string, index = 0): Promise<void> {
         await searchAndSelect(`trend-element-subject-${index}`, eventName, 'prop-filter-events-0')
 
-        await waitFor(() => expect(getQuerySource().series[index].event).toBe(eventName), { timeout: DEBOUNCE_TIMEOUT })
+        await waitFor(() => expect((getQuerySource().series[index] as { event?: string }).event).toBe(eventName), {
+            timeout: DEBOUNCE_TIMEOUT,
+        })
     },
 }
 

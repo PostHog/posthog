@@ -25,7 +25,7 @@ jest.mock('lib/components/AutoSizer', () => ({
         renderProp({ height: 400, width: 400 }),
 }))
 
-describe('InsightTestHarness', () => {
+describe('renderInsight', () => {
     beforeEach(() => {
         useMocks({
             get: {

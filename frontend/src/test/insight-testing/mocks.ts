@@ -45,10 +45,7 @@ function buildTrendsResponse(series: SeriesData[]): TrendsQueryResponse {
             days: s.days ?? s.data.map((_, j) => `2024-01-0${j + 1}`),
             breakdown_value: s.breakdown_value,
         })),
-        is_cached: false,
-        last_refresh: new Date().toISOString(),
-        timings: [],
-    }
+    } as TrendsQueryResponse
 }
 
 function resolveSeriesData(query: QueryBody): SeriesData[] {
