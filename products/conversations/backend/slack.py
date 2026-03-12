@@ -25,7 +25,7 @@ from posthog.models.comment import Comment
 from posthog.models.team.team import Team
 from posthog.models.uploaded_media import UploadedMedia, save_content_to_object_storage
 
-from .formatting import slack_to_content_and_rich_content
+from .formatting import extract_slack_user_ids, slack_to_content_and_rich_content
 from .models import Ticket
 from .models.constants import Channel, Status
 from .support_slack import (
@@ -340,8 +340,19 @@ def create_or_update_slack_ticket(
     # Resolve Slack user info for this message author
     user_info = resolve_slack_user(client, slack_user_id)
 
+    # Resolve in-message @mentions to display names
+    mentioned_ids = extract_slack_user_ids(text, blocks)
+    user_names: dict[str, str] = {}
+    for uid in mentioned_ids:
+        if uid == slack_user_id and user_info["name"] != "Unknown":
+            user_names[uid] = user_info["name"]
+        elif uid not in user_names:
+            info = resolve_slack_user(client, uid)
+            if info["name"] != "Unknown":
+                user_names[uid] = info["name"]
+
     # Convert Slack payload to markdown content and rich_content
-    cleaned_text, rich_content = slack_to_content_and_rich_content(text, blocks)
+    cleaned_text, rich_content = slack_to_content_and_rich_content(text, blocks, user_names=user_names)
 
     if is_thread_reply:
         ticket = Ticket.objects.filter(
