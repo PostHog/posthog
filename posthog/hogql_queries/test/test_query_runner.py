@@ -531,7 +531,7 @@ class TestQueryCoalescing(BaseTest):
         runner = Runner(query={"some_attr": "bla"}, team=self.team)
 
         with mock.patch("posthog.hogql_queries.query_coalescer.QueryCoalescer") as MockCoalescer:
-            MockCoalescer.return_value.run_coalesced.side_effect = lambda execute, **_: execute()
+            MockCoalescer.return_value.run_coalesced.side_effect = lambda execute, **kw: execute()
             runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
         MockCoalescer.assert_called_once()
@@ -554,7 +554,7 @@ class TestQueryCoalescing(BaseTest):
         runner = Runner(query={"some_attr": "bla"}, team=self.team)
 
         with mock.patch("posthog.hogql_queries.query_coalescer.QueryCoalescer") as MockCoalescer:
-            MockCoalescer.return_value.run_coalesced.side_effect = lambda execute, **_: execute()
+            MockCoalescer.return_value.run_coalesced.side_effect = lambda execute, **kw: execute()
             runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
         MockCoalescer.assert_called_once()
@@ -585,7 +585,9 @@ class TestQueryCoalescing(BaseTest):
         self.assertTrue(coalescer._try_acquire())
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_coalesced_follower_recomputes_when_cache_is_stale(self, _mock_ff):
+    def test_coalesced_follower_raises_when_cache_is_stale(self, _mock_ff):
+        from posthog.hogql_queries.query_coalescer import QueryCoalescingError
+
         Runner = self.setup_test_query_runner_class()
 
         with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
@@ -596,14 +598,13 @@ class TestQueryCoalescing(BaseTest):
 
         with freeze_time(datetime(2023, 2, 4, 13, 48, 42)):
             follower_runner = Runner(query={"some_attr": "bla"}, team=self.team)
+            # Follower can't acquire lock and wait returns stale cache → raises
             with mock.patch(
                 "posthog.hogql_queries.query_coalescer.QueryCoalescer._try_acquire",
                 return_value=False,
             ):
-                response = follower_runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-
-            self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:48:42+00:00")
-            self.assertEqual(response.is_cached, False)
+                with self.assertRaises(QueryCoalescingError):
+                    follower_runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
     def test_coalescing_redis_failure_degrades_gracefully(self):
         Runner = self.setup_test_query_runner_class()

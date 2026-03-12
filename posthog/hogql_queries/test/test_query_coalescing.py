@@ -1,4 +1,5 @@
 import time
+import threading
 from datetime import UTC, datetime
 
 from unittest import mock
@@ -9,7 +10,20 @@ from parameterized import parameterized
 from redis.exceptions import RedisError
 
 from posthog import redis as posthog_redis
-from posthog.hogql_queries.query_coalescer import LOCK_KEY_PREFIX, QueryCoalescer
+from posthog.hogql_queries.query_coalescer import (
+    ERROR_KEY_PREFIX,
+    LOCK_KEY_PREFIX,
+    QueryCoalescer,
+    QueryCoalescingError,
+    _Heartbeat,
+)
+
+
+def _default_is_fresh(data: dict, leader_start: float) -> bool:
+    last_refresh = data.get("last_refresh")
+    if last_refresh is None:
+        return False
+    return last_refresh.timestamp() >= leader_start
 
 
 class TestQueryCoalescer(TestCase):
@@ -19,6 +33,7 @@ class TestQueryCoalescer(TestCase):
 
     def tearDown(self):
         self.redis.delete(f"{LOCK_KEY_PREFIX}:{self.cache_key}")
+        self.redis.delete(f"{ERROR_KEY_PREFIX}:{self.cache_key}")
 
     def _set_lock(self, query_id="leader", timestamp=None):
         if timestamp is None:
@@ -63,41 +78,76 @@ class TestQueryCoalescer(TestCase):
         old_leader._release()
         self.assertTrue(self._lock_exists())
 
+    # -- Heartbeat --
+
+    def test_heartbeat_extends_lock_ttl(self):
+        coalescer = QueryCoalescer(self.cache_key, "q1")
+        coalescer._try_acquire()
+
+        # Set a short TTL that would expire without heartbeat
+        self.redis.expire(f"{LOCK_KEY_PREFIX}:{self.cache_key}", 2)
+        ttl_before = self.redis.ttl(f"{LOCK_KEY_PREFIX}:{self.cache_key}")
+        self.assertLessEqual(ttl_before, 2)
+
+        heartbeat = _Heartbeat(self.redis, coalescer._lock_key, coalescer._lock_value)
+        try:
+            # Trigger a heartbeat by using a very short interval
+            with mock.patch("posthog.hogql_queries.query_coalescer.HEARTBEAT_INTERVAL_SECONDS", 0.1):
+                hb = _Heartbeat(self.redis, coalescer._lock_key, coalescer._lock_value)
+                time.sleep(0.3)
+                hb.stop()
+
+            ttl_after = self.redis.ttl(f"{LOCK_KEY_PREFIX}:{self.cache_key}")
+            self.assertGreater(ttl_after, 2)
+        finally:
+            heartbeat.stop()
+            coalescer._release()
+
+    def test_heartbeat_stops_cleanly(self):
+        coalescer = QueryCoalescer(self.cache_key, "q1")
+        coalescer._try_acquire()
+        heartbeat = _Heartbeat(self.redis, coalescer._lock_key, coalescer._lock_value)
+        heartbeat.stop()
+        self.assertFalse(heartbeat._thread.is_alive())
+        coalescer._release()
+
     # -- Waiting for result --
 
     @parameterized.expand(
         [
             ("leader_gone", False, 0, False, None, None),
-            ("leader_expired", True, -60, False, None, None),
         ]
     )
     def test_wait_for_result(self, _name, has_lock, lock_age_offset, dry_run, cache_data, expected):
         if has_lock:
             self._set_lock(timestamp=time.time() + lock_age_offset)
         coalescer = QueryCoalescer(self.cache_key, "follower", dry_run=dry_run)
-        result = coalescer._wait_for_result(lambda: cache_data, poll_interval=0, max_leader_age=30)
+        result = coalescer._wait_for_result(lambda: cache_data, _default_is_fresh, poll_interval=0, max_wait=0.01)
         self.assertEqual(result, expected)
 
     def test_wait_returns_fresh_cache_hit(self):
         self._set_lock()
         coalescer = QueryCoalescer(self.cache_key, "follower")
         fresh_data = self._fresh_cache_data(results=[1])
-        result = coalescer._wait_for_result(lambda: fresh_data, poll_interval=0, max_leader_age=30)
+        result = coalescer._wait_for_result(lambda: fresh_data, _default_is_fresh, poll_interval=0, max_wait=5)
         self.assertEqual(result, fresh_data)
 
     def test_wait_ignores_stale_cache(self):
         self._set_lock()
         coalescer = QueryCoalescer(self.cache_key, "follower")
         stale_data = {"last_refresh": datetime(2020, 1, 1, tzinfo=UTC), "results": [1]}
-        # Lock exists but cache is stale — should keep polling until max_leader_age
-        result = coalescer._wait_for_result(lambda: stale_data, poll_interval=0, max_leader_age=0.01)
+        # Lock exists but cache is stale — should keep polling until max_wait
+        result = coalescer._wait_for_result(lambda: stale_data, _default_is_fresh, poll_interval=0, max_wait=0.01)
         self.assertIsNone(result)
 
     def test_wait_skipped_in_dry_run(self):
         self._set_lock()
         coalescer = QueryCoalescer(self.cache_key, "follower", dry_run=True)
         result = coalescer._wait_for_result(
-            lambda: self._fresh_cache_data(results=[1]), poll_interval=0, max_leader_age=30
+            lambda: self._fresh_cache_data(results=[1]),
+            _default_is_fresh,
+            poll_interval=0,
+            max_wait=5,
         )
         self.assertIsNone(result)
 
@@ -112,9 +162,41 @@ class TestQueryCoalescer(TestCase):
             call_count += 1
             return fresh_data if call_count >= 3 else None
 
-        result = coalescer._wait_for_result(delayed_cache, poll_interval=0.01, max_leader_age=5)
+        result = coalescer._wait_for_result(delayed_cache, _default_is_fresh, poll_interval=0.01, max_wait=5)
         self.assertEqual(result, fresh_data)
         self.assertEqual(call_count, 3)
+
+    def test_wait_returns_cache_after_lock_released(self):
+        self._set_lock()
+        coalescer = QueryCoalescer(self.cache_key, "follower")
+        fresh_data = self._fresh_cache_data(results=[1])
+        call_count = 0
+
+        def cache_after_lock_release():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:
+                # Leader releases lock and writes cache
+                self.redis.delete(f"{LOCK_KEY_PREFIX}:{self.cache_key}")
+            return fresh_data if call_count >= 2 else None
+
+        result = coalescer._wait_for_result(cache_after_lock_release, _default_is_fresh, poll_interval=0.01, max_wait=5)
+        self.assertEqual(result, fresh_data)
+
+    def test_wait_returns_none_when_leader_gone_no_cache(self):
+        self._set_lock()
+        coalescer = QueryCoalescer(self.cache_key, "follower")
+        call_count = 0
+
+        def no_cache_leader_dies():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:
+                self.redis.delete(f"{LOCK_KEY_PREFIX}:{self.cache_key}")
+            return None
+
+        result = coalescer._wait_for_result(no_cache_leader_dies, _default_is_fresh, poll_interval=0.01, max_wait=5)
+        self.assertIsNone(result)
 
     # -- run_coalesced end-to-end --
 
@@ -124,9 +206,37 @@ class TestQueryCoalescer(TestCase):
             execute=lambda: "computed",
             get_cache_data=lambda: None,
             build_response=lambda data: "from_cache",
+            is_fresh=_default_is_fresh,
+            max_wait=300,
         )
         self.assertEqual(result, "computed")
         self.assertFalse(self._lock_exists())
+
+    def test_leader_starts_and_stops_heartbeat(self):
+        coalescer = QueryCoalescer(self.cache_key, "q1")
+        with mock.patch("posthog.hogql_queries.query_coalescer._Heartbeat") as MockHB:
+            coalescer.run_coalesced(
+                execute=lambda: "computed",
+                get_cache_data=lambda: None,
+                build_response=lambda data: "from_cache",
+                is_fresh=_default_is_fresh,
+                max_wait=300,
+            )
+        MockHB.assert_called_once()
+        MockHB.return_value.stop.assert_called_once()
+
+    def test_leader_stops_heartbeat_on_exception(self):
+        coalescer = QueryCoalescer(self.cache_key, "q1")
+        with mock.patch("posthog.hogql_queries.query_coalescer._Heartbeat") as MockHB:
+            with self.assertRaises(ValueError):
+                coalescer.run_coalesced(
+                    execute=_raise_value_error,
+                    get_cache_data=lambda: None,
+                    build_response=lambda data: "from_cache",
+                    is_fresh=_default_is_fresh,
+                    max_wait=300,
+                )
+        MockHB.return_value.stop.assert_called_once()
 
     def test_follower_returns_cached_result(self):
         self._set_lock()
@@ -143,6 +253,8 @@ class TestQueryCoalescer(TestCase):
             execute=should_not_execute,
             get_cache_data=lambda: fresh_data,
             build_response=lambda data: data["results"],
+            is_fresh=_default_is_fresh,
+            max_wait=300,
         )
         self.assertEqual(result, [1])
         self.assertFalse(execute_called)
@@ -156,18 +268,64 @@ class TestQueryCoalescer(TestCase):
             execute=lambda: self.fail("follower should not execute"),
             get_cache_data=lambda: cache_data,
             build_response=lambda data: data,
+            is_fresh=_default_is_fresh,
+            max_wait=300,
         )
         self.assertEqual(result, cache_data)
 
-    def test_follower_falls_back_on_timeout(self):
-        self._set_lock(timestamp=time.time() - 60)
+    def test_follower_raises_when_leader_fails(self):
         coalescer = QueryCoalescer(self.cache_key, "follower")
-        result = coalescer.run_coalesced(
-            execute=lambda: "fallback",
-            get_cache_data=lambda: None,
-            build_response=lambda data: "from_cache",
-        )
-        self.assertEqual(result, "fallback")
+        coalescer._store_error(ValueError("ClickHouse timeout"))
+
+        def follower_acquire():
+            # Lock exists with expired timestamp — leader gone after wait
+            self._set_lock(timestamp=time.time())
+            return False
+
+        with mock.patch.object(coalescer, "_try_acquire", side_effect=follower_acquire):
+            with mock.patch.object(coalescer, "_wait_for_result", return_value=None):
+                with self.assertRaises(QueryCoalescingError) as ctx:
+                    coalescer.run_coalesced(
+                        execute=lambda: "should_not_run",
+                        get_cache_data=lambda: None,
+                        build_response=lambda data: "from_cache",
+                        is_fresh=_default_is_fresh,
+                        max_wait=300,
+                    )
+
+        self.assertIn("ValueError: ClickHouse timeout", str(ctx.exception))
+
+    def test_follower_raises_when_leader_crashes_without_error(self):
+        coalescer = QueryCoalescer(self.cache_key, "follower")
+
+        def follower_acquire():
+            self._set_lock(timestamp=time.time())
+            return False
+
+        with mock.patch.object(coalescer, "_try_acquire", side_effect=follower_acquire):
+            with mock.patch.object(coalescer, "_wait_for_result", return_value=None):
+                with self.assertRaises(QueryCoalescingError) as ctx:
+                    coalescer.run_coalesced(
+                        execute=lambda: "should_not_run",
+                        get_cache_data=lambda: None,
+                        build_response=lambda data: "from_cache",
+                        is_fresh=_default_is_fresh,
+                        max_wait=300,
+                    )
+
+        self.assertIn("Leader failed or crashed", str(ctx.exception))
+
+    def test_follower_raises_when_max_wait_exceeded(self):
+        self._set_lock()
+        coalescer = QueryCoalescer(self.cache_key, "follower")
+        with self.assertRaises(QueryCoalescingError):
+            coalescer.run_coalesced(
+                execute=lambda: "should_not_run",
+                get_cache_data=lambda: None,
+                build_response=lambda data: "from_cache",
+                is_fresh=_default_is_fresh,
+                max_wait=0.01,
+            )
 
     def test_leader_exception_releases_lock(self):
         coalescer = QueryCoalescer(self.cache_key, "q1")
@@ -176,6 +334,8 @@ class TestQueryCoalescer(TestCase):
                 execute=_raise_value_error,
                 get_cache_data=lambda: None,
                 build_response=lambda data: "from_cache",
+                is_fresh=_default_is_fresh,
+                max_wait=300,
             )
         self.assertFalse(self._lock_exists())
 
@@ -186,6 +346,8 @@ class TestQueryCoalescer(TestCase):
                 execute=lambda: "fallback",
                 get_cache_data=lambda: None,
                 build_response=lambda data: "from_cache",
+                is_fresh=_default_is_fresh,
+                max_wait=300,
             )
         self.assertEqual(result, "fallback")
 
@@ -196,8 +358,59 @@ class TestQueryCoalescer(TestCase):
             execute=lambda: "independent",
             get_cache_data=lambda: {"cached": True},
             build_response=lambda data: "from_cache",
+            is_fresh=_default_is_fresh,
+            max_wait=300,
         )
         self.assertEqual(result, "independent")
+
+    def test_leader_exception_stored_in_redis(self):
+        coalescer = QueryCoalescer(self.cache_key, "q1")
+        with self.assertRaises(ValueError):
+            coalescer.run_coalesced(
+                execute=_raise_value_error,
+                get_cache_data=lambda: None,
+                build_response=lambda data: "from_cache",
+                is_fresh=_default_is_fresh,
+                max_wait=300,
+            )
+
+        error_value = self.redis.get(f"{ERROR_KEY_PREFIX}:{self.cache_key}")
+        self.assertIsNotNone(error_value)
+        self.assertIn(b"ValueError: boom", error_value)
+
+    def test_leader_heartbeat_keeps_followers_waiting(self):
+        """Long-running leader with heartbeat: followers still get result."""
+        follower_waiting = threading.Event()
+        leader_done = threading.Event()
+        follower_result = [None]
+
+        coalescer = QueryCoalescer(self.cache_key, "leader")
+        coalescer._try_acquire()
+
+        def get_cache():
+            if leader_done.is_set():
+                return self._fresh_cache_data(results=[42])
+            return None
+
+        def run_follower():
+            follower = QueryCoalescer(self.cache_key, "follower")
+            follower_waiting.set()
+            follower_result[0] = follower._wait_for_result(get_cache, _default_is_fresh, poll_interval=0.05, max_wait=5)
+
+        follower_thread = threading.Thread(target=run_follower)
+        follower_thread.start()
+
+        # Wait for follower to start polling, then simulate leader finishing
+        follower_waiting.wait(timeout=2)
+        time.sleep(0.1)
+        leader_done.set()
+        # Release lock after cache is available (simulates leader's finally block)
+        time.sleep(0.05)
+        coalescer._release()
+
+        follower_thread.join(timeout=5)
+        self.assertIsNotNone(follower_result[0])
+        self.assertEqual(follower_result[0]["results"], [42])
 
 
 def _raise_value_error():
