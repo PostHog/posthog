@@ -71,6 +71,13 @@ Produce:
 
 Base significance on: severity of the finding, breadth of impact, and how obvious or actionable the fix is.
 
+IMPORTANT - Attribution accuracy:
+- These evaluations run on AI assistant traces where users interact with PostHog's AI. The user may be discussing issues in THEIR OWN application, not issues with PostHog itself.
+- Carefully distinguish between: (a) a bug or failure in PostHog's product, vs (b) a user using PostHog to investigate or discuss issues in their own application.
+- When a user asks about missing events, errors, or instrumentation gaps, determine whether the problem is in PostHog's product or in the user's own application. If the user is investigating their own app's events/errors, frame the signal accordingly — do NOT describe it as a PostHog product failure.
+- Event names that are not PostHog system events (those starting with $) are almost certainly custom events from the user's own application.
+- Lower the significance score when the finding reflects a user's own application issue rather than a PostHog product issue.
+
 The output will be fed into a signal grouping and investigation system that groups related findings from different observability tools and data sources, across an entire product.
 Write for an engineer who hasn't seen this specific evaluation before.
 Do NOT parrot the evaluation name or say "the evaluation passed". Describe the actual finding.
