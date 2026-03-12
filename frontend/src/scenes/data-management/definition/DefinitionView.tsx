@@ -274,13 +274,23 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
             <div className="flex flex-wrap">
                 {isEvent && (
                     <div className="flex flex-col flex-1">
-                        <h5>First seen</h5>
+                        <h5>
+                            First seen{' '}
+                            <Tooltip title="This is the first time this event was ingested. Event timestamps can be historical, so it may not match the timestamp of the earliest event.">
+                                <IconInfo className="text-sm" />
+                            </Tooltip>
+                        </h5>
                         <b>{definition.created_at ? <TZLabel time={definition.created_at} /> : '-'}</b>
                     </div>
                 )}
                 {isEvent && (
                     <div className="flex flex-col flex-1">
-                        <h5>Last seen</h5>
+                        <h5>
+                            Last seen{' '}
+                            <Tooltip title="This is the last time this event was ingested. Event timestamps can be historical, so it may not match the timestamp of the latest event.">
+                                <IconInfo className="text-sm" />
+                            </Tooltip>
+                        </h5>
                         <b>{definition.last_seen_at ? <TZLabel time={definition.last_seen_at} /> : '-'}</b>
                     </div>
                 )}
