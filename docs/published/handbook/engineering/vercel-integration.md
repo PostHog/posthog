@@ -409,7 +409,7 @@ sequenceDiagram
     end
 ```
 
-**Critical detail:** The final invoice Celery task receives `billing_provider` as an explicit string argument at queue time (when it's still `"vercel"`). It does NOT read `customer.billing_provider` at execution time. This is why the reset to `"posthog"` doesn't break final invoice submission.
+**Critical detail:** The final invoice Celery task receives `billing_provider` as an explicit string argument at queue time (when it's still `"vercel"`). It does NOT read `customer.billing_provider` at execution time. This is why the reset to `"posthog"` doesn't break final invoice submission. As an additional safety net, the [billing provider resolution fallback chain](#billing-provider-resolution-_resolve_billing_provider) also protects against this — even if the Celery argument were lost, the subscription metadata still retains the original billing provider value.
 
 ### Connectable uninstall (no billing)
 
