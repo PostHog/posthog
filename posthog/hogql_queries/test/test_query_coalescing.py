@@ -1,6 +1,5 @@
 import time
 import threading
-from datetime import UTC, datetime
 
 from unittest import mock
 
@@ -10,6 +9,7 @@ from redis.exceptions import RedisError
 
 from posthog import redis as posthog_redis
 from posthog.hogql_queries.query_coalescer import (
+    DONE_KEY_PREFIX,
     ERROR_KEY_PREFIX,
     LOCK_KEY_PREFIX,
     QueryCoalescer,
@@ -25,22 +25,21 @@ class TestQueryCoalescer(TestCase):
 
     def tearDown(self):
         self.redis.delete(f"{LOCK_KEY_PREFIX}:{self.cache_key}")
+        self.redis.delete(f"{DONE_KEY_PREFIX}:{self.cache_key}")
         self.redis.delete(f"{ERROR_KEY_PREFIX}:{self.cache_key}")
 
-    def _set_lock(self, query_id="leader", timestamp=None):
-        if timestamp is None:
-            timestamp = time.time()
+    def _set_lock(self, query_id="leader"):
         self.redis.set(
             f"{LOCK_KEY_PREFIX}:{self.cache_key}",
-            f"{query_id}:{timestamp}",
+            query_id,
             ex=60,
         )
 
     def _lock_exists(self) -> bool:
         return self.redis.get(f"{LOCK_KEY_PREFIX}:{self.cache_key}") is not None
 
-    def _fresh_cache_data(self, **extra) -> dict:
-        return {"last_refresh": datetime.now(tz=UTC), **extra}
+    def _set_done(self):
+        self.redis.set(f"{DONE_KEY_PREFIX}:{self.cache_key}", "1", ex=60)
 
     # -- Lock lifecycle --
 
@@ -107,69 +106,52 @@ class TestQueryCoalescer(TestCase):
 
     def test_wait_returns_none_when_leader_already_gone(self):
         coalescer = QueryCoalescer(self.cache_key, "follower")
-        result = coalescer._wait_for_result(lambda: None, fresh_after=time.time(), poll_interval=0, max_wait=0.01)
+        result = coalescer._wait_for_result(lambda: None, poll_interval=0, max_wait=0.01)
         self.assertIsNone(result)
 
-    def test_wait_returns_fresh_cache_hit(self):
+    def test_wait_returns_cache_when_done_key_set(self):
         self._set_lock()
+        self._set_done()
         coalescer = QueryCoalescer(self.cache_key, "follower")
-        fresh_after = time.time()
-        fresh_data = self._fresh_cache_data(results=[1])
-        result = coalescer._wait_for_result(lambda: fresh_data, fresh_after=fresh_after, poll_interval=0, max_wait=5)
-        self.assertEqual(result, fresh_data)
+        cache_data = {"results": [1]}
+        result = coalescer._wait_for_result(lambda: cache_data, poll_interval=0, max_wait=5)
+        self.assertEqual(result, cache_data)
 
-    def test_wait_ignores_stale_cache(self):
+    def test_wait_returns_none_when_error_key_set(self):
         self._set_lock()
+        self.redis.set(f"{ERROR_KEY_PREFIX}:{self.cache_key}", "ValueError: boom", ex=60)
         coalescer = QueryCoalescer(self.cache_key, "follower")
-        stale_data = {"last_refresh": datetime(2020, 1, 1, tzinfo=UTC), "results": [1]}
-        result = coalescer._wait_for_result(lambda: stale_data, fresh_after=time.time(), poll_interval=0, max_wait=0.01)
+        result = coalescer._wait_for_result(lambda: {"results": [1]}, poll_interval=0, max_wait=5)
         self.assertIsNone(result)
 
     def test_wait_skipped_in_dry_run(self):
         self._set_lock()
+        self._set_done()
         coalescer = QueryCoalescer(self.cache_key, "follower", dry_run=True)
         result = coalescer._wait_for_result(
-            lambda: self._fresh_cache_data(results=[1]),
-            fresh_after=time.time(),
+            lambda: {"results": [1]},
             poll_interval=0,
             max_wait=5,
         )
         self.assertIsNone(result)
 
-    def test_wait_polls_until_cache_appears(self):
+    def test_wait_polls_until_done_key_appears(self):
         self._set_lock()
         coalescer = QueryCoalescer(self.cache_key, "follower")
-        fresh_after = time.time()
-        call_count = 0
 
-        def delayed_cache():
-            nonlocal call_count
-            call_count += 1
-            return self._fresh_cache_data(ready=True) if call_count >= 3 else None
+        # Simulate leader finishing after a short delay
+        def leader_finishes():
+            time.sleep(0.05)
+            self._set_done()
 
-        result = coalescer._wait_for_result(delayed_cache, fresh_after=fresh_after, poll_interval=0.01, max_wait=5)
-        self.assertIsNotNone(result)
-        self.assertEqual(call_count, 3)
+        t = threading.Thread(target=leader_finishes)
+        t.start()
 
-    def test_wait_returns_cache_after_lock_released(self):
-        self._set_lock()
-        coalescer = QueryCoalescer(self.cache_key, "follower")
-        fresh_after = time.time()
-        call_count = 0
-
-        def cache_after_lock_release():
-            nonlocal call_count
-            call_count += 1
-            if call_count == 2:
-                self.redis.delete(f"{LOCK_KEY_PREFIX}:{self.cache_key}")
-            return self._fresh_cache_data(results=[1]) if call_count >= 2 else None
-
-        result = coalescer._wait_for_result(
-            cache_after_lock_release, fresh_after=fresh_after, poll_interval=0.01, max_wait=5
-        )
+        result = coalescer._wait_for_result(lambda: {"ready": True}, poll_interval=0.01, max_wait=5)
+        t.join()
         self.assertIsNotNone(result)
 
-    def test_wait_returns_none_when_leader_gone_no_cache(self):
+    def test_wait_returns_none_when_leader_gone_no_done(self):
         self._set_lock()
         coalescer = QueryCoalescer(self.cache_key, "follower")
         call_count = 0
@@ -181,9 +163,7 @@ class TestQueryCoalescer(TestCase):
                 self.redis.delete(f"{LOCK_KEY_PREFIX}:{self.cache_key}")
             return None
 
-        result = coalescer._wait_for_result(
-            no_cache_leader_dies, fresh_after=time.time(), poll_interval=0.01, max_wait=5
-        )
+        result = coalescer._wait_for_result(no_cache_leader_dies, poll_interval=0.01, max_wait=5)
         self.assertIsNone(result)
 
     # -- run_coalesced end-to-end --
@@ -225,6 +205,7 @@ class TestQueryCoalescer(TestCase):
 
     def test_follower_returns_cached_result(self):
         self._set_lock()
+        self._set_done()
         coalescer = QueryCoalescer(self.cache_key, "follower")
         execute_called = False
 
@@ -235,7 +216,7 @@ class TestQueryCoalescer(TestCase):
 
         result = coalescer.run_coalesced(
             execute=should_not_execute,
-            get_cache_data=lambda: self._fresh_cache_data(results=[1]),
+            get_cache_data=lambda: {"results": [1]},
             build_response=lambda data: data["results"],
             max_wait=300,
         )
@@ -347,19 +328,16 @@ class TestQueryCoalescer(TestCase):
 
         coalescer = QueryCoalescer(self.cache_key, "leader")
         coalescer._try_acquire()
-        fresh_after = time.time()
 
         def get_cache():
             if leader_done.is_set():
-                return self._fresh_cache_data(results=[42])
+                return {"results": [42]}
             return None
 
         def run_follower():
             follower = QueryCoalescer(self.cache_key, "follower")
             follower_waiting.set()
-            follower_result[0] = follower._wait_for_result(
-                get_cache, fresh_after=fresh_after, poll_interval=0.05, max_wait=5
-            )
+            follower_result[0] = follower._wait_for_result(get_cache, poll_interval=0.05, max_wait=5)
 
         follower_thread = threading.Thread(target=run_follower)
         follower_thread.start()
@@ -368,6 +346,7 @@ class TestQueryCoalescer(TestCase):
         follower_waiting.wait(timeout=2)
         time.sleep(0.1)
         leader_done.set()
+        self._set_done()
         # Release lock after cache is available (simulates leader's finally block)
         time.sleep(0.05)
         coalescer._release()

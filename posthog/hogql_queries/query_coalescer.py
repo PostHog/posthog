@@ -10,11 +10,11 @@ from prometheus_client import Counter, Histogram
 from redis.exceptions import RedisError
 
 from posthog import redis as posthog_redis
-from posthog.caching.utils import last_refresh_from_cached_result
 
 logger = structlog.get_logger(__name__)
 
 LOCK_KEY_PREFIX = "query_coalesce"
+DONE_KEY_PREFIX = "query_coalesce_done"
 ERROR_KEY_PREFIX = "query_coalesce_err"
 LOCK_TTL_SECONDS = 60
 ERROR_TTL_SECONDS = 60
@@ -98,6 +98,10 @@ class QueryCoalescer:
         return f"{LOCK_KEY_PREFIX}:{self.cache_key}"
 
     @property
+    def _done_key(self) -> str:
+        return f"{DONE_KEY_PREFIX}:{self.cache_key}"
+
+    @property
     def _error_key(self) -> str:
         return f"{ERROR_KEY_PREFIX}:{self.cache_key}"
 
@@ -112,8 +116,7 @@ class QueryCoalescer:
 
         Args:
             execute: The function that calculates and caches the result (leader work).
-            get_cache_data: Function to check cache for the result. Returned dict must
-                contain a "last_refresh" datetime used for freshness checks.
+            get_cache_data: Function to check cache for the result.
             build_response: Function to build a response from cached data (for followers).
             max_wait: Maximum time in seconds followers will wait for the leader's result.
 
@@ -134,6 +137,7 @@ class QueryCoalescer:
             heartbeat = _Heartbeat(self._redis, self._lock_key, self._lock_value)
             try:
                 result = execute()
+                self._mark_done()
                 log.info("query_coalescing_leader_done")
                 return result
             except Exception as e:
@@ -148,16 +152,7 @@ class QueryCoalescer:
                     pass
 
         log.info("query_coalescing_follower_waiting", dry_run=self.dry_run)
-        fresh_after = self._read_leader_start_time()
-        if fresh_after is None:
-            # Lock disappeared between _try_acquire and now — check cache once
-            data = get_cache_data()
-            if data is not None:
-                return build_response(data)
-            if self.dry_run:
-                return execute()
-            self._raise_stored_error()
-        cached_data = self._wait_for_result(get_cache_data, fresh_after=fresh_after, max_wait=max_wait)
+        cached_data = self._wait_for_result(get_cache_data, max_wait=max_wait)
         if cached_data is not None:
             log.info("query_coalescing_follower_hit")
             return build_response(cached_data)
@@ -168,7 +163,7 @@ class QueryCoalescer:
         self._raise_stored_error()
 
     def _try_acquire(self) -> bool:
-        self._lock_value = f"{self.query_id}:{time.time()}"
+        self._lock_value = self.query_id
         acquired = self._redis.set(self._lock_key, self._lock_value, nx=True, ex=LOCK_TTL_SECONDS)
         self._is_leader = bool(acquired)
         if self._is_leader:
@@ -180,6 +175,12 @@ class QueryCoalescer:
     def _release(self) -> None:
         if self._is_leader and self._lock_value:
             self._redis.eval(_RELEASE_LOCK_SCRIPT, 1, self._lock_key, self._lock_value)
+
+    def _mark_done(self) -> None:
+        try:
+            self._redis.set(self._done_key, "1", ex=LOCK_TTL_SECONDS)
+        except RedisError:
+            pass
 
     def _store_error(self, error: Exception) -> None:
         try:
@@ -197,27 +198,9 @@ class QueryCoalescer:
             pass
         raise QueryCoalescingError(error_msg or "Leader failed or crashed without storing an error")
 
-    def _read_leader_start_time(self) -> Optional[float]:
-        lock_value = self._redis.get(self._lock_key)
-        if lock_value is None:
-            return None
-        raw = lock_value.decode("utf-8") if isinstance(lock_value, bytes) else lock_value
-        try:
-            return float(raw.rsplit(":", 1)[1])
-        except (IndexError, ValueError):
-            return None
-
-    @staticmethod
-    def _is_fresh(data: dict, fresh_after: float) -> bool:
-        last_refresh = last_refresh_from_cached_result(data)
-        if last_refresh is None:
-            return False
-        return last_refresh.timestamp() >= fresh_after
-
     def _wait_for_result(
         self,
         get_cache_data: Callable[[], Optional[dict]],
-        fresh_after: float,
         poll_interval: float = POLL_INTERVAL_SECONDS,
         max_wait: float = 300,
     ) -> Optional[dict]:
@@ -227,25 +210,31 @@ class QueryCoalescer:
         start = time.monotonic()
 
         while (time.monotonic() - start) < max_wait:
-            data = get_cache_data()
-            if data is not None and self._is_fresh(data, fresh_after):
-                coalesce_wait_histogram.observe(time.monotonic() - start)
-                coalesce_counter.labels(outcome="follower_hit").inc()
-                return data
-
-            if self._redis.get(self._lock_key) is None:
-                # Leader finished or died — check cache one last time
+            if self._redis.get(self._done_key):
                 data = get_cache_data()
-                if data is not None and self._is_fresh(data, fresh_after):
+                if data is not None:
                     coalesce_wait_histogram.observe(time.monotonic() - start)
                     coalesce_counter.labels(outcome="follower_hit").inc()
                     return data
+
+            if self._redis.get(self._error_key):
+                coalesce_counter.labels(outcome="follower_leader_gone").inc()
+                return None
+
+            if self._redis.get(self._lock_key) is None:
+                # Leader finished or crashed. Check done+cache one last time
+                # in case the done key was set between our first check and here
+                if self._redis.get(self._done_key):
+                    data = get_cache_data()
+                    if data is not None:
+                        coalesce_wait_histogram.observe(time.monotonic() - start)
+                        coalesce_counter.labels(outcome="follower_hit").inc()
+                        return data
                 coalesce_counter.labels(outcome="follower_leader_gone").inc()
                 log = logger.bind(query_id=self.query_id, cache_key=self.cache_key)
                 log.info(
                     "query_coalescing_leader_gone",
                     waited_seconds=round(time.monotonic() - start, 2),
-                    had_cache=data is not None,
                 )
                 return None
 
