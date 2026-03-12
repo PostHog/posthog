@@ -150,8 +150,8 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"Found {len(cohorts)} realtime cohort(s) to process for team {team_id}"))
 
         # Collect and deduplicate filters across all cohorts
-        # Map: condition_hash -> (bytecode, [cohort_ids])
-        condition_map: dict[str, tuple[list[Any], list[int]]] = {}
+        # Map: condition_hash -> (bytecode, {cohort_ids})
+        condition_map: dict[str, tuple[list[Any], set[int]]] = {}
         cohort_ids = []
         total_original_filters = 0
         for cohort in cohorts:
@@ -180,11 +180,11 @@ class Command(BaseCommand):
             # Deduplicate by condition_hash
             for f in filters:
                 if f.condition_hash not in condition_map:
-                    condition_map[f.condition_hash] = (f.bytecode, [cohort.id])
+                    condition_map[f.condition_hash] = (f.bytecode, {cohort.id})
                     self.stdout.write(f"  + New condition: {f.condition_hash}")
                 else:
                     # Condition already exists, just add this cohort ID
-                    condition_map[f.condition_hash][1].append(cohort.id)
+                    condition_map[f.condition_hash][1].add(cohort.id)
                     self.stdout.write(f"  = Duplicate condition: {f.condition_hash}")
 
         if not condition_map:
@@ -226,7 +226,7 @@ class Command(BaseCommand):
             )
         )
         for cond_hash, (_, cids) in condition_map.items():
-            self.stdout.write(f"  - {cond_hash} (used by cohorts: {cids})")
+            self.stdout.write(f"  - {cond_hash} (used by cohorts: {sorted(cids)})")
 
         # Run single coordinator workflow for all cohorts with deduplicated filters
         self.stdout.write(
