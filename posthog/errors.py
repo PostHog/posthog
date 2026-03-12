@@ -173,7 +173,18 @@ def classify_query_error(e: Exception) -> QueryErrorCategory:
         return QueryErrorCategory.USER_ERROR
 
     # User errors — bad query construction
-    if isinstance(e, (ExposedHogQLError, ExposedCHQueryError)):
+    if isinstance(
+        e,
+        (
+            ExposedHogQLError,
+            ExposedCHQueryError,
+            CHQueryErrorNumberOfArgumentsDoesntMatch,
+            CHQueryErrorUnknownIdentifier,
+            CHQueryErrorCannotParseUuid,
+            CHQueryErrorUnsupportedMethod,
+            CHQueryErrorInvalidJoinOnExpression,
+        ),
+    ):
         return QueryErrorCategory.USER_ERROR
 
     # Everything else
