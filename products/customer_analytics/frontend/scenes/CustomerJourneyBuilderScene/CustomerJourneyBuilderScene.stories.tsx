@@ -1,14 +1,14 @@
 import { Meta, StoryFn } from '@storybook/react'
 
 import { App } from 'scenes/App'
-import { emptyJourneysList, JOURNEY_FEATURE_FLAGS } from 'scenes/funnels/FunnelFlowGraph/__mocks__/journeyMocks'
+import { JOURNEY_FEATURE_FLAGS } from 'scenes/funnels/FunnelFlowGraph/__mocks__/journeyMocks'
 import { urls } from 'scenes/urls'
 
-import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import { mswDecorator } from '~/mocks/browser'
 
 const meta: Meta = {
     component: App,
-    title: 'Scenes-App/Customer Analytics/Journeys',
+    title: 'Scenes-App/Customer Analytics/Journey Builder',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
@@ -19,19 +19,17 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 'api/environments/:team_id/customer_profile_configs/': { count: 0, results: [] },
+                'api/environments/:team_id/customer_journeys/': { count: 0, results: [] },
             },
         }),
     ],
 }
 export default meta
 
-export const EmptyState: StoryFn = () => {
-    useStorybookMocks({
-        get: { 'api/environments/:team_id/customer_journeys/': emptyJourneysList },
-    })
+export const NewJourney: StoryFn = () => {
     return <App />
 }
-EmptyState.parameters = {
-    pageUrl: urls.customerAnalyticsJourneys(),
-    testOptions: { waitForSelector: '[data-attr="product-introduction-journey"]' },
+NewJourney.parameters = {
+    pageUrl: urls.customerJourneyBuilder(),
+    testOptions: { waitForSelector: '[data-attr="scene-title-textarea"]' },
 }
