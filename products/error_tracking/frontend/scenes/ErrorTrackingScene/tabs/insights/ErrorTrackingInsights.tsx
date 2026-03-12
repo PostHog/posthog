@@ -1,9 +1,15 @@
 import { useValues } from 'kea'
 
 import { ChartCard } from './ChartCard'
+import { ErrorsByBrowser } from './ErrorsByBrowser'
+import { ErrorsByPage } from './ErrorsByPage'
+import { ErrorsNewVsReturning } from './ErrorsNewVsReturning'
 import { errorTrackingInsightsLogic } from './errorTrackingInsightsLogic'
 import { InsightsFilters } from './InsightsFilters'
+import { SessionEndingErrors } from './SessionEndingErrors'
 import { SummaryStats } from './SummaryStats'
+import { TopSessionsByErrors } from './TopSessionsByErrors'
+import { TopUsersByErrors } from './TopUsersByErrors'
 
 export function ErrorTrackingInsights(): JSX.Element {
     const { exceptionVolumeQuery, affectedUsersQuery, crashFreeSessionsQuery } = useValues(errorTrackingInsightsLogic)
@@ -15,7 +21,7 @@ export function ErrorTrackingInsights(): JSX.Element {
             </div>
             <SummaryStats />
 
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
                 <ChartCard
                     title="Exception volume"
                     description="Exceptions per day"
@@ -34,6 +40,18 @@ export function ErrorTrackingInsights(): JSX.Element {
                     query={crashFreeSessionsQuery}
                     chartKey="crash_free_sessions"
                 />
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
+                <SessionEndingErrors />
+                <TopUsersByErrors />
+                <TopSessionsByErrors />
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
+                <ErrorsByPage />
+                <ErrorsByBrowser />
+                <ErrorsNewVsReturning />
             </div>
         </div>
     )
