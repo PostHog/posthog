@@ -77,6 +77,9 @@ class TestExternalTicketAPI(BaseTest):
         self.assertEqual(data["unread_team_count"], 0)
         self.assertEqual(data["unread_customer_count"], 0)
         self.assertIsNone(data["sla_due_at"])
+        self.assertIsNone(data["assignee"])
+        self.assertIsNone(data["current_url"])
+        self.assertEqual(data["tags"], [])
         self.assertIn("created_at", data)
         self.assertIn("updated_at", data)
 
@@ -218,6 +221,51 @@ class TestExternalTicketAPI(BaseTest):
         response = self.client.get(self.url, **self._auth_headers())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNotNone(response.json()["sla_due_at"])
+
+    # -- GET enriched fields -----------------------------------------------
+
+    def test_get_ticket_returns_assignee(self):
+        from products.conversations.backend.models import TicketAssignment
+
+        TicketAssignment.objects.create(ticket=self.ticket, user=self.user)
+        response = self.client.get(self.url, **self._auth_headers())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assignee = response.json()["assignee"]
+        self.assertIsNotNone(assignee)
+        self.assertEqual(assignee["type"], "user")
+        self.assertEqual(assignee["id"], self.user.id)
+        self.assertEqual(assignee["user"]["email"], self.user.email)
+
+    def test_get_ticket_returns_role_assignee(self):
+        from products.conversations.backend.models import TicketAssignment
+
+        from ee.models.rbac.role import Role
+
+        role = Role.objects.create(name="Support", organization=self.organization)
+        TicketAssignment.objects.create(ticket=self.ticket, role=role)
+        response = self.client.get(self.url, **self._auth_headers())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assignee = response.json()["assignee"]
+        self.assertEqual(assignee["type"], "role")
+        self.assertEqual(assignee["id"], str(role.id))
+        self.assertEqual(assignee["role"]["name"], "Support")
+        self.assertIsNone(assignee["user"])
+
+    def test_get_ticket_returns_current_url(self):
+        self.ticket.session_context = {"current_url": "https://example.com/page"}
+        self.ticket.save(update_fields=["session_context"])
+        response = self.client.get(self.url, **self._auth_headers())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["current_url"], "https://example.com/page")
+
+    def test_get_ticket_returns_tags(self):
+        from posthog.models import Tag
+
+        tag = Tag.objects.create(name="bug", team_id=self.team.id)
+        self.ticket.tagged_items.create(tag=tag)
+        response = self.client.get(self.url, **self._auth_headers())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["tags"], ["bug"])
 
     # -- URL validation ---------------------------------------------------
 
