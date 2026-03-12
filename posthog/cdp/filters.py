@@ -73,6 +73,12 @@ def _try_inline_cohort_filter(prop: dict, team: Team) -> tuple[list[ast.Expr], N
     except Cohort.DoesNotExist:
         return None, f"cohort id={cohort_id} not found"
 
+    if cohort.is_static:
+        return (
+            None,
+            f"cohort '{cohort.name}' (id={cohort_id}) is a static cohort — static cohort membership can't be evaluated in real-time filters",
+        )
+
     cohort_properties = (cohort.filters or {}).get("properties")
     if not cohort_properties:
         return None, f"cohort '{cohort.name}' (id={cohort_id}) has no properties defined"
@@ -305,8 +311,8 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
             site_url = settings.SITE_URL.rstrip("/")
             settings_url = f"{site_url}/project/{team.id}/settings/project#internal-user-filtering"
             error_msg = (
-                f"Can't use cohorts in real-time filters. "
-                f"Only cohorts with person property filters are supported. "
+                f"Cohort membership can't be evaluated in real-time filters. "
+                f"Replace cohorts with equivalent inline person property filters. "
                 f"Update your filters at: {settings_url}"
             )
 

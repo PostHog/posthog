@@ -21,7 +21,7 @@ from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 def _normalize_error(error: str) -> str:
     """Replace dynamic IDs and URLs in error messages with stable placeholders."""
     error = re.sub(r"id=\d+", "id=N", error)
-    error = re.sub(r"http://[^/]+/project/\d+/settings/project", "SETTINGS_URL", error)
+    error = re.sub(r"https?://[^/]+/project/\d+/settings/project", "SETTINGS_URL", error)
     return error
 
 
