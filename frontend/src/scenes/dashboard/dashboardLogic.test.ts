@@ -831,6 +831,40 @@ describe('dashboardLogic', () => {
         })
     })
 
+    describe('layout zoom', () => {
+        beforeEach(async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        it('clamps layoutZoom between 0.5 and 1', async () => {
+            await expectLogic(logic).toMatchValues({ layoutZoom: 1 })
+
+            await expectLogic(logic, () => {
+                logic.actions.setLayoutZoom(2)
+            }).toMatchValues({ layoutZoom: 1 })
+
+            await expectLogic(logic, () => {
+                logic.actions.setLayoutZoom(0.1)
+            }).toMatchValues({ layoutZoom: 0.5 })
+
+            await expectLogic(logic, () => {
+                logic.actions.setLayoutZoom(0.75)
+            }).toMatchValues({ layoutZoom: 0.75 })
+        })
+
+        it('resets layoutZoom to 1 when leaving edit mode', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setLayoutZoom(0.5)
+            }).toMatchValues({ layoutZoom: 0.5 })
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderSaveDashboard)
+            }).toMatchValues({ layoutZoom: 1 })
+        })
+    })
+
     it('can move an insight off a dashboard', async () => {
         const nineLogic = dashboardLogic({ id: 9 })
         nineLogic.mount()

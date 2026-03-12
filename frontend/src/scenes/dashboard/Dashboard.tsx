@@ -31,6 +31,7 @@ import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsi
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardOverridesBanner } from './DashboardOverridesBanner'
+import { DashboardZoomControl } from './DashboardZoomControl'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
 interface DashboardProps {
@@ -78,6 +79,7 @@ function DashboardScene(): JSX.Element {
         cancellingPreview,
         hasUrlFilters,
     } = useValues(dashboardLogic)
+    const { layoutZoom } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
     const {
         reportDashboardViewed,
@@ -86,6 +88,7 @@ function DashboardScene(): JSX.Element {
         setAnalysisRating,
         applyFilters,
         setDashboardMode,
+        setLayoutZoom,
     } = useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
 
@@ -209,9 +212,10 @@ function DashboardScene(): JSX.Element {
                                 )}
                             {![DashboardPlacement.Export, DashboardPlacement.Builtin].includes(placement) && (
                                 <div
-                                    className={clsx('flex shrink-0 deprecated-space-x-4 dashoard-items-actions', {
-                                        'mt-7': hasVariables,
-                                    })}
+                                    className={clsx(
+                                        'flex shrink-0 items-center gap-4 dashoard-items-actions',
+                                        hasVariables && 'mt-7'
+                                    )}
                                 >
                                     <div
                                         className={`left-item ${
@@ -220,10 +224,22 @@ function DashboardScene(): JSX.Element {
                                     >
                                         {[DashboardPlacement.Public].includes(placement) ? (
                                             <LastRefreshText />
-                                        ) : !(dashboardMode === DashboardMode.Edit) ? (
+                                        ) : dashboardMode !== DashboardMode.Edit ? (
                                             <DashboardReloadAction />
                                         ) : null}
                                     </div>
+                                    {dashboardMode === DashboardMode.Edit &&
+                                        canEditDashboard &&
+                                        [
+                                            DashboardPlacement.Dashboard,
+                                            DashboardPlacement.ProjectHomepage,
+                                            DashboardPlacement.Builtin,
+                                        ].includes(placement) && (
+                                            <DashboardZoomControl
+                                                layoutZoom={layoutZoom}
+                                                setLayoutZoom={setLayoutZoom}
+                                            />
+                                        )}
                                 </div>
                             )}
                         </div>
