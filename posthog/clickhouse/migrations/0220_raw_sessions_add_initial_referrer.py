@@ -1,3 +1,0 @@
-from posthog.models.raw_sessions.migrations import ADD_INITIAL_REFERRER_COLUMN_SQL, update_raw_sessions_table
-
-operations = update_raw_sessions_table(ADD_INITIAL_REFERRER_COLUMN_SQL)
