@@ -645,6 +645,10 @@ tools:
         bin_script: phrocs
         description: Run phrocs directly with a custom mprocs-format YAML config
         hidden: true
+    ci:wait:for:docker:
+        bin_script: ci-wait-for-docker
+        description: Launch Docker Compose services in CI and later wait for readiness
+        hidden: true
 utilities:
     nuke:
         steps:

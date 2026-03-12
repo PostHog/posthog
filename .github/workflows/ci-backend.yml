@@ -300,7 +300,6 @@ jobs:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
                   CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:25.8.12.129
-                  DOCKER_REGISTRY_PREFIX: us-east1-docker.pkg.dev/posthog-301601/mirror/
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
                   bin/ci-wait-for-docker launch --background --down
@@ -371,7 +370,6 @@ jobs:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
                   CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:25.8.12.129
-                  DOCKER_REGISTRY_PREFIX: us-east1-docker.pkg.dev/posthog-301601/mirror/
               run: bin/ci-wait-for-docker wait
 
             - name: Run product tests
@@ -487,7 +485,6 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
-                  DOCKER_REGISTRY_PREFIX: us-east1-docker.pkg.dev/posthog-301601/mirror/
               run: |
                   bin/ci-wait-for-docker launch --background --down
 
@@ -525,12 +522,26 @@ jobs:
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
 
+            - name: Preserve CI Docker helper during rollout
+              run: |
+                  # Temporary during rollout: this job checks out `master`,
+                  # which does not include `bin/ci-wait-for-docker` yet.
+                  cp bin/ci-wait-for-docker /tmp/ci-wait-for-docker
+                  chmod +x /tmp/ci-wait-for-docker
+
             # First running migrations from master, to simulate the real-world scenario
             - name: Checkout master
               uses: actions/checkout@v6
               with:
                   ref: master
                   clean: false
+
+            - name: Restore CI Docker helper during rollout
+              run: |
+                  # Temporary during rollout: restore the helper after the
+                  # checkout to `master` removes it from the workspace.
+                  cp /tmp/ci-wait-for-docker bin/ci-wait-for-docker
+                  chmod +x bin/ci-wait-for-docker
 
             - name: Install python dependencies for master
               run: |
@@ -540,7 +551,6 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
-                  DOCKER_REGISTRY_PREFIX: us-east1-docker.pkg.dev/posthog-301601/mirror/
               run: bin/ci-wait-for-docker wait
 
             - name: Run migrations up to master
@@ -1018,7 +1028,6 @@ jobs:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
-                  DOCKER_REGISTRY_PREFIX: us-east1-docker.pkg.dev/posthog-301601/mirror/
                   WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
               run: |
@@ -1138,7 +1147,6 @@ jobs:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
-                  DOCKER_REGISTRY_PREFIX: us-east1-docker.pkg.dev/posthog-301601/mirror/
               run: bin/ci-wait-for-docker wait
 
             - name: Determine if --snapshot-update should be on
@@ -1563,7 +1571,6 @@ jobs:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
-                  DOCKER_REGISTRY_PREFIX: us-east1-docker.pkg.dev/posthog-301601/mirror/
               run: |
                   bin/ci-wait-for-docker launch --background --down
 
@@ -1623,7 +1630,6 @@ jobs:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
-                  DOCKER_REGISTRY_PREFIX: us-east1-docker.pkg.dev/posthog-301601/mirror/
               run: bin/ci-wait-for-docker wait
 
             - name: Run async migrations tests
