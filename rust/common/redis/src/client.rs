@@ -561,6 +561,9 @@ impl Client for RedisClient {
                 PipelineCommand::SAdd { key, member } => {
                     pipe.cmd("SADD").arg(key).arg(member);
                 }
+                PipelineCommand::Expire { key, seconds } => {
+                    pipe.cmd("EXPIRE").arg(key).arg(*seconds);
+                }
                 PipelineCommand::ZRangeByScore { key, min, max } => {
                     pipe.cmd("ZRANGEBYSCORE").arg(key).arg(min).arg(max);
                 }
@@ -620,7 +623,8 @@ impl RedisClient {
             PipelineCommand::Set { .. }
             | PipelineCommand::SetEx { .. }
             | PipelineCommand::Del { .. }
-            | PipelineCommand::HIncrBy { .. } => Ok(PipelineResult::Ok),
+            | PipelineCommand::HIncrBy { .. }
+            | PipelineCommand::Expire { .. } => Ok(PipelineResult::Ok),
             PipelineCommand::SAdd { .. } => {
                 let count: u64 = redis::from_redis_value(&raw)?;
                 Ok(PipelineResult::Count(count))

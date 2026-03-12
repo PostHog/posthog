@@ -87,6 +87,10 @@ pub enum PipelineCommand {
         key: String,
         member: String,
     },
+    Expire {
+        key: String,
+        seconds: u64,
+    },
     ZRangeByScore {
         key: String,
         min: String,
@@ -249,6 +253,15 @@ impl<C> Pipeline<C> {
         self
     }
 
+    /// Add an EXPIRE command to the pipeline.
+    pub fn expire(mut self, key: impl Into<String>, seconds: u64) -> Self {
+        self.commands.push(PipelineCommand::Expire {
+            key: key.into(),
+            seconds,
+        });
+        self
+    }
+
     /// Add a ZRANGEBYSCORE command to the pipeline.
     pub fn zrangebyscore(
         mut self,
@@ -359,9 +372,10 @@ mod tests {
             .hincrby("k12", "f12", 5)
             .scard("k13")
             .sadd("k14", "m14")
-            .zrangebyscore("k15", "0", "100");
+            .expire("k15", 300)
+            .zrangebyscore("k16", "0", "100");
 
-        assert_eq!(pipeline.len(), 15);
+        assert_eq!(pipeline.len(), 16);
     }
 
     #[test]
