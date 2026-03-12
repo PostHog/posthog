@@ -1,4 +1,5 @@
 import { PluginServerCapabilities, PluginServerMode, PluginsServerConfig, stringToPluginServerMode } from './types'
+import { isDevEnv } from './utils/env-utils'
 
 // =============================================================================
 // Capability Groups for Local Development
@@ -11,7 +12,7 @@ export const CAPABILITIES_CDP: PluginServerCapabilities = {
     cdpPersonUpdates: true,
     cdpInternalEvents: true,
     cdpCyclotronWorker: true,
-    cdpCyclotronShadowWorker: true,
+    cdpCyclotronV2Janitor: isDevEnv(),
     cdpApi: true,
     appManagementSingleton: true,
     cdpDataWarehouseEvents: false, // Not yet fully developed - enable when ready
@@ -207,13 +208,17 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 cdpDataWarehouseEvents: true,
             }
-        case PluginServerMode.cdp_cyclotron_shadow_worker:
+        case PluginServerMode.cdp_cyclotron_v2_janitor:
             return {
-                cdpCyclotronShadowWorker: true,
+                cdpCyclotronV2Janitor: true,
             }
         case PluginServerMode.recording_api:
             return {
                 recordingApi: true,
+            }
+        case PluginServerMode.ingestion_v2_testing:
+            return {
+                ingestionV2Testing: true,
             }
     }
 }

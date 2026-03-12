@@ -24,7 +24,6 @@ import geminiImage from './logos/gemini.svg'
 import goImage from './logos/go.svg'
 import gtmImage from './logos/gtm.svg'
 import honoImage from './logos/hono.svg'
-import htmlImage from './logos/html.svg'
 import { IOSLogo } from './logos/IOSLogo'
 import javaImage from './logos/java.svg'
 import jsImage from './logos/javascript_web.svg'
@@ -71,15 +70,7 @@ export const ALL_SDKS: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/next-js',
     },
     {
-        name: 'HTML snippet',
-        key: SDKKey.HTML_SNIPPET,
-        recommended: true,
-        tags: [SDKTag.POPULAR, SDKTag.WEB],
-        image: htmlImage,
-        docsLink: 'https://posthog.com/docs/libraries/js',
-    },
-    {
-        name: 'JavaScript web',
+        name: 'Web',
         key: SDKKey.JS_WEB,
         recommended: true,
         tags: [SDKTag.POPULAR, SDKTag.WEB],

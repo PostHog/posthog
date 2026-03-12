@@ -95,9 +95,9 @@ async def enforce_throttles(
     ensure_costs_fresh()
     product = get_product_from_request(request)
 
-    # For OAuth, end_user_id is the token holder (user_id)
-    # For personal API key, it will be set later from the request's 'user' param
-    end_user_id = str(user.user_id) if user.auth_method == "oauth_access_token" else None
+    # Always use the authenticated user's ID for rate limiting.
+    # The client-provided 'user' param must NOT be used for quota enforcement.
+    end_user_id = str(user.user_id)
 
     context = ThrottleContext(
         user=user,

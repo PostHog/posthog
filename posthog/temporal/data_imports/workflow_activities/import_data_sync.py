@@ -150,7 +150,9 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 else None,
                 logger=logger,
                 job_id=inputs.run_id,
+                reset_pipeline=reset_pipeline,
             )
+
             new_source = SourceRegistry.get_source(source_type)
             config = new_source.parse_config(model.pipeline.job_inputs)
 
@@ -199,7 +201,7 @@ async def _is_pipeline_v3_enabled(team_id: int, logger: FilteringBoundLogger) ->
                 "organization": {"id": str(team.organization_id)},
                 "project": {"id": str(team.id)},
             },
-            only_evaluate_locally=True,
+            only_evaluate_locally=False,
             send_feature_flag_events=False,
         )
         if enabled:

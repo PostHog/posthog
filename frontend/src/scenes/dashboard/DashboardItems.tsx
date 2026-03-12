@@ -4,15 +4,16 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
-import { Responsive as ReactGridLayout } from 'react-grid-layout'
+import { Layout, Responsive as ReactGridLayout } from 'react-grid-layout'
 
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
@@ -22,7 +23,7 @@ import { urls } from 'scenes/urls'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
+import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
 const DRAG_AUTO_SCROLL_THRESHOLD = 100
 const DRAG_AUTO_SCROLL_SPEED = 8
@@ -44,6 +45,7 @@ export function DashboardItems(): JSX.Element {
         effectiveDashboardVariableOverrides,
         temporaryBreakdownColors,
         dataColorThemeId,
+        canEditDashboard,
     } = useValues(dashboardLogic)
     const {
         updateLayouts,
@@ -55,6 +57,7 @@ export function DashboardItems(): JSX.Element {
         refreshDashboardItem,
         moveToDashboard,
         setTileOverride,
+        setDashboardMode,
     } = useActions(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
     const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
@@ -89,8 +92,15 @@ export function DashboardItems(): JSX.Element {
     })
 
     const { width: gridWrapperWidth, ref: gridWrapperRef } = useResizeObserver()
-    const canResizeWidth = !gridWrapperWidth || gridWrapperWidth > BREAKPOINTS['sm']
     const isMobileView = gridWrapperWidth && gridWrapperWidth <= BREAKPOINTS['sm']
+    const isEditablePlacement = [
+        DashboardPlacement.Dashboard,
+        DashboardPlacement.ProjectHomepage,
+        DashboardPlacement.Builtin,
+    ].includes(placement)
+
+    const canEnterEditModeFromEdge =
+        !!dashboard && canEditDashboard && dashboardMode !== DashboardMode.Edit && !isMobileView && isEditablePlacement
 
     return (
         <div className="dashboard-items-wrapper" ref={gridWrapperRef}>
@@ -104,10 +114,16 @@ export function DashboardItems(): JSX.Element {
                 <ReactGridLayout
                     width={gridWrapperWidth}
                     className={className}
-                    draggableHandle=".CardMeta,.TextCard__body"
-                    isDraggable={dashboardMode === DashboardMode.Edit && !isMobileView}
-                    isResizable={dashboardMode === DashboardMode.Edit && !isMobileView}
-                    layouts={layouts}
+                    dragConfig={{
+                        enabled: dashboardMode === DashboardMode.Edit && !isMobileView,
+                        handle: '.CardMeta,.TextCard__body',
+                        cancel: 'a,table,button,input,.Popover',
+                    }}
+                    resizeConfig={{
+                        enabled: dashboardMode === DashboardMode.Edit && !isMobileView,
+                        handles: ['s', 'e', 'se', 'n', 'w', 'nw', 'ne', 'sw'],
+                    }}
+                    layouts={layouts as Partial<Record<DashboardLayoutSize, Layout>>}
                     rowHeight={80}
                     margin={[16, 16]}
                     containerPadding={[0, 0]}
@@ -120,7 +136,6 @@ export function DashboardItems(): JSX.Element {
                         updateContainerWidth(containerWidth, newCols)
                     }}
                     breakpoints={BREAKPOINTS}
-                    resizeHandles={canResizeWidth ? ['s', 'e', 'se'] : ['s']}
                     cols={BREAKPOINT_COLUMN_COUNTS}
                     onResize={(_layout: any, _oldItem: any, newItem: any) => {
                         if (!resizingItem || resizingItem.w !== newItem.w || resizingItem.h !== newItem.h) {
@@ -153,7 +168,7 @@ export function DashboardItems(): JSX.Element {
                             return
                         }
 
-                        const mouseY = e.clientY
+                        const mouseY = (e as MouseEvent).clientY
 
                         let scrollSpeed = 0
                         if (mouseY < containerRect.top + DRAG_AUTO_SCROLL_THRESHOLD) {
@@ -195,7 +210,6 @@ export function DashboardItems(): JSX.Element {
                             reportDashboardTileRepositioned(dashboard.id, 'moved')
                         }
                     }}
-                    draggableCancel="a,table,button,input,.Popover"
                 >
                     {tiles?.map((tile) => {
                         const { insight, text } = tile
@@ -205,13 +219,38 @@ export function DashboardItems(): JSX.Element {
 
                         const commonTileProps = {
                             dashboardId: dashboard?.id,
-                            showResizeHandles: dashboardMode === DashboardMode.Edit && !isMobileView,
-                            canResizeWidth: canResizeWidth,
-                            showEditingControls: [
-                                DashboardPlacement.Dashboard,
-                                DashboardPlacement.ProjectHomepage,
-                                DashboardPlacement.Builtin,
-                            ].includes(placement),
+                            showResizeHandles:
+                                dashboardMode === DashboardMode.Edit && !isMobileView && isEditablePlacement,
+                            canEnterEditModeFromEdge,
+                            onEnterEditModeFromEdge: canEnterEditModeFromEdge
+                                ? () => setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardEdgeHover)
+                                : undefined,
+                            onDragHandleMouseDown: canEnterEditModeFromEdge
+                                ? (e: React.MouseEvent) => {
+                                      const target = e.target as Element | null
+                                      if (!target) {
+                                          return
+                                      }
+
+                                      const gridItem = target.closest('.react-grid-item')
+                                      if (!gridItem) {
+                                          return
+                                      }
+
+                                      // Don't trigger when clicking obvious interactive controls
+                                      if (
+                                          target.closest(
+                                              'input,textarea,button,select,a,p,h4,[contenteditable="true"],[role="textbox"]'
+                                          )
+                                      ) {
+                                          return
+                                      }
+                                      e.preventDefault()
+                                      e.stopPropagation()
+                                      setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardDragHandle)
+                                  }
+                                : undefined,
+                            showEditingControls: isEditablePlacement,
                             moveToDashboard: ({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
                                 if (!dashboard) {
                                     throw new Error('must be on a dashboard to move this tile')
@@ -251,6 +290,7 @@ export function DashboardItems(): JSX.Element {
                                     setOverride={() => setTileOverride(tile)}
                                     showDetailsControls={
                                         placement != DashboardPlacement.Export &&
+                                        placement != DashboardPlacement.Public &&
                                         !getCurrentExporterData()?.hideExtraDetails
                                     }
                                     placement={placement}
@@ -324,7 +364,21 @@ export function DashboardItems(): JSX.Element {
                                             {commonTileProps.removeFromDashboard && (
                                                 <LemonButton
                                                     status="danger"
-                                                    onClick={() => commonTileProps.removeFromDashboard()}
+                                                    onClick={() =>
+                                                        LemonDialog.open({
+                                                            title: 'Remove text from dashboard',
+                                                            description:
+                                                                'Are you sure you want to remove this text card from the dashboard?',
+                                                            primaryButton: {
+                                                                children: 'Remove from dashboard',
+                                                                status: 'danger',
+                                                                onClick: () => commonTileProps.removeFromDashboard?.(),
+                                                            },
+                                                            secondaryButton: {
+                                                                children: 'Cancel',
+                                                            },
+                                                        })
+                                                    }
                                                     fullWidth
                                                     data-attr="remove-text-tile-from-dashboard"
                                                 >

@@ -1,3 +1,4 @@
+import httpx
 import openai
 import anthropic
 from prometheus_client import Counter
@@ -17,6 +18,9 @@ LLM_TRANSIENT_EXCEPTIONS = (
     openai.RateLimitError,
     openai.APITimeoutError,
     openai.APIConnectionError,
+    # httpx transport errors that can escape SDK wrapping during streaming
+    httpx.ReadError,
+    httpx.ConnectError,
 )
 
 # Client/validation errors that won't resolve on retry (400, 422, etc.)

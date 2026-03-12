@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import { IconCheck, IconPlus, IconServer, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSwitch, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { teamLogic } from 'scenes/teamLogic'
@@ -39,12 +41,14 @@ function ConnectOAuthButton({
     description,
     oauthProviderKind,
     type = 'primary',
+    disabledReason,
 }: {
     name: string
     url: string
     description: string
     oauthProviderKind?: string
     type?: 'primary' | 'secondary'
+    disabledReason?: string | null
 }): JSX.Element {
     const [loading, setLoading] = useState(false)
 
@@ -53,6 +57,7 @@ function ConnectOAuthButton({
             type={type}
             size="small"
             loading={loading}
+            disabledReason={disabledReason}
             onClick={async () => {
                 setLoading(true)
                 try {
@@ -77,18 +82,55 @@ function ConnectOAuthButton({
 }
 
 export function McpStoreSettings(): JSX.Element {
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
     const { installations, installationsLoading, installedServerUrls, recommendedServers, serversLoading } =
         useValues(mcpStoreLogic)
-    const { uninstallServer, openAddCustomServerModal, openAddCustomServerModalWithDefaults } =
-        useActions(mcpStoreLogic)
+    const {
+        uninstallServer,
+        toggleServerEnabled,
+        openAddCustomServerModal,
+        openAddCustomServerModalWithDefaults,
+        loadInstallations,
+        loadServers,
+    } = useActions(mcpStoreLogic)
     const { currentTeamId } = useValues(teamLogic)
     const [searchTerm, setSearchTerm] = useState('')
+
+    const refreshMcpStoreState = useCallback(() => {
+        loadInstallations()
+        loadServers()
+    }, [loadInstallations, loadServers])
+
+    useEffect(() => {
+        const handleVisibilityChange = (): void => {
+            if (document.visibilityState === 'visible') {
+                refreshMcpStoreState()
+            }
+        }
+
+        window.addEventListener('focus', refreshMcpStoreState)
+        document.addEventListener('visibilitychange', handleVisibilityChange)
+
+        return () => {
+            window.removeEventListener('focus', refreshMcpStoreState)
+            document.removeEventListener('visibilitychange', handleVisibilityChange)
+        }
+    }, [refreshMcpStoreState])
 
     return (
         <>
             <div className="flex items-center justify-between mb-4">
                 <h3 className="mb-0">Installed servers</h3>
-                <LemonButton type="primary" icon={<IconPlus />} onClick={openAddCustomServerModal} size="small">
+                <LemonButton
+                    type="primary"
+                    icon={<IconPlus />}
+                    onClick={openAddCustomServerModal}
+                    size="small"
+                    disabledReason={restrictedReason}
+                >
                     Add custom server
                 </LemonButton>
             </div>
@@ -132,6 +174,7 @@ export function McpStoreSettings(): JSX.Element {
                                         name={installation.display_name || installation.name}
                                         url={installation.url ?? ''}
                                         description={installation.description ?? ''}
+                                        disabledReason={restrictedReason}
                                     />
                                 ) : installation.needs_reauth && installation.server_id ? (
                                     <LemonButton
@@ -140,13 +183,19 @@ export function McpStoreSettings(): JSX.Element {
                                         onClick={() => {
                                             window.location.href = `/api/environments/${currentTeamId}/mcp_server_installations/authorize/?server_id=${installation.server_id}`
                                         }}
+                                        disabledReason={restrictedReason}
                                     >
                                         Reconnect
                                     </LemonButton>
                                 ) : (
-                                    <LemonTag type="success" icon={<IconCheck />}>
-                                        Active
-                                    </LemonTag>
+                                    <LemonSwitch
+                                        checked={installation.is_enabled !== false}
+                                        onChange={(checked) =>
+                                            toggleServerEnabled({ id: installation.id, enabled: checked })
+                                        }
+                                        size="small"
+                                        disabledReason={restrictedReason}
+                                    />
                                 )}
                             </div>
                         ),
@@ -163,10 +212,12 @@ export function McpStoreSettings(): JSX.Element {
                                                 status: 'danger' as const,
                                                 icon: <IconTrash />,
                                                 onClick: () => uninstallServer(installation.id),
+                                                disabledReason: restrictedReason ?? undefined,
                                             },
                                         ]}
                                     />
                                 }
+                                disabledReason={restrictedReason}
                             />
                         ),
                     },
@@ -176,7 +227,7 @@ export function McpStoreSettings(): JSX.Element {
             {recommendedServers.length > 0 && (
                 <>
                     <div className="flex-col items-center justify-between mt-4 mb-2">
-                        <h3 className="mb-4">Recommended servers</h3>
+                        <h3 className="mb-4">Pre-configured servers</h3>
                         <LemonInput
                             type="search"
                             placeholder="Search MCP servers..."
@@ -196,7 +247,7 @@ export function McpStoreSettings(): JSX.Element {
                             {
                                 width: 0,
                                 render: (_: any, server: RecommendedServerApi) => {
-                                    const iconSrc = SERVER_ICONS[server.name] || server.icon_url
+                                    const iconSrc = SERVER_ICONS[server.name]
                                     return iconSrc ? (
                                         <div className="w-6 h-6 flex items-center justify-center">
                                             <img src={iconSrc} alt="" className="w-6 h-6" />
@@ -242,6 +293,7 @@ export function McpStoreSettings(): JSX.Element {
                                                         auth_type: 'api_key',
                                                     })
                                                 }
+                                                disabledReason={restrictedReason}
                                             >
                                                 Connect
                                             </LemonButton>
@@ -252,6 +304,7 @@ export function McpStoreSettings(): JSX.Element {
                                                 description={server.description}
                                                 oauthProviderKind={server.oauth_provider_kind}
                                                 type="secondary"
+                                                disabledReason={restrictedReason}
                                             />
                                         )}
                                     </div>

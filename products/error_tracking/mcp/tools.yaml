@@ -14,56 +14,14 @@ tools:
     error-tracking-assignment-rules-create:
         operation: error_tracking_assignment_rules_create
         enabled: false
-    error-tracking-assignment-rules-retrieve:
-        operation: error_tracking_assignment_rules_retrieve
-        enabled: false
-    error-tracking-assignment-rules-update:
-        operation: error_tracking_assignment_rules_update
-        enabled: false
-    error-tracking-assignment-rules-partial-update:
-        operation: error_tracking_assignment_rules_partial_update
-        enabled: false
-    error-tracking-assignment-rules-destroy:
-        operation: error_tracking_assignment_rules_destroy
-        enabled: false
     error-tracking-assignment-rules-reorder-partial-update:
         operation: error_tracking_assignment_rules_reorder_partial_update
-        enabled: false
-    error-tracking-autocapture-controls-list:
-        operation: error_tracking_autocapture_controls_list
-        enabled: false
-    error-tracking-autocapture-controls-create:
-        operation: error_tracking_autocapture_controls_create
-        enabled: false
-    error-tracking-autocapture-controls-retrieve:
-        operation: error_tracking_autocapture_controls_retrieve
-        enabled: false
-    error-tracking-autocapture-controls-update:
-        operation: error_tracking_autocapture_controls_update
-        enabled: false
-    error-tracking-autocapture-controls-partial-update:
-        operation: error_tracking_autocapture_controls_partial_update
-        enabled: false
-    error-tracking-autocapture-controls-destroy:
-        operation: error_tracking_autocapture_controls_destroy
         enabled: false
     error-tracking-external-references-list:
         operation: error_tracking_external_references_list
         enabled: false
     error-tracking-external-references-create:
         operation: error_tracking_external_references_create
-        enabled: false
-    error-tracking-external-references-retrieve:
-        operation: error_tracking_external_references_retrieve
-        enabled: false
-    error-tracking-external-references-update:
-        operation: error_tracking_external_references_update
-        enabled: false
-    error-tracking-external-references-partial-update:
-        operation: error_tracking_external_references_partial_update
-        enabled: false
-    error-tracking-external-references-destroy:
-        operation: error_tracking_external_references_destroy
         enabled: false
     error-tracking-fingerprints-list:
         operation: error_tracking_fingerprints_list
@@ -86,18 +44,6 @@ tools:
     error-tracking-grouping-rules-create:
         operation: error_tracking_grouping_rules_create
         enabled: false
-    error-tracking-grouping-rules-retrieve:
-        operation: error_tracking_grouping_rules_retrieve
-        enabled: false
-    error-tracking-grouping-rules-update:
-        operation: error_tracking_grouping_rules_update
-        enabled: false
-    error-tracking-grouping-rules-partial-update:
-        operation: error_tracking_grouping_rules_partial_update
-        enabled: false
-    error-tracking-grouping-rules-destroy:
-        operation: error_tracking_grouping_rules_destroy
-        enabled: false
     error-tracking-grouping-rules-reorder-partial-update:
         operation: error_tracking_grouping_rules_reorder_partial_update
         enabled: false
@@ -110,12 +56,14 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: '{id}'
         list: true
         title: List error tracking issues
         description: >
             List all error tracking issues in the project. Returns issues with status, volume, first/last seen
             timestamps, and assignee info.
         mcp_version: 1
+        ui_resource_uri: ui://posthog/error-issue-list.html
     error-tracking-issues-create:
         operation: error_tracking_issues_create
         enabled: false
@@ -128,11 +76,13 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: '{id}'
         title: Get error tracking issue
         description: >
             Get a specific error tracking issue by ID. Returns full issue details including status, description, volume,
             and metadata.
         mcp_version: 1
+        ui_resource_uri: ui://posthog/error-issue.html
     error-tracking-issues-update:
         operation: error_tracking_issues_update
         enabled: false
@@ -145,10 +95,12 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
+        enrich_url: '{id}'
         title: Update error tracking issue
         description: >
             Update an error tracking issue. Can change status (active, resolved, suppressed), assign to a user, or
             update description.
+        ui_resource_uri: ui://posthog/error-issue.html
     error-tracking-issues-destroy:
         operation: error_tracking_issues_destroy
         enabled: false
@@ -218,18 +170,6 @@ tools:
     error-tracking-suppression-rules-create:
         operation: error_tracking_suppression_rules_create
         enabled: false
-    error-tracking-suppression-rules-retrieve:
-        operation: error_tracking_suppression_rules_retrieve
-        enabled: false
-    error-tracking-suppression-rules-update:
-        operation: error_tracking_suppression_rules_update
-        enabled: false
-    error-tracking-suppression-rules-partial-update:
-        operation: error_tracking_suppression_rules_partial_update
-        enabled: false
-    error-tracking-suppression-rules-destroy:
-        operation: error_tracking_suppression_rules_destroy
-        enabled: false
     error-tracking-suppression-rules-reorder-partial-update:
         operation: error_tracking_suppression_rules_reorder_partial_update
         enabled: false
@@ -262,4 +202,52 @@ tools:
         enabled: false
     error-tracking-symbol-sets-start-upload-create:
         operation: error_tracking_symbol_sets_start_upload_create
+        enabled: false
+    error-tracking-assignment-rules-retrieve:
+        operation: error_tracking_assignment_rules_retrieve
+        enabled: false
+    error-tracking-assignment-rules-update:
+        operation: error_tracking_assignment_rules_update
+        enabled: false
+    error-tracking-assignment-rules-partial-update:
+        operation: error_tracking_assignment_rules_partial_update
+        enabled: false
+    error-tracking-assignment-rules-destroy:
+        operation: error_tracking_assignment_rules_destroy
+        enabled: false
+    error-tracking-external-references-retrieve:
+        operation: error_tracking_external_references_retrieve
+        enabled: false
+    error-tracking-external-references-update:
+        operation: error_tracking_external_references_update
+        enabled: false
+    error-tracking-external-references-partial-update:
+        operation: error_tracking_external_references_partial_update
+        enabled: false
+    error-tracking-external-references-destroy:
+        operation: error_tracking_external_references_destroy
+        enabled: false
+    error-tracking-grouping-rules-retrieve:
+        operation: error_tracking_grouping_rules_retrieve
+        enabled: false
+    error-tracking-grouping-rules-update:
+        operation: error_tracking_grouping_rules_update
+        enabled: false
+    error-tracking-grouping-rules-partial-update:
+        operation: error_tracking_grouping_rules_partial_update
+        enabled: false
+    error-tracking-grouping-rules-destroy:
+        operation: error_tracking_grouping_rules_destroy
+        enabled: false
+    error-tracking-suppression-rules-retrieve:
+        operation: error_tracking_suppression_rules_retrieve
+        enabled: false
+    error-tracking-suppression-rules-update:
+        operation: error_tracking_suppression_rules_update
+        enabled: false
+    error-tracking-suppression-rules-partial-update:
+        operation: error_tracking_suppression_rules_partial_update
+        enabled: false
+    error-tracking-suppression-rules-destroy:
+        operation: error_tracking_suppression_rules_destroy
         enabled: false

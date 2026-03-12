@@ -41,7 +41,8 @@ function CategoryPillContent({
     onClick: () => void
 }): JSX.Element {
     const { taxonomicGroups } = useValues(taxonomicFilterLogic)
-    const { totalResultCount, totalListCount, isLoading, hasRemoteDataSource, hasMore } = useValues(infiniteListLogic)
+    const { totalResultCount, totalListCount, isLoading, hasRemoteDataSource, hasMore, needsMoreSearchCharacters } =
+        useValues(infiniteListLogic)
 
     const group = taxonomicGroups.find((g) => g.type === groupType)
 
@@ -65,16 +66,20 @@ function CategoryPillContent({
             ) : (
                 <>
                     {group?.name}
-                    {': '}
-                    {showLoading ? (
-                        <Spinner className="text-sm inline-block ml-1" textColored speed="0.8s" />
-                    ) : (
-                        totalResultCount
+                    {!needsMoreSearchCharacters && (
+                        <>
+                            {': '}
+                            {showLoading ? (
+                                <Spinner className="text-sm inline-block ml-1" textColored speed="0.8s" />
+                            ) : (
+                                totalResultCount
+                            )}
+                            {/* This is a workaround. We need to make the logic fetch more results when querying from clickhouse*/}
+                            <span aria-label={hasMore ? `${totalResultCount} or more` : `${totalResultCount}`}>
+                                {hasMore ? '+' : ''}
+                            </span>
+                        </>
                     )}
-                    {/* This is a workaround. We need to make the logic fetch more results when querying from clickhouse*/}
-                    <span aria-label={hasMore ? `${totalResultCount} or more` : `${totalResultCount}`}>
-                        {hasMore ? '+' : ''}
-                    </span>
                 </>
             )}
         </LemonTag>

@@ -22,6 +22,10 @@ class ExternalDataSourceManager(models.Manager):
 
 
 class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
+    class AccessMethod(models.TextChoices):
+        WAREHOUSE = "warehouse", "warehouse"
+        DIRECT = "direct", "direct"
+
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
         PAUSED = "Paused", "Paused"
@@ -53,6 +57,7 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     are_tables_created = models.BooleanField(default=False)
     prefix = models.CharField(max_length=100, null=True, blank=True)
     description = models.CharField(max_length=400, null=True, blank=True)
+    access_method = models.CharField(max_length=32, choices=AccessMethod.choices, default=AccessMethod.WAREHOUSE)
 
     # DEPRECATED: Check inside `revenue_analytics_config` instead
     revenue_analytics_enabled = models.BooleanField(default=False, blank=True, null=True)
@@ -63,6 +68,18 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     class Meta:
         db_table = "posthog_externaldatasource"
+
+    @property
+    def is_direct_query(self) -> bool:
+        return self.access_method == self.AccessMethod.DIRECT
+
+    @property
+    def is_direct_postgres(self) -> bool:
+        return self.is_direct_query and self.source_type == ExternalDataSourceType.POSTGRES
+
+    @property
+    def supports_scheduled_sync(self) -> bool:
+        return not self.is_direct_query
 
     @property
     def revenue_analytics_config_safe(self):
@@ -95,6 +112,9 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         )
         from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 
+        if not self.supports_scheduled_sync:
+            return
+
         for schema in (
             ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=self.id, should_sync=True)
             .exclude(deleted=True)
@@ -113,3 +133,25 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 @database_sync_to_async
 def get_external_data_source(source_id: UUID) -> ExternalDataSource:
     return ExternalDataSource.objects.get(pk=source_id)
+
+
+def get_direct_external_data_source_for_connection(
+    team_id: int, connection_id: str | None
+) -> ExternalDataSource | None:
+    if not connection_id:
+        return None
+
+    try:
+        source_uuid = UUID(connection_id)
+    except ValueError:
+        return None
+
+    return (
+        ExternalDataSource.objects.filter(
+            team_id=team_id,
+            id=source_uuid,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+        .exclude(deleted=True)
+        .first()
+    )

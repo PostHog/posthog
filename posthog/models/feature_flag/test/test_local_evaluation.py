@@ -7,7 +7,7 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagEvaluationTag
+from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.feature_flag.local_evaluation import (
     FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
     FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG,
@@ -214,8 +214,57 @@ class TestLocalEvaluationCache(BaseTest):
 class TestLocalEvaluationSignals(BaseTest):
     @patch("posthog.tasks.feature_flags.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())
-    def test_signal_fired_on_evaluation_tag_create(self, mock_task):
+    def test_signal_fired_on_evaluation_context_association_create(self, mock_task):
+        """Creating a FeatureFlagEvaluationContext fires the cache update signal."""
+        from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
+
         flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        # Create the context first (this will fire a signal for EvaluationContext.post_save)
+        ctx = EvaluationContext.objects.create(team=self.team, name="production")
+
+        mock_task.reset_mock()
+
+        # Creating the association should fire the signal
+        FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=ctx)
+
+        mock_task.delay.assert_called_once_with(self.team.id)
+
+    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_signal_fired_on_evaluation_context_association_delete(self, mock_task):
+        """Deleting a FeatureFlagEvaluationContext fires the cache update signal."""
+        from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        ctx = EvaluationContext.objects.create(team=self.team, name="production")
+        eval_ctx = FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=ctx)
+
+        mock_task.reset_mock()
+
+        eval_ctx.delete()
+
+        mock_task.delay.assert_called_once_with(self.team.id)
+
+    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_signal_not_fired_on_evaluation_context_create(self, mock_task):
+        """Creating an EvaluationContext does NOT fire the cache update signal.
+
+        New contexts can't be referenced by any flags yet, so invalidation is a no-op.
+        """
+        from posthog.models.evaluation_context import EvaluationContext
+
+        FeatureFlag.objects.create(
             team=self.team,
             key="test-flag",
             created_by=self.user,
@@ -224,97 +273,52 @@ class TestLocalEvaluationSignals(BaseTest):
 
         mock_task.reset_mock()
 
-        tag = Tag.objects.create(team=self.team, name="docs-page")
-        FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=tag)
+        EvaluationContext.objects.create(team=self.team, name="production")
 
-        mock_task.delay.assert_called_once_with(self.team.id)
-
-    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
-    @patch("django.db.transaction.on_commit", lambda fn: fn())
-    def test_signal_fired_on_evaluation_tag_delete(self, mock_task):
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            key="test-flag",
-            created_by=self.user,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-        tag = Tag.objects.create(team=self.team, name="docs-page")
-        eval_tag = FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=tag)
-
-        mock_task.reset_mock()
-
-        eval_tag.delete()
-
-        mock_task.delay.assert_called_once_with(self.team.id)
-
-    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
-    @patch("django.db.transaction.on_commit", lambda fn: fn())
-    def test_signal_fired_on_tag_rename(self, mock_task):
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            key="test-flag",
-            created_by=self.user,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-        tag = Tag.objects.create(team=self.team, name="docs-page")
-        FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=tag)
-
-        mock_task.reset_mock()
-
-        # Rename the tag
-        tag.name = "landing-page"
-        tag.save()
-
-        mock_task.delay.assert_called_once_with(self.team.id)
-
-    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
-    @patch("django.db.transaction.on_commit", lambda fn: fn())
-    def test_signal_not_fired_on_tag_rename_when_not_used_by_flags(self, mock_task):
-        # Create a tag that is not used by any flag
-        tag = Tag.objects.create(team=self.team, name="unused-tag")
-
-        mock_task.reset_mock()
-
-        # Rename the tag
-        tag.name = "still-unused-tag"
-        tag.save()
-
-        # Signal should NOT trigger the Celery task since no flags use this tag
         mock_task.delay.assert_not_called()
 
     @patch("posthog.tasks.feature_flags.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())
-    def test_signal_fired_once_when_tag_used_by_multiple_flags(self, mock_task):
-        """Tag used by multiple flags should trigger cache update once per team."""
-        tag = Tag.objects.create(team=self.team, name="shared-tag")
+    def test_signal_fired_on_evaluation_context_rename(self, mock_task):
+        """Renaming an EvaluationContext fires the cache update signal.
 
-        for i in range(3):
-            flag = FeatureFlag.objects.create(
-                team=self.team,
-                key=f"flag-{i}",
-                created_by=self.user,
-                filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-            )
-            FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=tag)
+        Flags referencing the context need to pick up the new name.
+        """
+        from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        ctx = EvaluationContext.objects.create(team=self.team, name="production")
+        FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=ctx)
 
         mock_task.reset_mock()
 
-        tag.name = "renamed-shared-tag"
-        tag.save()
+        ctx.name = "staging"
+        ctx.save()
 
-        # Should fire once (team-level), not 3 times (flag-level)
         mock_task.delay.assert_called_once_with(self.team.id)
 
     @patch("posthog.tasks.feature_flags.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())
-    def test_signal_not_fired_on_tag_creation(self, mock_task):
-        """Signal should not fire when a new tag is created."""
+    def test_tag_rename_does_not_fire_signal(self, mock_task):
+        """Tag renames no longer affect evaluation contexts, so no cache invalidation needed."""
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        tag = Tag.objects.create(team=self.team, name="docs-page")
+
         mock_task.reset_mock()
 
-        # Create a new tag
-        Tag.objects.create(team=self.team, name="brand-new-tag")
+        tag.name = "landing-page"
+        tag.save()
 
-        # Signal should NOT trigger because new tags can't be used by any flags yet
         mock_task.delay.assert_not_called()
 
 
@@ -1344,16 +1348,7 @@ class TestFlagDefinitionsManagementCommands(BaseTest):
         super().setUp()
         clear_flag_definition_caches(self.team, kinds=["redis", "s3"])
 
-    @parameterized.expand(
-        [
-            # (variant_arg, expect_with_cohorts, expect_without_cohorts, result_count)
-            (None, True, False, 1),
-            ("with-cohorts", True, False, 1),
-            ("without-cohorts", False, True, 1),
-            ("both", True, True, 2),
-        ]
-    )
-    def test_verify_command_variant_selection(self, variant_arg, expect_with, expect_without, result_count):
+    def test_verify_command_checks_both_variants(self):
         from io import StringIO
 
         from django.core.management import call_command
@@ -1366,15 +1361,12 @@ class TestFlagDefinitionsManagementCommands(BaseTest):
         )
 
         out = StringIO()
-        args = ["verify_flag_definitions_cache", f"--team-ids={self.team.id}"]
-        if variant_arg:
-            args.append(f"--variant={variant_arg}")
-        call_command(*args, stdout=out)
+        call_command("verify_flag_definitions_cache", f"--team-ids={self.team.id}", stdout=out)
 
         output = out.getvalue()
-        assert ("with cohorts" in output) == expect_with
-        assert ("without cohorts" in output) == expect_without
-        assert output.count("Verification Results") == result_count
+        assert "with cohorts" in output
+        assert "without cohorts" in output
+        assert output.count("Verification Results") == 2
 
     def test_warm_command_processes_both_variants_by_default(self):
         from io import StringIO

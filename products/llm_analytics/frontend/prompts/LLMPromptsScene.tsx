@@ -15,12 +15,12 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LemonInput } from '~/lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
-import { createdAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
+import { atColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, LLMPrompt } from '~/types'
 
 import { PROMPTS_PER_PAGE, llmPromptsLogic } from './llmPromptsLogic'
-import { openDeletePromptDialog } from './utils'
+import { openArchivePromptDialog } from './utils'
 
 export const scene: SceneExport = {
     component: LLMPromptsScene,
@@ -42,7 +42,7 @@ export function LLMPromptsScene(): JSX.Element {
             width: '25%',
             render: function renderName(_, prompt) {
                 return (
-                    <Link to={promptUrl(prompt.name)} className="font-semibold" data-attr="prompt-name-link">
+                    <Link to={promptUrl(prompt.name)} className="font-semibold" data-attr="llma-prompt-name-link">
                         {prompt.name}
                     </Link>
                 )
@@ -61,7 +61,7 @@ export function LLMPromptsScene(): JSX.Element {
             },
         },
         {
-            title: 'Created by',
+            title: 'Latest author',
             dataIndex: 'created_by',
             render: function renderCreatedBy(_, item) {
                 const { created_by } = item
@@ -73,7 +73,16 @@ export function LLMPromptsScene(): JSX.Element {
                 )
             },
         },
-        createdAtColumn<LLMPrompt>() as LemonTableColumn<LLMPrompt, keyof LLMPrompt | undefined>,
+        {
+            title: 'Versions',
+            dataIndex: 'version_count',
+            key: 'version_count',
+            width: 100,
+            render: function renderVersionCount(_, prompt) {
+                return <span className="text-muted-alt">{prompt.version_count}</span>
+            },
+        },
+        atColumn('created_at', 'Latest version created') as LemonTableColumn<LLMPrompt, keyof LLMPrompt | undefined>,
         {
             width: 0,
             render: function renderMore(_, prompt) {
@@ -81,7 +90,11 @@ export function LLMPromptsScene(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton to={promptUrl(prompt.name)} data-attr="prompt-dropdown-view" fullWidth>
+                                <LemonButton
+                                    to={promptUrl(prompt.name)}
+                                    data-attr="llma-prompt-dropdown-view"
+                                    fullWidth
+                                >
                                     View
                                 </LemonButton>
 
@@ -91,11 +104,11 @@ export function LLMPromptsScene(): JSX.Element {
                                 >
                                     <LemonButton
                                         status="danger"
-                                        onClick={() => openDeletePromptDialog(() => deletePrompt(prompt.id))}
-                                        data-attr="prompt-dropdown-delete"
+                                        onClick={() => openArchivePromptDialog(() => deletePrompt(prompt.name))}
+                                        data-attr="llma-prompt-dropdown-delete"
                                         fullWidth
                                     >
-                                        Delete
+                                        Archive
                                     </LemonButton>
                                 </AccessControlAction>
                             </>

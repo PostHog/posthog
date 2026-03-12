@@ -66,8 +66,8 @@ depends_on = [
     "products.desktop_recordings",
     "products.early_access_features",
     "products.endpoints",
-    "products.event_definitions",
     "products.error_tracking",
+    "products.event_definitions",
     "products.experiments",
     "products.feature_flags",
     "products.links",
@@ -82,6 +82,7 @@ depends_on = [
     "products.surveys",
     "products.tasks",
     "products.user_interviews",
+    "products.visual_review",
     "products.web_analytics",
     "products.workflows",
 ]
@@ -156,16 +157,16 @@ depends_on = [
 layer = "non_isolated"
 
 [[modules]]
-path = "products.event_definitions"
+path = "products.error_tracking"
 depends_on = [
+    "ee",
     "posthog",
 ]
 layer = "non_isolated"
 
 [[modules]]
-path = "products.error_tracking"
+path = "products.event_definitions"
 depends_on = [
-    "ee",
     "posthog",
 ]
 layer = "non_isolated"
@@ -264,8 +265,8 @@ layer = "non_isolated"
 path = "products.signals"
 depends_on = [
     "posthog",
+    "products.data_warehouse",
     "products.error_tracking",
-    "products.tasks",
 ]
 layer = "non_isolated"
 
@@ -306,6 +307,13 @@ depends_on = [
 layer = "non_isolated"
 
 [[modules]]
+path = "products.visual_review"
+depends_on = [
+    "posthog",
+]
+layer = "products"
+
+[[modules]]
 path = "products.web_analytics"
 depends_on = [
     "ee",
@@ -320,3 +328,9 @@ depends_on = [
     "posthog",
 ]
 layer = "non_isolated"
+
+
+[[modules]]
+path = "products.tracing"
+depends_on = ["posthog"]
+layer = "products"
