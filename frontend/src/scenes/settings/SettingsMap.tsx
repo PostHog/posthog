@@ -330,7 +330,8 @@ export const SETTINGS_MAP: SettingSection[] = [
     {
         level: 'environment',
         id: 'environment-twig',
-        title: 'Twig',
+        title: 'PostHog Code',
+        group: 'AI',
         flag: 'TASKS',
         settings: [
             {

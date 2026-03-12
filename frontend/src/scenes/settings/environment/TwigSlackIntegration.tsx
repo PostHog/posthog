@@ -11,7 +11,7 @@ export function TwigSlackIntegration(): JSX.Element {
 
     return (
         <div>
-            <p>Connect Slack to Twig to kick off tasks like pull requests directly from Slack.</p>
+            <p>Connect Slack to PostHog Code to kick off tasks like pull requests directly from Slack.</p>
 
             <div className="deprecated-space-y-2">
                 {twigSlackIntegrations?.map((integration) => (
@@ -31,7 +31,7 @@ export function TwigSlackIntegration(): JSX.Element {
                         </Link>
                     ) : (
                         <p className="text-secondary">
-                            The Twig Slack integration is not configured for this instance.
+                            The PostHog Code Slack integration is not configured for this instance.
                         </p>
                     )}
                 </div>
