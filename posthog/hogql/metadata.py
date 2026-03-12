@@ -8,8 +8,7 @@ from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
-from posthog.hogql.direct_connection import get_direct_connection_source
+from posthog.hogql.direct_connection import resolve_database_for_connection
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -42,20 +41,22 @@ def get_hogql_metadata(
     )
 
     query_modifiers = create_default_modifiers_for_team(team, query.modifiers)
-    source = get_direct_connection_source(team, query.connectionId)
-    if query.connectionId and source is None:
-        response.isValid = False
-        response.errors = [HogQLNotice(message="Invalid connectionId for this team")]
-        return response
-
     database = None
-    if source:
-        database = Database.create_for(
-            team=team,
-            user=user,
-            modifiers=query_modifiers,
-            connection_id=str(source.id),
-        )
+    has_direct_connection = False
+    if query.connectionId:
+        try:
+            resolved_connection, database = resolve_database_for_connection(
+                team,
+                query.connectionId,
+                user=user,
+                modifiers=query_modifiers,
+                error_factory=ExposedHogQLError,
+            )
+            has_direct_connection = resolved_connection is not None
+        except ExposedHogQLError:
+            response.isValid = False
+            response.errors = [HogQLNotice(message="Invalid connectionId for this team")]
+            return response
 
     try:
         context = HogQLContext(
@@ -99,7 +100,7 @@ def get_hogql_metadata(
                 printed_sql, prepared_ast = prepare_and_print_ast(
                     clone_expr(hogql_ast),
                     context=context,
-                    dialect="postgres" if source else "clickhouse",
+                    dialect="postgres" if has_direct_connection else "clickhouse",
                 )
 
             if prepared_ast:

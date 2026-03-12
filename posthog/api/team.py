@@ -373,6 +373,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "product_intents",
             "managed_viewsets",
             "available_setup_task_ids",
+            "has_ducklake",
         )
 
         read_only_fields = (
@@ -396,6 +397,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "product_intents",
             "managed_viewsets",
             "available_setup_task_ids",
+            "has_ducklake",
         )
 
     def to_representation(self, instance):

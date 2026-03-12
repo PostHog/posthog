@@ -1,7 +1,7 @@
 from typing import Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
@@ -186,8 +186,8 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         metadata = self._expr("is_identified", "persons")
         self.assertEqual(metadata.isValid, True)
 
-    @patch("posthog.hogql.metadata.Database.create_for")
-    def test_metadata_resolves_database_from_connection_id(self, mock_create_for):
+    @patch("posthog.hogql.metadata.resolve_database_for_connection")
+    def test_metadata_resolves_database_from_connection_id(self, mock_resolve_database_for_connection):
         source = ExternalDataSource.objects.create(
             source_id="selected-upstream-source",
             connection_id="selected-connection",
@@ -197,6 +197,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             source_type=ExternalDataSourceType.POSTGRES,
             access_method=ExternalDataSource.AccessMethod.DIRECT,
         )
+        mock_resolve_database_for_connection.return_value = (MagicMock(), MagicMock())
 
         get_hogql_metadata(
             query=HogQLMetadata(
@@ -210,11 +211,11 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             user=self.user,
         )
 
-        self.assertEqual(mock_create_for.call_count, 1)
-        self.assertEqual(mock_create_for.call_args.kwargs["team"], self.team)
-        self.assertEqual(mock_create_for.call_args.kwargs["user"], self.user)
-        self.assertEqual(mock_create_for.call_args.kwargs["connection_id"], str(source.id))
-        self.assertIn("modifiers", mock_create_for.call_args.kwargs)
+        self.assertEqual(mock_resolve_database_for_connection.call_count, 1)
+        self.assertEqual(mock_resolve_database_for_connection.call_args.args[0], self.team)
+        self.assertEqual(mock_resolve_database_for_connection.call_args.args[1], str(source.id))
+        self.assertEqual(mock_resolve_database_for_connection.call_args.kwargs["user"], self.user)
+        self.assertIn("modifiers", mock_resolve_database_for_connection.call_args.kwargs)
 
     def test_metadata_rejects_soft_deleted_connection_id(self):
         source = ExternalDataSource.objects.create(

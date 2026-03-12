@@ -22,9 +22,10 @@ import posthog from 'posthog-js'
 import { LemonDialog, LemonInput, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import type { PaginatedResponse } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import type { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
@@ -39,6 +40,7 @@ import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSour
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -68,6 +70,16 @@ import {
 import { validateEndpointName } from 'products/endpoints/frontend/common'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
+import {
+    ADD_POSTGRES_DIRECT_CONNECTION,
+    CONFIGURE_SOURCES,
+    DUCKLAKE_CONNECTION_ID,
+    LOADING_CONNECTIONS,
+    POSTHOG_WAREHOUSE,
+    isDirectQueryEnabled as getIsDirectQueryEnabled,
+    isDuckLakeConnectionId,
+    isDuckgresEnabled as getIsDuckgresEnabled,
+} from './directConnections'
 import { draftsLogic } from './draftsLogic'
 import { editorSceneLogic } from './editorSceneLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
@@ -143,7 +155,7 @@ function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
         q: values.queryInput ?? '',
     }
     const connectionId = values.sourceQuery?.source.connectionId
-    if (values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && connectionId) {
+    if (connectionId) {
         hash['c'] = connectionId
     }
     if (values.activeTab?.view) {
@@ -190,7 +202,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             externalDataSourcesLogic,
-            ['dataWarehouseSources'],
+            ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
+            teamLogic,
+            ['currentTeam'],
             databaseTableListLogic,
             ['database', 'databaseLoading'],
             outputPaneLogic({ tabId: props.tabId }),
@@ -1213,12 +1227,76 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
         selectedConnectionId: [
-            (s) => [s.sourceQuery, s.featureFlags],
-            (sourceQuery, featureFlags) => {
-                if (!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]) {
-                    return undefined
-                }
+            (s) => [s.sourceQuery],
+            (sourceQuery) => {
                 return sourceQuery.source.connectionId
+            },
+        ],
+        isDirectQueryEnabled: [(s) => [s.featureFlags], (featureFlags) => getIsDirectQueryEnabled(featureFlags)],
+        isDuckgresEnabled: [
+            (s) => [s.featureFlags, s.currentTeam],
+            (_featureFlags, currentTeam) => getIsDuckgresEnabled(currentTeam),
+        ],
+        directPostgresSources: [
+            (s) => [s.dataWarehouseSources],
+            (dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null): ExternalDataSource[] => {
+                return (dataWarehouseSources?.results ?? []).filter(
+                    (source) =>
+                        source.access_method === 'direct' && source.source_type.toLowerCase().includes('postgres')
+                )
+            },
+        ],
+        connectionSelectorOptions: [
+            (s) => [s.dataWarehouseSourcesLoading, s.directPostgresSources, s.isDuckgresEnabled],
+            (dataWarehouseSourcesLoading, directPostgresSources, isDuckgresEnabled): LemonSelectOptions<string> => {
+                const sourceOptions = dataWarehouseSourcesLoading
+                    ? [{ value: LOADING_CONNECTIONS, label: 'Loading...', disabled: true }]
+                    : directPostgresSources.map((source) => ({
+                          value: source.id,
+                          label: `${source.prefix ? source.prefix : source.id} (Postgres)`,
+                      }))
+
+                return [
+                    {
+                        options: [
+                            { value: POSTHOG_WAREHOUSE, label: 'PostHog (ClickHouse)' },
+                            ...(isDuckgresEnabled ? [{ value: DUCKLAKE_CONNECTION_ID, label: 'Ducklake' }] : []),
+                            ...sourceOptions,
+                        ],
+                    },
+                    {
+                        options: [
+                            { value: CONFIGURE_SOURCES, label: 'Configure sources' },
+                            { value: ADD_POSTGRES_DIRECT_CONNECTION, label: '+ Add postgres direct connection' },
+                        ],
+                    },
+                ]
+            },
+        ],
+        selectedConnectionValue: [
+            (s) => [
+                s.selectedConnectionId,
+                s.directPostgresSources,
+                s.dataWarehouseSourcesLoading,
+                s.isDuckgresEnabled,
+            ],
+            (selectedConnectionId, directPostgresSources, dataWarehouseSourcesLoading, isDuckgresEnabled) => {
+                if (dataWarehouseSourcesLoading) {
+                    return LOADING_CONNECTIONS
+                }
+
+                if (
+                    selectedConnectionId &&
+                    directPostgresSources.some((source) => source.id === selectedConnectionId)
+                ) {
+                    return selectedConnectionId
+                }
+
+                if (isDuckgresEnabled && isDuckLakeConnectionId(selectedConnectionId)) {
+                    return DUCKLAKE_CONNECTION_ID
+                }
+
+                return POSTHOG_WAREHOUSE
             },
         ],
         selectedDirectSource: [
@@ -1480,11 +1558,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
 
             const connectionIdFromHash =
-                values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
-                typeof hashParams.c === 'string' &&
-                hashParams.c !== ''
-                    ? hashParams.c
-                    : undefined
+                typeof hashParams.c === 'string' && hashParams.c !== '' ? hashParams.c : undefined
             const currentConnectionId = values.sourceQuery.source.connectionId || undefined
 
             if (connectionIdFromHash !== currentConnectionId) {

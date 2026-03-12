@@ -4,6 +4,8 @@ from typing import cast
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
@@ -24,14 +26,50 @@ from posthog.schema import (
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import TableNode
 from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.direct_connection import DUCKLAKE_CONNECTION_ID
 
 from posthog.api.services.query import process_query_model
+from posthog.ducklake.models import DuckgresServer
+from posthog.ducklake.schema import DuckLakeSchemaTable
 
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 class TestQueryService(APIBaseTest):
+    @override_settings(USE_LOCAL_SETUP=False)
+    @patch("posthog.hogql.database.ducklake_database.get_cached_ducklake_schema")
+    def test_database_schema_query_serializes_ducklake_tables(self, mock_get_cached_ducklake_schema: MagicMock):
+        DuckgresServer.objects.create(
+            team=self.team,
+            host="localhost",
+            port=5432,
+            database="ducklake",
+            username="posthog",
+            password="posthog",
+        )
+        mock_get_cached_ducklake_schema.return_value = [
+            DuckLakeSchemaTable(
+                schema_name="posthog",
+                table_name="orders",
+                columns=[("id", "integer", False), ("email", "text", True)],
+            )
+        ]
+
+        response = cast(
+            DatabaseSchemaQueryResponse,
+            process_query_model(
+                self.team,
+                DatabaseSchemaQuery(connectionId=DUCKLAKE_CONNECTION_ID),
+            ),
+        )
+
+        self.assertEqual(set(response.tables.keys()), {"posthog.orders"})
+        table = cast(DatabaseSchemaDataWarehouseTable, response.tables["posthog.orders"])
+        self.assertEqual(table.source.id, DUCKLAKE_CONNECTION_ID)
+        self.assertEqual(table.source.source_type, "Ducklake")
+        self.assertEqual(set(table.fields.keys()), {"id", "email"})
+
     @patch("posthog.api.services.query.DataWarehouseJoin.objects.filter")
     @patch("posthog.api.services.query.resolve_database_for_connection")
     def test_database_schema_query_filters_tables_to_selected_connection(

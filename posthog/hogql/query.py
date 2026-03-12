@@ -16,11 +16,12 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_default_limit_for_context
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.direct_ducklake_table import DirectDuckLakeTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.schema.logs import HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES
 from posthog.hogql.direct_connection import (
-    get_direct_connection_source_none_or_raise,
+    is_ducklake_connection_id,
+    resolve_database_for_connection,
     validate_direct_postgres_source_config,
 )
 from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError
@@ -40,6 +41,7 @@ from posthog.hogql.visitor import clone_expr
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.ducklake.client import execute_ducklake_query
 from posthog.errors import ExposedCHQueryError
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -135,6 +137,7 @@ class HogQLQueryExecutor:
     direct_postgres_sql: Optional[str] = None
     direct_postgres_source_id: Optional[str] = None
     direct_postgres_values: dict[str, object] | None = None
+    direct_connection_kind: Literal["direct_postgres", "ducklake"] | None = None
     connection_id: Optional[str] = None
     user: Optional[User] = None
 
@@ -144,7 +147,7 @@ class HogQLQueryExecutor:
     class _PreparedExecution:
         sql: str
         context: HogQLContext
-        engine: Literal["clickhouse", "direct_postgres"]
+        engine: Literal["clickhouse", "direct_postgres", "ducklake"]
 
     @tracer.start_as_current_span("HogQLQueryExecutor.__post_init__")
     def __post_init__(self):
@@ -228,22 +231,17 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_hogql")
     def _generate_hogql(self):
-        source = get_direct_connection_source_none_or_raise(
-            self.team,
-            self.connection_id,
-            error_factory=ExposedHogQLError,
-        )
-        self.connection_id = str(source.id) if source else None
-
         database = self.context.database
         if database is None or self.connection_id is not None:
-            database = Database.create_for(
+            resolved_connection, database = resolve_database_for_connection(
                 team=self.team,
                 user=self.user,
                 modifiers=self.query_modifiers,
                 timings=self.timings,
                 connection_id=self.connection_id,
+                error_factory=ExposedHogQLError,
             )
+            self.connection_id = resolved_connection.connection_id if resolved_connection else None
 
         self.hogql_context = dataclasses.replace(
             self.context,
@@ -321,41 +319,58 @@ class HogQLQueryExecutor:
             return None
 
         base_table_types = extract_base_table_types(query_type)
-        direct_source_ids = {
+        direct_postgres_source_ids = {
             table_type.table.external_data_source_id
             for table_type in base_table_types
             if isinstance(table_type.table, DirectPostgresTable)
+            and not isinstance(table_type.table, DirectDuckLakeTable)
         }
+        has_ducklake_tables = any(isinstance(table_type.table, DirectDuckLakeTable) for table_type in base_table_types)
+        direct_engines = set()
+        if direct_postgres_source_ids:
+            direct_engines.add("direct_postgres")
+        if has_ducklake_tables:
+            direct_engines.add("ducklake")
 
+        direct_engine: Literal["direct_postgres", "ducklake"] | None = None
         direct_source_id: str | None = None
 
-        if len(direct_source_ids) == 0:
+        if len(direct_engines) == 0:
             if self.connection_id is None:
                 return None
 
             if len(base_table_types) > 0:
                 raise ExposedHogQLError("Table not found in the selected connection.")
 
-            direct_source_id = self.connection_id
+            direct_engine = "ducklake" if is_ducklake_connection_id(self.connection_id) else "direct_postgres"
+            direct_source_id = None if direct_engine == "ducklake" else self.connection_id
 
-        if len(direct_source_ids) > 1:
-            raise ExposedHogQLError("Direct Postgres queries can only reference a single source.")
+        if len(direct_engines) > 1 or len(direct_postgres_source_ids) > 1:
+            raise ExposedHogQLError("Direct connection queries can only reference a single source.")
 
         has_non_direct_tables = any(
-            not isinstance(table_type.table, DirectPostgresTable) for table_type in base_table_types
+            not isinstance(table_type.table, (DirectPostgresTable, DirectDuckLakeTable))
+            for table_type in base_table_types
         )
         if has_non_direct_tables:
             if self.connection_id is None:
                 return None
-            raise ExposedHogQLError("Direct Postgres queries cannot be joined with PostHog or warehouse-synced tables.")
+            raise ExposedHogQLError(
+                "Direct connection queries cannot be joined with PostHog or warehouse-synced tables."
+            )
 
         if self.connection_id is None:
-            raise ExposedHogQLError("Direct Postgres queries require selecting a connection.")
+            raise ExposedHogQLError("Direct connection queries require selecting a connection.")
 
-        if direct_source_id is None:
-            direct_source_id = next(iter(direct_source_ids))
+        if direct_engine is None:
+            direct_engine = "ducklake" if has_ducklake_tables else "direct_postgres"
 
-        if self.connection_id != direct_source_id:
+        if direct_source_id is None and direct_engine == "direct_postgres":
+            direct_source_id = next(iter(direct_postgres_source_ids))
+
+        if direct_engine == "direct_postgres" and self.connection_id != direct_source_id:
+            raise ExposedHogQLError("The query references a different source than the selected connection.")
+        if direct_engine == "ducklake" and not is_ducklake_connection_id(self.connection_id):
             raise ExposedHogQLError("The query references a different source than the selected connection.")
 
         direct_context = dataclasses.replace(
@@ -384,11 +399,12 @@ class HogQLQueryExecutor:
         self.direct_postgres_context = direct_context
         self.direct_postgres_values = direct_context.values
         self.direct_postgres_source_id = direct_source_id
+        self.direct_connection_kind = direct_engine
 
         return self._PreparedExecution(
             sql=self.direct_postgres_sql,
             context=direct_context,
-            engine="direct_postgres",
+            engine=direct_engine,
         )
 
     def _get_select_query_type(self) -> ast.SelectQueryType | ast.SelectSetQueryType | None:
@@ -461,6 +477,38 @@ class HogQLQueryExecutor:
         self.types = [
             (column.name, postgres_oid_to_clickhouse_type(getattr(column, "type_code", None))) for column in description
         ]
+
+    @tracer.start_as_current_span("HogQLQueryExecutor._execute_ducklake_query")
+    def _execute_ducklake_query(self) -> None:
+        assert self.direct_postgres_sql is not None
+
+        span = trace.get_current_span()
+        span.set_attribute("team_id", self.team.pk)
+        span.set_attribute("query_type", self.query_type)
+        span.set_attribute("connection_id", self.connection_id or "")
+
+        try:
+            with self.timings.measure("ducklake_execute"):
+                result = execute_ducklake_query(self.team.pk, sql=self.direct_postgres_sql)
+        except (psycopg.Error, ExposedHogQLError, ValueError) as error:
+            span.set_attribute("error_type", error.__class__.__name__)
+            if self.debug:
+                self.results = []
+                self.error = postgres_error_to_message(error)
+                self.types = []
+                return
+            raise ExposedHogQLError(postgres_error_to_message(error)) from error
+
+        span.set_attribute("row_count", len(result.results))
+        self.results = result.results
+        self.types = []
+        for column_name, type_code in zip(result.columns, result.types):
+            oid: int | None
+            try:
+                oid = int(type_code)
+            except (TypeError, ValueError):
+                oid = None
+            self.types.append((column_name, postgres_oid_to_clickhouse_type(oid)))
 
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_clickhouse_sql")
     def _generate_clickhouse_sql(self):
@@ -626,6 +674,8 @@ class HogQLQueryExecutor:
 
         if prepared_execution.engine == "direct_postgres":
             self._execute_direct_postgres_query()
+        elif prepared_execution.engine == "ducklake":
+            self._execute_ducklake_query()
         elif self.clickhouse_sql is not None:
             self._execute_clickhouse_query()
 

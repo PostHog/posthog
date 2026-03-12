@@ -14,6 +14,7 @@ import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
+import { DUCKLAKE_CONNECTION_ID } from './directConnections'
 import { OutputTab } from './outputPaneLogic'
 import { getDisplayTypeToSaveInsight, sqlEditorLogic } from './sqlEditorLogic'
 
@@ -368,6 +369,37 @@ describe('sqlEditorLogic', () => {
             expect(performQuerySpy).toHaveBeenCalledTimes(1)
             expect(performQuerySpy.mock.calls[0][0]).toMatchObject({ connectionId: 'conn-123' })
             expect(databaseLogic.values.connectionId).toEqual('conn-123')
+
+            performQuerySpy.mockRestore()
+        })
+
+        it('loads ducklake schema from hash without the direct Postgres feature flag', async () => {
+            const performQuerySpy = jest
+                .spyOn(queryRunner, 'performQuery')
+                .mockResolvedValue({ tables: {}, joins: [] } as never)
+
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...(teamLogic.values.currentTeam as any),
+                has_ducklake: true,
+            })
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: DUCKLAKE_CONNECTION_ID })
+
+            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(logic.values.sourceQuery.source.connectionId).toEqual(DUCKLAKE_CONNECTION_ID)
+            expect(router.values.hashParams.c).toEqual(DUCKLAKE_CONNECTION_ID)
+            expect(performQuerySpy).toHaveBeenCalledTimes(1)
+            expect(performQuerySpy.mock.calls[0][0]).toMatchObject({ connectionId: DUCKLAKE_CONNECTION_ID })
+            expect(databaseLogic.values.connectionId).toEqual(DUCKLAKE_CONNECTION_ID)
 
             performQuerySpy.mockRestore()
         })

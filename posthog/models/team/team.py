@@ -697,6 +697,13 @@ class Team(UUIDTClassicModel):
             self, TeamCustomerAnalyticsConfig, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
         )
 
+    @cached_property
+    def has_ducklake(self) -> bool:
+        from posthog.ducklake.common import is_dev_mode
+        from posthog.ducklake.models import DuckgresServer
+
+        return is_dev_mode() or DuckgresServer.objects.filter(team_id=self.pk).exists()
+
     @property
     def default_modifiers(self) -> dict:
         modifiers = HogQLQueryModifiers()

@@ -749,6 +749,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     default_modifiers: () => null,
     is_demo: () => null,
     has_group_types: () => null,
+    has_ducklake: () => null,
     web_analytics_pre_aggregated_tables_enabled: () => null,
     web_analytics_pre_aggregated_tables_version: () => null,
     experiment_recalculation_time: () => null,

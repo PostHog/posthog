@@ -1,10 +1,12 @@
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Optional, cast
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Literal, Optional, cast
 from uuid import UUID
 
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.ducklake_database import DuckLakeDatabase
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.timings import HogQLTimings
 
@@ -17,6 +19,18 @@ if TYPE_CHECKING:
 
 
 INVALID_CONNECTION_ID_ERROR = "Invalid connectionId for this team"
+DUCKLAKE_CONNECTION_ID = "ducklake://default"
+
+
+@dataclass(frozen=True)
+class ResolvedConnection:
+    connection_id: str
+    kind: Literal["direct_postgres", "ducklake"]
+    source: ExternalDataSource | None = None
+
+
+def is_ducklake_connection_id(connection_id: str | None) -> bool:
+    return connection_id == DUCKLAKE_CONNECTION_ID
 
 
 def get_direct_connection_source(team: "Team", connection_id: str | None) -> ExternalDataSource | None:
@@ -51,6 +65,27 @@ def get_direct_connection_source_none_or_raise(
     return source
 
 
+def resolve_connection_none_or_raise(
+    team: "Team",
+    connection_id: str | None,
+    *,
+    error_factory: Callable[[str], Exception],
+) -> ResolvedConnection | None:
+    if not connection_id:
+        return None
+
+    if is_ducklake_connection_id(connection_id):
+        if not team.has_ducklake:
+            raise error_factory(INVALID_CONNECTION_ID_ERROR)
+        return ResolvedConnection(connection_id=DUCKLAKE_CONNECTION_ID, kind="ducklake")
+
+    source = get_direct_connection_source_none_or_raise(team, connection_id, error_factory=error_factory)
+    if source is None:
+        return None
+
+    return ResolvedConnection(connection_id=str(source.id), kind="direct_postgres", source=source)
+
+
 def resolve_database_for_connection(
     team: "Team",
     connection_id: str | None,
@@ -59,16 +94,27 @@ def resolve_database_for_connection(
     modifiers: HogQLQueryModifiers | None = None,
     timings: HogQLTimings | None = None,
     error_factory: Callable[[str], Exception],
-) -> tuple[ExternalDataSource | None, Database]:
-    source = get_direct_connection_source_none_or_raise(team, connection_id, error_factory=error_factory)
+) -> tuple[ResolvedConnection | None, Database]:
+    resolved_connection = resolve_connection_none_or_raise(team, connection_id, error_factory=error_factory)
+
+    if resolved_connection is not None and resolved_connection.kind == "ducklake":
+        database = DuckLakeDatabase.create_for(
+            team=team,
+            user=user,
+            modifiers=modifiers,
+            timings=timings,
+            connection_id=resolved_connection.connection_id,
+        )
+        return resolved_connection, database
+
     database = Database.create_for(
         team=team,
         user=user,
         modifiers=modifiers,
         timings=timings,
-        connection_id=str(source.id) if source else None,
+        connection_id=resolved_connection.connection_id if resolved_connection else None,
     )
-    return source, database
+    return resolved_connection, database
 
 
 def validate_direct_postgres_source_config(

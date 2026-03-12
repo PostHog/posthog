@@ -10,9 +10,13 @@ import psycopg
 from parameterized import parameterized
 
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.direct_connection import DUCKLAKE_CONNECTION_ID
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.query import HogQLQueryExecutor, postgres_error_to_message, postgres_oid_to_clickhouse_type
 
+from posthog.ducklake.client import DuckLakeQueryResult
+from posthog.ducklake.models import DuckgresServer
+from posthog.ducklake.schema import DuckLakeSchemaTable
 from posthog.temporal.data_imports.sources.postgres.postgres import SSL_REQUIRED_AFTER_DATE
 
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
@@ -160,6 +164,79 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertIn("dashboard_cte", sql)
         self.assertIn("ph3.posthog_dashboard", sql)
         self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+
+    @override_settings(USE_LOCAL_SETUP=False)
+    @patch("posthog.hogql.database.ducklake_database.get_cached_ducklake_schema")
+    def test_generate_sql_for_ducklake_table(self, mock_get_cached_ducklake_schema: MagicMock):
+        DuckgresServer.objects.create(
+            team=self.team,
+            host="localhost",
+            port=5432,
+            database="ducklake",
+            username="posthog",
+            password="posthog",
+        )
+        mock_get_cached_ducklake_schema.return_value = [
+            DuckLakeSchemaTable(
+                schema_name="posthog",
+                table_name="orders",
+                columns=[("id", "integer", False)],
+            )
+        ]
+
+        executor = HogQLQueryExecutor(
+            query="SELECT id FROM posthog.orders",
+            team=self.team,
+            connection_id=DUCKLAKE_CONNECTION_ID,
+        )
+
+        sql, _context = executor.generate_clickhouse_sql()
+
+        self.assertIn("posthog.orders", sql)
+        self.assertEqual(executor.direct_connection_kind, "ducklake")
+        self.assertIsNone(executor.direct_postgres_source_id)
+
+    @override_settings(USE_LOCAL_SETUP=False)
+    @patch("posthog.hogql.query.execute_ducklake_query")
+    @patch("posthog.hogql.database.ducklake_database.get_cached_ducklake_schema")
+    def test_execute_ducklake_query_for_selected_connection(
+        self,
+        mock_get_cached_ducklake_schema: MagicMock,
+        mock_execute_ducklake_query: MagicMock,
+    ):
+        DuckgresServer.objects.create(
+            team=self.team,
+            host="localhost",
+            port=5432,
+            database="ducklake",
+            username="posthog",
+            password="posthog",
+        )
+        mock_get_cached_ducklake_schema.return_value = [
+            DuckLakeSchemaTable(
+                schema_name="posthog",
+                table_name="orders",
+                columns=[("id", "integer", False)],
+            )
+        ]
+        mock_execute_ducklake_query.return_value = DuckLakeQueryResult(
+            columns=["id"],
+            types=["23"],
+            results=[[1]],
+            sql='SELECT "id" FROM "posthog"."orders"',
+        )
+
+        executor = HogQLQueryExecutor(
+            query="SELECT id FROM posthog.orders",
+            team=self.team,
+            connection_id=DUCKLAKE_CONNECTION_ID,
+        )
+        response = executor.execute()
+
+        mock_execute_ducklake_query.assert_called_once()
+        self.assertEqual(response.results, [[1]])
+        self.assertEqual(response.types, [("id", "Int32")])
+        self.assertEqual(executor.direct_connection_kind, "ducklake")
 
     def test_direct_query_requires_selected_connection(self):
         source = ExternalDataSource.objects.create(

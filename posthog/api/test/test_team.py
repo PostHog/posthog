@@ -21,6 +21,7 @@ from temporalio.service import RPCError
 from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.constants import AvailableFeature
+from posthog.ducklake.models import DuckgresServer
 from posthog.models import ActivityLog
 from posthog.models.dashboard import Dashboard
 from posthog.models.group_type_mapping import GROUP_TYPES_CACHE_KEY_PREFIX, GROUP_TYPES_STALE_CACHE_KEY_PREFIX
@@ -89,6 +90,7 @@ def team_api_test_factory():
             self.assertEqual(response_data["is_demo"], False)
             self.assertEqual(response_data["slack_incoming_webhook"], self.team.slack_incoming_webhook)
             self.assertEqual(response_data["has_group_types"], False)
+            self.assertIn("has_ducklake", response_data)
             self.assertEqual(
                 response_data["person_on_events_querying_enabled"],
                 get_instance_setting("PERSON_ON_EVENTS_ENABLED") or get_instance_setting("PERSON_ON_EVENTS_V2_ENABLED"),
@@ -100,6 +102,29 @@ def team_api_test_factory():
             self.assertNotIn("event_properties_numerical", response_data)
             self.assertNotIn("event_names_with_usage", response_data)
             self.assertNotIn("event_properties_with_usage", response_data)
+
+        @override_settings(USE_LOCAL_SETUP=True)
+        def test_retrieve_team_has_ducklake_in_dev(self):
+            response = self.client.get("/api/environments/@current/")
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["has_ducklake"], True)
+
+        @override_settings(USE_LOCAL_SETUP=False)
+        def test_retrieve_team_has_ducklake_when_server_exists(self):
+            DuckgresServer.objects.create(
+                team=self.team,
+                host="localhost",
+                port=5432,
+                database="ducklake",
+                username="posthog",
+                password="posthog",
+            )
+
+            response = self.client.get("/api/environments/@current/")
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["has_ducklake"], True)
 
         def test_retrieve_team_has_group_types(self):
             other_team = Team.objects.create(organization=self.organization, project=self.project)
