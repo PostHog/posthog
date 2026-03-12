@@ -328,7 +328,7 @@ class Aioboto3CredentialsSupplier(google.auth.aws.AwsSecurityCredentialsSupplier
         self.session = aioboto3.session.Session()
 
     def get_aws_security_credentials(self, context, request) -> google.auth.aws.AwsSecurityCredentials:
-        return asyncio.run_coroutine_threadsafe(self._get_credentials, asyncio.get_event_loop()).result()
+        return asyncio.run_coroutine_threadsafe(self._get_credentials(), asyncio.get_event_loop()).result()
 
     def get_aws_region(self, context, request) -> str:
         """Similar to the default implementation, but without a fallback request."""
@@ -375,8 +375,8 @@ class BigQueryClient:
         return None
 
     @classmethod
-    def from_service_account_integration(cls, integration: GoogleCloudServiceAccountIntegration) -> typing.Self:
-        if integration.is_impersonated():
+    def from_service_account_integration(cls, sa: GoogleCloudServiceAccountIntegration) -> typing.Self:
+        if sa.is_impersonated():
             our_credentials = google.auth.impersonated_credentials.Credentials(
                 source_credentials=google.auth.aws.Credentials(
                     audience=settings.BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD,
@@ -392,24 +392,24 @@ class BigQueryClient:
 
             their_credentials = google.auth.impersonated_credentials.Credentials(
                 source_credentials=our_credentials,
-                target_principal=integration.sensitive_config["service_account_email"],
+                target_principal=sa.integration.sensitive_config["service_account_email"],
                 target_scopes=["https://www.googleapis.com/auth/bigquery"],
                 lifetime=3600,
             )
         else:
             their_credentials = service_account.Credentials.from_service_account_info(
                 {
-                    "private_key": integration.sensitive_config["private_key"],
-                    "private_key_id": integration.sensitive_config["private_key_id"],
-                    "token_uri": integration.sensitive_config["token_uri"],
-                    "client_email": integration.sensitive_config["service_account_email"],
-                    "project_id": integration.config["project_id"],
+                    "private_key": sa.integration.sensitive_config["private_key"],
+                    "private_key_id": sa.integration.sensitive_config["private_key_id"],
+                    "token_uri": sa.integration.sensitive_config["token_uri"],
+                    "client_email": sa.integration.sensitive_config["service_account_email"],
+                    "project_id": sa.integration.config["project_id"],
                 },
                 scopes=["https://www.googleapis.com/auth/cloud-platform"],
             )
 
         client = bigquery.Client(
-            project=integration.project_id,
+            project=sa.project_id,
             credentials=their_credentials,
         )
         return cls(client)

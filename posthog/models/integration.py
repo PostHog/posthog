@@ -1197,7 +1197,7 @@ class GoogleCloudServiceAccountIntegration:
         sensitive_config = {
             "service_account_email": service_account_email,
         }
-        if all((private_key, private_key_id, token_uri)):
+        if isinstance(private_key, str) and isinstance(private_key_id, str) and isinstance(token_uri, str):
             sensitive_config["private_key"] = private_key
             sensitive_config["private_key_id"] = private_key_id
             sensitive_config["token_uri"] = token_uri
