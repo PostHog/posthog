@@ -221,3 +221,37 @@ class LLMPromptResolveResponseSerializer(serializers.Serializer):
     prompt = LLMPromptSerializer()
     versions = LLMPromptVersionSummarySerializer(many=True)
     has_more = serializers.BooleanField()
+
+
+class LLMPromptCompareQuerySerializer(serializers.Serializer):
+    version_from = serializers.IntegerField(
+        min_value=1,
+        help_text="Version number to compare from (the baseline).",
+    )
+    version_to = serializers.IntegerField(
+        min_value=1,
+        help_text="Version number to compare to (the target).",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs["version_from"] == attrs["version_to"]:
+            raise serializers.ValidationError("version_from and version_to must be different.")
+        return attrs
+
+
+class LLMPromptCompareVersionSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Unique identifier for this prompt version.")
+    version = serializers.IntegerField(help_text="Version number.")
+    prompt = serializers.JSONField(help_text="Full prompt content for this version.")
+    created_by = UserBasicSerializer(read_only=True)
+    created_at = serializers.DateTimeField(help_text="When this version was created.")
+    is_latest = serializers.BooleanField(help_text="Whether this is the latest active version.")
+
+
+class LLMPromptCompareResponseSerializer(serializers.Serializer):
+    prompt_name = serializers.CharField(help_text="Name of the prompt being compared.")
+    version_from = LLMPromptCompareVersionSerializer(help_text="The baseline version details.")
+    version_to = LLMPromptCompareVersionSerializer(help_text="The target version details.")
+    diff = serializers.CharField(help_text="Unified diff between the two prompt versions.")
+    additions = serializers.IntegerField(help_text="Number of lines added.")
+    deletions = serializers.IntegerField(help_text="Number of lines removed.")

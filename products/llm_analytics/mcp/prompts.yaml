@@ -66,3 +66,17 @@ tools:
         title: Update prompt
         description: >
             Publish a new version of an existing LLM prompt by name. Name is immutable after creation.
+    prompt-compare:
+        operation: llm_prompts_compare_name_retrieve
+        enabled: true
+        scopes:
+            - llm_prompt:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Compare prompt versions
+        description: >
+            Compare two versions of an LLM prompt by name. Returns a unified diff between the two versions
+            along with version metadata and addition/deletion counts. Useful for reviewing what changed
+            between prompt iterations.

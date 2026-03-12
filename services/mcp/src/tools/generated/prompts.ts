@@ -3,6 +3,8 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    LlmPromptsCompareNameRetrieveParams,
+    LlmPromptsCompareNameRetrieveQueryParams,
     LlmPromptsCreateBody,
     LlmPromptsListQueryParams,
     LlmPromptsNamePartialUpdateBody,
@@ -98,9 +100,31 @@ const promptUpdate = (): ToolBase<typeof PromptUpdateSchema, Schemas.LLMPrompt> 
     },
 })
 
+const PromptCompareSchema = LlmPromptsCompareNameRetrieveParams.omit({ project_id: true }).extend(
+    LlmPromptsCompareNameRetrieveQueryParams.shape
+)
+
+const promptCompare = (): ToolBase<typeof PromptCompareSchema, Schemas.LLMPromptCompareResponse> => ({
+    name: 'prompt-compare',
+    schema: PromptCompareSchema,
+    handler: async (context: Context, params: z.infer<typeof PromptCompareSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.LLMPromptCompareResponse>({
+            method: 'GET',
+            path: `/api/environments/${projectId}/llm_prompts/compare/name/${params.prompt_name}/`,
+            query: {
+                version_from: params.version_from,
+                version_to: params.version_to,
+            },
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'prompt-list': promptList,
     'prompt-get': promptGet,
     'prompt-create': promptCreate,
     'prompt-update': promptUpdate,
+    'prompt-compare': promptCompare,
 }
