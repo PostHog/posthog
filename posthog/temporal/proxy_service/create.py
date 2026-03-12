@@ -567,13 +567,15 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                     ),
                 )
 
-            # Everything's created and ready to go, update to VALID
+            # Everything's created and ready to go, update to VALID and clear
+            # any messages from earlier retries (e.g. Cloudflare proxying warning)
             await temporalio.workflow.execute_activity(
                 activity_update_proxy_record,
                 UpdateProxyRecordInputs(
                     organization_id=inputs.organization_id,
                     proxy_record_id=inputs.proxy_record_id,
                     status=ProxyRecord.Status.VALID.value,
+                    message="",
                 ),
                 start_to_close_timeout=dt.timedelta(seconds=10),
                 retry_policy=temporalio.common.RetryPolicy(

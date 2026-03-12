@@ -188,6 +188,16 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
                 ),
                 "openai",
             ),
+            (
+                "httpx_read_error",
+                httpx.ReadError("Connection reset by peer"),
+                "httpx",
+            ),
+            (
+                "httpx_connect_error",
+                httpx.ConnectError("Connection refused"),
+                "httpx",
+            ),
         ]
     )
     async def test_llm_transient_errors_handled_with_retry_message(self, _name, exception, expected_provider):
