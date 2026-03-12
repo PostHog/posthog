@@ -1,8 +1,7 @@
+import { SnapshotStore } from '@posthog/replay-shared'
 import { EventType } from '@posthog/rrweb-types'
 
 import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
-
-import { SnapshotStore } from './SnapshotStore'
 
 function makeSource(
     index: number,

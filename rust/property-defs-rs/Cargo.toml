@@ -28,8 +28,13 @@ ahash = { workspace = true }
 uuid = { workspace = true }
 rand = { workspace = true }
 anyhow = { workspace = true }
+personhog-proto = { path = "../personhog-proto" }
+tonic = { workspace = true }
 thiserror.workspace = true
 regex.workspace = true
+
+[dev-dependencies]
+tokio-stream = { version = "0.1", features = ["net"] }
 
 [lints]
 workspace = true

@@ -1,5 +1,5 @@
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 from functools import cached_property
 from typing import cast
 
@@ -57,6 +57,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
         )
+        self._cursor_eligible = False
 
     @cached_property
     def source_runner(self) -> InsightActorsQueryRunner:
@@ -65,7 +66,9 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
 
         return cast(
             InsightActorsQueryRunner,
-            get_query_runner(self.query.source, self.team, self.timings, self.limit_context, self.modifiers),
+            get_query_runner(
+                self.query.source, self.team, self.timings, self.limit_context, self.modifiers, request=self.request
+            ),
         )
 
     def select_cols(self) -> tuple[list[str], list[ast.Expr]]:
@@ -118,6 +121,36 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                     return False
 
         return True
+
+    def apply_pagination_cursor(self, cursor: str) -> None:
+        # NB: This uses the last row's timestamp as the cursor, so events sharing
+        # the exact same timestamp as the page boundary may be skipped. In practice
+        # this is rare since the events table uses DateTime64(6) (microsecond precision).
+        order: str = "DESC"
+        if self.query.orderBy:
+            order = parse_order_expr(self.query.orderBy[0]).order
+        if order == "ASC":
+            self.query.after = cursor
+        else:
+            self.query.before = cursor
+
+    def _extract_last_timestamp(self, row: list) -> str | None:
+        select_input = self.select_input_raw()
+        val = None
+        if "*" in select_input:
+            star_idx = select_input.index("*")
+            if isinstance(row[star_idx], dict):
+                val = row[star_idx].get("timestamp")
+        if val is None:
+            for i, col in enumerate(select_input):
+                if col.split("--")[0].strip() == "timestamp":
+                    val = row[i]
+                    break
+        if val is None:
+            return None
+        if isinstance(val, datetime):
+            return val.isoformat()
+        return str(val)
 
     def to_query(self) -> ast.SelectQuery:
         # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
@@ -256,6 +289,14 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                     order_by = [ast.OrderExpr(expr=select[0], order="ASC")]
                 else:
                     order_by = []
+
+                first_order = order_by[0].expr if order_by else None
+                self._cursor_eligible = (
+                    self.query.source is None
+                    and not has_any_aggregation
+                    and isinstance(first_order, ast.Field)
+                    and first_order.chain == ["timestamp"]
+                )
 
             with self.timings.measure("select"):
                 if self.query.source is not None:
@@ -404,6 +445,11 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                                 "distinct_id": distinct_id,
                             }
 
+        next_cursor = None
+        if self._cursor_eligible and self.paginator.has_more() and self.paginator.results:
+            last_row = self.paginator.results[-1]
+            next_cursor = self._extract_last_timestamp(last_row)
+
         return EventsQueryResponse(
             results=self.paginator.results,
             columns=self.columns(query_result.columns),
@@ -411,6 +457,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             timings=self.timings.to_list(),
             hogql=query_result.hogql,
             modifiers=self.modifiers,
+            nextCursor=next_cursor,
             **self.paginator.response_params(),
         )
 

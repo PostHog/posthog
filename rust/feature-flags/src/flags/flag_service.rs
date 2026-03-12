@@ -177,7 +177,10 @@ impl FlagService {
         let flags = FeatureFlagList::parse_hypercache_value(data, team_id)?;
 
         Ok(FlagResult {
-            flag_list: FeatureFlagList { flags },
+            flag_list: FeatureFlagList {
+                flags,
+                ..Default::default()
+            },
             cache_source: source,
         })
     }
@@ -387,6 +390,7 @@ mod tests {
                     bucketing_identifier: None,
                 },
             ],
+            ..Default::default()
         };
 
         // Write to hypercache (new format: {"flags": [...]})
@@ -507,6 +511,7 @@ mod tests {
                     bucketing_identifier: None,
                 })
                 .collect(),
+            ..Default::default()
         };
 
         // Serialize exactly like Django does for large payloads: JSON -> Pickle -> Zstd

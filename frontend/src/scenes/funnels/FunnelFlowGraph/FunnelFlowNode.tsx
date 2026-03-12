@@ -14,7 +14,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
 
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
-import { FunnelStepMore } from '../FunnelStepMore'
 import {
     formatConvertedCount,
     formatConvertedPercentage,
@@ -24,6 +23,7 @@ import {
 } from '../funnelUtils'
 import { ValueInspectorButton } from '../ValueInspectorButton'
 import { FunnelFlowNodeData, NODE_HEIGHT, NODE_WIDTH, PROFILE_NODE_WIDTH } from './funnelFlowGraphLogic'
+import { FunnelStepMoreFlow } from './FunnelStepMoreFlow'
 
 function OptionalChip(): JSX.Element {
     return (
@@ -113,7 +113,9 @@ export const JourneyFlowNode = React.memo(function JourneyFlowNode({
                             </div>
                             {isOptional && <OptionalChip />}
                         </div>
-                        <FunnelStepMore stepIndex={stepIndex} />
+                        <div className="shrink-0 self-start">
+                            <FunnelStepMoreFlow stepIndex={stepIndex} />
+                        </div>
                     </div>
                     {isFirstStep ? (
                         <LemonDivider />

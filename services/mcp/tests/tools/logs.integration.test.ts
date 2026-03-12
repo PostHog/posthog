@@ -72,21 +72,6 @@ describe('Logs', { concurrent: false }, () => {
             expect(Array.isArray(logsData.results)).toBe(true)
         })
 
-        it('should query logs with search term', async () => {
-            const dateFrom = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
-            const dateTo = new Date().toISOString()
-
-            const result = await queryTool.handler(context, {
-                dateFrom,
-                dateTo,
-                searchTerm: 'error',
-            })
-            const logsData = parseToolResponse(result)
-
-            expect(logsData).toHaveProperty('results')
-            expect(Array.isArray(logsData.results)).toBe(true)
-        })
-
         it('should query logs with limit', async () => {
             const dateFrom = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
             const dateTo = new Date().toISOString()
@@ -101,6 +86,55 @@ describe('Logs', { concurrent: false }, () => {
             expect(logsData).toHaveProperty('results')
             expect(Array.isArray(logsData.results)).toBe(true)
             expect(logsData.results.length).toBeLessThanOrEqual(10)
+        })
+
+        it('should filter logs matching a known value', async () => {
+            const dateFrom = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+            const dateTo = new Date().toISOString()
+
+            // Fetch one log to get a real body value to search for
+            const seed = await queryTool.handler(context, { dateFrom, dateTo, limit: 1 })
+            const seedData = parseToolResponse(seed)
+
+            if (seedData.results.length === 0) {
+                // No logs in the test environment for the last 7 days — skip gracefully
+                return
+            }
+
+            const snippet = seedData.results[0].body.slice(0, 20)
+
+            const result = await queryTool.handler(context, {
+                dateFrom,
+                dateTo,
+                filters: [{ key: 'message', operator: 'icontains', type: 'log', value: snippet }],
+            })
+            const logsData = parseToolResponse(result)
+
+            expect(logsData.results.length).toBeGreaterThan(0)
+            for (const log of logsData.results) {
+                expect(log.body.toLowerCase()).toContain(snippet.toLowerCase())
+            }
+        })
+
+        it('should return empty results for a non-matching filter', async () => {
+            const dateFrom = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+            const dateTo = new Date().toISOString()
+
+            const result = await queryTool.handler(context, {
+                dateFrom,
+                dateTo,
+                filters: [
+                    {
+                        key: 'message',
+                        operator: 'exact',
+                        type: 'log',
+                        value: 'IMPOSSIBLE_f47ac10b-58cc-4372-a567-0e02b2c3d479',
+                    },
+                ],
+            })
+            const logsData = parseToolResponse(result)
+
+            expect(logsData.results).toHaveLength(0)
         })
 
         it('should query logs with ordering', async () => {

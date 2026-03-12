@@ -353,7 +353,12 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         has_message = serializer.validated_data.get("message") is not None
         has_resume_payload = serializer.validated_data.get("resume_payload") is not None
         if conversation.type == Conversation.Type.DEEP_RESEARCH:
-            is_research = True
+            if not is_new_conversation and is_idle and has_message and not has_resume_payload:
+                conversation.type = Conversation.Type.ASSISTANT
+                conversation.save(update_fields=["type", "updated_at"])
+                is_research = False
+            else:
+                is_research = True
 
         if has_message and not is_idle:
             raise Conflict("Cannot resume streaming with a new message")
@@ -501,7 +506,10 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
     def cancel(self, request: Request, *args, **kwargs):
         conversation = self.get_object()
 
-        if conversation.status in [Conversation.Status.CANCELING, Conversation.Status.IDLE]:
+        # IDLE is intentionally not short-circuited: during the handoff between the main
+        # workflow completing and a queued workflow starting, the status is briefly IDLE
+        # even though a queued Temporal workflow may be running.
+        if conversation.status == Conversation.Status.CANCELING:
             return Response(status=status.HTTP_204_NO_CONTENT)
 
         async def cancel_workflow():

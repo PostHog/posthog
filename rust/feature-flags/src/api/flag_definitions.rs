@@ -6,8 +6,8 @@ use crate::{
     },
     handler::types::Library,
     metrics::consts::{
-        FLAG_DEFINITIONS_CACHE_HIT_COUNTER, FLAG_DEFINITIONS_CACHE_MISS_COUNTER,
-        FLAG_DEFINITIONS_ETAG_COUNTER,
+        FLAG_DEFINITIONS_AUTH_COUNTER, FLAG_DEFINITIONS_CACHE_HIT_COUNTER,
+        FLAG_DEFINITIONS_CACHE_MISS_COUNTER, FLAG_DEFINITIONS_ETAG_COUNTER,
     },
     router::State as AppState,
     team::team_models::Team,
@@ -351,12 +351,28 @@ async fn authenticate_flag_definitions(
     // Try team secret token first (from Authorization header only)
     // Secret tokens have priority over personal API keys
     if let Some(token) = auth::extract_team_secret_token(headers) {
-        return auth::validate_secret_api_token_for_team(state, &token, team.id).await;
+        let result = auth::validate_secret_api_token_for_team(state, &token, team.id).await;
+        if result.is_ok() {
+            inc(
+                FLAG_DEFINITIONS_AUTH_COUNTER,
+                &[("method".to_string(), "secret_api_token".to_string())],
+                1,
+            );
+        }
+        return result;
     }
 
     // Try personal API key (with scope validation)
     if let Some(key) = auth::extract_personal_api_key(headers)? {
-        return auth::validate_personal_api_key_with_scopes_for_team(state, &key, team).await;
+        let result = auth::validate_personal_api_key_with_scopes_for_team(state, &key, team).await;
+        if result.is_ok() {
+            inc(
+                FLAG_DEFINITIONS_AUTH_COUNTER,
+                &[("method".to_string(), "personal_api_key".to_string())],
+                1,
+            );
+        }
+        return result;
     }
 
     Err(FlagError::NoAuthenticationProvided)

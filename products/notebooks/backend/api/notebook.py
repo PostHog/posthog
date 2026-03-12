@@ -134,6 +134,15 @@ class NotebookSerializer(NotebookMinimalSerializer):
         request = self.context["request"]
         team = self.context["get_team"]()
 
+        # short_id is read-only in the serializer but can be provided on create
+        short_id = request.data.get("short_id")
+        if short_id:
+            if not isinstance(short_id, str) or not short_id.isalnum() or len(short_id) > 12:
+                raise serializers.ValidationError(
+                    {"short_id": "short_id must be an alphanumeric string up to 12 characters."}
+                )
+            validated_data["short_id"] = short_id
+
         created_by = validated_data.pop("created_by", request.user)
         content = validated_data.get("content")
         if isinstance(content, dict):
@@ -380,7 +389,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 queryset = queryset.filter(last_modified_at__gt=relative_date_parse(value, self.team.timezone_info))
             elif key == "date_to" and isinstance(value, str):
                 queryset = queryset.filter(last_modified_at__lt=relative_date_parse(value, self.team.timezone_info))
-            elif key == "search":
+            elif key == "search" and value:
                 queryset = queryset.filter(
                     # some notebooks have no text_content until next saved, so we need to check the title too
                     # TODO this can be removed once all/most notebooks have text_content

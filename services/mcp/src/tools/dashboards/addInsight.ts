@@ -8,7 +8,12 @@ const schema = DashboardAddInsightSchema
 
 type Params = z.infer<typeof schema>
 
-export const addInsightHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+type Result = Record<string, unknown> & { dashboard_url: string; insight_url: string }
+
+export const addInsightHandler: ToolBase<typeof schema, Result>['handler'] = async (
+    context: Context,
+    params: Params
+) => {
     const { data } = params
     const projectId = await context.stateManager.getProjectId()
 
@@ -40,7 +45,7 @@ export const addInsightHandler: ToolBase<typeof schema>['handler'] = async (cont
     return resultWithUrls
 }
 
-const tool = (): ToolBase<typeof schema> => ({
+const tool = (): ToolBase<typeof schema, Result> => ({
     name: 'add-insight-to-dashboard',
     schema,
     handler: addInsightHandler,

@@ -11,6 +11,7 @@ use kafka_deduplicator::checkpoint::{
     METADATA_FILENAME,
 };
 use kafka_deduplicator::kafka::types::Partition;
+use kafka_deduplicator::rocksdb::store::RocksDbConfig;
 use kafka_deduplicator::store::{
     DeduplicationStore, DeduplicationStoreConfig, TimestampKey, TimestampMetadata,
 };
@@ -361,6 +362,7 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
         // Checkpoint files are imported directly to the store directory
         path: import_result.clone(),
         max_capacity: 1_000_000,
+        rocksdb: RocksDbConfig::default(),
     };
     let restored_store = DeduplicationStore::new(
         restored_store_config,

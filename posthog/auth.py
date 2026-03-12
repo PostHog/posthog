@@ -11,7 +11,7 @@ from django.conf import settings
 from django.contrib.auth.backends import BaseBackend
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import models, transaction
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.utils import timezone
 
@@ -402,9 +402,9 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
             if request.method not in ["GET", "HEAD"]:
                 raise AuthenticationFailed(detail="Sharing access token can only be used for GET requests.")
             try:
-                sharing_configuration = SharingConfiguration.objects.get(
-                    access_token=sharing_access_token, enabled=True
-                )
+                sharing_configuration = SharingConfiguration.objects.filter(
+                    models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=timezone.now())
+                ).get(access_token=sharing_access_token, enabled=True)
 
                 # If password is required, don't authenticate via direct access_token
                 # Let the view handle showing the unlock page
@@ -451,12 +451,19 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
 
             from posthog.models.share_password import SharePassword
 
-            share_password = SharePassword.objects.select_related("sharing_configuration").get(
-                id=payload["share_password_id"],
-                sharing_configuration__team_id=payload["team_id"],
-                sharing_configuration__enabled=True,
-                sharing_configuration__password_required=True,
-                is_active=True,
+            share_password = (
+                SharePassword.objects.select_related("sharing_configuration")
+                .filter(
+                    models.Q(sharing_configuration__expires_at__isnull=True)
+                    | models.Q(sharing_configuration__expires_at__gt=timezone.now())
+                )
+                .get(
+                    id=payload["share_password_id"],
+                    sharing_configuration__team_id=payload["team_id"],
+                    sharing_configuration__enabled=True,
+                    sharing_configuration__password_required=True,
+                    is_active=True,
+                )
             )
 
             sharing_configuration = share_password.sharing_configuration

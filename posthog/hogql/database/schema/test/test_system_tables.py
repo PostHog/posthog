@@ -26,6 +26,7 @@ from posthog.models import (
 )
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.hog_flow.hog_flow import HogFlow
+from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.project import Project
 
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
@@ -118,6 +119,16 @@ def _create_hog_flow(team: Team, label: str) -> HogFlow:
     return HogFlow.objects.create(team=team, name=f"flow_{label}")
 
 
+def _create_hog_function(team: Team, label: str) -> HogFunction:
+    return HogFunction.objects.create(
+        team=team,
+        name=f"function_{label}",
+        type="destination",
+        hog="return true",
+        enabled=True,
+    )
+
+
 def _create_experiment(team: Team, label: str) -> Experiment:
     flag = FeatureFlag.objects.create(team=team, key=f"flag_for_exp_{label}")
     return Experiment.objects.create(team=team, name=f"experiment_{label}", feature_flag=flag)
@@ -175,6 +186,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("groups", _create_group),
     ("group_type_mappings", _create_group_type_mapping),
     ("hog_flows", _create_hog_flow),
+    ("hog_functions", _create_hog_function),
     ("insights", _create_insight),
     ("insight_variables", _create_insight_variable),
     ("notebooks", _create_notebook),

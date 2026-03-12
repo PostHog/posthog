@@ -3,22 +3,10 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 13 ops
+ * PostHog API - MCP 12 ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
-
-/**
- * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
- * @deprecated
- */
-export const EnvironmentsPersonsCohortsRetrieveParams = zod.object({
-    environment_id: zod.string().describe('Deprecated. Use /api/projects/{project_id}/ instead.'),
-})
-
-export const EnvironmentsPersonsCohortsRetrieveQueryParams = zod.object({
-    format: zod.enum(['csv', 'json']).optional(),
-})
 
 export const CohortsListParams = zod.object({
     project_id: zod

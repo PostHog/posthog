@@ -298,6 +298,8 @@ export const PriorityEnumApi = {
 export interface TicketAssignmentApi {
     readonly id: string
     readonly type: string
+    readonly user: string
+    readonly role: string
 }
 
 export type TicketPersonApiProperties = { [key: string]: unknown }

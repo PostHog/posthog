@@ -54,6 +54,10 @@ declare module '@storybook/types' {
              * @default false
              */
             skipIframeWait?: boolean
+            /**
+             * Skip taking a dark mode snapshot. Useful for stories that don't support dark mode or have known issues in dark mode that would cause snapshot failures.
+             */
+            skipDarkMode?: boolean
         }
         msw?: {
             mocks?: Mocks
@@ -74,7 +78,6 @@ const LOADER_SELECTORS = [
     '.Toastify__toast',
     '[aria-busy="true"]',
     '.SessionRecordingPlayer--buffering',
-    '.PlayerSeekbar__segments__item--buffer-loading',
     '.Lettermark--unknown',
     '[data-attr="loading-bar"]',
 ]
@@ -139,7 +142,7 @@ async function expectStoryToMatchSnapshot(
     storyContext: StoryContext,
     browser: SupportedBrowserName
 ): Promise<void> {
-    const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
+    const { skipIframeWait = false, skipDarkMode = false } = storyContext.parameters?.testOptions ?? {}
     await waitForPageReady(page, skipIframeWait)
 
     // set up iframe load tracking early, before they start loading
@@ -230,7 +233,9 @@ async function expectStoryToMatchSnapshot(
 
     // Snapshot both light and dark themes
     await takeSnapshotWithTheme(page, context, browser, 'light', storyContext)
-    await takeSnapshotWithTheme(page, context, browser, 'dark', storyContext)
+    if (!skipDarkMode) {
+        await takeSnapshotWithTheme(page, context, browser, 'dark', storyContext)
+    }
 }
 
 async function takeSnapshotWithTheme(

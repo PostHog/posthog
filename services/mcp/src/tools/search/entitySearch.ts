@@ -21,7 +21,12 @@ const ENTITY_URL_PATHS: Record<string, string> = {
     survey: 'surveys',
 }
 
-export const entitySearchHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+type Result = { results: (SearchResult & { url: string })[]; counts: unknown }
+
+export const entitySearchHandler: ToolBase<typeof schema, Result>['handler'] = async (
+    context: Context,
+    params: Params
+) => {
     const projectId = await context.stateManager.getProjectId()
 
     const result = await context.api.search({ projectId }).query({
@@ -48,7 +53,7 @@ export const entitySearchHandler: ToolBase<typeof schema>['handler'] = async (co
     }
 }
 
-const tool = (): ToolBase<typeof schema> => ({
+const tool = (): ToolBase<typeof schema, Result> => ({
     name: 'entity-search',
     schema,
     handler: entitySearchHandler,

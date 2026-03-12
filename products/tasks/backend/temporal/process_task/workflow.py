@@ -12,6 +12,7 @@ from temporalio.common import RetryPolicy
 from temporalio.workflow import ParentClosePolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
 
@@ -40,6 +41,7 @@ class ProcessTaskInput:
     run_id: str
     create_pr: bool = True
     slack_thread_context: Optional[dict[str, Any]] = None
+    posthog_mcp_scopes: PosthogMcpScopes = "read_only"
 
 
 @dataclass
@@ -59,6 +61,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     def __init__(self) -> None:
         self._context: Optional[TaskProcessingContext] = None
         self._slack_thread_context: Optional[dict[str, Any]] = None
+        self._posthog_mcp_scopes: PosthogMcpScopes = "read_only"
         self._task_completed: bool = False
         self._completion_status: str = "completed"
         self._completion_error: Optional[str] = None
@@ -77,6 +80,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             run_id=loaded["run_id"],
             create_pr=loaded.get("create_pr", True),
             slack_thread_context=loaded.get("slack_thread_context"),
+            posthog_mcp_scopes=loaded.get("posthog_mcp_scopes", "read_only"),
         )
 
     @temporalio.workflow.run
@@ -89,6 +93,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
         try:
             self._context = await self._get_task_processing_context(input)
+            self._posthog_mcp_scopes = input.posthog_mcp_scopes
             await self._update_task_run_status("in_progress")
 
             await self._track_workflow_event(
@@ -245,7 +250,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def _start_agent_server(self, sandbox_id: str) -> StartAgentServerOutput:
         return await workflow.execute_activity(
             start_agent_server,
-            StartAgentServerInput(context=self.context, sandbox_id=sandbox_id),
+            StartAgentServerInput(
+                context=self.context,
+                sandbox_id=sandbox_id,
+                posthog_mcp_scopes=self._posthog_mcp_scopes,
+            ),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )

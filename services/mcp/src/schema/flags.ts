@@ -1,14 +1,5 @@
 import { z } from 'zod'
 
-export interface PostHogFeatureFlag {
-    id: number
-    key: string
-    name: string
-}
-
-export interface PostHogFlagsResponse {
-    results?: PostHogFeatureFlag[]
-}
 const base = ['exact', 'is_not', 'is_set', 'is_not_set'] as const
 const stringOpsForSchema = ['icontains', 'not_icontains', 'regex', 'not_regex']
 const stringOps = [...base, ...stringOpsForSchema] as const
@@ -150,6 +141,7 @@ export const UpdateFeatureFlagInputSchema = CreateFeatureFlagInputSchema.omit({
 
 export type UpdateFeatureFlagInput = z.infer<typeof UpdateFeatureFlagInputSchema>
 
+// Still used as a Zod schema in experiments.ts for composition
 export const FeatureFlagSchema = z.object({
     id: z.number(),
     key: z.string(),
@@ -160,5 +152,3 @@ export const FeatureFlagSchema = z.object({
     tags: z.array(z.string()).optional(),
     updated_at: z.string().nullish(),
 })
-
-export type FeatureFlag = z.infer<typeof FeatureFlagSchema>

@@ -83,11 +83,11 @@ class Command(BaseHyperCacheCommand):
                 return
 
         configs_to_verify = [
-            (FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG, "with cohorts", True),
-            (FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG, "without cohorts", False),
+            (FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG, True, "with cohorts"),
+            (FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG, False, "without cohorts"),
         ]
 
-        for config, variant_name, include_cohorts in configs_to_verify:
+        for config, include_cohorts, variant_name in configs_to_verify:
             self.stdout.write(f"\n{'=' * 70}")
             self.stdout.write(self.style.SUCCESS(f"Verifying flag definitions cache ({variant_name})"))
             self.stdout.write("=" * 70)

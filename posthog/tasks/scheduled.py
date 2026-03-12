@@ -26,6 +26,7 @@ from posthog.tasks.feature_flags import (
 )
 from posthog.tasks.hypercache_verification import (
     verify_and_fix_flag_definitions_cache_task,
+    verify_and_fix_flag_definitions_without_cohorts_cache_task,
     verify_and_fix_flags_cache_task,
     verify_and_fix_team_metadata_cache_task,
 )
@@ -232,8 +233,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="flag definitions cache expiry tracking cleanup",
     )
 
-    # HyperCache verification - split into separate tasks for independent time budgets
-    # Tasks have 1-hour time limits, so expiry must match
     # Team metadata cache verification - hourly at minute 20
     add_periodic_task_with_expiry(
         sender,
@@ -253,12 +252,22 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         expires_seconds=30 * 60,
     )
 
-    # Flag definitions cache verification - hourly at minute 50
+    # Verify flag definitions cache without cohorts - hourly at minute 10
+    # Minute 10 reduces the likelihood of overlapping with team_metadata verification at minute 20 and helps spread load.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="*", minute="10"),
+        verify_and_fix_flag_definitions_without_cohorts_cache_task.s(),
+        name="verify and fix flag definitions cache (without cohorts)",
+        expires_seconds=60 * 60,
+    )
+
+    # Flag definitions cache verification (with cohorts) - hourly at minute 50
     add_periodic_task_with_expiry(
         sender,
         crontab(hour="*", minute="50"),
         verify_and_fix_flag_definitions_cache_task.s(),
-        name="verify and fix flag definitions cache",
+        name="verify and fix flag definitions cache (with cohorts)",
         expires_seconds=60 * 60,
     )
 

@@ -116,8 +116,8 @@ class HogQLPrinter(Visitor[str]):
         if node.cte_type == "subquery":
             if node.columns is not None:
                 raise NotImplementedError("CTE column name lists are not supported in this dialect")
-            return f"{node.name} AS {self.visit(node.expr)}"
-        return f"{self.visit(node.expr)} AS {node.name}"
+            return f"{self._print_identifier(node.name)} AS {self.visit(node.expr)}"
+        return f"{self.visit(node.expr)} AS {self._print_identifier(node.name)}"
 
     def visit_select_set_query(self, node: ast.SelectSetQuery):
         self._indent -= 1

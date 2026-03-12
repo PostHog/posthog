@@ -51,3 +51,36 @@ class TestRecordCost:
         await record_cost(0.0015)
 
         mock_runner.record_cost.assert_not_called()
+
+    async def test_record_cost_does_not_override_existing_end_user_id(self) -> None:
+        mock_runner = MagicMock()
+        mock_runner.record_cost = AsyncMock()
+
+        context = ThrottleContext(
+            user=make_mock_user(),
+            product="llm_gateway",
+            end_user_id="authenticated-user-42",
+        )
+
+        set_throttle_context(mock_runner, context)
+
+        await record_cost(0.0015, end_user_id="attacker-supplied-id")
+
+        assert context.end_user_id == "authenticated-user-42"
+        mock_runner.record_cost.assert_called_once_with(context, 0.0015)
+
+    async def test_record_cost_sets_end_user_id_when_not_already_set(self) -> None:
+        mock_runner = MagicMock()
+        mock_runner.record_cost = AsyncMock()
+
+        context = ThrottleContext(
+            user=make_mock_user(),
+            product="llm_gateway",
+            end_user_id=None,
+        )
+
+        set_throttle_context(mock_runner, context)
+
+        await record_cost(0.0015, end_user_id="fallback-id")
+
+        assert context.end_user_id == "fallback-id"

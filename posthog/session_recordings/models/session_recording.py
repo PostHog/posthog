@@ -45,8 +45,6 @@ class SessionRecording(UUIDTModel):
 
     start_url = models.CharField(blank=True, null=True, max_length=512)
 
-    # we can't store storage version in the stored content
-    # as we might need to know the version before knowing how to load the data
     storage_version = models.CharField(blank=True, null=True, max_length=20)
 
     retention_period_days = models.IntegerField(blank=True, null=True)
@@ -69,7 +67,7 @@ class SessionRecording(UUIDTModel):
         if self._metadata:
             return True
 
-        if self.object_storage_path or self.full_recording_v2_path:
+        if self.full_recording_v2_path:
             # Nothing todo as we have all the metadata in the model
             pass
         else:

@@ -261,10 +261,11 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
             message = "echo '▶ docker-compose: core services only (configure via: hogli dev:setup)' && "
 
         up_cmd = build_docker_compose_command(profiles, "up --pull always -d")
-        logs_cmd = build_docker_compose_command(profiles, "logs --tail=0 -f")
+        logs_cmd = build_docker_compose_command(profiles, "logs --tail=100 -f")
 
         return {
-            "shell": f"{message}{up_cmd} && {logs_cmd}",
+            "shell": f"{message}{up_cmd} && echo 'docker-compose ready' && {logs_cmd}",
+            "ready_pattern": "docker-compose ready",
         }
 
     def _add_nodejs_capability_groups(

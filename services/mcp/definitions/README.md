@@ -104,13 +104,70 @@ tools:
     # --- optional: ---
     title: Short title
     description: Detailed description for the LLM
+    input_schema: ActionCreateSchema # named export from src/schema/tool-inputs.ts
     list: true # marks as a list endpoint
     enrich_url: '{id}' # appended to url_prefix for result URLs
     exclude_params: [field] # hide params from tool input
     include_params: [field] # whitelist params (excludes all others)
-    param_overrides: # override Orval-generated param descriptions
+    param_overrides: # override individual param descriptions or schemas
       name:
         description: Custom description
+        input_schema: NameSchema # replace this param's type with a schema from tool-inputs
 ```
 
 Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
+
+## Custom input schemas
+
+By default, tool input schemas are derived from the OpenAPI spec via Orval-generated Zod schemas.
+When the auto-derived schema isn't ideal for an LLM tool interface (descriptions lacking, field
+structure doesn't match, etc.), you can override it with a hand-crafted schema.
+
+Set `input_schema` to the name of an exported Zod schema from `src/schema/tool-inputs.ts`:
+
+```yaml
+tools:
+  actions-create:
+    operation: actions_create
+    enabled: true
+    input_schema: ActionCreateSchema
+    scopes: [action:write]
+    annotations:
+      readOnly: false
+      destructive: false
+      idempotent: false
+    title: Create an action
+    description: Create a new action with custom steps and filters
+```
+
+When `input_schema` is set:
+
+- The generated tool imports the named schema from `@/schema/tool-inputs` instead of composing Orval imports
+- The `operation` is still used to determine the HTTP method and URL path
+- Path parameters are extracted from the URL pattern and interpolated from the input
+- Remaining parameters are forwarded as body (POST/PATCH/PUT) or query (GET/DELETE)
+- `enrich_url` and `list` enrichment still apply as normal
+
+### Per-param schema overrides
+
+You can also override individual parameter schemas without replacing the entire input schema.
+Use `input_schema` inside `param_overrides` to replace a single field's type:
+
+```yaml
+tools:
+  actions-create:
+    operation: actions_create
+    enabled: true
+    scopes: [action:write]
+    annotations:
+      readOnly: false
+      destructive: false
+      idempotent: false
+    param_overrides:
+      steps:
+        input_schema: ActionStepsSchema
+        description: The action steps configuration
+```
+
+This keeps the Orval-derived schema for all other fields but replaces `steps` with `ActionStepsSchema`
+from `src/schema/tool-inputs.ts` via `.extend()`.

@@ -1,5 +1,8 @@
 import dataclasses
-from typing import Any, Literal, Optional, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Literal, Optional, TypedDict, cast
+
+if TYPE_CHECKING:
+    from rest_framework.request import Request
 
 from rest_framework.exceptions import ValidationError
 
@@ -101,8 +104,11 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
+        request: Optional["Request"] = None,
     ):
-        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+        super().__init__(
+            query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, request=request
+        )
         self.actors_query = self.query.source
         self.funnels_query = self.actors_query.source
 

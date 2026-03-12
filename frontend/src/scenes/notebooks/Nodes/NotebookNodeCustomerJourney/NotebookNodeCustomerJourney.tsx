@@ -44,7 +44,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCustomerJourney
         if (activeJourney) {
             setTitlePlaceholder(`Customer journey - ${activeJourney.name}`)
         }
-    }, [activeJourney?.name])
+    }, [setTitlePlaceholder, activeJourney])
 
     useOnMountEffect(() => {
         setMenuItems([

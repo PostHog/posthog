@@ -156,7 +156,7 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
         # Report user action for analytics
         if request and request.user:
             report_user_action(
-                cast(User, request.user),
+                request.user,
                 "event definition created",
                 {"name": event_definition.name},
                 team=view.team,
@@ -397,9 +397,8 @@ class EventDefinitionViewSet(
         instance: EventDefinition = self.get_object()
         instance_id: str = str(instance.id)
         self.perform_destroy(instance)
-        # Casting, since an anonymous use CANNOT access this endpoint
         report_user_action(
-            cast(User, request.user),
+            request.user,
             "event definition deleted",
             {"name": instance.name},
             team=self.team,

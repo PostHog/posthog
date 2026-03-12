@@ -21,17 +21,25 @@ import type {
     EvaluationSummaryRequestApi,
     EvaluationSummaryResponseApi,
     EvaluationsListParams,
+    LLMPromptApi,
+    LLMPromptPublicApi,
+    LLMPromptResolveResponseApi,
     LLMProviderKeyApi,
     LlmAnalyticsClusteringJobsListParams,
     LlmAnalyticsProviderKeysListParams,
+    LlmPromptsListParams,
+    LlmPromptsNameRetrieveParams,
+    LlmPromptsResolveNameRetrieveParams,
     PaginatedClusteringJobListApi,
     PaginatedDatasetItemListApi,
     PaginatedDatasetListApi,
     PaginatedEvaluationListApi,
+    PaginatedLLMPromptListApi,
     PaginatedLLMProviderKeyListApi,
     PatchedClusteringJobApi,
     PatchedDatasetApi,
     PatchedDatasetItemApi,
+    PatchedLLMPromptPublishApi,
     PatchedLLMProviderKeyApi,
     SentimentBatchResponseApi,
     SentimentRequestApi,
@@ -715,6 +723,150 @@ export const llmAnalyticsTranslateCreate = async (projectId: string, options?: R
     return apiMutator<void>(getLlmAnalyticsTranslateCreateUrl(projectId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getLlmPromptsListUrl = (projectId: string, params?: LlmPromptsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/llm_prompts/?${stringifiedParams}`
+        : `/api/environments/${projectId}/llm_prompts/`
+}
+
+export const llmPromptsList = async (
+    projectId: string,
+    params?: LlmPromptsListParams,
+    options?: RequestInit
+): Promise<PaginatedLLMPromptListApi> => {
+    return apiMutator<PaginatedLLMPromptListApi>(getLlmPromptsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLlmPromptsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_prompts/`
+}
+
+export const llmPromptsCreate = async (
+    projectId: string,
+    lLMPromptApi: NonReadonly<LLMPromptApi>,
+    options?: RequestInit
+): Promise<LLMPromptApi> => {
+    return apiMutator<LLMPromptApi>(getLlmPromptsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(lLMPromptApi),
+    })
+}
+
+export const getLlmPromptsNameRetrieveUrl = (
+    projectId: string,
+    promptName: string,
+    params?: LlmPromptsNameRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/llm_prompts/name/${promptName}/?${stringifiedParams}`
+        : `/api/environments/${projectId}/llm_prompts/name/${promptName}/`
+}
+
+export const llmPromptsNameRetrieve = async (
+    projectId: string,
+    promptName: string,
+    params?: LlmPromptsNameRetrieveParams,
+    options?: RequestInit
+): Promise<LLMPromptPublicApi> => {
+    return apiMutator<LLMPromptPublicApi>(getLlmPromptsNameRetrieveUrl(projectId, promptName, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLlmPromptsNamePartialUpdateUrl = (projectId: string, promptName: string) => {
+    return `/api/environments/${projectId}/llm_prompts/name/${promptName}/`
+}
+
+export const llmPromptsNamePartialUpdate = async (
+    projectId: string,
+    promptName: string,
+    patchedLLMPromptPublishApi: PatchedLLMPromptPublishApi,
+    options?: RequestInit
+): Promise<LLMPromptApi> => {
+    return apiMutator<LLMPromptApi>(getLlmPromptsNamePartialUpdateUrl(projectId, promptName), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedLLMPromptPublishApi),
+    })
+}
+
+export const getLlmPromptsNameArchiveCreateUrl = (projectId: string, promptName: string) => {
+    return `/api/environments/${projectId}/llm_prompts/name/${promptName}/archive/`
+}
+
+export const llmPromptsNameArchiveCreate = async (
+    projectId: string,
+    promptName: string,
+    lLMPromptApi: NonReadonly<LLMPromptApi>,
+    options?: RequestInit
+): Promise<LLMPromptApi> => {
+    return apiMutator<LLMPromptApi>(getLlmPromptsNameArchiveCreateUrl(projectId, promptName), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(lLMPromptApi),
+    })
+}
+
+export const getLlmPromptsResolveNameRetrieveUrl = (
+    projectId: string,
+    promptName: string,
+    params?: LlmPromptsResolveNameRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/llm_prompts/resolve/name/${promptName}/?${stringifiedParams}`
+        : `/api/environments/${projectId}/llm_prompts/resolve/name/${promptName}/`
+}
+
+export const llmPromptsResolveNameRetrieve = async (
+    projectId: string,
+    promptName: string,
+    params?: LlmPromptsResolveNameRetrieveParams,
+    options?: RequestInit
+): Promise<LLMPromptResolveResponseApi> => {
+    return apiMutator<LLMPromptResolveResponseApi>(getLlmPromptsResolveNameRetrieveUrl(projectId, promptName, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -1,13 +1,20 @@
 import pytest
 
+import httpx
+import requests
 import requests_mock as rm
 
 from posthog.security.outbound_proxy import (
     external_aiohttp_session,
+    external_httpx_client,
     external_requests,
     external_requests_session,
     get_proxy_config,
     get_proxy_url,
+    internal_httpx_async_client,
+    internal_httpx_client,
+    internal_requests,
+    internal_requests_session,
 )
 
 
@@ -147,3 +154,180 @@ async def test_proxied_aiohttp_session_nonexistent_attr_raises(settings):
     with pytest.raises(AttributeError):
         _ = session.this_attribute_does_not_exist
     await session.close()
+
+
+# ---------------------------------------------------------------------------
+# external_* passthrough — no proxy configured behaves like bare libraries
+# ---------------------------------------------------------------------------
+
+
+def test_external_requests_session_no_proxy_is_plain_session(settings):
+    settings.OUTBOUND_PROXY_ENABLED = False
+    settings.OUTBOUND_PROXY_URL = ""
+    session = external_requests_session()
+    assert isinstance(session, requests.Session)
+    assert session.trust_env is True
+    assert session.proxies.get("http") in (None, "")
+    assert session.proxies.get("https") in (None, "")
+
+
+def test_external_requests_session_no_proxy_methods_work(settings):
+    settings.OUTBOUND_PROXY_ENABLED = False
+    settings.OUTBOUND_PROXY_URL = ""
+    session = external_requests_session()
+    with rm.Mocker() as m:
+        m.register_uri(rm.ANY, "https://api.example.com/data", json={"ok": True})
+        resp = session.get("https://api.example.com/data")
+        assert resp.status_code == 200
+        assert resp.json() == {"ok": True}
+
+
+def test_external_httpx_client_no_proxy_returns_plain_client(settings):
+    settings.OUTBOUND_PROXY_ENABLED = False
+    settings.OUTBOUND_PROXY_URL = ""
+    client = external_httpx_client()
+    assert isinstance(client, httpx.Client)
+    assert isinstance(client._transport, httpx.HTTPTransport)
+    client.close()
+
+
+def test_external_httpx_client_no_proxy_passes_kwargs(settings):
+    settings.OUTBOUND_PROXY_ENABLED = False
+    settings.OUTBOUND_PROXY_URL = ""
+    client = external_httpx_client(timeout=7.0)
+    assert isinstance(client, httpx.Client)
+    assert client.timeout.connect == 7.0
+    client.close()
+
+
+@pytest.mark.asyncio
+async def test_external_aiohttp_session_no_proxy_passes_kwargs(settings):
+    settings.OUTBOUND_PROXY_ENABLED = False
+    settings.OUTBOUND_PROXY_URL = ""
+    import aiohttp
+
+    session = external_aiohttp_session(headers={"X-Custom": "value"})
+    assert isinstance(session, aiohttp.ClientSession)
+    assert session.headers.get("X-Custom") == "value"
+    await session.close()
+
+
+# ---------------------------------------------------------------------------
+# internal_requests_session
+# ---------------------------------------------------------------------------
+
+
+def test_internal_requests_session_trust_env_false():
+    session = internal_requests_session()
+    assert session.trust_env is False
+
+
+def test_internal_requests_session_ignores_env_proxy(monkeypatch):
+    monkeypatch.setenv("HTTPS_PROXY", "http://should-not-be-used:9999")
+    monkeypatch.setenv("HTTP_PROXY", "http://should-not-be-used:9999")
+    session = internal_requests_session()
+    assert session.trust_env is False
+    assert session.proxies.get("https") in (None, "")
+    assert session.proxies.get("http") in (None, "")
+
+
+def test_internal_requests_session_returns_new_instance_each_call():
+    s1 = internal_requests_session()
+    s2 = internal_requests_session()
+    assert s1 is not s2
+
+
+@pytest.mark.parametrize(
+    "method",
+    ["get", "post", "put", "patch", "delete", "head", "options", "request"],
+)
+def test_internal_requests_session_methods_work(method):
+    session = internal_requests_session()
+    with rm.Mocker() as m:
+        m.register_uri(rm.ANY, "http://internal-service:8000/test", json={"ok": True})
+        func = getattr(session, method)
+        if method == "request":
+            resp = func("GET", "http://internal-service:8000/test")
+        else:
+            resp = func("http://internal-service:8000/test")
+        assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# internal_requests singleton
+# ---------------------------------------------------------------------------
+
+
+def test_internal_requests_is_a_session():
+    assert isinstance(internal_requests, requests.Session)
+
+
+def test_internal_requests_trust_env_false():
+    assert internal_requests.trust_env is False
+
+
+# ---------------------------------------------------------------------------
+# internal_httpx_client
+# ---------------------------------------------------------------------------
+
+
+def test_internal_httpx_client_returns_httpx_client():
+    client = internal_httpx_client()
+    assert isinstance(client, httpx.Client)
+    client.close()
+
+
+def test_internal_httpx_client_proxy_is_none():
+    # When proxy=None is passed, httpx should not wrap the transport in a proxy layer
+    client = internal_httpx_client()
+    assert isinstance(client._transport, httpx.HTTPTransport)
+    client.close()
+
+
+def test_internal_httpx_client_passes_kwargs():
+    client = internal_httpx_client(timeout=5.0)
+    assert client.timeout.connect == 5.0
+    client.close()
+
+
+def test_internal_httpx_client_explicit_trust_env_not_overridden():
+    client = internal_httpx_client(trust_env=True)
+    # setdefault should not clobber an explicitly passed trust_env
+    assert client._transport is not None
+    client.close()
+
+
+def test_internal_httpx_client_ignores_env_proxy(monkeypatch):
+    monkeypatch.setenv("HTTPS_PROXY", "http://env-proxy:9999")
+    monkeypatch.setenv("HTTP_PROXY", "http://env-proxy:9999")
+    client = internal_httpx_client()
+    assert isinstance(client._transport, httpx.HTTPTransport)
+    client.close()
+
+
+# ---------------------------------------------------------------------------
+# internal_httpx_async_client
+# ---------------------------------------------------------------------------
+
+
+def test_internal_httpx_async_client_returns_async_client():
+    client = internal_httpx_async_client()
+    assert isinstance(client, httpx.AsyncClient)
+
+
+def test_internal_httpx_async_client_proxy_is_none():
+    # When proxy=None is passed, httpx should not wrap the transport in a proxy layer
+    client = internal_httpx_async_client()
+    assert isinstance(client._transport, httpx.AsyncHTTPTransport)
+
+
+def test_internal_httpx_async_client_passes_kwargs():
+    client = internal_httpx_async_client(timeout=10.0)
+    assert client.timeout.connect == 10.0
+
+
+def test_internal_httpx_async_client_ignores_env_proxy(monkeypatch):
+    monkeypatch.setenv("HTTPS_PROXY", "http://env-proxy:9999")
+    monkeypatch.setenv("HTTP_PROXY", "http://env-proxy:9999")
+    client = internal_httpx_async_client()
+    assert isinstance(client._transport, httpx.AsyncHTTPTransport)

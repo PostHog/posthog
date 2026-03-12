@@ -7,7 +7,9 @@ const schema = DashboardUpdateSchema
 
 type Params = z.infer<typeof schema>
 
-export const updateHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+type Result = { id: number; name: string } & { url: string }
+
+export const updateHandler: ToolBase<typeof schema, Result>['handler'] = async (context: Context, params: Params) => {
     const { dashboardId, data } = params
     const projectId = await context.stateManager.getProjectId()
     const dashboardResult = await context.api.dashboards({ projectId }).update({ dashboardId, data })
@@ -24,7 +26,7 @@ export const updateHandler: ToolBase<typeof schema>['handler'] = async (context:
     return dashboardWithUrl
 }
 
-const tool = (): ToolBase<typeof schema> => ({
+const tool = (): ToolBase<typeof schema, Result> => ({
     name: 'dashboard-update',
     schema,
     handler: updateHandler,

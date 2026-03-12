@@ -1,9 +1,8 @@
 import { Handle, NodeProps } from '@xyflow/react'
 import { z } from 'zod'
 
+import { Optional } from 'lib/utils/types'
 import { LogEntry } from 'scenes/hog-functions/logs/logsViewerLogic'
-
-import { Optional } from '~/types'
 
 import { HogFlowAction } from '../types'
 
@@ -69,6 +68,8 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'integration_field',
         'email',
         'native_email',
+        'posthog_assignee',
+        'posthog_ticket_tags',
     ]),
     key: z.string(),
     label: z.string(),
@@ -276,6 +277,10 @@ export const isOptOutEligibleAction = (
     action: HogFlowAction
 ): action is Extract<HogFlowAction, { type: 'function_email' | 'function_sms' }> => {
     return ['function_email', 'function_sms'].includes(action.type)
+}
+
+export const isEmailAction = (action: HogFlowAction): action is Extract<HogFlowAction, { type: 'function_email' }> => {
+    return ['function_email'].includes(action.type)
 }
 
 export const isFunctionAction = (

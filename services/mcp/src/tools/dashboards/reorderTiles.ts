@@ -7,7 +7,12 @@ const schema = DashboardReorderTilesSchema
 
 type Params = z.infer<typeof schema>
 
-export const reorderTilesHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+type Result = { success: boolean; message: string; tiles: Array<{ id: number; order: number }> } & { url: string }
+
+export const reorderTilesHandler: ToolBase<typeof schema, Result>['handler'] = async (
+    context: Context,
+    params: Params
+) => {
     const { dashboardId, tileOrder } = params
     const projectId = await context.stateManager.getProjectId()
 
@@ -23,7 +28,7 @@ export const reorderTilesHandler: ToolBase<typeof schema>['handler'] = async (co
     }
 }
 
-const tool = (): ToolBase<typeof schema> => ({
+const tool = (): ToolBase<typeof schema, Result> => ({
     name: 'dashboard-reorder-tiles',
     schema,
     handler: reorderTilesHandler,

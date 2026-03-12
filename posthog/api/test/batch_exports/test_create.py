@@ -298,9 +298,15 @@ def test_create_batch_export_with_different_intervals_timezones_and_interval_off
     next_run_local = next_run.astimezone(tz)
     jitter = batch_export.jitter
 
-    # Assert time between runs is roughly the interval time delta
-    min_expected_time_diff = batch_export.interval_time_delta.total_seconds() - jitter.total_seconds()
-    max_expected_time_diff = batch_export.interval_time_delta.total_seconds() + jitter.total_seconds()
+    # Assert time between runs is roughly the interval time delta.
+    # For daily/weekly intervals with DST-observing timezones, the UTC difference
+    # can be 23 or 25 hours instead of 24 due to spring-forward/fall-back transitions.
+    next_run_2_local = next_run_2.astimezone(tz)
+    dst_offset_1 = next_run_local.utcoffset() or dt.timedelta(0)
+    dst_offset_2 = next_run_2_local.utcoffset() or dt.timedelta(0)
+    dst_shift = abs((dst_offset_2 - dst_offset_1).total_seconds())
+    min_expected_time_diff = batch_export.interval_time_delta.total_seconds() - jitter.total_seconds() - dst_shift
+    max_expected_time_diff = batch_export.interval_time_delta.total_seconds() + jitter.total_seconds() + dst_shift
     assert abs((next_run_2 - next_run).total_seconds()) >= min_expected_time_diff
     assert abs((next_run_2 - next_run).total_seconds()) <= max_expected_time_diff
 

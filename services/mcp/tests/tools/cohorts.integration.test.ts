@@ -192,7 +192,7 @@ describe('Cohorts', { concurrent: false }, () => {
     describe('static cohort person management', () => {
         const createTool = GENERATED_TOOLS['cohorts-create']!()
         const addPersonsTool = GENERATED_TOOLS['cohorts-add-persons-to-static-cohort-partial-update']!()
-        const removePersonTool = GENERATED_TOOLS['cohorts-remove-person-from-static-cohort-partial-update']!()
+        const removePersonTool = GENERATED_TOOLS['cohorts-rm-person-from-static-cohort-partial-update']!()
 
         it('should reject adding persons to a dynamic cohort', async () => {
             const createResult = await createTool.handler(context, {

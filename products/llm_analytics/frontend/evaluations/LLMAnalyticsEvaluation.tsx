@@ -3,7 +3,7 @@ import { Field, Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
 import { useRef } from 'react'
 
-import { IconArrowLeft, IconInfo } from '@posthog/icons'
+import { IconArrowLeft, IconInfo, IconPlay } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -75,11 +75,15 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
     if (!evaluation) {
         return <NotFound object="evaluation" />
     }
+    const openInPlaygroundUrl =
+        evaluation.evaluation_type === 'llm_judge' && evaluation.id
+            ? combineUrl(urls.llmAnalyticsPlayground(), { source_evaluation_id: evaluation.id }).url
+            : null
 
     const isHog = evaluation.evaluation_type === 'hog'
     const configValid = isHog
         ? evaluation.evaluation_config.source.trim().length > 0
-        : evaluation.evaluation_config.prompt.length > 0
+        : evaluation.evaluation_config.prompt.trim().length > 0
     const basicFieldsValid = evaluation.name.length > 0 && configValid
     const percentageUnset = evaluation.conditions.some((c) => c.rollout_percentage === 0)
     const saveButtonDisabled = !basicFieldsValid
@@ -119,12 +123,22 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                 <LemonTag type={evaluation.enabled ? 'success' : 'default'}>
                                     {evaluation.enabled ? 'Enabled' : 'Disabled'}
                                 </LemonTag>
-                                {hasUnsavedChanges && <LemonTag type="warning">Unsaved Changes</LemonTag>}
+                                {hasUnsavedChanges && <LemonTag type="warning">Unsaved changes</LemonTag>}
                             </>
                         )}
                     </div>
                 </div>
                 <div className="flex gap-2">
+                    {openInPlaygroundUrl ? (
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconPlay />}
+                            to={openInPlaygroundUrl}
+                            data-attr="llma-playground-open-from-evaluation"
+                        >
+                            Open in Playground
+                        </LemonButton>
+                    ) : null}
                     <LemonButton type="secondary" icon={<IconArrowLeft />} onClick={handleCancel}>
                         {hasUnsavedChanges ? 'Cancel' : 'Back'}
                     </LemonButton>
@@ -138,7 +152,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                             disabled={saveButtonDisabled}
                             loading={evaluationFormSubmitting}
                         >
-                            {isNewEvaluation ? 'Create Evaluation' : 'Save Changes'}
+                            {isNewEvaluation ? 'Create evaluation' : 'Save changes'}
                         </LemonButton>
                     </AccessControlAction>
                 </div>
@@ -241,7 +255,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                             title={
                                                 isHog
                                                     ? 'When enabled, returning null from your Hog code means "not applicable" instead of being treated as an error.'
-                                                    : 'Sometimes forcing a True or False is not enough and you want the LLM to decide if the eval is applicable or not. Enable this when the evaluation criteria may not apply to all generations.'
+                                                    : 'Sometimes forcing a True or False is not enough and you want the LLM to decide if the evaluation is applicable or not. Enable this when the evaluation criteria may not apply to all generations.'
                                             }
                                         >
                                             <IconInfo className="text-muted text-base" />

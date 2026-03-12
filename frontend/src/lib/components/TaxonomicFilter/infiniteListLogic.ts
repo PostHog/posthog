@@ -4,10 +4,11 @@ import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
 
 import api from 'lib/api'
-import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import { MAX_TOP_MATCHES_PER_GROUP, taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { taxonomicFilterPreferencesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPreferencesLogic'
 import {
     InfiniteListLogicProps,
+    isSkeletonItem,
     ListFuse,
     ListStorage,
     LoaderOptions,
@@ -77,14 +78,14 @@ async function fetchCachedListResponse(path: string, searchParams: Record<string
 }
 
 export const infiniteListLogic = kea<infiniteListLogicType>([
-    props({ showNumericalPropsOnly: false } as InfiniteListLogicProps),
+    props({ showNumericalPropsOnly: false, minSearchQueryLength: undefined } as InfiniteListLogicProps),
     key((props) => `${props.taxonomicFilterLogicKey}-${props.listGroupType}`),
     path((key) => ['lib', 'components', 'TaxonomicFilter', 'infiniteListLogic', key]),
 
     connect((props: InfiniteListLogicProps) => ({
         values: [
             taxonomicFilterLogic(props),
-            ['searchQuery', 'value', 'groupType', 'taxonomicGroups', 'topMatchItems', 'anyGroupLoading'],
+            ['searchQuery', 'value', 'groupType', 'taxonomicGroups', 'topMatchItemsWithSkeletons', 'anyGroupLoading'],
             teamLogic,
             ['currentTeamId'],
         ],
@@ -291,7 +292,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 taxonomicGroups.find((g) => g.type === listGroupType) as TaxonomicFilterGroup,
         ],
         remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
-        minSearchQueryLength: [(s) => [s.group], (group) => group?.minSearchQueryLength ?? 0],
+        minSearchQueryLength: [
+            (s) => [s.group, (_, props) => props.minSearchQueryLength],
+            (group, propsMinSearchQueryLength) => propsMinSearchQueryLength ?? group?.minSearchQueryLength ?? 0,
+        ],
         needsMoreSearchCharacters: [
             (s) => [s.minSearchQueryLength, s.searchQuery],
             (minSearchQueryLength, searchQuery) => {
@@ -463,16 +467,20 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 }
                 const remoteIsFresh = remoteItems.searchQuery === searchQuery
                 const results = hasRemoteDataSource ? (remoteIsFresh ? remoteItems.results : []) : localItems.results
-                return results.slice(0, 3)
+                return results.slice(0, MAX_TOP_MATCHES_PER_GROUP)
             },
         ],
         items: [
-            (s) => [s.remoteItems, s.localItems, s.listGroupType, s.topMatchItems],
-            (remoteItems, localItems, listGroupType, topMatchItems) => {
-                const topMatches = listGroupType === TaxonomicFilterGroupType.SuggestedFilters ? topMatchItems : []
+            (s) => [s.remoteItems, s.localItems, s.listGroupType, s.topMatchItemsWithSkeletons],
+            (remoteItems, localItems, listGroupType, topMatchItemsWithSkeletons) => {
+                const topMatches =
+                    listGroupType === TaxonomicFilterGroupType.SuggestedFilters ? topMatchItemsWithSkeletons : []
                 return {
                     results: [...localItems.results, ...remoteItems.results, ...topMatches],
-                    count: localItems.count + remoteItems.count + topMatches.length,
+                    count:
+                        localItems.count +
+                        remoteItems.count +
+                        topMatches.filter((item) => !isSkeletonItem(item)).length,
                     searchQuery: remoteItems.searchQuery || localItems.searchQuery,
                     expandedCount: remoteItems.expandedCount,
                     queryChanged: remoteItems.queryChanged,
@@ -493,7 +501,16 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         results: [(s) => [s.items], (items) => items.results],
         selectedItem: [
             (s) => [s.index, s.items],
-            (index, items): TaxonomicDefinitionTypes | undefined => (index >= 0 ? items.results[index] : undefined),
+            (index, items): TaxonomicDefinitionTypes | undefined => {
+                if (index < 0) {
+                    return undefined
+                }
+                const item = items.results[index]
+                if (!item || isSkeletonItem(item)) {
+                    return undefined
+                }
+                return item
+            },
         ],
         selectedItemValue: [
             (s) => [s.selectedItem, s.group],

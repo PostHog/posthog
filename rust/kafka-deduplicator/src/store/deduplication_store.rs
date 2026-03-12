@@ -7,7 +7,7 @@ use rocksdb::{ColumnFamilyDescriptor, Options, SliceTransform};
 use tracing::info;
 
 use crate::metrics::MetricsHelper;
-use crate::rocksdb::store::{block_based_table_factory, RocksDbStore};
+use crate::rocksdb::store::{block_based_table_factory, RocksDbConfig, RocksDbStore};
 
 use super::keys::TimestampKey;
 use crate::pipelines::ingestion_events::TimestampMetadata;
@@ -18,6 +18,8 @@ pub struct DeduplicationStoreConfig {
     pub path: PathBuf,
     // Maximum capacity in bytes
     pub max_capacity: u64,
+    // RocksDB tuning knobs
+    pub rocksdb: RocksDbConfig,
 }
 
 /// Entry for batch writing timestamp records
@@ -42,7 +44,7 @@ impl DeduplicationStore {
         let metrics = MetricsHelper::with_partition(&topic, partition);
 
         let cf_descriptors = Self::get_cf_descriptors();
-        let store = RocksDbStore::new(&config.path, cf_descriptors, metrics)?;
+        let store = RocksDbStore::new(&config.path, cf_descriptors, metrics, &config.rocksdb)?;
 
         Ok(Self {
             store: Arc::new(store),
@@ -383,6 +385,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1_000_000,
+            rocksdb: RocksDbConfig::default(),
         };
         let store = DeduplicationStore::new(config, "test_topic".to_string(), 0).unwrap();
         (store, temp_dir)

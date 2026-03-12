@@ -437,6 +437,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                 "mcp_client_name": ANY,
                 "mcp_client_version": ANY,
                 "mcp_protocol_version": ANY,
+                "mcp_oauth_client_name": ANY,
                 "name": "test_property",
                 "type": "event",
             },

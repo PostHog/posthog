@@ -9,7 +9,7 @@ import {
     humanizePathsEventTypes,
 } from 'scenes/insights/utils'
 import { retentionOptions } from 'scenes/retention/constants'
-import { MathCategory, MathDefinition, apiValueToMathType, mathsLogic } from 'scenes/trends/mathsLogic'
+import { MathCategory, apiValueToMathType, mathsLogic } from 'scenes/trends/mathsLogic'
 import { mathsLogicType } from 'scenes/trends/mathsLogicType'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -111,7 +111,7 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
         let summary = query.series
             .map((s, index) => {
                 const mathType = apiValueToMathType(s.math, s.math_group_type_index)
-                const mathDefinition = context.mathDefinitions[mathType] as MathDefinition | undefined
+                const mathDefinition = context.mathDefinitions[mathType]
                 let series: string
                 if (mathDefinition?.category === MathCategory.EventCountPerActor) {
                     series = `${getDisplayNameFromEntityNode(s)} count per user ${mathDefinition.shortName}`

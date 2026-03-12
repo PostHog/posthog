@@ -7,13 +7,14 @@ Non-obvious behavior documented here:
 - OAuth state is both signed and one-time-use (cache-backed) to prevent replay.
 """
 
+import re
 import base64
 import hashlib
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode, urlparse, urlunparse
 
 from django.conf import settings
 from django.core import signing
@@ -124,7 +125,12 @@ def normalize_and_validate_app_url(team: Team, app_url: str) -> str:
             403,
         )
 
-    # preserve path/query/fragment
+    # Strip __posthog hash params — posthog-js toolbar launch params must not
+    # survive the OAuth round-trip or they cause a re-initialization loop.
+    if parsed.fragment and "__posthog" in parsed.fragment:
+        clean_fragment = re.sub(r"&?__posthog=[^&]*", "", parsed.fragment).strip("&")
+        return urlunparse(parsed._replace(fragment=clean_fragment))
+
     return app_url
 
 

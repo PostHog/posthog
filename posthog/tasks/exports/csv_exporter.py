@@ -468,9 +468,7 @@ def get_from_query(exported_asset: ExportedAsset, limit: int, resource: dict) ->
         paginated_query = query.copy()
         if supports_limit:
             paginated_query["limit"] = QUERY_PAGE_SIZE
-            if cursor is not None:
-                paginated_query["after"] = cursor
-            elif offset > 0:
+            if cursor is None and offset > 0:
                 paginated_query["offset"] = offset
 
         try:
@@ -479,6 +477,7 @@ def get_from_query(exported_asset: ExportedAsset, limit: int, resource: dict) ->
                 query_json=paginated_query,
                 limit_context=LimitContext.EXPORT,
                 execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                pagination_cursor=cursor,
             )
         except ClickHouseQuerySizeExceeded:
             if "breakdownFilter" not in query or limit <= CSV_EXPORT_BREAKDOWN_LIMIT_LOW:

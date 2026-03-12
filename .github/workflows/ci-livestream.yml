@@ -9,6 +9,9 @@ on:
             - '.github/workflows/ci-livestream.yml'
             - 'livestream/**'
 
+permissions:
+    contents: read
+
 jobs:
     test:
         runs-on: ubuntu-24.04

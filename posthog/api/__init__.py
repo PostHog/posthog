@@ -42,7 +42,6 @@ from products.data_warehouse.backend.api.lineage import LineageViewSet
 from products.desktop_recordings.backend.api import DesktopRecordingViewSet
 from products.error_tracking.backend.api import (
     ErrorTrackingAssignmentRuleViewSet,
-    ErrorTrackingAutoCaptureControlsViewSet,
     ErrorTrackingExternalReferenceViewSet,
     ErrorTrackingFingerprintViewSet,
     ErrorTrackingGroupingRuleViewSet,
@@ -176,6 +175,7 @@ router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plug
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
 router.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")
 router.register(r"oauth_application/metadata", OAuthApplicationPublicMetadataViewSet, "oauth_application_metadata")
+router.register(r"mcp_store/oauth_redirect", mcp_store.MCPOAuthRedirectViewSet, "mcp_oauth_redirect")
 # Nested endpoints shared
 projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")
 projects_router.register(r"environments", team.ProjectEnvironmentsViewSet, "project_environments", ["project_id"])
@@ -945,13 +945,6 @@ environments_router.register(
 )
 
 environments_router.register(
-    r"error_tracking/autocapture_controls",
-    ErrorTrackingAutoCaptureControlsViewSet,
-    "environment_error_tracking_autocapture_controls",
-    ["team_id"],
-)
-
-environments_router.register(
     r"signals",
     SignalViewSet,
     "environment_signals",
@@ -1104,6 +1097,9 @@ environments_router.register(
 
 # Logs endpoints
 register_grandfathered_environment_nested_viewset(r"logs", logs.LogsViewSet, "environment_logs", ["team_id"])
+register_grandfathered_environment_nested_viewset(
+    r"logs/alerts", logs.LogsAlertViewSet, "environment_logs_alerts", ["team_id"]
+)
 
 environments_router.register(
     r"logs/explainLogWithAI",

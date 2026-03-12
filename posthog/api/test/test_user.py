@@ -1216,7 +1216,11 @@ class TestUserAPI(APIBaseTest):
         # hostnames
         assert_allowed_url("https://www.example.com")
         assert_forbidden_url("https://www.notexample.com")
-        assert_forbidden_url("https://www.anotherexample.com")
+        # www.anotherexample.com is equivalent to anotherexample.com
+        assert_allowed_url("https://www.anotherexample.com")
+
+        # bare domain matches www entry
+        assert_allowed_url("https://example.com")
 
         # wildcard domains and folders
         assert_forbidden_url("https://subdomain.example.com")

@@ -32,19 +32,23 @@ procs:
 
     backend:
         shell: 'uv sync --active && bin/wait-for-docker && bin/check_ducklake_up && ./bin/start-backend'
-        # no capability - always_required via intent-map.yaml
+        ready_pattern: 'Listening at'
+        # no capability: always_required via intent-map.yaml
 
     celery-worker:
         shell: 'uv sync --active && bin/wait-for-docker && bin/check_ducklake_up && ./bin/start-celery worker'
         capability: celery_workers
+        ready_pattern: 'celery@'
 
     celery-beat:
         shell: 'uv sync --active && bin/wait-for-docker && bin/check_ducklake_up && ./bin/start-celery beat'
         capability: celery_scheduler
+        ready_pattern: 'celery beat'
 
     nodejs:
         shell: 'bin/wait-for-docker && bin/check_ducklake_up && ./bin/posthog-node'
         capability: event_ingestion
+        ready_pattern: 'All systems go'
         # Node.js capabilities are controlled via NODEJS_CAPABILITY_GROUPS env var
         # Set by hogli dev:generate based on selected nodejs_* capabilities
         # Valid groups: cdp_workflows, realtime_cohorts, session_replay, logs, feature_flags
@@ -53,12 +57,14 @@ procs:
     frontend:
         shell: './bin/start-frontend'
         autorestart: true
-        # no capability - always_required via intent-map.yaml
+        ready_pattern: 'VITE.*ready in'
+        # no capability: always_required via intent-map.yaml
 
     typegen:
         shell: 'cd frontend && pnpm run typegen:watch'
         autostart: false
         ask_skip: true # wizard asks if user wants to skip this
+        ready_pattern: 'Starting TypeScript watch mode'
 
     temporal-worker:
         shell: |-
@@ -71,6 +77,17 @@ procs:
             fi
         capability: temporal_workflows
 
+    recording-rasterizer:
+        shell: |-
+            bin/wait-for-docker temporal && \
+            bin/temporal-recording-rasterizer-worker
+        capability: recording_rasterizer
+        env:
+            VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
+            VIDEO_EXPORT_OBJECT_STORAGE_REGION: 'us-east-1'
+            AWS_ACCESS_KEY_ID: 'object_storage_root_user'
+            AWS_SECRET_ACCESS_KEY: 'object_storage_root_password'
+
     dagster:
         shell: |-
             bin/wait-for-docker && \
@@ -79,9 +96,9 @@ procs:
         capability: dagster_pipelines
 
     docker-compose:
-        shell: 'docker compose -f docker-compose.dev.yml up --pull always -d && docker compose -f docker-compose.dev.yml logs --tail=0 -f'
+        shell: 'docker compose -f docker-compose.dev.yml up --pull always -d && echo "docker-compose ready" && docker compose -f docker-compose.dev.yml logs --tail=100 -f'
         capability: core_infra
-        # also always_required via intent-map.yaml
+        ready_pattern: 'docker-compose ready'
 
     cyclotron-janitor:
         shell: |-
@@ -168,7 +185,6 @@ procs:
 
     llm-gateway:
         shell: 'bin/wait-for-docker && bin/start-llm-gateway'
-        autostart: true
         capability: llm_gateway
         env:
             LLM_GATEWAY_DEBUG: 'true'

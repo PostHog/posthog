@@ -1,24 +1,15 @@
 use health::{HealthHandle, HealthRegistry};
-use quick_cache::sync::Cache;
 use sqlx::{postgres::PgPoolOptions, PgPool};
-use std::collections::HashMap;
 use time::Duration;
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::{
-    api::v1::query::Manager,
-    config::Config,
-    metrics_consts::{GROUP_TYPE_CACHE, GROUP_TYPE_READS},
-    types::{GroupType, Update},
+    api::v1::query::Manager, config::Config, group_type_resolver::GroupTypeResolver, types::Update,
 };
 
 pub struct AppContext {
     // this points to the original (shared) CLOUD DB instance in prod deployments
     pub pool: PgPool,
-
-    // when true, the service will point group type mappings resolution
-    // to the new persons DB. if false, falls back to std cloud DB pool.
-    pub read_groups_from_persons_db: bool,
 
     // if populated, this pool will be used to read from the new, isolated
     // persons DB instance in production. call sites will fall back to the
@@ -30,7 +21,6 @@ pub struct AppContext {
     pub worker_liveness: HealthHandle,
     pub skip_writes: bool,
     pub skip_reads: bool,
-    pub group_type_cache: Cache<String, i32>, // Keyed on group-type name, and team id
 
     // sentinel flag used to identify the "mirror" deployments (property-defs-rs-v2) in
     // production environments to special case code that only works in those envs. Primary
@@ -38,6 +28,8 @@ pub struct AppContext {
     // targets the shared PostHog cloud DB. When enabled, it targets the new, isolated
     // property definitions database instace.
     pub enable_mirror: bool,
+
+    group_type_resolver: GroupTypeResolver,
 }
 
 impl AppContext {
@@ -69,115 +61,30 @@ impl AppContext {
             .register("worker".to_string(), Duration::seconds(60))
             .await;
 
-        let group_type_cache = Cache::new(config.group_type_cache_size);
+        let group_type_resolver = GroupTypeResolver::new(config);
 
         Ok(Self {
             pool: orig_pool,
-            read_groups_from_persons_db: config.read_groups_from_persons_db,
             persons_pool,
             query_manager: qmgr,
             liveness,
             worker_liveness,
             skip_writes: config.skip_writes,
             skip_reads: config.skip_reads,
-            group_type_cache,
             enable_mirror: config.enable_mirror,
+            group_type_resolver,
         })
     }
 
     pub async fn resolve_group_types_indexes(
         &self,
         updates: &mut [Update],
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<(), anyhow::Error> {
         if self.skip_reads {
             return Ok(());
         }
-
-        // Collect all unresolved group types that need database lookup
-        let mut to_resolve: Vec<(usize, String, i32)> = Vec::new();
-
-        // First pass: check cache and collect uncached items
-        for (idx, update) in updates.iter_mut().enumerate() {
-            let Update::Property(update) = update else {
-                continue;
-            };
-            let Some(GroupType::Unresolved(group_name)) = &update.group_type_index else {
-                continue;
-            };
-
-            let cache_key = format!("{}:{}", update.team_id, group_name);
-
-            if let Some(index) = self.group_type_cache.get(&cache_key) {
-                metrics::counter!(GROUP_TYPE_CACHE, &[("action", "hit")]).increment(1);
-                update.group_type_index =
-                    update.group_type_index.take().map(|gti| gti.resolve(index));
-            } else {
-                to_resolve.push((idx, group_name.clone(), update.team_id));
-            }
-        }
-
-        // Batch resolve all uncached group types
-        if !to_resolve.is_empty() {
-            let tag_value = if self.read_groups_from_persons_db {
-                "persons"
-            } else {
-                "cloud"
-            };
-            metrics::counter!(GROUP_TYPE_READS, &[("src_db", tag_value)])
-                .increment(to_resolve.len() as u64);
-
-            let (group_names, team_ids): (Vec<String>, Vec<i32>) = to_resolve
-                .iter()
-                .map(|(_, name, team_id)| (name.clone(), team_id))
-                .unzip();
-
-            let resolved_pool = if self.read_groups_from_persons_db && self.persons_pool.is_some() {
-                self.persons_pool.as_ref().unwrap()
-            } else {
-                &self.pool
-            };
-
-            let results = sqlx::query!(
-                "SELECT group_type, team_id, group_type_index FROM posthog_grouptypemapping
-                 WHERE (group_type, team_id) = ANY(SELECT * FROM UNNEST($1::text[], $2::int[]))",
-                &group_names,
-                &team_ids
-            )
-            .fetch_all(resolved_pool)
-            .await?;
-
-            // Create a lookup map for resolved group types
-            let mut resolved_map: HashMap<(String, i32), i32> =
-                HashMap::with_capacity(results.len());
-            for result in results {
-                resolved_map.insert((result.group_type, result.team_id), result.group_type_index);
-            }
-
-            // Second pass: apply resolved group types to updates
-            for (idx, group_name, team_id) in to_resolve {
-                let cache_key = format!("{team_id}:{group_name}");
-
-                if let Some(&index) = resolved_map.get(&(group_name.clone(), team_id)) {
-                    metrics::counter!(GROUP_TYPE_CACHE, &[("action", "miss")]).increment(1);
-                    self.group_type_cache.insert(cache_key, index);
-
-                    if let Update::Property(update) = &mut updates[idx] {
-                        update.group_type_index =
-                            update.group_type_index.take().map(|gti| gti.resolve(index));
-                    }
-                } else {
-                    metrics::counter!(GROUP_TYPE_CACHE, &[("action", "fail")]).increment(1);
-                    warn!(
-                        "Failed to resolve group type index for group name: {group_name} and team id: {team_id}"
-                    );
-
-                    if let Update::Property(update) = &mut updates[idx] {
-                        update.group_type_index = None;
-                    }
-                }
-            }
-        }
-
-        Ok(())
+        self.group_type_resolver
+            .resolve(updates, &self.pool, self.persons_pool.as_ref())
+            .await
     }
 }

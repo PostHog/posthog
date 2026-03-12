@@ -82,11 +82,11 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                             <div className="flex flex-col h-[calc(var(--scene-layout-rect-height))]">
                                 <SceneTitleSection
                                     canEdit
-                                    name={issue.name}
+                                    name={issue.name ?? undefined}
                                     onNameChange={updateName}
                                     description={null}
                                     resourceType={{ type: 'error_tracking' }}
-                                    className="px-2 h-[50px] @2xl/main-content:relative top-[0px] mt-0 mx-0 mb-0"
+                                    className="pl-4 pr-2 h-[50px] @2xl/main-content:relative top-[0px] mt-0 mx-0 mb-0"
                                     actions={
                                         <div className="flex items-center gap-1">
                                             <StatusIndicator status={issue.status} withTooltip />
@@ -262,7 +262,7 @@ const ExceptionsTab = (): JSX.Element => {
                 </ErrorFilters.Root>
             </div>
             <LemonDivider className="my-0 shrink-0" />
-            <Metadata className="flex flex-col flex-1 min-h-0 overflow-y-auto">
+            <Metadata className="flex flex-col flex-1 min-h-0">
                 {issueFingerprintsLoading ? (
                     <div className="text-muted text-sm px-2 py-3">Loading exceptions...</div>
                 ) : issueFingerprints.length === 0 ? (

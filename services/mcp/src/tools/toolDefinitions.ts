@@ -71,10 +71,11 @@ export interface ToolFilterOptions {
     features?: string[] | undefined
     version?: number | undefined
     excludeTools?: string[] | undefined
+    readOnly?: boolean | undefined
 }
 
 export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
-    const { features, version } = options || {}
+    const { features, version, readOnly } = options || {}
     const toolDefinitions = getToolDefinitions(version)
 
     let entries = Object.entries(toolDefinitions)
@@ -87,6 +88,11 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
     // Filter by features if provided
     if (features && features.length > 0) {
         entries = entries.filter(([_, definition]) => definition.feature && features.includes(definition.feature))
+    }
+
+    // In read-only mode, only expose tools annotated as read-only
+    if (readOnly) {
+        entries = entries.filter(([_, definition]) => definition.annotations.readOnlyHint === true)
     }
 
     return entries.map(([toolName, _]) => toolName)

@@ -32,6 +32,7 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.utils import action
 from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS, TIMEZONES
 from posthog.batch_exports.service import (
@@ -234,7 +235,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
 class BatchExportDestinationSerializer(serializers.ModelSerializer):
     """Serializer for an BatchExportDestination model."""
 
-    integration_id = serializers.PrimaryKeyRelatedField(
+    integration_id = TeamScopedPrimaryKeyRelatedField(
         write_only=True, queryset=Integration.objects.all(), source="integration", required=False, allow_null=True
     )
 

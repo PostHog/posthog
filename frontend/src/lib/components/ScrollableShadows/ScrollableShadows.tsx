@@ -1,9 +1,8 @@
 import './ScrollableShadows.scss'
 
+import { ScrollArea } from '@base-ui/react/scroll-area'
 import { clsx } from 'clsx'
 import React, { CSSProperties, MutableRefObject } from 'react'
-
-import { useScrollable } from 'lib/hooks/useScrollable'
 
 export type ScrollableShadowsProps = {
     children: React.ReactNode
@@ -38,49 +37,47 @@ export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShad
         disableScroll = false,
         hideShadows = false,
         hideScrollbars = false,
+        style,
         ...props
     },
     ref
 ) {
-    const {
-        ref: scrollRefScrollable,
-        isScrollableLeft,
-        isScrollableRight,
-        isScrollableBottom,
-        isScrollableTop,
-    } = useScrollable()
-
     return (
-        <div
+        <ScrollArea.Root
+            ref={ref}
             className={clsx(
                 'ScrollableShadows',
                 `ScrollableShadows--${direction}`,
-                !hideShadows && direction === 'horizontal' && isScrollableLeft && 'ScrollableShadows--left',
-                !hideShadows && direction === 'horizontal' && isScrollableRight && 'ScrollableShadows--right',
-                !hideShadows && direction === 'vertical' && isScrollableTop && 'ScrollableShadows--top',
-                !hideShadows && direction === 'vertical' && isScrollableBottom && 'ScrollableShadows--bottom',
+                hideShadows && 'ScrollableShadows--hide-shadows',
                 hideScrollbars && 'ScrollableShadows--hide-scrollbars',
                 className
             )}
-            ref={ref}
+            style={style}
             {...props}
         >
-            <div
+            <ScrollArea.Viewport
+                ref={(el) => {
+                    if (scrollRef) {
+                        scrollRef.current = el
+                    }
+                }}
                 className={clsx(
                     'ScrollableShadows__inner',
                     styledScrollbars && 'show-scrollbar-on-hover',
                     innerClassName,
                     disableScroll && 'overflow-hidden'
                 )}
-                ref={(refValue) => {
-                    scrollRefScrollable.current = refValue
-                    if (scrollRef) {
-                        scrollRef.current = refValue
-                    }
-                }}
+                style={
+                    disableScroll
+                        ? { overflow: 'hidden' }
+                        : {
+                              overflowX: direction === 'horizontal' ? undefined : 'hidden',
+                              overflowY: direction === 'vertical' ? undefined : 'hidden',
+                          }
+                }
             >
                 {children}
-            </div>
-        </div>
+            </ScrollArea.Viewport>
+        </ScrollArea.Root>
     )
 })

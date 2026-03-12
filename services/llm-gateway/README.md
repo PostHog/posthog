@@ -161,7 +161,7 @@ Defined in `src/llm_gateway/products/config.py`:
 | Product              | Auth            | Models                     | Notes                           |
 | -------------------- | --------------- | -------------------------- | ------------------------------- |
 | `llm_gateway`        | API key + OAuth | All                        | Default when no product in path |
-| `twig`               | OAuth only      | Restricted set             | Desktop coding agent            |
+| `posthog_code`       | OAuth only      | Restricted set             | Desktop coding agent            |
 | `background_agents`  | OAuth only      | Restricted set             | Cloud background agents         |
 | `wizard`             | OAuth only      | All                        | Max AI assistant                |
 | `django`             | API key + OAuth | All                        | Server-side Django calls        |
@@ -170,7 +170,7 @@ Defined in `src/llm_gateway/products/config.py`:
 | `llma_summarization` | API key + OAuth | gpt-4.1-nano, gpt-4.1-mini | LLM analytics summarization     |
 | `llma_eval_summary`  | API key + OAuth | gpt-5-mini                 | LLM analytics eval summary      |
 
-Aliases: `array` resolves to `twig`.
+Aliases: `twig` and `array` resolve to `posthog_code`.
 
 ### Adding a new product
 

@@ -156,10 +156,13 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     @action(methods=["POST"], detail=True)
     def split(self, request, **kwargs):
         issue: ErrorTrackingIssue = self.get_object()
-        fingerprints: list[str] = request.data.get("fingerprints", [])
-        exclusive: bool = request.data.get("exclusive", True)
-        issue.split(fingerprints=fingerprints, exclusive=exclusive)
-        return Response({"success": True})
+        fingerprints = request.data.get("fingerprints", [])
+        if not isinstance(fingerprints, list) or not all(
+            isinstance(entry, dict) and isinstance(entry.get("fingerprint"), str) for entry in fingerprints
+        ):
+            raise ValidationError("fingerprints must be a list of objects with a 'fingerprint' string field")
+        new_issues = issue.split(fingerprints=fingerprints)
+        return Response({"success": True, "new_issue_ids": [str(i.id) for i in new_issues]})
 
     @action(methods=["PATCH"], detail=True)
     def assign(self, request, **kwargs):

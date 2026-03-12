@@ -1,59 +1,5 @@
 import { z } from 'zod'
 
-export const DashboardTileSchema = z.object({
-    insight: z.object({
-        short_id: z.string(),
-        name: z.string(),
-        derived_name: z.string().nullable(),
-        description: z.string().nullable(),
-        query: z.object({
-            kind: z.union([z.literal('InsightVizNode'), z.literal('DataVisualizationNode')]),
-            source: z
-                .any()
-                .describe(
-                    'For new insights, use the query from your successful query-run tool call. For updates, the existing query can optionally be reused.'
-                ), // NOTE: This is intentionally z.any() to avoid populating the context with the complicated query schema, but we prompt the LLM to use 'query-run' to check queries, before creating insights.
-        }),
-        created_at: z.string().nullish(),
-        updated_at: z.string().nullish(),
-        favorited: z.boolean().nullish(),
-        tags: z.array(z.string()).nullish(),
-    }),
-    order: z.number(),
-    color: z.string().nullish(),
-    layouts: z.record(z.string(), z.any()).nullish(),
-    last_refresh: z.string().nullish(),
-    is_cached: z.boolean().nullish(),
-})
-
-// Base dashboard schema from PostHog API
-export const DashboardSchema = z.object({
-    id: z.number().int().positive(),
-    name: z.string(),
-    description: z.string().nullish(),
-    pinned: z.boolean().nullish(),
-    created_at: z.string(),
-    created_by: z
-        .object({
-            email: z.string().email(),
-        })
-        .optional()
-        .nullable(),
-    is_shared: z.boolean().nullish(),
-    deleted: z.boolean().nullish(),
-    filters: z.record(z.string(), z.any()).nullish(),
-    variables: z.record(z.string(), z.any()).nullish(),
-    tags: z.array(z.string()).nullish(),
-    tiles: z.array(DashboardTileSchema.nullish()).nullish(),
-})
-
-export const SimpleDashboardSchema = DashboardSchema.pick({
-    id: true,
-    name: true,
-    description: true,
-    tiles: true,
-})
-
 // Input schema for creating dashboards
 export const CreateDashboardInputSchema = z.object({
     name: z.string().min(1, 'Dashboard name is required'),
@@ -94,10 +40,8 @@ export const ReorderDashboardTilesSchema = z.object({
 })
 
 // Type exports
-export type PostHogDashboard = z.infer<typeof DashboardSchema>
 export type CreateDashboardInput = z.infer<typeof CreateDashboardInputSchema>
 export type UpdateDashboardInput = z.infer<typeof UpdateDashboardInputSchema>
 export type ListDashboardsData = z.infer<typeof ListDashboardsSchema>
 export type AddInsightToDashboardInput = z.infer<typeof AddInsightToDashboardSchema>
-export type SimpleDashboard = z.infer<typeof SimpleDashboardSchema>
 export type ReorderDashboardTilesInput = z.infer<typeof ReorderDashboardTilesSchema>

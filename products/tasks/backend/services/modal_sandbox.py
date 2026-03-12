@@ -1,13 +1,19 @@
+from __future__ import annotations
+
 import os
+import json
 import time
 import uuid
 import shlex
 import logging
 from collections.abc import Iterable
 from functools import lru_cache
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
+
+if TYPE_CHECKING:
+    from products.tasks.backend.temporal.process_task.utils import McpServerConfig
 
 import modal
 
@@ -142,7 +148,7 @@ class ModalSandbox:
         return ModalSandbox._get_default_app()
 
     @staticmethod
-    def create(config: SandboxConfig) -> "ModalSandbox":
+    def create(config: SandboxConfig) -> ModalSandbox:
         try:
             app = ModalSandbox._get_app_for_template(config.template)
             base_image = _get_template_image(config.template)
@@ -206,7 +212,7 @@ class ModalSandbox:
             )
 
     @staticmethod
-    def get_by_id(sandbox_id: str) -> "ModalSandbox":
+    def get_by_id(sandbox_id: str) -> ModalSandbox:
         try:
             sb = modal.Sandbox.from_id(sandbox_id)
 
@@ -431,6 +437,8 @@ class ModalSandbox:
         run_id: str,
         mode: str = "background",
         interaction_origin: str | None = None,
+        branch: str | None = None,
+        mcp_configs: list[McpServerConfig] | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -444,11 +452,18 @@ class ModalSandbox:
         org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
+        mcp_servers_arg = ""
+        if mcp_configs:
+            mcp_json = json.dumps([c.to_dict() for c in mcp_configs])
+            mcp_servers_arg = f" --mcpServers {shlex.quote(mcp_json)}"
+
         env_prefix = f"env TWIG_INTERACTION_ORIGIN={shlex.quote(interaction_origin)} " if interaction_origin else ""
+        branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         command = (
             f"cd /scripts && "
             f"nohup {env_prefix}npx agent-server --port {AGENT_SERVER_PORT} --repositoryPath {shlex.quote(repo_path)} "
-            f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)} "
+            f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
+            f"{branch_flag}{mcp_servers_arg} "
             f"> /tmp/agent-server.log 2>&1 &"
         )
 

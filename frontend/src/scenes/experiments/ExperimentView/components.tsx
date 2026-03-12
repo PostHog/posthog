@@ -55,14 +55,14 @@ import {
     ActionFilter,
     AnyPropertyFilter,
     ExperimentConclusion,
-    ExperimentProgressStatus,
+    ExperimentStatus,
     InsightShortId,
 } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
 import { experimentLogic } from '../experimentLogic'
-import { getExperimentStatusColor } from '../experimentsLogic'
+import { getExperimentStatusColor, getExperimentStatusLabel } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { getVariantColor } from '../utils'
 
@@ -456,7 +456,7 @@ export function PageHeaderCustom(): JSX.Element {
 
                         <LemonDivider />
 
-                        {!experiment.end_date &&
+                        {isExperimentRunning &&
                             experiment.feature_flag &&
                             (experiment.feature_flag.active ? (
                                 <ButtonPrimitive
@@ -847,10 +847,10 @@ export const ResetButton = (): JSX.Element => {
     )
 }
 
-export function StatusTag({ status }: { status: ExperimentProgressStatus }): JSX.Element {
+export function StatusTag({ status, isPaused = false }: { status: ExperimentStatus; isPaused?: boolean }): JSX.Element {
     return (
-        <LemonTag type={getExperimentStatusColor(status)} className="cursor-default">
-            <b className="uppercase">{status}</b>
+        <LemonTag type={getExperimentStatusColor(status, isPaused)} className="cursor-default">
+            <b className="uppercase">{getExperimentStatusLabel(status, isPaused)}</b>
         </LemonTag>
     )
 }

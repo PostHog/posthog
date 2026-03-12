@@ -114,9 +114,12 @@ export function sanitizeWorkflow(
 }
 
 export const workflowLogic = kea<workflowLogicType>([
-    path(['products', 'workflows', 'frontend', 'Workflows', 'workflowLogic']),
+    path((key) => ['products', 'workflows', 'frontend', 'Workflows', 'workflowLogic', key]),
     props({ id: 'new', tabId: 'default' } as WorkflowLogicProps),
-    key((props) => `workflow-${props.id || 'new'}-${props.tabId}`),
+    key(
+        (props) =>
+            `workflow-${props.id || 'new'}-${props.tabId || 'default'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}`
+    ),
     connect(() => ({
         values: [userLogic, ['user'], projectLogic, ['currentProjectId']],
         actions: [workflowsLogic, ['archiveWorkflow']],

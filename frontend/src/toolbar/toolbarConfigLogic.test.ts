@@ -12,14 +12,18 @@ global.fetch = jest.fn(() =>
     } as any as Response)
 )
 
+/** Mock fetch so the HEAD check succeeds and then the token exchange succeeds. */
 function mockTokenExchangeSuccess(): void {
-    ;(global.fetch as jest.Mock).mockImplementation(() =>
-        Promise.resolve({
+    ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+        if (typeof url === 'string' && url.endsWith('/toolbar_oauth/check')) {
+            return Promise.resolve({ ok: true, status: 200 })
+        }
+        return Promise.resolve({
             ok: true,
             status: 200,
             json: () => Promise.resolve({ access_token: 'new-access', refresh_token: 'new-refresh', expires_in: 3600 }),
         })
-    )
+    })
 }
 
 describe('toolbar toolbarConfigLogic', () => {
@@ -114,43 +118,40 @@ describe('toolbar toolbarConfigLogic', () => {
         expect(logic.values.uiHost).toBe('https://selfhosted.example.com')
     })
 
-    describe('uiHost cloud region detection', () => {
-        it.each([
-            ['us', 'https://us.posthog.com'],
-            ['eu', 'https://eu.posthog.com'],
-        ])('uses canonical %s cloud URL from requestRouter.region', (region, expected) => {
+    describe('uiHost resolution', () => {
+        it('prefers explicit uiHost prop over everything else', () => {
             const logic = toolbarConfigLogic.build({
-                apiURL: 'http://should-not-be-used',
-                posthog: { requestRouter: { region }, config: {} } as any,
-            } as any)
-            logic.mount()
-            expect(logic.values.uiHost).toBe(expected)
-        })
-
-        it('uses cloud URL even when ui_host is misconfigured to ingestion domain', () => {
-            const logic = toolbarConfigLogic.build({
-                posthog: {
-                    requestRouter: { region: 'eu' },
-                    config: { ui_host: 'https://eu.i.posthog.com' },
-                } as any,
-            } as any)
-            logic.mount()
-            expect(logic.values.uiHost).toBe('https://eu.posthog.com')
-        })
-
-        it('uses cloud URL even when apiURL is a reverse proxy', () => {
-            const logic = toolbarConfigLogic.build({
-                apiURL: 'https://myproxy.example.com/ingest',
-                posthog: { requestRouter: { region: 'us' }, config: {} } as any,
+                uiHost: 'https://us.posthog.com',
+                posthog: { requestRouter: { uiHost: 'https://should-not-be-used.com' }, config: {} } as any,
             } as any)
             logic.mount()
             expect(logic.values.uiHost).toBe('https://us.posthog.com')
         })
 
-        it('falls back to ui_host for custom region (self-hosted)', () => {
+        it.each([
+            ['https://us.posthog.com', 'https://us.posthog.com'],
+            ['https://eu.posthog.com', 'https://eu.posthog.com'],
+        ])('uses requestRouter.uiHost when no explicit uiHost prop', (requestRouterUiHost, expected) => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://should-not-be-used',
+                posthog: { requestRouter: { uiHost: requestRouterUiHost }, config: {} } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe(expected)
+        })
+
+        it('uses requestRouter.uiHost even when apiURL is a reverse proxy', () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'https://myproxy.example.com/ingest',
+                posthog: { requestRouter: { uiHost: 'https://us.posthog.com' }, config: {} } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe('https://us.posthog.com')
+        })
+
+        it('falls back to ui_host config when no requestRouter', () => {
             const logic = toolbarConfigLogic.build({
                 posthog: {
-                    requestRouter: { region: 'custom' },
                     config: { ui_host: 'https://my-posthog.example.com' },
                 } as any,
             } as any)
@@ -158,13 +159,45 @@ describe('toolbar toolbarConfigLogic', () => {
             expect(logic.values.uiHost).toBe('https://my-posthog.example.com')
         })
 
-        it('falls back to apiURL when region is custom and no ui_host', () => {
+        it('falls back to apiURL when no requestRouter and no ui_host', () => {
             const logic = toolbarConfigLogic.build({
                 apiURL: 'https://selfhosted.example.com',
-                posthog: { requestRouter: { region: 'custom' }, config: {} } as any,
+                posthog: { config: {} } as any,
             } as any)
             logic.mount()
             expect(logic.values.uiHost).toBe('https://selfhosted.example.com')
+        })
+
+        it.each(['javascript:alert(1)//', 'data:text/html,<script>alert(1)</script>', 'vbscript:msgbox'])(
+            'rejects uiHost with dangerous scheme: %s',
+            (maliciousHost) => {
+                const logic = toolbarConfigLogic.build({
+                    uiHost: maliciousHost,
+                    apiURL: 'https://fallback.example.com',
+                    posthog: { config: {} } as any,
+                } as any)
+                logic.mount()
+                // Should fall through to apiURL instead of using the malicious value
+                expect(logic.values.uiHost).toBe('https://fallback.example.com')
+            }
+        )
+
+        it('accepts valid https uiHost', () => {
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'https://app.posthog.com',
+                apiURL: 'https://fallback.example.com',
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe('https://app.posthog.com')
+        })
+
+        it('accepts valid http uiHost', () => {
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'http://localhost:8000',
+                apiURL: 'https://fallback.example.com',
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe('http://localhost:8000')
         })
     })
 
@@ -281,6 +314,7 @@ describe('toolbar toolbarConfigLogic', () => {
                 clientId: 'client-id',
             })
             logic.mount()
+            ;(global.fetch as jest.Mock).mockClear() // clear the uiHost check call from afterMount
             ;(global.fetch as jest.Mock).mockImplementation(() =>
                 Promise.resolve({
                     ok: true,
@@ -325,11 +359,6 @@ describe('toolbar toolbarConfigLogic', () => {
                 '/#/dashboard&tab=1',
             ],
             ['handles percent-encoded delimiters', '#__posthog_toolbar=code%3Aabc%2Cclient_id%3Axyz', '/'],
-            [
-                'cleans hash with server-provided redirect_uri and token_endpoint',
-                '#__posthog_toolbar=code:abc,client_id:xyz,redirect_uri:https%3A%2F%2Fexample.com%2Fcallback,token_endpoint:https%3A%2F%2Fexample.com%2Ftoken',
-                '/',
-            ],
         ])('%s', (_label, hash, expectedUrl) => {
             window.history.pushState({}, '', `/${hash}`)
 
@@ -339,34 +368,7 @@ describe('toolbar toolbarConfigLogic', () => {
             expect(replaceStateSpy).toHaveBeenCalledWith(null, '', expectedUrl)
         })
 
-        it('uses server-provided token_endpoint and redirect_uri for token exchange', async () => {
-            const serverTokenEndpoint = 'https://internal.posthog.com/oauth/token/'
-            const serverRedirectUri = 'https://internal.posthog.com/toolbar_oauth/callback'
-            const encodedEndpoint = encodeURIComponent(serverTokenEndpoint)
-            const encodedRedirectUri = encodeURIComponent(serverRedirectUri)
-
-            window.history.pushState(
-                {},
-                '',
-                `/#__posthog_toolbar=code:abc,client_id:xyz,redirect_uri:${encodedRedirectUri},token_endpoint:${encodedEndpoint}`
-            )
-            mockTokenExchangeSuccess()
-
-            const logic = toolbarConfigLogic.build({ apiURL: 'http://external-proxy.com' })
-            logic.mount()
-
-            await expectLogic(logic).delay(0).toMatchValues({
-                accessToken: 'new-access',
-                isAuthenticated: true,
-            })
-
-            const fetchCall = (global.fetch as jest.Mock).mock.calls[0]
-            expect(fetchCall[0]).toBe(serverTokenEndpoint)
-            const body = new URLSearchParams(fetchCall[1].body)
-            expect(body.get('redirect_uri')).toBe(serverRedirectUri)
-        })
-
-        it('falls back to uiHost-derived URLs when server does not provide them', async () => {
+        it('uses uiHost-derived URLs for token exchange', async () => {
             window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
             mockTokenExchangeSuccess()
 
@@ -380,7 +382,9 @@ describe('toolbar toolbarConfigLogic', () => {
                 isAuthenticated: true,
             })
 
-            const fetchCall = (global.fetch as jest.Mock).mock.calls[0]
+            // [0] = HEAD check, [1] = token exchange
+            expect((global.fetch as jest.Mock).mock.calls[0][0]).toBe('https://us.posthog.com/toolbar_oauth/check')
+            const fetchCall = (global.fetch as jest.Mock).mock.calls[1]
             expect(fetchCall[0]).toBe('https://us.posthog.com/oauth/token/')
             const body = new URLSearchParams(fetchCall[1].body)
             expect(body.get('redirect_uri')).toBe('https://us.posthog.com/toolbar_oauth/callback')
@@ -406,6 +410,7 @@ describe('toolbar toolbarConfigLogic', () => {
             const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
             logic.mount()
 
+            // Wait for HEAD check + token exchange to complete
             await expectLogic(logic).delay(0)
 
             expect(localStorage.getItem(PKCE_STORAGE_KEY)).toBeNull()
@@ -417,6 +422,7 @@ describe('toolbar toolbarConfigLogic', () => {
             localStorage.setItem(PKCE_STORAGE_KEY, expiredPayload)
 
             window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            mockTokenExchangeSuccess()
 
             const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
             logic.mount()
@@ -424,7 +430,9 @@ describe('toolbar toolbarConfigLogic', () => {
             await expectLogic(logic).delay(0)
 
             expect(warnSpy).toHaveBeenCalledWith('PostHog Toolbar: PKCE verifier expired')
-            expect(global.fetch).not.toHaveBeenCalled()
+            // HEAD check fires but token exchange does not
+            expect((global.fetch as jest.Mock).mock.calls).toHaveLength(1)
+            expect((global.fetch as jest.Mock).mock.calls[0][0]).toContain('/toolbar_oauth/check')
             warnSpy.mockRestore()
         })
 
@@ -433,6 +441,7 @@ describe('toolbar toolbarConfigLogic', () => {
             localStorage.setItem(PKCE_STORAGE_KEY, 'not-valid-json{{{')
 
             window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            mockTokenExchangeSuccess()
 
             const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
             logic.mount()
@@ -440,7 +449,9 @@ describe('toolbar toolbarConfigLogic', () => {
             await expectLogic(logic).delay(0)
 
             expect(warnSpy).toHaveBeenCalledWith('PostHog Toolbar: no PKCE verifier found, cannot exchange code')
-            expect(global.fetch).not.toHaveBeenCalled()
+            // HEAD check fires but token exchange does not
+            expect((global.fetch as jest.Mock).mock.calls).toHaveLength(1)
+            expect((global.fetch as jest.Mock).mock.calls[0][0]).toContain('/toolbar_oauth/check')
             warnSpy.mockRestore()
         })
 
@@ -449,6 +460,7 @@ describe('toolbar toolbarConfigLogic', () => {
             localStorage.removeItem(PKCE_STORAGE_KEY)
 
             window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            mockTokenExchangeSuccess()
 
             const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
             logic.mount()
@@ -456,7 +468,9 @@ describe('toolbar toolbarConfigLogic', () => {
             await expectLogic(logic).delay(0)
 
             expect(warnSpy).toHaveBeenCalledWith('PostHog Toolbar: no PKCE verifier found, cannot exchange code')
-            expect(global.fetch).not.toHaveBeenCalled()
+            // HEAD check fires but token exchange does not
+            expect((global.fetch as jest.Mock).mock.calls).toHaveLength(1)
+            expect((global.fetch as jest.Mock).mock.calls[0][0]).toContain('/toolbar_oauth/check')
             warnSpy.mockRestore()
         })
     })
@@ -473,28 +487,10 @@ describe('toolbar toolbarConfigLogic', () => {
             window.history.pushState({}, '', '/')
         })
 
-        it('returns code and clientId when hash has no server-provided URLs', () => {
+        it('returns code and clientId from hash', () => {
             window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
             const result = cleanToolbarAuthHash()
-            expect(result).toEqual({ code: 'abc', clientId: 'xyz', redirectUri: undefined, tokenEndpoint: undefined })
-            expect(replaceStateSpy).toHaveBeenCalledWith(null, '', '/')
-        })
-
-        it('parses redirect_uri and token_endpoint from hash', () => {
-            const redirectUri = encodeURIComponent('https://internal.example.com/toolbar_oauth/callback')
-            const tokenEndpoint = encodeURIComponent('https://internal.example.com/oauth/token/')
-            window.history.pushState(
-                {},
-                '',
-                `/#__posthog_toolbar=code:abc,client_id:xyz,redirect_uri:${redirectUri},token_endpoint:${tokenEndpoint}`
-            )
-            const result = cleanToolbarAuthHash()
-            expect(result).toEqual({
-                code: 'abc',
-                clientId: 'xyz',
-                redirectUri: 'https://internal.example.com/toolbar_oauth/callback',
-                tokenEndpoint: 'https://internal.example.com/oauth/token/',
-            })
+            expect(result).toEqual({ code: 'abc', clientId: 'xyz' })
             expect(replaceStateSpy).toHaveBeenCalledWith(null, '', '/')
         })
 

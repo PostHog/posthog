@@ -89,7 +89,7 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
             detail=f"{detail} Try reducing its scope by changing the time range."
         )
     elif name == "S3_ERROR":
-        return CHQueryErrorS3Error("S3 error occurred. Try again later.", code=err.code)
+        return CHQueryErrorS3Error(f"S3 error occurred. ({err.message})", code=err.code)
 
     # user query errors - pass through original message with proper code_name
     elif name == "ILLEGAL_TYPE_OF_ARGUMENT":

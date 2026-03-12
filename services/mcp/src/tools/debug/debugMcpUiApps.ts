@@ -8,7 +8,17 @@ const schema = DebugMcpUiAppsSchema
 
 type Params = z.infer<typeof schema>
 
-export const debugMcpUiAppsHandler: ToolBase<typeof schema>['handler'] = async (_context: Context, params: Params) => {
+type Result = {
+    message: string
+    timestamp: string
+    sdkInfo: { name: string; description: string }
+    sampleData: { numbers: number[]; nested: { key: string; array: string[] } }
+}
+
+export const debugMcpUiAppsHandler: ToolBase<typeof schema, Result>['handler'] = async (
+    _context: Context,
+    params: Params
+) => {
     return {
         message: params.message || 'Hello from debug-mcp-ui-apps!',
         timestamp: new Date().toISOString(),
@@ -26,7 +36,7 @@ export const debugMcpUiAppsHandler: ToolBase<typeof schema>['handler'] = async (
     }
 }
 
-const tool = (): ToolBase<typeof schema> => ({
+const tool = (): ToolBase<typeof schema, Result> => ({
     name: 'debug-mcp-ui-apps',
     schema,
     handler: debugMcpUiAppsHandler,

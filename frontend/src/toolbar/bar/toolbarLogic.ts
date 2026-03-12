@@ -517,7 +517,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     values.element?.removeEventListener('touchmove', onMove)
                     values.element?.removeEventListener('touchend', onTouchEnd)
                 }
-                values.element.addEventListener('touchmove', onMove)
+                values.element.addEventListener('touchmove', onMove, { passive: true })
                 values.element.addEventListener('touchend', onTouchEnd)
             } else {
                 const onMouseUp = (e: MouseEvent): void => {
@@ -635,7 +635,9 @@ export const toolbarLogic = kea<toolbarLogicType>([
             const clickListener = (e: MouseEvent): void => {
                 const target = e.target as HTMLElement
                 const clickIsInToolbar = target?.id === TOOLBAR_ID || !!target.closest?.('.' + TOOLBAR_CONTAINER_CLASS)
-                if (!clickIsInToolbar && !values.isBlurred) {
+                // Don't blur when the debugger is open — it needs to stay pinned
+                // so users can interact with the page while watching events
+                if (!clickIsInToolbar && !values.isBlurred && values.visibleMenu !== 'debugger') {
                     actions.setIsBlurred(true)
                 }
             }

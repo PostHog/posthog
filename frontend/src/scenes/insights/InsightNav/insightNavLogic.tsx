@@ -25,7 +25,6 @@ import {
     LifecycleQuery,
     PathsFilter,
     PathsQuery,
-    ProductAnalyticsInsightQueryNode,
     RetentionFilter,
     RetentionQuery,
     StickinessFilter,
@@ -35,11 +34,8 @@ import {
 } from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
-    filterKeyForQuery,
-    getDisplay,
     getResultCustomizations,
-    getShowPercentStackView,
-    getShowValuesOnSeries,
+    filterForQuery,
     isDataTableNode,
     isDataVisualizationNode,
     isEndpointsUsageQuery,
@@ -300,24 +296,6 @@ export const insightNavLogic = kea<insightNavLogicType>([
 const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyCache | null): QueryPropertyCache => {
     const newCache = JSON.parse(JSON.stringify(query)) as QueryPropertyCache
 
-    // // set series (first two entries) from retention target and returning entity
-    // if (isRetentionQuery(query)) {
-    //     const { targetEntity, returningEntity } = query.retentionFilter || {}
-    //     const series = actionsAndEventsToSeries({
-    //         events: [
-    //             ...(targetEntity?.type === 'events' ? [targetEntity as ActionFilter] : []),
-    //             ...(returningEntity?.type === 'events' ? [returningEntity as ActionFilter] : []),
-    //         ],
-    //         actions: [
-    //             ...(targetEntity?.type === 'actions' ? [targetEntity as ActionFilter] : []),
-    //             ...(returningEntity?.type === 'actions' ? [returningEntity as ActionFilter] : []),
-    //         ],
-    //     })
-    //     if (series.length > 0) {
-    //         newCache.series = [...series, ...(cache?.series ? cache.series.slice(series.length) : [])]
-    //     }
-    // }
-
     if (isLifecycleQuery(query)) {
         newCache.series = cache?.series
     }
@@ -327,9 +305,21 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
     }
 
     /** store the insight specific filter in commonFilter */
-    const filterKey = filterKeyForQuery(query)
+    const insightFilter = filterForQuery(query)
+    const resultCustomizations = getResultCustomizations(query)
     // exclude properties that shouldn't be shared
-    const { resultCustomizations, ...commonProperties } = query[filterKey] || {}
+    let commonProperties = insightFilter || {}
+    if (isTrendsQuery(query)) {
+        const { resultCustomizations: _resultCustomizations, ...trendsCommonProperties } = query.trendsFilter || {}
+        commonProperties = trendsCommonProperties
+    } else if (isStickinessQuery(query)) {
+        const { resultCustomizations: _resultCustomizations, ...stickinessCommonProperties } =
+            query.stickinessFilter || {}
+        commonProperties = stickinessCommonProperties
+    } else if (isFunnelsQuery(query)) {
+        const { resultCustomizations: _resultCustomizations, ...funnelsCommonProperties } = query.funnelsFilter || {}
+        commonProperties = funnelsCommonProperties
+    }
     newCache.commonFilter = { ...cache?.commonFilter, ...commonProperties }
 
     /** store the insight specific filter for trend and stickiness queries */
@@ -457,27 +447,62 @@ const mergeCachedProperties = (
     }
 
     // insight specific filter
-    const filterKey = filterKeyForQuery(mergedQuery as ProductAnalyticsInsightQueryNode)
-    if (cache[filterKey] || cache.commonFilter) {
-        const node = { kind: mergedQuery.kind, [filterKey]: cache.commonFilter } as unknown as InsightQueryNode
-        const nodeTrendsStickiness = (isTrendsQuery(mergedQuery) || isStickinessQuery(mergedQuery)
-            ? {
-                  kind: mergedQuery.kind,
-                  [filterKey]: cache.commonFilterTrendsStickiness,
-              }
-            : {}) as unknown as InsightQueryNode
-        mergedQuery[filterKey] = {
-            ...query[filterKey],
-            ...cache[filterKey],
+    if (cache.commonFilter) {
+        const commonVisualizationProperties = {
             // TODO: fix an issue where switching between trends and funnels with the option enabled would
             // result in an error before uncommenting
-            // ...(getCompare(node) ? { compare: getCompare(node) } : {}),
-            ...(getShowValuesOnSeries(node) ? { showValuesOnSeries: getShowValuesOnSeries(node) } : {}),
-            ...(getShowPercentStackView(node) ? { showPercentStackView: getShowPercentStackView(node) } : {}),
-            ...(getDisplay(node) ? { display: getDisplay(node) } : {}),
-            ...(getResultCustomizations(nodeTrendsStickiness)
-                ? { resultCustomizations: getResultCustomizations(nodeTrendsStickiness) }
+            // ...(cache.commonFilter?.compare ? { compare: cache.commonFilter.compare } : {}),
+            ...(cache.commonFilter?.showValuesOnSeries
+                ? { showValuesOnSeries: cache.commonFilter.showValuesOnSeries }
                 : {}),
+            ...(cache.commonFilter?.showPercentStackView
+                ? { showPercentStackView: cache.commonFilter.showPercentStackView }
+                : {}),
+            ...(cache.commonFilter?.display ? { display: cache.commonFilter.display } : {}),
+        }
+
+        if (isTrendsQuery(query) && isTrendsQuery(mergedQuery)) {
+            mergedQuery.trendsFilter = {
+                ...query.trendsFilter,
+                ...cache.trendsFilter,
+                ...commonVisualizationProperties,
+                ...(cache.commonFilterTrendsStickiness?.resultCustomizations
+                    ? { resultCustomizations: cache.commonFilterTrendsStickiness.resultCustomizations }
+                    : {}),
+            }
+        } else if (isStickinessQuery(query) && isStickinessQuery(mergedQuery)) {
+            mergedQuery.stickinessFilter = {
+                ...query.stickinessFilter,
+                ...cache.stickinessFilter,
+                ...commonVisualizationProperties,
+                ...(cache.commonFilterTrendsStickiness?.resultCustomizations
+                    ? { resultCustomizations: cache.commonFilterTrendsStickiness.resultCustomizations }
+                    : {}),
+            }
+        } else if (isFunnelsQuery(query) && isFunnelsQuery(mergedQuery)) {
+            mergedQuery.funnelsFilter = {
+                ...query.funnelsFilter,
+                ...cache.funnelsFilter,
+                ...commonVisualizationProperties,
+            }
+        } else if (isRetentionQuery(query) && isRetentionQuery(mergedQuery)) {
+            mergedQuery.retentionFilter = {
+                ...query.retentionFilter,
+                ...cache.retentionFilter,
+                ...commonVisualizationProperties,
+            }
+        } else if (isPathsQuery(query) && isPathsQuery(mergedQuery)) {
+            mergedQuery.pathsFilter = {
+                ...query.pathsFilter,
+                ...cache.pathsFilter,
+                ...commonVisualizationProperties,
+            }
+        } else if (isLifecycleQuery(query) && isLifecycleQuery(mergedQuery)) {
+            mergedQuery.lifecycleFilter = {
+                ...query.lifecycleFilter,
+                ...cache.lifecycleFilter,
+                ...commonVisualizationProperties,
+            }
         }
     }
 

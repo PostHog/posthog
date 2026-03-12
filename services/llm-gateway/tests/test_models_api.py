@@ -163,8 +163,8 @@ class TestListModelsForProductEndpoint:
         assert "gpt-4o" in model_ids
         assert "o1" in model_ids
 
-    def test_twig_filters_models_by_allowed_list(self, client: TestClient):
-        response = client.get("/twig/v1/models")
+    def test_posthog_code_filters_models_by_allowed_list(self, client: TestClient):
+        response = client.get("/posthog_code/v1/models")
         assert response.status_code == 200
         data = response.json()
         model_ids = {m["id"] for m in data["data"]}
@@ -174,13 +174,15 @@ class TestListModelsForProductEndpoint:
         assert "o1" not in model_ids
         assert "claude-3-5-sonnet-20241022" not in model_ids
 
-    def test_array_alias_routes_to_twig(self, client: TestClient):
-        response = client.get("/array/v1/models")
+    @pytest.mark.parametrize("alias", ["twig", "array"])
+    def test_legacy_alias_routes_to_posthog_code(self, client: TestClient, alias: str):
+        response = client.get(f"/{alias}/v1/models")
         assert response.status_code == 200
         data = response.json()
         model_ids = {m["id"] for m in data["data"]}
-        assert "claude-sonnet-4-5" in model_ids
-        assert "gpt-4o" not in model_ids
+        posthog_code_response = client.get("/posthog_code/v1/models")
+        posthog_code_model_ids = {m["id"] for m in posthog_code_response.json()["data"]}
+        assert model_ids == posthog_code_model_ids
 
     def test_returns_error_for_invalid_product(self, client: TestClient):
         response = client.get("/invalid_product/v1/models")

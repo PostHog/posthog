@@ -6,7 +6,7 @@ from openai import AsyncOpenAI, OpenAI
 
 Product = Literal[
     "llm_gateway",
-    "twig",
+    "posthog_code",
     "background_agents",
     "wizard",
     "django",

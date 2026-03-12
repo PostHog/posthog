@@ -1,7 +1,7 @@
 import equal from 'fast-deep-equal'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 
-import { isEmptyProperty } from 'lib/components/PropertyFilters/utils'
+import { isEmptyProperty, propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { areObjectValuesEmpty, calculateDays, isNumeric } from 'lib/utils'
 import { BEHAVIORAL_TYPE_TO_LABEL, CRITERIA_VALIDATIONS, ROWS } from 'scenes/cohorts/CohortFilters/constants'
@@ -13,6 +13,7 @@ import {
     FilterType,
 } from 'scenes/cohorts/CohortFilters/types'
 
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
     ActionType,
     AnyCohortCriteriaType,
@@ -27,6 +28,7 @@ import {
     FilterLogicalOperator,
     PropertyFilterType,
     PropertyOperator,
+    PropertyType,
     TimeUnitType,
 } from '~/types'
 
@@ -338,17 +340,59 @@ export function validateGroup(
                     ? CohortClientErrors.EmptyEventFilters
                     : undefined
 
+            const cRecord = c as Record<string, unknown>
             const criteriaErrors = Object.fromEntries(
-                requiredFields.map(({ fieldKey, type }) => [
-                    fieldKey,
-                    (
-                        Array.isArray(c[fieldKey])
-                            ? c[fieldKey].length > 0
-                            : c[fieldKey] !== undefined && c[fieldKey] !== null && c[fieldKey] !== ''
-                    )
-                        ? undefined
-                        : CRITERIA_VALIDATIONS?.[type](c[fieldKey]),
-                ])
+                requiredFields.map(({ fieldKey, type }) => {
+                    const fieldValue = cRecord[fieldKey]
+                    const hasValue = Array.isArray(fieldValue)
+                        ? fieldValue.length > 0
+                        : fieldValue !== undefined && fieldValue !== null && fieldValue !== ''
+
+                    if (!hasValue) {
+                        return [
+                            fieldKey,
+                            CRITERIA_VALIDATIONS?.[type](fieldValue as string | number | null | undefined),
+                        ]
+                    }
+
+                    // Add numeric validation for person property values
+                    if (
+                        fieldKey === 'value_property' &&
+                        'key' in c &&
+                        'type' in c &&
+                        c.type === BehavioralFilterKey.Person
+                    ) {
+                        const propertyKey = c.key as string
+                        const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(
+                            PropertyFilterType.Person
+                        )
+
+                        const mountedModel = propertyDefinitionsModel.findMounted()
+                        if (
+                            mountedModel &&
+                            mountedModel.values.describeProperty &&
+                            mountedModel.values.describeProperty(propertyKey, propertyDefinitionType) ===
+                                PropertyType.Numeric
+                        ) {
+                            const values = Array.isArray(fieldValue) ? fieldValue : [fieldValue]
+                            const invalidValues = values.filter((val) => {
+                                const strVal = String(val).trim()
+                                // Empty values are considered valid (handled by required field validation)
+                                if (strVal === '') {
+                                    return false
+                                }
+                                // Strict numeric validation: allow optional sign, digits with optional single decimal point
+                                return !/^[+-]?(\d+\.?|\d*\.\d+)$/.test(strVal)
+                            })
+
+                            if (invalidValues.length > 0) {
+                                return [fieldKey, CohortClientErrors.InvalidNumericPersonPropertyValue]
+                            }
+                        }
+                    }
+
+                    return [fieldKey, undefined]
+                })
             )
 
             const allErrors = { ...criteriaErrors, event_filters: eventFilterError }
@@ -434,7 +478,10 @@ export function resolveCohortFieldValue(
     if (fieldKey === 'value') {
         return criteriaToBehavioralFilterType(criteria)
     }
-    return criteria?.[fieldKey] ?? null
+    return (
+        (criteria as Record<string, string | number | boolean | null | undefined | AnyPropertyFilter[]>)[fieldKey] ??
+        null
+    )
 }
 
 export function applyAllCriteriaGroup(

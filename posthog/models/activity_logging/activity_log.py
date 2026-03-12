@@ -77,6 +77,7 @@ ActivityScope = Literal[
     "WebAnalyticsFilterPreset",
     "CustomerProfileConfig",
     "Log",
+    "LogsAlertConfiguration",
     "ProductTour",
     "Ticket",
 ]
@@ -286,6 +287,13 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "last_error_at",
     ],
     "Dashboard": ["last_accessed_at"],
+    "LogsAlertConfiguration": [
+        "next_check_at",
+        "last_notified_at",
+        "last_checked_at",
+        "consecutive_failures",
+        "state",
+    ],
     "PersonalAPIKey": [
         "last_used_at",
     ],

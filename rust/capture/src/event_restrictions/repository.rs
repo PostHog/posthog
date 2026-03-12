@@ -26,6 +26,10 @@ pub struct RestrictionEntry {
     pub event_names: Vec<String>,
     #[serde(default)]
     pub event_uuids: Vec<String>,
+    #[serde(default)]
+    pub args: Option<serde_json::Value>,
+    #[serde(default)]
+    pub index: Option<i64>,
 }
 
 impl RestrictionEntry {
@@ -49,6 +53,7 @@ impl RestrictionEntry {
         Restriction {
             restriction_type,
             scope,
+            args: self.args,
         }
     }
 }

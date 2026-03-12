@@ -563,14 +563,12 @@ function LLMAnalyticsSceneContent(): JSX.Element {
             >
                 Playground
             </Link>,
-            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB] || isEarlyAdopter ? (
-                <Link
-                    to={combineUrl(urls.llmAnalyticsClusters(), searchParams).url}
-                    onClick={() => toggleProduct('Clusters', true)}
-                >
-                    clusters
-                </Link>
-            ) : null,
+            <Link
+                to={combineUrl(urls.llmAnalyticsClusters(), searchParams).url}
+                onClick={() => toggleProduct('Clusters', true)}
+            >
+                clusters
+            </Link>,
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS] ? (
                 <Link
                     to={combineUrl(urls.llmAnalyticsDatasets(), searchParams).url}

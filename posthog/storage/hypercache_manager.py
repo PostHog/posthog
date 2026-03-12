@@ -247,6 +247,12 @@ class HyperCacheManagementConfig:
         """Name of management command for detailed analysis."""
         return f"analyze_{self.cache_name}_cache_sizes"
 
+    def get_teams_queryset(self) -> "QuerySet":
+        """Return the base queryset of teams to process, falling back to all teams."""
+        if self.get_teams_queryset_fn is not None:
+            return self.get_teams_queryset_fn()
+        return Team.objects.all()
+
 
 def invalidate_all_caches(config: HyperCacheManagementConfig) -> int:
     """
@@ -312,7 +318,8 @@ def warm_caches(
         stagger_ttl: If True, randomize TTLs between min/max to avoid synchronized expiration
         min_ttl_days: Minimum TTL in days (when staggering)
         max_ttl_days: Maximum TTL in days (when staggering)
-        team_ids: Optional list of team IDs to warm (if None, warms all teams)
+        team_ids: Optional list of team IDs to warm. Bypasses config scoping when provided.
+            If None, warms teams from config.get_teams_queryset().
         progress_callback: Optional callback for progress reporting.
             Called with (processed, total, successful, failed) after each batch.
         batch_start_callback: Optional callback called before each batch starts.
@@ -339,12 +346,10 @@ def warm_caches(
                 invalidated = invalidate_all_caches(config)
                 logger.info("Invalidated caches", count=invalidated)
 
-        # Warm all teams (not just scoped ones) so every team has a cache entry.
-        # This prevents cache misses at read time for teams without flags, which
-        # would otherwise fall through to a database lookup on every request.
-        teams_queryset = Team.objects.select_related("organization", "project")
         if team_ids:
-            teams_queryset = teams_queryset.filter(id__in=team_ids)
+            teams_queryset = Team.objects.filter(id__in=team_ids).select_related("organization", "project")
+        else:
+            teams_queryset = config.get_teams_queryset().select_related("organization", "project")
 
         total_teams = teams_queryset.count()
 

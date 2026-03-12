@@ -1554,16 +1554,16 @@ wheels = [
 
 [[package]]
 name = "django"
-version = "4.2.28"
+version = "4.2.29"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "asgiref" },
     { name = "sqlparse" },
     { name = "tzdata", marker = "sys_platform == 'win32'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/fa/a9/25b75b11a4c7a6efe1661c181afe504992e0659ca6eedb72a065cdd91a25/django-4.2.28.tar.gz", hash = "sha256:a4b9cd881991add394cafa8bb3b11ad1742d1e1470ba99c3ef53dc540316ccfe", size = 10464933, upload-time = "2026-02-03T13:55:27.686Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1e/7d/7306757cf2ac016d718d8a5dbae66de630addaa73dca2c341fc388458e71/django-4.2.29.tar.gz", hash = "sha256:86d91bc8086569c8d08f9c55888b583a921ac1f95ed3bdc7d5659d4709542014", size = 10438980, upload-time = "2026-03-03T13:56:42.083Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/68/20/6d0808bc7500a6c654eae17b53f791a50af2c3f3ac4f328cbec324948c31/django-4.2.28-py3-none-any.whl", hash = "sha256:49a23c1b83ef31525f8d71a57b040f91d34660edb3f086280a8519855655ed3c", size = 7995543, upload-time = "2026-02-03T13:55:09.798Z" },
+    { url = "https://files.pythonhosted.org/packages/ae/2b/bd0a1d1846d5580e9f209b9e0128b4859e381ec1b39d6d175c61294bb530/django-4.2.29-py3-none-any.whl", hash = "sha256:074d7c4d2808050e528388bda442bd491f06def4df4fe863f27066851bba010c", size = 7996481, upload-time = "2026-03-03T13:56:36.495Z" },
 ]
 
 [[package]]
@@ -5070,7 +5070,7 @@ requires-dist = [
     { name = "deltalake", extras = ["pyarrow"], specifier = "==1.4.0" },
     { name = "disposable-email-domains", specifier = "~=0.0.140" },
     { name = "dj-database-url", specifier = "==0.5.0" },
-    { name = "django", specifier = "~=4.2.28" },
+    { name = "django", specifier = "~=4.2.29" },
     { name = "django-admin-inline-paginator", specifier = "===0.4.0" },
     { name = "django-axes", extras = ["ipware"], specifier = "==8.0.0" },
     { name = "django-cors-headers", specifier = "~=4.8.0" },

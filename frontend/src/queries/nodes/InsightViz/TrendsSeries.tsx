@@ -94,7 +94,7 @@ export function TrendsSeries(): JSX.Element | null {
                 }}
                 typeKey={keyForInsightLogicProps('new')(insightProps)}
                 buttonCopy={`Add graph ${hasFormula ? 'variable' : 'series'}`}
-                showSeriesIndicator={display !== ChartDisplayType.BoxPlot}
+                showSeriesIndicator
                 showNestedArrow
                 entitiesLimit={
                     (display && SINGLE_SERIES_DISPLAY_TYPES.includes(display) && !hasFormula) || isLifecycle

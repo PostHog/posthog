@@ -1,3 +1,4 @@
+import shlex
 import logging
 from dataclasses import dataclass
 
@@ -111,6 +112,40 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             if clone_result.exit_code != 0:
                 sandbox.destroy()
                 raise RuntimeError(f"Failed to clone repository {ctx.repository}: {clone_result.stderr}")
+
+        if ctx.branch:
+            emit_agent_log(ctx.run_id, "info", f"Checking out branch {ctx.branch}")
+            org, repo = ctx.repository.lower().split("/")
+            repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+
+            # For snapshot-based sandboxes, update the remote URL with the fresh token
+            # since the snapshotted .git/config may contain an expired token.
+            if used_snapshot and github_token:
+                update_remote = (
+                    f"cd {shlex.quote(repo_path)} && "
+                    f"git remote set-url origin https://x-access-token:{shlex.quote(github_token)}@github.com/{shlex.quote(ctx.repository)}.git"
+                )
+                update_result = sandbox.execute(update_remote, timeout_seconds=30)
+                if update_result.exit_code != 0:
+                    logger.warning(
+                        "Failed to update remote URL for snapshot",
+                        extra={"branch": ctx.branch, "stderr": update_result.stderr},
+                    )
+
+            fetch_and_checkout = (
+                f"cd {shlex.quote(repo_path)} && "
+                f"git fetch --depth 1 origin -- {shlex.quote(ctx.branch)} && "
+                f"git checkout -B {shlex.quote(ctx.branch)} FETCH_HEAD"
+            )
+            try:
+                result = sandbox.execute(fetch_and_checkout, timeout_seconds=5 * 60)
+            except Exception:
+                sandbox.destroy()
+                raise
+            if result.exit_code != 0:
+                sandbox.destroy()
+                logger.warning("Branch checkout failed", extra={"branch": ctx.branch, "stderr": result.stderr})
+                raise RuntimeError(f"Failed to checkout branch {ctx.branch}")
 
         credentials = sandbox.get_connect_credentials()
 

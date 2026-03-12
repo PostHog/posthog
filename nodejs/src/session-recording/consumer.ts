@@ -22,20 +22,14 @@ import { SessionMetadataStore } from '../session-replay/shared/metadata/session-
 import { RetentionService } from '../session-replay/shared/retention/retention-service'
 import { TeamService } from '../session-replay/shared/teams/team-service'
 import { KeyStore, RecordingEncryptor } from '../session-replay/shared/types'
-import {
-    HealthCheckResult,
-    PluginServerService,
-    PluginsServerConfig,
-    RedisPool,
-    SessionRecordingConfig,
-    ValueMatcher,
-} from '../types'
+import { HealthCheckResult, PluginServerService, PluginsServerConfig, RedisPool, ValueMatcher } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
 import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { PromiseScheduler } from '../utils/promise-scheduler'
+import { SessionRecordingConfig } from './config'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
