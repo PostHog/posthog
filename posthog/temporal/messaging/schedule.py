@@ -32,10 +32,14 @@ from posthog.settings.schedules import (
     REALTIME_COHORT_CALCULATION_P90_P95_INTERVAL_MINUTES,
     REALTIME_COHORT_CALCULATION_P90_P95_PARALLELISM,
     REALTIME_COHORT_CALCULATION_P90_P95_WORKFLOWS_PER_BATCH,
-    REALTIME_COHORT_CALCULATION_P95_P100_BATCH_DELAY_MINUTES,
-    REALTIME_COHORT_CALCULATION_P95_P100_INTERVAL_MINUTES,
-    REALTIME_COHORT_CALCULATION_P95_P100_PARALLELISM,
-    REALTIME_COHORT_CALCULATION_P95_P100_WORKFLOWS_PER_BATCH,
+    REALTIME_COHORT_CALCULATION_P95_P99_BATCH_DELAY_MINUTES,
+    REALTIME_COHORT_CALCULATION_P95_P99_INTERVAL_MINUTES,
+    REALTIME_COHORT_CALCULATION_P95_P99_PARALLELISM,
+    REALTIME_COHORT_CALCULATION_P95_P99_WORKFLOWS_PER_BATCH,
+    REALTIME_COHORT_CALCULATION_P99_P100_BATCH_DELAY_MINUTES,
+    REALTIME_COHORT_CALCULATION_P99_P100_INTERVAL_MINUTES,
+    REALTIME_COHORT_CALCULATION_P99_P100_PARALLELISM,
+    REALTIME_COHORT_CALCULATION_P99_P100_WORKFLOWS_PER_BATCH,
 )
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 from posthog.temporal.messaging.constants import (
@@ -44,7 +48,8 @@ from posthog.temporal.messaging.constants import (
     REALTIME_COHORT_CALCULATION_P50_P80_SCHEDULE_ID,
     REALTIME_COHORT_CALCULATION_P80_P90_SCHEDULE_ID,
     REALTIME_COHORT_CALCULATION_P90_P95_SCHEDULE_ID,
-    REALTIME_COHORT_CALCULATION_P95_P100_SCHEDULE_ID,
+    REALTIME_COHORT_CALCULATION_P95_P99_SCHEDULE_ID,
+    REALTIME_COHORT_CALCULATION_P99_P100_SCHEDULE_ID,
     REALTIME_COHORT_CALCULATION_SCHEDULE_ID,
 )
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
@@ -120,17 +125,31 @@ async def create_realtime_cohort_calculation_p90_p95_schedule(client: Client):
     )
 
 
-async def create_realtime_cohort_calculation_p95_p100_schedule(client: Client):
-    """Create or update schedule for p95-p100 cohorts."""
+async def create_realtime_cohort_calculation_p95_p99_schedule(client: Client):
+    """Create or update schedule for p95-p99 cohorts."""
     await create_realtime_cohort_calculation_schedule_with_id(
         client=client,
-        schedule_id=REALTIME_COHORT_CALCULATION_P95_P100_SCHEDULE_ID,
+        schedule_id=REALTIME_COHORT_CALCULATION_P95_P99_SCHEDULE_ID,
         duration_percentile_min=95.0,
+        duration_percentile_max=99.0,
+        interval_minutes=REALTIME_COHORT_CALCULATION_P95_P99_INTERVAL_MINUTES,
+        parallelism=REALTIME_COHORT_CALCULATION_P95_P99_PARALLELISM,
+        workflows_per_batch=REALTIME_COHORT_CALCULATION_P95_P99_WORKFLOWS_PER_BATCH,
+        batch_delay_minutes=REALTIME_COHORT_CALCULATION_P95_P99_BATCH_DELAY_MINUTES,
+    )
+
+
+async def create_realtime_cohort_calculation_p99_p100_schedule(client: Client):
+    """Create or update schedule for p99-p100 cohorts."""
+    await create_realtime_cohort_calculation_schedule_with_id(
+        client=client,
+        schedule_id=REALTIME_COHORT_CALCULATION_P99_P100_SCHEDULE_ID,
+        duration_percentile_min=99.0,
         duration_percentile_max=100.0,
-        interval_minutes=REALTIME_COHORT_CALCULATION_P95_P100_INTERVAL_MINUTES,
-        parallelism=REALTIME_COHORT_CALCULATION_P95_P100_PARALLELISM,
-        workflows_per_batch=REALTIME_COHORT_CALCULATION_P95_P100_WORKFLOWS_PER_BATCH,
-        batch_delay_minutes=REALTIME_COHORT_CALCULATION_P95_P100_BATCH_DELAY_MINUTES,
+        interval_minutes=REALTIME_COHORT_CALCULATION_P99_P100_INTERVAL_MINUTES,
+        parallelism=REALTIME_COHORT_CALCULATION_P99_P100_PARALLELISM,
+        workflows_per_batch=REALTIME_COHORT_CALCULATION_P99_P100_WORKFLOWS_PER_BATCH,
+        batch_delay_minutes=REALTIME_COHORT_CALCULATION_P99_P100_BATCH_DELAY_MINUTES,
     )
 
 
@@ -186,7 +205,7 @@ async def create_realtime_cohort_calculation_schedule_with_id(
 
 
 async def create_all_realtime_cohort_calculation_schedules(client: Client):
-    """Create or update all five percentile-based schedules for realtime cohort calculation.
+    """Create or update all six percentile-based schedules for realtime cohort calculation.
 
     Note: This migration is non-atomic. Between creating new schedules and deleting the old one,
     both schedules may fire simultaneously. The old schedule processes ALL cohorts while the new
@@ -200,7 +219,8 @@ async def create_all_realtime_cohort_calculation_schedules(client: Client):
     await create_realtime_cohort_calculation_p50_p80_schedule(client)
     await create_realtime_cohort_calculation_p80_p90_schedule(client)
     await create_realtime_cohort_calculation_p90_p95_schedule(client)
-    await create_realtime_cohort_calculation_p95_p100_schedule(client)
+    await create_realtime_cohort_calculation_p95_p99_schedule(client)
+    await create_realtime_cohort_calculation_p99_p100_schedule(client)
 
     # Then clean up the legacy schedules if they exist to prevent duplicate runs
     if await a_schedule_exists(client, REALTIME_COHORT_CALCULATION_SCHEDULE_ID):
@@ -210,3 +230,8 @@ async def create_all_realtime_cohort_calculation_schedules(client: Client):
     old_p0_p90_schedule_id = "realtime-cohort-calculation-p0-p90"
     if await a_schedule_exists(client, old_p0_p90_schedule_id):
         await a_delete_schedule(client, old_p0_p90_schedule_id)
+
+    # Clean up the old p95-p100 schedule that we're replacing with p95-p99, p99-p100
+    old_p95_p100_schedule_id = "realtime-cohort-calculation-p95-p100"
+    if await a_schedule_exists(client, old_p95_p100_schedule_id):
+        await a_delete_schedule(client, old_p95_p100_schedule_id)

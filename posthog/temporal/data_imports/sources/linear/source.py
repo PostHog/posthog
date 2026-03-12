@@ -66,8 +66,10 @@ class LinearSource(SimpleSource[LinearSourceConfig], OAuthMixin):
             raise ValueError("Linear access token not found")
         return integration.access_token
 
-    def get_schemas(self, config: LinearSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
-        return [
+    def get_schemas(
+        self, config: LinearSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
+        schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
@@ -76,6 +78,10 @@ class LinearSource(SimpleSource[LinearSourceConfig], OAuthMixin):
             )
             for endpoint in list(ENDPOINTS)
         ]
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+        return schemas
 
     def validate_credentials(
         self, config: LinearSourceConfig, team_id: int, schema_name: Optional[str] = None

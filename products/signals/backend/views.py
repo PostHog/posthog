@@ -96,7 +96,7 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = SignalSourceConfigSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
-    scope_object = "INTERNAL"
+    scope_object = "task"
     queryset = SignalSourceConfig.objects.all().order_by("-updated_at")
 
     def perform_create(self, serializer):

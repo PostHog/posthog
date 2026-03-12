@@ -579,20 +579,44 @@ describe('LogsRateLimiterService', () => {
                 observeSpy.mockRestore()
             })
 
-            it('should use first message timestamp for rate limiting when multiple messages in batch', async () => {
+            it('should use max message timestamp for team when multiple messages in batch', async () => {
                 const time1 = new Date('2024-01-01T00:00:00Z').toISOString()
                 const time2 = new Date('2024-01-01T00:00:10Z').toISOString() // 10 seconds later
 
-                // Both messages for same team, first one's timestamp should be used for rate limiting
+                // Both messages for same team, max timestamp should be used for refill calculation
                 const messages = [
                     createMessageWithHeaders(1, 5120, [{ created_at: time1 }]), // 5KB
-                    createMessageWithHeaders(1, 3072, [{ created_at: time2 }]), // 3KB - rate limiter uses time1's timestamp
+                    createMessageWithHeaders(1, 3072, [{ created_at: time2 }]), // 3KB
                 ]
 
                 const result = await rateLimiter.filterMessages(messages)
 
                 expect(result.allowed).toHaveLength(2)
                 expect(result.dropped).toHaveLength(0)
+            })
+
+            it('should allow more throughput when batch spans time (backfill scenario)', async () => {
+                // Simulate backfill: first batch drains the bucket
+                const t0 = new Date('2024-01-01T00:00:00Z').toISOString()
+                const messages1 = [createMessageWithHeaders(1, 10000, [{ created_at: t0 }])] // 10KB = full bucket
+                const result1 = await rateLimiter.filterMessages(messages1)
+                expect(result1.allowed).toHaveLength(1)
+
+                // Second batch arrives 10 seconds later.
+                // Bucket is empty, refill rate is 1KB/s, so 10 seconds of refill = 10KB.
+                // filterMessages uses the oldest timestamp per team, so all messages
+                // need to be at t10 for the refill to kick in.
+                const t10 = new Date('2024-01-01T00:00:10Z').toISOString()
+                const messages2 = [
+                    createMessageWithHeaders(1, 5120, [{ created_at: t10 }]), // 5KB at t0+10s
+                    createMessageWithHeaders(1, 3072, [{ created_at: t10 }]), // 3KB at t0+10s
+                ]
+
+                const result2 = await rateLimiter.filterMessages(messages2)
+
+                // Oldest timestamp t10 gives 10KB refill from t0, enough for 5+3=8KB
+                expect(result2.allowed).toHaveLength(2)
+                expect(result2.dropped).toHaveLength(0)
             })
 
             it('should handle empty headers array', async () => {

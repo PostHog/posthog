@@ -49,18 +49,3 @@ PublicLink.args = {
     id: '1',
     shareType: 'public',
 }
-
-export const LinearLink: Story = Template.bind({})
-LinearLink.args = {
-    seconds: 120,
-    id: '1',
-    shareType: 'linear',
-}
-
-export const LinearLinkWithMoreOptionsExpanded: Story = Template.bind({})
-LinearLinkWithMoreOptionsExpanded.args = {
-    seconds: 120,
-    id: '1',
-    shareType: 'linear',
-    expandMoreOptions: true,
-}

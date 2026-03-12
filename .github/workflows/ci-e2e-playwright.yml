@@ -12,7 +12,7 @@ on:
             - master
 
 permissions:
-    contents: write
+    contents: read
     pull-requests: write
 
 env:
@@ -290,6 +290,9 @@ jobs:
               with:
                   node-version: 24.13.0
                   cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-e2e-playwright.yml
 
             # tests would intermittently fail in GH actions
             # with exit code 134 _after passing_ all tests
@@ -695,6 +698,9 @@ jobs:
         runs-on: ubuntu-latest
         needs: [playwright, detect-snapshot-mode, changes]
         if: always() && needs.detect-snapshot-mode.outputs.mode == 'update' && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+        permissions:
+            contents: write
+            pull-requests: write
         steps:
             # Use GitHub app token so Actions run after commiting updated snapshots
             - name: Get app token

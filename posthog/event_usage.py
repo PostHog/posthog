@@ -315,6 +315,7 @@ def get_mcp_properties(request) -> dict[str, str | None]:
         "mcp_client_name": sanitize_header_value(request.headers.get("X-Posthog-Mcp-Client-Name")),
         "mcp_client_version": sanitize_header_value(request.headers.get("X-Posthog-Mcp-Client-Version")),
         "mcp_protocol_version": sanitize_header_value(request.headers.get("X-Posthog-Mcp-Protocol-Version")),
+        "mcp_oauth_client_name": sanitize_header_value(request.headers.get("X-Posthog-Mcp-Oauth-Client-Name")),
     }
 
 
