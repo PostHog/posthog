@@ -1,11 +1,6 @@
 import { useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -21,7 +16,6 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { DataModelingTab } from './scene/DataModelingTab'
 import { OverviewTab } from './scene/OverviewTab'
-import { SourcesTab } from './scene/SourcesTab'
 import { ViewsTab } from './scene/ViewsTab'
 
 export const scene: SceneExport = {
@@ -47,28 +41,6 @@ export function DataWarehouseScene(): JSX.Element {
                 resourceType={{
                     type: sceneConfigurations[Scene.DataOps].iconType || 'default_icon_type',
                 }}
-                actions={
-                    <div className="flex gap-2">
-                        <AppShortcut
-                            name="NewDataWarehouseSource"
-                            keybind={[keyBinds.new]}
-                            intent="New source"
-                            interaction="click"
-                            scope={Scene.DataOps}
-                        >
-                            <LemonButton
-                                type="primary"
-                                to={urls.dataWarehouseSourceNew()}
-                                icon={<IconPlusSmall />}
-                                size="small"
-                                tooltip="New source"
-                                data-attr="new-source-button"
-                            >
-                                New source
-                            </LemonButton>
-                        </AppShortcut>
-                    </div>
-                }
             />
             <LemonTabs
                 activeKey={activeTab}
@@ -79,12 +51,6 @@ export function DataWarehouseScene(): JSX.Element {
                         label: 'Overview',
                         content: <OverviewTab />,
                         link: urls.dataOps(),
-                    },
-                    {
-                        key: DataWarehouseTab.SOURCES,
-                        label: 'Sources',
-                        content: <SourcesTab />,
-                        link: combineUrl(urls.dataOps(), { ...searchParams, tab: DataWarehouseTab.SOURCES }).url,
                     },
                     {
                         key: DataWarehouseTab.VIEWS,

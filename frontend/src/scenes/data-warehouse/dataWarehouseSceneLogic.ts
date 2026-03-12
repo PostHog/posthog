@@ -22,11 +22,8 @@ import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
 import { externalDataSourcesLogic } from './externalDataSourcesLogic'
 import { dataWarehouseViewsLogic } from './saved_queries/dataWarehouseViewsLogic'
 
-const REFRESH_INTERVAL = 10000
-
 export enum DataWarehouseTab {
     OVERVIEW = 'overview',
-    SOURCES = 'sources',
     VIEWS = 'views',
     MODELING = 'modeling',
 }
@@ -48,7 +45,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             databaseTableListLogic,
             ['loadDatabase'],
             externalDataSourcesLogic,
-            ['loadSources', 'loadSourcesSuccess'],
+            ['loadSources'],
             billingLogic,
             ['loadBilling'],
         ],
@@ -226,7 +223,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions, cache }) => ({
+    listeners(({ values, actions }) => ({
         setActivityRunningCurrentPage: () => {
             actions.checkAutoLoadMoreRunning()
         },
@@ -291,19 +288,6 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 actions.loadCompletedActivityResponseSuccess(newResponse)
             } catch (error) {
                 posthog.captureException(error)
-            }
-        },
-        loadSourcesSuccess: () => {
-            // Remove any existing refresh timeout
-            cache.disposables.dispose('refreshTimeout')
-
-            if (router.values.location.pathname.includes('data-ops')) {
-                cache.disposables.add(() => {
-                    const timerId = setTimeout(() => {
-                        actions.loadSources()
-                    }, REFRESH_INTERVAL)
-                    return () => clearTimeout(timerId)
-                }, 'refreshTimeout')
             }
         },
     })),
