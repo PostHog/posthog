@@ -18,9 +18,13 @@ jobs:
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run Rust checks
+        permissions:
+            contents: read
+            pull-requests: read
         # Set job outputs to values from filter step
         outputs:
             rust: ${{ steps.filter.outputs.rust || 'true' }}
+            matrix: ${{ steps.shards.outputs.matrix }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -39,10 +43,87 @@ jobs:
                         - '.github/workflows/ci-rust.yml'
                         - '.github/workflows/rust.yml'
                         - '.github/workflows/rust-docker-build.yml'
+                        - '.github/actions/setup-protoc/**'
+                        - '.github/actions/setup-sccache/**'
                         - 'posthog/management/commands/setup_test_environment.py'
                         - 'posthog/migrations/**'
                         - 'ee/migrations/**'
                         - 'docker-compose.dev.yml'
+
+            # Bin-pack packages into balanced test shards.
+            # Weights are approximate test durations in seconds — update periodically.
+            - name: Compute test shards
+              id: shards
+              if: steps.filter.outputs.rust != 'false'
+              shell: python3 {0}
+              run: |
+                  import json, os
+
+                  packages = {
+                      "assignment-coordination": 5,
+                      "batch-import-worker": 137,
+                      "capture": 198,
+                      "capture-logs": 130,
+                      "common-alloc": 37,
+                      "common-compression": 14,
+                      "common-cookieless": 72,
+                      "common-database": 10,
+                      "common-dns": 8,
+                      "common-geoip": 4,
+                      "common-hypercache": 93,
+                      "common-kafka": 68,
+                      "common-metrics": 7,
+                      "common-profiler": 49,
+                      "common-s3": 29,
+                      "cyclotron-core": 25,
+                      "cyclotron-janitor": 107,
+                      "cyclotron-node": 22,
+                      "cymbal": 173,
+                      "embedding-worker": 98,
+                      "feature-flags": 241,
+                      "health": 8,
+                      "hogvm": 5,
+                      "hook-api": 88,
+                      "hook-common": 73,
+                      "hook-janitor": 94,
+                      "hook-worker": 100,
+                      "kafka-assigner": 30,
+                      "kafka-deduplicator": 239,
+                      "limiters": 23,
+                      "lifecycle": 10,
+                      "personhog-coordination": 30,
+                      "personhog-replica": 49,
+                      "personhog-router": 10,
+                      "posthog-symbol-data": 4,
+                      "property-defs-rs": 93,
+                      "serve-metrics": 8,
+                  }
+
+                  TARGET_SHARDS = 8
+
+                  # Greedy bin-packing: largest first into lightest bucket
+                  buckets = [[] for _ in range(TARGET_SHARDS)]
+                  times = [0] * TARGET_SHARDS
+
+                  for pkg, t in sorted(packages.items(), key=lambda x: -x[1]):
+                      lightest = min(range(TARGET_SHARDS), key=lambda i: times[i])
+                      buckets[lightest].append(pkg)
+                      times[lightest] += t
+
+                  matrix = {
+                      "include": [
+                          {"packages": " ".join(sorted(b))}
+                          for b in buckets
+                          if b
+                      ]
+                  }
+
+                  for i, b in enumerate(buckets):
+                      if b:
+                          print(f"Shard {i + 1} ({times[i]}s): {', '.join(sorted(b))}")
+
+                  with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                      f.write(f"matrix={json.dumps(matrix)}\n")
 
     build:
         name: Build Rust services
@@ -63,6 +144,8 @@ jobs:
                   sparse-checkout: |
                       rust/
                       proto/
+                      .github/actions/setup-protoc/
+                      .github/actions/setup-sccache/
                   sparse-checkout-cone-mode: false
                   clean: false
 
@@ -72,10 +155,7 @@ jobs:
                   sudo apt-get install -y libssl-dev pkg-config
 
             - name: Install protoc
-              uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
-              with:
-                  version: '28.x'
-                  repo-token: ${{ secrets.GITHUB_TOKEN }}
+              uses: ./.github/actions/setup-protoc
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
@@ -83,12 +163,7 @@ jobs:
                   toolchain: 1.91.1
 
             - name: Install sccache
-              uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-
-            - name: Configure sccache
-              run: |
-                  echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-                  sccache --start-server
+              uses: ./.github/actions/setup-sccache
 
             - name: Run cargo build
               env:
@@ -97,41 +172,9 @@ jobs:
               run: cargo build --all --locked --release && find target/release/ -maxdepth 1 -executable -type f | xargs strip
 
     test:
-        name: Test Rust services
+        name: Test Rust (${{ matrix.packages }})
         strategy:
-            matrix:
-                package:
-                    - batch-import-worker
-                    - capture
-                    - capture-logs
-                    - common-alloc
-                    - common-cookieless
-                    - common-compression
-                    - common-database
-                    - common-dns
-                    - common-geoip
-                    - common-hypercache
-                    - common-metrics
-                    - common-kafka
-                    - common-profiler
-                    - common-s3
-                    - cyclotron-core
-                    - cyclotron-node
-                    - cyclotron-janitor
-                    - cymbal
-                    - embedding-worker
-                    - feature-flags
-                    - health
-                    - hogvm
-                    - hook-api
-                    - hook-common
-                    - hook-janitor
-                    - hook-worker
-                    - kafka-deduplicator
-                    - limiters
-                    - posthog-symbol-data
-                    - property-defs-rs
-                    - serve-metrics
+            matrix: ${{ fromJSON(needs.changes.outputs.matrix) }}
         needs: changes
         if: needs.changes.outputs.rust == 'true'
         runs-on: depot-ubuntu-24.04-4
@@ -153,12 +196,14 @@ jobs:
               continue-on-error: true
 
             - name: Setup main repo and dependencies
+              env:
+                  COMPOSE_FILES: -f ../docker-compose.dev.yml -f ../docker-compose.profiles.yml --profile etcd
               run: |
-                  docker compose -f ../docker-compose.dev.yml down
+                  docker compose $COMPOSE_FILES down
 
                   # Retry docker compose up with exponential backoff to handle transient registry errors
                   for i in 1 2 3; do
-                    if docker compose -f ../docker-compose.dev.yml up -d; then
+                    if docker compose $COMPOSE_FILES up -d; then
                       echo "Docker compose up succeeded"
                       break
                     else
@@ -171,6 +216,8 @@ jobs:
                       fi
                     fi
                   done
+
+                  COMPOSE_FILE=../docker-compose.dev.yml ../bin/wait-for-docker
 
                   echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
@@ -188,30 +235,23 @@ jobs:
                   toolchain: 1.91.1
 
             - name: Install protoc
-              uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
-              with:
-                  version: '28.x'
-                  repo-token: ${{ secrets.GITHUB_TOKEN }}
+              uses: ./.github/actions/setup-protoc
 
             - name: Install sccache
-              uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-
-            - name: Configure sccache
-              run: |
-                  echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-                  sccache --start-server
+              uses: ./.github/actions/setup-sccache
 
             - name: Set up Python
-              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
-                  version: 0.9.9
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
@@ -224,8 +264,7 @@ jobs:
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev --directory ..
 
             - name: Install sqlx-cli
-              run: |
-                  cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+              uses: ./.github/actions/setup-sqlx-cli
 
             - name: Set up databases
               env:
@@ -249,12 +288,19 @@ jobs:
               env:
                   RUST_BACKTRACE: 1
                   # Set up dual database environment for feature-flags service
-                  PERSONS_READ_DATABASE_URL: ${{ matrix.package == 'feature-flags' && 'postgres://posthog:posthog@localhost:5432/posthog_persons' || '' }}
-                  PERSONS_WRITE_DATABASE_URL: ${{ matrix.package == 'feature-flags' && 'postgres://posthog:posthog@localhost:5432/posthog_persons' || '' }}
+                  PERSONS_READ_DATABASE_URL: ${{ contains(format(' {0} ', matrix.packages), ' feature-flags ') && 'postgres://posthog:posthog@localhost:5432/posthog_persons' || '' }}
+                  PERSONS_WRITE_DATABASE_URL: ${{ contains(format(' {0} ', matrix.packages), ' feature-flags ') && 'postgres://posthog:posthog@localhost:5432/posthog_persons' || '' }}
               run: |
-                  echo "Starting cargo test"
-                  cargo test -p ${{matrix.package}}
-                  echo "Cargo test completed"
+                  for pkg in ${{ matrix.packages }}; do
+                      echo "::group::Testing $pkg"
+                      extra_args=""
+                      # Limit test threads for packages with sqlx pool exhaustion issues
+                      if [ "$pkg" = "property-defs-rs" ]; then
+                          extra_args="-- --test-threads=4"
+                      fi
+                      cargo test -p "$pkg" $extra_args
+                      echo "::endgroup::"
+                  done
 
     linting:
         name: Lint Rust services
@@ -275,6 +321,8 @@ jobs:
                   sparse-checkout: |
                       rust/
                       proto/
+                      .github/actions/setup-protoc/
+                      .github/actions/setup-sccache/
                   sparse-checkout-cone-mode: false
                   clean: false
 
@@ -284,10 +332,7 @@ jobs:
                   sudo apt-get install -y libssl-dev pkg-config
 
             - name: Install protoc
-              uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
-              with:
-                  version: '28.x'
-                  repo-token: ${{ secrets.GITHUB_TOKEN }}
+              uses: ./.github/actions/setup-protoc
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
@@ -296,12 +341,7 @@ jobs:
                   components: clippy,rustfmt
 
             - name: Install sccache
-              uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-
-            - name: Configure sccache
-              run: |
-                  echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-                  sccache --start-server
+              uses: ./.github/actions/setup-sccache
 
             - name: Check format
               run: cargo fmt -- --check

@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { ConversionRateInputType, Experiment } from '~/types'
 
 import { DEFAULT_MDE, experimentLogic } from '../experimentLogic'
+import { isLaunched } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import {
     ManualCalculatorMetricType,
@@ -84,15 +85,19 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
 
         initialConfig: [
             (s) => [s.experiment, s.isManualMode],
-            (experiment, isManualMode): RunningTimeConfig => ({
-                mode: isManualMode ? 'manual' : 'automatic',
-                mde: experiment?.parameters?.minimum_detectable_effect ?? DEFAULT_MDE,
-                metricType:
-                    (experiment?.parameters?.exposure_estimate_config
-                        ?.manualMetricType as ManualCalculatorMetricType) ?? 'funnel',
-                baselineValue: experiment?.parameters?.exposure_estimate_config?.manualBaselineValue ?? 5,
-                exposureRate: experiment?.parameters?.exposure_estimate_config?.manualExposureRate ?? 100,
-            }),
+            (experiment, isManualMode): RunningTimeConfig => {
+                // Pre-launch experiments must use manual mode (no data available for automatic)
+                const isPreLaunch = !isLaunched(experiment)
+                return {
+                    mode: isPreLaunch || isManualMode ? 'manual' : 'automatic',
+                    mde: experiment?.parameters?.minimum_detectable_effect ?? DEFAULT_MDE,
+                    metricType:
+                        (experiment?.parameters?.exposure_estimate_config
+                            ?.manualMetricType as ManualCalculatorMetricType) ?? 'funnel',
+                    baselineValue: experiment?.parameters?.exposure_estimate_config?.manualBaselineValue ?? 5,
+                    exposureRate: experiment?.parameters?.exposure_estimate_config?.manualExposureRate ?? 100,
+                }
+            },
         ],
 
         config: [
@@ -215,7 +220,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
         persistRunningTimeEstimate: async () => {
             const { isManualMode, remainingDays, targetSampleSize, experiment, currentProjectId } = values
 
-            if (isManualMode || !experiment?.start_date || remainingDays === null || targetSampleSize === null) {
+            if (isManualMode || !isLaunched(experiment) || remainingDays === null || targetSampleSize === null) {
                 return
             }
 

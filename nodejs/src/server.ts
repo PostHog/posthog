@@ -4,20 +4,30 @@ import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 import express from 'ultimate-express'
 
-import { setupCommonRoutes, setupExpressApp } from './api/router'
+import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { InternalCaptureService } from '~/common/services/internal-capture'
+import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+
+import { initializePrometheusLabels, setupCommonRoutes, setupExpressApp } from './api/router'
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
+import { CdpConsumerBaseDeps } from './cdp/consumers/cdp-base.consumer'
 import { CdpBatchHogFlowRequestsConsumer } from './cdp/consumers/cdp-batch-hogflow.consumer'
 import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
-import { CdpCyclotronDelayConsumer } from './cdp/consumers/cdp-cyclotron-delay.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpDatawarehouseEventsConsumer } from './cdp/consumers/cdp-data-warehouse-events.consumer'
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
-import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
+import { CdpLegacyEventsConsumer, CdpLegacyEventsConsumerDeps } from './cdp/consumers/cdp-legacy-event.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
 import { CdpPrecalculatedFiltersConsumer } from './cdp/consumers/cdp-precalculated-filters.consumer'
+import {
+    HogTransformerServiceDeps,
+    createHogTransformerService,
+} from './cdp/hog-transformations/hog-transformer.service'
+import { CyclotronV2JanitorService } from './cdp/services/cyclotron-v2'
+import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { defaultConfig } from './config/config'
 import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
@@ -25,19 +35,30 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from './config/kafka-topics'
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
-import { IngestionConsumer } from './ingestion/ingestion-consumer'
+import { CookielessManager } from './ingestion/cookieless/cookieless-manager'
+import { IngestionConsumer, IngestionConsumerDeps } from './ingestion/ingestion-consumer'
+import { IngestionTestingConsumer } from './ingestion/ingestion-testing-consumer'
+import { KafkaProducerWrapper } from './kafka/producer'
 import { onShutdown } from './lifecycle'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
 import { SessionRecordingIngester } from './session-recording/consumer'
-import { Hub, PluginServerService, PluginsServerConfig } from './types'
+import { RecordingApi } from './session-replay/recording-api/recording-api'
+import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 import { ServerCommands } from './utils/commands'
-import { closeHub, createHub } from './utils/db/hub'
+import { PostgresRouter } from './utils/db/postgres'
+import { createRedisPoolFromConfig } from './utils/db/redis'
 import { isTestEnv } from './utils/env-utils'
+import { GeoIPService } from './utils/geoip'
 import { logger } from './utils/logger'
 import { NodeInstrumentation } from './utils/node-instrumentation'
 import { captureException, shutdown as posthogShutdown } from './utils/posthog'
 import { PubSub } from './utils/pubsub'
+import { TeamManager } from './utils/team-manager'
 import { delay } from './utils/utils'
+import { GroupTypeManager } from './worker/ingestion/group-type-manager'
+import { ClickhouseGroupRepository } from './worker/ingestion/groups/repositories/clickhouse-group-repository'
+import { PostgresGroupRepository } from './worker/ingestion/groups/repositories/postgres-group-repository'
+import { PostgresPersonRepository } from './worker/ingestion/persons/repositories/postgres-person-repository'
 
 const pluginServerStartupTimeMs = new Counter({
     name: 'plugin_server_startup_time_ms',
@@ -50,10 +71,19 @@ export class PluginServer {
     services: PluginServerService[] = []
     httpServer?: Server
     stopping = false
-    hub?: Hub
     expressApp: express.Application
     nodeInstrumentation: NodeInstrumentation
     private podTerminationTimer?: NodeJS.Timeout
+    private processListeners: Map<string, (...args: any[]) => void> = new Map()
+
+    // Infrastructure resources (tracked for shutdown cleanup)
+    private kafkaProducer?: KafkaProducerWrapper
+    private kafkaMetricsProducer?: KafkaProducerWrapper
+    private postgres?: PostgresRouter
+    private redisPool?: RedisPool
+    private posthogRedisPool?: RedisPool
+    private cookielessRedisPool?: RedisPool
+    private cookielessManager?: CookielessManager
 
     constructor(
         config: Partial<PluginsServerConfig> = {},
@@ -66,7 +96,7 @@ export class PluginServer {
             ...config,
         }
 
-        this.expressApp = setupExpressApp()
+        this.expressApp = setupExpressApp({ internalApiSecret: this.config.INTERNAL_API_SECRET })
         this.nodeInstrumentation = new NodeInstrumentation(this.config)
         this.setupContinuousProfiling()
     }
@@ -92,16 +122,98 @@ export class PluginServer {
         const startupTimer = new Date()
         this.setupListeners()
         this.nodeInstrumentation.setupThreadPerformanceInterval()
+        initializePrometheusLabels(this.config)
 
         const capabilities = getPluginServerCapabilities(this.config)
-        const hub = (this.hub = await createHub(this.config))
+
+        const needsIngestion = !!(capabilities.ingestionV2Combined || capabilities.ingestionV2)
+
+        const needsCdp = !!(
+            capabilities.cdpProcessedEvents ||
+            capabilities.cdpDataWarehouseEvents ||
+            capabilities.cdpInternalEvents ||
+            capabilities.cdpPersonUpdates ||
+            capabilities.cdpLegacyOnEvent ||
+            capabilities.cdpApi ||
+            capabilities.cdpCyclotronWorker ||
+            capabilities.cdpCyclotronWorkerHogFlow ||
+            capabilities.cdpPrecalculatedFilters ||
+            capabilities.cdpCohortMembership ||
+            capabilities.cdpBatchHogFlow
+        )
+        const needsLogs = !!capabilities.logsIngestion
 
         try {
+            // 1. Shared infrastructure (always needed)
+            const { teamManager } = await this.createSharedInfrastructure()
+
+            // 2. Services shared by ingestion + CDP (geoip, repos, encryption)
+            let ingestionCdpServices: Awaited<ReturnType<typeof this.createIngestionCdpServices>> | undefined
+            if (needsIngestion || needsCdp) {
+                ingestionCdpServices = await this.createIngestionCdpServices()
+            }
+
+            // 3. Ingestion-specific services (cookieless, group type, clickhouse groups)
+            let ingestionServices: ReturnType<typeof this.createIngestionServices> | undefined
+            if (needsIngestion) {
+                ingestionServices = this.createIngestionServices(teamManager, ingestionCdpServices!.groupRepository)
+            }
+
+            // 4. CDP + Logs services (posthog redis, quota limiting)
+            let cdpLogsServices: ReturnType<typeof this.createCdpLogsServices> | undefined
+            if (needsCdp || needsLogs) {
+                cdpLogsServices = this.createCdpLogsServices(teamManager)
+            }
+
+            // Build typed deps objects for consumers
+            const cdpDeps: CdpConsumerBaseDeps | undefined = needsCdp
+                ? {
+                      postgres: this.postgres!,
+                      pubSub: this.pubsub!,
+                      encryptedFields: ingestionCdpServices!.encryptedFields,
+                      teamManager,
+                      integrationManager: ingestionCdpServices!.integrationManager,
+                      kafkaProducer: this.kafkaProducer!,
+                      internalCaptureService: ingestionCdpServices!.internalCaptureService,
+                      personRepository: ingestionCdpServices!.personRepository,
+                      geoipService: ingestionCdpServices!.geoipService,
+                      groupRepository: ingestionCdpServices!.groupRepository,
+                      quotaLimiting: cdpLogsServices!.quotaLimiting,
+                  }
+                : undefined
+
+            const hogTransformerDeps: HogTransformerServiceDeps | undefined = needsIngestion
+                ? {
+                      geoipService: ingestionCdpServices!.geoipService,
+                      postgres: this.postgres!,
+                      pubSub: this.pubsub!,
+                      encryptedFields: ingestionCdpServices!.encryptedFields,
+                      integrationManager: ingestionCdpServices!.integrationManager,
+                      kafkaProducer: this.kafkaMetricsProducer!,
+                      teamManager,
+                      internalCaptureService: ingestionCdpServices!.internalCaptureService,
+                  }
+                : undefined
+
             const serviceLoaders: (() => Promise<PluginServerService>)[] = []
 
             if (capabilities.ingestionV2Combined) {
                 // NOTE: This is for single process deployments like local dev and hobby - it runs all possible consumers
                 // in a single process. In production these are each separate Deployments of the standard ingestion consumer
+                const ingestionDeps: IngestionConsumerDeps = {
+                    postgres: this.postgres!,
+                    redisPool: this.redisPool!,
+                    kafkaProducer: this.kafkaProducer!,
+                    kafkaMetricsProducer: this.kafkaMetricsProducer!,
+                    teamManager,
+                    groupTypeManager: ingestionServices!.groupTypeManager,
+                    groupRepository: ingestionCdpServices!.groupRepository,
+                    clickhouseGroupRepository: ingestionServices!.clickhouseGroupRepository,
+                    personRepository: ingestionCdpServices!.personRepository,
+                    cookielessManager: this.cookielessManager!,
+                    hogTransformer: createHogTransformerService(this.config, hogTransformerDeps!),
+                }
+
                 const consumersOptions = [
                     {
                         topic: KAFKA_EVENTS_PLUGIN_INGESTION,
@@ -118,7 +230,7 @@ export class PluginServer {
 
                 for (const consumerOption of consumersOptions) {
                     serviceLoaders.push(async () => {
-                        const consumer = new IngestionConsumer(hub, {
+                        const consumer = new IngestionConsumer(this.config, ingestionDeps, {
                             INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
                             INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
                         })
@@ -127,24 +239,67 @@ export class PluginServer {
                     })
                 }
             } else if (capabilities.ingestionV2) {
+                const ingestionDeps: IngestionConsumerDeps = {
+                    postgres: this.postgres!,
+                    redisPool: this.redisPool!,
+                    kafkaProducer: this.kafkaProducer!,
+                    kafkaMetricsProducer: this.kafkaMetricsProducer!,
+                    teamManager,
+                    groupTypeManager: ingestionServices!.groupTypeManager,
+                    groupRepository: ingestionCdpServices!.groupRepository,
+                    clickhouseGroupRepository: ingestionServices!.clickhouseGroupRepository,
+                    personRepository: ingestionCdpServices!.personRepository,
+                    cookielessManager: this.cookielessManager!,
+                    hogTransformer: createHogTransformerService(this.config, hogTransformerDeps!),
+                }
+
                 serviceLoaders.push(async () => {
-                    const consumer = new IngestionConsumer(hub)
+                    const consumer = new IngestionConsumer(this.config, ingestionDeps)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
+            if (capabilities.ingestionV2Testing) {
+                serviceLoaders.push(async () => {
+                    // All output (events, overflow, DLQ) writes to WarpStream
+                    const kafkaWarpStreamProducer = await KafkaProducerWrapper.create(
+                        this.config.KAFKA_CLIENT_RACK,
+                        'WARPSTREAM_PRODUCER'
+                    )
+
+                    const consumer = new IngestionTestingConsumer(this.config, {
+                        kafkaProducer: kafkaWarpStreamProducer,
+                        teamManager,
+                    })
                     await consumer.start()
                     return consumer.service
                 })
             }
 
             if (capabilities.evaluationScheduler) {
-                serviceLoaders.push(() => startEvaluationScheduler(hub))
+                serviceLoaders.push(() =>
+                    startEvaluationScheduler(this.config, {
+                        postgres: this.postgres!,
+                        pubSub: this.pubsub!,
+                    })
+                )
             }
 
             if (capabilities.sessionRecordingBlobIngestionV2) {
                 serviceLoaders.push(async () => {
-                    const actualHub = hub ?? (await createHub(this.config))
-                    const postgres = actualHub.postgres
-                    const producer = actualHub.kafkaProducer
+                    const kafkaMessageProducer = await KafkaProducerWrapper.create(
+                        this.config.KAFKA_CLIENT_RACK,
+                        'WARPSTREAM_PRODUCER'
+                    )
 
-                    const ingester = new SessionRecordingIngester(actualHub, false, postgres, producer)
+                    const ingester = new SessionRecordingIngester(
+                        this.config,
+                        false,
+                        this.postgres!,
+                        this.kafkaProducer!,
+                        kafkaMessageProducer
+                    )
                     await ingester.start()
                     return ingester.service
                 })
@@ -152,11 +307,18 @@ export class PluginServer {
 
             if (capabilities.sessionRecordingBlobIngestionV2Overflow) {
                 serviceLoaders.push(async () => {
-                    const actualHub = hub ?? (await createHub(this.config))
-                    const postgres = actualHub.postgres
-                    const producer = actualHub.kafkaProducer
+                    const kafkaMessageProducer = await KafkaProducerWrapper.create(
+                        this.config.KAFKA_CLIENT_RACK,
+                        'WARPSTREAM_PRODUCER'
+                    )
 
-                    const ingester = new SessionRecordingIngester(actualHub, true, postgres, producer)
+                    const ingester = new SessionRecordingIngester(
+                        this.config,
+                        true,
+                        this.postgres!,
+                        this.kafkaProducer!,
+                        kafkaMessageProducer
+                    )
                     await ingester.start()
                     return ingester.service
                 })
@@ -164,7 +326,7 @@ export class PluginServer {
 
             if (capabilities.cdpProcessedEvents) {
                 serviceLoaders.push(async () => {
-                    const consumer = new CdpEventsConsumer(hub)
+                    const consumer = new CdpEventsConsumer(this.config, cdpDeps!)
                     await consumer.start()
                     return consumer.service
                 })
@@ -172,7 +334,7 @@ export class PluginServer {
 
             if (capabilities.cdpDataWarehouseEvents) {
                 serviceLoaders.push(async () => {
-                    const consumer = new CdpDatawarehouseEventsConsumer(hub)
+                    const consumer = new CdpDatawarehouseEventsConsumer(this.config, cdpDeps!)
                     await consumer.start()
                     return consumer.service
                 })
@@ -180,7 +342,7 @@ export class PluginServer {
 
             if (capabilities.cdpInternalEvents) {
                 serviceLoaders.push(async () => {
-                    const consumer = new CdpInternalEventsConsumer(hub)
+                    const consumer = new CdpInternalEventsConsumer(this.config, cdpDeps!)
                     await consumer.start()
                     return consumer.service
                 })
@@ -188,15 +350,19 @@ export class PluginServer {
 
             if (capabilities.cdpPersonUpdates) {
                 serviceLoaders.push(async () => {
-                    const consumer = new CdpPersonUpdatesConsumer(hub)
+                    const consumer = new CdpPersonUpdatesConsumer(this.config, cdpDeps!)
                     await consumer.start()
                     return consumer.service
                 })
             }
 
             if (capabilities.cdpLegacyOnEvent) {
+                const legacyDeps: CdpLegacyEventsConsumerDeps = {
+                    ...cdpDeps!,
+                    groupTypeManager: new GroupTypeManager(ingestionCdpServices!.groupRepository, teamManager),
+                }
                 serviceLoaders.push(async () => {
-                    const consumer = new CdpLegacyEventsConsumer(hub)
+                    const consumer = new CdpLegacyEventsConsumer(this.config, legacyDeps)
                     await consumer.start()
                     return consumer.service
                 })
@@ -204,7 +370,7 @@ export class PluginServer {
 
             if (capabilities.cdpApi) {
                 serviceLoaders.push(async () => {
-                    const api = new CdpApi(hub)
+                    const api = new CdpApi(this.config, cdpDeps!)
                     this.expressApp.use('/', api.router())
                     await api.start()
                     return api.service
@@ -213,38 +379,54 @@ export class PluginServer {
 
             if (capabilities.cdpCyclotronWorker) {
                 serviceLoaders.push(async () => {
-                    const worker = new CdpCyclotronWorker(hub)
+                    const worker = new CdpCyclotronWorker(this.config, cdpDeps!)
                     await worker.start()
                     return worker.service
+                })
+            }
+
+            if (capabilities.cdpCyclotronV2Janitor) {
+                if (!this.config.CYCLOTRON_NODE_DATABASE_URL) {
+                    throw new Error(
+                        'CYCLOTRON_NODE_DATABASE_URL not configured but required for CyclotronV2JanitorService'
+                    )
+                }
+                serviceLoaders.push(async () => {
+                    const janitor = new CyclotronV2JanitorService({
+                        pool: {
+                            dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL!,
+                            maxConnections: this.config.CYCLOTRON_NODE_MAX_CONNECTIONS,
+                            idleTimeoutMs: this.config.CYCLOTRON_NODE_IDLE_TIMEOUT_MS,
+                        },
+                        cleanupBatchSize: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_BATCH_SIZE,
+                        cleanupIntervalMs: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS,
+                        stallTimeoutMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS,
+                        maxTouchCount: this.config.CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT,
+                        cleanupGraceMs: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS,
+                    })
+                    await janitor.start()
+                    return janitor.service
                 })
             }
 
             if (capabilities.cdpCyclotronWorkerHogFlow) {
                 serviceLoaders.push(async () => {
-                    const worker = new CdpCyclotronWorkerHogFlow(hub)
+                    const worker = new CdpCyclotronWorkerHogFlow(this.config, cdpDeps!)
                     await worker.start()
                     return worker.service
                 })
             }
 
-            if (capabilities.cdpCyclotronWorkerDelay) {
-                serviceLoaders.push(async () => {
-                    const delayConsumer = new CdpCyclotronDelayConsumer(hub)
-                    await delayConsumer.start()
-                    return delayConsumer.service
-                })
-            }
-
-            // The service commands is always created
+            // ServerCommands is always created
             serviceLoaders.push(() => {
-                const serverCommands = new ServerCommands(hub)
+                const serverCommands = new ServerCommands(this.pubsub!)
                 this.expressApp.use('/', serverCommands.router())
                 return Promise.resolve(serverCommands.service)
             })
 
             if (capabilities.cdpPrecalculatedFilters) {
                 serviceLoaders.push(async () => {
-                    const worker = new CdpPrecalculatedFiltersConsumer(hub)
+                    const worker = new CdpPrecalculatedFiltersConsumer(this.config, cdpDeps!)
                     await worker.start()
                     return worker.service
                 })
@@ -252,7 +434,7 @@ export class PluginServer {
 
             if (capabilities.cdpCohortMembership) {
                 serviceLoaders.push(async () => {
-                    const consumer = new CdpCohortMembershipConsumer(hub)
+                    const consumer = new CdpCohortMembershipConsumer(this.config, cdpDeps!)
                     await consumer.start()
                     return consumer.service
                 })
@@ -260,7 +442,10 @@ export class PluginServer {
 
             if (capabilities.logsIngestion) {
                 serviceLoaders.push(async () => {
-                    const consumer = new LogsIngestionConsumer(hub)
+                    const consumer = new LogsIngestionConsumer(this.config, {
+                        teamManager,
+                        quotaLimiting: cdpLogsServices!.quotaLimiting,
+                    })
                     await consumer.start()
                     return consumer.service
                 })
@@ -268,9 +453,18 @@ export class PluginServer {
 
             if (capabilities.cdpBatchHogFlow) {
                 serviceLoaders.push(async () => {
-                    const consumer = new CdpBatchHogFlowRequestsConsumer(hub)
+                    const consumer = new CdpBatchHogFlowRequestsConsumer(this.config, cdpDeps!)
                     await consumer.start()
                     return consumer.service
+                })
+            }
+
+            if (capabilities.recordingApi) {
+                serviceLoaders.push(async () => {
+                    const api = new RecordingApi(this.config, this.postgres!)
+                    this.expressApp.use('/', api.router())
+                    await api.start()
+                    return api.service
                 })
             }
 
@@ -301,16 +495,148 @@ export class PluginServer {
         }
     }
 
+    // =========================================================================
+    // Service initialization helpers (grouped by domain)
+    // =========================================================================
+
+    private async createSharedInfrastructure(): Promise<{ teamManager: TeamManager }> {
+        logger.info('ℹ️', 'Connecting to shared infrastructure...')
+
+        this.postgres = new PostgresRouter(this.config)
+        logger.info('👍', 'Postgres Router ready')
+
+        logger.info('🤔', 'Connecting to Kafka...')
+        this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
+        this.kafkaMetricsProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
+        logger.info('👍', 'Kafka ready')
+
+        logger.info('🤔', 'Connecting to ingestion Redis...')
+        this.redisPool = createRedisPoolFromConfig({
+            connection: this.config.INGESTION_REDIS_HOST
+                ? {
+                      url: this.config.INGESTION_REDIS_HOST,
+                      options: { port: this.config.INGESTION_REDIS_PORT },
+                      name: 'ingestion-redis',
+                  }
+                : this.config.POSTHOG_REDIS_HOST
+                  ? {
+                        url: this.config.POSTHOG_REDIS_HOST,
+                        options: {
+                            port: this.config.POSTHOG_REDIS_PORT,
+                            password: this.config.POSTHOG_REDIS_PASSWORD,
+                        },
+                        name: 'ingestion-redis',
+                    }
+                  : { url: this.config.REDIS_URL, name: 'ingestion-redis' },
+            poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+        })
+        logger.info('👍', 'Ingestion Redis ready')
+
+        this.pubsub = new PubSub(this.redisPool)
+        await this.pubsub.start()
+
+        const teamManager = new TeamManager(this.postgres)
+
+        return { teamManager }
+    }
+
+    private async createIngestionCdpServices(): Promise<{
+        geoipService: GeoIPService
+        personRepository: PostgresPersonRepository
+        groupRepository: PostgresGroupRepository
+        encryptedFields: EncryptedFields
+        integrationManager: IntegrationManagerService
+        internalCaptureService: InternalCaptureService
+    }> {
+        const geoipService = new GeoIPService(this.config)
+        await geoipService.get()
+
+        const personRepository = new PostgresPersonRepository(this.postgres!, {
+            calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
+        })
+        const groupRepository = new PostgresGroupRepository(this.postgres!)
+        const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
+        const integrationManager = new IntegrationManagerService(this.pubsub!, this.postgres!, encryptedFields)
+        const internalCaptureService = new InternalCaptureService(this.config)
+
+        return {
+            geoipService,
+            personRepository,
+            groupRepository,
+            encryptedFields,
+            integrationManager,
+            internalCaptureService,
+        }
+    }
+
+    private createIngestionServices(
+        teamManager: TeamManager,
+        groupRepository: PostgresGroupRepository
+    ): {
+        groupTypeManager: GroupTypeManager
+        clickhouseGroupRepository: ClickhouseGroupRepository
+    } {
+        logger.info('🤔', 'Connecting to cookieless Redis...')
+        this.cookielessRedisPool = createRedisPoolFromConfig({
+            connection: this.config.COOKIELESS_REDIS_HOST
+                ? {
+                      url: this.config.COOKIELESS_REDIS_HOST,
+                      options: { port: this.config.COOKIELESS_REDIS_PORT ?? 6379 },
+                      name: 'cookieless-redis',
+                  }
+                : { url: this.config.REDIS_URL, name: 'cookieless-redis' },
+            poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+        })
+        logger.info('👍', 'Cookieless Redis ready')
+
+        this.cookielessManager = new CookielessManager(this.config, this.cookielessRedisPool)
+        const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
+        const clickhouseGroupRepository = new ClickhouseGroupRepository(this.kafkaProducer!)
+
+        return { groupTypeManager, clickhouseGroupRepository }
+    }
+
+    private createCdpLogsServices(teamManager: TeamManager): { quotaLimiting: QuotaLimiting } {
+        logger.info('🤔', 'Connecting to PostHog Redis...')
+        this.posthogRedisPool = createRedisPoolFromConfig({
+            connection: this.config.POSTHOG_REDIS_HOST
+                ? {
+                      url: this.config.POSTHOG_REDIS_HOST,
+                      options: {
+                          port: this.config.POSTHOG_REDIS_PORT,
+                          password: this.config.POSTHOG_REDIS_PASSWORD,
+                      },
+                      name: 'posthog-redis',
+                  }
+                : { url: this.config.REDIS_URL, name: 'posthog-redis' },
+            poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+        })
+        logger.info('👍', 'PostHog Redis ready')
+
+        const quotaLimiting = new QuotaLimiting(this.posthogRedisPool, teamManager)
+
+        return { quotaLimiting }
+    }
+
+    // =========================================================================
+    // Lifecycle
+    // =========================================================================
+
     private setupListeners(): void {
         for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-            process.on(signal, async () => {
+            const handler = async () => {
                 // This makes async exit possible with the process waiting until jobs are closed
                 logger.info('👋', `process handling ${signal} event. Stopping...`)
                 await this.stop()
-            })
+            }
+            this.processListeners.set(signal, handler)
+            process.on(signal, handler)
         }
 
-        process.on('unhandledRejection', (error: Error | any) => {
+        const rejectionHandler = (error: Error | any) => {
             logger.error('🤮', `Unhandled Promise Rejection`, { error: String(error) })
 
             captureException(error, {
@@ -318,14 +644,24 @@ export class PluginServer {
             })
 
             void this.stop(error)
-        })
+        }
+        this.processListeners.set('unhandledRejection', rejectionHandler)
+        process.on('unhandledRejection', rejectionHandler)
 
-        process.on('uncaughtException', async (error: Error) => {
+        const exceptionHandler = async (error: Error) => {
             await this.stop(error)
-        })
+        }
+        this.processListeners.set('uncaughtException', exceptionHandler)
+        process.on('uncaughtException', exceptionHandler)
     }
 
     async stop(error?: Error): Promise<void> {
+        // Remove process listeners to prevent accumulation across test runs
+        for (const [event, handler] of this.processListeners) {
+            process.removeListener(event, handler)
+        }
+        this.processListeners.clear()
+
         if (error) {
             logger.error('🤮', `Shutting down due to error`, { error: error.stack })
         }
@@ -359,12 +695,25 @@ export class PluginServer {
             onShutdown(),
         ])
 
-        if (this.hub) {
+        if (this.kafkaProducer) {
             logger.info('💤', ' Shutting down kafka producer...')
             // Wait 2 seconds to flush the last queues and caches
-            await Promise.all([this.hub?.kafkaProducer.flush(), delay(2000)])
-            await closeHub(this.hub)
+            await Promise.all([this.kafkaProducer.flush(), delay(2000)])
         }
+
+        logger.info('💤', ' Shutting down infrastructure...')
+        await Promise.allSettled([
+            this.kafkaProducer?.disconnect(),
+            this.kafkaMetricsProducer?.disconnect(),
+            this.redisPool?.drain(),
+            this.posthogRedisPool?.drain(),
+            this.cookielessRedisPool?.drain(),
+            this.postgres?.end(),
+        ])
+        await this.redisPool?.clear()
+        await this.posthogRedisPool?.clear()
+        await this.cookielessRedisPool?.clear()
+        this.cookielessManager?.shutdown()
 
         logger.info('💤', ' Shutting down completed. Exiting...')
 

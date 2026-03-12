@@ -17,6 +17,7 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models import User
+from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import (
     LLMAnalyticsTranslationBurstThrottle,
     LLMAnalyticsTranslationDailyThrottle,
@@ -51,7 +52,8 @@ class TranslateResponseSerializer(serializers.Serializer):
 class LLMAnalyticsTranslateViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """ViewSet for translating LLM trace message content."""
 
-    scope_object = "llm_analytics"  # type: ignore[assignment]
+    scope_object = "llm_analytics"
+    permission_classes = [AccessControlPermission]
 
     def get_throttles(self):
         return [
@@ -107,7 +109,8 @@ class LLMAnalyticsTranslateViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                     "translation_length": len(translation),
                     "duration_seconds": duration_seconds,
                 },
-                self.team,
+                team=self.team,
+                request=self.request,
             )
 
             return Response(

@@ -5,14 +5,15 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { ChangeRequest, ChangeRequestState } from '~/types'
+import { AvailableFeature, ChangeRequest, ChangeRequestState } from '~/types'
 
 import type { approvalsLogicType } from './approvalsLogicType'
 
 export interface ApprovalsFilters {
     state?: ChangeRequestState
-    action_type?: string
+    action_key?: string
     resource_type?: string
     resource_id?: string
     requester?: number
@@ -44,9 +45,9 @@ function mergeChangeRequestsData(
 
 export const approvalsLogic = kea<approvalsLogicType>([
     path(['scenes', 'approvals', 'approvalsLogic']),
-    connect({
-        values: [teamLogic, ['currentTeamId']],
-    }),
+    connect(() => ({
+        values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature']],
+    })),
     actions({
         setFilters: (filters: Partial<ApprovalsFilters>) => ({ filters }),
         loadChangeRequests: (url?: string) => ({ url }),
@@ -59,8 +60,8 @@ export const approvalsLogic = kea<approvalsLogicType>([
             { changeRequests: [], changeRequestsCount: 0 } as ApprovalDataState,
             {
                 loadChangeRequests: async ({ url }, breakpoint) => {
-                    if (!values.currentTeamId) {
-                        return values.changeRequestsData
+                    if (!values.currentTeamId || !values.hasAvailableFeature(AvailableFeature.APPROVALS)) {
+                        return { changeRequests: [], changeRequestsCount: 0 }
                     }
 
                     await breakpoint(300)
@@ -69,7 +70,7 @@ export const approvalsLogic = kea<approvalsLogicType>([
                         url ||
                         `api/environments/${values.currentTeamId}/change_requests/?${new URLSearchParams({
                             ...(values.filters.state && { state: values.filters.state }),
-                            ...(values.filters.action_type && { action_type: values.filters.action_type }),
+                            ...(values.filters.action_key && { action_key: values.filters.action_key }),
                             ...(values.filters.resource_type && { resource_type: values.filters.resource_type }),
                             ...(values.filters.resource_id && { resource_id: values.filters.resource_id }),
                             ...(values.filters.requester && { requester: values.filters.requester.toString() }),
@@ -115,7 +116,7 @@ export const approvalsLogic = kea<approvalsLogicType>([
             const nextUrl = `api/environments/${values.currentTeamId}/change_requests/?${new URLSearchParams({
                 offset: values.changeRequests.length.toString(),
                 ...(values.filters.state && { state: values.filters.state }),
-                ...(values.filters.action_type && { action_type: values.filters.action_type }),
+                ...(values.filters.action_key && { action_key: values.filters.action_key }),
                 ...(values.filters.resource_type && { resource_type: values.filters.resource_type }),
                 ...(values.filters.resource_id && { resource_id: values.filters.resource_id }),
                 ...(values.filters.requester && { requester: values.filters.requester.toString() }),

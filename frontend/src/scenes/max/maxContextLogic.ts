@@ -1,13 +1,14 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
-import { IconBug, IconDashboard, IconGraph } from '@posthog/icons'
+import { IconBug, IconDashboard, IconGraph, IconNotebook } from '@posthog/icons'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils'
 import { DashboardLoadAction, RefreshStatus, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { NotebookListItemType } from 'scenes/notebooks/types'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
@@ -33,6 +34,7 @@ import {
     MaxErrorTrackingIssueContext,
     MaxEventContext,
     MaxInsightContext,
+    MaxNotebookContext,
     MaxUIContext,
 } from './maxTypes'
 import {
@@ -41,6 +43,7 @@ import {
     errorTrackingIssueToMaxContextPayload,
     eventToMaxContextPayload,
     insightToMaxContext,
+    notebookToMaxContextPayload,
 } from './utils'
 
 // Type definitions for better reusability
@@ -49,6 +52,7 @@ export type TaxonomicItem =
     | QueryBasedInsightModel
     | EventDefinition
     | ActionType
+    | NotebookListItemType
     | MaxContextTaxonomicFilterOption
 
 export type DashboardItemInfo = { id: number; preloaded: DashboardType<QueryBasedInsightModel> | null }
@@ -80,11 +84,13 @@ export const maxContextLogic = kea<maxContextLogicType>([
         addOrUpdateContextEvent: (data: EventDefinition) => ({ data }),
         addOrUpdateContextAction: (data: ActionType) => ({ data }),
         addOrUpdateContextErrorTrackingIssue: (data: { id: string; name?: string | null }) => ({ data }),
+        addOrUpdateContextNotebook: (data: { short_id: string; title?: string | null }) => ({ data }),
         removeContextInsight: (id: string | number) => ({ id }),
         removeContextDashboard: (id: string | number) => ({ id }),
         removeContextEvent: (id: string | number) => ({ id }),
         removeContextAction: (id: string | number) => ({ id }),
         removeContextErrorTrackingIssue: (id: string) => ({ id }),
+        removeContextNotebook: (id: string) => ({ id }),
         loadAndProcessDashboard: (data: DashboardItemInfo) => ({ data }),
         loadAndProcessInsight: (
             data: InsightItemInfo,
@@ -165,6 +171,17 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 ) => addOrUpdateEntity(state, errorTrackingIssueToMaxContextPayload(data)),
                 removeContextErrorTrackingIssue: (state: MaxErrorTrackingIssueContext[], { id }: { id: string }) =>
                     removeEntity(state, id),
+                resetContext: () => [],
+            },
+        ],
+        contextNotebooks: [
+            [] as MaxNotebookContext[],
+            {
+                addOrUpdateContextNotebook: (
+                    state: MaxNotebookContext[],
+                    { data }: { data: { short_id: string; title?: string | null } }
+                ) => addOrUpdateEntity(state, notebookToMaxContextPayload(data)),
+                removeContextNotebook: (state: MaxNotebookContext[], { id }: { id: string }) => removeEntity(state, id),
                 resetContext: () => [],
             },
         ],
@@ -324,6 +341,13 @@ export const maxContextLogic = kea<maxContextLogicType>([
                         name: errorItem.name ?? null,
                     })
                     return
+                } else if (groupType === TaxonomicFilterGroupType.Notebooks) {
+                    const notebookItem = item as NotebookListItemType
+                    actions.addOrUpdateContextNotebook({
+                        short_id: notebookItem.short_id,
+                        title: notebookItem.title ?? null,
+                    })
+                    return
                 }
 
                 // Parse item information based on selection type
@@ -456,7 +480,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 },
             ],
             (context: MaxContextItem[]): MaxContextItem[] => context,
-            { equalityCheck: objectsEqual },
+            { resultEqualityCheck: objectsEqual },
         ],
         sceneContext: [
             (s: any) => [s.rawSceneContext],
@@ -474,6 +498,8 @@ export const maxContextLogic = kea<maxContextLogicType>([
                                 return actionToMaxContextPayload(item.data)
                             case MaxContextType.ERROR_TRACKING_ISSUE:
                                 return errorTrackingIssueToMaxContextPayload(item.data)
+                            case MaxContextType.NOTEBOOK:
+                                return notebookToMaxContextPayload(item.data)
                             default:
                                 return null
                         }
@@ -520,6 +546,14 @@ export const maxContextLogic = kea<maxContextLogicType>([
                             type: MaxContextType.ERROR_TRACKING_ISSUE,
                             icon: IconBug,
                         })
+                    } else if (item.type == MaxContextType.NOTEBOOK) {
+                        options.push({
+                            id: item.id.toString(),
+                            name: item.name || `Notebook ${item.id}`,
+                            value: item.id,
+                            type: MaxContextType.NOTEBOOK,
+                            icon: IconNotebook,
+                        })
                     }
                 })
 
@@ -546,6 +580,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                     TaxonomicFilterGroupType.Actions,
                     TaxonomicFilterGroupType.Insights,
                     TaxonomicFilterGroupType.Dashboards,
+                    TaxonomicFilterGroupType.Notebooks,
                     TaxonomicFilterGroupType.ErrorTrackingIssues
                 )
                 return groupTypes
@@ -559,6 +594,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 s.contextEvents,
                 s.contextActions,
                 s.contextErrorTrackingIssues,
+                s.contextNotebooks,
                 s.sceneContext,
             ],
             (
@@ -568,18 +604,27 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 contextEvents: MaxEventContext[],
                 contextActions: MaxActionContext[],
                 contextErrorTrackingIssues: MaxErrorTrackingIssueContext[],
+                contextNotebooks: MaxNotebookContext[],
                 sceneContext: MaxContextItem[]
             ): MaxUIContext | null => {
                 const context: MaxUIContext = {}
 
+                // Helper to filter scene context by type
+                const getSceneItems = <T extends MaxContextItem>(type: MaxContextType): T[] =>
+                    sceneContext.filter((item): item is T => item.type === type)
+
                 // Add context dashboards (combine manual context + scene context)
-                if (contextDashboards.length > 0) {
-                    context.dashboards = contextDashboards
+                const sceneDashboards = getSceneItems<MaxDashboardContext>(MaxContextType.DASHBOARD)
+                const allDashboards = [...contextDashboards, ...sceneDashboards]
+
+                if (allDashboards.length > 0) {
+                    context.dashboards = allDashboards
                 }
 
                 // Add insights, filtering out those already in dashboards
                 // Combine manual context, scene context, and active insights
-                const allInsights = contextInsights
+                const sceneInsights = getSceneItems<MaxInsightContext>(MaxContextType.INSIGHT)
+                const allInsights = [...contextInsights, ...sceneInsights]
 
                 if (allInsights.length > 0) {
                     // Get all insight IDs from dashboards to filter out duplicates
@@ -615,18 +660,28 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 }
 
                 // Add events
-                if (contextEvents.length > 0) {
-                    context.events = contextEvents
+                const sceneEvents = getSceneItems<MaxEventContext>(MaxContextType.EVENT)
+                const allEvents = [...contextEvents, ...sceneEvents]
+                if (allEvents.length > 0) {
+                    // Deduplicate by ID
+                    const uniqueEvents = new Map()
+                    allEvents.forEach((event) => uniqueEvents.set(event.id, event))
+                    context.events = Array.from(uniqueEvents.values())
                 }
 
                 // Add actions
-                if (contextActions.length > 0) {
-                    context.actions = contextActions
+                const sceneActions = getSceneItems<MaxActionContext>(MaxContextType.ACTION)
+                const allActions = [...contextActions, ...sceneActions]
+                if (allActions.length > 0) {
+                    // Deduplicate by ID
+                    const uniqueActions = new Map()
+                    allActions.forEach((action) => uniqueActions.set(action.id, action))
+                    context.actions = Array.from(uniqueActions.values())
                 }
 
                 // Add error tracking issues (combine manual selections + auto-added from scene context)
-                const sceneErrorTrackingIssues = sceneContext.filter(
-                    (item): item is MaxErrorTrackingIssueContext => item.type === MaxContextType.ERROR_TRACKING_ISSUE
+                const sceneErrorTrackingIssues = getSceneItems<MaxErrorTrackingIssueContext>(
+                    MaxContextType.ERROR_TRACKING_ISSUE
                 )
                 const allErrorTrackingIssues = [...contextErrorTrackingIssues, ...sceneErrorTrackingIssues]
                 if (allErrorTrackingIssues.length > 0) {
@@ -634,6 +689,15 @@ export const maxContextLogic = kea<maxContextLogicType>([
                     const uniqueIssues = new Map<string, MaxErrorTrackingIssueContext>()
                     allErrorTrackingIssues.forEach((issue) => uniqueIssues.set(issue.id, issue))
                     context.error_tracking_issues = Array.from(uniqueIssues.values())
+                }
+
+                // Add notebooks
+                const sceneNotebooks = getSceneItems<MaxNotebookContext>(MaxContextType.NOTEBOOK)
+                const allNotebooks = [...contextNotebooks, ...sceneNotebooks]
+                if (allNotebooks.length > 0) {
+                    const uniqueNotebooks = new Map<string, MaxNotebookContext>()
+                    allNotebooks.forEach((nb) => uniqueNotebooks.set(nb.id, nb))
+                    context.notebooks = Array.from(uniqueNotebooks.values())
                 }
 
                 return hasData ? context : null
@@ -646,6 +710,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 s.contextEvents,
                 s.contextActions,
                 s.contextErrorTrackingIssues,
+                s.contextNotebooks,
                 s.sceneContext,
             ],
             (
@@ -654,6 +719,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 contextEvents: MaxEventContext[],
                 contextActions: MaxActionContext[],
                 contextErrorTrackingIssues: MaxErrorTrackingIssueContext[],
+                contextNotebooks: MaxNotebookContext[],
                 sceneContext: MaxContextItem[]
             ): boolean => {
                 return [
@@ -662,6 +728,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                     contextEvents,
                     contextActions,
                     contextErrorTrackingIssues,
+                    contextNotebooks,
                     sceneContext,
                 ].some((arr) => arr.length > 0)
             },

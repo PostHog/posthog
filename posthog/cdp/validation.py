@@ -17,6 +17,19 @@ from posthog.models.hog_functions.hog_function import TYPES_WITH_JAVASCRIPT_SOUR
 logger = logging.getLogger(__name__)
 
 
+CORE_SUPPORTED_FUNCTIONS = {"fetch", "postHogCapture"}
+
+PRODUCT_ASYNC_FUNCTIONS: set[str] = set()
+
+
+def register_supported_function(name: str) -> None:
+    PRODUCT_ASYNC_FUNCTIONS.add(name)
+
+
+register_supported_function("postHogGetTicket")
+register_supported_function("postHogUpdateTicket")
+
+
 class InputCollector(TraversingVisitor):
     inputs: set[str]
 
@@ -130,6 +143,8 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "integration_field",
             "email",
             "native_email",
+            "posthog_assignee",
+            "posthog_ticket_tags",
         ]
     )
     key = serializers.CharField()
@@ -190,8 +205,19 @@ class InputsItemSerializer(serializers.Serializer):
             if not isinstance(value, int | float):
                 raise serializers.ValidationError({"input": f"Value must be a number."})
         elif item_type == "boolean":
-            if not isinstance(value, bool):
-                raise serializers.ValidationError({"input": f"Value must be a boolean."})
+            templating_enabled = schema.get("templating", True)
+            if templating_enabled:
+                if not isinstance(value, bool) and not isinstance(value, str):
+                    raise serializers.ValidationError({"input": f"Value must be a boolean or a template string."})
+                # Liquid templating always renders to strings, which bypasses boolean type guarantees.
+                # Only Hog templating is allowed for boolean fields as it preserves the actual boolean type.
+                if isinstance(value, str) and attrs.get("templating") == "liquid":
+                    raise serializers.ValidationError(
+                        {"input": "Liquid templating is not supported for boolean fields. Use Hog templating instead."}
+                    )
+            else:
+                if not isinstance(value, bool):
+                    raise serializers.ValidationError({"input": f"Value must be a boolean."})
         elif item_type == "dictionary":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be a dictionary."})
@@ -216,7 +242,15 @@ class InputsItemSerializer(serializers.Serializer):
                     pass
                 else:
                     # If we have a value and hog templating is enabled, we need to transpile the value
-                    if item_type in ["string", "dictionary", "json", "email", "native_email"]:
+                    value_is_transpiled = item_type in [
+                        "string",
+                        "boolean",
+                        "dictionary",
+                        "json",
+                        "email",
+                        "native_email",
+                    ] or (item_type == "boolean" and isinstance(value, str))
+                    if value_is_transpiled:
                         if item_type in ("email", "native_email") and isinstance(value, dict):
                             # We want to exclude the "design" property
                             value = {key: value[key] for key in value if key != "design"}
@@ -441,7 +475,7 @@ def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> lis
         supported_functions = set()
 
         if hog_type == "destination":
-            supported_functions = {"fetch", "postHogCapture"}
+            supported_functions = CORE_SUPPORTED_FUNCTIONS | PRODUCT_ASYNC_FUNCTIONS
 
         return create_bytecode(program, supported_functions=supported_functions, in_repl=in_repl).bytecode
     except serializers.ValidationError:

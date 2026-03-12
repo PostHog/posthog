@@ -14,8 +14,8 @@
 export type VisibilityEnumApi = (typeof VisibilityEnumApi)[keyof typeof VisibilityEnumApi]
 
 export const VisibilityEnumApi = {
-    private: 'private',
-    shared: 'shared',
+    Private: 'private',
+    Shared: 'shared',
 } as const
 
 export interface ColumnConfigurationApi {
@@ -166,17 +166,6 @@ export type ColumnConfigurationsListParams = {
 }
 
 export type ElementsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type ElementsList2Params = {
     /**
      * Number of results to return per page.
      */

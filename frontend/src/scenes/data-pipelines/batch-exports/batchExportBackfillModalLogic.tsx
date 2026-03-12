@@ -5,8 +5,10 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { addProductIntent } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { BatchExportConfiguration } from '~/types'
 
 import type { batchExportBackfillModalLogicType } from './batchExportBackfillModalLogicType'
@@ -109,7 +111,7 @@ export function getMostRecentIntervalBoundary(
         return boundary
     }
 
-    // if hourly or every 5 minutes, return the current hour
+    // if hourly or sub-hourly, return the current hour
     return now.minute(0).second(0).millisecond(0)
 }
 
@@ -131,6 +133,7 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
         closeBackfillModal: true,
         setEarliestBackfill: true,
         unsetEarliestBackfill: true,
+        backfillCreated: (backfillId: string) => ({ backfillId }),
     }),
     reducers({
         isBackfillModalOpen: [
@@ -177,7 +180,10 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
         dayOfWeekName: [
             (s) => [s.dayOfWeek],
             (dayOfWeek: number | null): string | null => {
-                return dayOfWeek ? dayOptions[dayOfWeek].label : null
+                if (dayOfWeek === null) {
+                    return null
+                }
+                return dayOptions[dayOfWeek].label
             },
         ],
         hourOffset: [
@@ -234,12 +240,11 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
 
                 // Only validate format/business rules if fields are present
                 if (start_at && !errors.start_at) {
-                    // Validate minute intervals (e.g., 5-minute exports require multiples of 5)
+                    // Validate minute intervals (e.g., 5-minute exports require multiples of 5, 15-minute require multiples of 15)
                     if (values.batchExportConfig && values.batchExportConfig.interval.endsWith('minutes')) {
-                        // TODO: Make this generic for all minute frequencies.
-                        // Currently, only 5 minute batch exports are supported.
-                        if (start_at.minute() !== undefined && !(start_at.minute() % 5 === 0)) {
-                            errors.start_at = 'Start time must be a multiple of 5 minutes for 5-minute batch exports'
+                        const minuteFrequency = parseInt(values.batchExportConfig.interval.split(' ')[1], 10)
+                        if (start_at.minute() !== undefined && !(start_at.minute() % minuteFrequency === 0)) {
+                            errors.start_at = `Start time must be a multiple of ${minuteFrequency} minutes`
                         }
                     }
                     // validate that weekly exports are on a valid day of the week
@@ -253,10 +258,9 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
                 if (end_at && !errors.end_at) {
                     // Validate minute intervals for end date
                     if (values.batchExportConfig && values.batchExportConfig.interval.endsWith('minutes')) {
-                        // TODO: Make this generic for all minute frequencies.
-                        // Currently, only 5 minute batch exports are supported.
-                        if (end_at.minute() !== undefined && !(end_at.minute() % 5 === 0)) {
-                            errors.end_at = 'End time must be a multiple of 5 minutes for 5-minute batch exports'
+                        const minuteFrequency = parseInt(values.batchExportConfig.interval.split(' ')[1], 10)
+                        if (end_at.minute() !== undefined && !(end_at.minute() % minuteFrequency === 0)) {
+                            errors.end_at = `End time must be a multiple of ${minuteFrequency} minutes`
                         }
                     }
 
@@ -282,25 +286,38 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
             },
 
             submit: async ({ start_at, end_at, earliest_backfill }) => {
-                let startAt = earliest_backfill ? null : (start_at?.toISOString() ?? null)
-                let endAt = end_at?.toISOString() ?? null
+                let startAtStr
+                let endAtStr
                 // If it's a daily or weekly batch export, we should only send date strings rather than datetime strings.
+                // (using format('YYYY-MM-DD') rather than toISOString() to return the date in the local timezone)
                 if (values.batchExportConfig?.interval === 'day' || values.batchExportConfig?.interval === 'week') {
-                    startAt = startAt?.split('T')[0] ?? null
-                    endAt = endAt?.split('T')[0] ?? null
+                    startAtStr = earliest_backfill ? null : (start_at?.format('YYYY-MM-DD') ?? null)
+                    endAtStr = end_at?.format('YYYY-MM-DD') ?? null
+                } else {
+                    startAtStr = earliest_backfill ? null : (start_at?.toISOString() ?? null)
+                    endAtStr = end_at?.toISOString() ?? null
                 }
-                await api.batchExports.createBackfill(props.id, { start_at: startAt, end_at: endAt }).catch((e) => {
-                    if (e.detail) {
-                        actions.setBackfillFormManualErrors({
-                            [e.attr ?? 'end_at']: e.detail,
-                        })
-                    } else {
-                        lemonToast.error('Unknown error occurred')
-                    }
-                    throw e
+                const result = await api.batchExports
+                    .createBackfill(props.id, { start_at: startAtStr, end_at: endAtStr })
+                    .catch((e) => {
+                        if (e.detail) {
+                            actions.setBackfillFormManualErrors({
+                                [e.attr ?? 'end_at']: e.detail,
+                            })
+                        } else {
+                            lemonToast.error('Unknown error occurred')
+                        }
+                        throw e
+                    })
+
+                void addProductIntent({
+                    product_type: ProductKey.PIPELINE_BATCH_EXPORTS,
+                    intent_context: ProductIntentContext.BATCH_EXPORT_BACKFILL_CREATED,
                 })
 
                 actions.closeBackfillModal()
+                lemonToast.success('Backfill created')
+                actions.backfillCreated(result.backfill_id)
                 return
             },
         },

@@ -11,7 +11,7 @@ import { CyclotronJobInputSchemaType } from '~/types'
 
 import { WorkflowLogicProps, workflowLogic } from '../workflowLogic'
 import { hogFlowManualTriggerButtonLogic } from './HogFlowManualTriggerButtonLogic'
-import { batchTriggerLogic } from './steps/batchTriggerLogic'
+import { batchTriggerLogic, BLAST_RADIUS_LIMIT } from './steps/batchTriggerLogic'
 
 const TriggerPopover = ({
     setPopoverVisible,
@@ -24,17 +24,22 @@ const TriggerPopover = ({
     const { workflow, variableValues, inputs, isScheduleTrigger } = useValues(logic)
     const { setInput, clearInputs, triggerManualWorkflow, triggerBatchWorkflow } = useActions(logic)
 
-    const { blastRadius } = useValues(
+    const { blastRadius, blastRadiusLoading } = useValues(
         batchTriggerLogic({
             id: props.id,
             filters: workflow?.trigger?.type === 'batch' ? workflow?.trigger?.filters : undefined,
         })
     )
 
-    const blastRadiusSuffix = (): string =>
-        workflow?.trigger?.type === 'batch' && blastRadius
-            ? ` for ${humanFriendlyNumber(blastRadius.users_affected)} users`
-            : ''
+    const blastRadiusExceeded =
+        workflow?.trigger?.type === 'batch' && blastRadius != null && blastRadius.users_affected > BLAST_RADIUS_LIMIT
+
+    const blastRadiusSuffix = (): string => {
+        if (workflow?.trigger?.type === 'batch') {
+            return blastRadius ? ` for ${humanFriendlyNumber(blastRadius.users_affected)} users` : ' for ...'
+        }
+        return ''
+    }
 
     const getButtonText = (): string => {
         const action = isScheduleTrigger ? 'Schedule workflow' : 'Run workflow'
@@ -100,6 +105,12 @@ const TriggerPopover = ({
                 <LemonButton
                     type="primary"
                     status="alt"
+                    loading={blastRadiusLoading}
+                    disabledReason={
+                        blastRadiusExceeded
+                            ? `Batch size exceeds the limit of ${humanFriendlyNumber(BLAST_RADIUS_LIMIT)} users. Add filters to narrow your audience. This limit will be loosened in the future.`
+                            : undefined
+                    }
                     onClick={() => {
                         if (workflow?.trigger?.type === 'batch') {
                             triggerBatchWorkflow(

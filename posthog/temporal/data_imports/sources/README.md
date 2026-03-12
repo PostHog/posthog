@@ -183,3 +183,26 @@ Provides a simple `get_oauth_integration()` method to pull the `Integration` obj
 #### `ValidateDatabaseHostMixin`
 
 Provides `is_database_host_valid()` to validate that the source isn't trying to access local IP addresses in our internal VPC on AWS (unless if the user is using a SSH tunnel).
+
+## Non-Retryable Errors
+
+Sources can define errors that should cause the sync to fail permanently rather than retry. This is useful for authentication errors or permission issues that won't resolve on their own.
+
+Override the `get_non_retryable_errors()` method to return a dictionary where:
+
+- **key**: A partial error message to match against
+- **value**: A user-friendly error message (or `None` to use the key as the message)
+
+```python
+def get_non_retryable_errors(self) -> dict[str, str | None]:
+    return {
+        "401 Client Error: Unauthorized for url: https://api.example.com": "Your API key is invalid or expired. Please generate a new key and reconnect.",
+        "403 Client Error: Forbidden for url: https://api.example.com": "Your API key does not have the required permissions. Please check the key permissions and try again.",
+    }
+```
+
+Common errors to handle:
+
+- **401 Unauthorized**: Invalid or expired API keys
+- **403 Forbidden**: Missing required scopes or permissions
+- **Invalid/Expired tokens**: OAuth tokens that need re-authentication

@@ -2,17 +2,30 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconChevronDown, IconRefresh } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonCheckbox, LemonDropdown, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { IconChevronDown, IconRefresh, IconX } from '@posthog/icons'
+import {
+    LemonBadge,
+    LemonButton,
+    LemonCheckbox,
+    LemonDropdown,
+    LemonInputSelect,
+    LemonTable,
+    LemonTag,
+} from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
+import { newInternalTab } from 'lib/utils/newInternalTab'
+import { stripMarkdown } from 'lib/utils/stripMarkdown'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { tagsModel } from '~/models/tagsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import {
@@ -24,8 +37,16 @@ import {
 } from '../../components/Assignee'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ScenesTabs } from '../../components/ScenesTabs'
-import { type Ticket, priorityMultiselectOptions, statusMultiselectOptions } from '../../types'
-import { supportTicketsSceneLogic } from './supportTicketsSceneLogic'
+import { SlaDisplay } from '../../components/SlaDisplay'
+import {
+    type Ticket,
+    type TicketSlaState,
+    channelOptions,
+    priorityMultiselectOptions,
+    slaOptions,
+    statusMultiselectOptions,
+} from '../../types'
+import { SUPPORT_TICKETS_PAGE_SIZE, supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 
 export const scene: SceneExport = {
     component: SupportTicketsScene,
@@ -35,13 +56,36 @@ export const scene: SceneExport = {
 
 export function SupportTicketsScene(): JSX.Element {
     const logic = supportTicketsSceneLogic()
-    const { filteredTickets, statusFilter, priorityFilter, assigneeFilter, dateFrom, dateTo, ticketsLoading } =
-        useValues(logic)
-    const { setStatusFilter, setPriorityFilter, setAssigneeFilter, setDateRange, loadTickets } = useActions(logic)
+    const {
+        filteredTickets,
+        statusFilter,
+        priorityFilter,
+        channelFilter,
+        slaFilter,
+        assigneeFilter,
+        tagsFilter,
+        dateFrom,
+        dateTo,
+        ticketsLoading,
+        currentPage,
+        totalCount,
+    } = useValues(logic)
+    const {
+        setStatusFilter,
+        setPriorityFilter,
+        setChannelFilter,
+        setSlaFilter,
+        setAssigneeFilter,
+        setTagsFilter,
+        setDateRange,
+        setCurrentPage,
+        loadTickets,
+    } = useActions(logic)
+    const { tags: tagsAvailable } = useValues(tagsModel)
     const { push } = useActions(router)
 
     return (
-        <SceneContent>
+        <SceneContent className="pb-4">
             <SceneTitleSection
                 name="Support"
                 description=""
@@ -131,6 +175,85 @@ export function SupportTicketsScene(): JSX.Element {
                                   : `${priorityFilter.length} priorities`}
                         </LemonButton>
                     </LemonDropdown>
+                    <LemonDropdown
+                        closeOnClickInside
+                        overlay={
+                            <div className="space-y-px p-1">
+                                {channelOptions.map((option) => (
+                                    <LemonButton
+                                        key={option.value}
+                                        type="tertiary"
+                                        size="small"
+                                        fullWidth
+                                        onClick={() => setChannelFilter(option.value)}
+                                        active={channelFilter === option.value}
+                                    >
+                                        {option.label}
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        }
+                    >
+                        <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                            {channelOptions.find((o) => o.value === channelFilter)?.label ?? 'All channels'}
+                        </LemonButton>
+                    </LemonDropdown>
+                    <LemonDropdown
+                        closeOnClickInside
+                        overlay={
+                            <div className="space-y-px p-1">
+                                {slaOptions.map((option) => (
+                                    <LemonButton
+                                        key={option.value}
+                                        type="tertiary"
+                                        size="small"
+                                        fullWidth
+                                        onClick={() => setSlaFilter(option.value as TicketSlaState | 'all')}
+                                        active={slaFilter === option.value}
+                                    >
+                                        {option.label}
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        }
+                    >
+                        <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                            {slaOptions.find((o) => o.value === slaFilter)?.label ?? 'All SLA states'}
+                        </LemonButton>
+                    </LemonDropdown>
+                    <LemonDropdown
+                        closeOnClickInside={false}
+                        overlay={
+                            <div className="p-2 min-w-64">
+                                <LemonInputSelect
+                                    mode="multiple"
+                                    allowCustomValues
+                                    value={tagsFilter}
+                                    options={tagsAvailable?.map((t: string) => ({ key: t, label: t })) || []}
+                                    onChange={setTagsFilter}
+                                    placeholder="Select or type tags..."
+                                    data-attr="tags-filter-input"
+                                />
+                            </div>
+                        }
+                    >
+                        <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                            {tagsFilter.length === 0
+                                ? 'All tags'
+                                : tagsFilter.length === 1
+                                  ? tagsFilter[0]
+                                  : `${tagsFilter.length} tags`}
+                        </LemonButton>
+                    </LemonDropdown>
+                    {tagsFilter.length > 0 && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconX />}
+                            onClick={() => setTagsFilter([])}
+                            tooltip="Clear tag filter"
+                        />
+                    )}
                     <AssigneeSelect
                         assignee={assigneeFilter === 'all' || assigneeFilter === 'unassigned' ? null : assigneeFilter}
                         onChange={(assignee) => setAssigneeFilter(assignee ?? 'all')}
@@ -171,9 +294,38 @@ export function SupportTicketsScene(): JSX.Element {
                 dataSource={filteredTickets}
                 rowKey="id"
                 loading={ticketsLoading}
-                onRow={(ticket) => ({
-                    onClick: () => push(urls.supportTicketDetail(ticket.id)),
-                })}
+                pagination={{
+                    controlled: true,
+                    currentPage,
+                    pageSize: SUPPORT_TICKETS_PAGE_SIZE,
+                    entryCount: totalCount,
+                    onBackward: currentPage > 1 ? () => setCurrentPage(currentPage - 1) : undefined,
+                    onForward:
+                        currentPage * SUPPORT_TICKETS_PAGE_SIZE < totalCount
+                            ? () => setCurrentPage(currentPage + 1)
+                            : undefined,
+                }}
+                onRow={(ticket) => {
+                    const ticketUrl = urls.supportTicketDetail(ticket.ticket_number)
+                    return {
+                        onClick: (e: React.MouseEvent) => {
+                            if (e.metaKey || e.ctrlKey) {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                newInternalTab(ticketUrl)
+                            } else {
+                                push(ticketUrl)
+                            }
+                        },
+                        onAuxClick: (e: React.MouseEvent) => {
+                            if (e.button === 1) {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                newInternalTab(ticketUrl)
+                            }
+                        },
+                    }
+                }}
                 rowClassName={(ticket) =>
                     clsx({
                         'bg-primary-alt-highlight': ticket.unread_team_count > 0,
@@ -193,7 +345,26 @@ export function SupportTicketsScene(): JSX.Element {
                         key: 'customer',
                         render: (_, ticket) => (
                             <div className="flex items-center gap-2">
-                                <PersonDisplay person={{ distinct_id: ticket.distinct_id }} withIcon />
+                                <PersonDisplay
+                                    person={
+                                        ticket.person
+                                            ? {
+                                                  id: ticket.person.id,
+                                                  distinct_id: ticket.distinct_id,
+                                                  distinct_ids: ticket.person.distinct_ids,
+                                                  // Merge anonymous_traits as fallback for missing person properties
+                                                  properties: {
+                                                      ...ticket.anonymous_traits,
+                                                      ...ticket.person.properties,
+                                                  },
+                                              }
+                                            : {
+                                                  distinct_id: ticket.distinct_id,
+                                                  properties: ticket.anonymous_traits || {},
+                                              }
+                                    }
+                                    withIcon
+                                />
                             </div>
                         ),
                     },
@@ -209,7 +380,7 @@ export function SupportTicketsScene(): JSX.Element {
                                             'font-medium': ticket.unread_team_count > 0,
                                         })}
                                     >
-                                        {ticket.last_message_text}
+                                        {stripMarkdown(ticket.last_message_text)}
                                     </span>
                                 ) : (
                                     <span className="text-muted-alt text-xs">—</span>
@@ -258,6 +429,28 @@ export function SupportTicketsScene(): JSX.Element {
                             ),
                     },
                     {
+                        title: 'SLA',
+                        key: 'sla_due_at',
+                        sorter: (a, b) => {
+                            if (!a.sla_due_at && !b.sla_due_at) {
+                                return 0
+                            }
+                            if (!a.sla_due_at) {
+                                return 1
+                            }
+                            if (!b.sla_due_at) {
+                                return -1
+                            }
+                            return dayjs(a.sla_due_at).unix() - dayjs(b.sla_due_at).unix()
+                        },
+                        render: (_, ticket) =>
+                            ticket.sla_due_at ? (
+                                <SlaDisplay slaDueAt={ticket.sla_due_at} className="text-xs" />
+                            ) : (
+                                <span className="text-muted-alt text-xs">—</span>
+                            ),
+                    },
+                    {
                         title: 'Assignee',
                         key: 'assignee',
                         render: (_, ticket) => (
@@ -270,6 +463,16 @@ export function SupportTicketsScene(): JSX.Element {
                         title: 'Channel',
                         key: 'channel',
                         render: (_, ticket) => <ChannelsTag channel={ticket.channel_source} />,
+                    },
+                    {
+                        title: 'Tags',
+                        key: 'tags',
+                        render: (_, ticket) =>
+                            ticket.tags && ticket.tags.length > 0 ? (
+                                <ObjectTags tags={ticket.tags} staticOnly />
+                            ) : (
+                                <span className="text-muted-alt text-xs">—</span>
+                            ),
                     },
                     {
                         title: 'Created',

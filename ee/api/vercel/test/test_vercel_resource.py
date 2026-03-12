@@ -287,10 +287,10 @@ class TestVercelResourceAPI(VercelTestBase):
         self.assertEqual(len(secrets), 2)
 
         secret_names = [s["name"] for s in secrets]
-        self.assertIn("POSTHOG_PROJECT_API_KEY", secret_names)
-        self.assertIn("POSTHOG_HOST", secret_names)
+        self.assertIn("NEXT_PUBLIC_POSTHOG_KEY", secret_names)
+        self.assertIn("NEXT_PUBLIC_POSTHOG_HOST", secret_names)
 
-        api_key_secret = next(s for s in secrets if s["name"] == "POSTHOG_PROJECT_API_KEY")
+        api_key_secret = next(s for s in secrets if s["name"] == "NEXT_PUBLIC_POSTHOG_KEY")
         self.assertEqual(api_key_secret["value"], self.team.api_token)
 
     def test_rotate_secrets_requires_system_auth(self):

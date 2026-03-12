@@ -18,6 +18,7 @@ from posthog.api.utils import action
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.cohort.cohort import Cohort
+from posthog.models.organization import OrganizationMembership
 from posthog.tasks.email import send_error_tracking_issue_assigned
 
 from products.error_tracking.backend.models import (
@@ -108,7 +109,7 @@ class ErrorTrackingIssueFullSerializer(serializers.ModelSerializer):
 
 @extend_schema(tags=[ProductKey.ERROR_TRACKING])
 class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "error_tracking"
     queryset = ErrorTrackingIssue.objects.with_first_seen().all()
     serializer_class = ErrorTrackingIssueFullSerializer
 
@@ -136,7 +137,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                     ErrorTrackingIssue.objects.with_first_seen()
                     .select_related("assignment")
                     .prefetch_related("external_issues__integration")
-                    .get(id=record.issue_id)
+                    .get(id=record.issue_id, team=self.team)
                 )
                 serializer = self.get_serializer(issue)
                 return Response(serializer.data)
@@ -155,10 +156,13 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     @action(methods=["POST"], detail=True)
     def split(self, request, **kwargs):
         issue: ErrorTrackingIssue = self.get_object()
-        fingerprints: list[str] = request.data.get("fingerprints", [])
-        exclusive: bool = request.data.get("exclusive", True)
-        issue.split(fingerprints=fingerprints, exclusive=exclusive)
-        return Response({"success": True})
+        fingerprints = request.data.get("fingerprints", [])
+        if not isinstance(fingerprints, list) or not all(
+            isinstance(entry, dict) and isinstance(entry.get("fingerprint"), str) for entry in fingerprints
+        ):
+            raise ValidationError("fingerprints must be a list of objects with a 'fingerprint' string field")
+        new_issues = issue.split(fingerprints=fingerprints)
+        return Response({"success": True, "new_issue_ids": [str(i.id) for i in new_issues]})
 
     @action(methods=["PATCH"], detail=True)
     def assign(self, request, **kwargs):
@@ -184,6 +188,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
         try:
             ## Upsert cohort_id as a cohort might have been soft deleted
+            # nosemgrep: idor-lookup-without-team (cohort scoped to team before use)
             _ = ErrorTrackingIssueCohort.objects.update_or_create(issue=issue, defaults={"cohort_id": cohort.id})
         except Exception as e:
             posthoganalytics.capture_exception(
@@ -206,7 +211,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             elif key == "issue_description":
                 issue_values = queryset.filter(description__icontains=value).values_list("description", flat=True)
 
-        return Response([{"name": value} for value in issue_values])
+        return Response({"results": [{"name": value} for value in issue_values], "refreshing": False})
 
     @action(methods=["POST"], detail=False)
     def bulk(self, request, **kwargs):
@@ -287,6 +292,16 @@ def assign_issue(issue: ErrorTrackingIssue, assignee, organization, user, team_i
     )
 
     if assignee:
+        if assignee["type"] == "user":
+            if not OrganizationMembership.objects.filter(user_id=assignee["id"], organization=organization).exists():
+                raise ValidationError("Assignee user does not belong to this organization.")
+        elif assignee["type"] == "role":
+            from ee.models.rbac.role import Role
+
+            if not Role.objects.filter(id=assignee["id"], organization=organization).exists():
+                raise ValidationError("Assignee role does not belong to this organization.")
+
+        # nosemgrep: idor-lookup-without-team (assignee validated against org above)
         assignment_after, _ = ErrorTrackingIssueAssignment.objects.update_or_create(
             issue_id=issue.id,
             defaults={

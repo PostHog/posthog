@@ -10,8 +10,6 @@ import { CyclotronJobQueue, JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS, getProducerMap
 
 describe('CyclotronJobQueue', () => {
     let config: PluginsServerConfig
-    let mockConsumeBatch: jest.Mock
-
     const exampleHogFunction = createHogFunction({
         name: 'Test hog function',
         ...HOG_EXAMPLES.simple_fetch,
@@ -21,39 +19,18 @@ describe('CyclotronJobQueue', () => {
 
     beforeEach(() => {
         config = { ...defaultConfig }
-        mockConsumeBatch = jest.fn()
     })
 
-    describe('cyclotron', () => {
-        beforeEach(() => {
-            config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE = 'postgres'
-        })
-
-        it('should initialise', () => {
-            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
-            expect(queue).toBeDefined()
-            expect(queue['consumerMode']).toBe('postgres')
-        })
-    })
-
-    describe('kafka', () => {
-        beforeEach(() => {
-            config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE = 'kafka'
-        })
-
-        it('should initialise', () => {
-            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
-            expect(queue).toBeDefined()
-            expect(queue['consumerMode']).toBe('kafka')
-        })
+    it('should initialise', () => {
+        const queue = new CyclotronJobQueue(config)
+        expect(queue).toBeDefined()
     })
 
     describe('producer setup', () => {
         const buildQueue = (mapping: string, teamMapping?: string) => {
-            config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE = 'kafka'
             config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = mapping
             config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING = teamMapping || ''
-            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
+            const queue = new CyclotronJobQueue(config)
             queue['jobQueuePostgres'].startAsProducer = jest.fn()
             queue['jobQueueKafka'].startAsProducer = jest.fn()
             queue['jobQueuePostgres'].queueInvocations = jest.fn()
@@ -82,8 +59,8 @@ describe('CyclotronJobQueue', () => {
             expect(queue['jobQueueKafka'].startAsProducer).toHaveBeenCalled()
         })
 
-        it('should start both producers if a percentage is mapped', async () => {
-            const queue = buildQueue('*:postgres:0.5')
+        it('should start both producers if split routing is mapped', async () => {
+            const queue = buildQueue('*:postgres:0.5,*:kafka:0.5')
             await queue.startAsProducer()
             expect(queue['jobQueuePostgres'].startAsProducer).toHaveBeenCalled()
             expect(queue['jobQueueKafka'].startAsProducer).toHaveBeenCalled()
@@ -175,15 +152,21 @@ describe('getProducerMapping', () => {
         [
             '*:kafka',
             {
-                '*': { target: 'kafka', percentage: 1 },
+                '*': [{ target: 'kafka', percentage: 1 }],
             },
         ],
         [
-            '*:kafka:0.5,hog:kafka:1,hogflow:postgres:0.1',
+            '*:kafka:0.5,*:postgres:0.5,hog:kafka,hogflow:postgres:0.1,hogflow:kafka:0.9',
             {
-                '*': { target: 'kafka', percentage: 0.5 },
-                hog: { target: 'kafka', percentage: 1 },
-                hogflow: { target: 'postgres', percentage: 0.1 },
+                '*': [
+                    { target: 'kafka', percentage: 0.5 },
+                    { target: 'postgres', percentage: 0.5 },
+                ],
+                hog: [{ target: 'kafka', percentage: 1 }],
+                hogflow: [
+                    { target: 'postgres', percentage: 0.1 },
+                    { target: 'kafka', percentage: 0.9 },
+                ],
             },
         ],
     ])('should return the correct mapping for %s', (mapping, expected) => {
@@ -191,11 +174,14 @@ describe('getProducerMapping', () => {
     })
 
     it.each([
-        ['*:kafkatypo', 'Invalid mapping: *:kafkatypo - target kafkatypo must be one of postgres, kafka'],
-        ['hog:kafkatypo', 'Invalid mapping: hog:kafkatypo - target kafkatypo must be one of postgres, kafka'],
+        ['*:kafkatypo', 'Invalid mapping: *:kafkatypo - target kafkatypo must be one of postgres, postgres-v2, kafka'],
+        [
+            'hog:kafkatypo',
+            'Invalid mapping: hog:kafkatypo - target kafkatypo must be one of postgres, postgres-v2, kafka',
+        ],
         [
             'hog:kafka,hogflow:postgres,*:kafkatypo',
-            'Invalid mapping: *:kafkatypo - target kafkatypo must be one of postgres, kafka',
+            'Invalid mapping: *:kafkatypo - target kafkatypo must be one of postgres, postgres-v2, kafka',
         ],
         [
             'wrong_queue:kafka',
@@ -203,6 +189,7 @@ describe('getProducerMapping', () => {
         ],
         ['hog:kafka:1.1', 'Invalid mapping: hog:kafka:1.1 - percentage 1.1 must be 0 < x <= 1'],
         ['hog:kafka', 'No mapping for the default queue for example: *:postgres'],
+        ['*:kafka:0.5,*:postgres:0.3', 'Invalid mapping for queue *: percentages must sum to 1 (got 0.8)'],
     ])('should throw for bad values for %s', (mapping, error) => {
         expect(() => getProducerMapping(mapping)).toThrow(error)
     })

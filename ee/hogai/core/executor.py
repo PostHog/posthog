@@ -7,15 +7,18 @@ from uuid import uuid4
 from django.conf import settings
 
 import structlog
+import posthoganalytics
 from prometheus_client import Histogram
 from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.schema import AssistantEventType, FailureMessage
 
 from posthog.temporal.ai.base import AgentBaseWorkflow
 from posthog.temporal.common.client import async_connect
 
+from ee.hogai.queue import ConversationQueueStore
 from ee.hogai.stream.redis_stream import (
     CONVERSATION_STREAM_MAX_LENGTH,
     CONVERSATION_STREAM_TIMEOUT,
@@ -89,14 +92,7 @@ class AgentExecutor:
 
             client = await async_connect()
 
-            handle = await client.start_workflow(
-                workflow.run,
-                inputs,
-                id=self._workflow_id,
-                task_queue=settings.MAX_AI_TASK_QUEUE,
-                id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-            )
+            handle = await self._start_workflow_with_retry(client, workflow, inputs)
 
             # Wait for the workflow to start running before streaming
             is_workflow_running = await self._wait_for_workflow_to_start(handle)
@@ -104,12 +100,61 @@ class AgentExecutor:
                 raise Exception(f"Workflow failed to start within timeout: {self._workflow_id}")
 
         except Exception as e:
+            posthoganalytics.capture_exception(e, properties={"tag": "max_ai"})
             logger.exception("Error starting workflow", error=e)
             yield self._failure_message()
             return
 
         async for chunk in self.stream_conversation():
             yield chunk
+
+    async def _start_workflow_with_retry(
+        self, client: Any, workflow: type[AgentBaseWorkflow], inputs: Any, max_retries: int = 3
+    ) -> WorkflowHandle:
+        """Start a workflow with retry logic for handling race conditions.
+
+        When a workflow is in the process of completing, there can be a brief window
+        where starting a new workflow with the same ID fails even with USE_EXISTING policy.
+        This method handles that by waiting for the existing workflow to complete and retrying.
+        """
+        for attempt in range(max_retries):
+            try:
+                return await client.start_workflow(
+                    workflow.run,
+                    inputs,
+                    id=self._workflow_id,
+                    task_queue=settings.MAX_AI_TASK_QUEUE,
+                    id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                )
+            except WorkflowAlreadyStartedError:
+                if attempt < max_retries - 1:
+                    # Get handle to existing workflow and wait for it to complete
+                    logger.info(
+                        "Workflow already started, waiting for completion",
+                        workflow_id=self._workflow_id,
+                        attempt=attempt + 1,
+                    )
+                    existing_handle = client.get_workflow_handle(workflow_id=self._workflow_id)
+                    try:
+                        # Wait for the existing workflow to complete (with timeout)
+                        await asyncio.wait_for(existing_handle.result(), timeout=5.0)
+                    except TimeoutError:
+                        # If timeout, the workflow is still running - return the existing handle
+                        logger.info(
+                            "Existing workflow still running, using existing handle",
+                            workflow_id=self._workflow_id,
+                        )
+                        return existing_handle
+                    except Exception:
+                        # Workflow completed (possibly with error), retry starting a new one
+                        pass
+                    # Small delay before retry
+                    await asyncio.sleep(0.1)
+                else:
+                    raise
+        # This should be unreachable, but mypy needs it
+        raise Exception(f"Failed to start workflow after {max_retries} attempts")
 
     async def _wait_for_workflow_to_start(self, handle: WorkflowHandle) -> bool:
         """Wait for the workflow to start running.
@@ -159,6 +204,7 @@ class AgentExecutor:
                 if message:
                     yield message
         except Exception as e:
+            posthoganalytics.capture_exception(e, properties={"tag": "max_ai"})
             logger.exception("Error streaming conversation", error=e)
             yield self._failure_message()
 
@@ -177,6 +223,7 @@ class AgentExecutor:
         if isinstance(message.event, MessageEvent):
             return (AssistantEventType.MESSAGE, message.event.payload)
         elif isinstance(message.event, ConversationEvent):
+            # nosemgrep: idor-lookup-without-team (ID from internal Redis stream, caller validates user+team ownership)
             conversation = await Conversation.objects.select_related("user").aget(id=message.event.payload)
             return (AssistantEventType.CONVERSATION, conversation)
         elif isinstance(message.event, UpdateEvent):
@@ -197,27 +244,46 @@ class AgentExecutor:
     async def cancel_workflow(self) -> None:
         """Cancel the current conversation and clean up resources.
 
-        This cancels both the main conversation workflow and any running subagent workflows.
+        This cancels the main conversation workflow, any running subagent workflows,
+        any queued message workflows, and clears the cache queue.
 
-        Raises:
-            Exception: If cancellation fails
+        The main workflow cancel is non-fatal because the main workflow may have already
+        completed after spawning a queued workflow. In that case, we still need to cancel
+        the queued workflows and clear the cache queue.
         """
         self._conversation.status = Conversation.Status.CANCELING
         await self._conversation.asave(update_fields=["status", "updated_at"])
 
-        client = await async_connect()
+        try:
+            client = await async_connect()
 
-        # Cancel the main conversation workflow
-        handle = client.get_workflow_handle(workflow_id=self._workflow_id)
-        await handle.cancel()
+            # Cancel the main conversation workflow.
+            # This may fail if the workflow already completed (e.g. after spawning a queued workflow),
+            # but we must continue to cancel queued workflows and clean up.
+            try:
+                handle = client.get_workflow_handle(workflow_id=self._workflow_id)
+                await handle.cancel()
+            except Exception as e:
+                logger.warning(
+                    "Failed to cancel main workflow (may have already completed)",
+                    workflow_id=self._workflow_id,
+                    conversation_id=str(self._conversation.id),
+                    error=str(e),
+                )
 
-        # Cancel any running subagent workflows for this conversation
-        await self._cancel_subagent_workflows(client)
+            # Cancel any running subagent workflows for this conversation
+            await self._cancel_subagent_workflows(client)
+            # Cancel any running queued message workflows for this conversation
+            await self._cancel_queue_workflows(client)
 
-        await self._redis_stream.delete_stream()
+            # Clear the cache queue so no new queued workflows are spawned
+            queue_store = ConversationQueueStore(str(self._conversation.id))
+            await queue_store.clear_async()
 
-        self._conversation.status = Conversation.Status.IDLE
-        await self._conversation.asave(update_fields=["status", "updated_at"])
+            await self._redis_stream.delete_stream()
+        finally:
+            self._conversation.status = Conversation.Status.IDLE
+            await self._conversation.asave(update_fields=["status", "updated_at"])
 
     async def _cancel_subagent_workflows(self, client) -> None:
         """Cancel all running subagent workflows for this conversation.
@@ -248,6 +314,30 @@ class AgentExecutor:
             # Log but don't fail the main cancellation if listing subagents fails
             logger.warning(
                 "Failed to list subagent workflows for cancellation",
+                conversation_id=str(self._conversation.id),
+                error=str(e),
+            )
+
+    async def _cancel_queue_workflows(self, client) -> None:
+        """Cancel all running queued message workflows for this conversation."""
+        queue_prefix = f"conversation-{self._conversation.id}-queued-"
+        query = f'WorkflowId STARTS_WITH "{queue_prefix}" AND ExecutionStatus = "Running"'
+
+        try:
+            async for workflow in client.list_workflows(query=query):
+                try:
+                    queue_handle = client.get_workflow_handle(workflow_id=workflow.id)
+                    await queue_handle.cancel()
+                except Exception as e:
+                    logger.warning(
+                        "Failed to cancel queued workflow",
+                        workflow_id=workflow.id,
+                        conversation_id=str(self._conversation.id),
+                        error=str(e),
+                    )
+        except Exception as e:
+            logger.warning(
+                "Failed to list queued workflows for cancellation",
                 conversation_id=str(self._conversation.id),
                 error=str(e),
             )

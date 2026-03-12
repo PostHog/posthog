@@ -1,7 +1,7 @@
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
@@ -57,7 +57,7 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
             (billing) => {
                 // TODO(@zach): revisit this logic after subscribe to all products is released
                 // There are some features where we want to check the product first
-                const checkProductFirst = [AvailableFeature.ORGANIZATIONS_PROJECTS, AvailableFeature.ENVIRONMENTS]
+                const checkProductFirst = [AvailableFeature.ORGANIZATIONS_PROJECTS]
 
                 let foundProduct: BillingProductV2Type | BillingProductV2AddonType | undefined = undefined
 

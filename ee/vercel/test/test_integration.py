@@ -161,11 +161,58 @@ class TestVercelIntegration(TestCase):
     def test_update_installation_not_found(self):
         VercelIntegration.update_installation(self.NONEXISTENT_INSTALLATION_ID, "pro200")
 
-    def test_delete_installation(self):
+    @patch("ee.vercel.integration.BillingManager")
+    @patch("ee.vercel.integration.get_cached_instance_license")
+    def test_delete_installation(self, mock_license, mock_billing_manager):
+        mock_license.return_value = Mock()
+        mock_billing_manager.return_value = Mock()
+
         result = VercelIntegration.delete_installation(self.installation_id)
 
         assert result["finalized"]
         assert not OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
+
+    @patch("ee.vercel.integration.get_cached_instance_license")
+    def test_delete_installation_aborts_without_license(self, mock_license):
+        mock_license.return_value = None
+
+        with self.assertRaises(RuntimeError):
+            VercelIntegration.delete_installation(self.installation_id)
+
+        assert OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
+
+    @patch("ee.vercel.integration.BillingManager")
+    @patch("ee.vercel.integration.get_cached_instance_license")
+    def test_delete_installation_calls_billing_deauthorize(self, mock_license, mock_billing_manager):
+        """Deleting installation should notify billing service to cancel subscription."""
+        from ee.billing.billing_types import BillingProvider
+
+        mock_license.return_value = Mock()
+        mock_manager_instance = Mock()
+        mock_billing_manager.return_value = mock_manager_instance
+
+        result = VercelIntegration.delete_installation(self.installation_id)
+
+        assert result["finalized"]
+        mock_billing_manager.assert_called_once_with(mock_license.return_value)
+        mock_manager_instance.deauthorize.assert_called_once_with(
+            self.organization, billing_provider=BillingProvider.VERCEL
+        )
+
+    @patch("ee.vercel.integration.BillingManager")
+    @patch("ee.vercel.integration.get_cached_instance_license")
+    def test_delete_installation_aborts_on_billing_failure(self, mock_license, mock_billing_manager):
+        """Deletion should not proceed if billing deauthorization fails, so Vercel retries the webhook."""
+        mock_license.return_value = Mock()
+        mock_manager_instance = Mock()
+        mock_manager_instance.deauthorize.side_effect = Exception("Billing service error")
+        mock_billing_manager.return_value = mock_manager_instance
+
+        with self.assertRaises(Exception) as context:
+            VercelIntegration.delete_installation(self.installation_id)
+        assert "Billing service error" in str(context.exception)
+
+        assert OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
 
     def test_delete_installation_not_found(self):
         with self.assertRaises(NotFound):
@@ -531,9 +578,9 @@ class TestVercelIntegration(TestCase):
         secrets = VercelIntegration._build_secrets(team)
 
         assert len(secrets) == 2
-        assert secrets[0]["name"] == "POSTHOG_PROJECT_API_KEY"
+        assert secrets[0]["name"] == "NEXT_PUBLIC_POSTHOG_KEY"
         assert secrets[0]["value"] == "test_api_token"
-        assert secrets[1]["name"] == "POSTHOG_HOST"
+        assert secrets[1]["name"] == "NEXT_PUBLIC_POSTHOG_HOST"
         assert secrets[1]["value"].startswith(("https://", "http://"))
 
     @parameterized.expand(
@@ -1154,8 +1201,8 @@ class TestPushSecretsToVercel(TestCase):
 
         secrets = call_args[1]["secrets"]
         assert len(secrets) == 2
-        assert any(s["name"] == "POSTHOG_PROJECT_API_KEY" for s in secrets)
-        assert any(s["name"] == "POSTHOG_HOST" for s in secrets)
+        assert any(s["name"] == "NEXT_PUBLIC_POSTHOG_KEY" for s in secrets)
+        assert any(s["name"] == "NEXT_PUBLIC_POSTHOG_HOST" for s in secrets)
 
     @patch("ee.vercel.integration.VercelAPIClient")
     def test_push_secrets_sends_current_api_token(self, mock_client_class):
@@ -1167,7 +1214,7 @@ class TestPushSecretsToVercel(TestCase):
 
         call_args = mock_client.update_resource_secrets.call_args
         secrets = call_args[1]["secrets"]
-        api_key_secret = next(s for s in secrets if s["name"] == "POSTHOG_PROJECT_API_KEY")
+        api_key_secret = next(s for s in secrets if s["name"] == "NEXT_PUBLIC_POSTHOG_KEY")
         assert api_key_secret["value"] == self.team.api_token
 
     @patch("ee.vercel.integration.VercelAPIClient")

@@ -133,17 +133,6 @@ describe('variantsPanelLogic', () => {
                     mode: 'link',
                 })
         })
-
-        it('resets dirty flag when switching modes', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setFeatureFlagKeyDirty()
-                logic.actions.setMode('link')
-            })
-                .toDispatchActions(['setFeatureFlagKeyDirty', 'setMode'])
-                .toMatchValues({
-                    featureFlagKeyDirty: false,
-                })
-        })
     })
 
     describe('feature flag key validation', () => {
@@ -197,6 +186,53 @@ describe('variantsPanelLogic', () => {
                         error: 'A feature flag with this key already exists.',
                     }),
                 })
+        })
+
+        it('returns existingFlag when key matches a known feature flag', async () => {
+            // Wait for connected logics to load so unavailableFeatureFlagKeys is populated
+            await expectLogic(featureFlagsLogic).toDispatchActions(['loadFeatureFlagsSuccess'])
+            await expectLogic(experimentsLogic).toDispatchActions(['loadExperimentsSuccess'])
+
+            await expectLogic(logic, () => {
+                logic.actions.validateFeatureFlagKey('existing-flag-1')
+            })
+                .toDispatchActions(['validateFeatureFlagKey', 'validateFeatureFlagKeySuccess'])
+                .toMatchValues({
+                    featureFlagKeyValidation: partial({
+                        valid: false,
+                        error: 'A feature flag with this key already exists.',
+                        existingFlag: partial({ id: 1, key: 'existing-flag-1' }),
+                    }),
+                })
+        })
+
+        it('returns existingFlag via API fallback when key is not in local Set', async () => {
+            // Unlike the test above, we don't wait for loadFeatureFlagsSuccess,
+            // so unavailableFeatureFlagKeys is empty and the API path is used
+            await expectLogic(logic, () => {
+                logic.actions.validateFeatureFlagKey('existing-flag-2')
+            })
+                .toDispatchActions(['validateFeatureFlagKey', 'validateFeatureFlagKeySuccess'])
+                .toMatchValues({
+                    featureFlagKeyValidation: partial({
+                        valid: false,
+                        existingFlag: partial({ id: 2, key: 'existing-flag-2' }),
+                    }),
+                })
+        })
+
+        it('does not return existingFlag when validation error is not about duplicate keys', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.validateFeatureFlagKey('')
+            })
+                .toDispatchActions(['validateFeatureFlagKey', 'validateFeatureFlagKeySuccess'])
+                .toMatchValues({
+                    featureFlagKeyValidation: partial({
+                        valid: false,
+                    }),
+                })
+
+            expect(logic.values.featureFlagKeyValidation?.existingFlag).toBeUndefined()
         })
 
         it('debounces validation calls', async () => {

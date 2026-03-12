@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { Readable } from 'stream'
 
-import { Properties } from '@posthog/plugin-scaffold'
+import { Properties } from '~/plugin-scaffold'
 
 import { ClickHouseTimestamp, ClickHouseTimestampSecondPrecision, ISOTimestamp, TimestampFormat } from '../types'
 import { logger } from './logger'
@@ -182,8 +182,22 @@ export class UUID {
     }
 }
 
+// Lowercase UUID session IDs for consistency. Some mobile apps send uppercase
+// session IDs, which causes issues on query paths where the session ID is parsed
+// as a UUID and converted back to a string.
+// See https://github.com/PostHog/posthog/issues/46111
+export function normalizeSessionId(sessionId: string): string {
+    return UUID.validateString(sessionId, false) ? sessionId.toLowerCase() : sessionId
+}
+
 /**
  * UUID (mostly) sortable by generation time.
+ *
+ * Note: this class was created in 2020, before UUIDv7 was published in 2024 https://www.rfc-editor.org/rfc/rfc9562.
+ * Nowadays, you probably want to use UUIDv7 instead, as many DB engines have first-class support for them
+ * (e.g. clickhouse has [UUIDv7ToDateTime](https://clickhouse.com/docs/sql-reference/functions/uuid-functions#UUIDv7ToDateTime))
+ *
+ * Original comment from 2020 continues:
  *
  * This doesn't adhere to any official UUID version spec, but it is superior as a primary key:
  * to incremented integers (as they can reveal sensitive business information about usage volumes and patterns),

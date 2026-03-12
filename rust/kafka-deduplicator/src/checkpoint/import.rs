@@ -1,10 +1,69 @@
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
+use super::error::{DownloadCancelledError, ImportTimeoutError};
 use super::{CheckpointDownloader, CheckpointMetadata};
+use crate::metrics_const::{
+    CHECKPOINT_IMPORT_ATTEMPT_DURATION_HISTOGRAM, CHECKPOINT_IMPORT_DURATION_HISTOGRAM,
+};
 
 use anyhow::{Context, Result};
+use chrono::Utc;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
+
+/// Cleanup guard that removes the import directory on drop unless defused.
+/// Handles: failures, timeouts, cancellations, panics during import.
+struct ImportCleanupGuard {
+    path: PathBuf,
+    topic: String,
+    partition: i32,
+    defused: bool,
+}
+
+impl ImportCleanupGuard {
+    fn new(path: PathBuf, topic: String, partition: i32) -> Self {
+        Self {
+            path,
+            topic,
+            partition,
+            defused: false,
+        }
+    }
+
+    /// Defuse the guard - directory will NOT be cleaned up on drop.
+    /// Call this when import succeeds and path should be kept.
+    fn defuse(mut self) -> PathBuf {
+        self.defused = true;
+        std::mem::take(&mut self.path)
+    }
+}
+
+impl Drop for ImportCleanupGuard {
+    fn drop(&mut self) {
+        if !self.defused && self.path.exists() {
+            match std::fs::remove_dir_all(&self.path) {
+                Ok(_) => {
+                    info!(
+                        topic = %self.topic,
+                        partition = self.partition,
+                        path = %self.path.display(),
+                        "Import cleanup guard: removed incomplete import directory"
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        topic = %self.topic,
+                        partition = self.partition,
+                        path = %self.path.display(),
+                        error = ?e,
+                        "Import cleanup guard: failed to remove directory, orphan cleaner will handle it"
+                    );
+                }
+            }
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct CheckpointImporter {
@@ -13,6 +72,8 @@ pub struct CheckpointImporter {
     store_base_path: PathBuf,
     // Number of historical checkpoint attempts to import as fallbacks
     import_attempt_depth: usize,
+    // Maximum time allowed for a complete checkpoint import operation
+    import_timeout: Duration,
 }
 
 impl CheckpointImporter {
@@ -20,22 +81,30 @@ impl CheckpointImporter {
         downloader: Box<dyn CheckpointDownloader>,
         store_base_path: PathBuf,
         import_attempt_depth: usize,
+        import_timeout: Duration,
     ) -> Self {
         Self {
             downloader,
             store_base_path,
             import_attempt_depth,
+            import_timeout,
         }
     }
 
     /// Import checkpoint files directly into the store directory for a topic/partition.
     ///
     /// This method will:
-    /// 1. Fetch checkpoint metadata.json files from the most recent N checkpoints for the topic+partition
-    /// 2. For each metadata file (newest to oldest), attempt to download all tracked files directly
-    ///    to the store directory: `<store_base_path>/<topic>/<partition>/`
-    /// 3. If a checkpoint import fails, fall back to the next most recent (up to import_attempt_depth)
-    /// 4. If successful, return the store path where files were imported
+    /// 1. List recent checkpoint metadata.json keys from remote storage for the topic+partition
+    /// 2. For each key (newest to oldest, up to import_attempt_depth), lazily download the
+    ///    metadata.json and attempt to download all tracked files to a timestamped store
+    ///    directory: `<store_base_path>/<topic>_<partition>/<timestamp_millis>/`
+    /// 3. If a checkpoint import fails, fall back to the next most recent
+    /// 4. If successful, write metadata.json and a `.imported_<timestamp>` marker to that directory,
+    ///    then return the store path
+    ///
+    /// Metadata files are downloaded lazily (one at a time, only when needed) rather than
+    /// eagerly in bulk, to reduce S3 pressure during rebalances when many partitions import
+    /// simultaneously.
     pub async fn import_checkpoint_for_topic_partition(
         &self,
         topic: &str,
@@ -47,31 +116,88 @@ impl CheckpointImporter {
 
     /// Import checkpoint files with optional cancellation support.
     /// If cancel_token is provided and cancelled during download, returns an error early.
+    /// The import is wrapped with a timeout to prevent exceeding Kafka max poll interval.
     pub async fn import_checkpoint_for_topic_partition_cancellable(
         &self,
         topic: &str,
         partition_number: i32,
         cancel_token: Option<&CancellationToken>,
     ) -> Result<PathBuf> {
-        let mut checkpoint_metadata = self
-            .fetch_checkpoint_metadata(topic, partition_number)
-            .await?;
+        let start_time = Instant::now();
+
+        // Wrap the entire import with a timeout to prevent exceeding Kafka max poll interval
+        match tokio::time::timeout(
+            self.import_timeout,
+            self.import_checkpoint_inner(topic, partition_number, cancel_token, start_time),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(_elapsed) => {
+                error!(
+                    topic = topic,
+                    partition = partition_number,
+                    timeout_secs = self.import_timeout.as_secs(),
+                    elapsed_secs = start_time.elapsed().as_secs_f64(),
+                    "Checkpoint import timed out"
+                );
+                metrics::histogram!(CHECKPOINT_IMPORT_DURATION_HISTOGRAM, "result" => "timeout")
+                    .record(start_time.elapsed().as_secs_f64());
+                Err(ImportTimeoutError {
+                    topic: topic.to_string(),
+                    partition: partition_number,
+                    timeout_secs: self.import_timeout.as_secs(),
+                }
+                .into())
+            }
+        }
+    }
+
+    /// Inner implementation of checkpoint import, called with a timeout wrapper.
+    ///
+    /// Downloads metadata.json files lazily (one at a time) to avoid wasting S3 bandwidth
+    /// on metadata we may never need. In the happy path only the newest metadata is fetched.
+    async fn import_checkpoint_inner(
+        &self,
+        topic: &str,
+        partition_number: i32,
+        cancel_token: Option<&CancellationToken>,
+        start_time: Instant,
+    ) -> Result<PathBuf> {
+        let metadata_keys = match self
+            .downloader
+            .list_recent_checkpoints(topic, partition_number)
+            .await
+        {
+            Ok(keys) => keys,
+            Err(e) => {
+                metrics::histogram!(CHECKPOINT_IMPORT_DURATION_HISTOGRAM, "result" => "failed")
+                    .record(start_time.elapsed().as_secs_f64());
+                return Err(e).context("listing checkpoint metadata");
+            }
+        };
+
+        if metadata_keys.is_empty() {
+            metrics::histogram!(CHECKPOINT_IMPORT_DURATION_HISTOGRAM, "result" => "failed")
+                .record(start_time.elapsed().as_secs_f64());
+            return Err(anyhow::anyhow!(
+                "No checkpoint metadata files found for topic:{topic} partition:{partition_number}"
+            ));
+        }
+
+        // Truncate to import_attempt_depth BEFORE downloading any content
+        let metadata_keys: Vec<_> = metadata_keys
+            .into_iter()
+            .take(self.import_attempt_depth)
+            .collect();
 
         info!(
-            "Found {} checkpoint attempts for topic:{} partition:{}",
-            checkpoint_metadata.len(),
-            topic,
-            partition_number
+            "Found checkpoint metadata keys for topic:{topic} partition:{partition_number}, \
+             will attempt up to {} (newest first)",
+            metadata_keys.len(),
         );
 
-        // Slice to at most the most-recent N checkpoints
-        // we'll attempt to import according to import_limit
-        checkpoint_metadata.truncate(self.import_attempt_depth);
-        info!("Attempting recovery from the most recent {} checkpoints for topic:{topic} partition:{partition_number}",
-            checkpoint_metadata.len());
-
-        // checkpoints iterated in order of recency; we keep the first good one we fetch
-        for attempt in checkpoint_metadata {
+        for remote_key in &metadata_keys {
             // Check cancellation before each attempt
             if let Some(token) = cancel_token {
                 if token.is_cancelled() {
@@ -80,82 +206,134 @@ impl CheckpointImporter {
                         partition = partition_number,
                         "Checkpoint import cancelled before attempt"
                     );
-                    return Err(anyhow::anyhow!("Checkpoint import cancelled"));
+                    metrics::histogram!(CHECKPOINT_IMPORT_DURATION_HISTOGRAM, "result" => "cancelled")
+                        .record(start_time.elapsed().as_secs_f64());
+                    return Err(DownloadCancelledError {
+                        reason: "import cancelled before attempt".to_string(),
+                    }
+                    .into());
                 }
             }
 
-            let local_attempt_path = attempt.get_store_path(&self.store_base_path);
+            let attempt_start = Instant::now();
+
+            // Lazy download: only fetch this metadata.json when we actually need it,
+            // avoiding unnecessary S3 GETs during rebalances
+            let mut attempt = match self.downloader.download_file(remote_key).await {
+                Ok(content) => match CheckpointMetadata::from_json_bytes(&content) {
+                    Ok(metadata) => metadata,
+                    Err(e) => {
+                        error!("Failed to parse metadata: {remote_key}: {e:#}");
+                        continue;
+                    }
+                },
+                Err(e) => {
+                    error!("Failed to download metadata: {remote_key}: {e:#}");
+                    continue;
+                }
+            };
+
+            let import_timestamp = Utc::now();
+            let local_attempt_path =
+                attempt.get_store_path(&self.store_base_path, import_timestamp);
             let local_path_tag = local_attempt_path.to_string_lossy().to_string();
             let attempt_tag = attempt.get_attempt_path();
 
-            // Defensive cleanup: remove any existing directory from a previous failed attempt.
-            // Since the path is deterministic (based on checkpoint timestamp), a crash loop
-            // could leave corrupted partial downloads that would break the retry.
-            // We call remove unconditionally and ignore NotFound to avoid TOCTOU races.
-            match tokio::fs::remove_dir_all(&local_attempt_path).await {
-                Ok(_) => info!(
-                    checkpoint = attempt_tag,
-                    local_attempt_path = local_path_tag,
-                    "Removed existing directory before checkpoint import"
-                ),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => {
-                    return Err(e).with_context(|| {
-                        format!(
-                            "Failed to remove existing directory before import: {}",
-                            local_path_tag
-                        )
-                    })
-                }
-            }
-
             // Create the directory for this import attempt
-            tokio::fs::create_dir_all(&local_attempt_path)
-                .await
-                .with_context(|| {
+            if let Err(e) = tokio::fs::create_dir_all(&local_attempt_path).await {
+                metrics::histogram!(CHECKPOINT_IMPORT_ATTEMPT_DURATION_HISTOGRAM, "result" => "failed")
+                    .record(attempt_start.elapsed().as_secs_f64());
+                metrics::histogram!(CHECKPOINT_IMPORT_DURATION_HISTOGRAM, "result" => "failed")
+                    .record(start_time.elapsed().as_secs_f64());
+                return Err(e).with_context(|| {
                     format!(
                         "Failed to create local directory for import: {}",
                         local_path_tag
                     )
-                })?;
+                });
+            }
+
+            // Guard cleans up directory on drop (failure/timeout/cancel/panic) unless defused (success)
+            let guard = ImportCleanupGuard::new(
+                local_attempt_path.clone(),
+                topic.to_string(),
+                partition_number,
+            );
+
+            // Create child token for this attempt - allows sibling download cancellation
+            // on error while preserving fallback to next checkpoint attempt.
+            // Child token is cancelled when parent is cancelled (rebalance), or when
+            // a file download fails (sibling cancellation).
+            let attempt_token = cancel_token
+                .map(|parent| parent.child_token())
+                .unwrap_or_default();
 
             match self
-                .fetch_checkpoint_files_cancellable(&attempt, &local_attempt_path, cancel_token)
+                .fetch_checkpoint_files_cancellable(
+                    &attempt,
+                    &local_attempt_path,
+                    Some(&attempt_token),
+                )
                 .await
             {
                 Ok(_) => {
+                    let attempt_duration = attempt_start.elapsed().as_secs_f64();
+
+                    // Persist metadata.json to the local store directory (write_to_dir stamps updated_at = Utc::now())
+                    attempt
+                        .write_to_dir(&local_attempt_path)
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "Failed to write metadata.json to import dir: {}",
+                                local_attempt_path.display()
+                            )
+                        })?;
+
+                    // Write .imported_<timestamp> marker (same metadata JSON) to identify this as an imported store
+                    let marker_filename =
+                        format!(".imported_{}", import_timestamp.timestamp_millis());
+                    let marker_path = local_attempt_path.join(&marker_filename);
+                    let marker_content = attempt.to_json()?;
+                    tokio::fs::write(&marker_path, marker_content)
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "Failed to write import marker file: {}",
+                                marker_path.display()
+                            )
+                        })?;
+
                     info!(
                         checkpoint = attempt_tag,
-                        local_attempt_path = local_path_tag,
+                        local_store_path = local_path_tag,
+                        original_checkpoint_timestamp = %attempt.attempt_timestamp,
+                        local_store_timestamp_millis = import_timestamp.timestamp_millis(),
+                        marker_file = %marker_filename,
+                        attempt_duration_secs = attempt_duration,
+                        total_duration_secs = start_time.elapsed().as_secs_f64(),
                         "Successfully imported checkpoint to local directory"
                     );
-                    return Ok(local_attempt_path);
+                    metrics::histogram!(CHECKPOINT_IMPORT_ATTEMPT_DURATION_HISTOGRAM, "result" => "success")
+                        .record(attempt_duration);
+                    metrics::histogram!(CHECKPOINT_IMPORT_DURATION_HISTOGRAM, "result" => "success")
+                        .record(start_time.elapsed().as_secs_f64());
+
+                    // Defuse guard - import succeeded, keep the directory
+                    return Ok(guard.defuse());
                 }
                 Err(e) => {
+                    // Guard drops here automatically, cleans up directory
+                    let attempt_duration = attempt_start.elapsed().as_secs_f64();
+                    metrics::histogram!(CHECKPOINT_IMPORT_ATTEMPT_DURATION_HISTOGRAM, "result" => "failed")
+                        .record(attempt_duration);
                     error!(
                         checkpoint = attempt_tag,
                         local_attempt_path = local_path_tag,
-                        error = e.to_string(),
+                        attempt_duration_secs = attempt_duration,
+                        error = ?e,
                         "Failed to import checkpoint files"
                     );
-                    if local_attempt_path.exists() {
-                        match tokio::fs::remove_dir_all(&local_attempt_path).await {
-                            Ok(_) => {
-                                info!(
-                                    checkpoint = attempt_tag,
-                                    local_attempt_path = local_path_tag,
-                                    "Removed local directory after checkpoint import failure"
-                                );
-                            }
-                            Err(e) => {
-                                error!(
-                                    checkpoint = attempt_tag,
-                                    local_attempt_path = local_path_tag,
-                                    error = e.to_string(),
-                                    "Failed to remove local directory after checkpoint import failure");
-                            }
-                        }
-                    }
                     continue;
                 }
             }
@@ -165,42 +343,9 @@ impl CheckpointImporter {
             "No usable checkpoints identified in recovery window for topic:{topic} partition:{partition_number}"
         );
         error!(err_msg);
+        metrics::histogram!(CHECKPOINT_IMPORT_DURATION_HISTOGRAM, "result" => "failed")
+            .record(start_time.elapsed().as_secs_f64());
         Err(anyhow::anyhow!(err_msg))
-    }
-
-    pub async fn fetch_checkpoint_metadata(
-        &self,
-        topic: &str,
-        partition_number: i32,
-    ) -> Result<Vec<CheckpointMetadata>> {
-        let remote_metadata_files = self
-            .downloader
-            .list_recent_checkpoints(topic, partition_number)
-            .await
-            .context("In fetch_checkpoint_metadata")?;
-
-        let mut fetched_metadata_files = Vec::new();
-        for remote_key in remote_metadata_files {
-            match self.downloader.download_file(&remote_key).await {
-                Ok(content) => match CheckpointMetadata::from_json_bytes(&content) {
-                    Ok(metadata) => {
-                        fetched_metadata_files.push(metadata);
-                    }
-                    Err(e) => {
-                        error!("Failed to parse metadata from file bytes: {remote_key}: {e}");
-                    }
-                },
-                Err(e) => {
-                    error!("Failed to download metadata file: {remote_key}: {e}");
-                }
-            }
-        }
-
-        if fetched_metadata_files.is_empty() {
-            return Err(anyhow::anyhow!("No checkpoint metadata files downloaded successfully for topic:{topic} partition:{partition_number}"));
-        }
-
-        Ok(fetched_metadata_files)
     }
 
     pub async fn fetch_checkpoint_files(
@@ -243,7 +388,7 @@ impl CheckpointImporter {
                 Ok(())
             }
             Err(e) => {
-                error!("Failed to download checkpoint files to: {local_attempt_path:?}: {e}");
+                error!("Failed to download checkpoint files to: {local_attempt_path:?}: {e:#}");
                 Err(e)
             }
         }
@@ -303,7 +448,10 @@ mod tests {
         ) -> Result<()> {
             if let Some(token) = cancel_token {
                 if token.is_cancelled() {
-                    return Err(anyhow::anyhow!("Download cancelled"));
+                    return Err(DownloadCancelledError {
+                        reason: "test mock".to_string(),
+                    }
+                    .into());
                 }
             }
             tokio::fs::write(local_filepath, b"mock file content").await?;
@@ -331,37 +479,25 @@ mod tests {
         }
     }
 
-    /// Mock downloader that can simulate failures and delays for cancellation testing
+    /// Mock downloader for testing pre-cancellation checks.
+    /// For more complex cancellation scenarios (sibling cancellation, fallback),
+    /// use MinIO integration tests which exercise the real S3Downloader.
     #[derive(Debug)]
     struct CancellationTestDownloader {
-        /// Checkpoints to return from list_recent_checkpoints (multiple for multi-attempt tests)
         checkpoints: Vec<CheckpointMetadata>,
-        /// Number of attempts that should fail before succeeding (for multi-attempt tests)
-        fail_count: AtomicUsize,
-        /// Delay to add during download (to simulate slow downloads)
-        download_delay: Option<Duration>,
     }
 
     impl CancellationTestDownloader {
         fn new(checkpoints: Vec<CheckpointMetadata>) -> Self {
-            Self {
-                checkpoints,
-                fail_count: AtomicUsize::new(0),
-                download_delay: None,
-            }
-        }
-
-        fn with_fail_count(mut self, count: usize) -> Self {
-            self.fail_count = AtomicUsize::new(count);
-            self
-        }
-
-        fn with_download_delay(mut self, delay: Duration) -> Self {
-            self.download_delay = Some(delay);
-            self
+            Self { checkpoints }
         }
     }
 
+    // NOTE: This mock uses sequential downloads and does NOT implement sibling cancellation
+    // (no FuturesUnordered, no token.cancel() on error). It is suitable only for testing
+    // pre-cancellation paths. Complex cancellation scenarios (sibling cancellation,
+    // fallback after attempt failure) are tested in checkpoint_integration_tests.rs
+    // using real S3Downloader with MinIO.
     #[async_trait]
     impl CheckpointDownloader for CancellationTestDownloader {
         async fn list_recent_checkpoints(
@@ -395,19 +531,10 @@ mod tests {
             // Check cancellation before starting
             if let Some(token) = cancel_token {
                 if token.is_cancelled() {
-                    return Err(anyhow::anyhow!("Download cancelled"));
-                }
-            }
-
-            // Simulate slow download if configured
-            if let Some(delay) = self.download_delay {
-                tokio::time::sleep(delay).await;
-            }
-
-            // Check cancellation after delay (simulates mid-stream cancellation)
-            if let Some(token) = cancel_token {
-                if token.is_cancelled() {
-                    return Err(anyhow::anyhow!("Download cancelled mid-stream"));
+                    return Err(DownloadCancelledError {
+                        reason: "test mock".to_string(),
+                    }
+                    .into());
                 }
             }
 
@@ -421,23 +548,14 @@ mod tests {
             local_base_path: &Path,
             cancel_token: Option<&CancellationToken>,
         ) -> Result<()> {
-            // Apply delay first (simulates slow network/S3 response)
-            if let Some(delay) = self.download_delay {
-                tokio::time::sleep(delay).await;
-            }
-
-            // Check cancellation after delay
+            // Check cancellation before starting
             if let Some(token) = cancel_token {
                 if token.is_cancelled() {
-                    return Err(anyhow::anyhow!("Download cancelled"));
+                    return Err(DownloadCancelledError {
+                        reason: "test mock".to_string(),
+                    }
+                    .into());
                 }
-            }
-
-            // Check if this attempt should fail
-            let remaining_fails = self.fail_count.load(Ordering::SeqCst);
-            if remaining_fails > 0 {
-                self.fail_count.fetch_sub(1, Ordering::SeqCst);
-                return Err(anyhow::anyhow!("Simulated download failure"));
             }
 
             for key in remote_keys {
@@ -484,9 +602,11 @@ mod tests {
             .await;
 
         assert!(result.is_err());
+        let err = result.unwrap_err();
         assert!(
-            result.unwrap_err().to_string().contains("cancelled"),
-            "Error should mention cancellation"
+            err.downcast_ref::<DownloadCancelledError>().is_some(),
+            "Error should be DownloadCancelledError: {}",
+            err
         );
     }
 
@@ -495,8 +615,12 @@ mod tests {
         let tmp_dir = TempDir::new().unwrap();
         let metadata = create_test_metadata("test-topic", 0, 12);
         let downloader = CancellationTestDownloader::new(vec![metadata]);
-        let importer =
-            CheckpointImporter::new(Box::new(downloader), tmp_dir.path().to_path_buf(), 3);
+        let importer = CheckpointImporter::new(
+            Box::new(downloader),
+            tmp_dir.path().to_path_buf(),
+            3,
+            Duration::from_secs(60),
+        );
 
         // Create a pre-cancelled token
         let token = CancellationToken::new();
@@ -507,91 +631,22 @@ mod tests {
             .await;
 
         assert!(result.is_err());
+        let err = result.unwrap_err();
         assert!(
-            result.unwrap_err().to_string().contains("cancelled"),
-            "Error should mention cancellation"
+            err.downcast_ref::<DownloadCancelledError>().is_some(),
+            "Error should be DownloadCancelledError: {}",
+            err
         );
     }
 
     #[tokio::test]
-    async fn test_import_checkpoint_cancelled_between_attempts() {
-        let tmp_dir = TempDir::new().unwrap();
-
-        // Create two checkpoint attempts
-        let metadata1 = create_test_metadata("test-topic", 0, 14); // Most recent
-        let metadata2 = create_test_metadata("test-topic", 0, 12); // Older
-
-        // First attempt will fail after 50ms delay, second would succeed
-        let downloader = CancellationTestDownloader::new(vec![metadata1, metadata2])
-            .with_fail_count(1) // First attempt fails
-            .with_download_delay(Duration::from_millis(50)); // Delay before failure
-
-        let importer =
-            CheckpointImporter::new(Box::new(downloader), tmp_dir.path().to_path_buf(), 3);
-
-        let token = CancellationToken::new();
-
-        // Cancel after 20ms - during first attempt's delay, before failure check
-        let token_clone = token.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-            token_clone.cancel();
-        });
-
-        let result = importer
-            .import_checkpoint_for_topic_partition_cancellable("test-topic", 0, Some(&token))
-            .await;
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        // Cancellation should be detected during the download delay
-        assert!(
-            err_msg.contains("cancelled"),
-            "Error should mention cancellation, got: {err_msg}"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_download_cancelled_mid_stream() {
-        let tmp_dir = TempDir::new().unwrap();
-        let metadata = create_test_metadata("test-topic", 0, 12);
-
-        // Add a delay to simulate slow download
-        let downloader = CancellationTestDownloader::new(vec![metadata])
-            .with_download_delay(Duration::from_millis(100));
-
-        let token = CancellationToken::new();
-
-        // Cancel after 20ms (before the 100ms download completes)
-        let token_clone = token.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-            token_clone.cancel();
-        });
-
-        let result = downloader
-            .download_files_cancellable(
-                &["checkpoints/test-topic/0/file.sst".to_string()],
-                tmp_dir.path(),
-                Some(&token),
-            )
-            .await;
-
-        assert!(result.is_err());
-        assert!(
-            result.unwrap_err().to_string().contains("cancelled"),
-            "Error should mention cancellation"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_import_cleans_up_existing_directory_from_crashed_attempt() {
+    async fn test_import_creates_timestamped_directory_with_marker() {
         let tmp_dir = TempDir::new().unwrap();
         let store_base_path = tmp_dir.path().to_path_buf();
 
         let topic = "test-topic";
         let partition = 0;
-        // Use a fixed timestamp so we know exactly what path will be used
+        // Use a fixed timestamp for the checkpoint metadata (this is the "old" checkpoint timestamp)
         let attempt_timestamp = Utc.with_ymd_and_hms(2025, 6, 15, 12, 0, 0).unwrap();
 
         let mut metadata = CheckpointMetadata::new(
@@ -607,42 +662,390 @@ mod tests {
             "checksum1".to_string(),
         );
 
-        // Calculate the exact path that import will use
-        let expected_import_path = metadata.get_store_path(&store_base_path);
-
-        // Simulate a crashed previous attempt: create the directory with a "corrupted" file
-        std::fs::create_dir_all(&expected_import_path).unwrap();
-        let corrupted_file = expected_import_path.join("CORRUPTED_FROM_CRASH");
-        std::fs::write(&corrupted_file, b"this simulates leftover corrupted data").unwrap();
-        assert!(
-            corrupted_file.exists(),
-            "Corrupted file should exist before import"
-        );
-
         // Create importer with mock downloader
         let downloader = MockDownloader::new(metadata);
-        let importer = CheckpointImporter::new(Box::new(downloader), store_base_path, 3);
+        let importer = CheckpointImporter::new(
+            Box::new(downloader),
+            store_base_path.clone(),
+            3,
+            Duration::from_secs(60),
+        );
 
-        // Run import - should succeed after cleaning up the corrupted directory
+        // Record time bounds around the import
+        let before_import = Utc::now();
         let result = importer
             .import_checkpoint_for_topic_partition(topic, partition)
             .await;
+        let after_import = Utc::now();
 
         assert!(result.is_ok(), "Import should succeed: {:?}", result.err());
         let import_path = result.unwrap();
-        assert_eq!(import_path, expected_import_path);
+        assert!(import_path.exists(), "Import path should exist");
 
-        // Verify the corrupted file is gone (directory was pre-deleted and recreated)
+        // Verify the import path uses a current timestamp (Utc::now()), not the checkpoint's old timestamp
+        let timestamp_str = import_path.file_name().unwrap().to_str().unwrap();
+        let timestamp_millis: i64 = timestamp_str
+            .parse()
+            .expect("Path should end with timestamp millis");
         assert!(
-            !corrupted_file.exists(),
-            "Corrupted file should have been removed by defensive pre-deletion"
+            timestamp_millis >= before_import.timestamp_millis(),
+            "Import timestamp {} should be >= before_import {}",
+            timestamp_millis,
+            before_import.timestamp_millis()
+        );
+        assert!(
+            timestamp_millis <= after_import.timestamp_millis(),
+            "Import timestamp {} should be <= after_import {}",
+            timestamp_millis,
+            after_import.timestamp_millis()
         );
 
-        // Verify the imported file exists
+        // Verify the timestamp is NOT the old checkpoint timestamp
+        assert_ne!(
+            timestamp_millis,
+            attempt_timestamp.timestamp_millis(),
+            "Import should use Utc::now(), not the checkpoint's original timestamp"
+        );
+
+        // Verify marker file exists with correct content
+        let marker_files: Vec<_> = std::fs::read_dir(&import_path)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().starts_with(".imported_"))
+            .collect();
+        assert_eq!(marker_files.len(), 1, "Should have exactly one marker file");
+
+        let marker_filename = marker_files[0].file_name().to_string_lossy().to_string();
+        assert!(
+            marker_filename.starts_with(".imported_"),
+            "Marker file should start with .imported_"
+        );
+
+        // Verify marker file content contains checkpoint metadata
+        let marker_content = std::fs::read_to_string(marker_files[0].path()).unwrap();
+        let marker_metadata: serde_json::Value =
+            serde_json::from_str(&marker_content).expect("Marker should contain valid JSON");
+        assert_eq!(marker_metadata["topic"], topic);
+        assert_eq!(marker_metadata["partition"], partition);
+
+        // Verify the imported SST file exists
         let imported_file = import_path.join("000001.sst");
         assert!(
             imported_file.exists(),
             "Imported SST file should exist after successful import"
+        );
+
+        // Verify metadata.json exists and round-trips with correct topic/partition and updated_at
+        let loaded_metadata = CheckpointMetadata::load_from_dir(&import_path)
+            .await
+            .expect("metadata.json should exist and deserialize");
+        assert_eq!(loaded_metadata.topic, topic);
+        assert_eq!(loaded_metadata.partition, partition);
+        assert!(
+            loaded_metadata.updated_at.timestamp_millis() >= before_import.timestamp_millis(),
+            "updated_at should be >= before_import"
+        );
+        assert!(
+            loaded_metadata.updated_at.timestamp_millis() <= after_import.timestamp_millis(),
+            "updated_at should be <= after_import"
+        );
+    }
+
+    /// Mock downloader that always fails during file download
+    #[derive(Debug)]
+    struct FailingDownloader {
+        metadata: CheckpointMetadata,
+    }
+
+    impl FailingDownloader {
+        fn new(metadata: CheckpointMetadata) -> Self {
+            Self { metadata }
+        }
+    }
+
+    #[async_trait]
+    impl CheckpointDownloader for FailingDownloader {
+        async fn list_recent_checkpoints(
+            &self,
+            _topic: &str,
+            _partition_number: i32,
+        ) -> Result<Vec<String>> {
+            Ok(vec![self.metadata.get_metadata_filepath()])
+        }
+
+        async fn download_file(&self, _remote_key: &str) -> Result<Vec<u8>> {
+            let json = self.metadata.to_json()?;
+            Ok(json.into_bytes())
+        }
+
+        async fn download_and_store_file_cancellable(
+            &self,
+            _remote_key: &str,
+            _local_filepath: &Path,
+            _cancel_token: Option<&CancellationToken>,
+        ) -> Result<()> {
+            Err(anyhow::anyhow!("Simulated download failure"))
+        }
+
+        async fn download_files_cancellable(
+            &self,
+            _remote_keys: &[String],
+            _local_base_path: &Path,
+            _cancel_token: Option<&CancellationToken>,
+        ) -> Result<()> {
+            Err(anyhow::anyhow!("Simulated download failure"))
+        }
+
+        async fn is_available(&self) -> bool {
+            true
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_guard_removes_directory_on_failure() {
+        let tmp_dir = TempDir::new().unwrap();
+        let store_base_path = tmp_dir.path().to_path_buf();
+
+        let topic = "test-topic";
+        let partition = 0;
+        let attempt_timestamp = Utc.with_ymd_and_hms(2025, 6, 15, 12, 0, 0).unwrap();
+
+        let mut metadata = CheckpointMetadata::new(
+            topic.to_string(),
+            partition,
+            attempt_timestamp,
+            12345,
+            100,
+            50,
+        );
+        metadata.track_file(
+            "checkpoints/test-topic/0/2025-06-15T12-00-00Z/000001.sst".to_string(),
+            "checksum1".to_string(),
+        );
+
+        // Create importer with failing downloader
+        let downloader = FailingDownloader::new(metadata);
+        let importer = CheckpointImporter::new(
+            Box::new(downloader),
+            store_base_path.clone(),
+            1, // Only 1 attempt so we fail fast
+            Duration::from_secs(60),
+        );
+
+        // Record the partition directory path
+        let partition_dir = store_base_path.join(format!("{topic}_{partition}"));
+
+        // Import should fail
+        let result = importer
+            .import_checkpoint_for_topic_partition(topic, partition)
+            .await;
+        assert!(result.is_err(), "Import should fail");
+
+        // The partition directory might exist but should have no timestamp subdirs
+        // (the guard should have cleaned them up)
+        if partition_dir.exists() {
+            let subdirs: Vec<_> = std::fs::read_dir(&partition_dir)
+                .unwrap()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().is_dir())
+                .collect();
+            assert!(
+                subdirs.is_empty(),
+                "Cleanup guard should have removed the timestamp directory, but found: {:?}",
+                subdirs
+            );
+        }
+        // If partition_dir doesn't exist, that's also fine - means cleanup removed everything
+    }
+
+    #[test]
+    fn test_cleanup_guard_defuse_prevents_cleanup() {
+        let tmp_dir = TempDir::new().unwrap();
+        let test_path = tmp_dir.path().join("test_dir");
+        std::fs::create_dir_all(&test_path).unwrap();
+        let test_file = test_path.join("test_file.txt");
+        std::fs::write(&test_file, b"test content").unwrap();
+
+        // Create guard and defuse it
+        let guard = ImportCleanupGuard::new(test_path.clone(), "topic".to_string(), 0);
+        let returned_path = guard.defuse();
+
+        // Path should be returned
+        assert_eq!(returned_path, test_path);
+
+        // Directory should still exist (guard was defused)
+        assert!(test_path.exists(), "Directory should exist after defuse");
+        assert!(test_file.exists(), "File should exist after defuse");
+    }
+
+    #[test]
+    fn test_cleanup_guard_removes_directory_on_drop() {
+        let tmp_dir = TempDir::new().unwrap();
+        let test_path = tmp_dir.path().join("test_dir");
+        std::fs::create_dir_all(&test_path).unwrap();
+        let test_file = test_path.join("test_file.txt");
+        std::fs::write(&test_file, b"test content").unwrap();
+
+        // Create guard and let it drop without defusing
+        {
+            let _guard = ImportCleanupGuard::new(test_path.clone(), "topic".to_string(), 0);
+            // guard drops here
+        }
+
+        // Directory should be removed
+        assert!(
+            !test_path.exists(),
+            "Directory should be removed after guard drops"
+        );
+    }
+
+    /// Parameterized mock downloader that tracks call counts and optionally
+    /// injects file-download failures to exercise fallback logic.
+    #[derive(Debug)]
+    struct TrackingDownloader {
+        checkpoints: Vec<CheckpointMetadata>,
+        metadata_download_count: Arc<AtomicUsize>,
+        /// Number of initial file-download attempts that should fail (0 = all succeed)
+        file_download_fail_count: usize,
+        file_download_attempts: Arc<AtomicUsize>,
+    }
+
+    impl TrackingDownloader {
+        fn new(checkpoints: Vec<CheckpointMetadata>, file_download_fail_count: usize) -> Self {
+            Self {
+                checkpoints,
+                metadata_download_count: Arc::new(AtomicUsize::new(0)),
+                file_download_fail_count,
+                file_download_attempts: Arc::new(AtomicUsize::new(0)),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl CheckpointDownloader for TrackingDownloader {
+        async fn list_recent_checkpoints(
+            &self,
+            _topic: &str,
+            _partition_number: i32,
+        ) -> Result<Vec<String>> {
+            Ok(self
+                .checkpoints
+                .iter()
+                .map(|m| m.get_metadata_filepath())
+                .collect())
+        }
+
+        async fn download_file(&self, remote_key: &str) -> Result<Vec<u8>> {
+            self.metadata_download_count.fetch_add(1, Ordering::SeqCst);
+            for checkpoint in &self.checkpoints {
+                if checkpoint.get_metadata_filepath() == remote_key {
+                    return Ok(checkpoint.to_json()?.into_bytes());
+                }
+            }
+            Err(anyhow::anyhow!("Metadata not found: {remote_key}"))
+        }
+
+        async fn download_and_store_file_cancellable(
+            &self,
+            _remote_key: &str,
+            local_filepath: &Path,
+            _cancel_token: Option<&CancellationToken>,
+        ) -> Result<()> {
+            tokio::fs::write(local_filepath, b"mock file content").await?;
+            Ok(())
+        }
+
+        async fn download_files_cancellable(
+            &self,
+            remote_keys: &[String],
+            local_base_path: &Path,
+            cancel_token: Option<&CancellationToken>,
+        ) -> Result<()> {
+            let attempt = self.file_download_attempts.fetch_add(1, Ordering::SeqCst);
+            if attempt < self.file_download_fail_count {
+                return Err(anyhow::anyhow!("Simulated file download failure"));
+            }
+            for key in remote_keys {
+                let filename = key.rsplit('/').next().unwrap_or(key);
+                let local_path = local_base_path.join(filename);
+                self.download_and_store_file_cancellable(key, &local_path, cancel_token)
+                    .await?;
+            }
+            Ok(())
+        }
+
+        async fn is_available(&self) -> bool {
+            true
+        }
+    }
+
+    #[tokio::test]
+    async fn test_lazy_metadata_download_only_fetches_needed() {
+        let tmp_dir = TempDir::new().unwrap();
+
+        // 3 checkpoints available, newest first (hours 14, 13, 12)
+        let checkpoints = vec![
+            create_test_metadata("test-topic", 0, 14),
+            create_test_metadata("test-topic", 0, 13),
+            create_test_metadata("test-topic", 0, 12),
+        ];
+
+        let tracker = TrackingDownloader::new(checkpoints, 0);
+        let download_count = Arc::clone(&tracker.metadata_download_count);
+
+        let importer = CheckpointImporter::new(
+            Box::new(tracker),
+            tmp_dir.path().to_path_buf(),
+            3,
+            Duration::from_secs(60),
+        );
+
+        let result = importer
+            .import_checkpoint_for_topic_partition("test-topic", 0)
+            .await;
+
+        assert!(result.is_ok(), "Import should succeed: {:?}", result.err());
+        assert_eq!(
+            download_count.load(Ordering::SeqCst),
+            1,
+            "Only the newest metadata.json should be downloaded when first attempt succeeds"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_lazy_metadata_download_fallback_downloads_incrementally() {
+        let tmp_dir = TempDir::new().unwrap();
+
+        // 3 checkpoints, first 2 will fail file download, 3rd succeeds
+        let checkpoints = vec![
+            create_test_metadata("test-topic", 0, 14),
+            create_test_metadata("test-topic", 0, 13),
+            create_test_metadata("test-topic", 0, 12),
+        ];
+
+        let tracker = TrackingDownloader::new(checkpoints, 2);
+        let metadata_count = Arc::clone(&tracker.metadata_download_count);
+
+        let importer = CheckpointImporter::new(
+            Box::new(tracker),
+            tmp_dir.path().to_path_buf(),
+            3,
+            Duration::from_secs(60),
+        );
+
+        let result = importer
+            .import_checkpoint_for_topic_partition("test-topic", 0)
+            .await;
+
+        assert!(
+            result.is_ok(),
+            "Import should succeed on 3rd attempt: {:?}",
+            result.err()
+        );
+        assert_eq!(
+            metadata_count.load(Ordering::SeqCst),
+            3,
+            "Should download exactly 3 metadata files (2 failed attempts + 1 success)"
         );
     }
 }

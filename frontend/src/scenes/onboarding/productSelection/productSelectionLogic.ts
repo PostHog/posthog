@@ -23,7 +23,7 @@ import {
 import type { productSelectionLogicType } from './productSelectionLogicType'
 
 export type OnboardingStep = 'choose_path' | 'product_selection'
-export type RecommendationSource = 'use_case' | 'ai' | 'browsing_history' | 'manual'
+export type RecommendationSource = 'use_case' | 'ai' | 'browsing_history' | 'manual' | 'simplified'
 
 export const productSelectionLogic = kea<productSelectionLogicType>([
     path(['scenes', 'onboarding', 'productSelection', 'productSelectionLogic']),
@@ -35,7 +35,7 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
             onboardingLogic,
             ['setOnCompleteOnboardingRedirectUrl'],
             eventUsageLogic,
-            ['reportOnboardingStarted', 'reportOnboardingProductSelectionPath'],
+            ['reportOnboardingStarted', 'reportOnboardingProductSelectionPath', 'reportOnboardingProductToggled'],
         ],
         values: [teamLogic, ['currentTeam']],
     })),
@@ -64,6 +64,9 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
 
         // Pick myself path
         selectPickMyself: true,
+
+        // Simplified single-select (picks one product and starts onboarding immediately)
+        selectSingleProduct: (productKey: ProductKey) => ({ productKey }),
 
         // Continue to onboarding
         handleStartOnboarding: true,
@@ -307,6 +310,15 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
                 const remaining = values.selectedProducts.filter((k) => k !== productKey)
                 actions.setFirstProductOnboarding(remaining[0] || null)
             }
+
+            actions.reportOnboardingProductToggled(productKey, isNowSelected, values.recommendationSource)
+        },
+
+        selectSingleProduct: ({ productKey }) => {
+            actions.setSelectedProducts([productKey])
+            actions.setFirstProductOnboarding(productKey)
+            actions.setRecommendationSource('simplified')
+            actions.handleStartOnboarding()
         },
 
         handleStartOnboarding: () => {

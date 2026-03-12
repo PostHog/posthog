@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 from rest_framework import status
+from rest_framework.test import APIRequestFactory
 
 from posthog.api.project import ProjectViewSet
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient, team_api_test_factory
@@ -195,7 +196,8 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
     def test_project_deletion_queues_async_task(self, mock_delete_task):
         """Verify that project deletion queues async task for full deletion."""
         viewset = ProjectViewSet()
-        request = MagicMock()
+        factory = APIRequestFactory()
+        request = factory.delete("/fake")
         request.user = self.user
         viewset.request = request
 
@@ -302,3 +304,115 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         response = self.client.post(f"/api/projects/{self.project.id}/generate_conversations_public_token/")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_project_name_search_filter(self):
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ORGANIZATIONS_PROJECTS,
+                "name": "Projects",
+                "limit": None,
+            }
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        Project.objects.create_with_team(
+            organization=self.organization,
+            name="Analytics Dashboard",
+            initiating_user=self.user,
+        )
+        Project.objects.create_with_team(
+            organization=self.organization,
+            name="Revenue Tracker",
+            initiating_user=self.user,
+        )
+        Project.objects.create_with_team(
+            organization=self.organization,
+            name="User Analytics",
+            initiating_user=self.user,
+        )
+
+        response = self.client.get("/api/projects/?search=Analytics")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 2)
+        names = {r["name"] for r in results}
+        self.assertEqual(names, {"Analytics Dashboard", "User Analytics"})
+
+        response = self.client.get("/api/projects/?search=Revenue")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["name"], "Revenue Tracker")
+
+        response = self.client.get("/api/projects/?search=nonexistent")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 0)
+
+    def test_read_only_api_key_cannot_update_project_config_fields(self):
+        """API keys with only project:read scope should not be able to modify config fields via /api/projects/."""
+        api_key = self.create_personal_api_key_with_scopes(["project:read"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"timezone": "Europe/Lisbon"},
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("project:write", response.json().get("detail", ""))
+
+        # Verify no changes were made
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.timezone, "UTC")
+
+    def test_write_api_key_can_update_project_config_fields(self):
+        """API keys with project:write scope should be able to modify config fields via /api/projects/."""
+        api_key = self.create_personal_api_key_with_scopes(["project:write"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify changes were made
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.timezone, "Europe/Lisbon")
+        self.assertEqual(self.team.session_recording_opt_in, True)
+
+    def test_read_only_api_key_cannot_update_project_non_config_fields(self):
+        """API keys with only project:read scope should not be able to modify non-config fields like name."""
+        api_key = self.create_personal_api_key_with_scopes(["project:read"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"name": "New Project Name"},
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Verify no changes were made
+        self.project.refresh_from_db()
+        self.assertNotEqual(self.project.name, "New Project Name")
+
+    def test_write_api_key_can_update_project_non_config_fields(self):
+        """API keys with project:write scope should be able to modify non-config fields like name."""
+        api_key = self.create_personal_api_key_with_scopes(["project:write"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"name": "New Project Name"},
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify changes were made
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.name, "New Project Name")

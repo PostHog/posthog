@@ -2,187 +2,180 @@ import { Locator, Page, expect } from '@playwright/test'
 
 import { urls } from 'scenes/urls'
 
-import { InsightType } from '~/types'
+import { InsightShortId, InsightType } from '~/types'
 
 import { randomString } from '../utils'
-import { DashboardPage } from './dashboardPage'
+import { FunnelsInsight } from './insights/funnelsInsight'
+import { LifecycleInsight } from './insights/lifecycleInsight'
+import { PathsInsight } from './insights/pathsInsight'
+import { RetentionInsight } from './insights/retentionInsight'
+import { SqlInsight } from './insights/sqlInsight'
+import { StickinessInsight } from './insights/stickinessInsight'
+import { TrendsInsight } from './insights/trendsInsight'
 
 export class InsightPage {
+    readonly page: Page
+
+    // top bar
     readonly saveButton: Locator
     readonly editButton: Locator
+    readonly cancelButton: Locator
     readonly topBarName: Locator
+    readonly activeTab: Locator
 
-    // series
-    readonly addEntityButton: Locator
-    readonly firstEntity: Locator
-    readonly secondEntity: Locator
+    readonly trends: TrendsInsight
+    readonly funnels: FunnelsInsight
+    readonly retention: RetentionInsight
+    readonly paths: PathsInsight
+    readonly stickiness: StickinessInsight
+    readonly lifecycle: LifecycleInsight
+    readonly sql: SqlInsight
 
-    // details table
-    readonly detailsLabels: Locator
-    readonly detailsLoader: Locator
+    constructor(page: Page) {
+        this.page = page
 
-    // menu
-    readonly moreButton: Locator
-    readonly toggleEditorButton: Locator
-
-    // dashboard
-    readonly dashboardButton: Locator
-
-    // source editor
-    readonly editor: Locator
-    readonly updateSourceButton: Locator
-
-    constructor(private readonly page: Page) {
         this.saveButton = page.getByTestId('insight-save-button')
         this.editButton = page.getByTestId('insight-edit-button')
-        this.topBarName = page.getByTestId('top-bar-name')
+        this.cancelButton = page.getByTestId('insight-cancel-edit-button')
+        this.topBarName = page.getByTestId('scene-name')
+        this.activeTab = page.getByRole('tab', { selected: true })
 
-        this.addEntityButton = page.getByTestId('add-action-event-button')
-        this.firstEntity = page.getByTestId('trend-element-subject-0')
-        this.secondEntity = page.getByTestId('trend-element-subject-1')
-
-        this.detailsLabels = page.getByTestId('insights-table-graph').locator('.insights-label')
-        this.detailsLoader = page.locator('.LemonTableLoader')
-
-        this.moreButton = page.getByTestId('more-button')
-        this.toggleEditorButton = page.getByTestId('show-insight-source')
-
-        this.dashboardButton = page.getByTestId('save-to-dashboard-button')
-
-        this.editor = this.page.getByTestId('query-editor').locator('.monaco-editor')
-        this.updateSourceButton = page.getByRole('button', { name: 'Update and run' })
+        this.trends = new TrendsInsight(page)
+        this.funnels = new FunnelsInsight(page)
+        this.retention = new RetentionInsight(page)
+        this.paths = new PathsInsight(page)
+        this.stickiness = new StickinessInsight(page)
+        this.lifecycle = new LifecycleInsight(page)
+        this.sql = new SqlInsight(page)
     }
 
-    async goToNew(insightType?: InsightType): Promise<InsightPage> {
-        await this.page.goto(urls.savedInsights())
-        await this.page.getByTestId('saved-insights-new-insight-dropdown').click()
-
-        const insightQuery = this.page.waitForRequest((req) => {
-            return !!(req.url().match(/api\/environments\/\d+\/query/) && req.method() === 'POST')
-        })
-        await this.page.locator(`[data-attr-insight-type="${insightType || 'TRENDS'}"]`).click()
-        await insightQuery
-
-        await this.page.waitForSelector('.LemonTabs__tab--active')
+    async goToList(): Promise<InsightPage> {
+        await this.page.goto(urls.savedInsights(), { waitUntil: 'domcontentloaded' })
         return this
     }
 
-    async createNew(insightName?: string, insightType?: InsightType): Promise<InsightPage> {
-        await this.goToNew(insightType)
-        await this.editName(insightName)
-        await this.save()
+    async goToNewInsight(type: InsightType): Promise<InsightPage> {
+        await this.page.goto(urls.insightNew({ type }), { waitUntil: 'domcontentloaded' })
+        await this.page.getByRole('tab', { selected: true }).waitFor({ state: 'visible' })
         return this
     }
 
-    /*
-     * Filters
-     */
+    async goToNewTrends(): Promise<InsightPage> {
+        return this.goToNewInsight(InsightType.TRENDS)
+    }
+
+    async goToSql(): Promise<InsightPage> {
+        await this.page.goto('/sql', { waitUntil: 'domcontentloaded' })
+        return this
+    }
+
+    async goToInsight(
+        shortId: InsightShortId,
+        options?: { edit?: boolean; queryParams?: Record<string, string | number | object> }
+    ): Promise<InsightPage> {
+        const base = options?.edit ? urls.insightEdit(shortId) : urls.insightView(shortId)
+
+        if (!options?.queryParams) {
+            await this.page.goto(base, { waitUntil: 'domcontentloaded' })
+            return this
+        }
+
+        const params = new URLSearchParams()
+        for (const [k, v] of Object.entries(options.queryParams)) {
+            params.set(k, typeof v === 'object' ? JSON.stringify(v) : String(v))
+        }
+        const sep = base.includes('?') ? '&' : '?'
+        await this.page.goto(`${base}${sep}${params}`, { waitUntil: 'domcontentloaded' })
+        return this
+    }
+
     async save(): Promise<void> {
         await this.saveButton.click()
-        // wait for save to complete and URL to change and include short id
         await this.page.waitForURL(/^(?!.*\/new$).+$/)
-        await this.page.waitForSelector('[data-attr="insight-edit-button"]', { state: 'visible' })
+        await expect(this.editButton).toBeVisible()
     }
 
     async edit(): Promise<void> {
         await this.editButton.click()
     }
 
-    /** Enables edit mode, performs actions and saves. */
-    async withEdit(callback: () => Promise<void>): Promise<void> {
-        await this.edit()
-        await callback()
-        await this.save()
+    async discard(): Promise<void> {
+        await this.page.getByTestId('insight-cancel-edit-button').click()
+        await expect(this.editButton).toBeVisible()
     }
 
-    /** Checks assertions, reloads and checks again. This is useful for asserting both the local state
-     * and the backend side state are persisted correctly. */
-    async withReload(callback: () => Promise<void>, beforeFn?: () => Promise<void>): Promise<void> {
-        await beforeFn?.()
-        await callback()
-        await this.page.reload({ waitUntil: 'networkidle' })
-        await callback()
-    }
-
-    async waitForDetailsTable(): Promise<void> {
-        await this.detailsLabels.first().waitFor()
-        await expect(this.detailsLoader).toHaveCount(0)
-    }
-
-    /*
-     * Metadata
-     */
     async editName(insightName: string = randomString('insight')): Promise<void> {
-        await this.topBarName.getByRole('button').click()
-        await this.topBarName.getByRole('textbox').fill(insightName)
-        await this.topBarName.getByRole('button').getByText('Save').click()
+        const nameField = this.page.getByTestId('scene-title-textarea')
+        await expect(nameField).toBeVisible()
+        await nameField.click()
+        await nameField.fill(insightName)
+        await nameField.blur()
     }
 
-    /*
-     * Query editor
-     */
-    async openSourceEditor(): Promise<void> {
-        await this.moreButton.click()
-        await this.toggleEditorButton.click()
+    async createNew(name: string, type: InsightType): Promise<InsightPage> {
+        await this.goToNewInsight(type)
+        await this.editName(name)
+        return this
     }
 
-    async changeQuerySource(code: string): Promise<void> {
-        await this.editor.click()
-
-        // clear text
-        await this.page.keyboard.press('Control+KeyA')
-        await this.page.keyboard.press('Backspace')
-
-        // insert text
-        await this.page.keyboard.insertText(code)
-
-        await this.updateSourceButton.click()
-    }
-
-    /*
-     * More menu
-     */
-    async delete(): Promise<void> {
-        await this.moreButton.click()
-        await this.page.getByTestId('delete-insight-from-insight-view').click()
-        await expect(this.page.locator('.saved-insights')).toBeVisible()
-    }
-
-    async duplicate(): Promise<void> {
-        await this.moreButton.click()
-        await this.page.getByTestId('duplicate-insight-from-insight-view').click()
-    }
-
-    /*
-     * Dashboards
-     */
-    async addToNewDashboard(dashboardName?: string): Promise<void> {
-        await this.dashboardButton.click()
-        await this.page.locator('.LemonModal').getByText('Add to a new dashboard').click()
-        await this.page.getByTestId('create-dashboard-blank').click()
-        await expect(this.page.locator('.dashboard')).toBeVisible()
-
-        if (dashboardName) {
-            await new DashboardPage(this.page).editName(dashboardName)
-        }
-    }
-
-    async removeDashboard(dashboardName?: string): Promise<void> {
-        await this.dashboardButton.click()
-        if (dashboardName) {
-            await this.page.getByTestId('dashboard-searchfield').fill(dashboardName)
-        }
-        await this.page.getByText('Remove from dashboard').first().click()
-    }
-
-    async openDashboard(dashboardName: string): Promise<void> {
-        await this.dashboardButton.click()
-        await this.page.getByTestId('dashboard-searchfield').fill(dashboardName)
-        await this.page.getByTestId('dashboard-list-item').getByRole('link').first().click()
+    async goToNew(type: InsightType): Promise<InsightPage> {
+        return this.goToNewInsight(type)
     }
 
     async openPersonsModal(): Promise<void> {
-        await this.page.locator('.TrendsInsight .LineGraph').click()
-        await this.page.locator('[data-attr="persons-modal"]').waitFor({ state: 'visible' })
+        await this.page.locator('.TrendsInsight canvas').click()
+        await this.page.waitForSelector('[data-attr="persons-modal"]', { state: 'visible' })
+    }
+
+    async openInfoPanel(): Promise<void> {
+        const sidePanelButton = this.page.locator('#main-content').getByTestId('open-context-panel-button')
+        await sidePanelButton.click()
+        // The side panel is lazy-loaded via React.lazy + Suspense. Wait for the
+        // panel container to be visible so callers know the panel has mounted and
+        // the portal target is registered.
+        await this.page.locator('#side-panel').waitFor({ state: 'visible' })
+        // The insight panel content is rendered via createPortal into a target
+        // registered by SidePanelInfo's useEffect. Waiting for #side-panel alone
+        // doesn't guarantee the portal target has switched from the hidden inline
+        // panel (Navigation.tsx). Wait for portal content to appear *inside*
+        // #side-panel, confirming the switch is complete. Scoping to #side-panel
+        // avoids matching the hidden inline panel.
+        await this.page.locator('#side-panel .scene-panel-actions-section').first().waitFor({ state: 'visible' })
+    }
+
+    async clickDeleteInsight(): Promise<void> {
+        // The delete button is rendered via createPortal into scenePanelElement.
+        // There are two portal targets: a hidden inline panel (Navigation.tsx,
+        // display: none for insights) and the visible side panel (SidePanelInfo).
+        // After opening the Info tab the portal content moves from the inline
+        // panel to the side panel via useEffect. Scope the locator to #side-panel
+        // so we wait for the button in the visible container, not the hidden one.
+        const deleteButton = this.page.locator('#side-panel').getByTestId('insight-delete')
+        await deleteButton.waitFor({ state: 'visible' })
+        await deleteButton.click()
+    }
+
+    async confirmDeleteDialog(): Promise<void> {
+        const dialog = this.page.locator('.LemonModal').filter({ hasText: 'Delete insight?' })
+        await expect(dialog).toBeVisible()
+        await dialog.getByRole('button', { name: 'Delete' }).click()
+    }
+
+    async cancelDeleteDialog(): Promise<void> {
+        const dialog = this.page.locator('.LemonModal').filter({ hasText: 'Delete insight?' })
+        await expect(dialog).toBeVisible()
+        await dialog.getByRole('button', { name: 'Cancel' }).click()
+        await expect(dialog).not.toBeVisible()
+    }
+
+    async saveAsNew(name: string): Promise<void> {
+        const originalUrl = this.page.url()
+        await this.page.locator('[data-attr="insight-save-dropdown"]').click()
+        await this.page.locator('[data-attr="insight-save-as-new-insight"]').click()
+        const nameInput = this.page.getByPlaceholder('Please enter the new name')
+        await nameInput.waitFor({ state: 'visible' })
+        await nameInput.fill(name)
+        await this.page.getByRole('button', { name: 'Submit' }).click()
+        await this.page.waitForURL((url) => url.toString() !== originalUrl, { timeout: 15000 })
     }
 }

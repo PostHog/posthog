@@ -1,13 +1,74 @@
+import ast
+import asyncio
+import json
+from functools import partial
 from typing import Any
 from uuid import uuid4
 
-import posthoganalytics
 import structlog
+from posthoganalytics import Posthog
 
 from llm_gateway.callbacks.base import InstrumentedCallback
-from llm_gateway.request_context import get_auth_user, get_product, get_time_to_first_token
+from llm_gateway.request_context import (
+    get_auth_user,
+    get_posthog_flags,
+    get_posthog_properties,
+    get_product,
+    get_time_to_first_token,
+)
 
 logger = structlog.get_logger(__name__)
+
+
+def _replace_binary_content(data: Any) -> Any:
+    """
+    Replace binary content with metadata before storing in PostHog.
+    Handles both raw bytes/tuples and their stringified repr() forms.
+    """
+    match data:
+        case None | int() | float() | bool():
+            return data
+        case str() if "b'\\x" in data or 'b"\\x' in data:
+            try:
+                return _replace_binary_content(ast.literal_eval(data))
+            except (ValueError, SyntaxError):
+                return data
+        case str():
+            return data
+        case bytes():
+            return {"type": "binary", "size_bytes": len(data)}
+        case tuple():
+            return tuple(_replace_binary_content(item) for item in data)
+        case list():
+            return [_replace_binary_content(item) for item in data]
+        case dict():
+            return {k: _replace_binary_content(v) for k, v in data.items()}
+        case _:
+            return data
+
+
+_MAX_CAPTURE_SIZE = 15 * 1024 * 1024
+_MIN_FIELD_SIZE_TO_TRUNCATE = 10 * 1024
+_TRUNCATION_MARKER = "[truncated: content too large for capture]"
+_TRUNCATABLE_FIELDS = ("$ai_output_choices", "$ai_input")
+
+
+def _truncate_for_capture(properties: dict[str, Any]) -> dict[str, Any]:
+    serialized = json.dumps(properties, default=str)
+    if len(serialized) <= _MAX_CAPTURE_SIZE:
+        return properties
+
+    result = dict(properties)
+    for field in _TRUNCATABLE_FIELDS:
+        if field not in result:
+            continue
+        field_size = len(json.dumps(result[field], default=str))
+        if field_size < _MIN_FIELD_SIZE_TO_TRUNCATE:
+            continue
+        result[field] = _TRUNCATION_MARKER
+        if len(json.dumps(result, default=str)) <= _MAX_CAPTURE_SIZE:
+            break
+    return result
 
 
 class PostHogCallback(InstrumentedCallback):
@@ -19,8 +80,6 @@ class PostHogCallback(InstrumentedCallback):
         super().__init__()
         self._api_key = api_key
         self._host = host
-        posthoganalytics.api_key = api_key
-        posthoganalytics.host = host
 
     async def _on_success(
         self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float, end_user_id: str | None
@@ -33,7 +92,10 @@ class PostHogCallback(InstrumentedCallback):
         trace_id = (
             metadata.get("user_id") or str(uuid4())
         )  # anthropic stores user_id in metadata, but it actually refers to the trace_id rather than the user for claude code.
-        distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
+        if auth_user and auth_user.auth_method == "oauth_access_token":
+            distinct_id = auth_user.distinct_id
+        else:
+            distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
         team_id = auth_user.team_id if auth_user and auth_user.team_id else None
 
         logger.debug(
@@ -50,7 +112,7 @@ class PostHogCallback(InstrumentedCallback):
         properties: dict[str, Any] = {
             "$ai_model": standard_logging_object.get("model", ""),
             "$ai_provider": standard_logging_object.get("custom_llm_provider", ""),
-            "$ai_input": standard_logging_object.get("messages"),
+            "$ai_input": _replace_binary_content(standard_logging_object.get("messages")),
             "$ai_input_tokens": standard_logging_object.get("prompt_tokens", 0),
             "$ai_output_tokens": standard_logging_object.get("completion_tokens", 0),
             "$ai_latency": standard_logging_object.get("response_time", 0.0),
@@ -59,6 +121,16 @@ class PostHogCallback(InstrumentedCallback):
             "$ai_span_id": str(uuid4()),
             "ai_product": product,
         }
+
+        posthog_properties = get_posthog_properties() or {}
+        if isinstance(posthog_properties, dict):
+            for key, value in posthog_properties.items():
+                properties[key] = value
+
+        posthog_flags = get_posthog_flags() or {}
+        if isinstance(posthog_flags, dict):
+            for flag_key, variant in posthog_flags.items():
+                properties[f"$feature/{flag_key}"] = variant
 
         if team_id:
             properties["team_id"] = team_id
@@ -76,6 +148,8 @@ class PostHogCallback(InstrumentedCallback):
         if time_to_first_token is not None:
             properties["$ai_time_to_first_token"] = time_to_first_token
 
+        properties = _truncate_for_capture(properties)
+
         capture_kwargs: dict[str, Any] = {
             "distinct_id": distinct_id,
             "event": "$ai_generation",
@@ -91,8 +165,7 @@ class PostHogCallback(InstrumentedCallback):
             properties=properties,
             groups=capture_kwargs.get("groups"),
         )
-        posthoganalytics.capture(**capture_kwargs)
-        posthoganalytics.flush()
+        self._capture_fire_and_forget(**capture_kwargs)
 
     async def _on_failure(
         self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float, end_user_id: str | None
@@ -105,7 +178,10 @@ class PostHogCallback(InstrumentedCallback):
         trace_id = (
             metadata.get("user_id") or str(uuid4())
         )  # anthropic stores user_id in metadata, but it actually refers to the trace_id rather than the user for claude code.
-        distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
+        if auth_user and auth_user.auth_method == "oauth_access_token":
+            distinct_id = auth_user.distinct_id
+        else:
+            distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
         team_id = auth_user.team_id if auth_user and auth_user.team_id else None
 
         logger.debug(
@@ -125,6 +201,16 @@ class PostHogCallback(InstrumentedCallback):
             "ai_product": product,
         }
 
+        posthog_properties = get_posthog_properties() or {}
+        if isinstance(posthog_properties, dict):
+            for key, value in posthog_properties.items():
+                properties[key] = value
+
+        posthog_flags = get_posthog_flags() or {}
+        if isinstance(posthog_flags, dict):
+            for flag_key, variant in posthog_flags.items():
+                properties[f"$feature/{flag_key}"] = variant
+
         if team_id:
             properties["team_id"] = team_id
 
@@ -143,8 +229,30 @@ class PostHogCallback(InstrumentedCallback):
             properties=properties,
             groups=capture_kwargs.get("groups"),
         )
-        posthoganalytics.capture(**capture_kwargs)
-        posthoganalytics.flush()
+        self._capture_fire_and_forget(**capture_kwargs)
+
+    def _capture_fire_and_forget(self, **capture_kwargs: Any) -> None:
+        """
+        Initializes a separate client for the capture operation to avoid payload bloat.
+        Fires in background thread to avoid blocking the main thread.
+        """
+        loop = asyncio.get_running_loop()
+        loop.run_in_executor(None, partial(self._capture_sync, **capture_kwargs))
+
+    def _capture_sync(self, **capture_kwargs: Any) -> None:
+        client = Posthog(
+            self._api_key,
+            host=self._host,
+            sync_mode=True,
+            enable_local_evaluation=False,
+        )
+        try:
+            client.capture(**capture_kwargs)
+        except Exception as e:
+            client.capture_exception(e, **capture_kwargs)
+            logger.exception("posthog_capture_failed", error=str(e))
+        finally:
+            client.shutdown()
 
     def _extract_metadata(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         litellm_params = kwargs.get("litellm_params", {}) or {}

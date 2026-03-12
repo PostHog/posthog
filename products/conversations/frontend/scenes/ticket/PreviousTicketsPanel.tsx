@@ -1,6 +1,7 @@
 import { LemonCollapse, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { stripMarkdown } from 'lib/utils/stripMarkdown'
 import { urls } from 'scenes/urls'
 
 import { Ticket } from '../../types'
@@ -14,22 +15,20 @@ export function PreviousTicketsPanel({
     previousTickets,
     previousTicketsLoading,
 }: PreviousTicketsPanelProps): JSX.Element {
-    const title = (
-        <>
-            Previous tickets
-            {previousTickets.length > 0 && (
-                <span className="text-muted-alt font-normal ml-1">({previousTickets.length})</span>
-            )}
-        </>
-    )
-
     return (
         <LemonCollapse
             className="bg-surface-primary"
             panels={[
                 {
                     key: 'previous-tickets',
-                    header: title,
+                    header: (
+                        <>
+                            Previous tickets
+                            {previousTickets.length > 0 && (
+                                <span className="text-muted-alt font-normal ml-1">({previousTickets.length})</span>
+                            )}
+                        </>
+                    ),
                     content: (
                         <div className="space-y-2">
                             {previousTicketsLoading ? (
@@ -41,7 +40,7 @@ export function PreviousTicketsPanel({
                                     {previousTickets.map((ticket) => (
                                         <Link
                                             key={ticket.id}
-                                            to={urls.supportTicketDetail(ticket.id)}
+                                            to={urls.supportTicketDetail(ticket.ticket_number)}
                                             className="block p-2 mb-2 rounded border border-primary hover:bg-accent-3000 transition-colors hover:border-secondary"
                                         >
                                             <div className="flex items-center justify-between mb-1">
@@ -62,7 +61,7 @@ export function PreviousTicketsPanel({
                                             </div>
                                             {ticket.last_message_text && (
                                                 <div className="text-xs text-muted truncate mb-1">
-                                                    {ticket.last_message_text}
+                                                    {stripMarkdown(ticket.last_message_text)}
                                                 </div>
                                             )}
                                             <div className="text-xs text-muted-alt">

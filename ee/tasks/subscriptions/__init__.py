@@ -74,6 +74,9 @@ def get_subscription_failure_metric(
     )
 
 
+SUPPORTED_TARGET_TYPES = frozenset(["email", "slack"])
+
+
 async def deliver_subscription_report_async(
     subscription_id: int,
     previous_value: Optional[str] = None,
@@ -85,7 +88,7 @@ async def deliver_subscription_report_async(
     # Fetch subscription asynchronously
     logger.info("deliver_subscription_report_async.loading_subscription", subscription_id=subscription_id)
     subscription = await database_sync_to_async(
-        Subscription.objects.select_related("created_by", "insight", "dashboard", "team").get,
+        Subscription.objects.select_related("created_by", "insight", "dashboard", "team", "integration").get,
         thread_sensitive=False,
     )(pk=subscription_id)
 
@@ -95,6 +98,15 @@ async def deliver_subscription_report_async(
         has_dashboard=bool(subscription.dashboard_id),
         has_insight=bool(subscription.insight_id),
     )
+
+    # Skip unsupported target types before generating assets
+    if subscription.target_type not in SUPPORTED_TARGET_TYPES:
+        logger.error(
+            "deliver_subscription_report_async.unsupported_target",
+            subscription_id=subscription_id,
+            target_type=subscription.target_type,
+        )
+        return
 
     is_new_subscription_target = False
     if previous_value is not None:
@@ -191,9 +203,21 @@ async def deliver_subscription_report_async(
 
         try:
             logger.info("deliver_subscription_report_async.loading_slack_integration", subscription_id=subscription_id)
-            integration = await database_sync_to_async(get_slack_integration_for_team, thread_sensitive=False)(
-                subscription.team_id
-            )
+            integration = subscription.integration
+            if integration is None:
+                integration = await database_sync_to_async(get_slack_integration_for_team, thread_sensitive=False)(
+                    subscription.team_id
+                )
+            elif integration.kind != "slack":
+                logger.warn(
+                    "deliver_subscription_report_async.invalid_integration_kind",
+                    subscription_id=subscription_id,
+                    integration_id=integration.id,
+                    kind=integration.kind,
+                )
+                integration = await database_sync_to_async(get_slack_integration_for_team, thread_sensitive=False)(
+                    subscription.team_id
+                )
 
             if not integration:
                 logger.warn("deliver_subscription_report_async.no_slack_integration", subscription_id=subscription_id)
@@ -235,13 +259,6 @@ async def deliver_subscription_report_async(
                 exc_info=True,
             )
             capture_exception(e)
-    else:
-        logger.error(
-            "deliver_subscription_report_async.unsupported_target",
-            subscription_id=subscription_id,
-            target_type=subscription.target_type,
-        )
-        raise NotImplementedError(f"{subscription.target_type} is not supported")
 
     if not is_new_subscription_target:
         logger.info("deliver_subscription_report_async.updating_next_delivery", subscription_id=subscription_id)

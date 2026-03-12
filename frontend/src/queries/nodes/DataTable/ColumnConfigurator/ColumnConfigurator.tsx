@@ -16,11 +16,11 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TeamMembershipLevel } from 'lib/constants'
+import { IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
 
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { DataTableNode } from '~/queries/schema/schema-general'
@@ -49,12 +49,17 @@ interface ColumnConfiguratorProps {
 export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps): JSX.Element {
     const { columnsInQuery } = useValues(dataTableLogic)
 
+    // users should not be able to edit the '*' column
+    const hasStarColumn = columnsInQuery.includes('*')
+    const configurableColumns = columnsInQuery.filter((c) => c !== '*')
+
     const [key] = useState(() => String(uniqueNode++))
     const columnConfiguratorLogicProps: ColumnConfiguratorLogicProps = {
         key,
         isPersistent: !!query.showPersistentColumnConfigurator,
-        columns: columnsInQuery,
+        columns: configurableColumns,
         setColumns: (columns: string[]) => {
+            const allColumns = hasStarColumn ? ['*', ...columns] : columns
             if (isEventsQuery(query.source) || isSessionsQuery(query.source)) {
                 let orderBy = query.source.orderBy
                 if (orderBy && orderBy.length > 0) {
@@ -71,7 +76,7 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
                     source: {
                         ...query.source,
                         orderBy,
-                        select: columns,
+                        select: allColumns,
                     },
                 })
             } else if (isActorsQuery(query.source) || isGroupsQuery(query.source)) {
@@ -79,11 +84,11 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
                     ...query,
                     source: {
                         ...query.source,
-                        select: columns,
+                        select: allColumns,
                     },
                 })
             } else {
-                setQuery?.({ ...query, columns })
+                setQuery?.({ ...query, columns: allColumns })
             }
         },
         context: query.context
@@ -181,10 +186,11 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                     </LemonButton>
                 </>
             }
+            className="w-full max-w-248"
         >
             <div className="ColumnConfiguratorModal">
-                <div className="Columns">
-                    <div className="HalfColumn">
+                <div className="flex flex-col gap-4">
+                    <div className="w-full">
                         <h4 className="secondary uppercase text-secondary">
                             Visible columns ({columns.length}) - Drag to reorder
                         </h4>
@@ -212,7 +218,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                             </SortableContext>
                         </DndContext>
                     </div>
-                    <div className="HalfColumn">
+                    <div className="w-full">
                         <h4 className="secondary uppercase text-secondary">Available columns</h4>
                         <div className="h-[min(480px,60vh)]">
                             <AutoSizer

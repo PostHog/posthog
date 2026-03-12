@@ -10,7 +10,8 @@ from posthog.models.feature_flag import FeatureFlag
 from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 
-from products.product_tours.backend.constants import ProductTourEventName
+from products.product_tours.backend.api.product_tour import get_product_tours_response
+from products.product_tours.backend.constants import ProductTourEventName, ProductTourPersonProperties
 from products.product_tours.backend.models import ProductTour
 
 
@@ -91,10 +92,10 @@ class TestProductTour(APIBaseTest):
         assert call_args[0][2]["tour_name"] == "Updated name"
 
     @patch("products.product_tours.backend.api.product_tour.report_user_action")
-    def test_delete_archives_tour(self, mock_report):
+    def test_delete_hard_deletes_tour(self, mock_report):
         tour = ProductTour.objects.create(
             team=self.team,
-            name="To be archived",
+            name="To be deleted",
             content={"steps": []},
             created_by=self.user,
         )
@@ -103,12 +104,7 @@ class TestProductTour(APIBaseTest):
         response = self.client.delete(f"/api/projects/{self.team.id}/product_tours/{tour.id}/")
         assert response.status_code == status.HTTP_204_NO_CONTENT
 
-        # Tour should be archived, not deleted
-        tour = ProductTour.all_objects.get(id=tour_id)
-        assert tour.archived
-
-        # Should not appear in normal list
-        assert not ProductTour.objects.filter(id=tour_id).exists()
+        assert not ProductTour.all_objects.filter(id=tour_id).exists()
 
         mock_report.assert_called_once()
         call_args = mock_report.call_args
@@ -632,6 +628,99 @@ class TestProductTourInternalTargetingFlag(APIBaseTest):
             assert len(properties) == 0, f"Expected no exclusion properties, got {properties}"
 
 
+class TestProductTourStepNormalization(APIBaseTest):
+    @parameterized.expand(
+        [
+            # (test_name, stored_step, expected_elementTargeting, expected_type)
+            (
+                "legacy_useManualSelector_true",
+                {"id": "s1", "type": "modal", "useManualSelector": True, "selector": ".foo"},
+                "manual",
+                "modal",
+            ),
+            (
+                "legacy_inferenceData",
+                {"id": "s1", "type": "modal", "inferenceData": {"selector": ".bar"}},
+                "auto",
+                "modal",
+            ),
+            (
+                "legacy_type_element",
+                {"id": "s1", "type": "element", "selector": ".baz"},
+                "auto",
+                "modal",
+            ),
+            (
+                "already_has_elementTargeting",
+                {"id": "s1", "type": "modal", "elementTargeting": "manual", "selector": ".foo"},
+                "manual",
+                "modal",
+            ),
+            (
+                "no_targeting_fields",
+                {"id": "s1", "type": "modal", "content": {}},
+                None,
+                "modal",
+            ),
+        ]
+    )
+    def test_read_normalizes_elementTargeting(self, _name, stored_step, expected_elementTargeting, expected_type):
+        tour = ProductTour.objects.create(
+            team=self.team,
+            name="Normalization test",
+            content={"steps": [stored_step]},
+            created_by=self.user,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/product_tours/{tour.id}/")
+        assert response.status_code == status.HTTP_200_OK
+
+        step = response.json()["content"]["steps"][0]
+        if expected_elementTargeting is not None:
+            assert step["elementTargeting"] == expected_elementTargeting
+        else:
+            assert "elementTargeting" not in step
+        assert step["type"] == expected_type
+
+    @parameterized.expand(
+        [
+            # (test_name, submitted_step, expected_useManualSelector, expect_useManualSelector_absent)
+            (
+                "manual_sets_useManualSelector",
+                {"id": "s1", "type": "modal", "elementTargeting": "manual", "selector": ".foo"},
+                True,
+                False,
+            ),
+            (
+                "auto_removes_useManualSelector",
+                {"id": "s1", "type": "modal", "elementTargeting": "auto", "inferenceData": {"selector": ".bar"}},
+                None,
+                True,
+            ),
+        ]
+    )
+    def test_write_normalizes_useManualSelector(
+        self, _name, submitted_step, expected_useManualSelector, expect_useManualSelector_absent
+    ):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Write normalization test",
+                "content": {"steps": [submitted_step]},
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        tour = ProductTour.objects.get(id=response.json()["id"])
+        stored_step = tour.content["steps"][0]
+
+        if expect_useManualSelector_absent:
+            assert "useManualSelector" not in stored_step
+        else:
+            assert stored_step["useManualSelector"] == expected_useManualSelector
+
+
 class TestProductTourLinkedFlagValidation(APIBaseTest):
     def test_linked_flag_must_belong_to_same_team(self):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
@@ -685,3 +774,405 @@ class TestProductTourLinkedFlagValidation(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "linkedFlagVariant can only be used when a linked_flag_id is specified" in str(response.json())
+
+
+class TestProductTourLaunchValidation(APIBaseTest):
+    def _create_tour(self, steps):
+        return ProductTour.objects.create(
+            team=self.team,
+            name="Tour",
+            content={"steps": steps},
+            created_by=self.user,
+        )
+
+    def _launch(self, tour_id):
+        return self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour_id}/",
+            data={"start_date": timezone.now().isoformat()},
+            format="json",
+        )
+
+    @parameterized.expand(
+        [
+            # (description, step, expected_status, error_substring)
+            (
+                "auto_targeting_without_inference_data",
+                {"elementTargeting": "auto"},
+                400,
+                "requires an element to be selected",
+            ),
+            (
+                "manual_targeting_without_selector",
+                {"elementTargeting": "manual"},
+                400,
+                "is missing an element selector",
+            ),
+            (
+                "auto_targeting_with_inference_data",
+                {"elementTargeting": "auto", "inferenceData": {"tag": "button"}},
+                200,
+                None,
+            ),
+            (
+                "manual_targeting_with_selector",
+                {"elementTargeting": "manual", "selector": "#btn"},
+                200,
+                None,
+            ),
+            (
+                "no_element_targeting",
+                {"title": "Welcome"},
+                200,
+                None,
+            ),
+        ]
+    )
+    def test_launch_with_element_targeting(self, _description, step, expected_status, error_substring):
+        tour = self._create_tour([step])
+
+        response = self._launch(tour.id)
+
+        assert response.status_code == expected_status
+        if error_substring:
+            assert error_substring in str(response.json())
+
+    @parameterized.expand(
+        [
+            (
+                "auto_targeting_without_inference_data",
+                {"elementTargeting": "auto"},
+                400,
+                "requires an element to be selected",
+            ),
+            (
+                "manual_targeting_without_selector",
+                {"elementTargeting": "manual"},
+                400,
+                "is missing an element selector",
+            ),
+        ]
+    )
+    def test_create_launched_with_element_targeting(self, _description, step, expected_status, error_substring):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Tour",
+                "content": {"steps": [step]},
+                "start_date": timezone.now().isoformat(),
+            },
+            format="json",
+        )
+
+        assert response.status_code == expected_status
+        assert error_substring in str(response.json())
+
+    def test_launch_reports_first_incomplete_step(self):
+        tour = self._create_tour(
+            [
+                {"title": "OK step"},
+                {"elementTargeting": "auto"},
+                {"elementTargeting": "manual"},
+            ]
+        )
+
+        response = self._launch(tour.id)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Step 2" in str(response.json())
+
+    def test_saving_without_launching_skips_targeting_validation(self):
+        tour = self._create_tour([{"elementTargeting": "auto"}])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour.id}/",
+            data={"name": "Updated name"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_already_launched_tour_validates_targeting_on_update(self):
+        tour = self._create_tour([{"elementTargeting": "auto"}])
+        tour.start_date = timezone.now()
+        tour.save(update_fields=["start_date"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour.id}/",
+            data={"name": "Updated name", "start_date": timezone.now().isoformat()},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "requires an element to be selected" in str(response.json())
+
+    def test_launch_validates_content_from_existing_tour_when_not_in_payload(self):
+        tour = self._create_tour([{"elementTargeting": "manual"}])
+
+        response = self._launch(tour.id)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "is missing an element selector" in str(response.json())
+
+    def test_patch_content_without_linked_flag_id_uses_instance_value(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        tour = ProductTour.objects.create(
+            team=self.team,
+            name="Tour",
+            linked_flag=flag,
+            content={"steps": [], "conditions": {"linkedFlagVariant": "any"}},
+            created_by=self.user,
+        )
+
+        # PATCH with content (preserving linkedFlagVariant) but without linked_flag_id —
+        # mimics the toolbar save flow
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour.id}/",
+            data={"content": {"steps": [], "conditions": {"linkedFlagVariant": "any"}}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_patch_explicitly_clearing_linked_flag_id_still_validates(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        tour = ProductTour.objects.create(
+            team=self.team,
+            name="Tour",
+            linked_flag=flag,
+            content={"steps": [], "conditions": {"linkedFlagVariant": "any"}},
+            created_by=self.user,
+        )
+
+        # Explicitly clearing linked_flag_id while content still references a variant
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour.id}/",
+            data={
+                "linked_flag_id": None,
+                "content": {"steps": [], "conditions": {"linkedFlagVariant": "any"}},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "linkedFlagVariant can only be used when a linked_flag_id is specified" in str(response.json())
+
+
+class TestProductTourAPISerializerTourType(APIBaseTest):
+    @parameterized.expand(
+        [
+            # (content, expected_tour_type)
+            ({"steps": [{"id": "s1", "type": "modal"}]}, "tour"),  # no content type → default
+            ({}, "tour"),  # empty content
+            ({"type": "tour", "steps": []}, "tour"),  # explicit tour type
+            ({"type": "announcement", "steps": [{"id": "s1", "type": "modal"}]}, "announcement"),
+            ({"type": "announcement", "steps": [{"id": "s1", "type": "banner"}]}, "banner"),
+            ({"type": "announcement", "steps": []}, "announcement"),  # announcement with no steps
+        ]
+    )
+    def test_tour_type_in_sdk_response(self, content, expected_tour_type):
+        ProductTour.objects.create(
+            team=self.team,
+            name=f"Tour {expected_tour_type}",
+            content=content,
+            created_by=self.user,
+            start_date=timezone.now(),
+        )
+        tours = get_product_tours_response(self.team)["product_tours"]
+        assert len(tours) == 1
+        assert tours[0]["tour_type"] == expected_tour_type
+
+
+class TestProductTourWaitPeriodTargetingFlag(APIBaseTest):
+    def _create_tour_with_wait_period(self, types: list[str], days: int = 7) -> dict:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Wait period tour",
+                "content": {
+                    "steps": [],
+                    "conditions": {"seenTourWaitPeriod": {"days": days, "types": types}},
+                },
+                "auto_launch": True,
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        return response.json()
+
+    def _get_flag_groups(self, tour_id: str) -> list[dict]:
+        tour = ProductTour.objects.get(id=tour_id)
+        assert tour.internal_targeting_flag is not None
+        tour.internal_targeting_flag.refresh_from_db()
+        return tour.internal_targeting_flag.filters.get("groups", [])
+
+    def _all_properties_across_groups(self, groups: list[dict]) -> list[dict]:
+        return [p for g in groups for p in g.get("properties", [])]
+
+    def test_single_type_creates_two_groups(self):
+        data = self._create_tour_with_wait_period(["tour"], days=7)
+        groups = self._get_flag_groups(data["id"])
+
+        assert len(groups) == 2
+        keys = {p["key"] for g in groups for p in g.get("properties", []) if "last_seen" in p["key"]}
+        assert keys == {f"{ProductTourPersonProperties.TOUR_LAST_SEEN_DATE}/tour"}
+
+        operators = {p["operator"] for g in groups for p in g.get("properties", []) if "last_seen" in p["key"]}
+        assert operators == {"is_not_set", "is_date_before"}
+
+    @parameterized.expand(
+        [
+            (["tour"], 2),
+            (["tour", "announcement"], 4),
+            (["tour", "announcement", "banner"], 8),
+        ]
+    )
+    def test_group_count_is_2_to_the_n_types(self, types, expected_groups):
+        data = self._create_tour_with_wait_period(types, days=5)
+        groups = self._get_flag_groups(data["id"])
+        assert len(groups) == expected_groups
+
+    def test_wait_period_days_in_flag_properties(self):
+        data = self._create_tour_with_wait_period(["tour"], days=14)
+        all_props = self._all_properties_across_groups(self._get_flag_groups(data["id"]))
+
+        date_before_props = [p for p in all_props if p.get("operator") == "is_date_before"]
+        assert len(date_before_props) == 1
+        assert date_before_props[0]["value"] == "14d"
+
+    def test_no_wait_period_creates_single_group(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "No wait period",
+                "content": {"steps": []},
+                "auto_launch": True,
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        groups = self._get_flag_groups(response.json()["id"])
+        assert len(groups) == 1
+
+    def test_wait_period_combined_with_user_targeting(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Wait + targeting",
+                "content": {
+                    "steps": [],
+                    "conditions": {"seenTourWaitPeriod": {"days": 7, "types": ["tour"]}},
+                },
+                "auto_launch": True,
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {"key": "email", "value": "test@example.com", "operator": "exact", "type": "person"}
+                            ]
+                        },
+                    ]
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        groups = self._get_flag_groups(response.json()["id"])
+
+        # 1 user group × 2 wait period combos = 2 groups
+        assert len(groups) == 2
+        for g in groups:
+            prop_keys = [p["key"] for p in g["properties"]]
+            assert "email" in prop_keys
+
+    def test_adding_wait_period_on_update_refreshes_flag(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Add wait later",
+                "content": {"steps": []},
+                "auto_launch": True,
+            },
+            format="json",
+        )
+        tour_id = response.json()["id"]
+        assert len(self._get_flag_groups(tour_id)) == 1
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour_id}/",
+            data={
+                "content": {
+                    "steps": [],
+                    "conditions": {"seenTourWaitPeriod": {"days": 3, "types": ["tour", "announcement"]}},
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        groups = self._get_flag_groups(tour_id)
+        assert len(groups) == 4
+
+    def test_removing_wait_period_on_update_collapses_groups(self):
+        data = self._create_tour_with_wait_period(["tour", "announcement"], days=7)
+        tour_id = data["id"]
+        assert len(self._get_flag_groups(tour_id)) == 4
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour_id}/",
+            data={"content": {"steps": [], "conditions": {}}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        groups = self._get_flag_groups(tour_id)
+        assert len(groups) == 1
+
+    def test_wait_period_preserves_user_targeting_on_refresh(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Preserve targeting",
+                "content": {
+                    "steps": [],
+                    "displayFrequency": "show_once",
+                    "conditions": {"seenTourWaitPeriod": {"days": 7, "types": ["tour"]}},
+                },
+                "auto_launch": True,
+                "targeting_flag_filters": {
+                    "groups": [
+                        {"properties": [{"key": "plan", "value": "pro", "operator": "exact", "type": "person"}]},
+                    ]
+                },
+            },
+            format="json",
+        )
+        tour_id = response.json()["id"]
+        # 1 user group × 2 wait combos = 2 groups
+        assert len(self._get_flag_groups(tour_id)) == 2
+
+        # Change displayFrequency without re-providing targeting_flag_filters
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour_id}/",
+            data={
+                "content": {
+                    "steps": [],
+                    "displayFrequency": "until_interacted",
+                    "conditions": {"seenTourWaitPeriod": {"days": 7, "types": ["tour"]}},
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        groups = self._get_flag_groups(tour_id)
+        assert len(groups) == 2
+        for g in groups:
+            prop_keys = [p["key"] for p in g["properties"]]
+            assert "plan" in prop_keys

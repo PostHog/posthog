@@ -107,6 +107,7 @@ class QuerySerializer(serializers.Serializer):
 
     q = serializers.CharField(required=False, default="")
     entities = serializers.MultipleChoiceField(required=False, choices=list(ENTITY_MAP.keys()))
+    include_counts = serializers.BooleanField(required=False, default=True)
 
     def validate_q(self, value: str):
         # gracefully handle invalid queries
@@ -127,10 +128,16 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # get entities to search from params or default to all entities
         entities = set(params["entities"]) if params["entities"] else set(ENTITY_MAP.keys())
         query = params["q"]
+        include_counts = params["include_counts"]
 
-        results, counts, _ = search_entities(entities, query, self.project_id, self, ENTITY_MAP)
+        results, counts, _ = search_entities(
+            entities, query, self.project_id, self, ENTITY_MAP, include_counts=include_counts
+        )
 
-        return Response({"results": results, "counts": counts})
+        response_data: dict[str, Any] = {"results": results}
+        if counts is not None:
+            response_data["counts"] = counts
+        return Response(response_data)
 
 
 def search_entities(
@@ -141,9 +148,10 @@ def search_entities(
     entity_map: dict[str, EntityConfig],
     limit: int = LIMIT,
     offset: int = 0,
-) -> tuple[list[dict[str, Any]], dict[str, int | None], int]:
+    include_counts: bool = True,
+) -> tuple[list[dict[str, Any]], dict[str, int | None] | None, int | None]:
     # empty queryset to union things onto it
-    counts: dict[str, int | None] = dict.fromkeys(entity_map)
+    counts: dict[str, int | None] = dict.fromkeys(entity_map) if include_counts else {}
     qs = (
         Dashboard.objects.annotate(type=Value("empty", output_field=CharField()))
         .filter(team__project_id=project_id)
@@ -163,7 +171,8 @@ def search_entities(
             filters=entity_meta.get("filters"),
         )
         qs = qs.union(klass_qs)
-        counts[entity_name] = klass_qs.count()
+        if include_counts:
+            counts[entity_name] = klass_qs.count()
 
     # order by rank
     if query:
@@ -171,14 +180,14 @@ def search_entities(
     else:
         qs = qs.order_by("type", F("_sort_name").asc(nulls_first=True))
 
-    # Get total count before pagination
-    total_count = qs.count()
+    # Get total count before pagination (only when needed)
+    total_count = qs.count() if include_counts else None
 
     # Apply pagination
     results = cast(list[dict[str, Any]], list(qs[offset : offset + limit]))
     for result in results:
         result.pop("_sort_name", None)
-    return results, counts, total_count
+    return results, counts or None, total_count
 
 
 def class_queryset(

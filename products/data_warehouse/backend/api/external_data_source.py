@@ -2,6 +2,7 @@ import uuid
 import dataclasses
 from typing import Any
 
+from django.db import transaction
 from django.db.models import Prefetch, Q
 
 import structlog
@@ -44,14 +45,20 @@ from products.data_warehouse.backend.data_load.service import (
     sync_external_data_job_workflow,
     trigger_external_data_source_workflow,
 )
+from products.data_warehouse.backend.direct_postgres import (
+    postgres_schema_metadata,
+    reconcile_direct_postgres_schemas,
+    upsert_direct_postgres_table,
+)
 from products.data_warehouse.backend.models import (
     DataWarehouseManagedViewSet,
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSource,
 )
+from products.data_warehouse.backend.models.external_data_schema import sync_old_schemas_with_new_schemas
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
-from products.data_warehouse.backend.models.util import validate_source_prefix
+from products.data_warehouse.backend.models.util import postgres_columns_to_dwh_columns, validate_source_prefix
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
@@ -129,6 +136,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     revenue_analytics_config = ExternalDataSourceRevenueAnalyticsConfigSerializer(
         source="revenue_analytics_config_safe", read_only=True
     )
+    access_method = serializers.ChoiceField(choices=ExternalDataSource.AccessMethod.choices, read_only=True)
 
     class Meta:
         model = ExternalDataSource
@@ -143,6 +151,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "latest_error",
             "prefix",
             "description",
+            "access_method",
             "last_run_at",
             "schemas",
             "job_inputs",
@@ -158,9 +167,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "latest_error",
             "last_run_at",
             "schemas",
-            "prefix",
             "revenue_analytics_config",
             "user_access_level",
+            "access_method",
         ]
 
     """
@@ -215,6 +224,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "reddit_integration_id",
             # salesforce
             "salesforce_integration_id",
+            # github
+            "repository",
             # shopify
             "shopify_store_id",
             # temporal
@@ -293,7 +304,25 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         return ExternalDataSchemaSerializer(instance.schemas, many=True, read_only=True, context=self.context).data
 
     def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
+        request = self.context.get("request")
+        requested_access_method = request.data.get("access_method") if request is not None else None
+        if requested_access_method is not None and requested_access_method != instance.access_method:
+            raise ValidationError("Access method cannot be changed. Create a new source instead.")
+
+        validated_data.pop("access_method", None)
+        incoming_prefix = validated_data.get("prefix", instance.prefix)
+
+        if instance.is_direct_postgres:
+            # For direct Postgres sources the prefix acts as the user-facing source name.
+            normalized_prefix = incoming_prefix.strip() if isinstance(incoming_prefix, str) else ""
+            if not normalized_prefix:
+                raise ValidationError("Name is required for direct query sources")
+            validated_data["prefix"] = normalized_prefix
+        else:
+            validated_data["prefix"] = instance.prefix
+
         existing_job_inputs = instance.job_inputs or {}
+        job_inputs_were_submitted = "job_inputs" in validated_data
         incoming_job_inputs = validated_data.get("job_inputs", {})
 
         source_type_model = ExternalDataSourceType(instance.source_type)
@@ -307,10 +336,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             if existing_job_inputs.get(key) and not incoming_job_inputs.get(key):
                 new_job_inputs[key] = existing_job_inputs[key]
 
-        # SSH tunnel auth is a special config not exposed in source fields - preserve its credentials too
+        # SSH tunnel is a nested config - deep-merge it so partial updates preserve existing fields
         existing_ssh_tunnel = existing_job_inputs.get("ssh_tunnel")
         incoming_ssh_tunnel = incoming_job_inputs.get("ssh_tunnel")
         if existing_ssh_tunnel and incoming_ssh_tunnel is not None:
+            # Deep-merge: start with existing, overlay incoming top-level keys
+            merged_ssh_tunnel = {**existing_ssh_tunnel, **incoming_ssh_tunnel}
+
             # Check both 'auth' (new format) and 'auth_type' (legacy format from migration 0807)
             existing_auth = (
                 (existing_ssh_tunnel or {}).get("auth") or (existing_ssh_tunnel or {}).get("auth_type") or {}
@@ -319,13 +351,18 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 (incoming_ssh_tunnel or {}).get("auth") or (incoming_ssh_tunnel or {}).get("auth_type") or {}
             )
 
-            new_ssh_tunnel = new_job_inputs.get("ssh_tunnel") or {}
-            new_job_inputs["ssh_tunnel"] = new_ssh_tunnel
-            new_auth = new_ssh_tunnel.setdefault("auth", {})
+            if not incoming_auth:
+                # No auth in incoming request - preserve entire existing auth
+                merged_ssh_tunnel["auth"] = {**existing_auth}
+            else:
+                # Merge auth, preserving sensitive fields not explicitly provided
+                merged_auth = {**incoming_auth}
+                for key in ("password", "passphrase", "private_key"):
+                    if existing_auth.get(key) and not incoming_auth.get(key):
+                        merged_auth[key] = existing_auth[key]
+                merged_ssh_tunnel["auth"] = merged_auth
 
-            for key in ("password", "passphrase", "private_key"):
-                if existing_auth.get(key) and not incoming_auth.get(key):
-                    new_auth[key] = existing_auth[key]
+            new_job_inputs["ssh_tunnel"] = merged_ssh_tunnel
 
         is_valid, errors = source.validate_config(new_job_inputs)
         if not is_valid:
@@ -333,6 +370,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         source_config: Config = source.parse_config(new_job_inputs)
         validated_data["job_inputs"] = source_config.to_dict()
+
+        if job_inputs_were_submitted:
+            credentials_valid, credentials_error = source.validate_credentials(source_config, instance.team_id)
+            if not credentials_valid:
+                raise ValidationError(credentials_error or "Invalid credentials")
 
         updated_source: ExternalDataSource = super().update(instance, validated_data)
 
@@ -408,22 +450,41 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         prefix = request.data.get("prefix", None)
         description = request.data.get("description", None)
         source_type = request.data["source_type"]
+        access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
+        is_direct_postgres = (
+            access_method == ExternalDataSource.AccessMethod.DIRECT and source_type == ExternalDataSourceType.POSTGRES
+        )
 
-        # Validate prefix characters
-        is_valid, error_message = validate_source_prefix(prefix)
-        if not is_valid:
-            raise ValidationError(error_message)
+        if access_method == ExternalDataSource.AccessMethod.DIRECT and source_type != ExternalDataSourceType.POSTGRES:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Direct query mode is currently supported only for Postgres sources."},
+            )
 
-        if self.prefix_required(source_type):
+        if is_direct_postgres:
+            prefix = prefix.strip() if isinstance(prefix, str) else ""
             if not prefix:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Source type already exists. Prefix is required"},
+                    data={"message": "Name is required for direct query sources"},
                 )
-            elif self.prefix_exists(source_type, prefix):
-                return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
+        else:
+            is_valid, error_message = validate_source_prefix(prefix)
+            if not is_valid:
+                raise ValidationError(error_message)
 
-        if is_any_external_data_schema_paused(self.team_id):
+            if self.prefix_required(source_type):
+                if not prefix:
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={"message": "Source type already exists. Prefix is required"},
+                    )
+                if self.prefix_exists(source_type, prefix):
+                    return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
+
+        if access_method == ExternalDataSource.AccessMethod.WAREHOUSE and is_any_external_data_schema_paused(
+            self.team_id
+        ):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
@@ -435,7 +496,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             for key, value in payload.items():
                 if isinstance(value, str):
                     payload[key] = value.strip()
-
         source_type_model = ExternalDataSourceType(source_type)
         source = SourceRegistry.get_source(source_type_model)
         is_valid, errors = source.validate_config(payload)
@@ -445,6 +505,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": f"Invalid source config: {', '.join(errors)}"},
             )
         source_config: Config = source.parse_config(payload)
+
+        credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+        if not credentials_valid:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": credentials_error or "Invalid credentials"},
+            )
 
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -457,6 +524,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             job_inputs=source_config.to_dict(),
             prefix=prefix,
             description=description,
+            access_method=access_method,
         )
 
         source_schemas = source.get_schemas(source_config, self.team_id)
@@ -503,24 +571,47 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     data={"message": "Incremental schemas given do not have an incremental field type set"},
                 )
 
+            schema_name = schema.get("name")
+            source_schema = next(
+                (source_schema for source_schema in source_schemas if source_schema.name == schema_name), None
+            )
+            schema_metadata = (
+                postgres_schema_metadata(
+                    source_schema.columns if source_schema else [],
+                    source_schema.foreign_keys if source_schema else [],
+                )
+                if source_type_model == ExternalDataSourceType.POSTGRES
+                else {}
+            )
+
             schema_model = ExternalDataSchema.objects.create(
-                name=schema.get("name"),
+                name=schema_name,
                 team=self.team,
                 source=new_source_model,
                 should_sync=should_sync,
-                sync_type=sync_type,
-                sync_time_of_day=sync_time_of_day,
+                sync_type=sync_type if new_source_model.supports_scheduled_sync else None,
+                sync_time_of_day=sync_time_of_day if new_source_model.supports_scheduled_sync else None,
                 sync_type_config=(
                     {
                         "incremental_field": incremental_field,
                         "incremental_field_type": incremental_field_type,
+                        "schema_metadata": schema_metadata,
                     }
-                    if requires_incremental_fields
-                    else {}
+                    if requires_incremental_fields and new_source_model.supports_scheduled_sync
+                    else {"schema_metadata": schema_metadata}
                 ),
             )
 
-            if should_sync:
+            if new_source_model.is_direct_postgres and should_sync:
+                schema_model.table = upsert_direct_postgres_table(
+                    None,
+                    schema_name=schema_name,
+                    source=new_source_model,
+                    columns=postgres_columns_to_dwh_columns(source_schema.columns if source_schema else []),
+                )
+                schema_model.save(update_fields=["table"])
+
+            if should_sync and new_source_model.supports_scheduled_sync:
                 active_schemas.append(schema_model)
 
         try:
@@ -558,6 +649,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
 
+        schemas = list(
+            ExternalDataSchema.objects.exclude(deleted=True)
+            .filter(team_id=self.team_id, source_id=instance.id)
+            .select_related("table")
+            .all()
+        )
+
+        # Soft-delete source, schemas, and tables atomically first so DB state
+        # is consistent even if the external cleanup below fails
+        with transaction.atomic():
+            for schema in schemas:
+                if schema.table:
+                    schema.table.soft_delete()
+                schema.soft_delete()
+            instance.soft_delete()
+
+        # Best-effort external cleanup — soft-deletes are already committed
         latest_running_job = (
             ExternalDataJob.objects.filter(pipeline_id=instance.pk, team_id=instance.team_id)
             .order_by("-created_at")
@@ -566,31 +674,30 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
             cancel_external_data_workflow(latest_running_job.workflow_id)
 
-        for schema in (
-            ExternalDataSchema.objects.exclude(deleted=True)
-            .filter(team_id=self.team_id, source_id=instance.id)
-            .select_related("table")
-            .all()
-        ):
-            # Delete temporal schedule
-            delete_external_data_schedule(str(schema.id))
+        for schema in schemas:
+            try:
+                delete_external_data_schedule(str(schema.id))
+            except Exception as e:
+                capture_exception(e)
 
-            # Delete data from S3 if it exists
-            schema.delete_table()
-            # Soft delete postgres models
-            schema.soft_delete()
+            try:
+                schema.delete_table()
+            except Exception as e:
+                capture_exception(e)
 
-        # Delete the old source schedule if it still exists
-        delete_external_data_schedule(str(instance.id))
-
-        # Soft delete the source model
-        instance.soft_delete()
+        try:
+            delete_external_data_schedule(str(instance.id))
+        except Exception as e:
+            capture_exception(e)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(methods=["POST"], detail=True)
     def reload(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSource = self.get_object()
+
+        if instance.is_direct_query:
+            return self.refresh_schemas(request, *args, **kwargs)
 
         if is_any_external_data_schema_paused(self.team_id):
             return Response(
@@ -612,6 +719,72 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         instance.status = "Running"
         instance.save()
         return Response(status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=True)
+    @extend_schema(
+        responses={
+            200: {"type": "object", "properties": {"added": {"type": "integer"}, "deleted": {"type": "integer"}}}
+        }
+    )
+    def refresh_schemas(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Fetch current schema/table list from the source and create any new ExternalDataSchema rows (no data sync)."""
+        instance: ExternalDataSource = self.get_object()
+        logger.debug(
+            "refresh_schemas called",
+            source_id=str(instance.id),
+            team_id=self.team_id,
+            source_type=instance.source_type,
+        )
+        if not instance.job_inputs:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Source has no configuration."},
+            )
+        try:
+            source_type = ExternalDataSourceType(instance.source_type)
+            source = SourceRegistry.get_source(source_type)
+            config = source.parse_config(instance.job_inputs)
+            schemas = source.get_schemas(config, self.team_id)
+            schema_names = [s.name for s in schemas]
+            logger.info(
+                "refresh_schemas fetched from source",
+                source_id=str(instance.id),
+                schema_count=len(schema_names),
+                schema_names=schema_names,
+            )
+        except Exception as e:
+            logger.exception("Could not fetch schemas from source", exc_info=e)
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Could not fetch schemas from source."},
+            )
+        with transaction.atomic():
+            ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
+            schemas_created, schemas_deleted = sync_old_schemas_with_new_schemas(
+                schema_names,
+                source_id=str(instance.id),
+                team_id=self.team_id,
+            )
+
+            if instance.is_direct_postgres:
+                reconciled_deleted_schemas = reconcile_direct_postgres_schemas(
+                    source=instance,
+                    source_schemas=schemas,
+                    team_id=self.team_id,
+                )
+                if reconciled_deleted_schemas:
+                    schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
+        logger.debug(
+            "refresh_schemas completed",
+            source_id=str(instance.id),
+            team_id=self.team_id,
+            added=len(schemas_created),
+            deleted=len(schemas_deleted),
+        )
+        return Response(
+            status=status.HTTP_200_OK,
+            data={"added": len(schemas_created), "deleted": len(schemas_deleted)},
+        )
 
     @action(methods=["POST"], detail=False)
     def database_schema(self, request: Request, *arg: Any, **kwargs: Any):
@@ -670,6 +843,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     def source_prefix(self, request: Request, *arg: Any, **kwargs: Any):
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
+        access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
+
+        if access_method == ExternalDataSource.AccessMethod.DIRECT:
+            if source_type != ExternalDataSourceType.POSTGRES:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Direct query mode is currently supported only for Postgres sources."},
+                )
+
+            normalized_prefix = prefix.strip() if isinstance(prefix, str) else ""
+            if not normalized_prefix:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Name is required for direct query sources"},
+                )
+
+            return Response(status=status.HTTP_200_OK)
 
         if self.prefix_required(source_type):
             if not prefix:

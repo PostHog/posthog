@@ -27,12 +27,12 @@ jobs:
 
         steps:
             - name: Checkout repository
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
 
             - name: Set up Go
               uses: actions/setup-go@v6
               with:
-                  go-version: '1.24'
+                  go-version: '1.25.5'
 
             - name: Build production binary
               run: cd bin/hobby-installer && make build-linux

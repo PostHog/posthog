@@ -62,6 +62,10 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     compareFilter?: any
     /** Base currency for formatting monetary values */
     baseCurrency?: CurrencyCode
+    /** Limit context sent to the /query endpoint */
+    limitContext?: 'posthog_ai'
+    /** Custom action buttons rendered in the DataTable toolbar (second row, right side) */
+    customActions?: JSX.Element | JSX.Element[]
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

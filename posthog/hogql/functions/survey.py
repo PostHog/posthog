@@ -76,13 +76,15 @@ def _build_index_based_key(question_index: int) -> str:
 
 
 def _build_property_access(key: str | ast.Expr) -> ast.Expr:
-    """Build property access expression. Uses ast.Field for static keys (enables materialization)."""
-    if isinstance(key, str):
-        return ast.Field(chain=["properties", key])
-    # Dynamic key - must use JSONExtractString
+    """Build property access expression.
+
+    Always uses JSONExtractString to ensure consistent String return type.
+    This avoids type mismatches when PropertySwapper would wrap ast.Field
+    accesses with type conversion functions (e.g., toFloat for Numeric properties).
+    """
     return ast.Call(
         name="JSONExtractString",
-        args=[ast.Field(chain=["properties"]), key],
+        args=[ast.Field(chain=["properties"]), _key_as_expr(key)],
     )
 
 

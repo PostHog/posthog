@@ -94,6 +94,14 @@ export const DisplayTab = (): JSX.Element => {
                                 />
                                 <LemonSwitch
                                     className="flex-1 w-full"
+                                    label="Show nulls as zero"
+                                    checked={chartSettings.showNullsAsZero ?? false}
+                                    onChange={(value) => {
+                                        updateChartSettings({ showNullsAsZero: value })
+                                    }}
+                                />
+                                <LemonSwitch
+                                    className="flex-1 w-full"
                                     label="Show X-axis labels"
                                     checked={chartSettings.showXAxisTicks ?? true}
                                     onChange={(value) => {
@@ -150,16 +158,14 @@ export const DisplayTab = (): JSX.Element => {
                         : null,
                     {
                         key: 'goals',
-                        header: {
-                            children: (
-                                <div className="flex items-center gap-1 flex-1">
-                                    <span className="flex-1">Goals</span>
-                                    {goalLines.length > 0 && (
-                                        <LemonBadge.Number status="muted" size="small" count={goalLines.length} />
-                                    )}
-                                </div>
-                            ),
-                        },
+                        header: (
+                            <div className="flex items-center gap-1 flex-1">
+                                <span className="flex-1">Goals</span>
+                                {goalLines.length > 0 && (
+                                    <LemonBadge.Number status="muted" size="small" count={goalLines.length} />
+                                )}
+                            </div>
+                        ),
                         className: 'p-2',
                         content: (
                             <>

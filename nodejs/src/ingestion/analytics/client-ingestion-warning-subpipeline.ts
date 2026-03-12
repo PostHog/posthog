@@ -1,9 +1,10 @@
-import { PipelineEvent } from '../../types'
+import { PluginEvent } from '~/plugin-scaffold'
+
 import { createHandleClientIngestionWarningStep } from '../event-processing/handle-client-ingestion-warning-step'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 
 export interface ClientIngestionWarningSubpipelineInput {
-    event: PipelineEvent
+    event: PluginEvent
 }
 
 export function createClientIngestionWarningSubpipeline<

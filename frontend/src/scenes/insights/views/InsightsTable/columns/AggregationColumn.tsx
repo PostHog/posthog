@@ -9,6 +9,7 @@ import { average, median } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { formatAggregationValue } from 'scenes/insights/utils'
+import { teamLogic } from 'scenes/teamLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -77,6 +78,7 @@ export function AggregationColumnItem({
     trendsFilter,
 }: AggregationColumnItemProps): JSX.Element {
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+    const { baseCurrency } = useValues(teamLogic)
 
     let value: number | undefined = undefined
     if (aggregation === 'total' || isNonTimeSeriesDisplay) {
@@ -96,7 +98,8 @@ export function AggregationColumnItem({
                 ? formatAggregationValue(
                       item.action?.math_property,
                       value,
-                      (value) => formatAggregationAxisValue(trendsFilter as Partial<TrendsFilterType>, value),
+                      (value) =>
+                          formatAggregationAxisValue(trendsFilter as Partial<TrendsFilterType>, value, baseCurrency),
                       formatPropertyValueForDisplay
                   )
                 : 'Unknown'}

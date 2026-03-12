@@ -9,7 +9,7 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
-import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
+import { QuickFilterItem, TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 import { universalFiltersLogic } from './universalFiltersLogic'
 
 const propertyFilter: AnyPropertyFilter = {
@@ -130,6 +130,130 @@ describe('universalFiltersLogic', () => {
                     },
                 ],
             },
+        })
+    })
+
+    describe('addGroupFilter with quick filter group types', () => {
+        it.each([
+            {
+                groupType: TaxonomicFilterGroupType.PageviewUrls,
+                propertyKey: 'https://example.com/blog',
+                expected: {
+                    key: '$current_url',
+                    value: 'https://example.com/blog',
+                    operator: PropertyOperator.IContains,
+                    type: PropertyFilterType.Event,
+                },
+            },
+            {
+                groupType: TaxonomicFilterGroupType.Screens,
+                propertyKey: 'HomeScreen',
+                expected: {
+                    key: '$screen_name',
+                    value: 'HomeScreen',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                },
+            },
+            {
+                groupType: TaxonomicFilterGroupType.EmailAddresses,
+                propertyKey: 'user@example.com',
+                expected: {
+                    key: 'email',
+                    value: 'user@example.com',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Person,
+                },
+            },
+        ])('creates a property filter for $groupType', async ({ groupType, propertyKey, expected }) => {
+            await expectLogic(logic, () => {
+                logic.actions.addGroupFilter({ type: groupType } as TaxonomicFilterGroup, propertyKey, {
+                    name: propertyKey,
+                })
+            }).toMatchValues({
+                filterGroup: {
+                    ...defaultFilter,
+                    values: [...defaultFilter.values, expected],
+                },
+            })
+        })
+    })
+
+    describe('addGroupFilter with QuickFilterItem', () => {
+        it.each([
+            {
+                scenario: 'with event name and extra properties',
+                item: {
+                    _type: 'quick_filter' as const,
+                    name: 'Pageview with email containing "blog"',
+                    filterValue: 'blog',
+                    operator: PropertyOperator.IContains,
+                    propertyKey: '$current_url',
+                    propertyFilterType: PropertyFilterType.Event,
+                    eventName: '$pageview',
+                    extraProperties: [
+                        {
+                            key: '$browser',
+                            value: 'Chrome',
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                        },
+                    ],
+                } satisfies QuickFilterItem,
+                expected: [
+                    {
+                        id: '$pageview',
+                        name: '$pageview',
+                        type: 'events',
+                        properties: [
+                            {
+                                key: '$current_url',
+                                value: 'blog',
+                                operator: PropertyOperator.IContains,
+                                type: PropertyFilterType.Event,
+                            },
+                            {
+                                key: '$browser',
+                                value: 'Chrome',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
+                    },
+                ],
+            },
+            {
+                scenario: 'without event name',
+                item: {
+                    _type: 'quick_filter' as const,
+                    name: 'Person email containing "test"',
+                    filterValue: 'test',
+                    operator: PropertyOperator.IContains,
+                    propertyKey: 'email',
+                    propertyFilterType: PropertyFilterType.Person,
+                } satisfies QuickFilterItem,
+                expected: [
+                    {
+                        key: 'email',
+                        value: 'test',
+                        operator: PropertyOperator.IContains,
+                        type: PropertyFilterType.Person,
+                    },
+                ],
+            },
+        ])('creates filters from QuickFilterItem $scenario', async ({ item, expected }) => {
+            await expectLogic(logic, () => {
+                logic.actions.addGroupFilter(
+                    { type: TaxonomicFilterGroupType.SuggestedFilters } as TaxonomicFilterGroup,
+                    undefined as any,
+                    item
+                )
+            }).toMatchValues({
+                filterGroup: {
+                    ...defaultFilter,
+                    values: [...defaultFilter.values, ...expected],
+                },
+            })
         })
     })
 })

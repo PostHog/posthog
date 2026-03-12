@@ -1,7 +1,6 @@
 import json
 import typing
 import datetime as dt
-import collections.abc
 from dataclasses import asdict, dataclass, fields
 from uuid import UUID
 
@@ -28,8 +27,6 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.hogql import HogQLContext
 
 from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun
-from posthog.clickhouse.client import sync_execute
-from posthog.kafka_client.topics import KAFKA_CDP_BACKFILL_EVENTS
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     a_pause_schedule,
@@ -150,8 +147,8 @@ class S3BatchExportInputs(BaseBatchExportInputs):
     bucket_name: str
     region: str
     prefix: str
-    aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
+    aws_access_key_id: str
+    aws_secret_access_key: str
     compression: str | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
@@ -342,7 +339,7 @@ class WorkflowsBatchExportInputs(BaseBatchExportInputs):
     are not related to Temporal Workflows.
     """
 
-    topic: str = KAFKA_CDP_BACKFILL_EVENTS
+    hog_function_id: str
 
 
 @dataclass(kw_only=True)
@@ -410,6 +407,7 @@ def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None 
         `True` if the batch export was paused, `False` if it was already paused.
     """
     try:
+        # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
         batch_export = BatchExport.objects.get(id=batch_export_id)
     except BatchExport.DoesNotExist:
         raise BatchExportIdError(batch_export_id)
@@ -438,6 +436,7 @@ async def apause_batch_export(temporal: Client, batch_export_id: str, note: str 
         `True` if the batch export was paused, `False` if it was already paused.
     """
     try:
+        # nosemgrep: idor-lookup-without-team (internal service called from Temporal, not user-facing)
         batch_export = await BatchExport.objects.aget(id=batch_export_id)
     except BatchExport.DoesNotExist:
         raise BatchExportIdError(batch_export_id)
@@ -478,6 +477,7 @@ def unpause_batch_export(
         BatchExportIdError: If the provided batch_export_id doesn't point to an existing BatchExport.
     """
     try:
+        # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
         batch_export = BatchExport.objects.get(id=batch_export_id)
     except BatchExport.DoesNotExist:
         raise BatchExportIdError(batch_export_id)
@@ -584,11 +584,9 @@ def running_runs_for_batch_export(batch_export_id: UUID):
 
 
 async def cancel_running_batch_export_backfill(temporal: Client, batch_export_backfill: BatchExportBackfill) -> None:
-    """Delete a running BatchExportBackfill.
+    """Cancel a running BatchExportBackfill and any associated runs (should only be one max).
 
-    A BatchExportBackfill represents a Temporal Workflow. When deleting the Temporal
-    Schedule that we are backfilling, we should also clean-up any Workflows that are
-    still running.
+    We cancel the backfill workflow first to prevent any new runs from starting.
     """
     handle = temporal.get_workflow_handle(workflow_id=batch_export_backfill.workflow_id)
     await handle.cancel()
@@ -596,15 +594,34 @@ async def cancel_running_batch_export_backfill(temporal: Client, batch_export_ba
     batch_export_backfill.status = BatchExportBackfill.Status.CANCELLED
     await batch_export_backfill.asave()
 
+    cancellable_statuses = [BatchExportRun.Status.RUNNING, BatchExportRun.Status.STARTING]
+    async for run in batch_export_backfill.runs.filter(status__in=cancellable_statuses):
+        try:
+            run_handle = temporal.get_workflow_handle(workflow_id=run.workflow_id)
+            await run_handle.cancel()
+            run.status = BatchExportRun.Status.CANCELLED
+            await run.asave()
+        except Exception:
+            logger.exception("Failed to cancel batch export run %s", run.id)
+
 
 def sync_cancel_running_batch_export_backfill(temporal: Client, batch_export_backfill: BatchExportBackfill) -> None:
-    """Cancel a running BatchExportBackfill."""
+    """Cancel a running BatchExportBackfill and any associated runs (should only be one max).
 
+    We cancel the backfill workflow first to prevent any new runs from starting.
+    """
     handle = temporal.get_workflow_handle(workflow_id=batch_export_backfill.workflow_id)
     async_to_sync(handle.cancel)()
 
     batch_export_backfill.status = BatchExportBackfill.Status.CANCELLED
     batch_export_backfill.save()
+
+    cancellable_statuses = [BatchExportRun.Status.RUNNING, BatchExportRun.Status.STARTING]
+    for run in batch_export_backfill.runs.filter(status__in=cancellable_statuses):
+        try:
+            cancel_running_batch_export_run(temporal, run)
+        except Exception:
+            logger.exception("Failed to cancel batch export run %s", run.id)
 
 
 def cancel_running_batch_export_run(temporal: Client, batch_export_run: BatchExportRun) -> None:
@@ -627,6 +644,7 @@ class BackfillBatchExportInputs:
     end_at: str | None
     buffer_limit: int = 1
     start_delay: float = 1.0
+    backfill_id: str | None = None
 
 
 def backfill_export(
@@ -635,6 +653,7 @@ def backfill_export(
     team_id: int,
     start_at: dt.datetime | None,
     end_at: dt.datetime | None,
+    backfill_id: str | None = None,
 ) -> str:
     """Starts a backfill for given team and batch export covering given date range.
 
@@ -645,6 +664,8 @@ def backfill_export(
         start_at: From when to backfill.
         end_at: Up to when to backfill, if None it will backfill until it has caught up with realtime
                 and then unpause the underlying BatchExport.
+        backfill_id: Pre-generated UUID for the backfill model. If provided, the Temporal workflow
+                     will use this ID when creating the BatchExportBackfill record.
     """
     try:
         batch_export = BatchExport.objects.select_related("destination").get(id=batch_export_id, team_id=team_id)
@@ -663,6 +684,7 @@ def backfill_export(
         team_id=team_id,
         start_at=start_at.isoformat() if start_at else None,
         end_at=end_at.isoformat() if end_at else None,
+        backfill_id=backfill_id,
     )
     start_at_utc_str = start_at.astimezone(tz=dt.UTC).isoformat() if start_at else "START"
     # TODO: Should we use another signal besides "None"? i.e. "Inf" or "END".
@@ -730,6 +752,7 @@ def update_batch_export_run(
     Arguments:
         run_id: The id of the BatchExportRun to update.
     """
+    # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
     model = BatchExportRun.objects.filter(id=run_id)
     update_at = dt.datetime.now(dt.UTC)
 
@@ -753,6 +776,7 @@ async def aupdate_batch_export_run(
     Arguments:
         run_id: The id of the BatchExportRun to update.
     """
+    # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
     model = BatchExportRun.objects.filter(id=run_id)
     update_at = dt.datetime.now(dt.UTC)
 
@@ -770,6 +794,7 @@ async def aupdate_batch_export_run(
 def count_failed_batch_export_runs(batch_export_id: UUID, last_n: int) -> int:
     """Count failed batch export runs in the 'last_n' runs."""
     count_of_failures = (
+        # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
         BatchExportRun.objects.filter(
             id__in=BatchExportRun.objects.filter(batch_export_id=batch_export_id)
             .order_by("-last_updated_at")
@@ -785,6 +810,7 @@ def count_failed_batch_export_runs(batch_export_id: UUID, last_n: int) -> int:
 async def acount_failed_batch_export_runs(batch_export_id: UUID, last_n: int) -> int:
     """Count failed batch export runs in the 'last_n' runs."""
     count_of_failures = (
+        # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
         await BatchExportRun.objects.filter(
             id__in=BatchExportRun.objects.filter(batch_export_id=batch_export_id)
             .order_by("-last_updated_at")
@@ -917,15 +943,15 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
     return batch_export
 
 
-def create_batch_export_backfill(
+async def acreate_batch_export_backfill(
     batch_export_id: UUID,
     team_id: int,
     start_at: str | None,
     end_at: str | None,
     status: str = BatchExportRun.Status.RUNNING,
+    backfill_id: str | None = None,
 ) -> BatchExportBackfill:
     """Create a BatchExportBackfill.
-
 
     Args:
         batch_export_id: The UUID of the BatchExport the BatchExportBackfill to create belongs to.
@@ -933,60 +959,57 @@ def create_batch_export_backfill(
         start_at: The start of the period to backfill in this BatchExportBackfill.
         end_at: The end of the period to backfill in this BatchExportBackfill.
         status: The initial status for the created BatchExportBackfill.
+        backfill_id: Pre-generated UUID for the backfill. If provided, will be used as the model's primary key.
     """
-    backfill = BatchExportBackfill(
-        batch_export_id=batch_export_id,
-        status=status,
-        start_at=dt.datetime.fromisoformat(start_at) if start_at else None,
-        end_at=dt.datetime.fromisoformat(end_at) if end_at else None,
-        team_id=team_id,
-    )
-    backfill.save()
-
-    return backfill
-
-
-async def acreate_batch_export_backfill(
-    batch_export_id: UUID,
-    team_id: int,
-    start_at: str,
-    end_at: str | None,
-    status: str = BatchExportRun.Status.RUNNING,
-) -> BatchExportBackfill:
-    """Create a BatchExportBackfill.
-
-
-    Args:
-        batch_export_id: The UUID of the BatchExport the BatchExportBackfill to create belongs to.
-        team_id: The id of the Team the BatchExportBackfill to create belongs to.
-        start_at: The start of the period to backfill in this BatchExportBackfill.
-        end_at: The end of the period to backfill in this BatchExportBackfill.
-        status: The initial status for the created BatchExportBackfill.
-    """
-    backfill = BatchExportBackfill(
-        batch_export_id=batch_export_id,
-        status=status,
-        start_at=dt.datetime.fromisoformat(start_at),
-        end_at=dt.datetime.fromisoformat(end_at) if end_at else None,
-        team_id=team_id,
-    )
+    kwargs: dict = {
+        "batch_export_id": batch_export_id,
+        "status": status,
+        "start_at": dt.datetime.fromisoformat(start_at) if start_at else None,
+        "end_at": dt.datetime.fromisoformat(end_at) if end_at else None,
+        "team_id": team_id,
+    }
+    if backfill_id is not None:
+        kwargs["id"] = backfill_id
+    backfill = BatchExportBackfill(**kwargs)
     await backfill.asave()
 
     return backfill
 
 
-def update_batch_export_backfill_status(
-    backfill_id: UUID, status: str, finished_at: dt.datetime | None = None
+def update_batch_export_backfill(
+    backfill_id: UUID,
+    *,
+    adjusted_start_at: str | None = None,
+    total_records_count: int | None = None,
+    status: str | None = None,
+    finished_at: dt.datetime | None = None,
 ) -> BatchExportBackfill:
-    """Update the status of an BatchExportBackfill with given id.
+    """Update a BatchExportBackfill with the given fields.
 
-    Arguments:
-        id: The id of the BatchExportBackfill to update.
-        status: The new status to assign to the BatchExportBackfill.
+    Args:
+        backfill_id: The id of the BatchExportBackfill to update.
+        adjusted_start_at: The adjusted start time after validation.
+        total_records_count: The total number of records to export.
+        status: The new status for the BatchExportBackfill.
         finished_at: The time the BatchExportBackfill finished.
     """
+    update_fields: dict[str, dt.datetime | int | str] = {}
+
+    if adjusted_start_at is not None:
+        update_fields["adjusted_start_at"] = dt.datetime.fromisoformat(adjusted_start_at)
+    if total_records_count is not None:
+        update_fields["total_records_count"] = total_records_count
+    if status is not None:
+        update_fields["status"] = status
+    if finished_at is not None:
+        update_fields["finished_at"] = finished_at
+
+    if not update_fields:
+        raise ValueError("At least one field must be provided to update")
+
+    # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
     model = BatchExportBackfill.objects.filter(id=backfill_id)
-    updated = model.update(status=status, finished_at=finished_at)
+    updated = model.update(**update_fields)
 
     if not updated:
         raise ValueError(f"BatchExportBackfill with id {backfill_id} not found.")
@@ -1032,75 +1055,6 @@ async def afetch_batch_export_runs_in_range(
     ).order_by("data_interval_start")
 
     return [run async for run in queryset]
-
-
-def fetch_earliest_backfill_start_at(
-    *,
-    team_id: int,
-    model: str,
-    interval_time_delta: dt.timedelta,
-    exclude_events: collections.abc.Iterable[str] | None = None,
-    include_events: collections.abc.Iterable[str] | None = None,
-) -> dt.datetime | None:
-    """Get the earliest start_at for a batch export backfill.
-
-    If there is no data for the given model, return None.
-    """
-    interval_seconds = int(interval_time_delta.total_seconds())
-    if model == "events":
-        exclude_events = exclude_events or []
-        include_events = include_events or []
-        query = """
-            SELECT MIN(toStartOfInterval(timestamp, INTERVAL %(interval_seconds)s SECONDS))
-            FROM events
-            WHERE team_id = %(team_id)s
-            AND timestamp > '2000-01-01'
-            AND (length(%(include_events)s::Array(String)) = 0 OR event IN %(include_events)s::Array(String))
-            AND (length(%(exclude_events)s::Array(String)) = 0 OR event NOT IN %(exclude_events)s::Array(String))
-        """
-        query_args = {
-            "team_id": team_id,
-            "include_events": include_events,
-            "exclude_events": exclude_events,
-            "interval_seconds": interval_seconds,
-        }
-        result = sync_execute(query, query_args)[0][0]
-        # if no data, ClickHouse returns 1970-01-01 00:00:00
-        # (we just compare the year rather than the whole object because in some cases the timestamp returned by
-        # ClickHouse has a timezone and sometimes it doesn't)
-        if result.year == 1970:
-            return None
-        return result
-    elif model == "persons":
-        # In the case of persons, we need to check 2 tables: person and person_distinct_id2
-        # It's more efficient querying both tables separately and taking the minimum timestamp, rather than trying to
-        # join them together.
-        # In some cases we might have invalid timestamps, so we use an arbitrary date in the past to filter these out.
-        query = """
-            SELECT toStartOfInterval(MIN(_timestamp), INTERVAL %(interval_seconds)s SECONDS)
-            FROM person
-            WHERE team_id = %(team_id)s
-            AND _timestamp > '2000-01-01'
-            UNION ALL
-            SELECT toStartOfInterval(MIN(_timestamp), INTERVAL %(interval_seconds)s SECONDS)
-            FROM person_distinct_id2
-            WHERE team_id = %(team_id)s
-            AND _timestamp > '2000-01-01'
-        """
-        query_args = {
-            "team_id": team_id,
-            "interval_seconds": interval_seconds,
-        }
-        results = sync_execute(query, query_args)
-        # if no data, ClickHouse returns 1970-01-01 00:00:00
-        # (we just compare the year rather than the whole object because in some cases the timestamp returned by
-        # ClickHouse has a timezone and sometimes it doesn't)
-        results = [result[0] for result in results if result[0].year != 1970]
-        if not results:
-            return None
-        return min(results)
-    else:
-        raise NotImplementedError(f"Invalid model: {model}")
 
 
 @dataclass(kw_only=True)

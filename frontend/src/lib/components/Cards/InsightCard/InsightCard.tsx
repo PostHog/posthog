@@ -9,7 +9,9 @@ import { useInView } from 'react-intersection-observer'
 
 import { ApiError } from 'lib/api'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { accessLevelSatisfied, getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
@@ -24,8 +26,8 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { Query } from '~/queries/Query/Query'
 import { extractValidationError } from '~/queries/nodes/InsightViz/utils'
+import { Query } from '~/queries/Query/Query'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
@@ -39,8 +41,11 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { ResizeHandle1D, ResizeHandle2D } from '../handles'
+import { DashboardResizeHandles } from '../handles'
+import { EditModeEdgeOverlay } from './EditModeEdgeOverlay'
 import { InsightMeta } from './InsightMeta'
+
+const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
 
 export interface InsightCardProps extends Resizeable {
     /** Insight to display. */
@@ -67,6 +72,7 @@ export interface InsightCardProps extends Resizeable {
     layout?: Layout
     ribbonColor?: InsightColor | null
     updateColor?: (newColor: DashboardTile['color']) => void
+    toggleShowDescription?: () => void
     removeFromDashboard?: () => void
     deleteWithUndo?: () => Promise<void>
     refresh?: () => void
@@ -95,6 +101,10 @@ export interface InsightCardProps extends Resizeable {
     tile?: DashboardTile<QueryBasedInsightModel>
     /** survey opportunity for this insight */
     surveyOpportunity?: boolean
+    /** Whether hovering near the card edge should hint that edit mode is available. */
+    canEnterEditModeFromEdge?: boolean
+    /** Called when the user clicks an edge hint to enter edit mode. */
+    onEnterEditModeFromEdge?: () => void
 }
 
 function InsightCardInternal(
@@ -110,10 +120,10 @@ function InsightCardInternal(
         timedOut,
         highlighted,
         showResizeHandles,
-        canResizeWidth,
         showEditingControls,
         showDetailsControls,
         updateColor,
+        toggleShowDescription,
         removeFromDashboard,
         deleteWithUndo,
         refresh,
@@ -133,11 +143,14 @@ function InsightCardInternal(
         breakdownColorOverride: _breakdownColorOverride,
         dataColorThemeId: _dataColorThemeId,
         surveyOpportunity,
+        canEnterEditModeFromEdge,
+        onEnterEditModeFromEdge,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element | null {
-    const { ref: inViewRef, inView } = useInView()
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { ref: inViewRef, inView } = useInView({ rootMargin: '500px' })
     const { isVisible: isPageVisible } = usePageVisibility()
 
     /** Wether the page is active and the line graph is currently in view. Used to free resources, by not rendering
@@ -145,7 +158,10 @@ function InsightCardInternal(
      *
      * We add an extra check to make sure all insights are visible in Storybook.
      */
-    const isVisible = (inView && isPageVisible) || inStorybook() || inStorybookTestRunner()
+    const isVisible =
+        featureFlags[FEATURE_FLAGS.EXPERIMENTAL_DASHBOARD_ITEM_RENDERING] === false
+            ? true
+            : IS_STORYBOOK || placement === DashboardPlacement.Export || (inView && isPageVisible)
 
     const mergedRefs = useMergeRefs([ref, inViewRef])
 
@@ -219,42 +235,48 @@ function InsightCardInternal(
 
     return (
         <div
-            className={clsx('InsightCard border', highlighted && 'InsightCard--highlighted', className)}
+            className={clsx(
+                'InsightCard border',
+                highlighted && 'InsightCard--highlighted',
+                areDetailsShown && 'InsightCard--details-shown',
+                className
+            )}
             data-attr="insight-card"
             {...divProps}
             // eslint-disable-next-line react/forbid-dom-props
             style={{ ...divProps?.style, ...theme?.boxStyle }}
             ref={mergedRefs}
         >
-            {isVisible ? (
-                <ErrorBoundary exceptionProps={{ feature: 'insight' }}>
-                    <BindLogic logic={insightLogic} props={insightLogicProps}>
-                        <InsightMeta
-                            tile={tile}
-                            insight={insight}
-                            ribbonColor={ribbonColor}
-                            dashboardId={dashboardId}
-                            updateColor={updateColor}
-                            removeFromDashboard={removeFromDashboard}
-                            deleteWithUndo={deleteWithUndo}
-                            refresh={refresh}
-                            refreshEnabled={refreshEnabled}
-                            loadingQueued={loadingQueued}
-                            loading={loading}
-                            rename={rename}
-                            duplicate={duplicate}
-                            setOverride={setOverride}
-                            moveToDashboard={moveToDashboard}
-                            areDetailsShown={areDetailsShown}
-                            setAreDetailsShown={setAreDetailsShown}
-                            showEditingControls={showEditingControls}
-                            showDetailsControls={showDetailsControls}
-                            moreButtons={moreButtons}
-                            filtersOverride={filtersOverride}
-                            variablesOverride={variablesOverride}
-                            placement={placement}
-                            surveyOpportunity={surveyOpportunity}
-                        />
+            <ErrorBoundary exceptionProps={{ feature: 'insight' }}>
+                <BindLogic logic={insightLogic} props={insightLogicProps}>
+                    <InsightMeta
+                        tile={tile}
+                        insight={insight}
+                        ribbonColor={ribbonColor}
+                        dashboardId={dashboardId}
+                        updateColor={updateColor}
+                        toggleShowDescription={toggleShowDescription}
+                        removeFromDashboard={removeFromDashboard}
+                        deleteWithUndo={deleteWithUndo}
+                        refresh={refresh}
+                        refreshEnabled={refreshEnabled}
+                        loadingQueued={loadingQueued}
+                        loading={loading}
+                        rename={rename}
+                        duplicate={duplicate}
+                        setOverride={setOverride}
+                        moveToDashboard={moveToDashboard}
+                        areDetailsShown={areDetailsShown}
+                        setAreDetailsShown={setAreDetailsShown}
+                        showEditingControls={showEditingControls}
+                        showDetailsControls={showDetailsControls}
+                        moreButtons={moreButtons}
+                        filtersOverride={filtersOverride}
+                        variablesOverride={variablesOverride}
+                        placement={placement}
+                        surveyOpportunity={surveyOpportunity}
+                    />
+                    {isVisible ? (
                         <div className="InsightCard__viz">
                             {BlockingEmptyState ? (
                                 BlockingEmptyState
@@ -273,17 +295,14 @@ function InsightCardInternal(
                                 />
                             )}
                         </div>
-                    </BindLogic>
-                    {showResizeHandles && (
-                        <>
-                            {canResizeWidth ? <ResizeHandle1D orientation="vertical" /> : null}
-                            <ResizeHandle1D orientation="horizontal" />
-                            {canResizeWidth ? <ResizeHandle2D /> : null}
-                        </>
-                    )}
-                    {children /* Extras, specifically resize handles injected by ReactGridLayout */}
-                </ErrorBoundary>
-            ) : null}
+                    ) : null}
+                </BindLogic>
+                {showResizeHandles && <DashboardResizeHandles />}
+                {canEnterEditModeFromEdge && !showResizeHandles && onEnterEditModeFromEdge && (
+                    <EditModeEdgeOverlay onEnterEditMode={onEnterEditModeFromEdge} />
+                )}
+                {children /* Extras injected by the parent layout (not ReactGridLayout resize handles) */}
+            </ErrorBoundary>
         </div>
     )
 }

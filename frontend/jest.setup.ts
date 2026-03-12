@@ -1,7 +1,8 @@
-import { configure } from '@testing-library/react'
 import 'jest-canvas-mock'
-import { TextDecoder, TextEncoder } from 'util'
 import 'whatwg-fetch'
+
+import { configure } from '@testing-library/react'
+import { TextDecoder, TextEncoder } from 'util'
 
 // Jest/JSDom don't know about TextEncoder but the browsers we support do
 // https://github.com/jsdom/jsdom/issues/2524
@@ -10,6 +11,20 @@ global.TextEncoder = TextEncoder as any
 
 window.scrollTo = jest.fn()
 window.matchMedia = jest.fn(() => ({ matches: false, addListener: jest.fn(), removeListener: jest.fn() }) as any)
+
+// jsdom does not implement AbortSignal.timeout — polyfill for tests
+if (typeof AbortSignal.timeout !== 'function') {
+    AbortSignal.timeout = (ms: number): AbortSignal => {
+        const controller = new AbortController()
+        setTimeout(() => controller.abort(new DOMException('TimeoutError', 'TimeoutError')), ms)
+        return controller.signal
+    }
+}
+
+// Base UI's ScrollArea calls getAnimations() which jsdom doesn't support
+if (typeof Element.prototype.getAnimations !== 'function') {
+    Element.prototype.getAnimations = () => []
+}
 
 // we use CSS.escape in the toolbar, but Jest/JSDom doesn't support it
 if (typeof (globalThis as any).CSS === 'undefined') {
@@ -51,6 +66,41 @@ jest.mock('posthog-js/dist/element-inference', () => ({
     findElement: jest.fn(),
     getElementPath: jest.fn(),
 }))
+
+// Mock posthog-js to avoid issues in tests
+jest.mock('posthog-js', () => {
+    // Get the actual module to preserve type exports (enums, etc.)
+    const actual = jest.requireActual('posthog-js')
+
+    const mock: Record<string, any> = {
+        capture: jest.fn(),
+        captureException: jest.fn(),
+        captureRaw: jest.fn(),
+        opt_in_capturing: jest.fn(),
+        identify: jest.fn(),
+        getFeatureFlag: jest.fn(),
+        getFeatureFlagPayload: jest.fn(),
+        getAllFlags: jest.fn(),
+        isFeatureEnabled: jest.fn(),
+        getEarlyAccessFeatures: jest.fn(),
+        getSurveys: jest.fn(),
+        onFeatureFlags: jest.fn(() => () => {}),
+        debug: jest.fn(),
+        get_session_id: jest.fn(),
+        get_session_replay_url: jest.fn(),
+        get_distinct_id: jest.fn(),
+        register: jest.fn(),
+        reset: jest.fn(),
+        group: jest.fn(),
+        updateEarlyAccessFeatureEnrollment: jest.fn(),
+        people: { set: jest.fn() },
+        featureFlags: { override: jest.fn() },
+    }
+    mock.init = jest.fn(() => mock)
+
+    // Return mock functions but preserve actual type exports
+    return { ...actual, __esModule: true, default: mock, posthog: mock }
+})
 
 jest.mock('@tiptap/extension-code-block-lowlight', () => {
     const mockExtension = {

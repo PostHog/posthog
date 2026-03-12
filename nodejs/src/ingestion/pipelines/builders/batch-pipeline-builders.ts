@@ -1,35 +1,27 @@
 import { Message } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '../../../kafka/producer'
-import { Team } from '../../../types'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
 import { BaseBatchPipeline, BatchProcessingStep } from '../base-batch-pipeline'
 import { BatchPipeline } from '../batch-pipeline.interface'
+import { BufferingBatchPipeline } from '../buffering-batch-pipeline'
 import { ConcurrentBatchProcessingPipeline } from '../concurrent-batch-pipeline'
 import { ConcurrentlyGroupingBatchPipeline, GroupingFunction } from '../concurrently-grouping-batch-pipeline'
-import { FilterOkBatchPipeline } from '../filter-ok-batch-pipeline'
+import { FilterMapBatchPipeline, FilterMapMappingFunction } from '../filter-map-batch-pipeline'
 import { GatheringBatchPipeline } from '../gathering-batch-pipeline'
 import { IngestionWarningHandlingBatchPipeline } from '../ingestion-warning-handling-batch-pipeline'
-import { MappingBatchPipeline, MappingFunction } from '../mapping-batch-pipeline'
 import { Pipeline } from '../pipeline.interface'
 import { PipelineConfig, ResultHandlingPipeline } from '../result-handling-pipeline'
 import { SequentialBatchPipeline } from '../sequential-batch-pipeline'
 import { SideEffectHandlingPipeline } from '../side-effect-handling-pipeline'
 import { PipelineBuilder, StartPipelineBuilder } from './pipeline-builders'
 
-export class FilteredBatchPipelineBuilder<TInput, TOutput, CInput, COutput> {
-    constructor(private filteredPipeline: FilterOkBatchPipeline<TInput, TOutput, CInput, COutput>) {}
-
-    map<TMapped, CMapped = COutput>(
-        mappingFn: MappingFunction<TOutput, TMapped, COutput, CMapped>
-    ): BatchPipelineBuilder<TInput, TMapped, CInput, CMapped> {
-        return new BatchPipelineBuilder(
-            new MappingBatchPipeline<TInput, TOutput, TMapped, CInput, COutput, CMapped>(
-                this.filteredPipeline,
-                mappingFn
-            )
-        )
-    }
+/**
+ * Minimal team context required for team-aware pipeline operations.
+ * Only the team ID is needed to route warnings to the correct team.
+ */
+export interface TeamIdContext {
+    team: { id: number }
 }
 
 /**
@@ -105,8 +97,33 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput> {
         return new BatchPipelineBuilder(new GatheringBatchPipeline(this.pipeline))
     }
 
-    filterOk(): FilteredBatchPipelineBuilder<TInput, TOutput, CInput, COutput> {
-        return new FilteredBatchPipelineBuilder(new FilterOkBatchPipeline(this.pipeline))
+    /**
+     * Filters OK results, applies a mapping function, and processes through a subpipeline.
+     * Non-OK results are passed through unchanged.
+     *
+     * @param mappingFn - Function to map OK results (transforms both value and context)
+     * @param subpipelineCallback - Callback that receives a builder and returns the subpipeline
+     */
+    filterMap<TMapped, TSubOutput, CMapped = COutput, CSubOutput = CMapped>(
+        mappingFn: FilterMapMappingFunction<TOutput, TMapped, COutput, CMapped>,
+        subpipelineCallback: (
+            builder: BatchPipelineBuilder<TMapped, TMapped, CMapped, CMapped>
+        ) => BatchPipelineBuilder<TMapped, TSubOutput, CMapped, CSubOutput>
+    ): BatchPipelineBuilder<TInput, TSubOutput, CInput, CSubOutput | COutput> {
+        // Create a start builder for the subpipeline with the mapped types
+        const startBuilder = new BatchPipelineBuilder(new BufferingBatchPipeline<TMapped, CMapped>())
+
+        // Let the callback build the subpipeline
+        const subpipelineBuilder = subpipelineCallback(startBuilder)
+        const subPipeline = subpipelineBuilder.build()
+
+        return new BatchPipelineBuilder(
+            new FilterMapBatchPipeline<TInput, TOutput, TMapped, TSubOutput, CInput, COutput, CMapped, CSubOutput>(
+                this.pipeline,
+                mappingFn,
+                subPipeline
+            )
+        )
     }
 
     groupBy<TKey>(
@@ -138,11 +155,11 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput> {
     }
 
     teamAware<TOut, COut = COutput>(
-        this: BatchPipelineBuilder<TInput, TOutput, CInput & { team: Team }, COutput & { team: Team }>,
+        this: BatchPipelineBuilder<TInput, TOutput, CInput & TeamIdContext, COutput & TeamIdContext>,
         callback: (
-            builder: BatchPipelineBuilder<TInput, TOutput, CInput & { team: Team }, COutput & { team: Team }>
-        ) => BatchPipelineBuilder<TInput, TOut, CInput & { team: Team }, COut & { team: Team }>
-    ): TeamAwareBatchPipelineBuilder<TInput, TOut, CInput & { team: Team }, COut & { team: Team }> {
+            builder: BatchPipelineBuilder<TInput, TOutput, CInput & TeamIdContext, COutput & TeamIdContext>
+        ) => BatchPipelineBuilder<TInput, TOut, CInput & TeamIdContext, COut & TeamIdContext>
+    ): TeamAwareBatchPipelineBuilder<TInput, TOut, CInput & TeamIdContext, COut & TeamIdContext> {
         const builtPipeline = callback(this)
         return new TeamAwareBatchPipelineBuilder(builtPipeline.build())
     }
@@ -188,8 +205,8 @@ export class ResultHandledBatchPipelineBuilder<
 export class TeamAwareBatchPipelineBuilder<
     TInput,
     TOutput,
-    CInput extends { team: Team },
-    COutput extends { team: Team },
+    CInput extends TeamIdContext,
+    COutput extends TeamIdContext,
 > extends BatchPipelineBuilder<TInput, TOutput, CInput, COutput> {
     constructor(pipeline: BatchPipeline<TInput, TOutput, CInput, COutput>) {
         super(pipeline)

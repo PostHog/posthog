@@ -157,6 +157,7 @@ class VercelIntegration:
     @staticmethod
     def _get_resource(resource_id: str) -> Integration:
         try:
+            # nosemgrep: idor-lookup-without-team (Vercel integration auth validates ownership)
             return Integration.objects.get(pk=resource_id, kind=Integration.IntegrationKind.VERCEL)
         except Integration.DoesNotExist:
             raise exceptions.NotFound("Resource not found")
@@ -399,6 +400,20 @@ class VercelIntegration:
     def delete_installation(installation_id: str) -> dict[str, Any]:
         logger.info("Starting Vercel installation deletion", installation_id=installation_id, integration="vercel")
         installation = VercelIntegration._get_installation(installation_id)
+        organization = installation.organization
+
+        license = get_cached_instance_license()
+        if not license:
+            raise RuntimeError("No license available to deauthorize billing")
+
+        billing_manager = BillingManager(license)
+        billing_manager.deauthorize(organization, billing_provider=BillingProvider.VERCEL)
+        logger.info(
+            "Deauthorized billing for Vercel installation",
+            installation_id=installation_id,
+            organization_id=str(organization.id),
+        )
+
         installation.delete()
         logger.info(
             "Successfully deleted Vercel installation",
@@ -520,11 +535,11 @@ class VercelIntegration:
     def _build_secrets(team: Team) -> list[dict[str, str]]:
         return [
             {
-                "name": "POSTHOG_PROJECT_API_KEY",
+                "name": "NEXT_PUBLIC_POSTHOG_KEY",
                 "value": team.api_token,
             },
             {
-                "name": "POSTHOG_HOST",
+                "name": "NEXT_PUBLIC_POSTHOG_HOST",
                 "value": absolute_uri(),
             },
         ]
@@ -788,9 +803,9 @@ class VercelIntegration:
     @staticmethod
     def _validate_client_credentials() -> tuple[str, str]:
         if not getattr(settings, "VERCEL_CLIENT_INTEGRATION_ID", None):
-            raise exceptions.NotFound("Vercel integration not configured: missing VERCEL_CLIENT_INTEGRATION_ID")
+            raise RuntimeError("Vercel integration not configured: missing VERCEL_CLIENT_INTEGRATION_ID")
         if not getattr(settings, "VERCEL_CLIENT_INTEGRATION_SECRET", None):
-            raise exceptions.NotFound("Vercel integration not configured: missing VERCEL_CLIENT_INTEGRATION_SECRET")
+            raise RuntimeError("Vercel integration not configured: missing VERCEL_CLIENT_INTEGRATION_SECRET")
         return settings.VERCEL_CLIENT_INTEGRATION_ID, settings.VERCEL_CLIENT_INTEGRATION_SECRET
 
     @staticmethod
@@ -987,6 +1002,7 @@ class VercelIntegration:
             return login_url
         except Exception as e:
             logger.exception("Vercel SSO authentication failed", error=str(e), integration="vercel")
+            capture_exception(e)
             raise exceptions.AuthenticationFailed("Authentication failed")
 
     @staticmethod
@@ -1174,6 +1190,7 @@ class VercelIntegration:
 
     @staticmethod
     def set_active_project(user: User, resource_id: str):
+        # nosemgrep: idor-lookup-without-team (Vercel integration auth validates ownership)
         resource = Integration.objects.filter(pk=resource_id, kind=Integration.IntegrationKind.VERCEL).first()
         if not resource:
             raise exceptions.NotFound(f"Vercel resource not found: {resource_id}")

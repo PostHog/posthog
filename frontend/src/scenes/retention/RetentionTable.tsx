@@ -7,7 +7,7 @@ import React from 'react'
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { gradateColor } from 'lib/utils'
+import { gradateColor, humanFriendlyNumber } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -35,6 +35,7 @@ export function RetentionTable({
         breakdownDisplayNames,
         tableHeaders,
         retentionFilter,
+        isPropertyValueAggregation,
     } = useValues(retentionTableLogic(insightProps))
     const { toggleBreakdown, setHoveredColumn } = useActions(retentionTableLogic(insightProps))
     const { hoveredColumn } = useValues(retentionTableLogic(insightProps))
@@ -155,6 +156,11 @@ export function RetentionTable({
                                     >
                                         <CohortDay
                                             percentage={meanData?.meanPercentages?.[interval] ?? 0}
+                                            value={
+                                                isPropertyValueAggregation
+                                                    ? (meanData?.meanValues?.[interval] ?? 0)
+                                                    : undefined
+                                            }
                                             clickable={false}
                                             backgroundColor={backgroundColorMean}
                                         />
@@ -202,6 +208,11 @@ export function RetentionTable({
                                                     {column && (
                                                         <CohortDay
                                                             percentage={column.percentage}
+                                                            value={
+                                                                isPropertyValueAggregation
+                                                                    ? (column.aggregation_value ?? 0)
+                                                                    : undefined
+                                                            }
                                                             clickable={true}
                                                             isCurrentPeriod={column.isCurrentPeriod}
                                                             backgroundColor={backgroundColor}
@@ -222,11 +233,13 @@ export function RetentionTable({
 
 function CohortDay({
     percentage,
+    value,
     clickable,
     backgroundColor,
     isCurrentPeriod,
 }: {
     percentage: number
+    value?: number
     clickable: boolean
     backgroundColor: string
     isCurrentPeriod?: boolean
@@ -244,7 +257,7 @@ function CohortDay({
             // eslint-disable-next-line react/forbid-dom-props
             style={!isCurrentPeriod ? { backgroundColor: saturatedBackgroundColor, color: textColor } : undefined}
         >
-            {percentage.toFixed(1)}%
+            {value !== undefined ? humanFriendlyNumber(value) : `${percentage.toFixed(1)}%`}
         </div>
     )
     return isCurrentPeriod ? <Tooltip title="Period in progress">{numberCell}</Tooltip> : numberCell

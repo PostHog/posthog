@@ -5,7 +5,6 @@ import React, { useLayoutEffect, useMemo, useState } from 'react'
 
 import {
     IconBrain,
-    IconBug,
     IconCheck,
     IconChevronRight,
     IconCollapse,
@@ -64,17 +63,15 @@ import {
     PlanningStepStatus,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
-import { isHogQLQuery } from '~/queries/utils'
+import { isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { PendingApproval, Region } from '~/types'
 
+import { FeedbackDisplay } from './components/FeedbackDisplay'
 import { ContextSummary } from './Context'
 import { DangerousOperationApprovalCard } from './DangerousOperationApprovalCard'
 import { FeedbackPrompt } from './FeedbackPrompt'
-import { MarkdownMessage } from './MarkdownMessage'
-import { TicketPrompt } from './TicketPrompt'
-import { TraceIdProvider, useTraceId } from './TraceIdContext'
-import { FeedbackDisplay } from './components/FeedbackDisplay'
 import { maxMessageRatingsLogic } from './logics/maxMessageRatingsLogic'
+import { MarkdownMessage } from './MarkdownMessage'
 import { ToolRegistration, getToolDefinitionFromToolCall } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { ThreadMessage, maxLogic } from './maxLogic'
@@ -82,10 +79,18 @@ import { maxThreadLogic } from './maxThreadLogic'
 import { MessageTemplate } from './messages/MessageTemplate'
 import { MultiQuestionFormRecap } from './messages/MultiQuestionForm'
 import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
-import { RecordingsWidget, UIPayloadAnswer } from './messages/UIPayloadAnswer'
+import { SessionSummarizationProgress } from './messages/SessionSummarizationProgress'
+import {
+    RecordingsWidget,
+    SummarizeSessionsWidget,
+    UIPayloadAnswer,
+    isRenderableUIPayloadTool,
+} from './messages/UIPayloadAnswer'
 import { VisualizationArtifactAnswer } from './messages/VisualizationArtifactAnswer'
 import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
+import { TicketPrompt } from './TicketPrompt'
 import { getTicketPromptData, getTicketSummaryData, isTicketConfirmationMessage } from './ticketUtils'
+import { TraceIdProvider, useTraceId } from './TraceIdContext'
 import { useFeedback } from './useFeedback'
 import {
     isArtifactMessage,
@@ -178,6 +183,15 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                                 if (isRetryPattern) {
                                     return null
                                 }
+                            }
+
+                            // Hide UI payload answers that are not renderable to prevent rendering an empty message component
+                            if (
+                                isAssistantToolCallMessage(message) &&
+                                (!message.ui_payload ||
+                                    !isRenderableUIPayloadTool(Object.keys(message.ui_payload)[0], message.ui_payload))
+                            ) {
+                                return null
                             }
 
                             const nextMessage = threadGrouped[index + 1]
@@ -287,11 +301,12 @@ function MessageContainer({
     )
 }
 
-// Enhanced tool call with completion status and planning flag
 export interface EnhancedToolCall extends AssistantToolCall {
     status: ExecutionStatus
     isLastPlanningMessage?: boolean
     updates?: string[]
+    /** The tool call result message, if available */
+    result?: AssistantToolCallMessage
 }
 
 interface MessageProps {
@@ -302,13 +317,17 @@ interface MessageProps {
     isSlashCommandResponse?: boolean
 }
 
-function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandResponse }: MessageProps): JSX.Element {
+function Message({
+    message,
+    nextMessage,
+    isLastInGroup,
+    isFinal,
+    isSlashCommandResponse,
+}: MessageProps): JSX.Element | null {
     const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
     const { activeTabId, activeSceneId } = useValues(sceneLogic)
     const { threadLoading, isSharedThread, pendingApprovalsData, resolvedApprovalStatuses } = useValues(maxThreadLogic)
     const { conversationId } = useValues(maxLogic)
-    const { isDev } = useValues(preflightLogic)
-    const [showUiPayloadJson, setShowUiPayloadJson] = useState(false)
 
     const groupType = message.type === 'human' ? 'human' : 'ai'
     const key = message.id || 'no-id'
@@ -347,6 +366,22 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
         ))
     }, [conversationId, message, pendingApprovalsData, resolvedApprovalStatuses])
 
+    // Skip rendering messages that produce no visible content.
+    // This prevents empty MessageContainers from creating uneven gaps in the thread.
+    const rendersContent =
+        isHumanMessage(message) ||
+        isAssistantMessage(message) ||
+        isFailureMessage(message) ||
+        (isAssistantToolCallMessage(message) &&
+            message.ui_payload &&
+            Object.values(message.ui_payload).filter((value) => value != null).length > 0) ||
+        (isArtifactMessage(message) &&
+            (isVisualizationArtifactContent(message.content) || isNotebookArtifactContent(message.content))) ||
+        isMultiVisualizationMessage(message)
+
+    if (!rendersContent && !(isLastInGroup && message.status === 'error')) {
+        return null
+    }
     return (
         <MessageContainer groupType={groupType}>
             <div className={clsx('flex flex-col min-w-0 w-full', groupType === 'human' ? 'items-end' : 'items-start')}>
@@ -368,6 +403,7 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
                                         dashboards={message.ui_context.dashboards}
                                         events={message.ui_context.events}
                                         actions={message.ui_context.actions}
+                                        notebooks={message.ui_context.notebooks}
                                         useCurrentPageContext={false}
                                     />
                                 )}
@@ -556,67 +592,6 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
                                 {actionsElement}
                             </div>
                         )
-                    } else if (
-                        isAssistantToolCallMessage(message) &&
-                        message.ui_payload &&
-                        Object.keys(message.ui_payload).length > 0
-                    ) {
-                        const [toolName, toolPayload] = Object.entries(message.ui_payload)[0]
-                        return (
-                            <>
-                                <UIPayloadAnswer
-                                    key={key}
-                                    toolCallId={message.tool_call_id}
-                                    toolName={toolName}
-                                    toolPayload={toolPayload}
-                                />
-                                {isDev && (
-                                    <div className="ml-5 flex flex-col gap-1">
-                                        <LemonButton
-                                            size="xxsmall"
-                                            type="secondary"
-                                            icon={<IconBug />}
-                                            onClick={() => setShowUiPayloadJson(!showUiPayloadJson)}
-                                            tooltip="Development-only. Note: The JSON here is prettified"
-                                            tooltipPlacement="top-start"
-                                            className="w-fit"
-                                        >
-                                            {showUiPayloadJson ? 'Hide' : 'Show'} above tool call result as JSON
-                                        </LemonButton>
-                                        {showUiPayloadJson && (
-                                            <CodeSnippet language={Language.JSON}>
-                                                {JSON.stringify(message, null, 2)}
-                                            </CodeSnippet>
-                                        )}
-                                    </div>
-                                )}
-                            </>
-                        )
-                    } else if (isAssistantToolCallMessage(message)) {
-                        // Tool call message without ui_payload - only show dev debug in dev mode
-                        if (!isDev) {
-                            return null
-                        }
-                        return (
-                            <div className="ml-5 flex flex-col gap-1">
-                                <LemonButton
-                                    size="xxsmall"
-                                    type="secondary"
-                                    icon={<IconBug />}
-                                    onClick={() => setShowUiPayloadJson(!showUiPayloadJson)}
-                                    tooltip="Development-only. Note: The JSON here is prettified"
-                                    tooltipPlacement="top-start"
-                                    className="w-fit"
-                                >
-                                    {showUiPayloadJson ? 'Hide' : 'Show'} tool call result as JSON
-                                </LemonButton>
-                                {showUiPayloadJson && (
-                                    <CodeSnippet language={Language.JSON}>
-                                        {JSON.stringify(message, null, 2)}
-                                    </CodeSnippet>
-                                )}
-                            </div>
-                        )
                     } else if (isFailureMessage(message)) {
                         return (
                             <>
@@ -643,7 +618,12 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
                             )
                         } else if (isNotebookArtifactContent(message.content)) {
                             return (
-                                <NotebookArtifactAnswer key={key} content={message.content} status={message.status} />
+                                <NotebookArtifactAnswer
+                                    key={key}
+                                    content={message.content}
+                                    status={message.status}
+                                    artifactId={message.artifact_id}
+                                />
                             )
                         }
                         return null
@@ -815,10 +795,8 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
                 onClick={!hasMultipleSteps ? undefined : () => setIsExpanded(!isExpanded)}
                 aria-label={!hasMultipleSteps ? undefined : isExpanded ? 'Collapse plan' : 'Expand plan'}
             >
-                <div className="relative flex-shrink-0 flex items-start justify-center size-6 h-full">
-                    <div className="p-1 flex items-center justify-center">
-                        <IconNotebook />
-                    </div>
+                <div className="flex items-center justify-center size-5">
+                    <IconNotebook />
                 </div>
                 <div className="flex items-center gap-1.5 flex-1 min-w-0">
                     <span>Planning</span>
@@ -835,7 +813,7 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
                 </div>
             </div>
             {isExpanded && (
-                <div className="mt-1.5 space-y-1.5 border-l-2 border-border-secondary pl-3.5 ml-[calc(0.775rem)]">
+                <div className="mt-1.5 space-y-1.5 border-l-2 border-border-secondary pl-3.5 ml-2">
                     {steps.map((step, index) => {
                         const isCompleted = step.status === 'completed'
                         const isInProgress = step.status === 'in_progress'
@@ -885,7 +863,7 @@ function ShimmeringContent({ children }: { children: React.ReactNode }): JSX.Ele
 
     return (
         <span
-            className="inline-flex"
+            className="inline-flex min-w-0 max-w-full"
             style={{
                 animation: 'shimmer-opacity 3s linear infinite',
             }}
@@ -917,41 +895,64 @@ function AssistantActionComponent({
     animate = true,
     showCompletionIcon = true,
     widget = null,
+    isResultExpanded = false,
+    toolCall = null,
 }: {
     id: string
     content: string
+    // actually a markdown message
     substeps: string[]
     state: ExecutionStatus
     icon?: React.ReactNode
     animate?: boolean
     showCompletionIcon?: boolean
     widget?: JSX.Element | null
+    isResultExpanded?: boolean
+    toolCall?: EnhancedToolCall | null
 }): JSX.Element {
     const isPending = state === 'pending'
     const isCompleted = state === 'completed'
     const isInProgress = state === 'in_progress'
     const isFailed = state === 'failed'
-    const showChevron = !!substeps.length
+    const showSubstepsChevron = !!substeps.length || !!toolCall?.result?.content
     // Initialize with the same logic as the effect to prevent flickering
-    const [isExpanded, setIsExpanded] = useState(showChevron && !(isCompleted || isFailed))
+    const [isSubstepsExpanded, setIsSubstepsExpanded] = useState(showSubstepsChevron && !(isCompleted || isFailed))
+    const [showToolCallJson, setShowToolCallJson] = useState(false)
+    const [showResultJson, setShowResultJson] = useState(false)
 
     useLayoutEffect(() => {
-        setIsExpanded(showChevron && !(isCompleted || isFailed))
-    }, [showChevron, isCompleted, isFailed])
+        setIsSubstepsExpanded(showSubstepsChevron && !(isCompleted || isFailed))
+    }, [showSubstepsChevron, isCompleted, isFailed])
 
     let markdownContent = <MarkdownMessage id={id} content={content} />
+    const result = toolCall?.result
+    const uiPayload = result?.ui_payload
+    const executedSQLQuery =
+        typeof uiPayload?.execute_sql === 'string'
+            ? uiPayload.execute_sql
+            : toolCall?.name === 'execute_sql' && typeof toolCall.args.query === 'string'
+              ? toolCall.args.query
+              : null
 
     return (
         <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1 text-xs">
             <div
                 className={clsx(
-                    'transition-all duration-500 flex select-none',
+                    'transition-all duration-500 flex select-none min-w-0',
                     (isPending || isFailed) && 'text-muted',
                     !isInProgress && !isPending && !isFailed && 'text-default',
-                    !showChevron ? 'cursor-default' : 'cursor-pointer'
+                    !showSubstepsChevron ? 'cursor-default' : 'cursor-pointer'
                 )}
-                onClick={!showChevron ? undefined : () => setIsExpanded(!isExpanded)}
-                aria-label={!showChevron ? undefined : isExpanded ? 'Collapse history' : 'Expand history'}
+                onClick={showSubstepsChevron ? () => setIsSubstepsExpanded(!isSubstepsExpanded) : undefined}
+                aria-label={
+                    showSubstepsChevron
+                        ? isSubstepsExpanded
+                            ? 'Collapse history'
+                            : 'Expand history'
+                        : isResultExpanded
+                          ? 'Collapse result'
+                          : 'Expand result'
+                }
             >
                 {icon && (
                     <div className="flex items-center justify-center size-5">
@@ -963,17 +964,22 @@ function AssistantActionComponent({
                     </div>
                 )}
                 <div className="flex items-center gap-1 flex-1 min-w-0 h-full">
-                    <div>
+                    <div className="min-w-0">
                         {isInProgress && animate ? (
                             <ShimmeringContent>{markdownContent}</ShimmeringContent>
                         ) : (
                             <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{markdownContent}</span>
                         )}
                     </div>
-                    {showChevron && (
+                    {showSubstepsChevron && (
                         <div className="relative flex-shrink-0 flex items-start justify-center h-full pt-px">
                             <button className="inline-flex items-center hover:opacity-70 transition-opacity flex-shrink-0 cursor-pointer">
-                                <span className={clsx('transform transition-transform', isExpanded && 'rotate-90')}>
+                                <span
+                                    className={clsx(
+                                        'transform transition-transform',
+                                        isSubstepsExpanded && 'rotate-90'
+                                    )}
+                                >
                                     <IconChevronRight />
                                 </span>
                             </button>
@@ -983,7 +989,7 @@ function AssistantActionComponent({
                     {isFailed && showCompletionIcon && <IconX className="text-danger size-3" />}
                 </div>
             </div>
-            {isExpanded && substeps && substeps.length > 0 && (
+            {isSubstepsExpanded && substeps && substeps.length > 0 && (
                 <div
                     className={clsx(
                         'space-y-1 border-l-2 border-border-secondary',
@@ -1012,6 +1018,106 @@ function AssistantActionComponent({
                 </div>
             )}
             {widget}
+            {/* Render summarize_sessions UI payload outside accordion so "Open report" is always visible */}
+            {!!uiPayload?.summarize_sessions && result && (
+                <SummarizeSessionsWidget
+                    payload={uiPayload.summarize_sessions}
+                    title={toolCall?.args.summary_title as string | undefined}
+                />
+            )}
+            {toolCall && isSubstepsExpanded && (
+                <>
+                    {!!uiPayload &&
+                        isRenderableUIPayloadTool(toolCall.name, uiPayload) &&
+                        Object.entries(uiPayload)
+                            .filter(([toolName]) => toolName !== 'summarize_sessions')
+                            .map(([toolName, toolPayload]) => (
+                                <div
+                                    key={`${result?.tool_call_id}-${toolName}`}
+                                    className="ml-3 border-l-2 border-border-secondary pl-3.5"
+                                >
+                                    <UIPayloadAnswer
+                                        toolCallId={result!.tool_call_id}
+                                        toolName={toolName}
+                                        toolPayload={toolPayload}
+                                    />
+                                </div>
+                            ))}
+                    {executedSQLQuery && (
+                        <div className="ml-3 border-l-2 border-border-secondary pl-3.5 flex flex-col gap-1">
+                            <b className="text-secondary">SQL query</b>
+                            <CodeSnippet language={Language.SQL} className="text-xs" compact>
+                                {executedSQLQuery}
+                            </CodeSnippet>
+                        </div>
+                    )}
+                    <div className="ml-3 border-l-2 border-border-secondary pl-3.5 flex flex-col gap-1">
+                        <LemonButton
+                            size="xxsmall"
+                            type="tertiary"
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                setShowToolCallJson(!showToolCallJson)
+                            }}
+                            tooltip="Tool call arguments as JSON"
+                            tooltipPlacement="top-start"
+                            className="w-fit"
+                        >
+                            <span className="flex items-center gap-1">
+                                <b>Tool called:</b>
+                                <span className="text-secondary">{toolCall.name}</span>
+                                <span
+                                    className={clsx('transform transition-transform', showToolCallJson && 'rotate-90')}
+                                >
+                                    <IconChevronRight />
+                                </span>
+                            </span>
+                        </LemonButton>
+                        {showToolCallJson && (
+                            <CodeSnippet language={Language.JSON} className="text-xs">
+                                {JSON.stringify(toolCall.args, null, 2)}
+                            </CodeSnippet>
+                        )}
+                        {result && result.content && (
+                            <React.Fragment>
+                                <LemonButton
+                                    size="xxsmall"
+                                    type="tertiary"
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        setShowResultJson(!showResultJson)
+                                    }}
+                                    tooltip="Show tool call results"
+                                    tooltipPlacement="top-start"
+                                    className="w-fit"
+                                >
+                                    <span className="flex items-center gap-1">
+                                        <b>Tool result:</b>
+                                        <span className="text-secondary">{result.content.slice(0, 20)}...</span>
+                                        <span
+                                            className={clsx(
+                                                'transform transition-transform',
+                                                showResultJson && 'rotate-90'
+                                            )}
+                                        >
+                                            <IconChevronRight />
+                                        </span>
+                                    </span>
+                                </LemonButton>
+                                {showResultJson && (
+                                    <div className="border rounded p-2 bg-surface-primary">
+                                        <MarkdownMessage
+                                            id={`${toolCall.id}-result`}
+                                            content={result.content}
+                                            className="text-xs [&_code]:text-xs"
+                                        />
+                                    </div>
+                                )}
+                            </React.Fragment>
+                        )}
+                    </div>
+                </>
+            )}
         </div>
     )
 }
@@ -1050,9 +1156,6 @@ interface ToolCallsAnswerProps {
 }
 
 function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps): JSX.Element {
-    const { isDev } = useValues(preflightLogic)
-    const [showToolCallsJson, setShowToolCallsJson] = useState(false)
-
     // Separate todo_write tool calls from regular tool calls
     const todoWriteToolCalls = toolCalls.filter((tc) => tc.name === 'todo_write')
     const regularToolCalls = toolCalls.filter((tc) => tc.name !== 'todo_write')
@@ -1077,7 +1180,6 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
             {regularToolCalls.length > 0 && (
                 <div className="flex flex-col gap-1.5">
                     {regularToolCalls.map((toolCall) => {
-                        const updates = toolCall.updates ?? []
                         const definition = getToolDefinitionFromToolCall(toolCall)
                         const [description, widget] = getToolCallDescriptionAndWidget(toolCall, registeredToolMap)
                         return (
@@ -1085,33 +1187,15 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
                                 key={toolCall.id}
                                 id={toolCall.id}
                                 content={description}
-                                substeps={updates}
+                                substeps={[]}
                                 state={toolCall.status}
                                 icon={definition?.icon || <IconWrench />}
                                 showCompletionIcon={true}
                                 widget={widget}
+                                toolCall={toolCall}
                             />
                         )
                     })}
-                </div>
-            )}
-
-            {isDev && toolCalls.length > 0 && (
-                <div className="ml-5 flex flex-col gap-1">
-                    <LemonButton
-                        size="xxsmall"
-                        type="secondary"
-                        icon={<IconBug />}
-                        onClick={() => setShowToolCallsJson(!showToolCallsJson)}
-                        tooltip="Development-only. Note: The JSON here is prettified"
-                        tooltipPlacement="top-start"
-                        className="w-fit"
-                    >
-                        {showToolCallsJson ? 'Hide' : 'Show'} above tool call(s) as JSON
-                    </LemonButton>
-                    {showToolCallsJson && (
-                        <CodeSnippet language={Language.JSON}>{JSON.stringify(toolCalls, null, 2)}</CodeSnippet>
-                    )}
                 </div>
             )}
         </>
@@ -1162,7 +1246,7 @@ const Visualization = React.memo(function Visualization({
                     />
                 </div>
             </div>
-            {isSummaryShown && (
+            {isSummaryShown && !isDataVisualizationNode(query) && (
                 <>
                     <SeriesSummary query={query.source} heading={null} />
                     {!isHogQLQuery(query.source) && (
@@ -1489,6 +1573,9 @@ export const getToolCallDescriptionAndWidget = (
                 switch (displayFormatterResult[1]?.widget) {
                     case 'recordings':
                         widget = <RecordingsWidget toolCallId={toolCall.id} filters={displayFormatterResult[1].args} />
+                        break
+                    case 'session_summarization':
+                        widget = <SessionSummarizationProgress updates={displayFormatterResult[1].args.updates} />
                         break
                     default:
                         break

@@ -3,11 +3,11 @@ import { useActions, useValues } from 'kea'
 import { IconPlus } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
@@ -16,6 +16,7 @@ import { ExperimentsListView } from '~/toolbar/experiments/ExperimentsListView'
 import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { joinWithUiHost } from '~/toolbar/utils'
 
 const ExperimentsListToolbarMenu = (): JSX.Element => {
     const { searchTerm } = useValues(experimentsLogic)
@@ -68,7 +69,7 @@ const ExperimentsListToolbarMenu = (): JSX.Element => {
             </ToolbarMenu.Body>
             <ToolbarMenu.Footer>
                 <div className="flex items-center justify-between flex-1">
-                    <Link to={`${uiHost}${urls.experiments()}`} target="_blank">
+                    <Link to={joinWithUiHost(uiHost, urls.experiments())} target="_blank">
                         View &amp; edit all experiments <IconOpenInNew />
                     </Link>
                     <LemonButton type="primary" size="small" onClick={() => newExperiment()} icon={<IconPlus />}>

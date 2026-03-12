@@ -38,7 +38,9 @@ export const getMaximumAccessLevel = (resource: APIScopeObject): AccessControlLe
  * @returns The pluralized resource name for display
  */
 export const pluralizeResource = (resource: APIScopeObject): string => {
-    if (resource === AccessControlResourceType.RevenueAnalytics) {
+    if (resource === AccessControlResourceType.LlmAnalytics) {
+        return 'LLM analytics'
+    } else if (resource === AccessControlResourceType.RevenueAnalytics) {
         return 'revenue analytics'
     } else if (resource === AccessControlResourceType.WebAnalytics) {
         return 'web analytics'
@@ -76,7 +78,9 @@ export const orderedAccessLevels = (resourceType: AccessControlResourceType): Ac
  * @returns Human-readable string representation of the resource type
  */
 export const resourceTypeToString = (resourceType: AccessControlResourceType): string => {
-    if (resourceType === AccessControlResourceType.RevenueAnalytics) {
+    if (resourceType === AccessControlResourceType.LlmAnalytics) {
+        return 'LLM analytics resource'
+    } else if (resourceType === AccessControlResourceType.RevenueAnalytics) {
         return 'revenue analytics resource'
     } else if (resourceType === AccessControlResourceType.WebAnalytics) {
         return 'web analytics resource'

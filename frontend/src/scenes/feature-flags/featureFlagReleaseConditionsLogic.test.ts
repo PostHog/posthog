@@ -184,6 +184,7 @@ describe('the feature flag release conditions logic', () => {
             jest.spyOn(api, 'create')
                 .mockReturnValueOnce(Promise.resolve({ users_affected: 124, total_users: 2000 }))
                 .mockReturnValueOnce(Promise.resolve({ users_affected: 248, total_users: 2000 }))
+                .mockReturnValueOnce(Promise.resolve({ users_affected: 120, total_users: 2000 }))
                 .mockReturnValueOnce(Promise.resolve({ users_affected: 496, total_users: 2000 }))
 
             logic = featureFlagReleaseConditionsLogic({
@@ -239,18 +240,23 @@ describe('the feature flag release conditions logic', () => {
                     totalUsers: 2000,
                 })
 
-            // Add another condition set
+            // Add another condition set (auto-generated sortKey)
             await expectLogic(logic, () => {
                 nextUuid = 'B'
                 logic.actions.addConditionSet()
             })
                 .toDispatchActions(['setAffectedUsers'])
                 .toMatchValues({
-                    // expect the new empty condition set to initialize affected users to be same as total users
-                    affectedUsers: { A: 248, B: 2000 },
+                    // first setAffectedUsers clears to undefined (loading state)
+                    affectedUsers: { A: 248, B: undefined },
                     totalUsers: 2000,
                 })
-                .toNotHaveDispatchedActions(['setTotalUsers'])
+                .toDispatchActions(['setAffectedUsers', 'setTotalUsers'])
+                .toMatchValues({
+                    // then the API response sets the actual blast radius
+                    affectedUsers: { A: 248, B: 120 },
+                    totalUsers: 2000,
+                })
 
             // update newly added condition set
             await expectLogic(logic, () => {
@@ -302,6 +308,35 @@ describe('the feature flag release conditions logic', () => {
                 })
         })
 
+        it('uses explicit sortKey when provided to addConditionSet', async () => {
+            jest.spyOn(api, 'create')
+                .mockReturnValueOnce(Promise.resolve({ users_affected: 500, total_users: 1000 }))
+                .mockReturnValueOnce(Promise.resolve({ users_affected: 500, total_users: 1000 }))
+
+            const testLogic = featureFlagReleaseConditionsLogic({
+                id: 'sortkey-test',
+                filters: generateFeatureFlagFilters([
+                    {
+                        properties: [],
+                        rollout_percentage: 100,
+                        variant: null,
+                        sort_key: 'initial',
+                    },
+                ]),
+            })
+            testLogic.mount()
+
+            const explicitSortKey = 'my-custom-sort-key'
+            await expectLogic(testLogic, () => {
+                testLogic.actions.addConditionSet(explicitSortKey)
+            }).toDispatchActions(['setAffectedUsers'])
+
+            // Verify the new condition set has the explicit sortKey
+            expect(testLogic.values.filterGroups[1].sort_key).toBe(explicitSortKey)
+
+            testLogic.unmount()
+        })
+
         it('computes blast radius percentages accurately', async () => {
             logic.actions.setAffectedUsers('A', 100)
             logic.actions.setAffectedUsers('B', 200)
@@ -347,7 +382,7 @@ describe('the feature flag release conditions logic', () => {
         })
 
         describe('API calls', () => {
-            beforeEach(() => {
+            it('doesnt make extra API calls when rollout percentage or variants change', async () => {
                 logic?.unmount()
 
                 jest.spyOn(api, 'create').mockClear()
@@ -384,40 +419,25 @@ describe('the feature flag release conditions logic', () => {
                         },
                     ]),
                 })
+
+                // Mount and wait for all listeners to finish
                 logic.mount()
-            })
+                await expectLogic(logic).toFinishAllListeners()
 
-            it('doesnt make extra API calls when rollout percentage or variants change', async () => {
-                await expectLogic(logic)
-                    .toDispatchActions([
-                        'setAffectedUsers',
-                        'setAffectedUsers',
-                        'setAffectedUsers',
-                        'setAffectedUsers',
-                        'setAffectedUsers',
-                        'setAffectedUsers',
-                        'setTotalUsers',
-                    ])
-                    .toMatchValues({
-                        affectedUsers: { A: 120, B: 120, C: 120 },
-                        totalUsers: 2000,
-                    })
+                // Verify final state - all conditions have their blast radius calculated
+                expect(logic.values.affectedUsers).toEqual({ A: 120, B: 120, C: 120 })
+                expect(logic.values.totalUsers).toEqual(2000)
 
+                // 3 API calls made (one for each condition)
                 expect(api.create).toHaveBeenCalledTimes(3)
 
-                await expectLogic(logic, () => {
-                    logic.actions.updateConditionSet(0, 20, undefined, undefined)
-                }).toNotHaveDispatchedActions(['setAffectedUsers', 'setTotalUsers'])
+                // Change rollout percentage and variant - should NOT trigger additional API calls
+                logic.actions.updateConditionSet(0, 20, undefined, undefined)
+                logic.actions.updateConditionSet(1, 30, undefined, 'test-variant')
+                logic.actions.updateConditionSet(2, undefined, undefined, 'test-variant2')
+                await expectLogic(logic).toFinishAllListeners()
 
-                await expectLogic(logic, () => {
-                    logic.actions.updateConditionSet(1, 30, undefined, 'test-variant')
-                }).toNotHaveDispatchedActions(['setAffectedUsers', 'setTotalUsers'])
-
-                await expectLogic(logic, () => {
-                    logic.actions.updateConditionSet(2, undefined, undefined, 'test-variant2')
-                }).toNotHaveDispatchedActions(['setAffectedUsers', 'setTotalUsers'])
-
-                // no extra calls when changing rollout percentage
+                // No extra API calls when only changing rollout percentage or variant
                 expect(api.create).toHaveBeenCalledTimes(3)
             })
         })
@@ -657,6 +677,143 @@ describe('the feature flag release conditions logic', () => {
             ])
             expect(logic.values.filters.groups[0].description).toBe('My test condition')
             expect(logic.values.filters.groups[0].properties).toHaveLength(1)
+        })
+    })
+
+    describe('open conditions state', () => {
+        it('initializes first condition as open when there is only one group', async () => {
+            logic?.unmount()
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'open-test-1',
+                filters: generateFeatureFlagFilters([
+                    { properties: [], rollout_percentage: 50, variant: null, sort_key: 'A' },
+                ]),
+            })
+
+            await expectLogic(logic, () => {
+                logic.mount()
+            }).toMatchValues({
+                openConditions: ['condition-A'],
+            })
+        })
+
+        it('does not auto-open conditions when there are multiple groups', async () => {
+            logic?.unmount()
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'open-test-2',
+                filters: generateFeatureFlagFilters([
+                    { properties: [], rollout_percentage: 50, variant: null, sort_key: 'A' },
+                    { properties: [], rollout_percentage: 75, variant: null, sort_key: 'B' },
+                ]),
+            })
+
+            await expectLogic(logic, () => {
+                logic.mount()
+            }).toMatchValues({
+                openConditions: [],
+            })
+        })
+
+        it('opens new condition when adding a condition set', async () => {
+            logic?.unmount()
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'open-test-3',
+                filters: generateFeatureFlagFilters([
+                    { properties: [], rollout_percentage: 50, variant: null, sort_key: 'A' },
+                ]),
+            })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.addConditionSet('NEW-KEY')
+            }).toMatchValues({
+                openConditions: ['condition-A', 'condition-NEW-KEY'],
+            })
+        })
+
+        it('opens duplicated condition when duplicating a condition set', async () => {
+            logic?.unmount()
+
+            nextUuid = 'DUP'
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'open-test-4',
+                filters: generateFeatureFlagFilters([
+                    { properties: [], rollout_percentage: 50, variant: null, sort_key: 'A' },
+                ]),
+            })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.duplicateConditionSet(0)
+            }).toMatchValues({
+                openConditions: ['condition-A', 'condition-DUP'],
+            })
+        })
+
+        it('removes condition from openConditions when removing a condition set', async () => {
+            logic?.unmount()
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'open-test-5',
+                filters: generateFeatureFlagFilters([
+                    { properties: [], rollout_percentage: 50, variant: null, sort_key: 'A' },
+                    { properties: [], rollout_percentage: 75, variant: null, sort_key: 'B' },
+                ]),
+            })
+            logic.mount()
+
+            // Manually open both conditions and wait for it to be processed
+            await expectLogic(logic, () => {
+                logic.actions.setOpenConditions(['condition-A', 'condition-B'])
+            }).toMatchValues({
+                openConditions: ['condition-A', 'condition-B'],
+            })
+
+            // Now remove condition A and verify B remains open
+            await expectLogic(logic, () => {
+                logic.actions.removeConditionSet(0)
+            })
+                .toDispatchActions(['removeConditionSet', 'setOpenConditions'])
+                .toMatchValues({
+                    openConditions: ['condition-B'],
+                })
+        })
+
+        it('preserves open state by index when changing aggregation type', async () => {
+            logic?.unmount()
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'open-test-6',
+                filters: {
+                    ...generateFeatureFlagFilters([
+                        { properties: [], rollout_percentage: 50, variant: null, sort_key: 'OLD-KEY' },
+                    ]),
+                    aggregation_group_type_index: null,
+                },
+            })
+
+            // Mount and wait for initial setOpenConditions
+            await expectLogic(logic, () => {
+                logic.mount()
+            })
+                .toDispatchActions(['setOpenConditions'])
+                .toMatchValues({
+                    openConditions: ['condition-OLD-KEY'],
+                })
+
+            // Switch to group aggregation - this resets groups with new sort_key
+            nextUuid = 'NEW-KEY'
+            await expectLogic(logic, () => {
+                logic.actions.setAggregationGroupTypeIndex(0)
+            })
+                .toDispatchActions(['setAggregationGroupTypeIndex', 'setOpenConditions'])
+                .toMatchValues({
+                    // The open state should be preserved by index (first condition stays open)
+                    openConditions: ['condition-NEW-KEY'],
+                })
         })
     })
 })

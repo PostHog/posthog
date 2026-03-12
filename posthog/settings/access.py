@@ -32,7 +32,6 @@ CSRF_TRUSTED_ORIGINS = (
     if raw_site_url
     else ["http://localhost:8000", "http://localhost:8010"]  # 8000 is just Django, 8010 is Django + Capture via Caddy
 )
-
 # Proxy settings
 IS_BEHIND_PROXY = get_from_env("IS_BEHIND_PROXY", False, type_cast=str_to_bool)
 TRUSTED_PROXIES = os.getenv("TRUSTED_PROXIES", None)
@@ -74,6 +73,10 @@ For the safety of your instance, you must generate and set a unique key.
 """
     )
     sys.exit("[ERROR] Default SECRET_KEY in production. Stopping Django server…\n")
+
+# RS256 private key for sandbox JWT authentication
+# Used to sign tokens; public key is derived from this and injected into sandboxes for verification
+SANDBOX_JWT_PRIVATE_KEY: str | None = os.getenv("SANDBOX_JWT_PRIVATE_KEY")
 
 # These are legacy values only kept around for backwards compatibility with self hosted versions
 SALT_KEY = get_list(os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz"))

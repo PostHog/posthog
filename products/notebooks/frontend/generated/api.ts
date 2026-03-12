@@ -1,3 +1,4 @@
+import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 /**
  * Auto-generated from the Django backend OpenAPI schema.
  * To modify these types, update the Django serializers or views, then run:
@@ -7,7 +8,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     NotebookApi,
     NotebooksListParams,
@@ -171,6 +171,27 @@ export const notebooksActivityRetrieve2 = async (
     return apiMutator<void>(getNotebooksActivityRetrieve2Url(projectId, shortId), {
         ...options,
         method: 'GET',
+    })
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const getNotebooksHogqlExecuteCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/hogql/execute/`
+}
+
+export const notebooksHogqlExecuteCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookApi: NonReadonly<NotebookApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getNotebooksHogqlExecuteCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookApi),
     })
 }
 

@@ -1,10 +1,16 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
 
-import { IconCheckCircle, IconRefresh } from '@posthog/icons'
+import { IconCheckCircle, IconPlus, IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
+
+import { Link } from 'lib/lemon-ui/Link'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { urls } from 'scenes/urls'
 
 import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
 import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
+import { generationEvaluationRunsLogicType } from '../generationEvaluationRunsLogicType'
+import { llmAnalyticsTraceLogic } from '../llmAnalyticsTraceLogic'
 import { llmEvaluationExecutionLogic } from '../llmEvaluationExecutionLogic'
 import { GenerationEvalRunsTable } from './GenerationEvalRunsTable'
 
@@ -19,15 +25,19 @@ export function EvalsTabContent({
     event: string
     distinctId?: string
 }): JSX.Element {
+    const generationRunsLogic = generationEvaluationRunsLogic({ generationEventId })
+    const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
+
+    useAttachedLogic(generationRunsLogic, traceLogic)
+
     return (
-        <BindLogic logic={generationEvaluationRunsLogic} props={{ generationEventId }}>
-            <EvalsTabContentInner
-                generationEventId={generationEventId}
-                timestamp={timestamp}
-                event={event}
-                distinctId={distinctId}
-            />
-        </BindLogic>
+        <EvalsTabContentInner
+            generationEventId={generationEventId}
+            timestamp={timestamp}
+            event={event}
+            distinctId={distinctId}
+            generationRunsLogic={generationRunsLogic}
+        />
     )
 }
 
@@ -36,17 +46,22 @@ function EvalsTabContentInner({
     timestamp,
     event,
     distinctId,
+    generationRunsLogic,
 }: {
     generationEventId: string
     timestamp: string
     event: string
     distinctId?: string
+    generationRunsLogic: BuiltLogic<generationEvaluationRunsLogicType>
 }): JSX.Element {
     const { evaluations, evaluationsLoading } = useValues(llmEvaluationsLogic)
     const { runEvaluation } = useActions(llmEvaluationExecutionLogic)
     const { evaluationRunLoading } = useValues(llmEvaluationExecutionLogic)
-    const { refreshGenerationEvaluationRuns, setSelectedEvaluationId } = useActions(generationEvaluationRunsLogic)
-    const { generationEvaluationRunsLoading, selectedEvaluationId } = useValues(generationEvaluationRunsLogic)
+    const { refreshGenerationEvaluationRuns, setSelectedEvaluationId } = useActions(generationRunsLogic)
+    const { generationEvaluationRunsLoading, selectedEvaluationId } = useValues(generationRunsLogic)
+
+    const availableEvaluations = evaluations?.filter((e) => !e.deleted) || []
+    const hasNoEvaluations = !evaluationsLoading && availableEvaluations.length === 0
 
     return (
         <div className="py-4">
@@ -56,36 +71,48 @@ function EvalsTabContentInner({
             </LemonBanner>
             <div className="flex justify-between items-center mb-4">
                 <div className="flex gap-2">
-                    <LemonSelect
-                        value={selectedEvaluationId}
-                        onChange={setSelectedEvaluationId}
-                        options={
-                            evaluations
-                                ?.filter((e) => !e.deleted)
-                                .map((evaluation) => ({
+                    {hasNoEvaluations ? (
+                        <Link to={urls.llmAnalyticsEvaluations()}>
+                            <LemonButton type="primary" icon={<IconPlus />} size="small">
+                                Create your first evaluation
+                            </LemonButton>
+                        </Link>
+                    ) : (
+                        <>
+                            <LemonSelect
+                                value={selectedEvaluationId}
+                                onChange={setSelectedEvaluationId}
+                                options={availableEvaluations.map((evaluation) => ({
                                     value: evaluation.id,
                                     label: evaluation.name,
-                                })) || []
-                        }
-                        placeholder="Select an evaluation to run"
-                        loading={evaluationsLoading}
-                        className="w-80"
-                    />
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        icon={<IconCheckCircle />}
-                        onClick={() => {
-                            if (selectedEvaluationId) {
-                                runEvaluation(selectedEvaluationId, generationEventId, timestamp, event, distinctId)
-                            }
-                        }}
-                        loading={evaluationRunLoading}
-                        disabledReason={!selectedEvaluationId ? 'Select an evaluation first' : undefined}
-                        data-attr="run-evaluation-manual"
-                    >
-                        Run Evaluation
-                    </LemonButton>
+                                }))}
+                                placeholder="Select an evaluation to run"
+                                loading={evaluationsLoading}
+                                className="w-80"
+                            />
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                icon={<IconCheckCircle />}
+                                onClick={() => {
+                                    if (selectedEvaluationId) {
+                                        runEvaluation(
+                                            selectedEvaluationId,
+                                            generationEventId,
+                                            timestamp,
+                                            event,
+                                            distinctId
+                                        )
+                                    }
+                                }}
+                                loading={evaluationRunLoading}
+                                disabledReason={!selectedEvaluationId ? 'Select an evaluation first' : undefined}
+                                data-attr="run-evaluation-manual"
+                            >
+                                Run Evaluation
+                            </LemonButton>
+                        </>
+                    )}
                 </div>
                 <LemonButton
                     type="secondary"
@@ -97,7 +124,7 @@ function EvalsTabContentInner({
                     Refresh
                 </LemonButton>
             </div>
-            <GenerationEvalRunsTable generationEventId={generationEventId} />
+            <GenerationEvalRunsTable generationRunsLogic={generationRunsLogic} />
         </div>
     )
 }

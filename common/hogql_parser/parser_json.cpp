@@ -4,6 +4,7 @@
 
 #include <sstream>
 #include <string>
+#include <unordered_map>
 
 #include "HogQLLexer.h"
 #include "HogQLParser.h"
@@ -572,19 +573,28 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     json["subsequent_select_queries"] = Json::array();
     for (const auto subsequent : subsequent_clauses) {
       const char* set_operator;
-      if (subsequent->UNION() && subsequent->ALL()) {
-        set_operator = "UNION ALL";
-      } else if (subsequent->UNION() && subsequent->DISTINCT()) {
-        set_operator = "UNION DISTINCT";
+      if (subsequent->UNION()) {
+        bool by_name = subsequent->BY() && subsequent->NAME();
+        if (subsequent->ALL()) {
+          set_operator = by_name ? "UNION ALL BY NAME" : "UNION ALL";
+        } else if (subsequent->DISTINCT()) {
+          set_operator = by_name ? "UNION DISTINCT BY NAME" : "UNION DISTINCT";
+        } else {
+          set_operator = by_name ? "UNION DISTINCT BY NAME" : "UNION DISTINCT";
+        }
+      } else if (subsequent->INTERSECT() && subsequent->ALL()) {
+        set_operator = "INTERSECT ALL";
       } else if (subsequent->INTERSECT() && subsequent->DISTINCT()) {
         set_operator = "INTERSECT DISTINCT";
       } else if (subsequent->INTERSECT()) {
         set_operator = "INTERSECT";
+      } else if (subsequent->EXCEPT() && subsequent->ALL()) {
+        set_operator = "EXCEPT ALL";
       } else if (subsequent->EXCEPT()) {
         set_operator = "EXCEPT";
       } else {
         throw SyntaxError(
-            "Set operator must be one of UNION ALL, UNION DISTINCT, INTERSECT, INTERSECT DISTINCT, and EXCEPT"
+            "Set operator must be one of UNION ALL, UNION DISTINCT, INTERSECT, INTERSECT ALL, INTERSECT DISTINCT, EXCEPT, and EXCEPT ALL"
         );
       }
 
@@ -605,7 +615,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
     // Add basic query fields
     json["ctes"] = visitAsJSONOrNull(ctx->withClause());
-    json["select"] = visitAsJSONOrEmptyArray(ctx->columnExprList());
+    json["select"] = visitAsJSONOrEmptyArray(ctx->selectColumnExprList());
     json["distinct"] = ctx->DISTINCT() ? Json(true) : Json(nullptr);
     json["select_from"] = visitAsJSONOrNull(ctx->fromClause());
     json["where"] = visitAsJSONOrNull(ctx->whereClause());
@@ -698,7 +708,20 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     return json;
   }
 
-  VISIT(WithClause) { return visit(ctx->withExprList()); }
+  VISIT(WithClause) {
+    Json json = visitAsJSON(ctx->withExprList());
+
+    // If RECURSIVE keyword is present, add recursive: true to each CTE
+    if (ctx->RECURSIVE()) {
+      for (auto& cte : json.getArrayMut()) {
+        if (cte.isObject()) {
+          cte.getObjectMut()["recursive"] = true;
+        }
+      }
+    }
+
+    return json;
+  }
 
   VISIT_UNSUPPORTED(TopClause)
 
@@ -1095,6 +1118,25 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
   VISIT(ColumnExprList) { return visitJSONArrayOfObjects(ctx->columnExpr()); }
 
+  VISIT(SelectColumnExprList) { return visitJSONArrayOfObjects(ctx->selectColumnExpr()); }
+
+  VISIT(ColumnExprAliasBefore) {
+    string alias = visitAsString(ctx->identifier());
+
+    if (find(RESERVED_KEYWORDS.begin(), RESERVED_KEYWORDS.end(), to_lower_copy(alias)) != RESERVED_KEYWORDS.end()) {
+      throw SyntaxError("\"" + alias + "\" cannot be an alias or identifier, as it's a reserved keyword");
+    }
+
+    Json json = Json::object();
+    json["node"] = "Alias";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["expr"] = visitAsJSON(ctx->columnExpr());
+    json["alias"] = alias;
+    return json;
+  }
+
+  VISIT(ColumnExprSelectValue) { return visit(ctx->columnExpr()); }
+
   VISIT(ColumnExprTernaryOp) {
     Json json = Json::object();
     json["node"] = "Call";
@@ -1475,6 +1517,18 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     return json;
   }
 
+  VISIT(ColumnExprTypeCast) {
+    Json expr_json = visitAsJSON(ctx->columnExpr());
+    string type_name = to_lower_copy(visitAsString(ctx->identifier()));
+
+    Json json = Json::object();
+    json["node"] = "TypeCast";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["expr"] = expr_json;
+    json["type_name"] = type_name;
+    return json;
+  }
+
   VISIT(ColumnExprBetween) {
     Json json = Json::object();
     json["node"] = "BetweenExpr";
@@ -1752,13 +1806,11 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(WithExprList) {
-    // Build a JSON object (dictionary) mapping CTE names to CTE objects
-    Json json = Json::object();
+    // Emit CTEs as an array to preserve declaration order.
+    Json json = Json::array();
 
     for (auto with_expr_ctx : ctx->withExpr()) {
-      Json cte_json = visitAsJSON(with_expr_ctx);
-      auto name = cte_json.getObject().at("name").getString();
-      json[name] = std::move(cte_json);
+      json.pushBack(visitAsJSON(with_expr_ctx));
     }
 
     return json;
@@ -1771,6 +1823,33 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     json["name"] = visitAsString(ctx->identifier());
     json["expr"] = visitAsJSON(ctx->selectSetStmt());
     json["cte_type"] = "subquery";
+    json["materialized"] = Json::Null();
+    if (ctx->MATERIALIZED()) {
+      json["materialized"] = ctx->NOT() ? false : true;
+    }
+    json["columns"] = Json::Null();
+    json["using_key"] = Json::Null();
+    const auto& columnNameLists = ctx->withExprColumnNameList();
+    if (ctx->USING()) {
+      // USING KEY present: last list is the key columns
+      const auto& usingKeyList = columnNameLists.back();
+      json["using_key"] = Json::array();
+      for (const auto& ident : usingKeyList->identifier()) {
+        json["using_key"].pushBack(visitAsString(ident));
+      }
+      // If there are two lists, the first is the CTE column names
+      if (columnNameLists.size() > 1) {
+        json["columns"] = Json::array();
+        for (const auto& ident : columnNameLists.front()->identifier()) {
+          json["columns"].pushBack(visitAsString(ident));
+        }
+      }
+    } else if (!columnNameLists.empty()) {
+      json["columns"] = Json::array();
+      for (const auto& ident : columnNameLists.front()->identifier()) {
+        json["columns"].pushBack(visitAsString(ident));
+      }
+    }
     return json;
   }
 
@@ -1906,6 +1985,8 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     if (!is_internal) addPositionInfo(json, ctx);
     json["table"] = std::move(table_json);
     json["table_args"] = std::move(table_args_json);
+    json["next_join"] = nullptr;
+    json["alias"] = nullptr;
     return json;
   }
 

@@ -1,21 +1,10 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { FilterLogicalOperator } from '~/types'
 
 import { logsSceneLogic } from './logsSceneLogic'
-import { LogsFilters } from './types'
-
-jest.mock('@posthog/lemon-ui', () => ({
-    ...jest.requireActual('@posthog/lemon-ui'),
-    lemonToast: {
-        error: jest.fn(),
-    },
-}))
 
 describe('logsSceneLogic', () => {
     let logic: ReturnType<typeof logsSceneLogic.build>
@@ -23,7 +12,7 @@ describe('logsSceneLogic', () => {
     beforeEach(async () => {
         useMocks({
             post: {
-                '/api/environments/:team_id/logs/query/': () => [200, { results: [] }],
+                '/api/environments/:team_id/logs/query/': () => [200, { results: [], maxExportableLogs: 5000 }],
                 '/api/environments/:team_id/logs/sparkline/': () => [200, []],
             },
         })
@@ -38,93 +27,6 @@ describe('logsSceneLogic', () => {
         logic.unmount()
     })
 
-    describe('toggleExpandLog', () => {
-        it('expands a log when not expanded', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.toggleExpandLog('log-1')
-            }).toDispatchActions(['toggleExpandLog'])
-
-            expect(logic.values.expandedLogIds.has('log-1')).toBe(true)
-        })
-
-        it('collapses a log when already expanded', async () => {
-            logic.actions.toggleExpandLog('log-1')
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.expandedLogIds.has('log-1')).toBe(true)
-
-            await expectLogic(logic, () => {
-                logic.actions.toggleExpandLog('log-1')
-            }).toDispatchActions(['toggleExpandLog'])
-
-            expect(logic.values.expandedLogIds.has('log-1')).toBe(false)
-        })
-
-        it('supports multiple expanded logs', async () => {
-            logic.actions.toggleExpandLog('log-1')
-            logic.actions.toggleExpandLog('log-2')
-            logic.actions.toggleExpandLog('log-3')
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.expandedLogIds.has('log-1')).toBe(true)
-            expect(logic.values.expandedLogIds.has('log-2')).toBe(true)
-            expect(logic.values.expandedLogIds.has('log-3')).toBe(true)
-
-            logic.actions.toggleExpandLog('log-2')
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.expandedLogIds.has('log-1')).toBe(true)
-            expect(logic.values.expandedLogIds.has('log-2')).toBe(false)
-            expect(logic.values.expandedLogIds.has('log-3')).toBe(true)
-        })
-    })
-
-    describe('error handling', () => {
-        beforeEach(() => {
-            jest.clearAllMocks()
-        })
-
-        it.each([
-            ['new query started', 'exact match for NEW_QUERY_STARTED_ERROR_MESSAGE'],
-            ['Fetch is aborted', 'Safari abort message'],
-            ['The operation was aborted', 'alternative abort message'],
-            ['ABORTED', 'uppercase abort'],
-            ['Request aborted by user', 'abort substring'],
-        ])('suppresses error "%s" (%s)', async (error) => {
-            logic.actions.fetchLogsFailure(error)
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(lemonToast.error).not.toHaveBeenCalled()
-        })
-
-        it.each([['Network error'], ['Server returned 500'], ['Timeout exceeded']])(
-            'shows toast for legitimate error "%s"',
-            async (error) => {
-                logic.actions.fetchLogsFailure(error)
-                await expectLogic(logic).toFinishAllListeners()
-
-                expect(lemonToast.error).toHaveBeenCalledWith(`Failed to load logs: ${error}`)
-            }
-        )
-
-        it.each([
-            ['Fetch is aborted', 'Safari abort message'],
-            ['new query started', 'exact match for NEW_QUERY_STARTED_ERROR_MESSAGE'],
-        ])('suppresses fetchNextLogsPage error "%s" (%s)', async (error) => {
-            logic.actions.fetchNextLogsPageFailure(error)
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(lemonToast.error).not.toHaveBeenCalled()
-        })
-
-        it('shows toast for legitimate fetchNextLogsPage error', async () => {
-            logic.actions.fetchNextLogsPageFailure('Network error')
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(lemonToast.error).toHaveBeenCalledWith('Failed to load more logs: Network error')
-        })
-    })
-
     describe('URL parameter parsing', () => {
         it.each([
             ['JSON string array', '["error","warn"]', ['error', 'warn']],
@@ -135,7 +37,7 @@ describe('logsSceneLogic', () => {
                 router.actions.push('/logs', { severityLevels: urlValue })
             }).toFinishAllListeners()
 
-            expect(logic.values.severityLevels).toEqual(expected)
+            expect(logic.values.filters.severityLevels).toEqual(expected)
         })
 
         it.each([
@@ -146,7 +48,7 @@ describe('logsSceneLogic', () => {
                 router.actions.push('/logs', { serviceNames: urlValue })
             }).toFinishAllListeners()
 
-            expect(logic.values.serviceNames).toEqual(expected)
+            expect(logic.values.filters.serviceNames).toEqual(expected)
         })
 
         it('filters out malformed JSON as invalid severity level', async () => {
@@ -155,7 +57,7 @@ describe('logsSceneLogic', () => {
             }).toFinishAllListeners()
 
             // parseTagsFilter falls back to comma-separated parsing, then validation filters invalid levels
-            expect(logic.values.severityLevels).toEqual([])
+            expect(logic.values.filters.severityLevels).toEqual([])
         })
 
         it('filters out non-array JSON as invalid severity level', async () => {
@@ -164,7 +66,7 @@ describe('logsSceneLogic', () => {
             }).toFinishAllListeners()
 
             // parseTagsFilter falls back to comma-separated parsing, then validation filters invalid levels
-            expect(logic.values.severityLevels).toEqual([])
+            expect(logic.values.filters.severityLevels).toEqual([])
         })
 
         it('handles comma-separated values via parseTagsFilter', async () => {
@@ -172,7 +74,7 @@ describe('logsSceneLogic', () => {
                 router.actions.push('/logs', { severityLevels: 'error,warn,info' })
             }).toFinishAllListeners()
 
-            expect(logic.values.severityLevels).toEqual(['error', 'warn', 'info'])
+            expect(logic.values.filters.severityLevels).toEqual(['error', 'warn', 'info'])
         })
 
         it.each([
@@ -185,153 +87,61 @@ describe('logsSceneLogic', () => {
                 router.actions.push('/logs', { severityLevels: urlValue })
             }).toFinishAllListeners()
 
-            expect(logic.values.severityLevels).toEqual(expected)
+            expect(logic.values.filters.severityLevels).toEqual(expected)
         })
     })
 
-    describe('filter history', () => {
-        const createFilters = (searchTerm: string): LogsFilters => ({
-            dateRange: { date_from: '-1h', date_to: null },
-            searchTerm,
-            severityLevels: [],
-            serviceNames: [],
-            filterGroup: { type: FilterLogicalOperator.And, values: [] },
+    describe('activeTab URL sync', () => {
+        it('defaults to viewer', () => {
+            expect(logic.values.activeTab).toEqual('viewer')
         })
 
-        beforeEach(async () => {
-            logic.actions.clearFilterHistory()
-            await expectLogic(logic).toFinishAllListeners()
+        it.each([
+            ['viewer', 'viewer'],
+            ['configuration', 'configuration'],
+        ])('parses valid activeTab "%s" from URL', async (urlValue, expected) => {
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { activeTab: urlValue })
+            }).toFinishAllListeners()
+
+            expect(logic.values.activeTab).toEqual(expected)
         })
 
-        describe('pushToFilterHistory', () => {
-            it('adds entry to empty history', async () => {
-                const filters = createFilters('test query')
+        it.each([
+            ['unknown string', 'invalid'],
+            ['array', ['viewer']],
+            ['object', { key: 'viewer' }],
+            ['number', 42],
+        ])('ignores invalid activeTab (%s)', async (_, urlValue) => {
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { activeTab: urlValue })
+            }).toFinishAllListeners()
 
-                await expectLogic(logic, () => {
-                    logic.actions.pushToFilterHistory(filters)
-                }).toMatchValues({
-                    filterHistory: [{ filters, timestamp: expect.any(Number) }],
-                })
-            })
-
-            it('prepends new entries to history', async () => {
-                const filters1 = createFilters('first')
-                const filters2 = createFilters('second')
-
-                logic.actions.pushToFilterHistory(filters1)
-                await expectLogic(logic).toFinishAllListeners()
-
-                await expectLogic(logic, () => {
-                    logic.actions.pushToFilterHistory(filters2)
-                }).toMatchValues({
-                    filterHistory: [
-                        { filters: filters2, timestamp: expect.any(Number) },
-                        { filters: filters1, timestamp: expect.any(Number) },
-                    ],
-                })
-            })
-
-            it('deduplicates consecutive identical filters', async () => {
-                const filters = createFilters('same query')
-
-                logic.actions.pushToFilterHistory(filters)
-                await expectLogic(logic).toFinishAllListeners()
-
-                await expectLogic(logic, () => {
-                    logic.actions.pushToFilterHistory(filters)
-                }).toMatchValues({
-                    filterHistory: [{ filters, timestamp: expect.any(Number) }],
-                })
-
-                expect(logic.values.filterHistory).toHaveLength(1)
-            })
-
-            it('limits history to 10 entries', async () => {
-                for (let i = 0; i < 15; i++) {
-                    logic.actions.pushToFilterHistory(createFilters(`query ${i}`))
-                }
-                await expectLogic(logic).toFinishAllListeners()
-
-                expect(logic.values.filterHistory).toHaveLength(10)
-                expect(logic.values.filterHistory[0].filters.searchTerm).toBe('query 14')
-                expect(logic.values.filterHistory[9].filters.searchTerm).toBe('query 5')
-            })
+            expect(logic.values.activeTab).toEqual('viewer')
         })
 
-        describe('clearFilterHistory', () => {
-            it('clears all history entries', async () => {
-                logic.actions.pushToFilterHistory(createFilters('query 1'))
-                logic.actions.pushToFilterHistory(createFilters('query 2'))
-                await expectLogic(logic).toFinishAllListeners()
+        it('syncs activeTab to URL on setActiveTab', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setActiveTab('configuration')
+            }).toFinishAllListeners()
 
-                expect(logic.values.filterHistory).toHaveLength(2)
-
-                await expectLogic(logic, () => {
-                    logic.actions.clearFilterHistory()
-                }).toMatchValues({
-                    filterHistory: [],
-                })
-            })
+            expect(logic.values.activeTab).toEqual('configuration')
+            expect(router.values.searchParams).toHaveProperty('activeTab', 'configuration')
         })
 
-        describe('restoreFiltersFromHistory', () => {
-            it('restores filters from history entry', async () => {
-                const filters = createFilters('restored query')
-                filters.severityLevels = ['error', 'warn']
+        it('removes activeTab from URL when set to default', async () => {
+            // First set to non-default
+            await expectLogic(logic, () => {
+                logic.actions.setActiveTab('configuration')
+            }).toFinishAllListeners()
 
-                logic.actions.pushToFilterHistory(filters)
-                await expectLogic(logic).toFinishAllListeners()
+            // Then set back to default
+            await expectLogic(logic, () => {
+                logic.actions.setActiveTab('viewer')
+            }).toFinishAllListeners()
 
-                await expectLogic(logic, () => {
-                    logic.actions.restoreFiltersFromHistory(0)
-                })
-                    .toDispatchActions(['restoreFiltersFromHistory', 'setFilters'])
-                    .toMatchValues({
-                        searchTerm: 'restored query',
-                        severityLevels: ['error', 'warn'],
-                    })
-            })
-
-            it('does not push to history when restoring', async () => {
-                const filters1 = createFilters('first')
-                const filters2 = createFilters('second')
-
-                logic.actions.pushToFilterHistory(filters1)
-                logic.actions.pushToFilterHistory(filters2)
-                await expectLogic(logic).toFinishAllListeners()
-
-                const historyLengthBefore = logic.values.filterHistory.length
-
-                await expectLogic(logic, () => {
-                    logic.actions.restoreFiltersFromHistory(1)
-                }).toFinishAllListeners()
-
-                expect(logic.values.filterHistory).toHaveLength(historyLengthBefore)
-            })
-
-            it('does nothing for invalid index', async () => {
-                logic.actions.pushToFilterHistory(createFilters('test'))
-                await expectLogic(logic).toFinishAllListeners()
-
-                await expectLogic(logic, () => {
-                    logic.actions.restoreFiltersFromHistory(99)
-                })
-                    .toDispatchActions(['restoreFiltersFromHistory'])
-                    .toNotHaveDispatchedActions(['setFilters'])
-            })
-        })
-
-        describe('hasFilterHistory selector', () => {
-            it('returns false when history is empty', () => {
-                expect(logic.values.hasFilterHistory).toBe(false)
-            })
-
-            it('returns true when history has entries', async () => {
-                logic.actions.pushToFilterHistory(createFilters('test'))
-                await expectLogic(logic).toFinishAllListeners()
-
-                expect(logic.values.hasFilterHistory).toBe(true)
-            })
+            expect(logic.values.activeTab).toEqual('viewer')
+            expect(router.values.searchParams).not.toHaveProperty('activeTab')
         })
     })
 })

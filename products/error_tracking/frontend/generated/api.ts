@@ -1,3 +1,4 @@
+import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 /**
  * Auto-generated from the Django backend OpenAPI schema.
  * To modify these types, update the Django serializers or views, then run:
@@ -7,7 +8,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ErrorTrackingAssignmentRuleApi,
     ErrorTrackingAssignmentRulesListParams,
@@ -236,7 +236,7 @@ export const getErrorTrackingExternalReferencesCreateUrl = (projectId: string) =
 
 export const errorTrackingExternalReferencesCreate = async (
     projectId: string,
-    errorTrackingExternalReferenceApi: NonReadonly<ErrorTrackingExternalReferenceApi>,
+    errorTrackingExternalReferenceApi: ErrorTrackingExternalReferenceApi,
     options?: RequestInit
 ): Promise<ErrorTrackingExternalReferenceApi> => {
     return apiMutator<ErrorTrackingExternalReferenceApi>(getErrorTrackingExternalReferencesCreateUrl(projectId), {
@@ -269,7 +269,7 @@ export const getErrorTrackingExternalReferencesUpdateUrl = (projectId: string, i
 export const errorTrackingExternalReferencesUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingExternalReferenceApi: NonReadonly<ErrorTrackingExternalReferenceApi>,
+    errorTrackingExternalReferenceApi: ErrorTrackingExternalReferenceApi,
     options?: RequestInit
 ): Promise<ErrorTrackingExternalReferenceApi> => {
     return apiMutator<ErrorTrackingExternalReferenceApi>(getErrorTrackingExternalReferencesUpdateUrl(projectId, id), {
@@ -907,6 +907,34 @@ export const errorTrackingReleasesHashRetrieve = async (
     return apiMutator<void>(getErrorTrackingReleasesHashRetrieveUrl(projectId, hashId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getErrorTrackingSpikeDetectionConfigRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/spike_detection_config/`
+}
+
+export const errorTrackingSpikeDetectionConfigRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingSpikeDetectionConfigRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getErrorTrackingSpikeDetectionConfigUpdateConfigPartialUpdateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/spike_detection_config/update_config/`
+}
+
+export const errorTrackingSpikeDetectionConfigUpdateConfigPartialUpdate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingSpikeDetectionConfigUpdateConfigPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
     })
 }
 

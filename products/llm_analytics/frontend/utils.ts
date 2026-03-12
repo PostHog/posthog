@@ -1,9 +1,13 @@
+import * as PartialJSON from 'partial-json'
+import posthog from 'posthog-js'
+
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 
+import { EVALUATION_SUMMARY_MAX_RUNS } from './evaluations/constants'
 import type { EvaluationRun } from './evaluations/types'
 import type { SpanAggregation } from './llmAnalyticsTraceDataLogic'
 import {
@@ -31,6 +35,47 @@ import {
     VercelSDKInputTextMessage,
     VercelSDKTextMessage,
 } from './types'
+
+export interface PagedSearchOrderFilters {
+    page: number
+    search: string
+    order_by: string
+}
+
+export interface SanitizeTraceUrlSearchParamsOptions {
+    removeSearch?: boolean
+}
+
+export function sanitizeTraceUrlSearchParams(
+    searchParams: Record<string, unknown>,
+    options: SanitizeTraceUrlSearchParamsOptions = {}
+): Record<string, unknown> {
+    const sanitizedSearchParams = { ...searchParams }
+
+    delete sanitizedSearchParams.event
+    delete sanitizedSearchParams.timestamp
+    delete sanitizedSearchParams.exception_ts
+    delete sanitizedSearchParams.line
+    delete sanitizedSearchParams.tab
+    delete sanitizedSearchParams.back_to
+
+    if (options.removeSearch) {
+        delete sanitizedSearchParams.search
+    }
+
+    return sanitizedSearchParams
+}
+
+export function cleanPagedSearchOrderParams(
+    filters: PagedSearchOrderFilters,
+    defaultOrderBy: string = '-created_at'
+): Record<string, unknown> {
+    return {
+        page: filters.page === 1 ? undefined : filters.page,
+        search: filters.search || undefined,
+        order_by: filters.order_by === defaultOrderBy ? undefined : filters.order_by,
+    }
+}
 
 function formatUsage(inputTokens: number, outputTokens?: number | null): string | null {
     return `${inputTokens} → ${outputTokens || 0} (∑ ${inputTokens + (outputTokens || 0)})`
@@ -85,6 +130,30 @@ const usdFormatter = new Intl.NumberFormat('en-US', {
 
 export function formatLLMCost(cost: number): string {
     return usdFormatter.format(cost)
+}
+
+export function formatTokens(tokens: number): string {
+    if (tokens >= 1000000) {
+        return `${(tokens / 1000000).toFixed(1)}M`
+    }
+    if (tokens >= 1000) {
+        return `${(tokens / 1000).toFixed(1)}k`
+    }
+    return tokens.toFixed(0)
+}
+
+export function formatErrorRate(errorRate: number): string {
+    const percentage = errorRate * 100
+    if (percentage === 0) {
+        return '0%'
+    }
+    if (percentage < 0.1) {
+        return '<0.1%'
+    }
+    if (percentage < 1) {
+        return `${percentage.toFixed(1)}%`
+    }
+    return `${Math.round(percentage)}%`
 }
 
 export function isLLMEvent(item: LLMTrace | LLMTraceEvent): item is LLMTraceEvent {
@@ -435,6 +504,99 @@ export function isGeminiAudioMessage(input: unknown): input is GeminiAudioMessag
     )
 }
 
+interface OTelPart {
+    type: string
+    [key: string]: unknown
+}
+
+interface OTelPartsMessage {
+    role: string
+    parts: OTelPart[]
+    [key: string]: unknown
+}
+
+export function isOTelPartsMessage(input: unknown): input is OTelPartsMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'role' in input &&
+        typeof input.role === 'string' &&
+        'parts' in input &&
+        Array.isArray(input.parts)
+    )
+}
+
+function parseOTelToolCallArguments(args: unknown): Record<string, unknown> | string {
+    if (typeof args === 'string') {
+        try {
+            return JSON.parse(args)
+        } catch {
+            return args
+        }
+    }
+    return (args ?? {}) as Record<string, unknown>
+}
+
+function normalizeOTelPartsMessage(message: OTelPartsMessage, role: string): CompatMessage[] {
+    const { role: _role, parts, ...rest } = message
+
+    const textParts: string[] = []
+    const toolCalls: CompatToolCall[] = []
+    const toolResponses: CompatMessage[] = []
+
+    for (const part of parts) {
+        if (part.type === 'text' && typeof part.content === 'string') {
+            textParts.push(part.content)
+        } else if (part.type === 'tool_call' && typeof part.name === 'string') {
+            toolCalls.push({
+                type: 'function',
+                id: typeof part.id === 'string' ? part.id : undefined,
+                function: {
+                    name: part.name,
+                    arguments: parseOTelToolCallArguments(part.arguments),
+                },
+            })
+        } else if (part.type === 'tool_call_response') {
+            let resultContent: string
+            if (typeof part.result === 'string') {
+                resultContent = part.result
+            } else {
+                try {
+                    resultContent = JSON.stringify(part.result)
+                } catch {
+                    resultContent = String(part.result)
+                }
+            }
+            toolResponses.push({
+                role: 'tool',
+                content: resultContent,
+                tool_call_id: typeof part.id === 'string' ? part.id : undefined,
+            })
+        }
+    }
+
+    if (textParts.length === 0 && toolCalls.length === 0 && toolResponses.length > 0) {
+        return toolResponses
+    }
+
+    const content: CompatMessage['content'] =
+        textParts.length === 1
+            ? textParts[0]
+            : textParts.length > 1
+              ? textParts.map((text) => ({ type: 'text' as const, text }))
+              : ''
+
+    return [
+        {
+            ...rest,
+            role,
+            content,
+            ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+        },
+        ...toolResponses,
+    ]
+}
+
 export function isLiteLLMChoice(input: unknown): input is LiteLLMChoice {
     return (
         !!input &&
@@ -623,9 +785,10 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
     }
     // Tool result completion
     if (isAnthropicToolResultMessage(rawMessage)) {
+        const toolResultRole = normalizeRole('assistant (tool result)', roleToUse)
         if (Array.isArray(rawMessage.content)) {
             return rawMessage.content
-                .map((content) => normalizeMessage(content, roleToUse))
+                .map((content) => normalizeMessage(content, toolResultRole))
                 .flat()
                 .map((msg) => ({
                     ...msg,
@@ -634,7 +797,7 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
         }
         return [
             {
-                role: roleToUse,
+                role: toolResultRole,
                 content: rawMessage.content,
                 tool_call_id: rawMessage.tool_use_id,
             },
@@ -675,8 +838,17 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
             },
         ]
     }
+    // OTel parts format (from OpenTelemetry AI semantic conventions)
+    if (isOTelPartsMessage(rawMessage)) {
+        return normalizeOTelPartsMessage(rawMessage, roleToUse)
+    }
+
     // Unsupported message.
     console.warn("AI message isn't in a shape of any known AI provider", rawMessage)
+    posthog.capture('llma message normalization failed', {
+        message_keys: typeof rawMessage === 'object' && rawMessage !== null ? Object.keys(rawMessage) : [],
+        message_type: typeof rawMessage,
+    })
     let cajoledContent: string // Let's do what we can
     if (typeof rawMessage === 'string') {
         cajoledContent = rawMessage
@@ -722,6 +894,26 @@ export function normalizeMessages(messages: unknown, defaultRole: string, tools?
     }
 
     return normalizedMessages
+}
+
+const JSON_PREVIEW_LENGTH = 300
+
+// We are deliberately cutting off the JSON instead of the parsed final content
+// because we will soon be sending an actual truncated version of the field
+// through a materialized column. This forces us to handle partial JSON.
+function simulateNaiveTruncation(raw: unknown): string {
+    const jsonStr = typeof raw === 'string' ? raw : JSON.stringify(raw)
+    return jsonStr.slice(0, JSON_PREVIEW_LENGTH)
+}
+
+export function parsePartialJSON(json: string): unknown {
+    const flags = PartialJSON.STR | PartialJSON.OBJ | PartialJSON.ARR
+    return PartialJSON.parse(json, flags)
+}
+
+export function parseJSONPreview(raw: unknown): unknown {
+    const truncated = simulateNaiveTruncation(raw)
+    return parsePartialJSON(truncated)
 }
 
 export function removeMilliseconds(timestamp: string): string {
@@ -886,7 +1078,7 @@ export async function queryEvaluationRuns(params: {
             event = '$ai_evaluation'
             AND ${hogql.raw(`properties.${propertyName}`)} = ${propertyValue}
         ORDER BY timestamp DESC
-        LIMIT 100
+        LIMIT ${EVALUATION_SUMMARY_MAX_RUNS}
     `
 
     const response = await api.queryHogQL(

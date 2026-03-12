@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { TextMorph } from 'torph/react'
 
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 
@@ -12,7 +13,6 @@ const VIEW_EMPTY_STATE_COPY = [
 
 export function ViewEmptyState(): JSX.Element {
     const [messageIndex, setMessageIndex] = useState(0)
-    const [isMessageVisible, setIsMessageVisible] = useState(true)
     const { isVisible: isPageVisible } = usePageVisibility()
 
     useEffect(() => {
@@ -21,40 +21,25 @@ export function ViewEmptyState(): JSX.Element {
         }
 
         const TOGGLE_INTERVAL = 3000
-        const FADE_OUT_DURATION = 300
 
-        let fadeTimeoutId: ReturnType<typeof setTimeout> | null = null
         const interval = setInterval(() => {
-            setIsMessageVisible(false)
-            fadeTimeoutId = setTimeout(() => {
-                setMessageIndex((current) => {
-                    let newIndex = Math.floor(Math.random() * VIEW_EMPTY_STATE_COPY.length)
-                    if (newIndex === current) {
-                        newIndex = (newIndex + 1) % VIEW_EMPTY_STATE_COPY.length
-                    }
-                    return newIndex
-                })
-                setIsMessageVisible(true)
-            }, FADE_OUT_DURATION)
+            setMessageIndex((current) => {
+                let newIndex = Math.floor(Math.random() * VIEW_EMPTY_STATE_COPY.length)
+                if (newIndex === current) {
+                    newIndex = (newIndex + 1) % VIEW_EMPTY_STATE_COPY.length
+                }
+                return newIndex
+            })
         }, TOGGLE_INTERVAL)
 
-        return () => {
-            clearInterval(interval)
-            if (fadeTimeoutId) {
-                clearTimeout(fadeTimeoutId)
-            }
-        }
+        return () => clearInterval(interval)
     }, [isPageVisible])
 
     return (
         <div data-attr="view-empty-state" className="flex flex-col flex-1 items-center justify-center">
-            <span
-                className={`text-center transition-opacity duration-300 ${
-                    isMessageVisible ? 'opacity-100' : 'opacity-0'
-                }`}
-            >
+            <TextMorph as="span" className="text-center">
                 {VIEW_EMPTY_STATE_COPY[messageIndex]}
-            </span>
+            </TextMorph>
         </div>
     )
 }

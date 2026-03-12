@@ -26,10 +26,12 @@ import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
 
 import { EditorCommands, EditorRange } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconBold, IconItalic, IconTableChart } from 'lib/lemon-ui/icons'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { IconBold, IconItalic } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isKeyOf } from 'lib/utils'
 import { selectFiles } from 'lib/utils/file-utils'
+import { ValueOf } from 'lib/utils/types'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
@@ -75,7 +77,7 @@ type SlashCommandsItem = {
     search?: string
     icon?: JSX.Element
     command: (chain: EditorCommands, pos: number | EditorRange) => EditorCommands | Promise<EditorCommands>
-    featureFlag?: string
+    featureFlag?: ValueOf<typeof FEATURE_FLAGS>
 }
 
 const TEXT_CONTROLS: SlashCommandsItem[] = [
@@ -275,7 +277,7 @@ order by count() desc
             ),
     },
     {
-        title: 'SQL (duckdb)',
+        title: 'SQL (DuckDB)',
         search: 'duck sql',
         icon: <IconHogQL color="currentColor" />,
         command: (chain, pos) =>
@@ -284,6 +286,23 @@ order by count() desc
                 attrs: {
                     code: '',
                     returnVariable: 'duck_df',
+                    __init: {
+                        showSettings: true,
+                    },
+                },
+            }),
+        featureFlag: FEATURE_FLAGS.NOTEBOOK_PYTHON,
+    },
+    {
+        title: 'SQL (HogQL)',
+        search: 'hogql sql',
+        icon: <IconHogQL color="currentColor" />,
+        command: (chain, pos) =>
+            chain.insertContentAt(pos, {
+                type: NotebookNodeType.HogQLSQL,
+                attrs: {
+                    code: '',
+                    returnVariable: 'hogql_df',
                     __init: {
                         showSettings: true,
                     },
@@ -377,6 +396,41 @@ order by count() desc
 
             return chain
         },
+    },
+    {
+        title: 'Table',
+        search: 'table grid spreadsheet',
+        icon: <IconTableChart />,
+        command: (chain, pos) =>
+            chain.insertContentAt(pos, {
+                type: 'table',
+                content: [
+                    {
+                        type: 'tableRow',
+                        content: [
+                            { type: 'tableHeader', content: [{ type: 'paragraph' }] },
+                            { type: 'tableHeader', content: [{ type: 'paragraph' }] },
+                            { type: 'tableHeader', content: [{ type: 'paragraph' }] },
+                        ],
+                    },
+                    {
+                        type: 'tableRow',
+                        content: [
+                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                        ],
+                    },
+                    {
+                        type: 'tableRow',
+                        content: [
+                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                        ],
+                    },
+                ],
+            }),
     },
     {
         title: 'Embedded iframe',
@@ -490,7 +544,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
                 Enter: onPressEnter,
             }
 
-            if (keyMappings[event.key]) {
+            if (isKeyOf(event.key, keyMappings)) {
                 keyMappings[event.key]()
                 return true
             }

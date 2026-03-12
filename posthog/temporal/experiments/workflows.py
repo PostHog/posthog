@@ -18,6 +18,8 @@ with temporalio.workflow.unsafe.imports_passed_through():
         ExperimentSavedMetricsWorkflowInputs,
     )
 
+MAX_CONCURRENT_METRICS = 10
+
 
 @temporalio.workflow.defn(name="experiment-regular-metrics-workflow")
 class ExperimentRegularMetricsWorkflow(PostHogWorkflow):
@@ -52,21 +54,23 @@ class ExperimentRegularMetricsWorkflow(PostHogWorkflow):
                 "failed": 0,
             }
 
-        # Step 2: Calculate each metric in parallel
-        tasks = [
-            temporalio.workflow.execute_activity(
-                calculate_experiment_regular_metric,
-                args=[em.experiment_id, em.metric_uuid, em.fingerprint],
-                start_to_close_timeout=timedelta(minutes=15),
-                retry_policy=RetryPolicy(
-                    maximum_attempts=3,
-                    initial_interval=timedelta(seconds=10),
-                    maximum_interval=timedelta(seconds=60),
-                ),
-            )
-            for em in experiment_metrics
-        ]
+        # Step 2: Calculate each metric with limited concurrency
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_METRICS)
 
+        async def _run_metric(em):
+            async with semaphore:
+                return await temporalio.workflow.execute_activity(
+                    calculate_experiment_regular_metric,
+                    args=[em.experiment_id, em.metric_uuid, em.fingerprint],
+                    start_to_close_timeout=timedelta(minutes=15),
+                    retry_policy=RetryPolicy(
+                        maximum_attempts=3,
+                        initial_interval=timedelta(seconds=10),
+                        maximum_interval=timedelta(seconds=60),
+                    ),
+                )
+
+        tasks = [_run_metric(em) for em in experiment_metrics]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Step 3: Summarize
@@ -122,21 +126,23 @@ class ExperimentSavedMetricsWorkflow(PostHogWorkflow):
                 "failed": 0,
             }
 
-        # Step 2: Calculate each metric in parallel
-        tasks = [
-            temporalio.workflow.execute_activity(
-                calculate_experiment_saved_metric,
-                args=[em.experiment_id, em.metric_uuid, em.fingerprint],
-                start_to_close_timeout=timedelta(minutes=15),
-                retry_policy=RetryPolicy(
-                    maximum_attempts=3,
-                    initial_interval=timedelta(seconds=10),
-                    maximum_interval=timedelta(seconds=60),
-                ),
-            )
-            for em in experiment_metrics
-        ]
+        # Step 2: Calculate each metric with limited concurrency
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_METRICS)
 
+        async def _run_metric(em):
+            async with semaphore:
+                return await temporalio.workflow.execute_activity(
+                    calculate_experiment_saved_metric,
+                    args=[em.experiment_id, em.metric_uuid, em.fingerprint],
+                    start_to_close_timeout=timedelta(minutes=15),
+                    retry_policy=RetryPolicy(
+                        maximum_attempts=3,
+                        initial_interval=timedelta(seconds=10),
+                        maximum_interval=timedelta(seconds=60),
+                    ),
+                )
+
+        tasks = [_run_metric(em) for em in experiment_metrics]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Step 3: Summarize

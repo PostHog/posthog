@@ -19,7 +19,12 @@ from posthog.models import OrganizationInvite, OrganizationMembership
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import OrganizationMemberPermissions, TimeSensitiveActionPermission, UserCanInvitePermission
+from posthog.permissions import (
+    APIScopePermission,
+    OrganizationMemberPermissions,
+    TimeSensitiveActionPermission,
+    UserCanInvitePermission,
+)
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.tasks.email import send_invite
 
@@ -311,6 +316,7 @@ class OrganizationInviteViewSet(
                     OrganizationMemberPermissions,
                     UserCanInvitePermission,
                     TimeSensitiveActionPermission,
+                    APIScopePermission,
                 ]
             ]
             return write_permissions
@@ -326,6 +332,7 @@ class OrganizationInviteViewSet(
                     OrganizationMemberPermissions,
                     OrganizationAdminWritePermissions,
                     TimeSensitiveActionPermission,
+                    APIScopePermission,
                 ]
             ]
             return delete_permissions

@@ -15,9 +15,7 @@ describe('CyclotronJobQueue - postgres', () => {
             CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 1000,
             CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: false,
         }
-        const queue = new CyclotronJobQueuePostgres(config, 'hog' as any, () =>
-            Promise.resolve({ backgroundTask: Promise.resolve() })
-        )
+        const queue = new CyclotronJobQueuePostgres(config)
 
         const bulkCreateJobs = jest.fn().mockResolvedValue(undefined)
         // Inject a fake manager so queueInvocations can run without connecting

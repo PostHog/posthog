@@ -12,6 +12,7 @@ import type { slackSetupModalLogicType } from './slackSetupModalLogicType'
 
 export interface SlackSetupModalLogicProps {
     integration?: IntegrationType | null
+    onClose: () => void
     onComplete: (integrationId?: number) => void
 }
 

@@ -40,7 +40,10 @@ const validateInput = (input: CyclotronJobInputType, inputSchema: CyclotronJobIn
     } else if (inputSchema.type === 'number' && typeof value !== 'number') {
         return 'Value must be a number'
     } else if (inputSchema.type === 'boolean' && typeof value !== 'boolean') {
-        return 'Value must be a boolean'
+        // When templating is enabled (default), boolean fields can be template strings
+        if (inputSchema.templating === false || typeof value !== 'string') {
+            return 'Value must be a boolean'
+        }
     } else if (inputSchema.type === 'dictionary' && typeof value !== 'object') {
         return 'Value must be a dictionary'
     } else if (inputSchema.type === 'integration' && typeof value !== 'number') {
@@ -56,9 +59,14 @@ const validateInput = (input: CyclotronJobInputType, inputSchema: CyclotronJobIn
 
     if (['email', 'native_email'].includes(inputSchema.type) && value) {
         const emailTemplateErrors: Partial<EmailTemplate> = {
-            html: !value.html ? 'HTML is required' : getTemplatingError(value.html),
+            html:
+                !value.html && !value.text
+                    ? 'HTML or plain text is required'
+                    : value.html
+                      ? getTemplatingError(value.html)
+                      : undefined,
+            text: value.text ? getTemplatingError(value.text) : undefined,
             subject: !value.subject ? 'Subject is required' : getTemplatingError(value.subject),
-            // text: !value.text ? 'Text is required' : getTemplatingError(value.text),
             from: !value.from ? 'From is required' : getTemplatingError(value.from),
             to: !value.to ? 'To is required' : getTemplatingError(value.to),
         }

@@ -5,8 +5,9 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { ChangeRequest, ChangeRequestState } from '~/types'
+import { AvailableFeature, ChangeRequest, ChangeRequestState } from '~/types'
 
 import type { changeRequestsLogicType } from './changeRequestsLogicType'
 
@@ -41,9 +42,9 @@ export const changeRequestsLogic = kea<changeRequestsLogicType>([
     props({} as ChangeRequestsLogicProps),
     key((props) => `${props.resourceType}-${props.resourceId}`),
 
-    connect({
-        values: [teamLogic, ['currentTeamId']],
-    }),
+    connect(() => ({
+        values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature']],
+    })),
 
     actions({
         loadChangeRequests: true,
@@ -57,7 +58,7 @@ export const changeRequestsLogic = kea<changeRequestsLogicType>([
             [] as ChangeRequest[],
             {
                 loadChangeRequests: async () => {
-                    if (!values.currentTeamId) {
+                    if (!values.currentTeamId || !values.hasAvailableFeature(AvailableFeature.APPROVALS)) {
                         return []
                     }
 

@@ -14,14 +14,18 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.models import FeatureFlag, Tag, Team
 from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
 from posthog.models.feature_flag.flags_cache import (
     _get_feature_flags_for_service,
+    _get_feature_flags_for_teams_batch,
     _get_team_ids_with_recently_updated_flags,
     clear_flags_cache,
     flags_hypercache,
     get_flags_from_cache,
+    get_teams_with_flags_queryset,
     update_flags_cache,
 )
 
@@ -99,8 +103,12 @@ class TestServiceFlagsCache(BaseTest):
         assert len(flags) == 1
         assert flags[0]["key"] == "active-flag"
 
-    def test_get_feature_flags_for_service_excludes_inactive(self):
-        """Test that inactive flags are excluded from cache."""
+    def test_get_feature_flags_for_service_includes_inactive(self):
+        """Test that inactive flags are included in cache.
+
+        Inactive flags must be included so that flag dependencies can reference them
+        and evaluate them as false, rather than raising DependencyNotFound errors.
+        """
         # Create active flag
         FeatureFlag.objects.create(
             team=self.team,
@@ -121,8 +129,214 @@ class TestServiceFlagsCache(BaseTest):
         result = _get_feature_flags_for_service(self.team)
         flags = result["flags"]
 
-        assert len(flags) == 1
-        assert flags[0]["key"] == "active-flag"
+        # Both active and inactive flags should be included
+        assert len(flags) == 2
+        flag_keys = {f["key"] for f in flags}
+        assert flag_keys == {"active-flag", "inactive-flag"}
+
+        # Verify the inactive flag has active=False
+        inactive_flag = next(f for f in flags if f["key"] == "inactive-flag")
+        assert inactive_flag["active"] is False
+
+    def test_get_feature_flags_for_teams_batch_includes_inactive(self):
+        """Test that batch function includes inactive flags for dependency resolution.
+
+        This tests the same behavior as test_get_feature_flags_for_service_includes_inactive
+        but for the batch function used in management commands and cache warming.
+        """
+        # Create active flag
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="active-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Create inactive flag
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="inactive-flag",
+            created_by=self.user,
+            active=False,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = _get_feature_flags_for_teams_batch([self.team])
+        flags = result[self.team.id]["flags"]
+
+        # Both active and inactive flags should be included
+        assert len(flags) == 2
+        flag_keys = {f["key"] for f in flags}
+        assert flag_keys == {"active-flag", "inactive-flag"}
+
+        # Verify the inactive flag has active=False
+        inactive_flag = next(f for f in flags if f["key"] == "inactive-flag")
+        assert inactive_flag["active"] is False
+
+    def test_get_feature_flags_for_service_excludes_encrypted_remote_config(self):
+        """Test that encrypted remote config flags are excluded from cache.
+
+        Encrypted remote config flags can only be accessed via the dedicated
+        /remote_config endpoint which handles decryption. Including them in
+        /flags would return unusable encrypted ciphertext.
+
+        Unencrypted remote config flags should still be included since they
+        work with useFeatureFlagPayload.
+        """
+        # Create regular feature flag
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="regular-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Create unencrypted remote config flag (should be included)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="unencrypted-remote-config",
+            created_by=self.user,
+            is_remote_configuration=True,
+            has_encrypted_payloads=False,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Create encrypted remote config flag (should be excluded)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="encrypted-remote-config",
+            created_by=self.user,
+            is_remote_configuration=True,
+            has_encrypted_payloads=True,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = _get_feature_flags_for_service(self.team)
+        flags = result["flags"]
+
+        # Regular and unencrypted remote config should be included
+        # Encrypted remote config should be excluded
+        assert len(flags) == 2
+        flag_keys = {f["key"] for f in flags}
+        assert flag_keys == {"regular-flag", "unencrypted-remote-config"}
+
+    def test_get_feature_flags_for_teams_batch_excludes_encrypted_remote_config(self):
+        """Test that batch function excludes encrypted remote config flags.
+
+        This tests the same behavior as test_get_feature_flags_for_service_excludes_encrypted_remote_config
+        but for the batch function used in management commands and cache warming.
+        """
+        # Create regular feature flag
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="regular-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Create unencrypted remote config flag (should be included)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="unencrypted-remote-config",
+            created_by=self.user,
+            is_remote_configuration=True,
+            has_encrypted_payloads=False,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Create encrypted remote config flag (should be excluded)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="encrypted-remote-config",
+            created_by=self.user,
+            is_remote_configuration=True,
+            has_encrypted_payloads=True,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = _get_feature_flags_for_teams_batch([self.team])
+        flags = result[self.team.id]["flags"]
+
+        # Regular and unencrypted remote config should be included
+        # Encrypted remote config should be excluded
+        assert len(flags) == 2
+        flag_keys = {f["key"] for f in flags}
+        assert flag_keys == {"regular-flag", "unencrypted-remote-config"}
+        assert "encrypted-remote-config" not in flag_keys
+
+    @parameterized.expand(
+        [
+            # (is_remote_config, has_encrypted, should_include, description)
+            (False, False, True, "regular_flag"),
+            (False, True, True, "encrypted_but_not_remote_config"),
+            (True, False, True, "unencrypted_remote_config"),
+            (True, True, False, "encrypted_remote_config"),
+            (None, False, True, "null_remote_config_unencrypted"),
+            (None, True, True, "null_remote_config_encrypted"),
+            (False, None, True, "regular_flag_null_encrypted"),
+            (True, None, True, "remote_config_null_encrypted"),
+            (None, None, True, "legacy_flag_both_null"),
+        ]
+    )
+    def test_filtering_matrix_for_service(self, is_remote_config, has_encrypted, should_include, desc):
+        """Test filtering behavior for all combinations of is_remote_configuration and has_encrypted_payloads.
+
+        This parameterized test covers all 9 combinations including NULL values to ensure
+        legacy flags (created before these fields existed) are handled correctly.
+        """
+        FeatureFlag.objects.create(
+            team=self.team,
+            key=f"flag-{desc}",
+            created_by=self.user,
+            is_remote_configuration=is_remote_config,
+            has_encrypted_payloads=has_encrypted,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = _get_feature_flags_for_service(self.team)
+        flag_keys = {f["key"] for f in result["flags"]}
+
+        if should_include:
+            assert f"flag-{desc}" in flag_keys, f"Expected flag-{desc} to be included"
+        else:
+            assert f"flag-{desc}" not in flag_keys, f"Expected flag-{desc} to be excluded"
+
+    @parameterized.expand(
+        [
+            # (is_remote_config, has_encrypted, should_include, description)
+            (False, False, True, "regular_flag"),
+            (False, True, True, "encrypted_but_not_remote_config"),
+            (True, False, True, "unencrypted_remote_config"),
+            (True, True, False, "encrypted_remote_config"),
+            (None, False, True, "null_remote_config_unencrypted"),
+            (None, True, True, "null_remote_config_encrypted"),
+            (False, None, True, "regular_flag_null_encrypted"),
+            (True, None, True, "remote_config_null_encrypted"),
+            (None, None, True, "legacy_flag_both_null"),
+        ]
+    )
+    def test_filtering_matrix_for_teams_batch(self, is_remote_config, has_encrypted, should_include, desc):
+        """Test batch function filtering for all combinations of is_remote_configuration and has_encrypted_payloads.
+
+        This parameterized test covers all 9 combinations including NULL values to ensure
+        legacy flags (created before these fields existed) are handled correctly in batch loading.
+        """
+        FeatureFlag.objects.create(
+            team=self.team,
+            key=f"flag-{desc}",
+            created_by=self.user,
+            is_remote_configuration=is_remote_config,
+            has_encrypted_payloads=has_encrypted,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = _get_feature_flags_for_teams_batch([self.team])
+        flag_keys = {f["key"] for f in result[self.team.id]["flags"]}
+
+        if should_include:
+            assert f"flag-{desc}" in flag_keys, f"Expected flag-{desc} to be included"
+        else:
+            assert f"flag-{desc}" not in flag_keys, f"Expected flag-{desc} to be excluded"
 
     def test_get_flags_from_cache_redis_hit(self):
         """Test getting flags from Redis cache."""
@@ -1307,25 +1521,25 @@ class TestManagementCommands(BaseTest):
         self.assertIn("DATA_MISMATCH", output)
         self.assertIn("FIXED", output)
 
-    def test_verify_cache_detects_evaluation_tag_rename(self):
-        """Test that verification detects when a tag used by a flag is renamed."""
+    def test_verify_cache_detects_evaluation_context_rename(self):
+        """Test that verification detects when an evaluation context is renamed."""
+        from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
         from posthog.models.feature_flag.flags_cache import update_flags_cache, verify_team_flags
 
-        # Create a flag with an evaluation tag
         flag = FeatureFlag.objects.create(
             team=self.team,
             key="test-flag",
             created_by=self.user,
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
-        tag = Tag.objects.create(team=self.team, name="original-tag-name")
-        FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=tag)
+        ctx = EvaluationContext.objects.create(team=self.team, name="original-context-name")
+        FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=ctx)
 
         # Warm the cache
         update_flags_cache(self.team)
 
-        # Rename the tag directly in DB (bypassing signals to simulate stale cache)
-        Tag.objects.filter(id=tag.id).update(name="renamed-tag-name")
+        # Rename the context directly in DB (bypassing signals to simulate stale cache)
+        EvaluationContext.objects.filter(id=ctx.id).update(name="renamed-context-name")
 
         # Verify should detect the mismatch
         result = verify_team_flags(self.team, verbose=True)
@@ -1338,8 +1552,32 @@ class TestManagementCommands(BaseTest):
         # Verify the actual values in the diff
         field_diffs = result["diffs"][0]["field_diffs"]
         eval_tag_diff = next(d for d in field_diffs if d["field"] == "evaluation_tags")
-        self.assertEqual(eval_tag_diff["cached_value"], ["original-tag-name"])
-        self.assertEqual(eval_tag_diff["db_value"], ["renamed-tag-name"])
+        self.assertEqual(eval_tag_diff["cached_value"], ["original-context-name"])
+        self.assertEqual(eval_tag_diff["db_value"], ["renamed-context-name"])
+
+        # Mismatch result should include db_data for cache fix optimization
+        self.assertIn("db_data", result)
+        self.assertIsInstance(result["db_data"], dict)
+
+    def test_verify_miss_includes_db_data(self):
+        """Test that cache miss result includes db_data for direct cache write."""
+        from posthog.models.feature_flag.flags_cache import clear_flags_cache, verify_team_flags
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        clear_flags_cache(self.team, kinds=["redis", "s3"])
+
+        result = verify_team_flags(self.team)
+
+        self.assertEqual(result["status"], "miss")
+        self.assertIn("db_data", result)
+        self.assertIsInstance(result["db_data"], dict)
+        self.assertIn("flags", result["db_data"])
 
     @override_settings(FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=0)
     def test_verify_fix_failures_reported(self):
@@ -1375,9 +1613,15 @@ class TestManagementCommands(BaseTest):
 
         from django.core.management import call_command
 
-        # Create additional teams
+        # Create additional teams with flags so they appear in the scoped queryset
         for i in range(5):
-            Team.objects.create(organization=self.organization, name=f"Team {i}")
+            team = Team.objects.create(organization=self.organization, name=f"Team {i}")
+            FeatureFlag.objects.create(
+                team=team,
+                key="test-flag",
+                created_by=self.user,
+                filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            )
 
         mock_get_cache.return_value = []
         mock_batch_get_flags.return_value = {}
@@ -1935,8 +2179,10 @@ class TestGetTeamIdsWithRecentlyUpdatedFlags(BaseTest):
     def test_ignores_recently_deactivated_flags(self):
         """Test returns empty set for team with recently deactivated flag.
 
-        When a flag is deactivated, the cache update removes it. We shouldn't skip
-        verification just because an inactive flag was recently updated.
+        The grace period function only considers active flags when determining
+        whether to skip cache verification. Inactive flags are included in the
+        cache (for dependency resolution), but their recent updates should not
+        trigger the grace period because their evaluation is deterministic (always false).
         """
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -1950,3 +2196,47 @@ class TestGetTeamIdsWithRecentlyUpdatedFlags(BaseTest):
 
         result = _get_team_ids_with_recently_updated_flags([self.team.id])
         assert result == set()
+
+
+class TestGetTeamsWithFlagsQueryset(BaseTest):
+    def test_includes_team_with_active_flag(self):
+        FeatureFlag.objects.create(team=self.team, key="active-flag", created_by=self.user)
+        qs = get_teams_with_flags_queryset()
+        assert self.team.id in qs.values_list("id", flat=True)
+
+    def test_includes_team_with_soft_deleted_flag(self):
+        FeatureFlag.objects.create(team=self.team, key="del", created_by=self.user, deleted=True)
+        qs = get_teams_with_flags_queryset()
+        assert self.team.id in qs.values_list("id", flat=True)
+
+    def test_includes_team_with_inactive_flag(self):
+        FeatureFlag.objects.create(team=self.team, key="off", created_by=self.user, active=False)
+        qs = get_teams_with_flags_queryset()
+        assert self.team.id in qs.values_list("id", flat=True)
+
+    def test_excludes_team_with_no_flags(self):
+        team_no_flags = Team.objects.create(organization=self.organization, name="No Flags")
+        qs = get_teams_with_flags_queryset()
+        assert team_no_flags.id not in qs.values_list("id", flat=True)
+
+    def test_queryset_does_not_include_parent_team_join(self):
+        """The Q() wrapper in get_teams_with_flags_queryset bypasses
+        RootTeamQuerySet.filter() to keep the EXISTS subquery simple.
+        If someone removes the Q() wrapper, the query will regress to
+        include parent_team joins that are unusable at scale."""
+        qs = get_teams_with_flags_queryset()
+        sql = str(qs.query).lower()
+        # Extract the EXISTS subquery — this is where the regression would appear.
+        # The SELECT column list legitimately contains parent_team_id as a Team field.
+        exists_start = sql.index("exists(")
+        subquery_sql = sql[exists_start:]
+        assert "parent_team" not in subquery_sql, (
+            f"EXISTS subquery should not reference parent_team, got: {subquery_sql}"
+        )
+
+    def test_team_with_multiple_flags_returned_once(self):
+        FeatureFlag.objects.create(team=self.team, key="flag-1", created_by=self.user)
+        FeatureFlag.objects.create(team=self.team, key="flag-2", created_by=self.user)
+        qs = get_teams_with_flags_queryset()
+        team_ids = list(qs.values_list("id", flat=True))
+        assert team_ids.count(self.team.id) == 1

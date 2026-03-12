@@ -40,76 +40,48 @@ export interface PatchedErrorTrackingAssignmentRuleApi {
     disabled_data?: unknown | null
 }
 
-/**
- * * `slack` - Slack
- * `salesforce` - Salesforce
- * `hubspot` - Hubspot
- * `google-pubsub` - Google Pubsub
- * `google-cloud-storage` - Google Cloud Storage
- * `google-ads` - Google Ads
- * `google-sheets` - Google Sheets
- * `snapchat` - Snapchat
- * `linkedin-ads` - Linkedin Ads
- * `reddit-ads` - Reddit Ads
- * `tiktok-ads` - Tiktok Ads
- * `bing-ads` - Bing Ads
- * `intercom` - Intercom
- * `email` - Email
- * `linear` - Linear
- * `github` - Github
- * `gitlab` - Gitlab
- * `meta-ads` - Meta Ads
- * `twilio` - Twilio
- * `clickup` - Clickup
- * `vercel` - Vercel
- * `databricks` - Databricks
- * `azure-blob` - Azure Blob
- * `firebase` - Firebase
- * `jira` - Jira
- */
-export type KindCf2EnumApi = (typeof KindCf2EnumApi)[keyof typeof KindCf2EnumApi]
+export type IntegrationKindApi = (typeof IntegrationKindApi)[keyof typeof IntegrationKindApi]
 
-export const KindCf2EnumApi = {
-    slack: 'slack',
-    salesforce: 'salesforce',
-    hubspot: 'hubspot',
-    'google-pubsub': 'google-pubsub',
-    'google-cloud-storage': 'google-cloud-storage',
-    'google-ads': 'google-ads',
-    'google-sheets': 'google-sheets',
-    snapchat: 'snapchat',
-    'linkedin-ads': 'linkedin-ads',
-    'reddit-ads': 'reddit-ads',
-    'tiktok-ads': 'tiktok-ads',
-    'bing-ads': 'bing-ads',
-    intercom: 'intercom',
-    email: 'email',
-    linear: 'linear',
-    github: 'github',
-    gitlab: 'gitlab',
-    'meta-ads': 'meta-ads',
-    twilio: 'twilio',
-    clickup: 'clickup',
-    vercel: 'vercel',
-    databricks: 'databricks',
-    'azure-blob': 'azure-blob',
-    firebase: 'firebase',
-    jira: 'jira',
+export const IntegrationKindApi = {
+    Slack: 'slack',
+    SlackTwig: 'slack-twig',
+    Salesforce: 'salesforce',
+    Hubspot: 'hubspot',
+    GooglePubsub: 'google-pubsub',
+    GoogleCloudStorage: 'google-cloud-storage',
+    GoogleAds: 'google-ads',
+    GoogleSheets: 'google-sheets',
+    LinkedinAds: 'linkedin-ads',
+    Snapchat: 'snapchat',
+    Intercom: 'intercom',
+    Email: 'email',
+    Twilio: 'twilio',
+    Linear: 'linear',
+    Github: 'github',
+    Gitlab: 'gitlab',
+    MetaAds: 'meta-ads',
+    Clickup: 'clickup',
+    RedditAds: 'reddit-ads',
+    Databricks: 'databricks',
+    TiktokAds: 'tiktok-ads',
+    BingAds: 'bing-ads',
+    Vercel: 'vercel',
+    AzureBlob: 'azure-blob',
+    Firebase: 'firebase',
+    Jira: 'jira',
+    PinterestAds: 'pinterest-ads',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
-    readonly id: number
-    readonly kind: KindCf2EnumApi
-    readonly display_name: string
+    display_name: string
+    id: number
+    kind: IntegrationKindApi
 }
 
 export interface ErrorTrackingExternalReferenceApi {
-    readonly id: string
-    readonly integration: ErrorTrackingExternalReferenceIntegrationApi
-    integration_id: number
-    config: unknown
-    issue: string
-    readonly external_url: string
+    external_url: string
+    id: string
+    integration: ErrorTrackingExternalReferenceIntegrationApi
 }
 
 export interface PaginatedErrorTrackingExternalReferenceListApi {
@@ -189,11 +161,11 @@ export type ErrorTrackingIssueFullStatusEnumApi =
     (typeof ErrorTrackingIssueFullStatusEnumApi)[keyof typeof ErrorTrackingIssueFullStatusEnumApi]
 
 export const ErrorTrackingIssueFullStatusEnumApi = {
-    archived: 'archived',
-    active: 'active',
-    resolved: 'resolved',
-    pending_release: 'pending_release',
-    suppressed: 'suppressed',
+    Archived: 'archived',
+    Active: 'active',
+    Resolved: 'resolved',
+    PendingRelease: 'pending_release',
+    Suppressed: 'suppressed',
 } as const
 
 export interface ErrorTrackingIssueAssignmentApi {

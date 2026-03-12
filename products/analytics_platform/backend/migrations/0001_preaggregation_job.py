@@ -50,10 +50,10 @@ class Migration(migrations.Migration):
             ],
             options={
                 "indexes": [
-                    models.Index(fields=["team", "query_hash"], name="analytics_p_team_id_f37a89_idx"),
-                    models.Index(fields=["team", "status"], name="analytics_p_team_id_b17148_idx"),
+                    models.Index(fields=["team_id", "query_hash"], name="analytics_p_team_id_f37a89_idx"),
+                    models.Index(fields=["team_id", "status"], name="analytics_p_team_id_b17148_idx"),
                     models.Index(
-                        fields=["team", "time_range_start", "time_range_end"], name="analytics_p_team_id_4e65a5_idx"
+                        fields=["team_id", "time_range_start", "time_range_end"], name="analytics_p_team_id_4e65a5_idx"
                     ),
                 ],
                 "constraints": [

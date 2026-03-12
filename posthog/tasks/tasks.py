@@ -7,7 +7,6 @@ from django.conf import settings
 from django.db import connection
 from django.utils import timezone
 
-import requests
 from celery import shared_task
 from prometheus_client import Counter, Gauge
 from redis import Redis
@@ -23,6 +22,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
 from posthog.ph_client import get_regional_ph_client
 from posthog.redis import get_client
+from posthog.security.outbound_proxy import external_requests
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 
@@ -95,7 +95,7 @@ def redis_heartbeat() -> None:
 )
 @limit_concurrency(150, limit_name="global")  # Do not go above what CH can handle (max_concurrent_queries)
 @limit_concurrency(
-    50,
+    10,
     key=lambda *args, **kwargs: kwargs.get("team_id") or args[0],
     limit_name="per_team",
 )  # Do not run too many queries at once for the same team
@@ -281,7 +281,7 @@ def ingestion_lag() -> None:
         pass
 
     for team in Team.objects.filter(pk__in=team_ids):
-        requests.post(
+        external_requests.post(
             settings.SITE_URL + "/e",
             json={
                 "event": "$heartbeat",
@@ -797,7 +797,7 @@ def clickhouse_send_license_usage() -> None:
         pass
 
 
-@shared_task(ignore_result=True)
+@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
 def check_flags_to_rollback() -> None:
     try:
         from ee.tasks.auto_rollback_feature_flag import check_flags_to_rollback
@@ -817,13 +817,6 @@ def count_items_in_playlists() -> None:
     )
 
     enqueue_recordings_that_match_playlist_filters()
-
-
-@shared_task(ignore_result=True)
-def environments_rollback_migration(organization_id: int, environment_mappings: dict[str, int], user_id: int) -> None:
-    from posthog.tasks.environments_rollback import environments_rollback_migration
-
-    environments_rollback_migration(organization_id, environment_mappings, user_id)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
@@ -926,6 +919,39 @@ def background_delete_model_task(
         raise
 
 
+def _queue_delete_team_recordings(team_ids: list[int], deleted_by: str) -> None:
+    import asyncio
+    from datetime import timedelta
+    from uuid import uuid4
+
+    from temporalio import common
+
+    from posthog.temporal.common.client import async_connect
+    from posthog.temporal.delete_recordings.types import DeletionConfig, RecordingsWithTeamInput
+
+    config = DeletionConfig(deleted_by=deleted_by, reason="team deletion")
+
+    async def start_all() -> None:
+        temporal = await async_connect()
+        await asyncio.gather(
+            *[
+                temporal.start_workflow(
+                    "delete-recordings-with-team",
+                    RecordingsWithTeamInput(team_id=team_id, config=config),
+                    id=f"delete-recordings-{team_id}-team-{uuid4()}",
+                    task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+                    retry_policy=common.RetryPolicy(
+                        maximum_attempts=2,
+                        initial_interval=timedelta(minutes=1),
+                    ),
+                )
+                for team_id in team_ids
+            ]
+        )
+
+    asyncio.run(start_all())
+
+
 def _delete_teams_and_data(team_ids: list[int], user_id: int, project_id: int | None = None) -> None:
     """
     Shared logic for deleting teams and all associated data (Postgres, batch exports, ClickHouse).
@@ -935,6 +961,16 @@ def _delete_teams_and_data(team_ids: list[int], user_id: int, project_id: int | 
     from posthog.models.team import Team
     from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
     from posthog.models.user import User
+
+    user = User.objects.filter(id=user_id).first()
+    if not user:
+        raise ValueError(f"Cannot delete team data: user {user_id} not found")
+
+    try:
+        _queue_delete_team_recordings(team_ids, deleted_by=user.email)
+    except Exception:
+        logger.exception("Failed to queue recording deletion workflows", team_ids=team_ids)
+        capture_exception()
 
     logger.info("Deleting bulky postgres data", team_ids=team_ids)
     delete_bulky_postgres_data(team_ids=team_ids)
@@ -949,7 +985,6 @@ def _delete_teams_and_data(team_ids: list[int], user_id: int, project_id: int | 
         Team.objects.filter(id__in=team_ids).delete()
 
     logger.info("Queueing ClickHouse deletion", team_ids=team_ids)
-    user = User.objects.filter(id=user_id).first()
     AsyncDeletion.objects.bulk_create(
         [
             AsyncDeletion(
@@ -1086,7 +1121,7 @@ def delete_organization_data_and_notify_task(
     bind=True,
     base=PushGatewayTask,
     ignore_result=True,
-    queue=CeleryQueue.DEFAULT.value,
+    queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
     autoretry_for=(Exception,),
     retry_backoff=30,
     retry_backoff_max=120,

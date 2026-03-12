@@ -11,6 +11,9 @@ pub const EVENT_PARSE_ERROR: &str = "prop_defs_event_parse_error";
 pub const BATCH_ACQUIRE_TIME: &str = "prop_defs_batch_acquire_time_ms";
 pub const UPDATE_ISSUE_TIME: &str = "prop_defs_update_issue_time_ms";
 pub const CACHE_CONSUMED: &str = "prop_defs_cache_space";
+pub const CACHE_LEN: &str = "prop_defs_cache_len";
+pub const CACHE_HITS: &str = "prop_defs_cache_hits";
+pub const CACHE_MISSES: &str = "prop_defs_cache_misses";
 pub const UPDATES_CACHE: &str = "prop_defs_updates_cache";
 pub const UPDATE_PRODUCER_OFFSET: &str = "prop_defs_update_producer_offset";
 pub const GROUP_TYPE_CACHE: &str = "prop_defs_group_type_cache";
@@ -31,6 +34,12 @@ pub const CHANNEL_MESSAGES_IN_FLIGHT: &str = "prop_defs_channel_messages_in_flig
 pub const CHANNEL_CAPACITY: &str = "prop_defs_channel_capacity";
 
 pub const ISOLATED_PROPDEFS_DB_SELECTED: &str = "isolated_propdefs_db_selected";
+
+pub const GROUP_TYPE_RESOLVE_SOURCE: &str = "prop_defs_group_type_resolve_source";
+pub const PERSONHOG_RESOLVE_ERRORS: &str = "prop_defs_personhog_resolve_errors";
+pub const PERSONHOG_RESOLVE_FALLBACKS: &str = "prop_defs_personhog_resolve_fallbacks";
+pub const PERSONHOG_RESOLVE_DURATION: &str = "prop_defs_personhog_resolve_duration_ms";
+pub const DB_RESOLVE_DURATION: &str = "prop_defs_db_resolve_duration_ms";
 
 //
 // property-defs-rs "v2" batch write path metric keys below

@@ -6,9 +6,13 @@ import { LemonButton, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { taxonomicFilterPreferencesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPreferencesLogic'
-import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import {
+    DefinitionPopoverRenderer,
+    TaxonomicFilterGroupType,
+    TaxonomicFilterLogicProps,
+} from 'lib/components/TaxonomicFilter/types'
 import { IconBlank } from 'lib/lemon-ui/icons'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { cn } from 'lib/utils/css-classes'
 
 import { TaxonomicFilterEmptyState, taxonomicFilterGroupTypesWithEmptyStates } from './TaxonomicFilterEmptyState'
@@ -22,27 +26,31 @@ export interface InfiniteSelectResultsProps {
     taxonomicFilterLogicProps: TaxonomicFilterLogicProps
     popupAnchorElement: HTMLDivElement | null
     useVerticalLayout?: boolean
+    definitionPopoverRenderer?: DefinitionPopoverRenderer
 }
 
-function CategoryPill({
+// CategoryPillContent uses useValues(infiniteListLogic) without props, relying on BindLogic context
+// This ensures proper logic mounting and prevents "Can not find path" KEA errors
+function CategoryPillContent({
     isActive,
     groupType,
-    taxonomicFilterLogicProps,
     onClick,
 }: {
     isActive: boolean
     groupType: TaxonomicFilterGroupType
-    taxonomicFilterLogicProps: TaxonomicFilterLogicProps
     onClick: () => void
 }): JSX.Element {
-    const logic = infiniteListLogic({ ...taxonomicFilterLogicProps, listGroupType: groupType })
     const { taxonomicGroups } = useValues(taxonomicFilterLogic)
-    const { totalResultCount, totalListCount, isLoading, hasRemoteDataSource } = useValues(logic)
+    const { totalResultCount, totalListCount, isLoading, hasRemoteDataSource, hasMore, needsMoreSearchCharacters } =
+        useValues(infiniteListLogic)
 
     const group = taxonomicGroups.find((g) => g.type === groupType)
 
     // :TRICKY: use `totalListCount` (results + extra) to toggle interactivity, while showing `totalResultCount`
-    const canInteract = totalListCount > 0 || taxonomicFilterGroupTypesWithEmptyStates.includes(groupType)
+    const canInteract =
+        totalListCount > 0 ||
+        taxonomicFilterGroupTypesWithEmptyStates.includes(groupType) ||
+        groupType === TaxonomicFilterGroupType.SuggestedFilters
     const showLoading = isLoading && hasRemoteDataSource
 
     return (
@@ -58,15 +66,43 @@ function CategoryPill({
             ) : (
                 <>
                     {group?.name}
-                    {': '}
-                    {showLoading ? (
-                        <Spinner className="text-sm inline-block ml-1" textColored speed="0.8s" />
-                    ) : (
-                        totalResultCount
+                    {!needsMoreSearchCharacters && (
+                        <>
+                            {': '}
+                            {showLoading ? (
+                                <Spinner className="text-sm inline-block ml-1" textColored speed="0.8s" />
+                            ) : (
+                                totalResultCount
+                            )}
+                            {/* This is a workaround. We need to make the logic fetch more results when querying from clickhouse*/}
+                            <span aria-label={hasMore ? `${totalResultCount} or more` : `${totalResultCount}`}>
+                                {hasMore ? '+' : ''}
+                            </span>
+                        </>
                     )}
                 </>
             )}
         </LemonTag>
+    )
+}
+
+// CategoryPill wraps CategoryPillContent with BindLogic to ensure infiniteListLogic is properly mounted
+// before accessing its values. Without BindLogic, KEA throws "Can not find path" errors.
+function CategoryPill({
+    isActive,
+    groupType,
+    taxonomicFilterLogicProps,
+    onClick,
+}: {
+    isActive: boolean
+    groupType: TaxonomicFilterGroupType
+    taxonomicFilterLogicProps: TaxonomicFilterLogicProps
+    onClick: () => void
+}): JSX.Element {
+    return (
+        <BindLogic logic={infiniteListLogic} props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}>
+            <CategoryPillContent isActive={isActive} groupType={groupType} onClick={onClick} />
+        </BindLogic>
     )
 }
 
@@ -150,6 +186,7 @@ export function InfiniteSelectResults({
     taxonomicFilterLogicProps,
     popupAnchorElement,
     useVerticalLayout: useVerticalLayoutProp,
+    definitionPopoverRenderer,
 }: InfiniteSelectResultsProps): JSX.Element {
     const { activeTab, taxonomicGroups, taxonomicGroupTypes, activeTaxonomicGroup, value } =
         useValues(taxonomicFilterLogic)
@@ -160,7 +197,7 @@ export function InfiniteSelectResults({
 
     const { setActiveTab, selectItem } = useActions(taxonomicFilterLogic)
 
-    const { totalListCount, items } = useValues(logic)
+    const { totalListCount } = useValues(logic)
 
     const RenderComponent = activeTaxonomicGroup?.render
 
@@ -170,7 +207,7 @@ export function InfiniteSelectResults({
         <RenderComponent
             {...(activeTaxonomicGroup?.componentProps ?? {})}
             value={value}
-            onChange={(newValue, item) => selectItem(activeTaxonomicGroup, newValue, item, items.originalQuery)}
+            onChange={(newValue, item) => selectItem(activeTaxonomicGroup, newValue, item)}
             infiniteListLogicProps={infiniteListLogicProps}
         />
     ) : (
@@ -180,7 +217,10 @@ export function InfiniteSelectResults({
                     <TaxonomicGroupTitle openTab={openTab} />
                 </div>
             )}
-            <InfiniteList popupAnchorElement={popupAnchorElement} />
+            <InfiniteList
+                popupAnchorElement={popupAnchorElement}
+                definitionPopoverRenderer={definitionPopoverRenderer}
+            />
         </>
     )
 

@@ -40,6 +40,7 @@ class SyncPersonDistinctIdsWorkflowInputs:
     categorize_orphans: bool = False
     limit: int | None = None
     person_ids: list[str] | None = None
+    pg_statement_timeout_seconds: int = 5
 
     def __post_init__(self):
         if self.delete_ch_only_orphans and not self.categorize_orphans:
@@ -59,6 +60,7 @@ class SyncPersonDistinctIdsWorkflowInputs:
             "categorize_orphans": self.categorize_orphans,
             "limit": self.limit,
             "person_ids_count": len(self.person_ids) if self.person_ids else 0,
+            "pg_statement_timeout_seconds": self.pg_statement_timeout_seconds,
         }
 
 
@@ -151,6 +153,7 @@ class SyncPersonDistinctIdsWorkflow(PostHogWorkflow):
                     team_id=inputs.team_id,
                     person_uuids=batch_uuids,
                     categorize_not_found=inputs.categorize_orphans,
+                    pg_statement_timeout_seconds=inputs.pg_statement_timeout_seconds,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 heartbeat_timeout=dt.timedelta(seconds=30),

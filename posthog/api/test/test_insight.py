@@ -196,12 +196,19 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 response_1.json().items(),
             )
             mock_capture.assert_any_call(
-                "insight created",
                 distinct_id=self.user.distinct_id,
+                event="insight created",
                 properties={
-                    "insight_id": response_1.json()["short_id"],
                     "$current_url": "https://posthog.com/my-referer",
                     "$session_id": "my-session-id",
+                    "source": "web",
+                    "was_impersonated": False,
+                    "mcp_user_agent": None,
+                    "mcp_client_name": None,
+                    "mcp_client_version": None,
+                    "mcp_protocol_version": None,
+                    "mcp_oauth_client_name": None,
+                    "insight_id": response_1.json()["short_id"],
                 },
                 groups=ANY,
             )
@@ -231,12 +238,19 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             insight_short_id = response_2.json()["short_id"]
             # Check that "insight updated" event was called among all capture calls
             mock_capture.assert_any_call(
-                "insight updated",
                 distinct_id=self.user.distinct_id,
+                event="insight updated",
                 properties={
-                    "insight_id": insight_short_id,
                     "$current_url": "https://posthog.com/my-referer",
                     "$session_id": "my-session-id",
+                    "source": "web",
+                    "was_impersonated": False,
+                    "mcp_user_agent": None,
+                    "mcp_client_name": None,
+                    "mcp_client_version": None,
+                    "mcp_protocol_version": None,
+                    "mcp_oauth_client_name": None,
+                    "insight_id": insight_short_id,
                 },
                 groups=ANY,
             )
@@ -3910,6 +3924,7 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
         [
             ("ExposedCHQueryError", "posthog.errors.ExposedCHQueryError", "NO_COMMON_TYPE error from ClickHouse"),
             ("ExposedHogQLError", "posthog.hogql.errors.ExposedHogQLError", "Invalid HogQL syntax"),
+            ("HogVMException", "common.hogvm.python.utils.HogVMException", "Global variable not found: variables"),
         ]
     )
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
@@ -3920,8 +3935,14 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
 
         from posthog.errors import ExposedCHQueryError
 
-        error_class = ExposedCHQueryError if "ExposedCHQueryError" in error_class_path else ExposedHogQLError
-        mock_calculate.side_effect = error_class(error_message)
+        from common.hogvm.python.utils import HogVMException
+
+        error_classes: dict[str, type] = {
+            "ExposedCHQueryError": ExposedCHQueryError,
+            "ExposedHogQLError": ExposedHogQLError,
+            "HogVMException": HogVMException,
+        }
+        mock_calculate.side_effect = error_classes[_name](error_message)
 
         insight = Insight.objects.create(
             team=self.team,
@@ -3940,6 +3961,7 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
         [
             ("ExposedCHQueryError", "ClickHouse trend error"),
             ("ExposedHogQLError", "HogQL trend error"),
+            ("HogVMException", "Global variable not found: variables"),
         ]
     )
     @patch("posthog.api.insight.InsightViewSet.calculate_trends_hogql")
@@ -3951,8 +3973,14 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
 
         from posthog.errors import ExposedCHQueryError
 
-        error_class = ExposedCHQueryError if error_type == "ExposedCHQueryError" else ExposedHogQLError
-        mock_calculate.side_effect = error_class(error_message)
+        from common.hogvm.python.utils import HogVMException
+
+        error_classes: dict[str, type] = {
+            "ExposedCHQueryError": ExposedCHQueryError,
+            "ExposedHogQLError": ExposedHogQLError,
+            "HogVMException": HogVMException,
+        }
+        mock_calculate.side_effect = error_classes[error_type](error_message)
 
         response = self.client.get(
             f"/api/environments/{self.team.id}/insights/trend/",
@@ -3966,6 +3994,7 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
         [
             ("ExposedCHQueryError", "ClickHouse funnel error"),
             ("ExposedHogQLError", "HogQL funnel error"),
+            ("HogVMException", "Global variable not found: variables"),
         ]
     )
     @patch("posthog.api.insight.InsightViewSet.calculate_funnel_hogql")
@@ -3977,8 +4006,14 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
 
         from posthog.errors import ExposedCHQueryError
 
-        error_class = ExposedCHQueryError if error_type == "ExposedCHQueryError" else ExposedHogQLError
-        mock_calculate.side_effect = error_class(error_message)
+        from common.hogvm.python.utils import HogVMException
+
+        error_classes: dict[str, type] = {
+            "ExposedCHQueryError": ExposedCHQueryError,
+            "ExposedHogQLError": ExposedHogQLError,
+            "HogVMException": HogVMException,
+        }
+        mock_calculate.side_effect = error_classes[error_type](error_message)
 
         response = self.client.get(
             f"/api/environments/{self.team.id}/insights/funnel/",

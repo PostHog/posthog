@@ -35,7 +35,7 @@ export function FlaggedFeature({ flag, match, children, fallback }: PostHogFeatu
                 </div>
             )
         }
-        return childContent
+        return <>{childContent}</>
     } else if (fallback) {
         return <>{fallback}</>
     }

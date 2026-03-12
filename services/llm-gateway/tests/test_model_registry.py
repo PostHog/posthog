@@ -38,6 +38,12 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "supports_vision": True,
         "mode": "chat",
     },
+    "gpt-5.3-codex": {
+        "litellm_provider": "openai",
+        "max_input_tokens": 200000,
+        "supports_vision": False,
+        "mode": "chat",
+    },
     "o1": {
         "litellm_provider": "openai",
         "max_input_tokens": 200000,
@@ -50,13 +56,19 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "supports_vision": True,
         "mode": "chat",
     },
-    "claude-3-5-haiku-20241022": {
+    "claude-haiku-4-5-20251001": {
         "litellm_provider": "anthropic",
         "max_input_tokens": 200000,
         "supports_vision": True,
         "mode": "chat",
     },
     "claude-opus-4-5": {
+        "litellm_provider": "anthropic",
+        "max_input_tokens": 200000,
+        "supports_vision": True,
+        "mode": "chat",
+    },
+    "claude-opus-4-6": {
         "litellm_provider": "anthropic",
         "max_input_tokens": 200000,
         "supports_vision": True,
@@ -239,15 +251,22 @@ class TestIsModelAvailable:
         "model_id,product,expected",
         [
             ("gpt-4o", "llm_gateway", True),
-            ("gpt-4o", "twig", False),
+            ("gpt-4o", "posthog_code", False),
             ("o1", "llm_gateway", True),
-            ("o1", "array", False),
-            ("gpt-5.2", "array", True),
-            ("gpt-5-mini", "twig", True),
-            ("claude-opus-4-5", "array", True),
-            ("claude-sonnet-4-5", "array", True),
-            ("claude-haiku-4-5", "array", True),
+            ("o1", "posthog_code", False),
+            ("claude-opus-4-6", "posthog_code", True),
+            ("gpt-5.3-codex", "posthog_code", True),
+            ("gpt-5.2", "posthog_code", True),
+            ("gpt-5-mini", "posthog_code", True),
+            ("claude-opus-4-5", "posthog_code", True),
+            ("claude-sonnet-4-5", "posthog_code", True),
+            ("claude-haiku-4-5", "posthog_code", True),
             ("unknown-model", "llm_gateway", False),
+            # Legacy aliases still work
+            ("gpt-4o", "twig", False),
+            ("claude-opus-4-6", "twig", True),
+            ("gpt-4o", "array", False),
+            ("claude-opus-4-5", "array", True),
         ],
     )
     def test_model_availability(self, model_id: str, product: str, expected: bool):

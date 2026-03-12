@@ -26,7 +26,7 @@ from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries
-from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
+from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY, MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.experiments.base_query_utils import get_experiment_date_range
 from posthog.hogql_queries.experiments.error_handling import experiment_error_handler
 from posthog.hogql_queries.experiments.experiment_query_builder import (
@@ -50,8 +50,21 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.experiment import Experiment
 
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    LazyComputationResult,
+    LazyComputationTable,
+    ensure_precomputed,
+)
+
 logger = structlog.get_logger(__name__)
 
+# Variable TTL for experiment exposure lazy computation
+# Current day refreshes frequently (data arriving), old data cached long
+DEFAULT_EXPOSURE_TTL_SECONDS = {
+    "0d": 15 * 60,  # 15 min
+    "1d": 60 * 60,  # 1 hour
+    "default": 60 * 24 * 60 * 60,  # 60 days - data frozen
+}
 
 MAX_EXECUTION_TIME = 600
 MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 37 * 1024 * 1024 * 1024  # 37 GB
@@ -67,18 +80,20 @@ class ExperimentQueryRunner(QueryRunner):
         override_end_date: Optional[datetime] = None,
         user_facing: bool = True,
         max_execution_time: Optional[int] = None,
+        force_precomputation: bool = False,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.override_end_date = override_end_date
         self.user_facing = user_facing
         self.max_execution_time = max_execution_time if max_execution_time is not None else MAX_EXECUTION_TIME
+        self.force_precomputation = force_precomputation
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
 
         try:
-            self.experiment = Experiment.objects.get(id=self.query.experiment_id)
+            self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
         except Experiment.DoesNotExist:
             raise ValidationError(f"Experiment with id {self.query.experiment_id} not found")
         self.feature_flag = self.experiment.feature_flag
@@ -88,6 +103,9 @@ class ExperimentQueryRunner(QueryRunner):
         self.variants = [variant["key"] for variant in self.feature_flag.variants]
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
+
+        stats_config = self.experiment.stats_config or {}
+        self.baseline_variant_key = stats_config.get("baseline_variant_key", CONTROL_VARIANT_KEY)
 
         self.date_range = get_experiment_date_range(self.experiment, self.team, self.override_end_date)
         self.date_range_query = QueryDateRange(
@@ -140,6 +158,34 @@ class ExperimentQueryRunner(QueryRunner):
 
         return breakdowns
 
+    def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
+        """
+        Ensures lazy-computed exposure data exists for this experiment.
+
+        Gets the exposure query from the builder and passes it to the lazy computation
+        system, which will compute and store the exposure data if not already cached.
+
+        Returns:
+            LazyComputationResult with job_ids that can be used to query the data
+        """
+        query_string, placeholders = builder.get_exposure_query_for_precomputation()
+
+        if not self.experiment.start_date:
+            raise ValidationError("Experiment must have a start date for lazy computation")
+
+        date_from = self.experiment.start_date
+        date_to = self.override_end_date or self.experiment.end_date or datetime.now(UTC)
+
+        return ensure_precomputed(
+            team=self.team,
+            insert_query=query_string,
+            time_range_start=date_from,
+            time_range_end=date_to,
+            ttl_seconds=DEFAULT_EXPOSURE_TTL_SECONDS,
+            table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            placeholders=placeholders,
+        )
+
     def _get_experiment_query(self) -> ast.SelectQuery:
         """
         Returns the main experiment query.
@@ -167,7 +213,19 @@ class ExperimentQueryRunner(QueryRunner):
             entity_key=self.entity_key,
             metric=self.metric,
             breakdowns=self._get_breakdowns_for_builder(),
+            force_precomputation=self.force_precomputation,
         )
+
+        if self.experiment.exposure_preaggregation_enabled:
+            try:
+                result = self._ensure_exposures_precomputed(builder)
+                if result.ready:
+                    builder.preaggregation_job_ids = [str(job_id) for job_id in result.job_ids]
+                else:
+                    logger.warning("exposure_lazy_computation_not_ready", experiment_id=self.experiment.id)
+            except Exception:
+                logger.exception("exposure_lazy_computation_failed", experiment_id=self.experiment.id)
+
         return builder.build_query()
 
     def _evaluate_experiment_query(
@@ -245,7 +303,7 @@ class ExperimentQueryRunner(QueryRunner):
 
     def _calculate_statistics_for_variants(self, variants: list[ExperimentStatsBase]) -> ExperimentQueryResponse:
         """Calculate statistical analysis results for a set of variants."""
-        control_variant, test_variants = split_baseline_and_test_variants(variants)
+        control_variant, test_variants = split_baseline_and_test_variants(variants, self.baseline_variant_key)
 
         if self.stats_method == "frequentist":
             return get_frequentist_experiment_result(
@@ -283,6 +341,22 @@ class ExperimentQueryRunner(QueryRunner):
     ) -> ExperimentBreakdownResult:
         """Compute statistics for a single breakdown combination."""
         breakdown_variants = [v for bv, v in variant_results if bv == breakdown_tuple]
+
+        # Ensure all expected variants are present in this breakdown group
+        # Some breakdown groups may not have data for all variants (e.g., no control users with specific browser)
+        variants_present = {v.key for v in breakdown_variants}
+        for expected_variant in self.variants:
+            if expected_variant not in variants_present:
+                # Add missing variant with zero stats to avoid "No control variant found" error
+                breakdown_variants.append(
+                    ExperimentStatsBase(
+                        key=expected_variant,
+                        number_of_samples=0,
+                        sum=0,
+                        sum_squares=0,
+                    )
+                )
+
         stats = self._calculate_statistics_for_variants(breakdown_variants)
 
         return ExperimentBreakdownResult(

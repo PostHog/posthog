@@ -25,7 +25,7 @@ export const getAPISteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                 Content-Type: application/json
 
                                 {
-                                    "api_key": "<ph_project_api_key>",
+                                    "api_key": "<ph_project_token>",
                                     "event": "[event name]",
                                     "properties": {
                                         "distinct_id": "[your users' distinct id]",
@@ -57,7 +57,7 @@ export const getAPISteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                 file: 'JSON',
                                 code: dedent`
                                 {
-                                    "api_key": "<ph_project_api_key>",
+                                    "api_key": "<ph_project_token>",
                                     "event": "page_viewed",
                                     "properties": {
                                         "distinct_id": "user_123",

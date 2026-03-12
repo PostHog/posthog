@@ -3,8 +3,8 @@ import { Form } from 'kea-forms'
 
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { IconTwilio } from 'lib/lemon-ui/icons'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { TwilioSetupModalLogicProps, twilioSetupModalLogic } from './twilioSetupModalLogic'
 
@@ -20,7 +20,7 @@ export const TwilioSetupModal = (props: TwilioSetupModalLogicProps): JSX.Element
                     <span>Configure Twilio SMS channel</span>
                 </div>
             }
-            onClose={props.onComplete}
+            onClose={props.onClose}
         >
             <Form logic={twilioSetupModalLogic} formKey="twilioIntegration">
                 <div className="gap-4 flex flex-col">

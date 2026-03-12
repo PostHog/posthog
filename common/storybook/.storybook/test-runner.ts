@@ -44,15 +44,20 @@ declare module '@storybook/types' {
              * @default ['chromium']
              */
             snapshotBrowsers?: SupportedBrowserName[]
-            /** If taking a component snapshot, you can narrow it down by specifying the selector. */
+            /** Narrow the snapshot to a specific element by specifying a CSS selector. Works for both component and scene (fullscreen) snapshots. */
             snapshotTargetSelector?: string
             /** specify an alternative viewport size */
             viewport?: { width: number; height: number }
             /**
              * Skip waiting for iframes to load. Useful for stories with external iframes that fail in CI.
+             * Also skips waiting for networkidle, which is useful for stories with background network activity.
              * @default false
              */
             skipIframeWait?: boolean
+            /**
+             * Skip taking a dark mode snapshot. Useful for stories that don't support dark mode or have known issues in dark mode that would cause snapshot failures.
+             */
+            skipDarkMode?: boolean
         }
         msw?: {
             mocks?: Mocks
@@ -137,7 +142,7 @@ async function expectStoryToMatchSnapshot(
     storyContext: StoryContext,
     browser: SupportedBrowserName
 ): Promise<void> {
-    const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
+    const { skipIframeWait = false, skipDarkMode = false } = storyContext.parameters?.testOptions ?? {}
     await waitForPageReady(page, skipIframeWait)
 
     // set up iframe load tracking early, before they start loading
@@ -180,7 +185,34 @@ async function expectStoryToMatchSnapshot(
         // Stop all animations for consistent snapshots, and adjust other styles
         document.body.classList.add('storybook-test-runner')
         document.body.classList.add(`storybook-test-runner--${layout}`)
+
+        // Force all content-visibility:auto elements to render fully for deterministic snapshots.
+        // content-visibility:auto skips rendering offscreen content, which causes non-deterministic
+        // page heights depending on timing. We override it and trigger a synchronous reflow.
+        document.querySelectorAll('*').forEach((el) => {
+            if (el instanceof HTMLElement) {
+                const style = getComputedStyle(el)
+                if (style.contentVisibility === 'auto') {
+                    el.style.contentVisibility = 'visible'
+                }
+            }
+        })
+        // Force synchronous reflow so the browser recalculates layout
+        void document.body.offsetHeight
     }, storyContext.parameters?.layout || 'padded')
+
+    // Trigger ResizeObserver callbacks to ensure layout-dependent state (e.g. CardMeta's
+    // showControlsLabels) has settled before taking snapshots. ResizeObserver fires
+    // asynchronously after render, so without this nudge the observer may not have reported
+    // dimensions yet, causing non-deterministic button labels in dashboard stories.
+    await page.evaluate(() => {
+        // Force a reflow so ResizeObserver has up-to-date geometry to report
+        void document.body.offsetHeight
+        // Dispatch a resize event to trigger any observers that key off window size
+        window.dispatchEvent(new Event('resize'))
+    })
+    // Allow ResizeObserver callbacks to fire and React to re-render with updated dimensions
+    await page.waitForTimeout(300)
 
     const { waitForLoadersToDisappear = true, waitForSelector } = storyContext.parameters?.testOptions ?? {}
 
@@ -201,7 +233,9 @@ async function expectStoryToMatchSnapshot(
 
     // Snapshot both light and dark themes
     await takeSnapshotWithTheme(page, context, browser, 'light', storyContext)
-    await takeSnapshotWithTheme(page, context, browser, 'dark', storyContext)
+    if (!skipDarkMode) {
+        await takeSnapshotWithTheme(page, context, browser, 'dark', storyContext)
+    }
 }
 
 async function takeSnapshotWithTheme(
@@ -365,12 +399,17 @@ async function expectStoryToMatchSceneSnapshot(
     page: Page,
     context: TestContext,
     browser: SupportedBrowserName,
-    theme: SnapshotTheme
+    theme: SnapshotTheme,
+    targetSelector?: string
 ): Promise<void> {
-    // If the `main` element isn't present, let's use `body` - this is needed in logged-out screens.
-    // We use .last(), because the order of selector matches is based on the order of elements in the DOM,
-    // and not the order of the selectors in the query.
-    await expectLocatorToMatchStorySnapshot(page.locator('body, main').last(), context, browser, theme)
+    if (targetSelector) {
+        await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme)
+    } else {
+        // If the `main` element isn't present, let's use `body` - this is needed in logged-out screens.
+        // We use .last(), because the order of selector matches is based on the order of elements in the DOM,
+        // and not the order of the selectors in the query.
+        await expectLocatorToMatchStorySnapshot(page.locator('body, main').last(), context, browser, theme)
+    }
 }
 
 async function expectStoryToMatchComponentSnapshot(
@@ -446,7 +485,11 @@ async function waitForPageReady(page: Page, skipNetworkIdle = false): Promise<vo
     await page.waitForLoadState('load')
 
     if (process.env.CI && !skipNetworkIdle) {
-        await page.waitForLoadState('networkidle')
+        // networkidle can be flaky in CI due to background requests - don't fail on timeout
+        await page.waitForLoadState('networkidle').catch(() => {
+            // eslint-disable-next-line no-console
+            console.warn('[test-runner] networkidle timeout - proceeding anyway')
+        })
     }
 
     await page.evaluate(() => document.fonts.ready)

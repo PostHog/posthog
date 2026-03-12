@@ -45,6 +45,11 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                     default_evaluation_tags: [],
                     enabled: false,
                 },
+                '/api/environments/:id/default_evaluation_contexts/': {
+                    default_evaluation_contexts: [],
+                    available_contexts: [],
+                    enabled: false,
+                },
             },
             patch: {
                 '/api/projects/:id': async (req, res, ctx) => {
@@ -70,8 +75,14 @@ const Template: StoryFn<StoryProps> = ({ sectionId }) => {
 export const SettingsEnvironmentDetails: Story = Template.bind({})
 SettingsEnvironmentDetails.args = { sectionId: 'environment-details' }
 
+export const SettingsEnvironmentCustomization: Story = Template.bind({})
+SettingsEnvironmentCustomization.args = { sectionId: 'environment-customization' }
+
 export const SettingsEnvironmentAutocapture: Story = Template.bind({})
 SettingsEnvironmentAutocapture.args = { sectionId: 'environment-autocapture' }
+
+export const SettingsEnvironmentHeatmaps: Story = Template.bind({})
+SettingsEnvironmentHeatmaps.args = { sectionId: 'environment-heatmaps' }
 
 export const SettingsEnvironmentProductAnalytics: Story = Template.bind({})
 SettingsEnvironmentProductAnalytics.args = { sectionId: 'environment-product-analytics' }
@@ -102,6 +113,9 @@ SettingsEnvironmentErrorTracking.args = { sectionId: 'environment-error-tracking
 
 export const SettingsEnvironmentCSPReporting: Story = Template.bind({})
 SettingsEnvironmentCSPReporting.args = { sectionId: 'environment-csp-reporting' }
+
+export const SettingsEnvironmentPrivacy: Story = Template.bind({})
+SettingsEnvironmentPrivacy.args = { sectionId: 'environment-privacy' }
 
 export const SettingsEnvironmentMax: Story = Template.bind({})
 SettingsEnvironmentMax.args = { sectionId: 'environment-max' }

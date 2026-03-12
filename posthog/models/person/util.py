@@ -103,10 +103,13 @@ if TEST:
                 distinct_id_inserts.append(f"('{distinct_id}', '{person.uuid}', {person.team_id}, 0, 0, now(), 0, 0)")
                 person_mapping[distinct_id] = person
 
-            created_at = now().strftime("%Y-%m-%d %H:%M:%S.%f")
-            timestamp = now().strftime("%Y-%m-%d %H:%M:%S")
+            dt = now()
+            created_at = dt.strftime("%Y-%m-%d %H:%M:%S.%f")
+            timestamp = dt.strftime("%Y-%m-%d %H:%M:%S")
+            # Round to the hour for last_seen_at
+            last_seen_at = dt.replace(minute=0, second=0, microsecond=0).strftime("%Y-%m-%d %H:%M:%S.%f")
             person_inserts.append(
-                f"('{person.uuid}', '{created_at}', {person.team_id}, '{json.dumps(person.properties)}', {'1' if person.is_identified else '0'}, '{timestamp}', 0, 0, 0)"
+                f"('{person.uuid}', '{created_at}', {person.team_id}, '{json.dumps(person.properties)}', {'1' if person.is_identified else '0'}, '{timestamp}', 0, 0, 0, '{last_seen_at}')"
             )
 
         PersonDistinctId.objects.bulk_create(distinct_ids)
@@ -130,6 +133,7 @@ def create_person(
     is_deleted: bool = False,
     timestamp: Optional[Union[datetime.datetime, str]] = None,
     created_at: Optional[datetime.datetime] = None,
+    last_seen_at: Optional[datetime.datetime] = None,
 ) -> str:
     if properties is None:
         properties = {}
@@ -151,6 +155,13 @@ def create_person(
     else:
         created_at = created_at.astimezone(ZoneInfo("UTC"))
 
+    # Default last_seen_at to timestamp rounded down to the hour
+    if last_seen_at is None:
+        last_seen_at = timestamp.replace(minute=0, second=0, microsecond=0)
+    else:
+        last_seen_at = last_seen_at.astimezone(ZoneInfo("UTC"))
+    last_seen_at_formatted = last_seen_at.strftime("%Y-%m-%d %H:%M:%S.%f")
+
     data = {
         "id": str(uuid),
         "team_id": team_id,
@@ -160,6 +171,7 @@ def create_person(
         "created_at": created_at.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "version": version,
         "_timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+        "last_seen_at": last_seen_at_formatted,
     }
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_PERSON, sql=INSERT_PERSON_SQL, data=data, sync=sync)

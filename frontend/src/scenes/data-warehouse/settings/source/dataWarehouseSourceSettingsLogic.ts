@@ -6,11 +6,23 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
-import { buildKeaFormDefaultFromSourceDetails, getErrorsForFields } from 'scenes/data-warehouse/new/sourceWizardLogic'
+import {
+    SSH_FIELD,
+    buildKeaFormDefaultFromSourceDetails,
+    getErrorsForFields,
+} from 'scenes/data-warehouse/new/sourceWizardLogic'
 
-import { SourceConfig } from '~/queries/schema/schema-general'
-import { ExternalDataJob, ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
+import {
+    ExternalDataJob,
+    ExternalDataJobStatus,
+    ExternalDataSchemaStatus,
+    ExternalDataSource,
+    ExternalDataSourceSchema,
+} from '~/types'
 
 import { externalDataSourcesLogic } from '../../externalDataSourcesLogic'
 import { dataWarehouseSourceSceneLogic } from '../DataWarehouseSourceScene'
@@ -22,6 +34,48 @@ export interface DataWarehouseSourceSettingsLogicProps {
 }
 
 const REFRESH_INTERVAL = 5000
+
+const isSensitiveCredentialField = (field: SourceFieldConfig): boolean => {
+    return field.type === 'password' || field.name === 'private_key'
+}
+
+const removeEmptySensitiveValues = (fields: SourceFieldConfig[], valueObj: Record<string, any>): void => {
+    for (const field of fields) {
+        if (field.type === 'switch-group') {
+            const groupValue = valueObj[field.name]
+            if (groupValue && typeof groupValue === 'object') {
+                removeEmptySensitiveValues(field.fields, groupValue)
+            }
+            continue
+        }
+
+        if (field.type === 'select') {
+            const hasOptionFields = !!field.options.filter((option) => (option.fields?.length ?? 0) > 0).length
+            if (!hasOptionFields) {
+                continue
+            }
+            const selectValue = valueObj[field.name]
+            if (selectValue && typeof selectValue === 'object') {
+                const selection = selectValue.selection
+                const selectedOptionFields = field.options.find((option) => option.value === selection)?.fields ?? []
+                removeEmptySensitiveValues(selectedOptionFields, selectValue)
+            }
+            continue
+        }
+
+        if (field.type === 'ssh-tunnel') {
+            const tunnelValue = valueObj[field.name]
+            if (tunnelValue && typeof tunnelValue === 'object') {
+                removeEmptySensitiveValues(SSH_FIELD.fields, tunnelValue)
+            }
+            continue
+        }
+
+        if (isSensitiveCredentialField(field) && valueObj[field.name] === '') {
+            delete valueObj[field.name]
+        }
+    }
+}
 
 export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsLogicType>([
     path(['scenes', 'data-warehouse', 'settings', 'source', 'dataWarehouseSourceSettingsLogic']),
@@ -40,6 +94,10 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
         setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
         setSelectedSchemas: (schemaNames: string[]) => ({ schemaNames }),
         setShowEnabledSchemasOnly: (showEnabledSchemasOnly: boolean) => ({ showEnabledSchemasOnly }),
+        syncNow: true,
+        setSyncingNow: (syncing: boolean) => ({ syncing }),
+        refreshSchemas: true,
+        setRefreshingSchemas: (refreshing: boolean) => ({ refreshing }),
     }),
     loaders(({ actions, values }) => ({
         source: [
@@ -76,8 +134,21 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                         return await api.externalDataSources.jobs(values.sourceId, null, null)
                     }
 
-                    const newJobs = await api.externalDataSources.jobs(values.sourceId, null, values.jobs[0].created_at)
-                    return [...newJobs, ...values.jobs]
+                    // Re-fetch recent jobs without an `after` filter to get updated statuses.
+                    // The API returns up to 50 jobs sorted by created_at desc, so this
+                    // will refresh the status of recent jobs (e.g. Running -> Completed).
+                    const freshJobs = await api.externalDataSources.jobs(values.sourceId, null, null)
+
+                    // Merge fresh jobs with existing jobs, preferring the fresh data
+                    const jobsById = new Map(values.jobs.map((job) => [job.id, job]))
+                    for (const job of freshJobs) {
+                        jobsById.set(job.id, job)
+                    }
+
+                    // Sort by created_at descending (newest first)
+                    return Array.from(jobsById.values()).sort(
+                        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                    )
                 },
                 loadMoreJobs: async () => {
                     const hasJobs = values.jobs.length >= 0
@@ -126,8 +197,23 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
         ],
         showEnabledSchemasOnly: [
             false as boolean,
+            { persist: true },
             {
                 setShowEnabledSchemasOnly: (_, { showEnabledSchemasOnly }) => showEnabledSchemasOnly,
+            },
+        ],
+        syncingNow: [
+            false as boolean,
+            {
+                setSyncingNow: (_, { syncing }) => syncing,
+                syncNow: () => true,
+            },
+        ],
+        refreshingSchemas: [
+            false as boolean,
+            {
+                setRefreshingSchemas: (_, { refreshing }) => refreshing,
+                refreshSchemas: () => true,
             },
         ],
         sourceConfigLoading: [
@@ -167,26 +253,33 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
         sourceConfig: {
             defaults: buildKeaFormDefaultFromSourceDetails(props.availableSources),
             errors: (sourceValues) => {
-                return getErrorsForFields(values.sourceFieldConfig?.fields ?? [], sourceValues as any)
+                return getErrorsForFields(values.sourceFieldConfig?.fields ?? [], sourceValues as any, {
+                    allowBlankSensitiveFields: true,
+                })
             },
-            submit: async ({ payload = {}, description }) => {
+            submit: async ({ payload = {}, description, prefix, access_method }) => {
+                const sanitizedPayload = JSON.parse(JSON.stringify(payload)) as Record<string, any>
+                if (values.sourceFieldConfig?.fields) {
+                    removeEmptySensitiveValues(values.sourceFieldConfig.fields, sanitizedPayload)
+                }
+
                 const newJobInputs = {
                     ...values.source?.job_inputs,
-                    ...payload,
+                    ...sanitizedPayload,
                 }
 
                 // Handle file uploads
                 const sourceFieldConfig = values.sourceFieldConfig
                 if (sourceFieldConfig?.fields) {
                     for (const field of sourceFieldConfig.fields) {
-                        if (field.type === 'file-upload' && payload[field.name]) {
+                        if (field.type === 'file-upload' && sanitizedPayload[field.name]) {
                             try {
                                 // Assumes we're loading a JSON file
                                 const loadedFile: string = await new Promise((resolve, reject) => {
                                     const fileReader = new FileReader()
                                     fileReader.onload = (e) => resolve(e.target?.result as string)
                                     fileReader.onerror = (e) => reject(e)
-                                    fileReader.readAsText(payload[field.name][0])
+                                    fileReader.readAsText(sanitizedPayload[field.name][0])
                                 })
                                 newJobInputs[field.name] = JSON.parse(loadedFile)
                             } catch {
@@ -201,6 +294,8 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                     await externalDataSourcesLogic.asyncActions.updateSource({
                         ...values.source!,
                         job_inputs: newJobInputs,
+                        prefix: prefix !== undefined ? prefix : values.source?.prefix,
+                        access_method: access_method !== undefined ? access_method : values.source?.access_method,
                         description: description !== '' ? description : (values.source?.description ?? null),
                     })
                     actions.loadSource()
@@ -217,6 +312,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
     })),
     listeners(({ values, actions, props, cache }) => ({
         loadSourceSuccess: () => {
+            const isDirectQueryEnabled = !!featureFlagLogic.values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
             cache.disposables.add(() => {
                 const timerId = setTimeout(() => {
                     actions.loadSource()
@@ -228,7 +324,11 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 .findMounted({
                     id: `managed-${props.id}`,
                 })
-                ?.actions.setBreadcrumbName(values.source?.source_type ?? 'Source')
+                ?.actions.setBreadcrumbName(
+                    isDirectQueryEnabled && values.source?.access_method === 'direct'
+                        ? values.source?.prefix || values.source?.source_type || 'Source'
+                        : values.source?.source_type || 'Source'
+                )
         },
         loadSourceFailure: () => {
             cache.disposables.add(() => {
@@ -237,6 +337,34 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 }, REFRESH_INTERVAL)
                 return () => clearTimeout(timerId)
             }, 'sourceRefreshTimeout')
+        },
+        refreshSchemas: async () => {
+            try {
+                const { added = 0, deleted = 0 } = await api.externalDataSources.refreshSchemas(values.sourceId)
+                actions.loadSource()
+                posthog.capture('schemas refreshed', {
+                    sourceType: values.source?.source_type,
+                    added,
+                    deleted,
+                })
+                const parts = ['Schemas refreshed']
+                if (added > 0 || deleted > 0) {
+                    parts.push(
+                        [added > 0 ? `${added} added` : null, deleted > 0 ? `${deleted} deleted` : null]
+                            .filter(Boolean)
+                            .join(' / ')
+                    )
+                }
+                lemonToast.success(parts.join(', '))
+            } catch (e: any) {
+                if (e.message) {
+                    lemonToast.error(e.message)
+                } else {
+                    lemonToast.error("Can't refresh schemas at this time")
+                }
+            } finally {
+                actions.setRefreshingSchemas(false)
+            }
         },
         loadJobsSuccess: () => {
             cache.disposables.add(() => {
@@ -254,11 +382,24 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 return () => clearTimeout(timerId)
             }, 'jobsRefreshTimeout')
         },
+        syncNow: async () => {
+            try {
+                await api.externalDataSources.reload(values.sourceId)
+                actions.loadSource()
+                actions.loadJobs()
+                lemonToast.success('Sync started')
+                posthog.capture('sync now triggered', { sourceType: values.source?.source_type })
+            } catch (e: any) {
+                lemonToast.error(e.message || "Can't start sync at this time")
+            } finally {
+                actions.setSyncingNow(false)
+            }
+        },
         reloadSchema: async ({ schema }) => {
             // Optimistic UI updates before sending updates to the backend
             const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
             const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
-            clonedSource.status = 'Running'
+            clonedSource.status = ExternalDataJobStatus.Running
             clonedSource.schemas[schemaIndex].status = ExternalDataSchemaStatus.Running
 
             actions.loadSourceSuccess(clonedSource)
@@ -279,7 +420,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             // Optimistic UI updates before sending updates to the backend
             const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
             const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
-            clonedSource.status = 'Running'
+            clonedSource.status = ExternalDataJobStatus.Running
             clonedSource.schemas[schemaIndex].status = ExternalDataSchemaStatus.Running
 
             actions.loadSourceSuccess(clonedSource)

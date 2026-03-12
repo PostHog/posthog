@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
+// eslint-disable-next-line import/no-cycle
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getAppContext } from 'lib/utils/getAppContext'
 
@@ -38,6 +39,8 @@ export const userLogic = kea<userLogicType>([
         deleteUser: true,
         updateWeeklyDigestForTeam: (teamId: number, enabled: boolean) => ({ teamId, enabled }),
         updateWeeklyDigestForAllTeams: (teamIds: number[], enabled: boolean) => ({ teamIds, enabled }),
+        updateETWeeklyDigestForTeam: (teamId: number, enabled: boolean) => ({ teamId, enabled }),
+        updateETWeeklyDigestForAllTeams: (teamIds: number[], enabled: boolean) => ({ teamIds, enabled }),
         updateDataPipelineErrorThreshold: (threshold: number) => ({ threshold }),
     })),
     forms(({ actions }) => ({
@@ -295,6 +298,40 @@ export const userLogic = kea<userLogicType>([
                 notification_settings: {
                     ...values.user.notification_settings,
                     project_weekly_digest_disabled: projectWeeklyDigestSettings,
+                },
+            })
+        },
+        updateETWeeklyDigestForTeam: ({ teamId, enabled }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+
+            actions.updateUser({
+                notification_settings: {
+                    ...values.user.notification_settings,
+                    error_tracking_weekly_digest_project_enabled: {
+                        ...values.user.notification_settings.error_tracking_weekly_digest_project_enabled,
+                        [teamId]: enabled,
+                    },
+                },
+            })
+        },
+        updateETWeeklyDigestForAllTeams: ({ teamIds, enabled }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+
+            const etProjectSettings = {
+                ...values.user.notification_settings.error_tracking_weekly_digest_project_enabled,
+            }
+            teamIds?.forEach((teamId) => {
+                etProjectSettings[teamId] = enabled
+            })
+
+            actions.updateUser({
+                notification_settings: {
+                    ...values.user.notification_settings,
+                    error_tracking_weekly_digest_project_enabled: etProjectSettings,
                 },
             })
         },

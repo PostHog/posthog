@@ -78,6 +78,23 @@ const getIdentifierFromEntry = (entry: FileSystemEntry): ProjectDragIdentifier =
     protocol: (entry as unknown as Record<string, string | undefined>).protocol ?? 'project://',
 })
 
+function ProjectDragMonitor({
+    onDragStart,
+    onDragEnd,
+    onDragCancel,
+}: {
+    onDragStart: (event: DragStartEvent) => void
+    onDragEnd: (event: DragEndEvent) => void
+    onDragCancel: () => void
+}): null {
+    useDndMonitor({
+        onDragStart,
+        onDragEnd,
+        onDragCancel,
+    })
+    return null
+}
+
 export function useProjectDragState(): DragContextValue {
     return useContext(ProjectDragContext)
 }
@@ -167,19 +184,14 @@ export function ProjectDragAndDropProvider({ children }: { children: React.React
         }
     }
 
-    function ProjectDragMonitor(): null {
-        useDndMonitor({
-            onDragStart: handleDragStart,
-            onDragEnd: handleDragEnd,
-            onDragCancel: () => setActiveItem(null),
-        })
-        return null
-    }
-
     return (
         <ProjectDragContext.Provider value={{ activeItem }}>
             <DndContext sensors={sensors}>
-                <ProjectDragMonitor />
+                <ProjectDragMonitor
+                    onDragStart={handleDragStart}
+                    onDragEnd={handleDragEnd}
+                    onDragCancel={() => setActiveItem(null)}
+                />
                 {children}
                 <DragOverlay dropAnimation={null}>
                     {activeItem ? (
@@ -188,7 +200,7 @@ export function ProjectDragAndDropProvider({ children }: { children: React.React
                                 {iconForType((activeItem.type as any) || 'default_icon_type')}
                             </span>
                             <span className="truncate font-medium text-primary">
-                                {('name' in activeItem && activeItem.name) || activeItem.path || 'Unnamed item'}
+                                {('name' in activeItem && String(activeItem.name)) || activeItem.path || 'Unnamed item'}
                             </span>
                         </ButtonPrimitive>
                     ) : null}

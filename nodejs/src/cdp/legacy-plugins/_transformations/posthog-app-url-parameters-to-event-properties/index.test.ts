@@ -1,4 +1,4 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { LocalMeta, PluginConfig, processEvent, setupPlugin } from './index'
 

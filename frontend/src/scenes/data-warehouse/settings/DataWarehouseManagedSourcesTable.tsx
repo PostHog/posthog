@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { IconPlusSmall } from '@posthog/icons'
 import {
     LemonButton,
     LemonDialog,
@@ -15,6 +16,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+// eslint-disable-next-line import/no-cycle
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { StatusTagSetting } from 'scenes/data-warehouse/utils'
 import { urls } from 'scenes/urls'
@@ -51,6 +53,20 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                 loading={dataWarehouseSourcesLoading}
                 disableTableWhileLoading={false}
                 pagination={{ pageSize: 10 }}
+                emptyState={
+                    <div className="flex flex-col items-center gap-2 py-2">
+                        <span>{managedSearchTerm ? 'No sources matching your search' : 'No managed sources'}</span>
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconPlusSmall />}
+                            to={urls.dataWarehouseSourceNew()}
+                            size="small"
+                            data-attr="managed-sources-empty-new-source"
+                        >
+                            New source
+                        </LemonButton>
+                    </div>
+                }
                 columns={[
                     {
                         width: 0,
@@ -103,8 +119,10 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                             const tagContent = (
                                 <LemonTag type={StatusTagSetting[source.status] || 'default'}>{source.status}</LemonTag>
                             )
-                            return source.latest_error && source.status === 'Error' ? (
-                                <Tooltip title={source.latest_error}>{tagContent}</Tooltip>
+                            return source.latest_error && source.status === 'Failed' ? (
+                                <Tooltip title={source.latest_error} interactive>
+                                    {tagContent}
+                                </Tooltip>
                             ) : (
                                 tagContent
                             )

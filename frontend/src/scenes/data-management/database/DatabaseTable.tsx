@@ -32,7 +32,8 @@ const nonEditableSchemaTypes = [
     'materialized_view',
 ] as const
 type NonEditableSchemaTypes = Extract<DatabaseSerializedFieldType, (typeof nonEditableSchemaTypes)[number]>
-const editSchemaOptions: Record<Exclude<DatabaseSerializedFieldType, NonEditableSchemaTypes>, string> = {
+type EditableSerializedFieldTypes = Exclude<DatabaseSerializedFieldType, NonEditableSchemaTypes>
+const editSchemaOptions: Record<EditableSerializedFieldTypes, string> = {
     integer: 'Integer',
     float: 'Float',
     decimal: 'Decimal',
@@ -44,7 +45,8 @@ const editSchemaOptions: Record<Exclude<DatabaseSerializedFieldType, NonEditable
     json: 'JSON',
     unknown: 'Unknown',
 }
-const editSchemaOptionsAsArray = Object.keys(editSchemaOptions).map((n) => ({ value: n, label: editSchemaOptions[n] }))
+const editSchemaOptionsKeys = Object.keys(editSchemaOptions) as Array<EditableSerializedFieldTypes>
+const editSchemaOptionsAsArray = editSchemaOptionsKeys.map((n) => ({ value: n, label: editSchemaOptions[n] }))
 
 const isNonEditableSchemaType = (schemaType: unknown): schemaType is NonEditableSchemaTypes => {
     return typeof schemaType === 'string' && nonEditableSchemaTypes.includes(schemaType as NonEditableSchemaTypes)
@@ -56,7 +58,11 @@ const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName:
     const { loadJoins } = useActions(dataWarehouseJoinsLogic)
     const { loadDatabase } = useActions(dataWarehouseSettingsSceneLogic)
 
-    const join = joins.find((n) => n.source_table_name === tableName && n.field_name === fieldName)
+    const join =
+        joins.find((n) => n.source_table_name === tableName && n.field_name === fieldName) ||
+        (tableName === 'events'
+            ? joins.find((n) => n.source_table_name === 'persons' && n.field_name === fieldName)
+            : undefined)
 
     const overlay = useCallback(
         () =>

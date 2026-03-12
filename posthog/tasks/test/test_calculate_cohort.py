@@ -13,6 +13,7 @@ from posthog.models.person import Person
 from posthog.tasks.calculate_cohort import (
     COHORT_STUCK_COUNT_GAUGE,
     COHORTS_STALE_COUNT_GAUGE,
+    COHORTS_TOTAL_GAUGE,
     MAX_AGE_MINUTES,
     MAX_ERRORS_CALCULATING,
     MAX_STUCK_COHORTS_TO_RESET,
@@ -148,8 +149,9 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             enqueue_cohorts_to_calculate(5)
             self.assertEqual(patch_increment_version_and_enqueue_calculate_cohort.call_count, 2)
 
+        @patch.object(COHORTS_TOTAL_GAUGE, "set")
         @patch.object(COHORTS_STALE_COUNT_GAUGE, "labels")
-        def test_update_stale_cohort_metrics(self, mock_labels: MagicMock) -> None:
+        def test_update_stale_cohort_metrics(self, mock_labels: MagicMock, mock_total_set: MagicMock) -> None:
             mock_gauge = MagicMock()
             mock_labels.return_value = mock_gauge
 
@@ -249,6 +251,10 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             self.assertEqual(set_calls[0][0][0], 3)  # 24h: stale_24h, stale_36h, stale_48h
             self.assertEqual(set_calls[1][0][0], 2)  # 36h: stale_36h, stale_48h
             self.assertEqual(set_calls[2][0][0], 1)  # 48h: stale_48h
+
+            # 4 eligible cohorts: fresh_cohort, stale_24h, stale_36h, stale_48h
+            # Excluded: null_last_calc (no last_calculation), deleted_cohort, static_cohort, high_errors
+            mock_total_set.assert_called_once_with(4)
 
         @patch.object(COHORT_STUCK_COUNT_GAUGE, "set")
         def test_stuck_cohort_metrics(self, mock_set: MagicMock) -> None:
@@ -581,8 +587,37 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             self.assertLess(b_index, c_index, "Cohort B must be processed before C (dependency)")
             self.assertLess(c_index, d_index, "Cohort C must be processed before D (dependency)")
 
-            mock_chain.assert_called_once_with(mock_task, mock_task, mock_task, mock_task)
+            # Verify countdown: first task has no countdown, all subsequent have countdown=2
+            # mock_calculate_cohort_ch_si returns mock_task, and .set() is called on it for non-first tasks
+            set_calls = mock_task.set.call_args_list
+            self.assertEqual(len(set_calls), 3, "3 of 4 tasks should have .set(countdown=2) called")
+            for call in set_calls:
+                self.assertEqual(call, ((), {"countdown": 2}))
+
+            mock_chain.assert_called_once()
             mock_chain_instance.apply_async.assert_called_once()
+
+        @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+        def test_increment_version_and_enqueue_single_cohort_has_no_countdown(
+            self, mock_calculate_cohort_ch_delay: MagicMock
+        ) -> None:
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="Standalone Cohort",
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [{"key": "$some_prop", "value": "something", "type": "person"}],
+                    }
+                },
+                is_static=False,
+            )
+
+            increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=None)
+
+            mock_calculate_cohort_ch_delay.assert_called_once()
+            call_args = mock_calculate_cohort_ch_delay.call_args[0]
+            self.assertEqual(len(call_args), 3, "Single cohort path should use .delay() with no countdown")
 
         @patch("posthog.tasks.calculate_cohort.chain")
         @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")

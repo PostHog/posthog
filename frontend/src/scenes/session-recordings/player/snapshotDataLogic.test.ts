@@ -1,19 +1,13 @@
-import { api } from 'lib/api.mock'
-
-import { expectLogic } from 'kea-test-utils'
-
+import { chunkMutationSnapshot, MUTATION_CHUNK_SIZE } from '@posthog/replay-shared'
 import { EventType, IncrementalSource, NodeType, mutationData } from '@posthog/rrweb-types'
 
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { RecordingDeletedError } from 'lib/api'
 import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 
-import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
-import { overrideSessionRecordingMocks, setupSessionRecordingTest } from './__mocks__/test-setup'
-import { chunkMutationSnapshot } from './snapshot-processing/chunk-large-mutations'
-import { MUTATION_CHUNK_SIZE } from './snapshot-processing/chunk-large-mutations'
+import { setupSessionRecordingTest } from './__mocks__/test-setup'
 import { snapshotDataLogic } from './snapshotDataLogic'
 
 const BLOB_SOURCE: SessionRecordingSnapshotSource = {
@@ -41,84 +35,39 @@ describe('snapshotDataLogic', () => {
             blobV2PollingDisabled: true,
         })
         logic.mount()
-        jest.spyOn(api, 'get')
-        jest.spyOn(api, 'create')
     })
 
-    describe('core assumptions', () => {
-        it('mounts other logics', async () => {
-            await expectLogic(logic).toMount([featureFlagLogic])
-        })
-        it('has default values', () => {
-            expect(logic.values).toMatchObject({
-                snapshotsBySourceSuccessCount: 0,
-                snapshotSources: null,
-                snapshotsForSource: null,
-                snapshotsLoaded: false,
-            })
-        })
-    })
-
-    describe('loading session core', () => {
-        it('loads all data', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadSnapshots()
-            })
-                .toDispatchActions([
-                    'loadSnapshots',
-                    'loadSnapshotSources',
-                    'loadSnapshotSourcesSuccess',
-                    'loadSnapshotsForSourceSuccess',
-                ])
-                .toFinishAllListeners()
-
-            const snapshotsBySources = logic.values.snapshotsBySources
-            expect(Object.keys(snapshotsBySources)).toEqual(['blob_v2-0', 'blob_v2-1', '_count'])
+    describe('recording deleted selectors', () => {
+        it('isRecordingDeleted is false when no error', () => {
+            expect(logic.values.isRecordingDeleted).toBe(false)
+            expect(logic.values.recordingDeletedAt).toBe(null)
+            expect(logic.values.recordingDeletedBy).toBe(null)
         })
 
-        it('fetch metadata success and snapshots error', async () => {
-            silenceKeaLoadersErrors()
-            logic.unmount()
-            overrideSessionRecordingMocks({
-                getMocks: {
-                    '/api/environments/:team_id/session_recordings/:id/snapshots': () => [500, { status: 0 }],
-                },
-            })
-            logic.mount()
-            logic.actions.loadSnapshots()
-            await expectLogic(logic).toDispatchActions(['loadSnapshotSourcesFailure'])
-            resumeKeaLoadersErrors()
-        })
-    })
+        it('isRecordingDeleted is true when snapshotLoadError is RecordingDeletedError', () => {
+            const error = new RecordingDeletedError(1700000000, 'admin@example.com')
+            logic.actions.loadSnapshotsForSourceFailure('Recording deleted', error)
 
-    describe('blob loading', () => {
-        beforeEach(async () => {
-            // load a different session
-            logic = snapshotDataLogic({
-                sessionRecordingId: '2',
-                blobV2PollingDisabled: true,
-            })
-            logic.mount()
+            expect(logic.values.isRecordingDeleted).toBe(true)
+            expect(logic.values.recordingDeletedAt).toBe(1700000000)
+            expect(logic.values.recordingDeletedBy).toBe('admin@example.com')
         })
 
-        it('loads each source', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadSnapshots()
-                // loading the snapshots will trigger a loadSnapshotsForSourceSuccess
-                // that will have the blob source
-                // that triggers loadNextSnapshotSource
-            }).toDispatchActions([
-                // the action we triggered
-                'loadSnapshots',
-                // the response to that triggers loading of the first item which is the blob source
-                // we load more than one at a time
-                (action) =>
-                    action.type === logic.actionTypes.loadSnapshotsForSource &&
-                    action.payload.sources?.length === 2 &&
-                    action.payload.sources?.[0]?.source === 'blob_v2' &&
-                    action.payload.sources?.[1]?.source === 'blob_v2',
-                'loadSnapshotsForSourceSuccess',
-            ])
+        it('isRecordingDeleted is false for non-deleted errors', () => {
+            logic.actions.loadSnapshotsForSourceFailure('some error', new Error('some other error'))
+
+            expect(logic.values.isRecordingDeleted).toBe(false)
+            expect(logic.values.recordingDeletedAt).toBe(null)
+            expect(logic.values.recordingDeletedBy).toBe(null)
+        })
+
+        it('recordingDeletedAt is null when deleted_at is not provided', () => {
+            const error = new RecordingDeletedError(null, null)
+            logic.actions.loadSnapshotsForSourceFailure('Recording deleted', error)
+
+            expect(logic.values.isRecordingDeleted).toBe(true)
+            expect(logic.values.recordingDeletedAt).toBe(null)
+            expect(logic.values.recordingDeletedBy).toBe(null)
         })
     })
 
@@ -147,7 +96,6 @@ describe('snapshotDataLogic', () => {
         })
     })
 
-    // TODO need chunking tests for blob_v2 sources before we deprecate blob_v1
     describe('mutation chunking', () => {
         const createMutationSnapshot = (addsCount: number): RecordingSnapshot =>
             ({

@@ -205,6 +205,7 @@ mod tests {
         setup_redis_client, setup_team_hypercache_reader,
     };
     use bytes::Bytes;
+    use common_cache::NegativeCache;
     use serde_json::json;
 
     #[test]
@@ -469,7 +470,7 @@ mod tests {
     #[tokio::test]
     async fn token_is_returned_correctly() {
         let redis_client = setup_redis_client(None).await;
-        let pg_client = setup_pg_reader_client(None).await;
+        let pg_client = setup_pg_reader_client(None);
         let team = insert_new_team_in_redis(redis_client.clone())
             .await
             .expect("Failed to insert new team in Redis");
@@ -494,10 +495,11 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            NegativeCache::new(100, 300),
         );
 
-        match flag_service.verify_token(&token).await {
-            Ok(extracted_token) => assert_eq!(extracted_token, team.api_token),
+        match flag_service.verify_token_and_get_team(&token).await {
+            Ok(verified_team) => assert_eq!(verified_team.api_token, team.api_token),
             Err(e) => panic!("Failed to extract and verify token: {e:?}"),
         };
     }
@@ -505,7 +507,7 @@ mod tests {
     #[tokio::test]
     async fn test_error_cases() {
         let redis_client = setup_redis_client(None).await;
-        let pg_client = setup_pg_reader_client(None).await;
+        let pg_client = setup_pg_reader_client(None);
         let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
         let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
 
@@ -523,9 +525,10 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            NegativeCache::new(100, 300),
         );
         assert!(matches!(
-            flag_service.verify_token(&result).await,
+            flag_service.verify_token_and_get_team(&result).await,
             Err(FlagError::TokenValidationError)
         ));
 

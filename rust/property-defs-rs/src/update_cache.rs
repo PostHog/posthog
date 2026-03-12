@@ -13,11 +13,15 @@ pub struct Cache {
 // suspect small-batch updates would further reduce internal cache lock contention
 // that can slow down our batch write threads, esp. when a write fails and we evict
 impl Cache {
-    pub fn new(capacity: usize) -> Self {
+    pub fn new(
+        eventdefs_capacity: usize,
+        eventprops_capacity: usize,
+        propdefs_capacity: usize,
+    ) -> Self {
         Self {
-            eventdefs: sync::Cache::new(capacity),
-            eventprops: sync::Cache::new(capacity),
-            propdefs: sync::Cache::new(capacity),
+            eventdefs: sync::Cache::new(eventdefs_capacity),
+            eventprops: sync::Cache::new(eventprops_capacity),
+            propdefs: sync::Cache::new(propdefs_capacity),
         }
     }
 
@@ -25,23 +29,52 @@ impl Cache {
         self.eventdefs.len() + self.eventprops.len() + self.propdefs.len()
     }
 
+    pub fn eventdefs_len(&self) -> usize {
+        self.eventdefs.len()
+    }
+
+    pub fn eventprops_len(&self) -> usize {
+        self.eventprops.len()
+    }
+
+    pub fn propdefs_len(&self) -> usize {
+        self.propdefs.len()
+    }
+
+    pub fn eventdefs_hits(&self) -> u64 {
+        self.eventdefs.hits()
+    }
+
+    pub fn eventdefs_misses(&self) -> u64 {
+        self.eventdefs.misses()
+    }
+
+    pub fn eventprops_hits(&self) -> u64 {
+        self.eventprops.hits()
+    }
+
+    pub fn eventprops_misses(&self) -> u64 {
+        self.eventprops.misses()
+    }
+
+    pub fn propdefs_hits(&self) -> u64 {
+        self.propdefs.hits()
+    }
+
+    pub fn propdefs_misses(&self) -> u64 {
+        self.propdefs.misses()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.propdefs.is_empty() && self.eventdefs.is_empty() && self.eventprops.is_empty()
     }
 
     pub fn contains_key(&self, key: &Update) -> bool {
-        let result = match key {
+        match key {
             Update::Event(_) => self.eventdefs.contains_key(key),
             Update::EventProperty(_) => self.eventprops.contains_key(key),
             Update::Property(_) => self.propdefs.contains_key(key),
-        };
-
-        match result {
-            true => metrics::counter!(UPDATES_CACHE, &[("action", "hit")]).increment(1),
-            _ => metrics::counter!(UPDATES_CACHE, &[("action", "miss")]).increment(1),
-        };
-
-        result
+        }
     }
 
     pub fn insert(&self, key: Update) {

@@ -83,7 +83,8 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
         ],
         allTablesMap: [
             (s) => [s.allTables],
-            (allTables: DatabaseSchemaTable[]): Record<string, DatabaseSchemaTable> => toMapByName(allTables),
+            (allTables: DatabaseSchemaTable[]): Record<string, DatabaseSchemaTable> =>
+                toMapByName(allTables.filter((t) => t.type !== 'endpoint')),
             { resultEqualityCheck: objectsEqual },
         ],
         posthogTables: [
@@ -154,6 +155,32 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             (s) => [s.allTables],
             (allTables: DatabaseSchemaTable[]): DatabaseSchemaEndpointTable[] => {
                 return allTables.filter((n): n is DatabaseSchemaEndpointTable => n.type === 'endpoint')
+            },
+            { resultEqualityCheck: objectsEqual },
+        ],
+        latestEndpointTables: [
+            (s) => [s.endpointTables],
+            (endpointTables: DatabaseSchemaEndpointTable[]): DatabaseSchemaEndpointTable[] => {
+                const grouped: Record<string, DatabaseSchemaEndpointTable> = {}
+                for (const table of endpointTables) {
+                    const match = table.name.match(/^(.+)_v(\d+)$/)
+                    if (!match) {
+                        continue
+                    }
+                    const [, baseName, versionStr] = match
+                    const version = parseInt(versionStr, 10)
+                    const existing = grouped[baseName]
+                    if (!existing) {
+                        grouped[baseName] = table
+                    } else {
+                        const existingMatch = existing.name.match(/_v(\d+)$/)
+                        const existingVersion = existingMatch ? parseInt(existingMatch[1], 10) : 0
+                        if (version > existingVersion) {
+                            grouped[baseName] = table
+                        }
+                    }
+                }
+                return Object.values(grouped)
             },
             { resultEqualityCheck: objectsEqual },
         ],

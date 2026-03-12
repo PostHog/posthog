@@ -18,8 +18,8 @@ import {
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
 import { useErrorTrackingExplainIssue } from '../../../ExplainIssueTool'
-import { FixModal } from '../../FixModal'
 import { exceptionCardLogic } from '../../exceptionCardLogic'
+import { FixModal } from '../../FixModal'
 
 export interface StackTraceActionsProps {
     issue: ErrorTrackingRelationalIssue
@@ -29,7 +29,7 @@ export function StackTraceActions({ issue }: StackTraceActionsProps): JSX.Elemen
     const { exceptionList } = useValues(errorPropertiesLogic)
     const showFixButton = hasResolvedStackFrames(exceptionList)
     const [showFixModal, setShowFixModal] = useState(false)
-    const { openMax } = useErrorTrackingExplainIssue()
+    const { openMax } = useErrorTrackingExplainIssue(issue.id)
 
     return (
         <ButtonGroupPrimitive size="sm">

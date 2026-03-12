@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 from django.db import transaction
 from django.db.models import F, Q
 from django.db.models.functions import Greatest
@@ -6,9 +8,16 @@ from django.dispatch import receiver
 
 import structlog
 
+from posthog.event_usage import report_team_action, report_user_action
+from posthog.exceptions_capture import capture_exception
+from posthog.models import User
 from posthog.models.comment import Comment
 
+from .cache import invalidate_messages_cache, invalidate_tickets_cache
+from .events import capture_message_received, capture_message_sent
 from .models import Ticket
+from .models.constants import Channel
+from .tasks import post_reply_to_slack
 
 logger = structlog.get_logger(__name__)
 
@@ -18,6 +27,11 @@ def _is_private_message(item_context: dict | None) -> bool:
     if not isinstance(item_context, dict):
         return False
     return item_context.get("is_private", False) is True
+
+
+def _get_comment_created_by_id(comment: Comment) -> int | None:
+    created_by_id = getattr(comment, "created_by_id", None)
+    return created_by_id if isinstance(created_by_id, int) else None
 
 
 @receiver(post_save, sender=Comment)
@@ -31,7 +45,6 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
     to widget via last_message_text and to keep message_count accurate for customers.
 
     Uses transaction.on_commit() to defer work and avoid blocking the request.
-    Cache invalidation not needed - short TTLs handle staleness.
     """
     if instance.scope != "conversations_ticket":
         return
@@ -45,10 +58,11 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
     # Capture values for closure (avoid referencing instance in deferred callback)
     team_id = instance.team_id
     item_id = instance.item_id
+    comment_id = str(instance.id)
     created_at = instance.created_at
     content = instance.content
     item_context = instance.item_context
-    created_by_id = instance.created_by_id
+    created_by_id = _get_comment_created_by_id(instance)
 
     def do_update():
         # Private messages don't update denormalized stats (to avoid leaking to widget)
@@ -63,12 +77,40 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
             "message_count": F("message_count") + 1,
             "last_message_at": created_at,
             "last_message_text": (content or "")[:500],  # Truncate to 500 chars
+            "updated_at": created_at,
         }
 
         if is_team_message:
             update_fields["unread_customer_count"] = F("unread_customer_count") + 1
 
         Ticket.objects.filter(id=item_id, team_id=team_id).update(**update_fields)
+
+        # Emit analytics events and invalidate cache
+        try:
+            ticket = Ticket.objects.select_related("team").get(id=item_id, team_id=team_id)
+            # Invalidate widget caches so list and messages reflect the new message
+            if ticket.widget_session_id:
+                invalidate_tickets_cache(team_id, ticket.widget_session_id)
+            invalidate_messages_cache(team_id, item_id)
+
+            # Customer-facing analytics (to customer's project)
+            if is_team_message:
+                capture_message_sent(ticket, comment_id, content or "", created_by_id)
+            else:
+                capture_message_received(ticket, comment_id, content or "")
+
+            # Internal analytics (PostHog tracking its own usage)
+            props = {"channel_source": ticket.channel_source}
+            if is_team_message and created_by_id:
+                user = User.objects.filter(id=created_by_id).first()
+                if user:
+                    report_user_action(user, "support message sent", props, team=ticket.team)
+            else:
+                report_team_action(ticket.team, "support message received", props)
+        except Ticket.DoesNotExist:
+            pass
+        except Exception as e:
+            capture_exception(e, {"ticket_id": item_id})
 
     transaction.on_commit(do_update)
 
@@ -106,7 +148,7 @@ def handle_comment_soft_delete(sender, instance: Comment, **kwargs):
         item_id = instance.item_id
         comment_pk = instance.pk
         item_context = instance.item_context
-        created_by_id = instance.created_by_id
+        created_by_id = _get_comment_created_by_id(instance)
 
         def do_soft_delete_update():
             is_private = _is_private_message(item_context)
@@ -154,3 +196,76 @@ def handle_comment_soft_delete(sender, instance: Comment, **kwargs):
                 )
 
         transaction.on_commit(do_soft_delete_update)
+
+
+@receiver(post_save, sender=Comment)
+def post_slack_reply_on_team_message(sender, instance: Comment, created: bool, **kwargs):
+    """
+    When a team member replies to a Slack-sourced ticket, post the reply
+    back to the Slack thread via a Celery task.
+
+    Only triggers for:
+    - Newly created comments (not edits)
+    - Non-private messages
+    - Messages with a created_by (team member, not customer)
+    - Tickets with channel_source="slack" and valid slack thread info
+    """
+    if instance.scope != "conversations_ticket":
+        return
+
+    if not instance.item_id or not created:
+        return
+
+    item_context = instance.item_context
+    if _is_private_message(item_context):
+        return
+
+    # Only team messages (has created_by, not customer-authored)
+    created_by_id = _get_comment_created_by_id(instance)
+    if not created_by_id:
+        return
+
+    author_type = item_context.get("author_type") if isinstance(item_context, dict) else None
+    if author_type == "customer":
+        return
+
+    # Capture values for the deferred callback
+    team_id = instance.team_id
+    item_id = instance.item_id
+    content = instance.content or ""
+    rich_content = instance.rich_content
+    created_by = instance.created_by
+
+    def do_post_to_slack():
+        try:
+            ticket = Ticket.objects.filter(
+                id=item_id,
+                team_id=team_id,
+                channel_source=Channel.SLACK,
+            ).first()
+
+            if not ticket or not ticket.slack_channel_id or not ticket.slack_thread_ts:
+                return
+
+            team = ticket.team
+            settings_dict = team.conversations_settings or {}
+            if not settings_dict.get("slack_enabled"):
+                return
+
+            author_name = ""
+            if created_by:
+                author_name = f"{created_by.first_name} {created_by.last_name}".strip() or created_by.email
+
+            cast(Any, post_reply_to_slack).delay(
+                ticket_id=str(ticket.id),
+                team_id=team_id,
+                content=content,
+                rich_content=rich_content,
+                author_name=author_name,
+                slack_channel_id=ticket.slack_channel_id,
+                slack_thread_ts=ticket.slack_thread_ts,
+            )
+        except Exception:
+            logger.exception("slack_reply_signal_failed", item_id=item_id)
+
+    transaction.on_commit(do_post_to_slack)

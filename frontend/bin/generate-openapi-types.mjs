@@ -6,6 +6,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { collectSchemaRefs, preprocessSchema, resolveNestedRefs } from '@posthog/openapi-codegen'
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const frontendRoot = path.resolve(__dirname, '..')
 const repoRoot = path.resolve(frontendRoot, '..')
@@ -175,42 +177,6 @@ function createTempDir() {
     return fs.mkdtempSync(path.join(os.tmpdir(), 'openapi-split-'))
 }
 
-function collectSchemaRefs(obj, refs = new Set()) {
-    if (!obj || typeof obj !== 'object') {
-        return refs
-    }
-    if (obj.$ref && typeof obj.$ref === 'string') {
-        refs.add(obj.$ref)
-    }
-    for (const value of Object.values(obj)) {
-        collectSchemaRefs(value, refs)
-    }
-    return refs
-}
-
-function resolveNestedRefs(schemas, refs) {
-    // Iteratively resolve refs until no new ones are found
-    const allRefs = new Set(refs)
-    let changed = true
-    while (changed) {
-        changed = false
-        for (const ref of allRefs) {
-            const schemaName = ref.replace('#/components/schemas/', '')
-            const schema = schemas[schemaName]
-            if (schema) {
-                const nestedRefs = collectSchemaRefs(schema)
-                for (const nestedRef of nestedRefs) {
-                    if (!allRefs.has(nestedRef)) {
-                        allRefs.add(nestedRef)
-                        changed = true
-                    }
-                }
-            }
-        }
-    }
-    return allRefs
-}
-
 /**
  * Group endpoints by output directory.
  *
@@ -234,6 +200,10 @@ function buildGroupedSchemasByOutput(schema, mappings) {
     for (const [pathKey, operations] of Object.entries(schema.paths ?? {})) {
         for (const [method, operation] of Object.entries(operations ?? {})) {
             if (!httpMethods.has(method)) {
+                continue
+            }
+
+            if (operation.deprecated) {
                 continue
             }
 
@@ -357,7 +327,7 @@ function buildGroupedSchemasByOutput(schema, mappings) {
 
 // Main execution
 
-const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8'))
+const schema = preprocessSchema(JSON.parse(fs.readFileSync(schemaPath, 'utf8')))
 const mappings = loadProductMappings()
 const tmpDir = createTempDir()
 
@@ -459,6 +429,9 @@ export default defineConfig({
           ...(info?.title ? [info.title] : []),
           ...(info?.version ? ['OpenAPI spec version: ' + info.version] : []),
         ],
+        namingConvention: {
+          enum: 'PascalCase',
+        },
         fetch: {
           includeHttpResponseReturnType: false,
         },
@@ -495,17 +468,13 @@ for (const result of results) {
     }
 }
 
-// Run prettier once on all generated files
+// Run oxfmt once on all generated files
 if (outputDirs.length > 0) {
     console.log('')
     console.log('Formatting generated files...')
-    const globs = outputDirs.map((d) => `"${d}/**/*.ts"`).join(' ')
-    try {
-        execSync(`pnpm exec prettier --write ${globs}`, { stdio: 'pipe', cwd: repoRoot })
-        console.log('   ✓ Formatted')
-    } catch {
-        console.log('   ⚠️  Prettier formatting skipped (not critical)')
-    }
+    const globs = outputDirs.join(' ')
+    execSync(`pnpm exec oxfmt ${globs}`, { stdio: 'pipe', cwd: repoRoot })
+    console.log('   ✓ Formatted')
 }
 
 // Cleanup temp dir

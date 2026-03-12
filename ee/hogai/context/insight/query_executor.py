@@ -2,7 +2,7 @@ import json
 import time
 import asyncio
 from datetime import UTC, datetime
-from typing import Optional
+from typing import Optional, cast
 
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
@@ -129,6 +129,7 @@ class AssistantQueryExecutor:
         execution_mode: Optional[ExecutionMode] = None,
         insight_id=None,
         debug_timing=False,
+        truncate_results: bool = True,
     ) -> tuple[str, bool]:
         """
         Run a query and format the results with detailed fallback information.
@@ -166,7 +167,9 @@ class AssistantQueryExecutor:
             try:
                 # Attempt to format results using query-specific formatters
                 format_start = time.time()
-                formatted_results = await self._compress_results(query, response_dict, debug_timing=debug_timing)
+                formatted_results = await self._compress_results(
+                    query, response_dict, debug_timing=debug_timing, truncate_results=truncate_results
+                )
                 format_elapsed = time.time() - format_start
                 total_elapsed = time.time() - start_time
                 if debug_timing:
@@ -402,7 +405,11 @@ class AssistantQueryExecutor:
         return response_dict
 
     async def _compress_results(
-        self, query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery, response: dict, debug_timing=False
+        self,
+        query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
+        response: dict,
+        debug_timing=False,
+        truncate_results: bool = True,
     ) -> str:
         """
         Format query results using appropriate formatter based on query type.
@@ -439,7 +446,10 @@ class AssistantQueryExecutor:
                 result = RetentionResultsFormatter(query, response["results"]).format()
             elif isinstance(query, AssistantHogQLQuery | HogQLQuery):
                 formatter_name = "SQLResultsFormatter"
-                result = SQLResultsFormatter(query, response["results"], response["columns"]).format()
+                max_cell_length = SQLResultsFormatter.MAX_CELL_LENGTH if truncate_results else None
+                result = SQLResultsFormatter(
+                    query, response["results"], response["columns"], max_cell_length=max_cell_length
+                ).format()
             elif isinstance(query, RevenueAnalyticsGrossRevenueQuery):
                 formatter_name = "RevenueAnalyticsGrossRevenueResultsFormatter"
                 result = RevenueAnalyticsGrossRevenueResultsFormatter(query, response["results"]).format()
@@ -511,6 +521,8 @@ async def execute_and_format_query(
     query_model: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
     execution_mode: Optional[ExecutionMode] = None,
     insight_id: Optional[int] = None,
+    truncate_results: bool = True,
+    precalculated_result: object | None = None,
 ) -> str:
     """
     Executes a supported query and formats the results for the AI assistant:
@@ -526,13 +538,32 @@ async def execute_and_format_query(
         query: The query to execute.
         execution_mode: The execution mode to use.
         insight_id: The insight ID to use.
+        precalculated_result: Pre-calculated result from the frontend. If provided, skips backend query execution.
     Returns:
         The formatted query results.
     """
     query = validate_assistant_query(query_model.model_dump(mode="json"))
     utc_now_datetime = timezone.now().astimezone(UTC)
     query_runner = AssistantQueryExecutor(team, utc_now_datetime)
-    results, used_fallback = await query_runner.arun_and_format_query(query, execution_mode, insight_id)
+
+    if precalculated_result is not None and is_supported_query(query):
+        try:
+            results = await query_runner._compress_results(
+                query,
+                cast(dict, precalculated_result),
+                truncate_results=truncate_results,
+            )
+            used_fallback = False
+        except Exception as e:
+            logger.warning(f"Failed to format precalculated result: {str(e)}, falling back to query execution")
+            # Fall back to executing the query if formatting the precalculated result fails
+            results, used_fallback = await query_runner.arun_and_format_query(
+                query, execution_mode, insight_id, truncate_results=truncate_results
+            )
+    else:
+        results, used_fallback = await query_runner.arun_and_format_query(
+            query, execution_mode, insight_id, truncate_results=truncate_results
+        )
     example_prompt = FALLBACK_EXAMPLE_PROMPT if used_fallback else get_example_prompt(query)
     currency = team.base_currency or CurrencyCode.USD.value
 

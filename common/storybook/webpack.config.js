@@ -3,11 +3,28 @@ const path = require('path')
 
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
+const fs = require('fs-extra')
 
 const webpackDevServerHost = process.env.WEBPACK_HOT_RELOAD_HOST || '127.0.0.1'
 const webpackDevServerFrontendAddr = webpackDevServerHost === '0.0.0.0' ? '127.0.0.1' : webpackDevServerHost
 
 function createEntry(entry) {
+    // Copy hedgehog-mode assets to dist
+    const hedgehogModeSrc = path.resolve(
+        __dirname,
+        '..',
+        '..',
+        'frontend',
+        'node_modules',
+        '@posthog',
+        'hedgehog-mode',
+        'assets'
+    )
+    const hedgehogModeDest = path.resolve(__dirname, 'dist', 'hedgehog-mode')
+    if (fs.existsSync(hedgehogModeSrc)) {
+        fs.copySync(hedgehogModeSrc, hedgehogModeDest, { overwrite: true })
+    }
+
     const commonLoadersForSassAndLess = [
         {
             loader: 'style-loader',
@@ -58,12 +75,14 @@ function createEntry(entry) {
                 lib: path.resolve(__dirname, '..', '..', 'frontend', 'src', 'lib'),
                 scenes: path.resolve(__dirname, '..', '..', 'frontend', 'src', 'scenes'),
                 '@posthog/lemon-ui': path.resolve(__dirname, '..', '..', 'frontend', '@posthog', 'lemon-ui', 'src'),
+                '@posthog/mosaic': path.resolve(__dirname, '..', '..', 'common', 'mosaic', 'src'),
                 '@posthog/shared-onboarding': path.resolve(__dirname, '..', '..', 'docs', 'onboarding'),
                 storybook: path.resolve(__dirname, '..', '..', 'frontend', '.storybook'),
                 types: path.resolve(__dirname, '..', '..', 'frontend', 'types'),
                 public: path.resolve(__dirname, '..', '..', 'frontend', 'public'),
                 process: 'process/browser',
                 products: path.resolve(__dirname, '..', '..', 'products'),
+                '@common': path.resolve(__dirname, '..', '..', 'common'),
                 react: path.resolve(__dirname, '..', '..', 'frontend', 'node_modules', 'react'),
                 'react-dom': path.resolve(__dirname, '..', '..', 'frontend', 'node_modules', 'react-dom'),
                 kea: path.resolve(__dirname, '..', '..', 'frontend', 'node_modules', 'kea'),

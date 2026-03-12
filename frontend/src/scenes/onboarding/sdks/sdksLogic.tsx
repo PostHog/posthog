@@ -5,13 +5,14 @@ import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isKeyOf } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { liveEventsLogic } from 'scenes/activity/live/liveEventsLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { SDK, SDKInstructionsMap, SDKTag } from '~/types'
+import { SDK, SDKInstructionsMap, SDKTag, SDKTagOverrides } from '~/types'
 
 import { onboardingLogic } from '../onboardingLogic'
 import { ALL_SDKS } from './allSDKs'
@@ -26,18 +27,13 @@ To add SDK instructions for your product:
     6. Add the SDK component to your product onboarding component
 */
 
-const getSourceOptions = (availableSDKInstructionsMap: SDKInstructionsMap): LemonSelectOptions<string> => {
-    const filteredSDKsTags = ALL_SDKS.filter((sdk) =>
-        Object.keys(availableSDKInstructionsMap).includes(sdk.key)
-    ).flatMap((sdk) => sdk.tags)
-
-    const uniqueTags = filteredSDKsTags.filter((item, index) => filteredSDKsTags.indexOf(item) === index)
-    const selectOptions = uniqueTags.map((tag) => ({
+const getSourceOptions = (sdks: SDK[]): LemonSelectOptions<string> => {
+    const allTags = sdks.flatMap((sdk) => sdk.tags)
+    const uniqueTags = allTags.filter((item, index) => allTags.indexOf(item) === index)
+    return uniqueTags.map((tag) => ({
         label: tag,
         value: tag,
     }))
-
-    return selectOptions
 }
 
 /*
@@ -70,6 +66,7 @@ export const sdksLogic = kea<sdksLogicType>([
         setSourceOptions: (sourceOptions: LemonSelectOptions<string>) => ({ sourceOptions }),
         resetSDKs: true,
         setAvailableSDKInstructionsMap: (sdkInstructionMap: SDKInstructionsMap) => ({ sdkInstructionMap }),
+        setSDKTagOverrides: (sdkTagOverrides: SDKTagOverrides) => ({ sdkTagOverrides }),
         setShowSideBySide: (showSideBySide: boolean) => ({ showSideBySide }),
         setPanel: (panel: 'instructions' | 'options') => ({ panel }),
         setHasSnippetEvents: (hasSnippetEvents: boolean) => ({ hasSnippetEvents }),
@@ -105,6 +102,12 @@ export const sdksLogic = kea<sdksLogicType>([
             {} as SDKInstructionsMap,
             {
                 setAvailableSDKInstructionsMap: (_, { sdkInstructionMap }) => sdkInstructionMap,
+            },
+        ],
+        sdkTagOverrides: [
+            {} as SDKTagOverrides,
+            {
+                setSDKTagOverrides: (_, { sdkTagOverrides }) => sdkTagOverrides,
             },
         ],
         showSideBySide: [
@@ -237,17 +240,23 @@ export const sdksLogic = kea<sdksLogicType>([
     listeners(({ actions, values }) => ({
         filterSDKs: () => {
             const availableSDKKeys = Object.keys(values.availableSDKInstructionsMap)
-            const filteredSDks: SDK[] = ALL_SDKS.filter((sdk) => {
-                if (!values.sourceFilter || !sdk) {
-                    return true
-                }
-                return sdk.tags.includes(values.sourceFilter as SDKTag)
-            }).filter((sdk) => availableSDKKeys.includes(sdk.key))
+            const availableSDKs = ALL_SDKS.filter((sdk) => availableSDKKeys.includes(sdk.key)).map((sdk) =>
+                isKeyOf(sdk.key, values.sdkTagOverrides)
+                    ? { ...sdk, tags: values.sdkTagOverrides[sdk.key] as SDKTag[] }
+                    : sdk
+            )
+
+            const filteredSDks = values.sourceFilter
+                ? availableSDKs.filter((sdk) => sdk.tags?.includes(values.sourceFilter as SDKTag))
+                : availableSDKs
 
             actions.setSDKs(filteredSDks)
-            actions.setSourceOptions(getSourceOptions(values.availableSDKInstructionsMap))
+            actions.setSourceOptions(getSourceOptions(availableSDKs))
         },
         setAvailableSDKInstructionsMap: () => {
+            actions.filterSDKs()
+        },
+        setSDKTagOverrides: () => {
             actions.filterSDKs()
         },
         setSDKs: () => {
@@ -264,10 +273,9 @@ export const sdksLogic = kea<sdksLogicType>([
             actions.resetSDKs()
         },
         resetSDKs: () => {
-            actions.filterSDKs()
             actions.setSelectedSDK(null)
             actions.setSourceFilter(null)
-            actions.setSourceOptions(getSourceOptions(values.availableSDKInstructionsMap))
+            actions.filterSDKs()
         },
         setSelectedSDK: () => {
             if (values.selectedSDK) {

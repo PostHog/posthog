@@ -22,8 +22,8 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ApprovalDecision, ChangeRequest, ChangeRequestState } from '~/types'
 
-import { ChangeRequestActions } from './ChangeRequestActions'
 import { ApprovalLogicProps, ProposedChangesTab, approvalLogic } from './approvalLogic'
+import { ChangeRequestActions } from './ChangeRequestActions'
 import { generateDecisionAnalysis } from './decisionAnalysis'
 
 export const scene: SceneExport<ApprovalLogicProps> = {
@@ -33,9 +33,8 @@ export const scene: SceneExport<ApprovalLogicProps> = {
 }
 
 function ApprovalDetail({ id }: ApprovalLogicProps): JSX.Element {
-    const { changeRequest, changeRequestLoading, changeRequestMissing, proposedChangesTab } = useValues(
-        approvalLogic({ id })
-    )
+    const { changeRequest, changeRequestLoading, changeRequestMissing, proposedChangesTab, isApprovalsFeatureEnabled } =
+        useValues(approvalLogic({ id }))
     const { approveChangeRequest, rejectChangeRequest, cancelChangeRequest, setProposedChangesTab } = useActions(
         approvalLogic({ id })
     )
@@ -43,7 +42,7 @@ function ApprovalDetail({ id }: ApprovalLogicProps): JSX.Element {
     const containerRef = useRef<HTMLDivElement>(null)
     const [width] = useSize(containerRef)
 
-    if (changeRequestMissing) {
+    if (!isApprovalsFeatureEnabled || changeRequestMissing) {
         return <NotFound object="change request" />
     }
 

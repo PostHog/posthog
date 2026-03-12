@@ -6,13 +6,16 @@ import datetime as dt
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.hogql import ast
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.visitor import clone_expr
 
 from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.clickhouse import get_client
 
 from products.batch_exports.backend.temporal import sql
 
@@ -71,8 +74,8 @@ class RecordBatchModel(abc.ABC):
         data_interval_start: dt.datetime | None,
         data_interval_end: dt.datetime,
         s3_folder: str,
-        s3_key: str,
-        s3_secret: str,
+        s3_key: str | None,
+        s3_secret: str | None,
         num_partitions: int,
     ) -> tuple[Query, QueryParameters]:
         """Produce a printed query and any necessary ClickHouse query parameters."""
@@ -86,7 +89,7 @@ class SessionsRecordBatchModel(RecordBatchModel):
         self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
     ) -> ast.SelectQuery:
         """Return the HogQLQuery used for the sessions model."""
-        hogql_query = sql.SELECT_FROM_SESSIONS_HOGQL
+        hogql_query = clone_expr(sql.SELECT_FROM_SESSIONS_HOGQL)
 
         where_and = ast.And(
             exprs=[
@@ -154,8 +157,8 @@ class SessionsRecordBatchModel(RecordBatchModel):
         data_interval_start: dt.datetime | None,
         data_interval_end: dt.datetime,
         s3_folder: str,
-        s3_key: str,
-        s3_secret: str,
+        s3_key: str | None,
+        s3_secret: str | None,
         num_partitions: int,
     ) -> tuple[Query, QueryParameters]:
         """Produce a printed query and any necessary ClickHouse query parameters."""
@@ -179,19 +182,102 @@ class SessionsRecordBatchModel(RecordBatchModel):
         else:
             log_comment = ", " + log_comment
 
+        s3_function = sql.get_s3_function_call(s3_folder, s3_key, s3_secret, num_partitions)
         insert_query = f"""
-INSERT INTO FUNCTION
-   s3(
-       '{s3_folder}/export_{{{{_partition_id}}}}.arrow',
-       '{s3_key}',
-       '{s3_secret}',
-       'ArrowStream'
-    )
-    PARTITION BY rand() %% {num_partitions}
+INSERT INTO FUNCTION {s3_function}
 {printed}{log_comment}
 """
 
         return insert_query, context.values
+
+    def get_backfill_info_hogql_query(
+        self, start_at: dt.datetime | None, end_at: dt.datetime | None
+    ) -> ast.SelectQuery:
+        """Return a HogQL query to estimate record count and earliest timestamp for a backfill."""
+        where_and = ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["sessions", "team_id"]),
+                    right=ast.Constant(value=self.team_id),
+                ),
+                # filter out sessions before 2000-01-01 in case we have any incorrect timestamps
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Gt,
+                    left=ast.Field(chain=["$end_timestamp"]),
+                    right=ast.Constant(value=dt.datetime(2000, 1, 1, tzinfo=dt.UTC)),
+                ),
+            ]
+        )
+
+        if end_at is not None:
+            where_and.exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Field(chain=["$end_timestamp"]),
+                    right=ast.Constant(value=end_at),
+                ),
+            )
+
+        if start_at is not None:
+            where_and.exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["$end_timestamp"]),
+                    right=ast.Constant(value=start_at),
+                ),
+            )
+
+        return ast.SelectQuery(
+            select=[
+                parse_expr("min($end_timestamp) as min_timestamp"),
+                parse_expr("count() as record_count"),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["sessions"])),
+            where=where_and,
+            settings=sql.HogQLQueryBatchExportSettings(),
+        )
+
+    async def get_backfill_info(
+        self, start_at: dt.datetime | None, end_at: dt.datetime | None
+    ) -> tuple[dt.datetime | None, int | None]:
+        """Estimate record count and earliest timestamp for a backfill.
+
+        Returns:
+            A tuple of (min_timestamp, estimated_records_count).
+            If no data exists, returns (None, 0).
+        """
+        hogql_query = self.get_backfill_info_hogql_query(start_at, end_at)
+        context = await self.get_hogql_context()
+
+        prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
+            hogql_query, context=context, dialect="clickhouse", stack=[]
+        )
+        assert prepared_hogql_query is not None
+        context.output_format = "JSONEachRow"
+        printed = print_prepared_ast(
+            prepared_hogql_query,
+            context=context,
+            dialect="clickhouse",
+            stack=[],
+        )
+
+        async with get_client(team_id=self.team_id) as client:
+            result = await client.read_query_as_jsonl(printed, query_parameters=context.values)
+
+        min_timestamp_str = result[0]["min_timestamp"]
+        record_count = int(result[0]["record_count"])
+
+        min_timestamp = dt.datetime.fromisoformat(min_timestamp_str)
+        if min_timestamp.tzinfo is None:
+            min_timestamp = min_timestamp.replace(tzinfo=dt.UTC)
+        else:
+            min_timestamp = min_timestamp.astimezone(dt.UTC)
+
+        if min_timestamp.year == 1970:
+            return None, 0
+
+        return min_timestamp, record_count
 
 
 def resolve_batch_exports_model(

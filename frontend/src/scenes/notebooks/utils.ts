@@ -49,6 +49,7 @@ export const textContent = (node: RichContentNode): string => {
         [NotebookNodeType.Query]: customOrTitleSerializer,
         [NotebookNodeType.Python]: customOrTitleSerializer,
         [NotebookNodeType.DuckSQL]: customOrTitleSerializer,
+        [NotebookNodeType.HogQLSQL]: customOrTitleSerializer,
         [NotebookNodeType.Recording]: customOrTitleSerializer,
         [NotebookNodeType.LLMTrace]: customOrTitleSerializer,
         [NotebookNodeType.Issues]: customOrTitleSerializer,
@@ -68,6 +69,7 @@ export const textContent = (node: RichContentNode): string => {
         [NotebookNodeType.UsageMetrics]: customOrTitleSerializer,
         [NotebookNodeType.ZendeskTickets]: customOrTitleSerializer,
         [NotebookNodeType.RelatedGroups]: customOrTitleSerializer,
+        [NotebookNodeType.CustomerJourney]: customOrTitleSerializer,
     }
 
     return getText(node, {

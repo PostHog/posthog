@@ -11,7 +11,7 @@ import {
     DataWarehouseNode,
     IntegrationFilter,
     MARKETING_ANALYTICS_SCHEMA,
-    MarketingAnalyticsHelperForColumnNames,
+    MarketingAnalyticsConstants,
     MarketingAnalyticsTableQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
@@ -22,6 +22,7 @@ import { marketingAnalyticsTableLogic } from './marketingAnalyticsTableLogic'
 import type { marketingAnalyticsTilesLogicType } from './marketingAnalyticsTilesLogicType'
 import {
     getOrderBy,
+    rawColumnsForTiles,
     getSortedColumnsByArray,
     isDraftConversionGoalColumn,
     orderArrayByPreference,
@@ -29,6 +30,9 @@ import {
 } from './utils'
 
 export const MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID = 'marketing-analytics'
+
+const isSchemaBackedMarketingColumn = (column: validColumnsForTiles): column is rawColumnsForTiles =>
+    column !== 'roas' && column !== 'cost_per_reported_conversion'
 
 export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType>([
     path(['scenes', 'webAnalytics', 'marketingAnalyticsTilesLogic']),
@@ -84,7 +88,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 }
 
                 const isCurrency =
-                    tileColumnSelection && MARKETING_ANALYTICS_SCHEMA[tileColumnSelection]
+                    tileColumnSelection && isSchemaBackedMarketingColumn(tileColumnSelection)
                         ? MARKETING_ANALYTICS_SCHEMA[tileColumnSelection].isCurrency
                         : false
 
@@ -222,7 +226,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                     ...(draftConversionGoal
                         ? [
                               draftConversionGoal.conversion_goal_name,
-                              `${MarketingAnalyticsHelperForColumnNames.CostPer} ${draftConversionGoal.conversion_goal_name}`,
+                              `${MarketingAnalyticsConstants.CostPer} ${draftConversionGoal.conversion_goal_name}`,
                           ]
                         : []),
                 ]

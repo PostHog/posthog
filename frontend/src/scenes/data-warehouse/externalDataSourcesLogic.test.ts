@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import api, { PaginatedResponse } from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, DataWarehouseSyncInterval, ExternalDataSource } from '~/types'
+import { AccessControlLevel, DataWarehouseSyncInterval, ExternalDataJobStatus, ExternalDataSource } from '~/types'
 
 import { externalDataSourcesLogic } from './externalDataSourcesLogic'
 
@@ -29,7 +29,7 @@ describe('externalDataSourcesLogic', () => {
                     source_id: 'source-1',
                     connection_id: 'conn-1',
                     source_type: 'Postgres',
-                    status: 'Running',
+                    status: ExternalDataJobStatus.Running,
                     schemas: [],
                     prefix: 'test',
                     description: null,
@@ -52,7 +52,7 @@ describe('externalDataSourcesLogic', () => {
         logic.mount()
 
         await expectLogic(logic, () => {
-            logic.actions.loadSources(null)
+            logic.actions.loadSources()
         })
             .toDispatchActions(['loadSources', 'loadSourcesSuccess'])
             .toMatchValues({

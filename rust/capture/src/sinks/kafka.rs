@@ -137,6 +137,7 @@ pub struct KafkaTopicConfig {
     pub heatmaps_topic: String,
     pub replay_overflow_topic: String,
     pub dlq_topic: String,
+    pub error_tracking_topic: String,
 }
 
 impl From<&KafkaConfig> for KafkaTopicConfig {
@@ -150,6 +151,7 @@ impl From<&KafkaConfig> for KafkaTopicConfig {
             heatmaps_topic: config.kafka_heatmaps_topic.clone(),
             replay_overflow_topic: config.kafka_replay_overflow_topic.clone(),
             dlq_topic: config.kafka_dlq_topic.clone(),
+            error_tracking_topic: config.kafka_error_tracking_topic.clone(),
         }
     }
 }
@@ -220,7 +222,26 @@ impl KafkaSink {
                 "queue.buffering.max.kbytes",
                 (config.kafka_producer_queue_mib * 1024).to_string(),
             )
-            .set("acks", &config.kafka_producer_acks);
+            .set("acks", &config.kafka_producer_acks)
+            .set(
+                "batch.num.messages",
+                config.kafka_producer_batch_num_messages.to_string(),
+            )
+            .set("batch.size", config.kafka_producer_batch_size.to_string())
+            .set(
+                "max.in.flight.requests.per.connection",
+                config.kafka_producer_max_in_flight_requests.to_string(),
+            )
+            .set(
+                "sticky.partitioning.linger.ms",
+                config
+                    .kafka_producer_sticky_partitioning_linger_ms
+                    .to_string(),
+            )
+            .set(
+                "enable.idempotence",
+                config.kafka_producer_enable_idempotence.to_string(),
+            );
 
         if !&config.kafka_client_id.is_empty() {
             client_config.set("client.id", &config.kafka_client_id);
@@ -289,7 +310,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         let (event, metadata) = (event.event, event.metadata);
 
         let payload = serde_json::to_string(&event).map_err(|e| {
-            error!("failed to serialize event: {e}");
+            error!("failed to serialize event: {e:#}");
             CaptureError::NonRetryableSinkError
         })?;
 
@@ -299,6 +320,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         let force_overflow = metadata.force_overflow;
         let skip_person_processing = metadata.skip_person_processing;
         let redirect_to_dlq = metadata.redirect_to_dlq;
+        let redirect_to_topic = metadata.redirect_to_topic;
 
         // Use the event's to_headers() method for consistent header serialization
         let mut headers = event.to_headers();
@@ -317,7 +339,24 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
                 &[("reason", "event_restriction")]
             )
             .increment(1);
+
+            // Set DLQ specific headers
+            // DLQ reason cannot be known beyond being triggered by an event restriction.
+            headers.set_dlq_reason("event_restriction".to_string());
+            // Unlike with our node code, DLQ step will always be static.
+            headers.set_dlq_step("capture".to_string());
+            headers.set_dlq_timestamp(
+                chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            );
+
             (&self.topics.dlq_topic, Some(event_key.as_str()))
+        } else if let Some(ref topic) = redirect_to_topic {
+            counter!(
+                "capture_events_rerouted_custom_topic",
+                &[("reason", "event_restriction")]
+            )
+            .increment(1);
+            (topic.as_str(), Some(event_key.as_str()))
         } else {
             match data_type {
                 DataType::AnalyticsHistorical => {
@@ -391,6 +430,9 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
                 DataType::ExceptionMain => {
                     (&self.topics.exceptions_topic, Some(event_key.as_str()))
                 }
+                DataType::ExceptionErrorTracking => {
+                    (&self.topics.error_tracking_topic, Some(event_key.as_str()))
+                }
                 DataType::SnapshotMain => {
                     let session_id = session_id
                         .as_deref()
@@ -463,7 +505,7 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
                     }
                     Err(err) => {
                         set.abort_all();
-                        error!("join error while waiting on Kafka ACK: {err:?}");
+                        error!("join error while waiting on Kafka ACK: {err:#}");
                         return Err(CaptureError::RetryableSinkError);
                     }
                 }
@@ -524,6 +566,7 @@ mod tests {
             kafka_historical_topic: "events_plugin_ingestion_historical".to_string(),
             kafka_client_ingestion_warning_topic: "events_plugin_ingestion".to_string(),
             kafka_exceptions_topic: "events_plugin_ingestion".to_string(),
+            kafka_error_tracking_topic: "error_tracking_events".to_string(),
             kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
             kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
             kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
@@ -533,6 +576,11 @@ mod tests {
             kafka_producer_max_retries: 2,
             kafka_producer_acks: "all".to_string(),
             kafka_socket_timeout_ms: 60000,
+            kafka_producer_batch_num_messages: 10000,
+            kafka_producer_batch_size: 1000000,
+            kafka_producer_max_in_flight_requests: 1000000,
+            kafka_producer_sticky_partitioning_linger_ms: 10,
+            kafka_producer_enable_idempotence: false,
         };
         let sink = KafkaSink::new(config, handle, limiter, None)
             .await
@@ -570,6 +618,7 @@ mod tests {
             force_overflow: false,
             skip_person_processing: false,
             redirect_to_dlq: false,
+            redirect_to_topic: None,
         };
 
         let event = ProcessedEvent {
@@ -717,6 +766,9 @@ mod tests {
             now: Some("2023-01-01T12:00:00Z".to_string()),
             force_disable_person_processing: None,
             historical_migration: Some(true),
+            dlq_reason: None,
+            dlq_step: None,
+            dlq_timestamp: None,
         };
 
         let owned_headers: OwnedHeaders = headers_historical.into();
@@ -734,6 +786,9 @@ mod tests {
             now: Some("2023-01-01T12:00:00Z".to_string()),
             force_disable_person_processing: None,
             historical_migration: Some(false),
+            dlq_reason: None,
+            dlq_step: None,
+            dlq_timestamp: None,
         };
 
         let owned_headers: OwnedHeaders = headers_main.into();
@@ -759,6 +814,9 @@ mod tests {
             now: Some(test_now.clone()),
             force_disable_person_processing: None,
             historical_migration: None,
+            dlq_reason: None,
+            dlq_step: None,
+            dlq_timestamp: None,
         };
 
         // Convert to owned headers and back
@@ -769,6 +827,39 @@ mod tests {
         assert_eq!(parsed_headers.now, Some(test_now));
         assert_eq!(parsed_headers.token, Some("test_token".to_string()));
         assert_eq!(parsed_headers.distinct_id, Some("test_id".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_dlq_headers_are_set() {
+        use common_types::CapturedEventHeaders;
+        use rdkafka::message::OwnedHeaders;
+
+        // Test that the 'now' header is correctly set and parsed
+        let test_now = "2024-01-15T10:30:45Z".to_string();
+        let dlq_timestamp = "2025-01-15T10:30:45Z".to_string();
+        let headers = CapturedEventHeaders {
+            token: Some("test_token".to_string()),
+            distinct_id: Some("test_id".to_string()),
+            session_id: None,
+            timestamp: Some("2024-01-15T10:30:00Z".to_string()),
+            event: Some("test_event".to_string()),
+            uuid: Some("test-uuid".to_string()),
+            now: Some(test_now.clone()),
+            force_disable_person_processing: None,
+            historical_migration: None,
+            dlq_reason: Some("test reason".to_string()),
+            dlq_step: Some("test step".to_string()),
+            dlq_timestamp: Some(dlq_timestamp.clone()),
+        };
+
+        // Convert to owned headers and back
+        let owned_headers: OwnedHeaders = headers.into();
+        let parsed_headers = CapturedEventHeaders::from(owned_headers);
+
+        // Verify the 'now' field is preserved
+        assert_eq!(parsed_headers.dlq_reason, Some("test reason".to_string()));
+        assert_eq!(parsed_headers.dlq_step, Some("test step".to_string()));
+        assert_eq!(parsed_headers.dlq_timestamp, Some(dlq_timestamp));
     }
 
     #[cfg(test)]
@@ -785,6 +876,7 @@ mod tests {
         const EXCEPTIONS_TOPIC: &str = "exceptions";
         const CLIENT_INGESTION_WARNING_TOPIC: &str = "client_ingestion_warning";
         const REPLAY_OVERFLOW_TOPIC: &str = "replay_overflow";
+        const ERROR_TRACKING_TOPIC: &str = "error_tracking_events";
 
         fn create_test_topics() -> KafkaTopicConfig {
             KafkaTopicConfig {
@@ -796,6 +888,7 @@ mod tests {
                 heatmaps_topic: HEATMAPS_TOPIC.to_string(),
                 replay_overflow_topic: REPLAY_OVERFLOW_TOPIC.to_string(),
                 dlq_topic: DLQ_TOPIC.to_string(),
+                error_tracking_topic: ERROR_TRACKING_TOPIC.to_string(),
             }
         }
 
@@ -804,6 +897,7 @@ mod tests {
             force_overflow: bool,
             skip_person_processing: bool,
             redirect_to_dlq: bool,
+            redirect_to_topic: Option<String>,
         }
 
         fn create_test_event(input: &EventInput) -> ProcessedEvent {
@@ -830,6 +924,7 @@ mod tests {
                 force_overflow: input.force_overflow,
                 skip_person_processing: input.skip_person_processing,
                 redirect_to_dlq: input.redirect_to_dlq,
+                redirect_to_topic: input.redirect_to_topic.clone(),
             };
 
             ProcessedEvent { event, metadata }
@@ -890,6 +985,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: MAIN_TOPIC,
@@ -908,6 +1004,7 @@ mod tests {
                     force_overflow: true,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: OVERFLOW_TOPIC,
@@ -927,6 +1024,7 @@ mod tests {
                     force_overflow: true,
                     skip_person_processing: true,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: OVERFLOW_TOPIC,
@@ -946,6 +1044,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: true,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: MAIN_TOPIC,
@@ -964,6 +1063,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: true,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -983,6 +1083,7 @@ mod tests {
                     force_overflow: true,
                     skip_person_processing: false,
                     redirect_to_dlq: true,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1001,6 +1102,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: true,
                     redirect_to_dlq: true,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1020,6 +1122,7 @@ mod tests {
                     force_overflow: true,
                     skip_person_processing: true,
                     redirect_to_dlq: true,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1041,6 +1144,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: HISTORICAL_TOPIC,
@@ -1060,6 +1164,7 @@ mod tests {
                     force_overflow: true,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: HISTORICAL_TOPIC,
@@ -1078,6 +1183,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: true,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: HISTORICAL_TOPIC,
@@ -1096,6 +1202,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: true,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1115,6 +1222,7 @@ mod tests {
                     force_overflow: true,
                     skip_person_processing: true,
                     redirect_to_dlq: true,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1135,6 +1243,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: MAIN_TOPIC,
@@ -1153,6 +1262,7 @@ mod tests {
                     force_overflow: true,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: REPLAY_OVERFLOW_TOPIC,
@@ -1172,6 +1282,7 @@ mod tests {
                     force_overflow: true,
                     skip_person_processing: true,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: REPLAY_OVERFLOW_TOPIC,
@@ -1190,6 +1301,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: true,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: MAIN_TOPIC,
@@ -1208,6 +1320,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: true,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1226,6 +1339,7 @@ mod tests {
                     force_overflow: true,
                     skip_person_processing: false,
                     redirect_to_dlq: true,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1247,6 +1361,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: HEATMAPS_TOPIC,
@@ -1265,6 +1380,7 @@ mod tests {
                     force_overflow: true,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: HEATMAPS_TOPIC,
@@ -1283,6 +1399,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: true,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: HEATMAPS_TOPIC,
@@ -1301,6 +1418,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: true,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1322,6 +1440,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: EXCEPTIONS_TOPIC,
@@ -1340,6 +1459,7 @@ mod tests {
                     force_overflow: true,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: EXCEPTIONS_TOPIC,
@@ -1358,6 +1478,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: true,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: EXCEPTIONS_TOPIC,
@@ -1376,6 +1497,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: true,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1397,6 +1519,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: CLIENT_INGESTION_WARNING_TOPIC,
@@ -1415,6 +1538,7 @@ mod tests {
                     force_overflow: true,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: CLIENT_INGESTION_WARNING_TOPIC,
@@ -1433,6 +1557,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: true,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: CLIENT_INGESTION_WARNING_TOPIC,
@@ -1451,6 +1576,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: true,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1459,6 +1585,206 @@ mod tests {
                 },
             )
             .await;
+        }
+
+        // ==================== RedirectToTopic ====================
+        // redirect_to_topic overrides normal routing but DLQ takes priority
+
+        #[tokio::test]
+        async fn analytics_main_redirect_to_topic() {
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AnalyticsMain,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                    redirect_to_topic: Some("custom_topic".to_string()),
+                },
+                ExpectedRouting {
+                    topic: "custom_topic",
+                    has_key: true,
+                    force_disable_person_processing: None,
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn analytics_main_dlq_priority_over_redirect_to_topic() {
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AnalyticsMain,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: true,
+                    redirect_to_topic: Some("custom_topic".to_string()),
+                },
+                ExpectedRouting {
+                    topic: DLQ_TOPIC,
+                    has_key: true,
+                    force_disable_person_processing: None,
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn analytics_main_redirect_to_topic_priority_over_overflow() {
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AnalyticsMain,
+                    force_overflow: true,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                    redirect_to_topic: Some("custom_topic".to_string()),
+                },
+                ExpectedRouting {
+                    topic: "custom_topic",
+                    has_key: true,
+                    force_disable_person_processing: None,
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn analytics_main_redirect_to_topic_with_skip_person() {
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AnalyticsMain,
+                    force_overflow: false,
+                    skip_person_processing: true,
+                    redirect_to_dlq: false,
+                    redirect_to_topic: Some("custom_topic".to_string()),
+                },
+                ExpectedRouting {
+                    topic: "custom_topic",
+                    has_key: true,
+                    force_disable_person_processing: Some(true),
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn snapshot_redirect_to_topic() {
+            assert_routing(
+                EventInput {
+                    data_type: DataType::SnapshotMain,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                    redirect_to_topic: Some("custom_topic".to_string()),
+                },
+                ExpectedRouting {
+                    topic: "custom_topic",
+                    has_key: true,
+                    force_disable_person_processing: None,
+                },
+            )
+            .await;
+        }
+
+        // ==================== DLQ Header Tests ====================
+        // Verify that DLQ-specific headers (reason, step, timestamp) are set
+        // when routing to DLQ, and absent for all other routes.
+
+        #[tokio::test]
+        async fn dlq_headers_set_when_redirect_to_dlq() {
+            let producer = MockKafkaProducer::new();
+            let sink =
+                KafkaSinkBase::with_producer(producer.clone(), create_test_topics(), None, None);
+
+            let event = create_test_event(&EventInput {
+                data_type: DataType::AnalyticsMain,
+                force_overflow: false,
+                skip_person_processing: false,
+                redirect_to_dlq: true,
+                redirect_to_topic: None,
+            });
+            sink.send(event).await.unwrap();
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), 1);
+            let headers = &records[0].headers;
+
+            assert_eq!(headers.dlq_reason.as_deref(), Some("event_restriction"));
+            assert_eq!(headers.dlq_step.as_deref(), Some("capture"));
+            assert!(
+                headers.dlq_timestamp.is_some(),
+                "dlq_timestamp should be set"
+            );
+
+            // Verify the timestamp is a valid RFC 3339 string
+            let ts = headers.dlq_timestamp.as_deref().unwrap();
+            chrono::DateTime::parse_from_rfc3339(ts)
+                .unwrap_or_else(|e| panic!("dlq_timestamp '{ts}' is not valid RFC 3339: {e}"));
+        }
+
+        #[tokio::test]
+        async fn dlq_headers_absent_for_normal_analytics() {
+            let producer = MockKafkaProducer::new();
+            let sink =
+                KafkaSinkBase::with_producer(producer.clone(), create_test_topics(), None, None);
+
+            let event = create_test_event(&EventInput {
+                data_type: DataType::AnalyticsMain,
+                force_overflow: false,
+                skip_person_processing: false,
+                redirect_to_dlq: false,
+                redirect_to_topic: None,
+            });
+            sink.send(event).await.unwrap();
+
+            let records = producer.get_records();
+            let headers = &records[0].headers;
+            assert_eq!(headers.dlq_reason, None);
+            assert_eq!(headers.dlq_step, None);
+            assert_eq!(headers.dlq_timestamp, None);
+        }
+
+        // ==================== ExceptionErrorTracking Tests ====================
+        // Note: Dual-write logic is handled in process_events (analytics.rs).
+        // These tests verify that ExceptionErrorTracking events route to the correct topic.
+
+        #[tokio::test]
+        async fn exception_error_tracking_routes_to_error_tracking_topic() {
+            let producer = MockKafkaProducer::new();
+            let sink =
+                KafkaSinkBase::with_producer(producer.clone(), create_test_topics(), None, None);
+
+            let event = create_test_event(&EventInput {
+                data_type: DataType::ExceptionErrorTracking,
+                force_overflow: false,
+                skip_person_processing: false,
+                redirect_to_dlq: false,
+                redirect_to_topic: None,
+            });
+            sink.send(event).await.unwrap();
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), 1);
+            assert_eq!(records[0].topic, ERROR_TRACKING_TOPIC);
+        }
+
+        #[tokio::test]
+        async fn exception_error_tracking_dlq_takes_priority() {
+            let producer = MockKafkaProducer::new();
+            let sink =
+                KafkaSinkBase::with_producer(producer.clone(), create_test_topics(), None, None);
+
+            let event = create_test_event(&EventInput {
+                data_type: DataType::ExceptionErrorTracking,
+                force_overflow: false,
+                skip_person_processing: false,
+                redirect_to_dlq: true,
+                redirect_to_topic: None,
+            });
+            sink.send(event).await.unwrap();
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), 1);
+            assert_eq!(records[0].topic, DLQ_TOPIC);
         }
     }
 }

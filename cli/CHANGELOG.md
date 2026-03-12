@@ -1,5 +1,42 @@
 # posthog-cli
 
+# 0.7.1
+
+- feat: track upload started and upload finished events
+
+# 0.7.0
+
+- feat: promote dsym, hermes, and proguard commands from experimental to top-level
+- feat: keep backward-compat aliases under `exp` (hidden from help)
+
+# 0.6.2
+
+- fix: endpoints now save to YAML with proper newlines
+
+# 0.6.1
+
+- chore: bump `cargo-dist` version
+
+# 0.6.0
+
+- Add experimental dSYM upload for iOS/macOS crash symbolication
+
+# 0.5.30
+
+- Add experimental dSYM upload for iOS/macOS crash symbolication
+
+# 0.5.29
+
+- chore: introduce env variable `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID` (backwards compatible)
+
+# 0.5.28
+
+- chore: introduce `--release-name` and `--release-version` options (backwards compatible)
+
+# 0.5.27
+
+- fix: only warns on release id mismatch errors
+
 # 0.5.26
 
 - feat: use env variables provided by github actions when available

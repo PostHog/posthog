@@ -88,10 +88,6 @@ pub fn parse_otel_message(json_bytes: &Bytes) -> Result<ExportLogsServiceRequest
         merged_request.resource_logs.extend(request.resource_logs);
     }
 
-    if merged_request.resource_logs.is_empty() {
-        return Err(anyhow::anyhow!("No valid log data found in request"));
-    }
-
     Ok(merged_request)
 }
 
@@ -139,7 +135,7 @@ pub async fn export_logs_http(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    // The Project API key must be passed in as a Bearer token in the Authorization header
+    // The project token must be passed in as a Bearer token in the Authorization header
     if !headers.contains_key("Authorization") && query_params.token.is_none() {
         error!("No token provided");
         return Err((
@@ -216,15 +212,16 @@ pub async fn export_logs_http(
     };
 
     let mut rows: Vec<KafkaLogRow> = Vec::new();
+    let mut timestamps_overridden: u64 = 0;
     for resource_logs in export_request.resource_logs {
         for scope_logs in resource_logs.scope_logs {
             for log_record in scope_logs.log_records {
-                let row = match KafkaLogRow::new(
+                let (row, was_overridden) = match KafkaLogRow::new(
                     log_record,
                     resource_logs.resource.clone(),
                     scope_logs.scope.clone(),
                 ) {
-                    Ok(row) => row,
+                    Ok(result) => result,
                     Err(e) => {
                         error!("Failed to create LogRow: {e}");
                         return Err((
@@ -233,13 +230,20 @@ pub async fn export_logs_http(
                         ));
                     }
                 };
+                if was_overridden {
+                    timestamps_overridden += 1;
+                }
                 rows.push(row);
             }
         }
     }
 
     let row_count = rows.len();
-    if let Err(e) = service.sink.write(token, rows, body.len() as u64).await {
+    if let Err(e) = service
+        .sink
+        .write(token, rows, body.len() as u64, timestamps_overridden)
+        .await
+    {
         error!("Failed to send logs to Kafka: {}", e);
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,

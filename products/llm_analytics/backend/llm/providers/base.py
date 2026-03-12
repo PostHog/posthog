@@ -22,6 +22,7 @@ class Provider(Protocol):
         request: CompletionRequest,
         api_key: str | None,
         analytics: AnalyticsContext,
+        base_url: str | None = None,
     ) -> CompletionResponse:
         """Non-streaming completion"""
         ...
@@ -31,6 +32,7 @@ class Provider(Protocol):
         request: CompletionRequest,
         api_key: str | None,
         analytics: AnalyticsContext,
+        base_url: str | None = None,
     ) -> Generator[StreamChunk, None, None]:
         """Streaming completion"""
         ...
@@ -43,4 +45,9 @@ class Provider(Protocol):
     @staticmethod
     def list_models(api_key: str | None = None) -> list[str]:
         """List available models for this provider"""
+        ...
+
+    @staticmethod
+    def recommended_models() -> set[str]:
+        """Return the set of curated/recommended model IDs for this provider."""
         ...

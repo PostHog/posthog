@@ -1,8 +1,6 @@
 from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest
 from unittest.mock import patch
 
-from django.core.cache import cache
-
 from rest_framework import status
 
 # The remote config stuff plus plugin and hog function queries
@@ -28,7 +26,8 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
         except RemoteConfig.DoesNotExist:
             update_team_remote_config(self.team.id)
 
-        cache.clear()
+        # Clear the HyperCache (both Redis and S3) to properly test cache miss behavior
+        RemoteConfig.get_hypercache().clear_cache(self.team.api_token)
 
     def test_missing_tokens(self):
         with self.assertNumQueries(FuzzyInt(1, 3)):

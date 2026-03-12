@@ -74,6 +74,11 @@ describe('PersonCreateService', () => {
                 properties: { ...propertiesOnce, ...properties, $creator_event_uuid: creatorEventUuid },
                 created_at: createdAt,
                 version: 0,
+                is_identified: true,
+                is_user_id: isUserId,
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+                last_seen_at: null,
             }
 
             const mockResult = {
@@ -152,6 +157,11 @@ describe('PersonCreateService', () => {
                 properties: {},
                 created_at: createdAt,
                 version: 1,
+                is_identified: false,
+                is_user_id: null,
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+                last_seen_at: null,
             }
 
             mockPersonStore.createPerson.mockResolvedValue(conflictResult)

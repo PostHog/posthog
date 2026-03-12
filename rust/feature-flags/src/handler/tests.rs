@@ -27,6 +27,7 @@ use crate::{
 use axum::http::HeaderMap;
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
+use common_cache::NegativeCache;
 use common_database::Client;
 use common_geoip::GeoIpClient;
 use reqwest::header::CONTENT_TYPE;
@@ -129,8 +130,8 @@ fn test_geoip_enabled_local_ip() {
 
 #[tokio::test]
 async fn test_evaluate_feature_flags() {
-    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
-    let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
+    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None);
+    let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None);
     let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
     let context = TestContext::new(None).await;
     let team = context
@@ -170,7 +171,10 @@ async fn test_evaluate_feature_flags() {
         bucketing_identifier: None,
     };
 
-    let feature_flag_list = FeatureFlagList { flags: vec![flag] };
+    let feature_flag_list = FeatureFlagList {
+        flags: vec![flag],
+        ..Default::default()
+    };
 
     let mut person_properties = HashMap::new();
     person_properties.insert("country".to_string(), json!("US"));
@@ -191,11 +195,16 @@ async fn test_evaluate_feature_flags() {
         hash_key_override: None,
         flag_keys: None,
         optimize_experience_continuity_lookups: false,
+        parallel_eval_threshold: 100,
+        rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
+        skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
 
-    let result = evaluate_feature_flags(evaluation_context, request_id).await;
+    let result = evaluate_feature_flags(evaluation_context, request_id)
+        .await
+        .unwrap();
 
     assert!(!result.errors_while_computing_flags);
     assert!(result.flags.contains_key("test_flag"));
@@ -263,7 +272,10 @@ async fn test_evaluate_feature_flags_with_errors() {
         bucketing_identifier: None,
     }];
 
-    let feature_flag_list = FeatureFlagList { flags };
+    let feature_flag_list = FeatureFlagList {
+        flags,
+        ..Default::default()
+    };
 
     // Set up evaluation context
     let evaluation_context = FeatureFlagEvaluationContext {
@@ -282,11 +294,16 @@ async fn test_evaluate_feature_flags_with_errors() {
         hash_key_override: None,
         flag_keys: None,
         optimize_experience_continuity_lookups: false,
+        parallel_eval_threshold: 100,
+        rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
+        skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
 
-    let result = evaluate_feature_flags(evaluation_context, request_id).await;
+    let result = evaluate_feature_flags(evaluation_context, request_id)
+        .await
+        .unwrap();
     let error_flag = result.flags.get("error-flag");
     assert!(error_flag.is_some());
     assert_eq!(
@@ -600,8 +617,8 @@ fn test_decode_form_data_real_world_payload() {
 
 #[tokio::test]
 async fn test_evaluate_feature_flags_multiple_flags() {
-    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
-    let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
+    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None);
+    let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None);
     let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
 
     let context = TestContext::new(None).await;
@@ -669,7 +686,10 @@ async fn test_evaluate_feature_flags_multiple_flags() {
         },
     ];
 
-    let feature_flag_list = FeatureFlagList { flags };
+    let feature_flag_list = FeatureFlagList {
+        flags,
+        ..Default::default()
+    };
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
@@ -687,10 +707,15 @@ async fn test_evaluate_feature_flags_multiple_flags() {
         hash_key_override: None,
         flag_keys: None,
         optimize_experience_continuity_lookups: false,
+        parallel_eval_threshold: 100,
+        rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
+        skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
-    let result = evaluate_feature_flags(evaluation_context, request_id).await;
+    let result = evaluate_feature_flags(evaluation_context, request_id)
+        .await
+        .unwrap();
 
     assert!(!result.errors_while_computing_flags);
     assert!(result.flags["flag_1"].enabled);
@@ -709,8 +734,8 @@ async fn test_evaluate_feature_flags_multiple_flags() {
 
 #[tokio::test]
 async fn test_evaluate_feature_flags_details() {
-    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
-    let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
+    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None);
+    let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None);
     let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(None).await.unwrap();
@@ -773,7 +798,10 @@ async fn test_evaluate_feature_flags_details() {
         },
     ];
 
-    let feature_flag_list = FeatureFlagList { flags };
+    let feature_flag_list = FeatureFlagList {
+        flags,
+        ..Default::default()
+    };
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
@@ -791,10 +819,15 @@ async fn test_evaluate_feature_flags_details() {
         hash_key_override: None,
         flag_keys: None,
         optimize_experience_continuity_lookups: false,
+        parallel_eval_threshold: 100,
+        rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
+        skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
-    let result = evaluate_feature_flags(evaluation_context, request_id).await;
+    let result = evaluate_feature_flags(evaluation_context, request_id)
+        .await
+        .unwrap();
 
     assert!(!result.errors_while_computing_flags);
 
@@ -920,7 +953,10 @@ async fn test_evaluate_feature_flags_with_overrides() {
         evaluation_tags: None,
         bucketing_identifier: None,
     };
-    let feature_flag_list = FeatureFlagList { flags: vec![flag] };
+    let feature_flag_list = FeatureFlagList {
+        flags: vec![flag],
+        ..Default::default()
+    };
 
     let groups = HashMap::from([("project".to_string(), json!("project_123"))]);
     let group_property_overrides = HashMap::from([(
@@ -947,10 +983,15 @@ async fn test_evaluate_feature_flags_with_overrides() {
         hash_key_override: None,
         flag_keys: None,
         optimize_experience_continuity_lookups: false,
+        parallel_eval_threshold: 100,
+        rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
+        skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
-    let result = evaluate_feature_flags(evaluation_context, request_id).await;
+    let result = evaluate_feature_flags(evaluation_context, request_id)
+        .await
+        .unwrap();
 
     assert!(
         result.flags.contains_key("test_flag"),
@@ -1020,7 +1061,10 @@ async fn test_long_distinct_id() {
         bucketing_identifier: None,
     };
 
-    let feature_flag_list = FeatureFlagList { flags: vec![flag] };
+    let feature_flag_list = FeatureFlagList {
+        flags: vec![flag],
+        ..Default::default()
+    };
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
@@ -1038,10 +1082,15 @@ async fn test_long_distinct_id() {
         hash_key_override: None,
         flag_keys: None,
         optimize_experience_continuity_lookups: false,
+        parallel_eval_threshold: 100,
+        rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
+        skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
-    let result = evaluate_feature_flags(evaluation_context, request_id).await;
+    let result = evaluate_feature_flags(evaluation_context, request_id)
+        .await
+        .unwrap();
 
     let legacy_response = LegacyFlagsResponse::from_response(result);
 
@@ -1163,7 +1212,7 @@ fn test_decode_request_content_types() {
 #[tokio::test]
 async fn test_fetch_and_filter_flags() {
     let redis_client = setup_redis_client(None).await;
-    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
+    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None);
     let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
     let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
     let flag_service = FlagService::new(
@@ -1171,6 +1220,7 @@ async fn test_fetch_and_filter_flags() {
         reader.clone(),
         team_hypercache_reader,
         hypercache_reader,
+        NegativeCache::new(100, 300),
     );
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(None).await.unwrap();
@@ -1256,9 +1306,15 @@ async fn test_fetch_and_filter_flags() {
     )
     .await
     .unwrap();
-    assert_eq!(result.flags.len(), 2);
-    assert!(result
+    // All flags remain in the Vec; non-survey flags are in the filter set
+    assert_eq!(result.flags.len(), 4);
+    let active_flags: Vec<_> = result
         .flags
+        .iter()
+        .filter(|f| !result.filtered_out_flag_ids.contains(&f.id))
+        .collect();
+    assert_eq!(active_flags.len(), 2);
+    assert!(active_flags
         .iter()
         .all(|f| f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)));
 
@@ -1314,11 +1370,15 @@ async fn test_fetch_and_filter_flags() {
     .await
     .unwrap();
 
-    // Should return all survey flags since flag_keys filtering now happens in evaluation logic
-    // Survey filter keeps only survey flags, but flag_keys filtering is deferred to evaluation
-    assert_eq!(result.flags.len(), 2);
-    assert!(result
+    // All flags remain in the Vec; non-survey flags are in the filter set
+    assert_eq!(result.flags.len(), 4);
+    let active_flags: Vec<_> = result
         .flags
+        .iter()
+        .filter(|f| !result.filtered_out_flag_ids.contains(&f.id))
+        .collect();
+    assert_eq!(active_flags.len(), 2);
+    assert!(active_flags
         .iter()
         .all(|f| f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)));
 }
@@ -1411,4 +1471,210 @@ fn test_flags_response_with_logs_config() {
 
     let serialized = serde_json::to_string(&response).expect("Failed to serialize");
     assert!(serialized.contains("\"logs\":{\"captureConsoleLogs\":true}"));
+}
+
+/// Exercises the parallel evaluation path (rayon::spawn + oneshot channel) by
+/// setting `parallel_eval_threshold: 1` so even 2 flags trigger it. Asserts
+/// the results are identical to the sequential path.
+#[tokio::test]
+async fn test_parallel_path_matches_sequential_results() {
+    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None);
+    let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None);
+    let context = TestContext::new(None).await;
+    let team = context
+        .insert_new_team(None)
+        .await
+        .expect("Failed to insert team in pg");
+
+    let distinct_id = "parallel_test_user".to_string();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .expect("Failed to insert person");
+
+    let flags = vec![
+        FeatureFlag {
+            name: Some("Always On".to_string()),
+            id: 1,
+            key: "always_on".to_string(),
+            active: true,
+            deleted: false,
+            team_id: team.id,
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            },
+            ensure_experience_continuity: Some(false),
+            version: Some(1),
+            evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
+            bucketing_identifier: None,
+        },
+        FeatureFlag {
+            name: Some("Always Off".to_string()),
+            id: 2,
+            key: "always_off".to_string(),
+            active: true,
+            deleted: false,
+            team_id: team.id,
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![]),
+                    rollout_percentage: Some(0.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            },
+            ensure_experience_continuity: Some(false),
+            version: Some(1),
+            evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
+            bucketing_identifier: None,
+        },
+        FeatureFlag {
+            name: Some("Deleted Flag".to_string()),
+            id: 3,
+            key: "deleted_flag".to_string(),
+            active: true,
+            deleted: true,
+            team_id: team.id,
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            },
+            ensure_experience_continuity: Some(false),
+            version: Some(1),
+            evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
+            bucketing_identifier: None,
+        },
+        FeatureFlag {
+            name: Some("Inactive Flag".to_string()),
+            id: 4,
+            key: "inactive_flag".to_string(),
+            active: false,
+            deleted: false,
+            team_id: team.id,
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            },
+            ensure_experience_continuity: Some(false),
+            version: Some(1),
+            evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
+            bucketing_identifier: None,
+        },
+    ];
+
+    // Flag id=4 is inactive (active=false), so it must be in the filter set
+    let filtered_out_flag_ids = std::collections::HashSet::from([4]);
+
+    // Run sequential (threshold = 100, well above 4 flags)
+    let sequential_context = FeatureFlagEvaluationContext {
+        team_id: team.id,
+        distinct_id: distinct_id.clone(),
+        device_id: None,
+        feature_flags: FeatureFlagList {
+            flags: flags.clone(),
+            filtered_out_flag_ids: filtered_out_flag_ids.clone(),
+        },
+        persons_reader: reader.clone(),
+        persons_writer: writer.clone(),
+        non_persons_reader: reader.clone(),
+        non_persons_writer: writer.clone(),
+        cohort_cache: Arc::new(CohortCacheManager::new(reader.clone(), None, None)),
+        person_property_overrides: None,
+        group_property_overrides: None,
+        groups: None,
+        hash_key_override: None,
+        flag_keys: None,
+        optimize_experience_continuity_lookups: false,
+        parallel_eval_threshold: 100,
+        rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
+        skip_writes: false,
+    };
+    let sequential_result = evaluate_feature_flags(sequential_context, Uuid::new_v4())
+        .await
+        .unwrap();
+
+    // Run parallel (threshold = 1, forces rayon+oneshot for any batch >= 1)
+    let parallel_context = FeatureFlagEvaluationContext {
+        team_id: team.id,
+        distinct_id: distinct_id.clone(),
+        device_id: None,
+        feature_flags: FeatureFlagList {
+            flags,
+            filtered_out_flag_ids,
+        },
+        persons_reader: reader.clone(),
+        persons_writer: writer.clone(),
+        non_persons_reader: reader.clone(),
+        non_persons_writer: writer.clone(),
+        cohort_cache: Arc::new(CohortCacheManager::new(reader.clone(), None, None)),
+        person_property_overrides: None,
+        group_property_overrides: None,
+        groups: None,
+        hash_key_override: None,
+        flag_keys: None,
+        optimize_experience_continuity_lookups: false,
+        parallel_eval_threshold: 1,
+        rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
+        skip_writes: false,
+    };
+    let parallel_result = evaluate_feature_flags(parallel_context, Uuid::new_v4())
+        .await
+        .unwrap();
+
+    // Both paths should produce identical flag results
+    assert_eq!(
+        sequential_result.errors_while_computing_flags,
+        parallel_result.errors_while_computing_flags,
+        "error state mismatch"
+    );
+    assert_eq!(
+        sequential_result.flags.len(),
+        parallel_result.flags.len(),
+        "flag count mismatch: sequential={:?}, parallel={:?}",
+        sequential_result.flags.keys().collect::<Vec<_>>(),
+        parallel_result.flags.keys().collect::<Vec<_>>(),
+    );
+    for (key, seq_details) in &sequential_result.flags {
+        let par_details = parallel_result
+            .flags
+            .get(key)
+            .unwrap_or_else(|| panic!("flag '{key}' missing from parallel results"));
+        assert_eq!(
+            seq_details, par_details,
+            "flag '{key}' differs between sequential and parallel"
+        );
+    }
 }

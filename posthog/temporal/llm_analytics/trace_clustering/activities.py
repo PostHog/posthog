@@ -16,6 +16,7 @@ import structlog
 from temporalio import activity
 
 from posthog.models.team import Team
+from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.llm_analytics.trace_clustering import constants
 from posthog.temporal.llm_analytics.trace_clustering.clustering import (
     calculate_distances_to_cluster_means,
@@ -62,8 +63,10 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
     if window_start is None or window_end is None:
         raise ValueError(f"Invalid datetime format: window_start={inputs.window_start}, window_end={inputs.window_end}")
 
-    # Generate run_id with analysis_level for uniqueness and optional label suffix for experiment tracking
+    # Generate run_id with analysis_level for uniqueness and optional job/label suffixes
     base_run_id = f"{inputs.team_id}_{inputs.analysis_level}_{window_end.strftime('%Y%m%d_%H%M%S')}"
+    if inputs.job_id:
+        base_run_id = f"{base_run_id}_{inputs.job_id}"
     clustering_run_id = f"{base_run_id}_{inputs.run_label}" if inputs.run_label else base_run_id
 
     team = Team.objects.get(id=inputs.team_id)
@@ -74,17 +77,17 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
         window_end=window_end,
         max_samples=inputs.max_samples,
         analysis_level=inputs.analysis_level,
-        trace_filters=inputs.trace_filters if inputs.trace_filters else None,
+        job_id=inputs.job_id if inputs.job_id else None,
     )
 
-    logger.debug(
+    logger.info(
         "perform_clustering_compute_fetched_embeddings",
         num_items=len(item_ids),
         analysis_level=inputs.analysis_level,
     )
 
-    # Need at least 2 items to perform clustering
-    if len(item_ids) < 2:
+    # Need enough items for UMAP (n_neighbors default=15) and meaningful clusters
+    if len(item_ids) < constants.MIN_TRACES_FOR_CLUSTERING:
         logger.warning(
             "Not enough items for clustering",
             item_count=len(item_ids),
@@ -140,6 +143,27 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
             "Skipped generations missing trace_id",
             skipped_count=skipped_missing_trace_id,
             team_id=inputs.team_id,
+        )
+
+    if not items:
+        logger.warning(
+            "All items filtered out after summary join",
+            team_id=inputs.team_id,
+            analysis_level=inputs.analysis_level,
+            original_item_count=len(item_ids),
+        )
+        return ClusteringComputeResult(
+            clustering_run_id=clustering_run_id,
+            items=[],
+            labels=[],
+            centroids=[],
+            distances=[],
+            coords_2d=[],
+            centroid_coords_2d=[],
+            probabilities=[],
+            analysis_level=inputs.analysis_level,
+            num_noise_points=0,
+            batch_run_ids={},
         )
 
     embeddings_array = np.array(filtered_embeddings)
@@ -257,7 +281,8 @@ async def perform_clustering_compute_activity(inputs: ClusteringActivityInputs) 
     Output is ~150 KB (labels, centroids, distances, coords).
     Embeddings (~3-4 MB) are not passed to subsequent activities.
     """
-    return await asyncio.to_thread(_perform_clustering_compute, inputs)
+    async with Heartbeater():
+        return await asyncio.to_thread(_perform_clustering_compute, inputs)
 
 
 def _generate_cluster_labels(inputs: GenerateLabelsActivityInputs) -> GenerateLabelsActivityOutputs:
@@ -292,15 +317,16 @@ def _generate_cluster_labels(inputs: GenerateLabelsActivityInputs) -> GenerateLa
 async def generate_cluster_labels_activity(inputs: GenerateLabelsActivityInputs) -> GenerateLabelsActivityOutputs:
     """Activity 2: LLM labeling - generate titles and descriptions for clusters.
 
-    This activity runs a LangGraph agent (Claude Sonnet 4.5) that iteratively
-    explores cluster structure using tools to sample traces and generate
-    high-quality, distinctive labels.
+    This activity runs a LangGraph agent that iteratively explores cluster
+    structure using tools to sample traces and generate high-quality,
+    distinctive labels.
 
     Timeout: 10 minutes for full agent run
     Input: ~250 KB (trace IDs, cluster data, coordinates)
     Output: ~4 KB (cluster labels)
     """
-    return await asyncio.to_thread(_generate_cluster_labels, inputs)
+    async with Heartbeater():
+        return await asyncio.to_thread(_generate_cluster_labels, inputs)
 
 
 def _emit_cluster_events(inputs: EmitEventsActivityInputs) -> ClusteringResult:
@@ -320,6 +346,8 @@ def _emit_cluster_events(inputs: EmitEventsActivityInputs) -> ClusteringResult:
         batch_run_ids=inputs.batch_run_ids,
         clustering_params=inputs.clustering_params,
         analysis_level=inputs.analysis_level,
+        job_id=inputs.job_id,
+        job_name=inputs.job_name,
     )
 
     return ClusteringResult(
@@ -346,4 +374,5 @@ async def emit_cluster_events_activity(inputs: EmitEventsActivityInputs) -> Clus
     Input: ~150 KB (all clustering data)
     Output: ClusteringResult with metrics and cluster info
     """
-    return await asyncio.to_thread(_emit_cluster_events, inputs)
+    async with Heartbeater():
+        return await asyncio.to_thread(_emit_cluster_events, inputs)

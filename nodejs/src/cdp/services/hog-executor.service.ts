@@ -1,4 +1,3 @@
-import { pickBy } from 'lodash'
 import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
@@ -6,17 +5,16 @@ import { ExecResult, convertHogToJS } from '@posthog/hogvm'
 
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
-import {
-    CyclotronInvocationQueueParametersEmailSchema,
-    CyclotronInvocationQueueParametersFetchSchema,
-} from '~/schema/cyclotron'
 import { FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError, fetch } from '~/utils/request'
 import { tryCatch } from '~/utils/try-catch'
 
-import { Hub } from '../../types'
+import { PluginsServerConfig } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
+import { TeamManager } from '../../utils/team-manager'
 import { UUIDT } from '../../utils/utils'
+import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from '../async-function-registry'
+import '../async-functions'
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
@@ -28,22 +26,32 @@ import {
     MinimalAppMetric,
     MinimalLogEntry,
 } from '../types'
-import { destinationE2eLagMsSummary } from '../utils'
-import { createAddLogFunction, sanitizeLogMessage } from '../utils'
+import { createAddLogFunction, destinationE2eLagMsSummary, sanitizeLogMessage } from '../utils'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
-import { HogInputsService, HogInputsServiceHub } from './hog-inputs.service'
-import { EmailService, EmailServiceHub } from './messaging/email.service'
+import { HogInputsService } from './hog-inputs.service'
+import { EmailService } from './messaging/email.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
-/** Narrowed config type for CDP fetch retry settings, used by destination executors */
-export type CdpFetchConfig = Pick<Hub, 'CDP_FETCH_RETRIES' | 'CDP_FETCH_BACKOFF_BASE_MS' | 'CDP_FETCH_BACKOFF_MAX_MS'>
+/** Narrowed config type for CDP fetch retry settings, used by native/segment destination executors */
+export type CdpFetchConfig = Pick<
+    PluginsServerConfig,
+    'CDP_FETCH_RETRIES' | 'CDP_FETCH_BACKOFF_BASE_MS' | 'CDP_FETCH_BACKOFF_MAX_MS'
+>
 
-export type HogExecutorServiceHub = CdpFetchConfig &
-    HogInputsServiceHub &
-    EmailServiceHub &
-    Pick<Hub, 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS' | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'>
+export interface HogExecutorConfig {
+    hogCostTimingUpperMs: number
+    googleAdwordsDeveloperToken: string
+    fetchRetries: number
+    fetchBackoffBaseMs: number
+    fetchBackoffMaxMs: number
+}
+
+export interface HogExecutorAsyncContext {
+    teamManager: TeamManager
+    siteUrl: string
+}
 
 const cdpHttpRequests = new Counter({
     name: 'cdp_http_requests',
@@ -57,6 +65,24 @@ const cdpHttpRequestTiming = new Histogram({
     buckets: [0, 10, 20, 50, 100, 200, 500, 1000, 2000, 3000, 5000, 10000],
 })
 
+const cdpHttpRequestTimingRetried = new Histogram({
+    name: 'cdp_http_request_timing_retried_ms',
+    help: 'Timing of HTTP requests that required immediate retry after a connection-level error',
+    buckets: [0, 10, 20, 50, 100, 200, 500, 1000, 2000, 3000, 5000, 10000],
+})
+
+// Stale keep-alive connections produce these errors when the server has closed its end before
+// we reuse the socket. A single in-process retry on a fresh connection may resolve them immediately.
+export function isConnectionLevelError(error: any): boolean {
+    return (
+        error?.code === 'UND_ERR_SOCKET' || // undici SocketError ("other side closed")
+        error?.code === 'ECONNRESET' ||
+        error?.code === 'EPIPE' ||
+        error?.message === 'other side closed' ||
+        error?.message === 'socket hang up'
+    )
+}
+
 export async function cdpTrackedFetch({
     url,
     fetchParams,
@@ -67,10 +93,24 @@ export async function cdpTrackedFetch({
     templateId: string
 }): Promise<{ fetchError: Error | null; fetchResponse: FetchResponse | null; fetchDuration: number }> {
     const start = performance.now()
-    const [fetchError, fetchResponse] = await tryCatch(async () => await fetch(url, fetchParams))
+
+    let [fetchError, fetchResponse] = await tryCatch(async () => await fetch(url, fetchParams))
+
     const fetchDuration = performance.now() - start
     cdpHttpRequestTiming.observe(fetchDuration)
     cdpHttpRequests.inc({ status: fetchResponse?.status?.toString() ?? 'error', template_id: templateId })
+
+    if (fetchError && isConnectionLevelError(fetchError)) {
+        logger.warn('🦔', '[cdpTrackedFetch] Connection-level error detected, immediately retrying fetch once', {
+            url,
+            error: fetchError,
+        })
+        ;[fetchError, fetchResponse] = await tryCatch(async () => await fetch(url, fetchParams))
+        const retryDuration = performance.now() - start
+        cdpHttpRequestTimingRetried.observe(retryDuration)
+        cdpHttpRequests.inc({ status: fetchResponse?.status?.toString() ?? 'error', template_id: templateId })
+        return { fetchError, fetchResponse, fetchDuration: retryDuration }
+    }
 
     return { fetchError, fetchResponse, fetchDuration }
 }
@@ -130,7 +170,7 @@ const hogFunctionStateMemory = new Histogram({
 
 export type HogExecutorExecuteOptions = {
     functions?: Record<string, (args: unknown[]) => unknown>
-    asyncFunctionsNames?: ('fetch' | 'sendEmail')[]
+    asyncFunctionsNames?: string[]
 }
 
 export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
@@ -138,15 +178,13 @@ export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
 }
 
 export class HogExecutorService {
-    private hogInputsService: HogInputsService
-    private emailService: EmailService
-    private recipientTokensService: RecipientTokensService
-
-    constructor(private hub: HogExecutorServiceHub) {
-        this.recipientTokensService = new RecipientTokensService(hub)
-        this.hogInputsService = new HogInputsService(hub)
-        this.emailService = new EmailService(hub)
-    }
+    constructor(
+        private config: HogExecutorConfig,
+        private asyncContext: HogExecutorAsyncContext,
+        private hogInputsService: HogInputsService,
+        private emailService: EmailService,
+        private recipientTokensService: RecipientTokensService
+    ) {}
 
     async buildInputsWithGlobals(
         hogFunction: HogFunctionType,
@@ -198,7 +236,7 @@ export class HogExecutorService {
                     ...triggerGlobals,
                     source: {
                         name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
-                        url: `${triggerGlobals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
+                        url: `${triggerGlobals.project.url}/functions/${hogFunction.id}/configuration/`,
                     },
                 }
 
@@ -342,7 +380,13 @@ export class HogExecutorService {
         options: HogExecutorExecuteOptions = {},
         previousResult: Pick<
             Partial<CyclotronJobInvocationResult>,
-            'finished' | 'capturedPostHogEvents' | 'logs' | 'metrics' | 'error' | 'execResult'
+            | 'finished'
+            | 'capturedPostHogEvents'
+            | 'warehouseWebhookPayloads'
+            | 'logs'
+            | 'metrics'
+            | 'error'
+            | 'execResult'
         > = {}
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const loggingContext = {
@@ -385,7 +429,7 @@ export class HogExecutorService {
             try {
                 let hogLogs = 0
 
-                const asyncFunctionsNames = options.asyncFunctionsNames ?? ['fetch', 'sendEmail']
+                const asyncFunctionsNames = options.asyncFunctionsNames ?? getRegisteredAsyncFunctionNames()
                 const asyncFunctions = asyncFunctionsNames.reduce(
                     (acc, fn) => {
                         acc[fn] = async () => Promise.resolve()
@@ -396,7 +440,7 @@ export class HogExecutorService {
 
                 const execHogOutcome = await execHog(invocationInput, {
                     globals,
-                    timeout: this.hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
+                    timeout: this.config.hogCostTimingUpperMs,
                     maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
                     asyncFunctions: asyncFunctions,
                     functions: {
@@ -510,45 +554,15 @@ export class HogExecutorService {
                 }
 
                 if (execRes.asyncFunctionName) {
-                    switch (execRes.asyncFunctionName) {
-                        case 'fetch': {
-                            // Sanitize the args
-                            const [url, fetchOptions] = args as [string | undefined, Record<string, any> | undefined]
-
-                            const method = fetchOptions?.method || 'POST'
-                            const headers = fetchOptions?.headers || {
-                                'Content-Type': 'application/json',
-                            }
-
-                            // Modify the body to ensure it is a string (we allow Hog to send an object to keep things simple)
-                            const body: string | undefined = fetchOptions?.body
-                                ? typeof fetchOptions.body === 'string'
-                                    ? fetchOptions.body
-                                    : JSON.stringify(fetchOptions.body)
-                                : fetchOptions?.body
-
-                            const fetchQueueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
-                                type: 'fetch',
-                                url,
-                                method,
-                                body,
-                                headers: pickBy(headers, (v) => typeof v == 'string'),
-                            })
-
-                            result.invocation.queueParameters = fetchQueueParameters
-                            break
-                        }
-
-                        case 'sendEmail': {
-                            result.invocation.queueParameters = CyclotronInvocationQueueParametersEmailSchema.parse({
-                                ...args[0],
-                                type: 'email',
-                            })
-                            break
-                        }
-                        default:
-                            throw new Error(`Unknown async function '${execRes.asyncFunctionName}'`)
+                    const handler = getAsyncFunctionHandler(execRes.asyncFunctionName)
+                    if (!handler) {
+                        throw new Error(`Unknown async function '${execRes.asyncFunctionName}'`)
                     }
+                    await handler.execute(
+                        args,
+                        { invocation: result.invocation, globals, ...this.asyncContext },
+                        result
+                    )
                 } else {
                     addLog('warn', `Function was not finished but also had no async function to execute.`)
                 }
@@ -611,7 +625,7 @@ export class HogExecutorService {
         let headers = params.headers ?? {}
 
         if (params.url.startsWith('https://googleads.googleapis.com/') && !headers['developer-token']) {
-            headers['developer-token'] = this.hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN
+            headers['developer-token'] = this.config.googleAdwordsDeveloperToken
         }
 
         const integrationInputs = await this.hogInputsService.loadIntegrationInputs(invocation.hogFunction)
@@ -661,9 +675,9 @@ export class HogExecutorService {
 
         if (!fetchResponse || (fetchResponse?.status && fetchResponse.status >= 400)) {
             const backoffMs = Math.min(
-                this.hub.CDP_FETCH_BACKOFF_BASE_MS * result.invocation.state.attempts +
-                    Math.floor(Math.random() * this.hub.CDP_FETCH_BACKOFF_BASE_MS),
-                this.hub.CDP_FETCH_BACKOFF_MAX_MS
+                this.config.fetchBackoffBaseMs * result.invocation.state.attempts +
+                    Math.floor(Math.random() * this.config.fetchBackoffBaseMs),
+                this.config.fetchBackoffMaxMs
             )
 
             const canRetry = isFetchResponseRetriable(fetchResponse, fetchError)
@@ -682,7 +696,7 @@ export class HogExecutorService {
 
             addLog('error', message)
 
-            if (canRetry && result.invocation.state.attempts < this.hub.CDP_FETCH_RETRIES) {
+            if (canRetry && result.invocation.state.attempts < this.config.fetchRetries) {
                 await fetchResponse?.dump()
                 result.invocation.queue = 'hog'
                 result.invocation.queueParameters = params
@@ -728,7 +742,7 @@ export class HogExecutorService {
 
         result.metrics.push({
             team_id: invocation.teamId,
-            app_source_id: invocation.functionId,
+            app_source_id: invocation.parentRunId ?? invocation.functionId,
             metric_kind: 'other',
             metric_name: 'fetch',
             count: 1,

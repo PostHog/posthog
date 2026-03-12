@@ -17,8 +17,8 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { timeZoneLabel } from 'lib/utils'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -28,8 +28,8 @@ import {
     BatchExportConfigurationClearChangesButton,
     BatchExportConfigurationSaveButton,
 } from './BatchExportConfigurationButtons'
-import { BatchExportGeneralEditFields, BatchExportsEditFields } from './BatchExportEditForm'
 import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
+import { BatchExportGeneralEditFields, BatchExportsEditFields } from './BatchExportEditForm'
 import { BatchExportConfigurationForm } from './types'
 import { dayOptions, hourOptions } from './utils'
 
@@ -44,6 +44,8 @@ export function BatchExportConfiguration(): JSX.Element {
         batchExportConfig,
         selectedModel,
         runningStep,
+        isDatabaseDestination,
+        service,
     } = useValues(batchExportConfigurationLogic)
     const { setSelectedModel, setConfigurationValue, runBatchExportConfigTestStep } =
         useActions(batchExportConfigurationLogic)
@@ -104,6 +106,11 @@ export function BatchExportConfiguration(): JSX.Element {
                                         {
                                             value: 'every 5 minutes',
                                             label: 'Every 5 minutes',
+                                            hidden: !highFrequencyBatchExports,
+                                        },
+                                        {
+                                            value: 'every 15 minutes',
+                                            label: 'Every 15 minutes',
                                             hidden: !highFrequencyBatchExports,
                                         },
                                     ]}
@@ -233,6 +240,19 @@ export function BatchExportConfiguration(): JSX.Element {
                                         header: 'View model schema',
                                         content: (
                                             <div className="flex-1">
+                                                {/* TODO: display the data types that will be used in the destination */}
+                                                {isDatabaseDestination && (
+                                                    <LemonBanner type="info" className="mb-4">
+                                                        This schema is just for reference and does not reflect the
+                                                        actual data types that will be used in {service}.
+                                                        <br />
+                                                        <br />
+                                                        <b>
+                                                            It is recommended to allow the batch export to create the
+                                                            destination table automatically.
+                                                        </b>
+                                                    </LemonBanner>
+                                                )}
                                                 <DatabaseTable
                                                     table={selectedModel ? selectedModel : 'events'}
                                                     tables={tables}

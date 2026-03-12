@@ -1,9 +1,8 @@
 import { Handle, NodeProps } from '@xyflow/react'
 import { z } from 'zod'
 
+import { Optional } from 'lib/utils/types'
 import { LogEntry } from 'scenes/hog-functions/logs/logsViewerLogic'
-
-import { Optional } from '~/types'
 
 import { HogFlowAction } from '../types'
 
@@ -29,10 +28,20 @@ const _commonActionFields = {
     updated_at: z.number(),
     filters: ActionFiltersSchema.optional().nullable(),
     output_variable: z // The Hogflow-level variable to store the output of this action into
-        .object({
-            key: z.string(),
-            result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'body.user.id'
-        })
+        .union([
+            z.object({
+                key: z.string(),
+                result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'body.user.id'
+                spread: z.boolean().optional().nullable(), // When true, spread object result into multiple variables as {key}_{property}
+            }),
+            z.array(
+                z.object({
+                    key: z.string(),
+                    result_path: z.string().optional().nullable(),
+                    spread: z.boolean().optional().nullable(),
+                })
+            ),
+        ])
         .optional()
         .nullable(),
 }
@@ -59,6 +68,8 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'integration_field',
         'email',
         'native_email',
+        'posthog_assignee',
+        'posthog_ticket_tags',
     ]),
     key: z.string(),
     label: z.string(),
@@ -234,6 +245,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         type: z.literal('function_email'),
         config: z.object({
             message_category_id: z.string().uuid().optional(),
+            message_category_type: z.enum(['marketing', 'transactional']).optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
             inputs: z.record(CyclotronInputSchema),
@@ -244,6 +256,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         type: z.literal('function_sms'),
         config: z.object({
             message_category_id: z.string().uuid().optional(),
+            message_category_type: z.enum(['marketing', 'transactional']).optional(),
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-twilio'),
             inputs: z.record(CyclotronInputSchema),
@@ -264,6 +277,10 @@ export const isOptOutEligibleAction = (
     action: HogFlowAction
 ): action is Extract<HogFlowAction, { type: 'function_email' | 'function_sms' }> => {
     return ['function_email', 'function_sms'].includes(action.type)
+}
+
+export const isEmailAction = (action: HogFlowAction): action is Extract<HogFlowAction, { type: 'function_email' }> => {
+    return ['function_email'].includes(action.type)
 }
 
 export const isFunctionAction = (
@@ -291,4 +308,5 @@ export interface HogflowTestResult {
     nextActionId: string | null
     errors?: string[]
     variables?: Record<string, any>
+    execResult?: unknown
 }

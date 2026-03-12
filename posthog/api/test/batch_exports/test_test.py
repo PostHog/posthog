@@ -25,6 +25,7 @@ from products.batch_exports.backend.api.destination_tests.snowflake import Snowf
 
 pytestmark = [
     pytest.mark.django_db,
+    pytest.mark.usefixtures("temporal_worker", "cleanup"),
 ]
 
 

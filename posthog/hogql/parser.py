@@ -1,19 +1,13 @@
-import random
 from collections.abc import Callable
 from typing import Literal, cast
 
 from antlr4 import CommonTokenStream, InputStream, ParserRuleContext, ParseTreeVisitor
 from antlr4.error.ErrorListener import ErrorListener
 from hogql_parser import (
-    parse_expr as _parse_expr_cpp,
     parse_expr_json as _parse_expr_json_cpp,
-    parse_full_template_string as _parse_full_template_string_cpp,
     parse_full_template_string_json as _parse_full_template_string_json_cpp,
-    parse_order_expr as _parse_order_expr_cpp,
     parse_order_expr_json as _parse_order_expr_json_cpp,
-    parse_program as _parse_program_cpp,
     parse_program_json as _parse_program_json_cpp,
-    parse_select as _parse_select_cpp,
     parse_select_json as _parse_select_json_cpp,
 )
 from opentelemetry import trace
@@ -24,7 +18,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import SelectSetNode
 from posthog.hogql.base import AST
 from posthog.hogql.constants import RESERVED_KEYWORDS, HogQLParserBackend
-from posthog.hogql.errors import BaseHogQLError, NotImplementedError, QueryError, SyntaxError
+from posthog.hogql.errors import BaseHogQLError, NotImplementedError, SyntaxError
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
 from posthog.hogql.json_ast import deserialize_ast
@@ -64,14 +58,6 @@ RULE_TO_PARSE_FUNCTION: dict[
         ),
         "program": safe_lambda(lambda string: HogQLParseTreeConverter().visit(get_parser(string).program())),
     },
-    "cpp": {
-        "expr": lambda string, start: _parse_expr_cpp(string, is_internal=start is None),
-        "order_expr": lambda string: _parse_order_expr_cpp(string),
-        "select": lambda string: _parse_select_cpp(string),
-        "full_template_string": lambda string: _parse_full_template_string_cpp(string),
-        "program": lambda string: _parse_program_cpp(string),
-    },
-    # Defer imports until the new version of hogql_parser is built and installed.
     "cpp-json": {
         "expr": lambda string, start: deserialize_ast(_parse_expr_json_cpp(string, is_internal=start is None)),
         "order_expr": lambda string: deserialize_ast(_parse_order_expr_json_cpp(string)),
@@ -90,62 +76,7 @@ RULE_TO_HISTOGRAM: dict[Literal["expr", "order_expr", "select", "full_template_s
     for rule in ("expr", "order_expr", "select", "full_template_string")
 }
 
-DEFAULT_BACKEND: HogQLParserBackend = "cpp"
-
-
-def _compare_with_cpp_json(
-    backend: HogQLParserBackend,
-    parsed_ast: ast.AST,
-    rule: Literal["expr", "select", "order_expr", "program"],
-    source: str,
-    start: int | None = None,
-    placeholders: dict[str, ast.Expr] | None = None,
-) -> None:
-    # Only compare a fraction of queries to avoid performance overhead
-    if random.random() > 0.25:
-        return
-
-    if backend == "cpp-json":
-        return
-
-    try:
-        fn = RULE_TO_PARSE_FUNCTION["cpp-json"][rule]
-        cpp_json_ast = fn(source, start=start) if rule == "expr" else fn(source)
-    except Exception as err:
-        logger.warning("hogql_cpp_json_parse_error", rule=rule, backend=backend, query=source, error=str(err))
-        return
-
-    try:
-        if placeholders:
-            cpp_json_ast = replace_placeholders(cpp_json_ast, placeholders)
-    except Exception as err:
-        logger.warning(
-            "hogql_cpp_json_placeholder_replacement_error",
-            rule=rule,
-            backend=backend,
-            query=source,
-            error=str(err),
-        )
-        return
-
-    try:
-        if parsed_ast.to_hogql() != cpp_json_ast.to_hogql():
-            logger.warning(
-                "hogql_cpp_json_mismatch",
-                rule=rule,
-                backend=backend,
-                query=source,
-                parsed_ast=repr(parsed_ast),
-                cpp_json_ast=repr(cpp_json_ast),
-            )
-
-    except QueryError:
-        pass
-    except ValueError:
-        pass
-
-    except Exception as err:
-        logger.warning("hogql_cpp_json_comparison_error", rule=rule, backend=backend, query=source, error=str(err))
+DEFAULT_BACKEND: HogQLParserBackend = "cpp-json"
 
 
 def parse_string_template(
@@ -185,7 +116,6 @@ def parse_expr(
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
-    _compare_with_cpp_json(backend, node, "expr", expr, start=start, placeholders=placeholders)
     return node
 
 
@@ -204,7 +134,6 @@ def parse_order_expr(
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
-    _compare_with_cpp_json(backend, node, "order_expr", order_expr, start=None, placeholders=placeholders)
     return node
 
 
@@ -226,7 +155,6 @@ def parse_select(
         if placeholders:
             with timings.measure("replace_placeholders"), tracer.start_as_current_span("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
-    _compare_with_cpp_json(backend, node, "select", statement, start=None, placeholders=placeholders)
     return node
 
 
@@ -241,7 +169,6 @@ def parse_program(
     with timings.measure(f"parse_expr_{backend}"):
         with RULE_TO_HISTOGRAM["expr"].labels(backend=backend).time():
             node = RULE_TO_PARSE_FUNCTION[backend]["program"](source)
-    _compare_with_cpp_json(backend, node, "program", source, start=None, placeholders=None)
     return node
 
 
@@ -422,19 +349,28 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         initial_query = self.visit(ctx.selectStmtWithParens())
 
         for subsequent in ctx.subsequentSelectSetClause():
-            if subsequent.UNION() and subsequent.ALL():
-                union_type = "UNION ALL"
-            elif subsequent.UNION() and subsequent.DISTINCT():
-                union_type = "UNION DISTINCT"
+            if subsequent.UNION():
+                if subsequent.ALL():
+                    union_type = "UNION ALL"
+                elif subsequent.DISTINCT():
+                    union_type = "UNION DISTINCT"
+                else:
+                    union_type = "UNION DISTINCT"
+                if subsequent.BY() and subsequent.NAME():
+                    union_type += " BY NAME"
+            elif subsequent.INTERSECT() and subsequent.ALL():
+                union_type = "INTERSECT ALL"
             elif subsequent.INTERSECT() and subsequent.DISTINCT():
                 union_type = "INTERSECT DISTINCT"
             elif subsequent.INTERSECT():
                 union_type = "INTERSECT"
+            elif subsequent.EXCEPT() and subsequent.ALL():
+                union_type = "EXCEPT ALL"
             elif subsequent.EXCEPT():
                 union_type = "EXCEPT"
             else:
                 raise SyntaxError(
-                    "Set operator must be one of UNION ALL, UNION DISTINCT, INTERSECT, INTERSECT DISTINCT, and EXCEPT"
+                    "Set operator must be one of UNION ALL, UNION DISTINCT, UNION [ALL|DISTINCT] BY NAME, INTERSECT, INTERSECT ALL, INTERSECT DISTINCT, EXCEPT, and EXCEPT ALL"
                 )
             select_query = self.visit(subsequent.selectStmtWithParens())
             select_queries.append(
@@ -451,7 +387,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitSelectStmt(self, ctx: HogQLParser.SelectStmtContext):
         select_query = ast.SelectQuery(
             ctes=self.visit(ctx.withClause()) if ctx.withClause() else None,
-            select=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [],
+            select=self.visit(ctx.selectColumnExprList()) if ctx.selectColumnExprList() else [],
             distinct=True if ctx.DISTINCT() else None,
             select_from=self.visit(ctx.fromClause()) if ctx.fromClause() else None,
             where=self.visit(ctx.whereClause()) if ctx.whereClause() else None,
@@ -505,7 +441,11 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return select_query
 
     def visitWithClause(self, ctx: HogQLParser.WithClauseContext):
-        return self.visit(ctx.withExprList())
+        ctes: dict[str, ast.CTE] = self.visit(ctx.withExprList())
+        if ctx.RECURSIVE():
+            for name in ctes:
+                ctes[name].recursive = True
+        return ctes
 
     def visitTopClause(self, ctx: HogQLParser.TopClauseContext):
         raise NotImplementedError(f"Unsupported node: TopClause")
@@ -761,6 +701,21 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprList(self, ctx: HogQLParser.ColumnExprListContext):
         return [self.visit(c) for c in ctx.columnExpr()]
 
+    def visitSelectColumnExprList(self, ctx: HogQLParser.SelectColumnExprListContext):
+        return [self.visit(c) for c in ctx.selectColumnExpr()]
+
+    def visitColumnExprAliasBefore(self, ctx: HogQLParser.ColumnExprAliasBeforeContext):
+        alias = self.visit(ctx.identifier())
+        expr = self.visit(ctx.columnExpr())
+
+        if alias.lower() in RESERVED_KEYWORDS:
+            raise SyntaxError(f'"{alias}" cannot be an alias or identifier, as it\'s a reserved keyword')
+
+        return ast.Alias(expr=expr, alias=alias)
+
+    def visitColumnExprSelectValue(self, ctx: HogQLParser.ColumnExprSelectValueContext):
+        return self.visit(ctx.columnExpr())
+
     def visitColumnExprTernaryOp(self, ctx: HogQLParser.ColumnExprTernaryOpContext):
         return ast.Call(
             name="if",
@@ -993,6 +948,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         property = ast.Constant(value=self.visit(ctx.identifier()))
         return ast.ArrayAccess(array=object, property=property, nullish=True)
 
+    def visitColumnExprTypeCast(self, ctx: HogQLParser.ColumnExprTypeCastContext):
+        return ast.TypeCast(expr=self.visit(ctx.columnExpr()), type_name=self.visit(ctx.identifier()).lower())
+
     def visitColumnExprBetween(self, ctx: HogQLParser.ColumnExprBetweenContext):
         expr = self.visit(ctx.columnExpr(0))
         low = self.visit(ctx.columnExpr(1))
@@ -1120,7 +1078,26 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitWithExprSubquery(self, ctx: HogQLParser.WithExprSubqueryContext):
         subquery = self.visit(ctx.selectSetStmt())
         name = self.visit(ctx.identifier())
-        return ast.CTE(name=name, expr=subquery, cte_type="subquery")
+        materialized = None if not ctx.MATERIALIZED() else ctx.NOT() is None
+        columns = None
+        using_key = None
+        column_name_lists = ctx.withExprColumnNameList()
+        if ctx.USING():
+            # USING KEY present: first list is CTE columns (if any), last list is the key columns
+            using_key_list = column_name_lists[-1]
+            using_key = [self.visit(ident) for ident in using_key_list.identifier()]
+            if len(column_name_lists) > 1:
+                columns = [self.visit(ident) for ident in column_name_lists[0].identifier()]
+        elif column_name_lists:
+            columns = [self.visit(ident) for ident in column_name_lists[0].identifier()]
+        return ast.CTE(
+            name=name,
+            expr=subquery,
+            columns=columns,
+            cte_type="subquery",
+            materialized=materialized,
+            using_key=using_key,
+        )
 
     def visitWithExprColumn(self, ctx: HogQLParser.WithExprColumnContext):
         expr = self.visit(ctx.columnExpr())

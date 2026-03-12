@@ -5,13 +5,9 @@ import { IconInfo, IconPinFilled } from '@posthog/icons'
 import { LemonButton, Popover, Tooltip } from '@posthog/lemon-ui'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
-import {
-    TaxonomicDefinitionTypes,
-    TaxonomicFilterGroupType,
-    TaxonomicFilterRenderProps,
-} from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
+import { TaxonomicFilterGroupType, TaxonomicFilterRenderProps } from 'lib/components/TaxonomicFilter/types'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 
 import { getFilterLabel } from '~/taxonomy/helpers'
@@ -19,8 +15,8 @@ import { PropertyFilterType } from '~/types'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 
-export const isReplayTaxonomicFilterProperty = (x: TaxonomicDefinitionTypes): x is ReplayTaxonomicFilterProperty => {
-    return (x as ReplayTaxonomicFilterProperty).taxonomicFilterGroup !== undefined
+export const isReplayTaxonomicFilterProperty = (x: unknown): x is ReplayTaxonomicFilterProperty => {
+    return typeof x === 'object' && x !== null && 'taxonomicFilterGroup' in x
 }
 
 export type ReplayTaxonomicFiltersProps = Pick<TaxonomicFilterRenderProps, 'onChange' | 'infiniteListLogicProps'>

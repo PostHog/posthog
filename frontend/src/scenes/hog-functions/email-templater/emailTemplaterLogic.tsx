@@ -12,12 +12,59 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } from '~/types'
 
+// eslint-disable-next-line import/no-cycle
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
 
-import { EmailTemplaterType } from './EmailTemplater'
 import type { emailTemplaterLogicType } from './emailTemplaterLogicType'
 
 export type UnlayerMergeTags = NonNullable<EmailEditorProps['options']>['mergeTags']
+
+/**
+ * email: basic email editor with free-text fields, used for configuring email platform realtime destinations
+ * native_email: advanced editor with email integration dropdown, and additional email metafields
+ * native_email_template: editor for creating reusable templates, with only subject and preheader, and email content fields
+ */
+export type EmailTemplaterType = 'email' | 'native_email' | 'native_email_template'
+export type EmailMetaFieldKey = 'from' | 'to' | 'replyTo' | 'subject' | 'preheader'
+export type EmailMetaField = {
+    key: EmailMetaFieldKey
+    label: string
+    optional: boolean
+    helpText?: string
+    isAdvancedField?: boolean
+}
+
+const EMAIL_META_FIELDS = {
+    FROM: { key: 'from', label: 'From', optional: false },
+    TO: { key: 'to', label: 'To', optional: false },
+    REPLY_TO: {
+        key: 'replyTo',
+        label: 'Reply-To',
+        optional: true,
+        isAdvancedField: true,
+        helpText: 'Optional reply-to email address. You can comma separate multiple reply-to addresses.',
+    },
+    PREHEADER: {
+        key: 'preheader',
+        label: 'Preheader',
+        optional: true,
+        isAdvancedField: true,
+        helpText: 'This is the preview text that appears below the subject line in an inbox.',
+    },
+    SUBJECT: { key: 'subject', label: 'Subject', optional: false },
+} as const
+
+export const EMAIL_TYPE_SUPPORTED_FIELDS: Record<EmailTemplaterType, EmailMetaField[]> = {
+    email: [EMAIL_META_FIELDS.FROM, EMAIL_META_FIELDS.TO, EMAIL_META_FIELDS.SUBJECT],
+    native_email: [
+        EMAIL_META_FIELDS.FROM,
+        EMAIL_META_FIELDS.TO,
+        EMAIL_META_FIELDS.REPLY_TO,
+        EMAIL_META_FIELDS.SUBJECT,
+        EMAIL_META_FIELDS.PREHEADER,
+    ],
+    native_email_template: [EMAIL_META_FIELDS.SUBJECT, EMAIL_META_FIELDS.PREHEADER],
+}
 
 // Helping kea-typegen navigate the exported type
 export interface EditorRef extends _EditorRef {}
@@ -31,6 +78,8 @@ export type EmailTemplate = {
     text: string
     from: string
     to: string
+    replyTo?: string
+    preheader?: string
 }
 
 export interface EmailTemplaterLogicProps {
@@ -41,6 +90,23 @@ export interface EmailTemplaterLogicProps {
     defaultValue?: EmailTemplate | null
     templating?: boolean | 'hog' | 'liquid'
     onChangeTemplating?: (templating: 'hog' | 'liquid') => void
+}
+
+function autoRevealAdvancedFields(
+    actions: { revealAdvancedField: (key: EmailMetaFieldKey) => void },
+    props: EmailTemplaterLogicProps
+): void {
+    if (!props.value) {
+        return
+    }
+    for (const field of EMAIL_TYPE_SUPPORTED_FIELDS[props.type]) {
+        if (field.isAdvancedField) {
+            const value = (props.value as Record<string, any>)[field.key]
+            if (value !== undefined && value !== null && value !== '') {
+                actions.revealAdvancedField(field.key as EmailMetaFieldKey)
+            }
+        }
+    }
 }
 
 export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
@@ -58,6 +124,9 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         closeWithConfirmation: true,
         setTemplatingEngine: (templating: 'hog' | 'liquid') => ({ templating }),
         saveAsTemplate: (name: string, description: string) => ({ name, description }),
+        setActiveContentTab: (tab: 'visual' | 'plaintext') => ({ tab }),
+        revealAdvancedField: (key: EmailMetaFieldKey) => ({ key }),
+        hideAdvancedField: (key: EmailMetaFieldKey) => ({ key }),
     }),
     reducers({
         emailEditorRef: [
@@ -99,6 +168,25 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 },
             },
         ],
+        revealedAdvancedFields: [
+            [] as EmailMetaFieldKey[],
+            {
+                revealAdvancedField: (state: EmailMetaFieldKey[], { key }: { key: EmailMetaFieldKey }) =>
+                    state.includes(key) ? state : [...state, key],
+                hideAdvancedField: (state: EmailMetaFieldKey[], { key }: { key: EmailMetaFieldKey }) =>
+                    state.filter((k) => k !== key),
+            },
+        ],
+        activeContentTab: [
+            'visual' as 'visual' | 'plaintext',
+            {
+                setActiveContentTab: (_, { tab }) => tab,
+                applyTemplate: (_, { template }) => {
+                    const hasHtml = !!template.content.email.html
+                    return hasHtml ? 'visual' : 'plaintext'
+                },
+            },
+        ],
     }),
 
     loaders(() => ({
@@ -136,6 +224,11 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                         value: '{{unsubscribe_url}}',
                         sample: 'https://example.com/unsubscribe/12345',
                     },
+                    unsubscribe_url_one_click: {
+                        name: 'One-Click Unsubscribe URL',
+                        value: '{{unsubscribe_url_one_click}}',
+                        sample: 'https://example.com/unsubscribe/12345?one_click_unsubscribe=1',
+                    },
                 }
 
                 // Add person properties as merge tags
@@ -158,6 +251,18 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 }
             },
         ],
+        visibleFields: [
+            (s) => [(_, props: EmailTemplaterLogicProps) => props.type, s.revealedAdvancedFields],
+            (type: EmailTemplaterType, revealedAdvancedFields: EmailMetaFieldKey[]): EmailMetaField[] =>
+                EMAIL_TYPE_SUPPORTED_FIELDS[type].filter(
+                    (field) => !field.isAdvancedField || revealedAdvancedFields.includes(field.key)
+                ),
+        ],
+        hiddenAdvancedFields: [
+            (s) => [(_, props: EmailTemplaterLogicProps) => props.type, s.visibleFields],
+            (type: EmailTemplaterType, visibleFields: EmailMetaField[]): EmailMetaField[] =>
+                EMAIL_TYPE_SUPPORTED_FIELDS[type].filter((f) => f.isAdvancedField && !visibleFields.includes(f)),
+        ],
     }),
 
     forms(({ actions, values, props }) => ({
@@ -167,10 +272,22 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 if (!formValues) {
                     return
                 }
+
+                if (values.activeContentTab === 'plaintext') {
+                    const finalValues: EmailTemplate = {
+                        ...formValues,
+                        html: '',
+                    }
+                    props.onChange(finalValues)
+                    actions.setIsModalOpen(false)
+                    return
+                }
+
                 const editor = values.emailEditorRef?.editor
                 if (!editor || !values.isEmailEditorReady) {
                     return
                 }
+
                 const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
                     await Promise.all([
                         new Promise<any>((res) => editor.exportHtml(res)),
@@ -224,6 +341,13 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             } as EmailTemplate)
         },
 
+        setIsModalOpen: ({ isModalOpen }) => {
+            if (isModalOpen && props.value) {
+                const hasHtml = !!props.value.html
+                actions.setActiveContentTab(hasHtml ? 'visual' : 'plaintext')
+            }
+        },
+
         applyTemplate: ({ template }) => {
             const emailTemplateContent = template.content.email
             actions.setEmailTemplateValues(emailTemplateContent)
@@ -256,34 +380,45 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         },
 
         saveAsTemplate: async ({ name, description }) => {
-            const editor = values.emailEditorRef?.editor
-            if (!editor || !values.isEmailEditorReady) {
-                lemonToast.error('Editor not ready')
-                return
-            }
+            const currentValues = values.emailTemplate
 
             try {
-                const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
-                    await Promise.all([
-                        new Promise<any>((res) => editor.exportHtml(res)),
-                        new Promise<any>((res) => editor.exportPlainText(res)),
-                    ])
+                let emailContent: EmailTemplate
 
-                const currentValues = values.emailTemplate
+                if (values.activeContentTab === 'plaintext') {
+                    emailContent = {
+                        ...currentValues,
+                        html: '',
+                    }
+                } else {
+                    const editor = values.emailEditorRef?.editor
+                    if (!editor || !values.isEmailEditorReady) {
+                        lemonToast.error('Editor not ready')
+                        return
+                    }
+
+                    const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
+                        await Promise.all([
+                            new Promise<any>((res) => editor.exportHtml(res)),
+                            new Promise<any>((res) => editor.exportPlainText(res)),
+                        ])
+
+                    emailContent = {
+                        ...currentValues,
+                        html: ['native_email', 'native_email_template'].includes(props.type)
+                            ? htmlData.html
+                            : escapeHTMLStringCurlies(htmlData.html),
+                        text: textData.text,
+                        design: htmlData.design,
+                    }
+                }
 
                 const templateData: Partial<MessageTemplate> = {
                     name,
                     description,
                     content: {
                         templating: values.templatingEngine,
-                        email: {
-                            ...currentValues,
-                            html: ['native_email', 'native_email_template'].includes(props.type)
-                                ? htmlData.html
-                                : escapeHTMLStringCurlies(htmlData.html),
-                            text: textData.text,
-                            design: htmlData.design,
-                        },
+                        email: emailContent,
                     },
                 }
 
@@ -301,12 +436,14 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     propsChanged(({ actions, props }, oldProps) => {
         if (props.value && !objectsEqual(props.value, oldProps.value)) {
             actions.resetEmailTemplate(props.value)
+            autoRevealAdvancedFields(actions, props)
         }
     }),
 
     afterMount(({ actions, props }) => {
         if (props.value) {
             actions.resetEmailTemplate(props.value)
+            autoRevealAdvancedFields(actions, props)
         }
 
         actions.loadTemplates()

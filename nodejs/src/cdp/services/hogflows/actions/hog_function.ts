@@ -42,8 +42,14 @@ export class HogFunctionHandler implements ActionHandler {
             })
         })
 
-        // Collect captured PostHog events
+        // Collect captured PostHog events and metrics from the function execution
         result.capturedPostHogEvents = [...result.capturedPostHogEvents, ...functionResult.capturedPostHogEvents]
+        // Collect warehouse webhook payloads
+        result.warehouseWebhookPayloads = [
+            ...result.warehouseWebhookPayloads,
+            ...functionResult.warehouseWebhookPayloads,
+        ]
+        result.metrics = [...result.metrics, ...functionResult.metrics]
 
         if (!functionResult.finished) {
             // Set the state of the function result on the substate of the flow for the next execution
@@ -95,11 +101,12 @@ export class HogFunctionHandler implements ActionHandler {
                     {
                         level: 'info',
                         timestamp: DateTime.now(),
-                        message: `Recipient opted out for action ${action.id}`,
+                        message: `Recipient has opted out, skipping message delivery.`,
                     },
                 ],
                 metrics: [],
                 capturedPostHogEvents: [],
+                warehouseWebhookPayloads: [],
             }
         }
 

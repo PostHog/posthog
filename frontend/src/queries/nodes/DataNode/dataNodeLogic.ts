@@ -106,6 +106,8 @@ export interface DataNodeLogicProps {
     autoLoad?: boolean
     /** Override the maximum pagination limit. */
     maxPaginationLimit?: number
+    /** Limit context sent to the /query endpoint */
+    limitContext?: 'posthog_ai'
 }
 
 export const AUTOLOAD_INTERVAL = 30000
@@ -263,6 +265,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         setLoadingTime: (seconds: number) => ({ seconds }),
         resetLoadingTimer: true,
         setQueryLogQueryId: (queryId: string) => ({ queryId }),
+        loadFilteredCount: true,
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
@@ -271,7 +274,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 setResponse: (response) => response,
                 clearResponse: () => null,
                 loadData: async ({ refresh: refreshArg, queryId, pollOnly, overrideQuery }, breakpoint) => {
-                    const query = addTags(overrideQuery ?? props.query)
+                    const rawQuery = overrideQuery ?? props.query
+                    if (!rawQuery || typeof rawQuery !== 'object' || !('kind' in rawQuery)) {
+                        return null
+                    }
+                    const query = addTags(rawQuery)
 
                     // Use the explicit refresh type passed, or determine it based on query type
                     // Default to non-force variants
@@ -312,11 +319,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         return null
                     }
 
-                    if (query === undefined || Object.keys(query).length === 0) {
-                        // no need to try and load a query before properly initialized
-                        return null
-                    }
-
                     if (!validateQuery(query)) {
                         return null
                     }
@@ -347,7 +349,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                             actions.setPollResponse,
                                             props.filtersOverride,
                                             props.variablesOverride,
-                                            pollOnly
+                                            pollOnly,
+                                            props.limitContext
                                         )) ?? null
                                     const duration = performance.now() - now
                                     return { data, duration }
@@ -387,7 +390,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             (await performQuery(
                                 addModifiers(values.newQuery, props.modifiers),
                                 undefined,
-                                props.refresh
+                                props.refresh,
+                                undefined,
+                                undefined,
+                                undefined,
+                                undefined,
+                                false,
+                                props.limitContext
                             )) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         if (values.response === null) {
@@ -427,7 +436,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             (await performQuery(
                                 addModifiers(values.nextQuery, props.modifiers),
                                 undefined,
-                                props.refresh
+                                props.refresh,
+                                undefined,
+                                undefined,
+                                undefined,
+                                undefined,
+                                false,
+                                props.limitContext
                             )) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         const queryResponse = values.response as
@@ -455,7 +470,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             (await performQuery(
                                 addModifiers(values.nextQuery, props.modifiers),
                                 undefined,
-                                props.refresh
+                                props.refresh,
+                                undefined,
+                                undefined,
+                                undefined,
+                                undefined,
+                                false,
+                                props.limitContext
                             )) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         if (Array.isArray(values.response)) {
@@ -655,6 +676,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadData: () => null,
             },
         ],
+        shouldCalculateCount: [false, { loadTotalCount: () => true, loadFilteredCount: () => true }],
     })),
     lazyLoaders(({ values }) => ({
         totalCount: [
@@ -680,7 +702,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         filteredCount: [
             null as number | null,
             {
-                loadFilteredCount: async () => {
+                loadFilteredCount: async (_, breakpoint) => {
+                    await breakpoint(300)
                     const query = values.filteredCountQuery
                     if (!query) {
                         return null
@@ -688,7 +711,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
 
                     try {
                         const response = await performQuery(query)
-                        // Extract count from first row, first column
+                        breakpoint()
                         return response?.results?.[0]?.[0] || 0
                     } catch (error) {
                         posthog.captureException(error, { action: 'load filtered count in dataNodeLogic' })
@@ -943,11 +966,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 if (!response) {
                     return null
                 }
-                const fields = ['result', 'results']
-                for (const field of fields) {
-                    if (field in response && Array.isArray(response[field])) {
-                        return response[field].length
-                    }
+                if ('result' in response && Array.isArray(response['result'])) {
+                    return response['result'].length
+                }
+                if ('results' in response && Array.isArray(response['results'])) {
+                    return response['results'].length
                 }
                 return null
             },
@@ -1172,7 +1195,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             }
         },
         filteredCountQuery: () => {
-            actions.loadFilteredCount()
+            if (values.shouldCalculateCount) {
+                actions.loadFilteredCount()
+            }
         },
     })),
     afterMount(({ actions, props, cache }) => {

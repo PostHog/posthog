@@ -47,9 +47,10 @@ export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I ext
         const handleKeyDown = (e: KeyboardEvent): void => {
             stableListener.current(e)
         }
-        referenceRef.current?.addEventListener('keydown', handleKeyDown)
+        const controller = new AbortController()
+        referenceRef.current?.addEventListener('keydown', handleKeyDown, { signal: controller.signal })
         return () => {
-            referenceRef.current?.removeEventListener('keydown', handleKeyDown)
+            controller.abort()
         }
     }, [enabled])
 

@@ -7,10 +7,9 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
-from django.http import HttpResponse
-
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.response import Response
 
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
@@ -56,24 +55,28 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     ) -> None:
         response = self._get_heatmap(params, expected_status_code)
         if response.status_code == status.HTTP_200_OK:
-            assert len(response.json()["results"]) == 0
+            assert len(response.data["results"]) == 0
+
+    def _assert_heatmap_result_count(self, params: dict[str, str | int | None] | None, expected_count: int) -> None:
+        response = self._get_heatmap(params)
+        assert len(response.data["results"]) == expected_count
 
     def _assert_heatmap_single_result_count(
         self, params: dict[str, str | int | None] | None, expected_grouped_count: int
     ) -> None:
         response = self._get_heatmap(params)
-        assert len(response.json()["results"]) == 1
-        assert response.json()["results"][0]["count"] == expected_grouped_count
+        assert len(response.data["results"]) == 1
+        assert response.data["results"][0]["count"] == expected_grouped_count
 
     def _get_heatmap(
         self, params: dict[str, str | int | None] | None, expected_status_code: int = status.HTTP_200_OK
-    ) -> HttpResponse:
+    ) -> Response:
         if params is None:
             params = {}
 
         query_params = "&".join([f"{key}={value}" for key, value in params.items()])
         response = self.client.get(f"/api/heatmap/?{query_params}")
-        assert response.status_code == expected_status_code, response.json()
+        assert response.status_code == expected_status_code, response.data
 
         return response
 
@@ -144,7 +147,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def test_can_get_empty_response(self) -> None:
         response = self.client.get("/api/heatmap/?date_from=2024-05-03")
         assert response.status_code == 200
-        self.assertEqual(response.json(), {"results": []})
+        self.assertEqual(response.data, {"results": []})
 
     @freezegun.freeze_time("2025-03-31")
     @snapshot_clickhouse_queries
@@ -326,7 +329,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         scroll_response = self._get_heatmap({"date_from": "2023-03-06", "type": "scrolldepth"})
 
-        assert scroll_response.json() == {
+        assert scroll_response.data == {
             "results": [
                 {
                     "bucket_count": 2,
@@ -385,7 +388,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             {"date_from": "2023-03-06", "type": "scrolldepth", "aggregation": "unique_visitors"}
         )
 
-        assert scroll_response.json() == {
+        assert scroll_response.data == {
             "results": [
                 {
                     "bucket_count": 2,
@@ -460,7 +463,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 193)
 
         response = self._get_heatmap(query_params)
-        assert sorted(response.json()["results"], key=lambda k: k["pointer_relative_x"]) == expected_results
+        assert sorted(response.data["results"], key=lambda k: k["pointer_relative_x"]) == expected_results
 
     @freezegun.freeze_time("2025-03-31")
     @snapshot_clickhouse_queries
@@ -503,8 +506,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
 
         response = self._get_heatmap({"date_from": "2023-03-08", "filter_test_accounts": True})
-        # mypy thinks there is no json method... but there is
-        json_results = response.json()["results"]  # type: ignore
+        json_results = response.data["results"]
         assert sorted(json_results, key=lambda k: k["pointer_relative_x"]) == [
             {
                 "count": 1,
@@ -515,8 +517,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         ]
 
         response_without_internal_filter = self._get_heatmap({"date_from": "2023-03-08"})
-        # mypy thinks there is no json method... but there is
-        json_results_two = response_without_internal_filter.json()["results"]  # type: ignore
+        json_results_two = response_without_internal_filter.data["results"]
         assert sorted(json_results_two, key=lambda k: k["pointer_relative_x"]) == [
             {
                 "count": 2,
@@ -578,3 +579,29 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self._assert_heatmap_no_result_count(
             {"date_from": "2023-03-08", "aggregation": choice}, expected_status_code=expected_status_code
         )
+
+    @parameterized.expand(
+        [
+            ("explicit_true", {"date_from": "2023-03-08", "hide_zero_coordinates": "true"}),
+            ("default", {"date_from": "2023-03-08"}),
+        ]
+    )
+    @freezegun.freeze_time("2025-03-31")
+    def test_hide_zero_coordinates_filters_out_zero_zero_events(self, _name: str, params: dict) -> None:
+        self._create_heatmap_event("session_1", "click", x=0, y=0)
+        self._create_heatmap_event("session_2", "click", x=10, y=20)
+
+        self._assert_heatmap_single_result_count(params, 1)
+
+    @freezegun.freeze_time("2025-03-31")
+    def test_hide_zero_coordinates_false_includes_zero_zero(self) -> None:
+        self._create_heatmap_event("session_1", "click", x=0, y=0)
+        self._create_heatmap_event("session_2", "click", x=10, y=20)
+
+        self._assert_heatmap_result_count({"date_from": "2023-03-08", "hide_zero_coordinates": "false"}, 2)
+
+    @freezegun.freeze_time("2025-03-31")
+    def test_hide_zero_coordinates_not_applied_to_scrolldepth(self) -> None:
+        self._create_heatmap_event("session_1", "scrolldepth", x=0, y=0)
+
+        self._assert_heatmap_result_count({"date_from": "2023-03-08", "type": "scrolldepth"}, 1)

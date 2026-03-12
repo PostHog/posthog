@@ -19,6 +19,7 @@ class SchemaPropertyGroupPropertySerializer(serializers.ModelSerializer):
             "name",
             "property_type",
             "is_required",
+            "is_optional_in_types",
             "description",
             "created_at",
             "updated_at",
@@ -157,7 +158,7 @@ class SchemaPropertyGroupViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    scope_object = "INTERNAL"
+    scope_object = "event_definition"
     serializer_class = SchemaPropertyGroupSerializer
     queryset = SchemaPropertyGroup.objects.all()
     lookup_field = "id"

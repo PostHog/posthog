@@ -1,6 +1,10 @@
 from collections.abc import Callable
-from typing import Literal, Self, Union
+from datetime import UTC
+from typing import ClassVar, Literal, Self, Union
 from uuid import uuid4
+
+from django.core.cache import cache as django_cache
+from django.utils import timezone
 
 from langchain_core.runnables import RunnableConfig
 from posthoganalytics import capture_exception
@@ -9,7 +13,9 @@ from pydantic import BaseModel, Field, create_model
 from posthog.schema import (
     ArtifactContentType,
     AssistantToolCallMessage,
+    LLMTrace,
     NotebookArtifactContent,
+    TraceQuery,
     VisualizationArtifactContent,
 )
 
@@ -19,20 +25,34 @@ from posthog.hogql.database.database import Database
 from posthog.models import Dashboard, Team, User
 from posthog.sync import database_sync_to_async
 
+from products.llm_analytics.backend.summarization.llm.call import summarize
+from products.llm_analytics.backend.summarization.llm.schema import SummarizationResponse
+from products.llm_analytics.backend.summarization.utils import get_summary_cache_key
+from products.llm_analytics.backend.text_repr.formatters.trace_formatter import (
+    format_trace_text_repr,
+    llm_trace_to_formatter_format,
+)
+
 from ee.hogai.artifacts.types import ModelArtifactResult
 from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin
+from ee.hogai.context.activity_log.context import ActivityLogContext
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 from ee.hogai.context.error_tracking import ErrorTrackingIssueContext
+from ee.hogai.context.experiment import ExperimentContext
+from ee.hogai.context.feature_flag import FeatureFlagContext
 from ee.hogai.context.insight.context import InsightContext
+from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.context.survey import SurveyContext
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.read_billing_tool.tool import ReadBillingTool
 from ee.hogai.tools.read_data.prompts import (
+    ACTIVITY_LOG_INSUFFICIENT_ACCESS_PROMPT,
     BILLING_INSUFFICIENT_ACCESS_PROMPT,
     DASHBOARD_NOT_FOUND_PROMPT,
     INSIGHT_NOT_FOUND_PROMPT,
+    READ_DATA_ACTIVITY_LOG_PROMPT,
     READ_DATA_BILLING_PROMPT,
     READ_DATA_PROMPT,
     READ_DATA_WAREHOUSE_SCHEMA_PROMPT,
@@ -91,6 +111,13 @@ class ReadArtifact(BaseModel):
     artifact_id: str = Field(description="The ID of the artifact to read.")
 
 
+class ReadNotebook(BaseModel):
+    """Retrieves a saved notebook by its short ID. Returns the notebook content as simplified markdown with embedded insight and recording references."""
+
+    kind: Literal["notebook"] = "notebook"
+    notebook_id: str = Field(description="The short ID of the notebook.")
+
+
 class ReadErrorTrackingIssue(BaseModel):
     """Retrieves error tracking issue details including stack trace for analysis."""
 
@@ -105,6 +132,62 @@ class ReadSurvey(BaseModel):
     survey_id: str = Field(description="The UUID of the survey.")
 
 
+class ReadFeatureFlag(BaseModel):
+    """Retrieves a feature flag by its numeric ID or key (slug)."""
+
+    kind: Literal["feature_flag"] = "feature_flag"
+    id: int | None = Field(default=None, description="The numeric ID of the feature flag.")
+    key: str | None = Field(default=None, description="The key (slug) of the feature flag.")
+
+
+class ReadExperiment(BaseModel):
+    """Retrieves an experiment by its numeric ID or by its feature flag's key."""
+
+    kind: Literal["experiment"] = "experiment"
+    id: int | None = Field(default=None, description="The numeric ID of the experiment.")
+    feature_flag_key: str | None = Field(default=None, description="The key of the experiment's feature flag.")
+
+
+class ReadActivityLog(BaseModel):
+    """Retrieves recent activity log entries showing who changed what and when in this project."""
+
+    kind: Literal["activity_log"] = "activity_log"
+    scope: str | None = Field(
+        default=None,
+        description=(
+            "Filter by resource scope. Available scopes: "
+            "Action, AlertConfiguration, Annotation, BatchExport, BatchImport, Cohort, Comment, "
+            "Dashboard, DataManagement, EarlyAccessFeature, EventDefinition, Experiment, "
+            "ExternalDataSchema, ExternalDataSource, FeatureFlag, HogFlow, HogFunction, "
+            "Insight, Notebook, Organization, OrganizationDomain, OrganizationMembership, "
+            "Person, PersonalAPIKey, Plugin, PluginConfig, Project, PropertyDefinition, "
+            "Replay, SessionRecordingPlaylist, Survey, Tag, TaggedItem, Team, User, "
+            "WebAnalyticsFilterPreset."
+        ),
+    )
+    activity: str | None = Field(
+        default=None,
+        description="Filter by activity type (e.g. 'created', 'updated', 'deleted').",
+    )
+    item_id: str | None = Field(default=None, description="Filter by item ID.")
+    user_email: str | None = Field(default=None, description="Filter by user email.")
+    after: str | None = Field(
+        default=None, description="Only entries created after this ISO 8601 datetime (e.g. '2025-01-15T00:00:00Z')."
+    )
+    before: str | None = Field(
+        default=None, description="Only entries created before this ISO 8601 datetime (e.g. '2025-02-01T00:00:00Z')."
+    )
+    limit: int = Field(default=20, ge=1, le=50, description="Number of entries to return.")
+    offset: int = Field(default=0, ge=0, description="Number of entries to skip for pagination.")
+
+
+class ReadLLMTrace(BaseModel):
+    """Retrieves full details of an LLM trace including its event hierarchy, input/output messages, latency, cost, and model info."""
+
+    kind: Literal["llm_trace"] = "llm_trace"
+    trace_id: str = Field(description="The trace ID to read.")
+
+
 ReadDataQuery = (
     ReadDataWarehouseSchema
     | ReadDataWarehouseTableSchema
@@ -113,7 +196,12 @@ ReadDataQuery = (
     | ReadBillingInfo
     | ReadErrorTrackingIssue
     | ReadArtifact
+    | ReadNotebook
     | ReadSurvey
+    | ReadFeatureFlag
+    | ReadExperiment
+    | ReadActivityLog
+    | ReadLLMTrace
 )
 
 
@@ -157,6 +245,12 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             prompt_vars["billing_prompt"] = READ_DATA_BILLING_PROMPT
             kinds.append(ReadBillingInfo)
 
+        has_audit_logs_access = await context_manager.check_has_audit_logs_access()
+
+        if has_audit_logs_access:
+            prompt_vars["activity_log_prompt"] = READ_DATA_ACTIVITY_LOG_PROMPT
+            kinds.append(ReadActivityLog)
+
         base_kinds: tuple[type[BaseModel], ...] = (
             ReadDataWarehouseSchema,
             ReadDataWarehouseTableSchema,
@@ -164,7 +258,11 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             ReadDashboard,
             ReadErrorTrackingIssue,
             ReadArtifact,
+            ReadNotebook,
             ReadSurvey,
+            ReadFeatureFlag,
+            ReadExperiment,
+            ReadLLMTrace,
         )
         ReadDataKind = Union[tuple(base_kinds + tuple(kinds))]  # type: ignore[valid-type]
 
@@ -212,6 +310,8 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 return await self._read_data_warehouse_table_schema(data_warehouse_table.table_name), None
             case ReadArtifact() as schema:
                 return await self._read_artifact(schema.artifact_id), None
+            case ReadNotebook() as schema:
+                return await self._read_notebook(schema.notebook_id), None
             case ReadInsight() as schema:
                 return await self._read_insight(schema.insight_id, schema.execute)
             case ReadDashboard() as schema:
@@ -220,6 +320,25 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 return await self._read_error_tracking_issue(schema.issue_id), None
             case ReadSurvey() as schema:
                 return await self._read_survey(schema.survey_id), None
+            case ReadFeatureFlag() as schema:
+                return await self._read_feature_flag(schema.id, schema.key), None
+            case ReadExperiment() as schema:
+                return await self._read_experiment(schema.id, schema.feature_flag_key), None
+            case ReadActivityLog() as schema:
+                if not await self._context_manager.check_has_audit_logs_access():
+                    raise MaxToolFatalError(ACTIVITY_LOG_INSUFFICIENT_ACCESS_PROMPT)
+                return await self._read_activity_log(
+                    schema.scope,
+                    schema.activity,
+                    schema.item_id,
+                    schema.user_email,
+                    schema.after,
+                    schema.before,
+                    schema.limit,
+                    schema.offset,
+                ), None
+            case ReadLLMTrace() as schema:
+                return await self._read_llm_trace(schema.trace_id), None
 
     async def _read_insight(
         self, artifact_or_insight_id: str, execute: bool
@@ -229,6 +348,9 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         if result is None:
             raise MaxToolRetryableError(INSIGHT_NOT_FOUND_PROMPT.format(short_id=artifact_or_insight_id))
+
+        if isinstance(result, ModelArtifactResult):
+            await self.check_object_access(result.model, "viewer", action="read")
 
         insight_name = result.content.name or f"Insight {artifact_or_insight_id}"
 
@@ -290,6 +412,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         warehouse_tables = database.get_warehouse_table_names()
         views = database.get_view_names()
+        system_tables = database.get_system_table_names()
 
         listify = lambda items: "\n".join(f"- {item}" for item in sorted(items))
 
@@ -298,6 +421,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             template_format="mustache",
             posthog_tables="\n".join(system_table_lines),
             data_warehouse_tables=listify(warehouse_tables),
+            system_tables=listify(system_tables),
             data_warehouse_views=listify(views),
         )
 
@@ -306,6 +430,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         # Load tables on demand: warehouse first, then views, then posthog tables
         table_sources: list[Callable[[], list[str]]] = [
             database.get_warehouse_table_names,
+            database.get_system_table_names,
             database.get_view_names,
             database.get_posthog_table_names,
         ]
@@ -345,10 +470,14 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         except (Dashboard.DoesNotExist, ValueError):
             raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
 
+        await self.check_object_access(dashboard, "viewer", action="read")
+
         dashboard_name = dashboard.name or f"Dashboard {dashboard_id}"
         tiles = [
             tile
-            async for tile in dashboard.tiles.exclude(insight__deleted=True, deleted=True).select_related("insight")
+            async for tile in dashboard.tiles.exclude(insight__deleted=True)
+            .exclude(deleted=True)
+            .select_related("insight")
         ]
 
         # Build DashboardInsightContext models for all tiles
@@ -418,7 +547,11 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             team=self._team,
             survey_id=survey_id,
         )
-        return await context.execute_and_format()
+        survey = await context.aget_survey()
+        if survey is None:
+            raise MaxToolRetryableError(f"Survey with id={survey_id} not found.")
+        await self.check_object_access(survey, "viewer", resource="survey", action="read")
+        return await context.execute_and_format(survey)
 
     async def _read_artifact(self, artifact_id: str) -> str:
         try:
@@ -438,12 +571,171 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 return await context.format_schema()
 
             case NotebookArtifactContent():
+                from ee.hogai.tools.create_notebook.helpers import notebook_exists_for_artifact
+                from ee.hogai.tools.create_notebook.tiptap import blocks_to_tiptap_doc, tiptap_doc_to_text
+
+                tiptap_doc = blocks_to_tiptap_doc(content.blocks, title=content.title)
+                text = tiptap_doc_to_text(tiptap_doc)
+
                 lines = [f"# Notebook: {content.title or 'Untitled'}"]
-                for block in content.blocks:
-                    if hasattr(block, "content"):
-                        lines.append(block.content)
-                    elif hasattr(block, "query"):
-                        lines.append(f"[Visualization: {block.query.model_dump_json(exclude_none=True)}]")
+                if text:
+                    lines.append(text)
+
+                is_saved = await notebook_exists_for_artifact(self._team, artifact_id)
+                if is_saved:
+                    lines.append(f"\n[This notebook has been saved to the database. URL: /notebooks/{artifact_id}]")
+                else:
+                    lines.append("\n[This is a transient notebook artifact. It has not been saved to the database.]")
+
                 return "\n\n".join(lines)
 
         raise MaxToolFatalError(f"Unknown artifact type: {type(content).__name__}")
+
+    async def _read_notebook(self, notebook_id: str) -> str:
+        from products.notebooks.backend.models import Notebook
+
+        from ee.hogai.context.notebook.context import NotebookContext
+
+        try:
+            notebook = await Notebook.objects.aget(short_id=notebook_id, team=self._team, deleted=False)
+        except Notebook.DoesNotExist:
+            raise MaxToolRetryableError(f"Notebook with short_id={notebook_id} not found.")
+
+        await self.check_object_access(notebook, "viewer", action="read")
+
+        ctx = NotebookContext.from_model(self._team, notebook)
+        return ctx.format()
+
+    async def _read_feature_flag(self, flag_id: int | None, flag_key: str | None) -> str:
+        if flag_id is None and flag_key is None:
+            raise MaxToolRetryableError("You must provide either 'id' or 'key' to read a feature flag.")
+
+        context = FeatureFlagContext(
+            team=self._team,
+            flag_id=flag_id,
+            flag_key=flag_key,
+        )
+
+        flag = await context.aget_feature_flag()
+        if flag is None:
+            raise MaxToolRetryableError(context.get_not_found_message())
+
+        await self.check_object_access(flag, "viewer", resource="feature flag", action="read")
+        return await context.format_feature_flag(flag)
+
+    async def _read_experiment(self, experiment_id: int | None, feature_flag_key: str | None) -> str:
+        if experiment_id is None and feature_flag_key is None:
+            raise MaxToolRetryableError("You must provide either 'id' or 'feature_flag_key' to read an experiment.")
+
+        context = ExperimentContext(
+            team=self._team,
+            experiment_id=experiment_id,
+            feature_flag_key=feature_flag_key,
+        )
+
+        experiment = await context.aget_experiment()
+        if experiment is None:
+            raise MaxToolRetryableError(context.get_not_found_message())
+
+        await self.check_object_access(experiment, "viewer", resource="experiment", action="read")
+        return await context.format_experiment(experiment)
+
+    async def _read_activity_log(
+        self,
+        scope: str | None,
+        activity: str | None,
+        item_id: str | None,
+        user_email: str | None,
+        after: str | None,
+        before: str | None,
+        limit: int,
+        offset: int,
+    ) -> str:
+        context = ActivityLogContext(team=self._team, user=self._user)
+        return await context.fetch_and_format(
+            scope=scope,
+            activity=activity,
+            item_id=item_id,
+            user_email=user_email,
+            after=after,
+            before=before,
+            limit=limit,
+            offset=offset,
+        )
+
+    TRACE_SUMMARIZATION_THRESHOLD: ClassVar[int] = 5000
+
+    async def _read_llm_trace(self, trace_id: str) -> str:
+        trace_query = TraceQuery(traceId=trace_id)
+
+        utc_now = timezone.now().astimezone(UTC)
+        executor = AssistantQueryExecutor(self._team, utc_now)
+        query_results = await executor.aexecute_query(trace_query)
+
+        results = query_results.get("results", [])
+        if not results:
+            raise MaxToolRetryableError(f"No trace found with ID '{trace_id}'.")
+
+        trace_data = results[0] if isinstance(results, list) else results
+        llm_trace = LLMTrace.model_validate(trace_data)
+
+        trace_dict, hierarchy = llm_trace_to_formatter_format(llm_trace)
+        text_repr, _was_sampled = format_trace_text_repr(
+            trace_dict,
+            hierarchy,
+            options={"include_markers": False, "include_line_numbers": True},
+        )
+
+        if len(text_repr) <= self.TRACE_SUMMARIZATION_THRESHOLD:
+            return text_repr
+
+        cache_key = get_summary_cache_key(self._team.id, "trace", trace_id)
+        cached_result = await database_sync_to_async(django_cache.get)(cache_key)
+        if cached_result is not None:
+            summary = SummarizationResponse.model_validate(cached_result["summary"])
+            return self._format_trace_summary(trace_id, llm_trace, summary)
+
+        summary = await database_sync_to_async(summarize)(
+            text_repr=text_repr,
+            team_id=self._team.id,
+        )
+
+        cache_value = {
+            "summary": summary.model_dump(),
+            "text_repr": text_repr,
+            "metadata": {"text_repr_length": len(text_repr), "summarize_type": "trace"},
+        }
+        await database_sync_to_async(django_cache.set)(cache_key, cache_value, 3600)
+
+        return self._format_trace_summary(trace_id, llm_trace, summary)
+
+    def _format_trace_summary(self, trace_id: str, trace: LLMTrace, summary: SummarizationResponse) -> str:
+        parts = [f"# {summary.title}", f"Trace ID: {trace_id}"]
+
+        if trace.traceName:
+            parts.append(f"Name: {trace.traceName}")
+        parts.append(f"Created: {trace.createdAt}")
+
+        if trace.totalLatency is not None:
+            parts.append(f"Latency: {trace.totalLatency:.2f}s")
+        if trace.totalCost is not None:
+            parts.append(f"Cost: ${trace.totalCost:.4f}")
+        if trace.inputTokens is not None or trace.outputTokens is not None:
+            input_t = int(trace.inputTokens) if trace.inputTokens else 0
+            output_t = int(trace.outputTokens) if trace.outputTokens else 0
+            parts.append(f"Tokens: {input_t:,} in / {output_t:,} out")
+        if trace.errorCount is not None and trace.errorCount > 0:
+            parts.append(f"Errors: {int(trace.errorCount)}")
+
+        parts.append(f"\n## Flow\n{summary.flow_diagram}")
+
+        parts.append("\n## Summary")
+        for bullet in summary.summary_bullets:
+            parts.append(f"- {bullet.text}")
+
+        if summary.interesting_notes:
+            parts.append("\n## Notes")
+            for note in summary.interesting_notes:
+                parts.append(f"- {note.text}")
+
+        return "\n".join(parts)

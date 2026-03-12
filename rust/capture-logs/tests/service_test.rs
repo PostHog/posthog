@@ -1,6 +1,7 @@
 use bytes::Bytes;
 use capture_logs::service::{parse_otel_message, patch_otel_json};
 use opentelemetry_proto::tonic::common::v1::any_value::Value;
+use prost::Message;
 use serde_json::json;
 
 #[test]
@@ -402,4 +403,234 @@ fn test_patch_otel_json_mixed_empty_and_non_empty() {
         json["logRecord"]["attributes"][1]["value"]["stringValue"],
         "test_value"
     );
+}
+
+// Tests for empty request handling - verifying 200 OK with no log records produced
+
+#[test]
+fn test_parse_empty_json_otel_message() {
+    // Empty resourceLogs array - valid OTEL message with no logs
+    let json_data = r#"{"resourceLogs":[]}"#;
+    let bytes = Bytes::from(json_data);
+
+    let result = parse_otel_message(&bytes);
+    assert!(result.is_ok());
+
+    let request = result.unwrap();
+    assert_eq!(request.resource_logs.len(), 0);
+}
+
+#[test]
+fn test_parse_empty_scope_logs_otel_message() {
+    // Resource with empty scopeLogs array
+    let json_data = r#"{"resourceLogs":[{"resource":{"attributes":[]},"scopeLogs":[]}]}"#;
+    let bytes = Bytes::from(json_data);
+
+    let result = parse_otel_message(&bytes);
+    assert!(result.is_ok());
+
+    let request = result.unwrap();
+    assert_eq!(request.resource_logs.len(), 1);
+    assert_eq!(request.resource_logs[0].scope_logs.len(), 0);
+}
+
+#[test]
+fn test_parse_empty_log_records_otel_message() {
+    // Scope with empty logRecords array
+    let json_data = r#"{"resourceLogs":[{"resource":{"attributes":[]},"scopeLogs":[{"scope":{"name":"test"},"logRecords":[]}]}]}"#;
+    let bytes = Bytes::from(json_data);
+
+    let result = parse_otel_message(&bytes);
+    assert!(result.is_ok());
+
+    let request = result.unwrap();
+    assert_eq!(request.resource_logs.len(), 1);
+    assert_eq!(request.resource_logs[0].scope_logs.len(), 1);
+    assert_eq!(request.resource_logs[0].scope_logs[0].log_records.len(), 0);
+}
+
+#[test]
+fn test_parse_empty_protobuf_otel_message() {
+    // Empty ExportLogsServiceRequest in protobuf format
+    use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
+
+    let empty_request = ExportLogsServiceRequest {
+        resource_logs: vec![],
+    };
+
+    let mut buf = Vec::new();
+    empty_request.encode(&mut buf).unwrap();
+    let bytes = Bytes::from(buf);
+
+    // parse_otel_message tries protobuf first via the endpoint, but here we test JSON parsing
+    // So let's verify the protobuf decodes correctly
+    let decoded = ExportLogsServiceRequest::decode(bytes.as_ref()).unwrap();
+    assert_eq!(decoded.resource_logs.len(), 0);
+}
+
+#[test]
+fn test_count_log_records_empty_resource_logs() {
+    let json_data = r#"{"resourceLogs":[]}"#;
+    let bytes = Bytes::from(json_data);
+
+    let request = parse_otel_message(&bytes).unwrap();
+
+    // Simulate the row counting logic from export_logs_http
+    let mut row_count = 0;
+    for resource_logs in &request.resource_logs {
+        for scope_logs in &resource_logs.scope_logs {
+            row_count += scope_logs.log_records.len();
+        }
+    }
+
+    assert_eq!(row_count, 0);
+}
+
+#[test]
+fn test_count_log_records_empty_scope_logs() {
+    let json_data = r#"{"resourceLogs":[{"resource":{"attributes":[]},"scopeLogs":[]}]}"#;
+    let bytes = Bytes::from(json_data);
+
+    let request = parse_otel_message(&bytes).unwrap();
+
+    let mut row_count = 0;
+    for resource_logs in &request.resource_logs {
+        for scope_logs in &resource_logs.scope_logs {
+            row_count += scope_logs.log_records.len();
+        }
+    }
+
+    assert_eq!(row_count, 0);
+}
+
+#[test]
+fn test_count_log_records_empty_log_records_array() {
+    let json_data = r#"{"resourceLogs":[{"resource":{"attributes":[]},"scopeLogs":[{"scope":{"name":"test"},"logRecords":[]}]}]}"#;
+    let bytes = Bytes::from(json_data);
+
+    let request = parse_otel_message(&bytes).unwrap();
+
+    let mut row_count = 0;
+    for resource_logs in &request.resource_logs {
+        for scope_logs in &resource_logs.scope_logs {
+            row_count += scope_logs.log_records.len();
+        }
+    }
+
+    assert_eq!(row_count, 0);
+}
+
+#[test]
+fn test_count_log_records_multiple_empty_scopes() {
+    // Multiple resources and scopes, all with empty log records
+    let json_data = r#"{"resourceLogs":[{"resource":{"attributes":[]},"scopeLogs":[{"scope":{"name":"scope1"},"logRecords":[]},{"scope":{"name":"scope2"},"logRecords":[]}]},{"resource":{"attributes":[]},"scopeLogs":[{"scope":{"name":"scope3"},"logRecords":[]}]}]}"#;
+    let bytes = Bytes::from(json_data);
+
+    let request = parse_otel_message(&bytes).unwrap();
+
+    assert_eq!(request.resource_logs.len(), 2);
+    assert_eq!(request.resource_logs[0].scope_logs.len(), 2);
+    assert_eq!(request.resource_logs[1].scope_logs.len(), 1);
+
+    let mut row_count = 0;
+    for resource_logs in &request.resource_logs {
+        for scope_logs in &resource_logs.scope_logs {
+            row_count += scope_logs.log_records.len();
+        }
+    }
+
+    assert_eq!(row_count, 0);
+}
+
+#[test]
+fn test_parse_empty_jsonl_otel_message() {
+    // Empty lines only - should result in empty resource_logs
+    let jsonl_data = "\n\n\n";
+    let bytes = Bytes::from(jsonl_data);
+
+    let result = parse_otel_message(&bytes);
+    assert!(result.is_ok());
+
+    let request = result.unwrap();
+    assert_eq!(request.resource_logs.len(), 0);
+}
+
+#[test]
+fn test_parse_jsonl_with_empty_resource_logs() {
+    // JSONL where each line has empty resourceLogs
+    let jsonl_data = r#"{"resourceLogs":[]}
+{"resourceLogs":[]}"#;
+    let bytes = Bytes::from(jsonl_data);
+
+    let result = parse_otel_message(&bytes);
+    assert!(result.is_ok());
+
+    let request = result.unwrap();
+    // Both lines have empty resourceLogs, so merged result is also empty
+    assert_eq!(request.resource_logs.len(), 0);
+}
+#[test]
+fn test_otel_log_row_overridden_timestamp_tracking() {
+    use capture_logs::log_record::KafkaLogRow;
+    use chrono::{TimeDelta, Utc};
+    use opentelemetry_proto::tonic::{
+        common::v1::{any_value, AnyValue},
+        logs::v1::LogRecord,
+    };
+
+    // Test with a timestamp far in the past (should be overridden)
+    let far_past_nanos = (Utc::now() - TimeDelta::hours(48))
+        .timestamp_nanos_opt()
+        .unwrap();
+    let log_record_overridden = LogRecord {
+        time_unix_nano: far_past_nanos as u64,
+        severity_text: "INFO".to_string(),
+        severity_number: 9,
+        body: Some(AnyValue {
+            value: Some(any_value::Value::StringValue("Test".to_string())),
+        }),
+        ..Default::default()
+    };
+
+    let (row_overridden, was_overridden) =
+        KafkaLogRow::new(log_record_overridden, None, None).unwrap();
+    assert!(was_overridden);
+    assert!(row_overridden.attributes.contains_key("$originalTimestamp"));
+
+    // Test with a timestamp far in the future (should be overridden)
+    let far_future_nanos = (Utc::now() + TimeDelta::hours(25))
+        .timestamp_nanos_opt()
+        .unwrap();
+    let log_record_overridden = LogRecord {
+        time_unix_nano: far_future_nanos as u64,
+        severity_text: "INFO".to_string(),
+        severity_number: 9,
+        body: Some(AnyValue {
+            value: Some(any_value::Value::StringValue("Test".to_string())),
+        }),
+        ..Default::default()
+    };
+
+    let (row_overridden, was_overridden) =
+        KafkaLogRow::new(log_record_overridden, None, None).unwrap();
+    assert!(was_overridden);
+    assert!(row_overridden.attributes.contains_key("$originalTimestamp"));
+
+    // Test with a recent timestamp (should not be overridden)
+    let recent_nanos = (Utc::now() - TimeDelta::hours(1))
+        .timestamp_nanos_opt()
+        .unwrap();
+    let log_record_recent = LogRecord {
+        time_unix_nano: recent_nanos as u64,
+        severity_text: "INFO".to_string(),
+        severity_number: 9,
+        body: Some(AnyValue {
+            value: Some(any_value::Value::StringValue("Test".to_string())),
+        }),
+        ..Default::default()
+    };
+
+    let (row_recent, was_not_overridden) = KafkaLogRow::new(log_record_recent, None, None).unwrap();
+    assert!(!was_not_overridden);
+    assert!(!row_recent.attributes.contains_key("$originalTimestamp"));
 }

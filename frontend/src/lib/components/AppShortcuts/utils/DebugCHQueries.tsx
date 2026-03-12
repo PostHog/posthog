@@ -6,8 +6,8 @@ import { useMemo, useState } from 'react'
 
 import { IconCodeInsert, IconCopy, IconRefresh } from '@posthog/icons'
 
-import { Chart, ChartConfiguration, ChartDataset } from 'lib/Chart'
 import api from 'lib/api'
+import { Chart, ChartConfiguration, ChartDataset } from 'lib/Chart'
 import { dayjs } from 'lib/dayjs'
 import { useChart } from 'lib/hooks/useChart'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -64,6 +64,7 @@ export interface Query {
     execution_time: number
     path: string
     logComment: Record<string, unknown>
+    profile_events: Record<string, number>
 }
 
 export interface DebugResponse {
@@ -438,7 +439,9 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                         >
                                             Debug{' '}
                                             <span>
-                                                {'kind' in item.logComment.query ? item.logComment.query.kind : 'query'}
+                                                {'kind' in item.logComment.query
+                                                    ? String(item.logComment.query.kind)
+                                                    : 'query'}
                                             </span>{' '}
                                             in new tab
                                         </LemonButton>
@@ -598,7 +601,7 @@ function QueryContext({ item }: { item: Query }): JSX.Element | null {
                     ) : null}
                     <tr>
                         <td>Container hostname</td>
-                        <td>{container_hostname}</td>
+                        <td>{String(container_hostname ?? '')}</td>
                     </tr>
                 </tbody>
             </table>

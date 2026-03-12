@@ -107,22 +107,31 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
-            eventsConsumer = new CdpEventsConsumer({
-                ...hub,
-                CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: mode === 'hybrid' ? 'kafka' : mode,
-            })
+            eventsConsumer = new CdpEventsConsumer(
+                {
+                    ...hub,
+                    CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: mode === 'hybrid' ? 'kafka' : mode,
+                },
+                hub
+            )
             await eventsConsumer.start()
 
-            cyclotronWorkerKafka = new CdpCyclotronWorker({
-                ...hub,
-                CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
-            })
+            cyclotronWorkerKafka = new CdpCyclotronWorker(
+                {
+                    ...hub,
+                    CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
+                },
+                hub
+            )
             await cyclotronWorkerKafka.start()
 
-            cyclotronWorkerPostgres = new CdpCyclotronWorker({
-                ...hub,
-                CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres',
-            })
+            cyclotronWorkerPostgres = new CdpCyclotronWorker(
+                {
+                    ...hub,
+                    CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres',
+                },
+                hub
+            )
             await cyclotronWorkerPostgres.start()
 
             globals = createHogExecutionGlobals({

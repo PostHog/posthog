@@ -259,6 +259,27 @@ def decodeURLComponent(args: list[Any], team: Optional["Team"], stdout: Optional
     return urllib.parse.unquote(args[0])
 
 
+def tryDecodeURLComponent(
+    args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float
+) -> Optional[str]:
+    import re
+    import urllib.parse
+
+    s = args[0]
+    if not s:
+        return s
+
+    # JavaScript's decodeURIComponent throws on invalid percent-encoding
+    # Python's unquote is lenient, so check for % not followed by 2 hex digits
+    if re.search(r"%(?![0-9A-Fa-f]{2})", s):
+        return None
+
+    try:
+        return urllib.parse.unquote(s)
+    except Exception:
+        return None
+
+
 def trim(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
     char = str(args[1]) if len(args) > 1 and isinstance(args[1], str) else None
     if len(args) > 1:
@@ -882,6 +903,37 @@ def JSONExtractString(args: list[Any], team: Optional["Team"], stdout: Optional[
     return str(val) if val is not None else None
 
 
+def multiSearchAnyCaseInsensitive(args: list[Any], team, stdout, timeout):
+    if args[0] is None or args[1] is None:
+        return 0
+    haystack = str(args[0]).lower()
+    needles = args[1] if isinstance(args[1], list) else []
+    return int(any(str(needle).lower() in haystack for needle in needles))
+
+
+def extractRegex(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
+    """
+    Extract substring matching a regex pattern.
+    Matches ClickHouse extract(haystack, pattern) behavior:
+    - Returns first capture group if pattern has groups
+    - Returns whole match if no capture groups
+    - Returns empty string if no match
+    """
+    if args[0] is None or args[1] is None:
+        return ""
+    haystack = str(args[0])
+    pattern = str(args[1])
+    try:
+        match = re.search(pattern, haystack)
+        if not match:
+            return ""
+        if match.lastindex and match.lastindex >= 1:
+            return match.group(1) or ""
+        return match.group(0) or ""
+    except re.error:
+        return ""
+
+
 STL: dict[str, STLFunction] = {
     "concat": STLFunction(
         fn=lambda args, team, stdout, timeout: "".join(
@@ -897,6 +949,7 @@ STL: dict[str, STLFunction] = {
         minArgs=2,
         maxArgs=2,
     ),
+    "extractRegex": STLFunction(fn=extractRegex, minArgs=2, maxArgs=2),
     "like": STLFunction(fn=lambda args, team, stdout, timeout: like(args[0], args[1]), minArgs=2, maxArgs=2),
     "ilike": STLFunction(
         fn=lambda args, team, stdout, timeout: like(args[0], args[1], re.IGNORECASE), minArgs=2, maxArgs=2
@@ -934,6 +987,7 @@ STL: dict[str, STLFunction] = {
     "base64Decode": STLFunction(fn=base64Decode, minArgs=1, maxArgs=1),
     "encodeURLComponent": STLFunction(fn=encodeURLComponent, minArgs=1, maxArgs=1),
     "decodeURLComponent": STLFunction(fn=decodeURLComponent, minArgs=1, maxArgs=1),
+    "tryDecodeURLComponent": STLFunction(fn=tryDecodeURLComponent, minArgs=1, maxArgs=1),
     "replaceOne": STLFunction(
         fn=lambda args, team, stdout, timeout: args[0].replace(args[1], args[2], 1), minArgs=3, maxArgs=3
     ),
@@ -1093,4 +1147,9 @@ STL: dict[str, STLFunction] = {
     # only in python, async function in nodejs
     "sleep": STLFunction(fn=sleep, minArgs=1, maxArgs=1),
     "run": STLFunction(fn=run, minArgs=1, maxArgs=1),
+    "multiSearchAnyCaseInsensitive": STLFunction(
+        fn=multiSearchAnyCaseInsensitive,
+        minArgs=2,
+        maxArgs=2,
+    ),
 }

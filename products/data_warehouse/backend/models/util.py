@@ -1,5 +1,8 @@
 import re
+import socket
+from ipaddress import IPv6Address, ip_address
 from typing import TYPE_CHECKING, Union
+from urllib.parse import urlparse
 
 from django.db.models import Q
 
@@ -104,6 +107,12 @@ def remove_named_tuples(type):
                     i += 1
                 if i < len(tokenified_type):
                     filtered_tokens.append(tokenified_type[i])
+        elif token == "`":
+            # Skip backtick-quoted identifiers (field names like `1`, `deal_id`)
+            i += 1
+            while i < len(tokenified_type) and tokenified_type[i] != "`":
+                i += 1
+            # Skip closing backtick
         elif (
             token == "Nullable" or (len(token) == 1 and not token.isalnum()) or token in CLICKHOUSE_HOGQL_MAPPING.keys()
         ):
@@ -168,4 +177,134 @@ STR_TO_HOGQL_MAPPING = {
     "StringDatabaseField": StringDatabaseField,
     "StringJSONDatabaseField": StringJSONDatabaseField,
     "UnknownDatabaseField": UnknownDatabaseField,
+    "boolean": BooleanDatabaseField,
+    "date": DateDatabaseField,
+    "datetime": DateTimeDatabaseField,
+    "timestamp": DateTimeDatabaseField,
+    "integer": IntegerDatabaseField,
+    "numeric": DecimalDatabaseField,
+    "decimal": DecimalDatabaseField,
+    "float": FloatDatabaseField,
+    "string": StringDatabaseField,
+    "text": StringDatabaseField,
+    "array": StringArrayDatabaseField,
+    "json": StringJSONDatabaseField,
+    "unknown": UnknownDatabaseField,
 }
+
+
+POSTGRES_TO_CLICKHOUSE_TYPE = {
+    "smallint": "Int16",
+    "integer": "Int32",
+    "bigint": "Int64",
+    "real": "Float32",
+    "double precision": "Float64",
+    "numeric": "Decimal",
+    "decimal": "Decimal",
+    "boolean": "Bool",
+    "date": "Date",
+    "timestamp without time zone": "DateTime64",
+    "timestamp with time zone": "DateTime64",
+    "character varying": "String",
+    "character": "String",
+    "text": "String",
+    "json": "String",
+    "jsonb": "String",
+    "uuid": "String",
+}
+
+
+CLICKHOUSE_TYPE_TO_HOGQL_LABEL = {
+    "Int16": "integer",
+    "Int32": "integer",
+    "Int64": "integer",
+    "Float32": "float",
+    "Float64": "float",
+    "Bool": "boolean",
+    "Date": "date",
+    "DateTime64": "datetime",
+    "String": "string",
+    "Decimal": "numeric",
+}
+
+
+def postgres_column_to_dwh_column(column_name: str, postgres_type: str, nullable: bool) -> dict[str, str | bool]:
+    normalized_type = postgres_type.lower()
+    clickhouse_type = POSTGRES_TO_CLICKHOUSE_TYPE.get(normalized_type)
+
+    if clickhouse_type is None:
+        if normalized_type.startswith("timestamp"):
+            clickhouse_type = "DateTime64"
+        elif normalized_type.startswith("numeric") or normalized_type.startswith("decimal"):
+            clickhouse_type = "Decimal"
+        elif "int" in normalized_type:
+            clickhouse_type = "Int64"
+        else:
+            clickhouse_type = "String"
+
+    if nullable:
+        clickhouse_type = f"Nullable({clickhouse_type})"
+
+    raw_clickhouse_type = clean_type(clickhouse_type)
+    return {
+        "clickhouse": clickhouse_type,
+        "hogql": CLICKHOUSE_TYPE_TO_HOGQL_LABEL.get(raw_clickhouse_type, "string"),
+        "valid": True,
+    }
+
+
+def postgres_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[str, dict[str, str | bool]]:
+    return {
+        column_name: postgres_column_to_dwh_column(column_name, postgres_type, nullable)
+        for column_name, postgres_type, nullable in columns
+    }
+
+
+def _is_safe_public_ip(host: str) -> bool:
+    ip = ip_address(host)
+
+    # IPv6 can carry embedded IPv4 addresses that need the same SSRF checks.
+    if isinstance(ip, IPv6Address):
+        if ip.ipv4_mapped:
+            return _is_safe_public_ip(str(ip.ipv4_mapped))
+        if ip.sixtofour:
+            return _is_safe_public_ip(str(ip.sixtofour))
+
+    return not (
+        ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified
+    )
+
+
+def validate_warehouse_table_url_pattern(url_pattern: str | None) -> tuple[bool, str]:
+    if not url_pattern:
+        return True, ""
+
+    parsed = urlparse(url_pattern)
+    if parsed.scheme != "https":
+        return False, "URL pattern must use https."
+
+    if not parsed.hostname:
+        return False, "URL pattern must include a valid hostname."
+
+    normalized_hostname = parsed.hostname.lower().strip().rstrip(".")
+    if normalized_hostname in {"localhost"}:
+        return False, "URL pattern hostname is not allowed."
+
+    # Block direct internal IP literals.
+    try:
+        if not _is_safe_public_ip(parsed.hostname):
+            return False, "URL pattern hostname must not resolve to internal IP ranges."
+    except ValueError:
+        pass
+
+    # Resolve the hostname and block if any resolved IP is internal (catches DNS rebinding services).
+    try:
+        addrinfo = socket.getaddrinfo(normalized_hostname, None, proto=socket.IPPROTO_TCP)
+        for _family, _type, _proto, _canonname, sockaddr in addrinfo:
+            resolved_ip = sockaddr[0]
+            if not _is_safe_public_ip(str(resolved_ip)):
+                return False, "URL pattern hostname must not resolve to internal IP ranges."
+    except socket.gaierror:
+        return False, "URL pattern hostname could not be resolved."
+
+    return True, ""

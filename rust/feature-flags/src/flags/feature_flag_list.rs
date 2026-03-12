@@ -1,18 +1,20 @@
-use crate::metrics::consts::TOMBSTONE_COUNTER;
-use metrics::counter;
-
-use crate::api::errors::FlagError;
+use crate::api::errors::{simplify_serde_error, FlagError};
 use crate::database::get_connection_with_metrics;
 use crate::flags::flag_models::{
     FeatureFlag, FeatureFlagList, FeatureFlagRow, HypercacheFlagsWrapper,
 };
+use crate::metrics::consts::TOMBSTONE_COUNTER;
 use common_database::PostgresReader;
 use common_hypercache::HYPER_CACHE_EMPTY_VALUE;
 use common_types::TeamId;
+use metrics::counter;
 
 impl FeatureFlagList {
     pub fn new(flags: Vec<FeatureFlag>) -> Self {
-        Self { flags }
+        Self {
+            flags,
+            ..Default::default()
+        }
     }
 
     /// Parses a JSON Value from hypercache into a list of feature flags.
@@ -39,11 +41,13 @@ impl FeatureFlagList {
         // Parse the hypercache format: {"flags": [...]}
         let wrapper: HypercacheFlagsWrapper =
             serde_json::from_value(data.clone()).map_err(|e| {
+                let data_str = data.to_string();
+                let data_preview = &data_str[..data_str.len().min(200)];
                 tracing::error!(
                     "Failed to parse hypercache data for team {}: {}. Data: {}",
                     team_id,
                     e,
-                    &data.to_string()[..data.to_string().len().min(200)]
+                    data_preview
                 );
                 counter!(
                     TOMBSTONE_COUNTER,
@@ -51,7 +55,10 @@ impl FeatureFlagList {
                     "team_id" => team_id.to_string(),
                 )
                 .increment(1);
-                FlagError::RedisDataParsingError
+                FlagError::DataParsingErrorWithContext(format!(
+                    "Failed to parse feature flags for team {team_id}: {}",
+                    simplify_serde_error(&e.to_string())
+                ))
             })?;
 
         tracing::debug!("Parsed {} flags for team {}", wrapper.flags.len(), team_id);
@@ -87,22 +94,21 @@ impl FeatureFlagList {
                   f.version,
                   f.evaluation_runtime,
                   COALESCE(
-                      ARRAY_AGG(tag.name) FILTER (WHERE tag.name IS NOT NULL),
+                      ARRAY_AGG(ctx.name) FILTER (WHERE ctx.name IS NOT NULL),
                       '{}'::text[]
                   ) AS evaluation_tags,
                   bucketing_identifier
               FROM posthog_featureflag AS f
               JOIN posthog_team AS t ON (f.team_id = t.id)
-              -- Evaluation tags are distinct from organizational tags. This bridge table links
-              -- flags to tags that constrain runtime evaluation. We use LEFT JOIN to retain flags
-              -- with zero evaluation tags, so ARRAY_AGG(...) returns an empty array rather than
-              -- dropping the flag row entirely.
-              LEFT JOIN posthog_featureflagevaluationtag AS et ON (f.id = et.feature_flag_id)
-              -- Only fetch names for tags that are evaluation constraints (not all org tags)
-              LEFT JOIN posthog_tag AS tag ON (et.tag_id = tag.id)
+              LEFT JOIN posthog_featureflagevaluationcontext AS ec ON (f.id = ec.feature_flag_id)
+              LEFT JOIN posthog_evaluationcontext AS ctx ON (ec.evaluation_context_id = ctx.id)
             WHERE t.id = $1
               AND f.deleted = false
-            GROUP BY f.id, f.team_id, f.name, f.key, f.filters, f.deleted, f.active, 
+              -- Exclude encrypted remote config flags - they can only be accessed via
+              -- the dedicated /remote_config endpoint which handles decryption.
+              -- Use IS TRUE to handle NULL values (NULL IS TRUE evaluates to FALSE, not NULL)
+              AND NOT (f.is_remote_configuration IS TRUE AND f.has_encrypted_payloads IS TRUE)
+            GROUP BY f.id, f.team_id, f.name, f.key, f.filters, f.deleted, f.active,
                      f.ensure_experience_continuity, f.version, f.evaluation_runtime
         "#;
         let flags_row = sqlx::query_as::<_, FeatureFlagRow>(query)
@@ -180,7 +186,6 @@ mod tests {
             setup_redis_client, TestContext,
         },
     };
-    use rand::Rng;
 
     #[tokio::test]
     async fn test_fetch_flags_from_redis() {
@@ -294,11 +299,8 @@ mod tests {
             .await
             .expect("Failed to insert team");
 
-        let random_id_1 = rand::thread_rng().gen_range(1_000_000..100_000_000);
-        let random_id_2 = rand::thread_rng().gen_range(1_000_000..100_000_000);
-
         let flag1 = FeatureFlagRow {
-            id: random_id_1,
+            id: 0,
             team_id: team.id,
             name: Some("Test Flag".to_string()),
             key: "test_flag".to_string(),
@@ -313,7 +315,7 @@ mod tests {
         };
 
         let flag2 = FeatureFlagRow {
-            id: random_id_2,
+            id: 0,
             team_id: team.id,
             name: Some("Test Flag 2".to_string()),
             key: "test_flag_2".to_string(),
@@ -389,6 +391,184 @@ mod tests {
         assert!(tags.contains(&"docs-page".to_string()));
         assert!(tags.contains(&"marketing-site".to_string()));
         assert!(tags.contains(&"app".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_encrypted_remote_config_flags_excluded_from_pg() {
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team");
+
+        let mut conn = context
+            .non_persons_writer
+            .get_connection()
+            .await
+            .expect("Failed to get connection");
+
+        // Insert a regular feature flag via raw SQL (is_remote_configuration = false)
+        sqlx::query(
+            r#"INSERT INTO posthog_featureflag
+            (team_id, name, key, filters, deleted, active, ensure_experience_continuity,
+             is_remote_configuration, has_encrypted_payloads, created_at)
+            VALUES ($1, $2, $3, $4, false, true, false, false, false, '2024-06-17')"#,
+        )
+        .bind(team.id)
+        .bind("Regular Flag")
+        .bind("regular_flag")
+        .bind(serde_json::json!({"groups": [{"properties": [], "rollout_percentage": 100}]}))
+        .execute(&mut *conn)
+        .await
+        .expect("Failed to insert regular flag");
+
+        // Insert an unencrypted remote config flag via raw SQL
+        sqlx::query(
+            r#"INSERT INTO posthog_featureflag
+            (team_id, name, key, filters, deleted, active, ensure_experience_continuity,
+             is_remote_configuration, has_encrypted_payloads, created_at)
+            VALUES ($1, $2, $3, $4, false, true, false, true, false, '2024-06-17')"#,
+        )
+        .bind(team.id)
+        .bind("Unencrypted Remote Config Flag")
+        .bind("unencrypted_remote_config_flag")
+        .bind(serde_json::json!({"groups": [{"properties": [], "rollout_percentage": 100}]}))
+        .execute(&mut *conn)
+        .await
+        .expect("Failed to insert unencrypted remote config flag");
+
+        // Insert an encrypted remote config flag via raw SQL
+        sqlx::query(
+            r#"INSERT INTO posthog_featureflag
+            (team_id, name, key, filters, deleted, active, ensure_experience_continuity,
+             is_remote_configuration, has_encrypted_payloads, created_at)
+            VALUES ($1, $2, $3, $4, false, true, false, true, true, '2024-06-17')"#,
+        )
+        .bind(team.id)
+        .bind("Encrypted Remote Config Flag")
+        .bind("encrypted_remote_config_flag")
+        .bind(serde_json::json!({"groups": [{"properties": [], "rollout_percentage": 100}]}))
+        .execute(&mut *conn)
+        .await
+        .expect("Failed to insert encrypted remote config flag");
+
+        let flags_from_pg = FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.id)
+            .await
+            .expect("Failed to fetch flags from pg");
+
+        // Regular flag and unencrypted remote config flag should be returned
+        // Encrypted remote config flag should be excluded
+        assert_eq!(flags_from_pg.len(), 2);
+
+        let flag_keys: Vec<&str> = flags_from_pg.iter().map(|f| f.key.as_str()).collect();
+        assert!(flag_keys.contains(&"regular_flag"));
+        assert!(flag_keys.contains(&"unencrypted_remote_config_flag"));
+        assert!(!flag_keys.contains(&"encrypted_remote_config_flag"));
+    }
+
+    #[tokio::test]
+    async fn test_null_values_included_in_pg_query() {
+        // Verify that flags with NULL values for is_remote_configuration and/or
+        // has_encrypted_payloads are correctly included (not excluded by the filter).
+        // This tests the IS TRUE logic: NULL IS TRUE evaluates to FALSE, so
+        // NOT (NULL IS TRUE AND ...) evaluates to TRUE, including the row.
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team");
+
+        let mut conn = context
+            .non_persons_writer
+            .get_connection()
+            .await
+            .expect("Failed to get connection");
+
+        // Insert flag with is_remote_configuration = NULL, has_encrypted_payloads = false
+        sqlx::query(
+            r#"INSERT INTO posthog_featureflag
+            (team_id, name, key, filters, deleted, active, ensure_experience_continuity,
+             is_remote_configuration, has_encrypted_payloads, created_at)
+            VALUES ($1, $2, $3, $4, false, true, false, NULL, false, '2024-06-17')"#,
+        )
+        .bind(team.id)
+        .bind("Null Remote Config Flag")
+        .bind("null_remote_config")
+        .bind(serde_json::json!({"groups": [{"properties": [], "rollout_percentage": 100}]}))
+        .execute(&mut *conn)
+        .await
+        .expect("Failed to insert null remote config flag");
+
+        // Insert flag with is_remote_configuration = true, has_encrypted_payloads = NULL
+        sqlx::query(
+            r#"INSERT INTO posthog_featureflag
+            (team_id, name, key, filters, deleted, active, ensure_experience_continuity,
+             is_remote_configuration, has_encrypted_payloads, created_at)
+            VALUES ($1, $2, $3, $4, false, true, false, true, NULL, '2024-06-17')"#,
+        )
+        .bind(team.id)
+        .bind("Null Encrypted Flag")
+        .bind("null_encrypted")
+        .bind(serde_json::json!({"groups": [{"properties": [], "rollout_percentage": 100}]}))
+        .execute(&mut *conn)
+        .await
+        .expect("Failed to insert null encrypted flag");
+
+        // Insert legacy flag with both fields NULL
+        sqlx::query(
+            r#"INSERT INTO posthog_featureflag
+            (team_id, name, key, filters, deleted, active, ensure_experience_continuity,
+             is_remote_configuration, has_encrypted_payloads, created_at)
+            VALUES ($1, $2, $3, $4, false, true, false, NULL, NULL, '2024-06-17')"#,
+        )
+        .bind(team.id)
+        .bind("Legacy Flag")
+        .bind("legacy_flag")
+        .bind(serde_json::json!({"groups": [{"properties": [], "rollout_percentage": 100}]}))
+        .execute(&mut *conn)
+        .await
+        .expect("Failed to insert legacy flag");
+
+        // Insert flag with is_remote_configuration = NULL, has_encrypted_payloads = true
+        // This should still be included because is_remote_configuration is not TRUE
+        sqlx::query(
+            r#"INSERT INTO posthog_featureflag
+            (team_id, name, key, filters, deleted, active, ensure_experience_continuity,
+             is_remote_configuration, has_encrypted_payloads, created_at)
+            VALUES ($1, $2, $3, $4, false, true, false, NULL, true, '2024-06-17')"#,
+        )
+        .bind(team.id)
+        .bind("Null Remote Encrypted True Flag")
+        .bind("null_remote_encrypted_true")
+        .bind(serde_json::json!({"groups": [{"properties": [], "rollout_percentage": 100}]}))
+        .execute(&mut *conn)
+        .await
+        .expect("Failed to insert null remote encrypted true flag");
+
+        let flags_from_pg = FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.id)
+            .await
+            .expect("Failed to fetch flags from pg");
+
+        // All flags with NULL values should be included
+        assert_eq!(flags_from_pg.len(), 4);
+
+        let flag_keys: Vec<&str> = flags_from_pg.iter().map(|f| f.key.as_str()).collect();
+        assert!(
+            flag_keys.contains(&"null_remote_config"),
+            "Flag with NULL is_remote_configuration should be included"
+        );
+        assert!(
+            flag_keys.contains(&"null_encrypted"),
+            "Flag with NULL has_encrypted_payloads should be included"
+        );
+        assert!(
+            flag_keys.contains(&"legacy_flag"),
+            "Legacy flag with both NULL should be included"
+        );
+        assert!(
+            flag_keys.contains(&"null_remote_encrypted_true"),
+            "Flag with NULL is_remote_configuration and TRUE has_encrypted_payloads should be included"
+        );
     }
 
     #[test]
@@ -505,7 +685,10 @@ mod tests {
         // Data is an array instead of {"flags": [...]} wrapper
         let data = json!([{"id": 1, "key": "test"}]);
         let result = FeatureFlagList::parse_hypercache_value(data, 123);
-        assert!(matches!(result, Err(FlagError::RedisDataParsingError)));
+        assert!(matches!(
+            result,
+            Err(FlagError::DataParsingErrorWithContext(_))
+        ));
     }
 
     #[test]
@@ -513,7 +696,10 @@ mod tests {
         // Data has wrong structure - flags is not an array
         let data = json!({"flags": "not an array"});
         let result = FeatureFlagList::parse_hypercache_value(data, 123);
-        assert!(matches!(result, Err(FlagError::RedisDataParsingError)));
+        assert!(matches!(
+            result,
+            Err(FlagError::DataParsingErrorWithContext(_))
+        ));
     }
 
     #[test]
@@ -528,7 +714,10 @@ mod tests {
             ]
         });
         let result = FeatureFlagList::parse_hypercache_value(data, 123);
-        assert!(matches!(result, Err(FlagError::RedisDataParsingError)));
+        assert!(matches!(
+            result,
+            Err(FlagError::DataParsingErrorWithContext(_))
+        ));
     }
 
     #[test]
@@ -580,7 +769,10 @@ mod tests {
         // A random string that's not the sentinel should fail parsing
         let data = json!("some_random_string");
         let result = FeatureFlagList::parse_hypercache_value(data, 123);
-        assert!(matches!(result, Err(FlagError::RedisDataParsingError)));
+        assert!(matches!(
+            result,
+            Err(FlagError::DataParsingErrorWithContext(_))
+        ));
     }
 
     #[test]
@@ -588,6 +780,9 @@ mod tests {
         // Empty object (no flags key)
         let data = json!({});
         let result = FeatureFlagList::parse_hypercache_value(data, 123);
-        assert!(matches!(result, Err(FlagError::RedisDataParsingError)));
+        assert!(matches!(
+            result,
+            Err(FlagError::DataParsingErrorWithContext(_))
+        ));
     }
 }

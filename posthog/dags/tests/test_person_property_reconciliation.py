@@ -1,4 +1,8 @@
-"""Tests for the person property reconciliation job."""
+"""Tests for the person property reconciliation job.
+
+For comprehensive documentation including architecture diagrams and example configs, see:
+    posthog/dags/PERSON_PROPERTY_RECONCILIATION.md
+"""
 
 import os
 import json
@@ -13,6 +17,7 @@ from clickhouse_driver import Client
 
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.dags.person_property_reconciliation import (
+    FILTERED_PERSON_UPDATE_PROPERTIES,
     PersonPropertyDiffs,
     PropertyValue,
     RawPersonPropertyUpdates,
@@ -21,8 +26,11 @@ from posthog.dags.person_property_reconciliation import (
     fetch_person_properties_from_clickhouse,
     filter_event_person_properties,
     format_ch_timestamp,
+    get_affected_person_ids_from_clickhouse,
     get_person_property_updates_from_clickhouse,
     get_person_property_updates_windowed,
+    get_person_property_updates_windowed_batched,
+    get_raw_person_property_updates_from_clickhouse,
     merge_raw_person_property_updates,
     parse_ch_timestamp,
     query_team_ids_from_clickhouse,
@@ -2125,11 +2133,15 @@ class TestGetPersonPropertyUpdatesWindowed:
     @patch("posthog.dags.person_property_reconciliation.compare_raw_updates_with_person_state")
     @patch("posthog.dags.person_property_reconciliation.datetime")
     @patch("posthog.dags.person_property_reconciliation.get_raw_person_property_updates_from_clickhouse")
-    def test_window_seconds_positive_creates_windows(self, mock_get_raw, mock_datetime, mock_compare):
+    @patch("posthog.dags.person_property_reconciliation.get_affected_person_ids_from_clickhouse")
+    def test_window_seconds_positive_creates_windows(
+        self, mock_get_affected, mock_get_raw, mock_datetime, mock_compare
+    ):
         """Test that positive window_seconds creates multiple query windows."""
         mock_now = datetime(2024, 1, 1, 2, 0, 0, tzinfo=UTC)
         mock_datetime.now.return_value = mock_now
         mock_datetime.strptime = datetime.strptime
+        mock_get_affected.return_value = ["person-1"]
         mock_get_raw.return_value = []
         mock_compare.return_value = []
 
@@ -2139,22 +2151,28 @@ class TestGetPersonPropertyUpdatesWindowed:
             window_seconds=3600,  # 1 hour windows
         )
 
-        # Should have 2 calls: 00:00-01:00 and 01:00-02:00
+        # Should first fetch affected person_ids
+        mock_get_affected.assert_called_once()
+        # Should have 2 calls: 00:00-01:00 and 01:00-02:00, with person_ids filter
         assert mock_get_raw.call_count == 2
         calls = mock_get_raw.call_args_list
         assert calls[0][0] == (1, "2024-01-01 00:00:00", "2024-01-01 01:00:00")
+        assert calls[0][1] == {"person_ids": ("person-1",)}
         assert calls[1][0] == (1, "2024-01-01 01:00:00", "2024-01-01 02:00:00")
+        assert calls[1][1] == {"person_ids": ("person-1",)}
         # compare_raw_updates_with_person_state should be called once at the end
         mock_compare.assert_called_once()
 
     @patch("posthog.dags.person_property_reconciliation.compare_raw_updates_with_person_state")
     @patch("posthog.dags.person_property_reconciliation.datetime")
     @patch("posthog.dags.person_property_reconciliation.get_raw_person_property_updates_from_clickhouse")
-    def test_window_merges_results_across_windows(self, mock_get_raw, mock_datetime, mock_compare):
+    @patch("posthog.dags.person_property_reconciliation.get_affected_person_ids_from_clickhouse")
+    def test_window_merges_results_across_windows(self, mock_get_affected, mock_get_raw, mock_datetime, mock_compare):
         """Test that results are properly merged across windows."""
         mock_now = datetime(2024, 1, 1, 2, 0, 0, tzinfo=UTC)
         mock_datetime.now.return_value = mock_now
         mock_datetime.strptime = datetime.strptime
+        mock_get_affected.return_value = ["person-1"]
 
         # First window returns one update, second window returns a newer update for same key
         mock_get_raw.side_effect = [
@@ -2202,6 +2220,445 @@ class TestGetPersonPropertyUpdatesWindowed:
         raw_updates_list = compare_call_args[1]
         assert len(raw_updates_list) == 1
         assert raw_updates_list[0].set_updates["email"].value == "new@example.com"
+
+
+class TestGetAffectedPersonIdsFromClickhouse:
+    """Test the get_affected_person_ids_from_clickhouse function.
+
+    This query aggregates event properties within the bug window, compares against
+    current person state, and returns only person_ids with actual diffs.
+    """
+
+    @patch("posthog.dags.person_property_reconciliation.sync_execute")
+    def test_returns_person_ids_in_bug_window(self, mock_sync_execute):
+        """Test that query is bounded by bug_window_end."""
+        mock_sync_execute.return_value = [
+            ("person-1",),
+            ("person-2",),
+            ("person-3",),
+        ]
+
+        result = get_affected_person_ids_from_clickhouse(
+            team_id=1,
+            bug_window_start="2024-01-01 00:00:00",
+            bug_window_end="2024-01-02 00:00:00",
+        )
+
+        assert result == ["person-1", "person-2", "person-3"]
+
+        # Verify the query uses bug_window_end (not now())
+        query = mock_sync_execute.call_args[0][0]
+        params = mock_sync_execute.call_args[0][1]
+        assert "bug_window_end" in params
+        assert params["bug_window_end"] == "2024-01-02 00:00:00"
+        assert "e.timestamp < %(bug_window_end)s" in query
+
+    @patch("posthog.dags.person_property_reconciliation.sync_execute")
+    def test_returns_empty_list_when_no_persons(self, mock_sync_execute):
+        """Test that empty list is returned when no affected persons."""
+        mock_sync_execute.return_value = []
+
+        result = get_affected_person_ids_from_clickhouse(
+            team_id=1,
+            bug_window_start="2024-01-01 00:00:00",
+            bug_window_end="2024-01-02 00:00:00",
+        )
+
+        assert result == []
+
+    @patch("posthog.dags.person_property_reconciliation.sync_execute")
+    def test_filters_out_filtered_person_update_properties(self, mock_sync_execute):
+        """Detection query must exclude events that only set FILTERED_PERSON_UPDATE_PROPERTIES."""
+        mock_sync_execute.return_value = []
+
+        get_affected_person_ids_from_clickhouse(
+            team_id=1,
+            bug_window_start="2024-01-01 00:00:00",
+            bug_window_end="2024-01-02 00:00:00",
+        )
+
+        query = mock_sync_execute.call_args[0][0]
+        params = mock_sync_execute.call_args[0][1]
+
+        assert "filtered_properties" in params
+        assert params["filtered_properties"] == tuple(FILTERED_PERSON_UPDATE_PROPERTIES)
+        assert "NOT IN %(filtered_properties)s" in query
+
+
+class TestGetRawPersonPropertyUpdatesWithPersonIds:
+    """Test the person_ids filter parameter in get_raw_person_property_updates_from_clickhouse."""
+
+    @patch("posthog.dags.person_property_reconciliation.sync_execute")
+    def test_filters_by_person_ids(self, mock_sync_execute):
+        """Test that query filters to specific person_ids (required param)."""
+        mock_sync_execute.return_value = []
+
+        get_raw_person_property_updates_from_clickhouse(
+            team_id=1,
+            bug_window_start="2024-01-01 00:00:00",
+            bug_window_end="2024-01-02 00:00:00",
+            person_ids=("person-1", "person-2"),
+        )
+
+        params = mock_sync_execute.call_args[0][1]
+        # person_ids is required and used directly in IN clause
+        assert params["person_ids"] == ("person-1", "person-2")
+
+
+class TestGetPersonPropertyUpdatesWindowedBatched:
+    """Test the get_person_property_updates_windowed_batched iterator function."""
+
+    @patch("posthog.dags.person_property_reconciliation.compare_raw_updates_with_person_state")
+    @patch("posthog.dags.person_property_reconciliation.get_raw_person_property_updates_from_clickhouse")
+    @patch("posthog.dags.person_property_reconciliation.datetime")
+    @patch("posthog.dags.person_property_reconciliation.get_affected_person_ids_from_clickhouse")
+    def test_yields_batches_of_persons(self, mock_get_affected, mock_datetime, mock_get_raw, mock_compare):
+        """Test that function yields batches when person count exceeds batch size."""
+        # Setup: 3 affected persons, batch size of 2 = 2 batches
+        mock_get_affected.return_value = ["person-1", "person-2", "person-3"]
+
+        mock_now = datetime(2024, 1, 1, 1, 0, 0, tzinfo=UTC)
+        mock_datetime.now.return_value = mock_now
+        mock_datetime.strptime = datetime.strptime
+
+        # Return raw updates so accumulated dict is populated
+        mock_get_raw.side_effect = [
+            # First batch, first window
+            [
+                RawPersonPropertyUpdates(
+                    person_id="person-1",
+                    set_updates={"key": PropertyValue(datetime(2024, 1, 1, 0, 30, 0, tzinfo=UTC), "val1")},
+                    set_once_updates={},
+                    unset_updates={},
+                )
+            ],
+            # Second batch, first window
+            [
+                RawPersonPropertyUpdates(
+                    person_id="person-3",
+                    set_updates={"key": PropertyValue(datetime(2024, 1, 1, 0, 30, 0, tzinfo=UTC), "val3")},
+                    set_once_updates={},
+                    unset_updates={},
+                )
+            ],
+        ]
+        mock_compare.side_effect = [
+            [  # First batch result
+                PersonPropertyDiffs(
+                    person_id="person-1",
+                    person_version=1,
+                    set_updates={"key": PropertyValue(datetime(2024, 1, 1, 0, 30, 0, tzinfo=UTC), "val1")},
+                    set_once_updates={},
+                    unset_updates={},
+                ),
+            ],
+            [  # Second batch result
+                PersonPropertyDiffs(
+                    person_id="person-3",
+                    person_version=1,
+                    set_updates={"key": PropertyValue(datetime(2024, 1, 1, 0, 30, 0, tzinfo=UTC), "val3")},
+                    set_once_updates={},
+                    unset_updates={},
+                ),
+            ],
+        ]
+
+        results = list(
+            get_person_property_updates_windowed_batched(
+                team_id=1,
+                bug_window_start="2024-01-01 00:00:00",
+                bug_window_end="2024-01-01 01:00:00",
+                window_seconds=3600,
+                person_batch_size=2,  # Small batch size for testing
+            )
+        )
+
+        assert len(results) == 2  # Two batches yielded
+        assert len(results[0]) == 1  # First batch has 1 person with diffs
+        assert results[0][0].person_id == "person-1"
+        assert len(results[1]) == 1  # Second batch has 1 person with diffs
+        assert results[1][0].person_id == "person-3"
+
+    @patch("posthog.dags.person_property_reconciliation.get_affected_person_ids_from_clickhouse")
+    def test_yields_nothing_when_no_affected_persons(self, mock_get_affected):
+        """Test that function yields nothing when no affected persons."""
+        mock_get_affected.return_value = []
+
+        results = list(
+            get_person_property_updates_windowed_batched(
+                team_id=1,
+                bug_window_start="2024-01-01 00:00:00",
+                bug_window_end="2024-01-02 00:00:00",
+                window_seconds=3600,
+            )
+        )
+
+        assert results == []
+
+    @patch("posthog.dags.person_property_reconciliation.compare_raw_updates_with_person_state")
+    @patch("posthog.dags.person_property_reconciliation.get_raw_person_property_updates_from_clickhouse")
+    @patch("posthog.dags.person_property_reconciliation.datetime")
+    @patch("posthog.dags.person_property_reconciliation.get_affected_person_ids_from_clickhouse")
+    def test_filters_raw_queries_by_person_batch(self, mock_get_affected, mock_datetime, mock_get_raw, mock_compare):
+        """Test that windowed queries are filtered to the current person batch."""
+        mock_get_affected.return_value = ["person-1", "person-2", "person-3"]
+
+        mock_now = datetime(2024, 1, 1, 2, 0, 0, tzinfo=UTC)
+        mock_datetime.now.return_value = mock_now
+        mock_datetime.strptime = datetime.strptime
+
+        mock_get_raw.return_value = []
+        mock_compare.return_value = []
+
+        # Consume the iterator with batch_size=2
+        list(
+            get_person_property_updates_windowed_batched(
+                team_id=1,
+                bug_window_start="2024-01-01 00:00:00",
+                bug_window_end="2024-01-01 01:00:00",
+                window_seconds=3600,
+                person_batch_size=2,
+            )
+        )
+
+        # Check that get_raw was called with person_ids filter
+        # First batch should have person-1, person-2
+        # Second batch should have person-3
+        calls = mock_get_raw.call_args_list
+
+        # There should be 4 calls total: 2 windows × 2 batches
+        assert len(calls) == 4
+
+        # Check first batch calls include person_ids filter
+        first_batch_call = calls[0]
+        assert first_batch_call[1]["person_ids"] == ("person-1", "person-2")
+
+        # Check second batch calls include person_ids filter
+        third_call = calls[2]  # First call of second batch
+        assert third_call[1]["person_ids"] == ("person-3",)
+
+    @patch("posthog.dags.person_property_reconciliation.compare_raw_updates_with_person_state")
+    @patch("posthog.dags.person_property_reconciliation.get_raw_person_property_updates_from_clickhouse")
+    @patch("posthog.dags.person_property_reconciliation.datetime")
+    @patch("posthog.dags.person_property_reconciliation.get_affected_person_ids_from_clickhouse")
+    def test_uses_bug_window_end_for_affected_persons_query(
+        self, mock_get_affected, mock_datetime, mock_get_raw, mock_compare
+    ):
+        """Test that affected persons query uses bug_window_end (bounded)."""
+        mock_get_affected.return_value = []
+
+        list(
+            get_person_property_updates_windowed_batched(
+                team_id=1,
+                bug_window_start="2024-01-01 00:00:00",
+                bug_window_end="2024-01-02 00:00:00",  # Specific end time
+                window_seconds=3600,
+            )
+        )
+
+        # Verify get_affected_person_ids_from_clickhouse was called with bug_window_end
+        mock_get_affected.assert_called_once_with(
+            team_id=1,
+            bug_window_start="2024-01-01 00:00:00",
+            bug_window_end="2024-01-02 00:00:00",
+        )
+
+    @patch("posthog.dags.person_property_reconciliation.get_affected_person_ids_from_clickhouse")
+    def test_logs_error_when_affected_persons_query_fails(self, mock_get_affected):
+        """Test that errors during affected persons query are logged with context."""
+        mock_get_affected.side_effect = Exception("ClickHouse connection failed")
+        mock_logger = MagicMock()
+
+        with pytest.raises(Exception, match="ClickHouse connection failed"):
+            list(
+                get_person_property_updates_windowed_batched(
+                    team_id=1,
+                    bug_window_start="2024-01-01 00:00:00",
+                    bug_window_end="2024-01-02 00:00:00",
+                    window_seconds=3600,
+                    logger=mock_logger,
+                )
+            )
+
+        # Verify error was logged with context
+        mock_logger.exception.assert_called()
+        error_call = mock_logger.exception.call_args[0][0]
+        assert "team_id=1" in error_call
+        assert "Failed to query affected persons" in error_call
+
+    @patch("posthog.dags.person_property_reconciliation.get_raw_person_property_updates_from_clickhouse")
+    @patch("posthog.dags.person_property_reconciliation.datetime")
+    @patch("posthog.dags.person_property_reconciliation.get_affected_person_ids_from_clickhouse")
+    def test_logs_error_when_window_query_fails(self, mock_get_affected, mock_datetime, mock_get_raw):
+        """Test that errors during window queries are logged with batch and window context."""
+        mock_get_affected.return_value = ["person-1"]
+
+        mock_now = datetime(2024, 1, 1, 2, 0, 0, tzinfo=UTC)
+        mock_datetime.now.return_value = mock_now
+        mock_datetime.strptime = datetime.strptime
+
+        # First window succeeds, second window fails
+        mock_get_raw.side_effect = [
+            [],  # First window OK
+            Exception("Query timeout"),  # Second window fails
+        ]
+        mock_logger = MagicMock()
+
+        with pytest.raises(Exception, match="Query timeout"):
+            list(
+                get_person_property_updates_windowed_batched(
+                    team_id=1,
+                    bug_window_start="2024-01-01 00:00:00",
+                    bug_window_end="2024-01-01 01:00:00",
+                    window_seconds=3600,
+                    logger=mock_logger,
+                )
+            )
+
+        # Verify error was logged with window context
+        error_calls = list(mock_logger.exception.call_args_list)
+        assert len(error_calls) >= 1
+        # Should have both the inner window error and the outer batch error
+        error_messages = [c[0][0] for c in error_calls]
+        assert any("failed to query window" in msg for msg in error_messages)
+        assert any("Batch 1" in msg for msg in error_messages)
+        assert any("team_id=1" in msg for msg in error_messages)
+
+    @patch("posthog.dags.person_property_reconciliation.compare_raw_updates_with_person_state")
+    @patch("posthog.dags.person_property_reconciliation.get_raw_person_property_updates_from_clickhouse")
+    @patch("posthog.dags.person_property_reconciliation.datetime")
+    @patch("posthog.dags.person_property_reconciliation.get_affected_person_ids_from_clickhouse")
+    def test_logs_error_when_compare_fails(self, mock_get_affected, mock_datetime, mock_get_raw, mock_compare):
+        """Test that errors during person state comparison are logged with context."""
+        mock_get_affected.return_value = ["person-1"]
+
+        mock_now = datetime(2024, 1, 1, 1, 0, 0, tzinfo=UTC)
+        mock_datetime.now.return_value = mock_now
+        mock_datetime.strptime = datetime.strptime
+
+        mock_get_raw.return_value = [
+            RawPersonPropertyUpdates(
+                person_id="person-1",
+                set_updates={"key": PropertyValue(datetime(2024, 1, 1, 0, 30, 0, tzinfo=UTC), "val")},
+                set_once_updates={},
+                unset_updates={},
+            )
+        ]
+        mock_compare.side_effect = Exception("Person table query failed")
+        mock_logger = MagicMock()
+
+        with pytest.raises(Exception, match="Person table query failed"):
+            list(
+                get_person_property_updates_windowed_batched(
+                    team_id=1,
+                    bug_window_start="2024-01-01 00:00:00",
+                    bug_window_end="2024-01-01 01:00:00",
+                    window_seconds=3600,
+                    logger=mock_logger,
+                )
+            )
+
+        # Verify error was logged with comparison context
+        error_calls = [c[0][0] for c in mock_logger.exception.call_args_list]
+        assert any("failed to compare" in msg for msg in error_calls)
+        assert any("1 persons" in msg for msg in error_calls)
+
+    @patch("posthog.dags.person_property_reconciliation.compare_raw_updates_with_person_state")
+    @patch("posthog.dags.person_property_reconciliation.get_raw_person_property_updates_from_clickhouse")
+    @patch("posthog.dags.person_property_reconciliation.datetime")
+    @patch("posthog.dags.person_property_reconciliation.get_affected_person_ids_from_clickhouse")
+    def test_yields_nothing_when_compare_returns_empty(
+        self, mock_get_affected, mock_datetime, mock_get_raw, mock_compare
+    ):
+        """Test that batch yields nothing when compare finds no actual diffs."""
+        mock_get_affected.return_value = ["person-1"]
+
+        mock_now = datetime(2024, 1, 1, 1, 0, 0, tzinfo=UTC)
+        mock_datetime.now.return_value = mock_now
+        mock_datetime.strptime = datetime.strptime
+
+        # Raw updates exist but compare finds no actual diffs (person state matches)
+        mock_get_raw.return_value = [
+            RawPersonPropertyUpdates(
+                person_id="person-1",
+                set_updates={"key": PropertyValue(datetime(2024, 1, 1, 0, 30, 0, tzinfo=UTC), "val")},
+                set_once_updates={},
+                unset_updates={},
+            )
+        ]
+        mock_compare.return_value = []  # No diffs after comparison
+
+        results = list(
+            get_person_property_updates_windowed_batched(
+                team_id=1,
+                bug_window_start="2024-01-01 00:00:00",
+                bug_window_end="2024-01-01 01:00:00",
+                window_seconds=3600,
+            )
+        )
+
+        assert results == []
+
+    @patch("posthog.dags.person_property_reconciliation.compare_raw_updates_with_person_state")
+    @patch("posthog.dags.person_property_reconciliation.get_raw_person_property_updates_from_clickhouse")
+    @patch("posthog.dags.person_property_reconciliation.datetime")
+    @patch("posthog.dags.person_property_reconciliation.get_affected_person_ids_from_clickhouse")
+    def test_merges_across_windows_correctly(self, mock_get_affected, mock_datetime, mock_get_raw, mock_compare):
+        """Test that $set takes newest timestamp and $set_once takes earliest when merging windows."""
+        mock_get_affected.return_value = ["person-1"]
+
+        mock_now = datetime(2024, 1, 1, 2, 0, 0, tzinfo=UTC)
+        mock_datetime.now.return_value = mock_now
+        mock_datetime.strptime = datetime.strptime
+
+        # First window: older set value, older set_once value
+        # Second window: newer set value, newer set_once value (should be ignored for set_once)
+        mock_get_raw.side_effect = [
+            [
+                RawPersonPropertyUpdates(
+                    person_id="person-1",
+                    set_updates={"prop": PropertyValue(datetime(2024, 1, 1, 0, 30, 0, tzinfo=UTC), "old_val")},
+                    set_once_updates={
+                        "first_prop": PropertyValue(datetime(2024, 1, 1, 0, 15, 0, tzinfo=UTC), "first_val")
+                    },
+                    unset_updates={},
+                )
+            ],
+            [
+                RawPersonPropertyUpdates(
+                    person_id="person-1",
+                    set_updates={"prop": PropertyValue(datetime(2024, 1, 1, 1, 30, 0, tzinfo=UTC), "new_val")},
+                    set_once_updates={
+                        "first_prop": PropertyValue(datetime(2024, 1, 1, 1, 15, 0, tzinfo=UTC), "ignored_val")
+                    },
+                    unset_updates={},
+                )
+            ],
+        ]
+
+        # Capture what compare receives
+        captured_raw_updates = []
+
+        def capture_compare(team_id, raw_updates):
+            captured_raw_updates.extend(raw_updates)
+            return []
+
+        mock_compare.side_effect = capture_compare
+
+        list(
+            get_person_property_updates_windowed_batched(
+                team_id=1,
+                bug_window_start="2024-01-01 00:00:00",
+                bug_window_end="2024-01-01 01:00:00",
+                window_seconds=3600,
+            )
+        )
+
+        # Verify merge semantics: $set takes newest, $set_once takes earliest
+        assert len(captured_raw_updates) == 1
+        merged = captured_raw_updates[0]
+        assert merged.set_updates["prop"].value == "new_val"  # Newer timestamp wins
+        assert merged.set_once_updates["first_prop"].value == "first_val"  # Earlier timestamp wins
 
 
 class TestParseFormatChTimestamp:
@@ -4278,6 +4735,661 @@ class TestClickHouseQueryIntegration:
             "Filtered property '$referring_domain' should NOT be in results"
         )
 
+    def test_person_ids_filter_only_returns_specified_persons(self, cluster: ClickhouseCluster):
+        """
+        Integration test: verify person_ids filter correctly restricts query results.
+
+        This tests the fix for the NULL IS NULL bug - when person_ids is provided,
+        only those persons should be returned.
+        """
+        team_id = 99970
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        event_ts = now - timedelta(days=5)
+
+        # Create 5 persons, but we'll only query for 2 of them
+        person_ids = [UUID(f"77770000-0000-0000-0000-00000000000{i}") for i in range(1, 6)]
+        target_person_ids = (str(person_ids[0]), str(person_ids[2]))  # Person 1 and 3
+
+        # Insert events for all 5 persons
+        events = []
+        for i, pid in enumerate(person_ids):
+            events.append(
+                (
+                    team_id,
+                    f"distinct_{i}",
+                    pid,
+                    event_ts,
+                    json.dumps({"$set": {"email": f"person{i}@example.com"}}),
+                )
+            )
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Insert all 5 persons in ClickHouse with different email (so diff is detected)
+        person_data = []
+        for i, pid in enumerate(person_ids):
+            person_data.append(
+                (
+                    team_id,
+                    pid,
+                    json.dumps({"email": f"old{i}@example.com"}),
+                    1,
+                    now - timedelta(days=8),
+                )
+            )
+
+        def insert_persons(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_persons).result()
+
+        # Query with person_ids filter - should only return the 2 specified persons
+        results = get_raw_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=now.strftime("%Y-%m-%d %H:%M:%S"),
+            person_ids=target_person_ids,
+        )
+
+        # Should only have 2 results (the filtered persons)
+        result_person_ids = {r.person_id for r in results}
+        expected_person_ids = set(target_person_ids)
+
+        assert result_person_ids == expected_person_ids, (
+            f"person_ids filter failed.\n"
+            f"Expected: {expected_person_ids}\n"
+            f"Got: {result_person_ids}\n"
+            f"This may indicate the NULL IS NULL bug has regressed!"
+        )
+
+        # Verify the data is correct for the returned persons
+        for result in results:
+            assert len(result.set_updates) == 1
+            assert "email" in result.set_updates
+
+    def test_interleaved_events_multiple_persons_realistic_scenario(self, cluster: ClickhouseCluster):
+        """
+        Integration test: realistic scenario with multiple persons and interleaved events.
+
+        Simulates a real-world scenario where:
+        - Multiple users are active simultaneously
+        - Events arrive in arbitrary order (not grouped by person)
+        - Different operation types ($set, $set_once, $unset) are mixed
+        - Some properties conflict (same key, different operations)
+
+        This tests that the query correctly aggregates per-person despite
+        events being interleaved in the events table.
+        """
+        team_id = 99971
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+
+        # Three users with different activity patterns
+        alice = UUID("aaaa0000-0000-0000-0000-000000000001")
+        bob = UUID("bbbb0000-0000-0000-0000-000000000002")
+        charlie = UUID("cccc0000-0000-0000-0000-000000000003")
+
+        # Events arrive interleaved (not grouped by person) - this is realistic
+        # Time ordering simulates events arriving from different user sessions
+        events = [
+            # t+1h: Alice sets email
+            (team_id, "alice_1", alice, now - timedelta(hours=9), json.dumps({"$set": {"email": "alice@v1.com"}})),
+            # t+1h: Bob sets name
+            (team_id, "bob_1", bob, now - timedelta(hours=9), json.dumps({"$set": {"name": "Bob v1"}})),
+            # t+2h: Charlie sets email and set_once for referrer
+            (
+                team_id,
+                "charlie_1",
+                charlie,
+                now - timedelta(hours=8),
+                json.dumps({"$set": {"email": "charlie@example.com"}, "$set_once": {"referrer": "google"}}),
+            ),
+            # t+3h: Alice updates email (should win over v1)
+            (team_id, "alice_2", alice, now - timedelta(hours=7), json.dumps({"$set": {"email": "alice@v2.com"}})),
+            # t+3h: Bob also tries set_once referrer (should use first value)
+            (team_id, "bob_2", bob, now - timedelta(hours=7), json.dumps({"$set_once": {"referrer": "facebook"}})),
+            # t+4h: Alice sets name
+            (team_id, "alice_3", alice, now - timedelta(hours=6), json.dumps({"$set": {"name": "Alice"}})),
+            # t+4h: Bob updates name (should win over v1)
+            (team_id, "bob_3", bob, now - timedelta(hours=6), json.dumps({"$set": {"name": "Bob v2"}})),
+            # t+5h: Charlie tries set_once referrer again (should NOT override google)
+            (
+                team_id,
+                "charlie_2",
+                charlie,
+                now - timedelta(hours=5),
+                json.dumps({"$set_once": {"referrer": "twitter"}}),
+            ),
+            # t+6h: Alice unsets email (should override the $set)
+            (team_id, "alice_4", alice, now - timedelta(hours=4), json.dumps({"$unset": ["email"]})),
+            # t+7h: Bob's set_once for referrer again (still should be facebook - first one)
+            (team_id, "bob_4", bob, now - timedelta(hours=3), json.dumps({"$set_once": {"referrer": "linkedin"}})),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Create persons with existing properties
+        # Alice: has old email (different, so $set shows in diff) and no name
+        # Bob: has old name (different), no referrer
+        # Charlie: has old email (different), no referrer
+        person_data = [
+            (team_id, alice, json.dumps({"email": "alice@old.com"}), 1, now - timedelta(days=8)),
+            (team_id, bob, json.dumps({"name": "Old Bob"}), 1, now - timedelta(days=8)),
+            (team_id, charlie, json.dumps({"email": "charlie@old.com"}), 1, now - timedelta(days=8)),
+        ]
+
+        def insert_persons(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_persons).result()
+
+        # Query and verify
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        results_by_person = {str(r.person_id): r for r in results}
+
+        # Alice assertions:
+        # - email: $set alice@v2.com at t+3h, then $unset at t+6h → both should appear
+        # - name: $set "Alice" at t+4h → but no name in person, so NOT in set_diff
+        alice_result = results_by_person[str(alice)]
+        assert "email" in alice_result.set_updates, "Alice should have email in set_updates"
+        assert alice_result.set_updates["email"].value == "alice@v2.com", "Alice email should be v2"
+        assert "email" in alice_result.unset_updates, "Alice should have email in unset_updates"
+        # name not in person, so $set won't create a diff
+        assert "name" not in alice_result.set_updates, "Alice name should NOT be in set_updates (key doesn't exist)"
+
+        # Bob assertions:
+        # - name: latest is "Bob v2" at t+4h, person has different value
+        # - referrer: first set_once is "facebook" at t+3h, person doesn't have it
+        bob_result = results_by_person[str(bob)]
+        assert "name" in bob_result.set_updates, "Bob should have name in set_updates"
+        assert bob_result.set_updates["name"].value == "Bob v2", "Bob name should be v2"
+        assert "referrer" in bob_result.set_once_updates, "Bob should have referrer in set_once"
+        assert bob_result.set_once_updates["referrer"].value == "facebook", "Bob referrer should be facebook (first)"
+
+        # Charlie assertions:
+        # - email: "charlie@example.com", person has different value
+        # - referrer: "google" (first set_once), person doesn't have it
+        charlie_result = results_by_person[str(charlie)]
+        assert "email" in charlie_result.set_updates, "Charlie should have email"
+        assert charlie_result.set_updates["email"].value == "charlie@example.com"
+        assert "referrer" in charlie_result.set_once_updates, "Charlie should have referrer"
+        assert charlie_result.set_once_updates["referrer"].value == "google", (
+            "Charlie referrer should be google (first)"
+        )
+
+    def test_unicode_and_emoji_in_property_keys_and_values(self, cluster: ClickhouseCluster):
+        """
+        Integration test: verify Unicode and emoji characters work in property keys and values.
+
+        Real users often have international names, emoji in custom properties, etc.
+        This ensures the query handles UTF-8 properly throughout the pipeline.
+        """
+        team_id = 99972
+        person_id = UUID("88880000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        event_ts = now - timedelta(days=5)
+
+        # Unicode and emoji test cases
+        events = [
+            (
+                team_id,
+                "distinct_unicode",
+                person_id,
+                event_ts,
+                json.dumps(
+                    {
+                        "$set": {
+                            "名前": "田中太郎",  # Japanese: name -> Taro Tanaka
+                            "город": "Москва",  # Russian: city -> Moscow
+                            "emoji_status": "🎉🚀💯",  # Emoji value
+                            "Ñoño": "Señor",  # Spanish with ñ
+                            "العربية": "مرحبا",  # Arabic
+                        },
+                        "$set_once": {
+                            "🔑_key": "emoji_key_value",  # Emoji in key
+                            "first_emoji": "👋",
+                        },
+                    }
+                ),
+            )
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person with different values for the Unicode keys
+        person_data = [
+            (
+                team_id,
+                person_id,
+                json.dumps(
+                    {
+                        "名前": "山田花子",  # Different Japanese name
+                        "город": "Санкт-Петербург",  # Different Russian city
+                        "emoji_status": "😢",
+                        "Ñoño": "Señora",
+                        "العربية": "وداعا",
+                    }
+                ),
+                1,
+                now - timedelta(days=8),
+            )
+        ]
+
+        def insert_persons(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_persons).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert len(results) == 1
+        person_diffs = results[0]
+
+        # Verify all Unicode keys are present with correct values
+        assert "名前" in person_diffs.set_updates
+        assert person_diffs.set_updates["名前"].value == "田中太郎"
+
+        assert "город" in person_diffs.set_updates
+        assert person_diffs.set_updates["город"].value == "Москва"
+
+        assert "emoji_status" in person_diffs.set_updates
+        assert person_diffs.set_updates["emoji_status"].value == "🎉🚀💯"
+
+        assert "Ñoño" in person_diffs.set_updates
+        assert person_diffs.set_updates["Ñoño"].value == "Señor"
+
+        assert "العربية" in person_diffs.set_updates
+        assert person_diffs.set_updates["العربية"].value == "مرحبا"
+
+        # Verify set_once with emoji key
+        assert "🔑_key" in person_diffs.set_once_updates
+        assert person_diffs.set_once_updates["🔑_key"].value == "emoji_key_value"
+
+        assert "first_emoji" in person_diffs.set_once_updates
+        assert person_diffs.set_once_updates["first_emoji"].value == "👋"
+
+    def test_no_affected_persons_returns_empty_results(self, cluster: ClickhouseCluster):
+        """
+        Integration test: verify graceful handling when no persons are affected.
+
+        This ensures the query doesn't error when:
+        - No events exist in the bug window
+        - Events exist but properties match (no diff)
+        - Team has no data at all
+        """
+        team_id = 99973
+        now = datetime.now().replace(microsecond=0)
+
+        # Bug window that has no events (far in the past, unique team_id)
+        bug_window_start = now - timedelta(days=1000)
+        bug_window_end = now - timedelta(days=999)
+
+        # Query should return empty, not error
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert results == [], f"Expected empty results for team with no data, got {len(results)} results"
+
+        # Also test get_affected_person_ids_from_clickhouse
+        affected_ids = get_affected_person_ids_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert affected_ids == [], f"Expected no affected persons, got {len(affected_ids)}"
+
+    def test_rapid_fire_events_within_same_second(self, cluster: ClickhouseCluster):
+        """
+        Integration test: multiple events for same person within the same second.
+
+        Real-world scenario: rapid client-side events, SDK batching, etc.
+        Verifies deterministic behavior when timestamps collide.
+        """
+        team_id = 99974
+        person_id = UUID("99990000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+
+        # Same timestamp for all events (within same second)
+        same_ts = now - timedelta(days=5)
+
+        # Multiple rapid-fire $set events for same key with same timestamp
+        # ClickHouse argMax should pick one deterministically
+        events = [
+            (team_id, "rapid_1", person_id, same_ts, json.dumps({"$set": {"counter": 1}})),
+            (team_id, "rapid_2", person_id, same_ts, json.dumps({"$set": {"counter": 2}})),
+            (team_id, "rapid_3", person_id, same_ts, json.dumps({"$set": {"counter": 3}})),
+            (team_id, "rapid_4", person_id, same_ts, json.dumps({"$set": {"counter": 4}})),
+            (team_id, "rapid_5", person_id, same_ts, json.dumps({"$set": {"counter": 5}})),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person with different counter value
+        person_data = [(team_id, person_id, json.dumps({"counter": 0}), 1, now - timedelta(days=8))]
+
+        def insert_persons(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_persons).result()
+
+        # Run query multiple times - result should be consistent (deterministic)
+        results_1 = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+        results_2 = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert len(results_1) == 1
+        assert len(results_2) == 1
+
+        # Should be deterministic - same value both times
+        counter_1 = results_1[0].set_updates["counter"].value
+        counter_2 = results_2[0].set_updates["counter"].value
+
+        assert counter_1 == counter_2, (
+            f"Rapid-fire events should produce deterministic results. Got {counter_1} then {counter_2}"
+        )
+
+        # Value should be one of the inserted values (1-5)
+        assert counter_1 in [1, 2, 3, 4, 5], f"Counter should be one of 1-5, got {counter_1}"
+
+    def test_affected_person_ids_excludes_filtered_property_only_events(self, cluster: ClickhouseCluster):
+        """
+        Integration test: get_affected_person_ids_from_clickhouse should exclude persons
+        whose events only set FILTERED_PERSON_UPDATE_PROPERTIES ($browser, $os, etc.).
+
+        Person A: events with ONLY filtered properties -> excluded
+        Person B: events with at least one non-filtered property that differs from person state -> included
+        """
+        team_id = 99980
+        person_a = UUID("aaaa0000-0000-0000-0000-000000000001")
+        person_b = UUID("bbbb0000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(hours=3)
+        bug_window_end = now - timedelta(hours=1)
+        event_ts = now - timedelta(hours=2)
+
+        events = [
+            # Person A: only filtered properties
+            (
+                team_id,
+                "filtered_only_user",
+                person_a,
+                event_ts,
+                json.dumps(
+                    {
+                        "$set": {
+                            "$browser": "Chrome",
+                            "$os": "Mac OS X",
+                            "$current_url": "https://example.com/page",
+                            "$pathname": "/page",
+                        },
+                    }
+                ),
+            ),
+            # Person B: has a non-filtered property with a value that differs from person state
+            (
+                team_id,
+                "real_update_user",
+                person_b,
+                event_ts,
+                json.dumps(
+                    {
+                        "$set": {
+                            "$browser": "Firefox",
+                            "email": "new@example.com",
+                        },
+                    }
+                ),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        person_data = [
+            (team_id, person_a, json.dumps({"$browser": "Safari"}), 1, now - timedelta(hours=4)),
+            (team_id, person_b, json.dumps({"email": "old@example.com"}), 1, now - timedelta(hours=4)),
+        ]
+
+        def insert_persons(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_persons).result()
+
+        affected_ids = get_affected_person_ids_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert str(person_b) in affected_ids, "Person with non-filtered property diff should be detected"
+        assert str(person_a) not in affected_ids, "Person with only filtered properties should be excluded"
+
+    def test_affected_person_ids_includes_set_once_and_unset_with_non_filtered_keys(self, cluster: ClickhouseCluster):
+        """
+        Integration test: detection covers $set_once and $unset with non-filtered keys
+        that produce actual diffs against person state.
+
+        person_set_once: $set_once for key not on person -> included
+        person_unset: $unset for key that exists on person -> included
+        """
+        team_id = 99981
+        person_set_once = UUID("cccc0000-0000-0000-0000-000000000001")
+        person_unset = UUID("dddd0000-0000-0000-0000-000000000002")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(hours=3)
+        bug_window_end = now - timedelta(hours=1)
+        event_ts = now - timedelta(hours=2)
+
+        events = [
+            (
+                team_id,
+                "set_once_user",
+                person_set_once,
+                event_ts,
+                json.dumps({"$set_once": {"initial_campaign": "summer_sale"}}),
+            ),
+            (
+                team_id,
+                "unset_user",
+                person_unset,
+                event_ts,
+                json.dumps({"$unset": ["email"]}),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        person_data = [
+            # person_set_once: does NOT have "initial_campaign" -> $set_once will produce a diff
+            (team_id, person_set_once, json.dumps({"name": "Alice"}), 1, now - timedelta(hours=4)),
+            # person_unset: HAS "email" -> $unset will produce a diff
+            (team_id, person_unset, json.dumps({"email": "remove@example.com"}), 1, now - timedelta(hours=4)),
+        ]
+
+        def insert_persons(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_persons).result()
+
+        affected_ids = get_affected_person_ids_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert str(person_set_once) in affected_ids, "$set_once with non-filtered key should be detected"
+        assert str(person_unset) in affected_ids, "$unset with non-filtered key should be detected"
+
+    def test_affected_person_ids_excludes_persons_whose_properties_already_match(self, cluster: ClickhouseCluster):
+        """
+        Integration test: persons whose events set non-filtered properties to values
+        that already match the current person state should NOT be returned.
+
+        This is the core fix for the 100x over-selection bug: the old query returned
+        anyone with property-setting events, the new query compares against person
+        state and only returns persons with actual diffs.
+
+        person_match: $set email to same value already on person -> excluded
+        person_diff: $set email to different value -> included
+        person_set_once_exists: $set_once for key already on person -> excluded
+        person_unset_missing: $unset for key NOT on person -> excluded
+        """
+        team_id = 99983
+        person_match = UUID("ff000000-0000-0000-0000-000000000001")
+        person_diff = UUID("ff000000-0000-0000-0000-000000000002")
+        person_set_once_exists = UUID("ff000000-0000-0000-0000-000000000003")
+        person_unset_missing = UUID("ff000000-0000-0000-0000-000000000004")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(hours=3)
+        bug_window_end = now - timedelta(hours=1)
+        event_ts = now - timedelta(hours=2)
+
+        events = [
+            # person_match: $set email to value that already matches person state
+            (team_id, "match_user", person_match, event_ts, json.dumps({"$set": {"email": "same@example.com"}})),
+            # person_diff: $set email to different value
+            (team_id, "diff_user", person_diff, event_ts, json.dumps({"$set": {"email": "new@example.com"}})),
+            # person_set_once_exists: $set_once for key already on person (no-op)
+            (
+                team_id,
+                "set_once_exists_user",
+                person_set_once_exists,
+                event_ts,
+                json.dumps({"$set_once": {"signup_source": "google"}}),
+            ),
+            # person_unset_missing: $unset for key not on person (no-op)
+            (
+                team_id,
+                "unset_missing_user",
+                person_unset_missing,
+                event_ts,
+                json.dumps({"$unset": ["nonexistent_key"]}),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        person_data = [
+            # person_match: email already matches the event value
+            (team_id, person_match, json.dumps({"email": "same@example.com"}), 1, now - timedelta(hours=4)),
+            # person_diff: email differs from event value
+            (team_id, person_diff, json.dumps({"email": "old@example.com"}), 1, now - timedelta(hours=4)),
+            # person_set_once_exists: already has the key -> $set_once is a no-op
+            (team_id, person_set_once_exists, json.dumps({"signup_source": "facebook"}), 1, now - timedelta(hours=4)),
+            # person_unset_missing: does NOT have the key -> $unset is a no-op
+            (team_id, person_unset_missing, json.dumps({"name": "Alice"}), 1, now - timedelta(hours=4)),
+        ]
+
+        def insert_persons(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_persons).result()
+
+        affected_ids = get_affected_person_ids_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert str(person_diff) in affected_ids, "$set with different value should be detected"
+        assert str(person_match) not in affected_ids, "$set with matching value should be excluded"
+        assert str(person_set_once_exists) not in affected_ids, "$set_once for existing key should be excluded"
+        assert str(person_unset_missing) not in affected_ids, "$unset for missing key should be excluded"
+
     def test_windowed_query_produces_same_result_as_single_query(self, cluster: ClickhouseCluster):
         """
         Integration test: windowed queries should produce equivalent results to single query.
@@ -4430,6 +5542,218 @@ class TestClickHouseQueryIntegration:
         assert "name" in single_diff.set_updates, "name should be in set_updates"
         assert single_diff.set_updates["name"].value == "Name3", "name should be Name3"
         assert "email" in single_diff.unset_updates, "email should be in unset_updates"
+
+    def test_windowed_batched_produces_same_result_as_single_query(self, cluster: ClickhouseCluster):
+        """
+        Integration test: the production windowed-batched path
+        (get_person_property_updates_windowed_batched) must produce identical
+        diffs to the non-windowed single-query path.
+
+        This test includes:
+        - Events with both filtered and non-filtered properties
+        - Events spread across multiple time windows
+        - A person with ONLY filtered-property events (should be excluded by both)
+        - A person with non-filtered properties that MATCH current state (no diff, excluded by both)
+        - $set, $set_once, and $unset operations
+        """
+        team_id = 99982
+        person_real = UUID("eeee0000-0000-0000-0000-000000000001")
+        person_filtered_only = UUID("eeee0000-0000-0000-0000-000000000002")
+        person_no_diff = UUID("eeee0000-0000-0000-0000-000000000003")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(hours=6)
+        bug_window_end = now - timedelta(minutes=5)
+
+        events = [
+            # Person with real (non-filtered) property updates across windows
+            # Window 1 (hour 1): $set email, $set_once signup_source, plus filtered props
+            (
+                team_id,
+                "real_user",
+                person_real,
+                bug_window_start + timedelta(hours=1),
+                json.dumps(
+                    {
+                        "$set": {
+                            "email": "first@example.com",
+                            "name": "Name1",
+                            "$browser": "Chrome",
+                            "$os": "Mac OS X",
+                        },
+                        "$set_once": {"signup_source": "google"},
+                    }
+                ),
+            ),
+            # Window 2 (hour 3): $set email overwrites, $set_once ignored (first wins)
+            (
+                team_id,
+                "real_user",
+                person_real,
+                bug_window_start + timedelta(hours=3),
+                json.dumps(
+                    {
+                        "$set": {"email": "second@example.com"},
+                        "$set_once": {"signup_source": "bing"},
+                    }
+                ),
+            ),
+            # Window 3 (hour 5): $unset email, $set name overwrites
+            (
+                team_id,
+                "real_user",
+                person_real,
+                bug_window_start + timedelta(hours=5),
+                json.dumps(
+                    {
+                        "$unset": ["email"],
+                        "$set": {"name": "Name3"},
+                    }
+                ),
+            ),
+            # Person with ONLY filtered-property events (should not appear in results)
+            (
+                team_id,
+                "filtered_user",
+                person_filtered_only,
+                bug_window_start + timedelta(hours=2),
+                json.dumps(
+                    {
+                        "$set": {
+                            "$browser": "Firefox",
+                            "$os": "Windows",
+                            "$current_url": "https://example.com",
+                        },
+                    }
+                ),
+            ),
+            # Person with non-filtered properties that already match person state (no diff).
+            # This is the exact scenario causing 100x over-selection in production:
+            # the old affected persons query returned these, the new one should not.
+            (
+                team_id,
+                "no_diff_user",
+                person_no_diff,
+                bug_window_start + timedelta(hours=2),
+                json.dumps(
+                    {
+                        "$set": {"plan": "enterprise", "company": "Acme Corp"},
+                        "$set_once": {"signup_source": "organic"},
+                    }
+                ),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        person_data = [
+            (
+                team_id,
+                person_real,
+                json.dumps({"email": "old@example.com", "name": "OldName"}),
+                1,
+                now - timedelta(hours=7),
+            ),
+            (
+                team_id,
+                person_filtered_only,
+                json.dumps({"$browser": "Safari", "$os": "Linux"}),
+                1,
+                now - timedelta(hours=7),
+            ),
+            # person_no_diff: properties already match what the events would set
+            (
+                team_id,
+                person_no_diff,
+                json.dumps({"plan": "enterprise", "company": "Acme Corp", "signup_source": "organic"}),
+                1,
+                now - timedelta(hours=7),
+            ),
+        ]
+
+        def insert_persons(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_persons).result()
+
+        bug_window_start_str = bug_window_start.strftime("%Y-%m-%d %H:%M:%S")
+        bug_window_end_str = bug_window_end.strftime("%Y-%m-%d %H:%M:%S")
+
+        # Run non-windowed single query
+        single_results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start_str,
+        )
+
+        # Run windowed-batched (production path) with 2-hour windows
+        batched_results: list[PersonPropertyDiffs] = []
+        for batch in get_person_property_updates_windowed_batched(
+            team_id=team_id,
+            bug_window_start=bug_window_start_str,
+            bug_window_end=bug_window_end_str,
+            window_seconds=7200,
+            person_batch_size=100,
+        ):
+            batched_results.extend(batch)
+
+        # Both should return exactly one person (the real one, not the others)
+        assert len(single_results) == 1, f"single query returned {len(single_results)}, expected 1"
+        assert len(batched_results) == 1, f"batched windowed returned {len(batched_results)}, expected 1"
+
+        single_diff = single_results[0]
+        batched_diff = batched_results[0]
+
+        # Same person_id
+        assert single_diff.person_id == batched_diff.person_id == str(person_real)
+
+        # No-diff and filtered-only persons must not appear in either mode
+        result_person_ids = {r.person_id for r in single_results} | {r.person_id for r in batched_results}
+        assert str(person_filtered_only) not in result_person_ids
+        assert str(person_no_diff) not in result_person_ids, (
+            "Person whose properties already match event values should be excluded by both modes"
+        )
+
+        # Same keys in each diff category
+        assert set(single_diff.set_updates.keys()) == set(batched_diff.set_updates.keys()), (
+            f"set_updates keys differ: single={set(single_diff.set_updates.keys())}, "
+            f"batched={set(batched_diff.set_updates.keys())}"
+        )
+        assert set(single_diff.set_once_updates.keys()) == set(batched_diff.set_once_updates.keys()), (
+            f"set_once_updates keys differ: single={set(single_diff.set_once_updates.keys())}, "
+            f"batched={set(batched_diff.set_once_updates.keys())}"
+        )
+        assert set(single_diff.unset_updates.keys()) == set(batched_diff.unset_updates.keys()), (
+            f"unset_updates keys differ: single={set(single_diff.unset_updates.keys())}, "
+            f"batched={set(batched_diff.unset_updates.keys())}"
+        )
+
+        # Same values
+        for key in single_diff.set_updates:
+            assert single_diff.set_updates[key].value == batched_diff.set_updates[key].value, (
+                f"set_updates[{key}] value differs: single={single_diff.set_updates[key].value}, "
+                f"batched={batched_diff.set_updates[key].value}"
+            )
+
+        for key in single_diff.set_once_updates:
+            assert single_diff.set_once_updates[key].value == batched_diff.set_once_updates[key].value, (
+                f"set_once_updates[{key}] value differs: single={single_diff.set_once_updates[key].value}, "
+                f"batched={batched_diff.set_once_updates[key].value}"
+            )
+
+        # Verify expected properties: name set to Name3, email unset
+        assert "name" in single_diff.set_updates
+        assert single_diff.set_updates["name"].value == "Name3"
+        assert "email" in single_diff.unset_updates
 
 
 @pytest.mark.django_db(transaction=True)

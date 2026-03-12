@@ -99,7 +99,6 @@ class TestSESProvider(TestCase):
         # Mock the SES client on the provider instance
         with (
             patch.object(provider, "ses_client") as mock_ses_client,
-            patch("products.workflows.backend.providers.ses.posthoganalytics.feature_enabled", return_value=True),
         ):
             # Mock the verification attributes to return a non-success status
             mock_ses_client.get_identity_verification_attributes.return_value = {
@@ -171,6 +170,7 @@ class TestSESProvider(TestCase):
                     "recordValue": "feedback-smtp.us-east-1.amazonses.com",
                     "status": "pending",
                     "type": "mail_from",
+                    "priority": 10,
                 },
                 {
                     "recordHostname": "mail.test.posthog.com",
@@ -178,6 +178,13 @@ class TestSESProvider(TestCase):
                     "recordValue": "v=spf1 include:amazonses.com ~all",
                     "status": "pending",
                     "type": "mail_from",
+                },
+                {
+                    "type": "dmarc",
+                    "recordType": "TXT",
+                    "recordHostname": "_dmarc.test.posthog.com",
+                    "recordValue": "v=DMARC1; p=none;",
+                    "status": "pending",
                 },
             ],
         }
@@ -190,7 +197,6 @@ class TestSESProvider(TestCase):
             patch.object(provider.ses_client, "get_identity_verification_attributes") as mock_verif_attrs,
             patch.object(provider.ses_client, "get_identity_dkim_attributes") as mock_dkim_attrs,
             patch.object(provider.ses_client, "get_identity_mail_from_domain_attributes") as mock_mail_from_attrs,
-            patch("products.workflows.backend.providers.ses.posthoganalytics.feature_enabled", return_value=True),
         ):
             mock_verif_attrs.return_value = {
                 "VerificationAttributes": {

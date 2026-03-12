@@ -7,11 +7,14 @@ import { useEffect, useRef, useState } from 'react'
 
 import {
     IconBolt,
+    IconCamera,
     IconCheck,
     IconCursorClick,
     IconDay,
     IconEye,
+    IconFlask,
     IconHide,
+    IconLeave,
     IconLive,
     IconNight,
     IconPieChart,
@@ -19,7 +22,6 @@ import {
     IconSearch,
     IconSpotlight,
     IconStethoscope,
-    IconTestTube,
     IconToggle,
     IconWarning,
     IconX,
@@ -28,33 +30,35 @@ import { LemonBadge, Spinner } from '@posthog/lemon-ui'
 
 import { AnimatedLogomark } from 'lib/brand/Logomark'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { IconFlare, IconMenu } from 'lib/lemon-ui/icons'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
-import { IconFlare, IconMenu } from 'lib/lemon-ui/icons'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
 import { PII_MASKING_PRESET_COLORS } from '~/toolbar/bar/piiMaskingStyles'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
+import { UiHostConfigModal } from '~/toolbar/bar/UiHostConfigModal'
 import { EventDebugMenu } from '~/toolbar/debug/EventDebugMenu'
 import { ExperimentsToolbarMenu } from '~/toolbar/experiments/ExperimentsToolbarMenu'
 import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
+import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { ProductToursSidebar } from '~/toolbar/product-tours/ProductToursSidebar'
 import { ProductToursToolbarMenu } from '~/toolbar/product-tours/ProductToursToolbarMenu'
-import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
+import { screenshotUploadLogic } from '~/toolbar/screenshot-upload/screenshotUploadLogic'
+import { ScreenshotUploadModal } from '~/toolbar/screenshot-upload/ScreenshotUploadModal'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
 import { WebVitalsToolbarMenu } from '~/toolbar/web-vitals/WebVitalsToolbarMenu'
 
-import { HedgehogMenu } from '../hedgehog/HedgehogMenu'
 import { ToolbarButton } from './ToolbarButton'
 
-const HELP_URL = 'https://posthog.com/docs/user-guides/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
+const HELP_URL = 'https://posthog.com/docs/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
 
 function EnabledStatusItem({ label, value }: { label: string; value: boolean }): JSX.Element {
     return (
-        <div className="flex w-full justify-between items-center">
+        <div className="flex justify-between items-center w-full">
             <div>{label}: </div>
             <div>{value ? <IconCheck /> : <IconX />}</div>
         </div>
@@ -74,7 +78,7 @@ function postHogDebugInfoMenuItem(
         items: [
             {
                 label: (
-                    <div className="flex w-full justify-between items-center">
+                    <div className="flex justify-between items-center w-full">
                         <div>version: </div>
                         <div>{posthog?.version || 'posthog not available'}</div>
                     </div>
@@ -82,7 +86,7 @@ function postHogDebugInfoMenuItem(
             },
             {
                 label: (
-                    <div className="flex w-full justify-between items-center">
+                    <div className="flex justify-between items-center w-full">
                         <div>api host: </div>
                         <div>{posthog?.config.api_host}</div>
                     </div>
@@ -90,7 +94,7 @@ function postHogDebugInfoMenuItem(
             },
             {
                 label: (
-                    <div className="flex w-full justify-between items-center">
+                    <div className="flex justify-between items-center w-full">
                         <div>ui host: </div>
                         <div>{posthog?.config.ui_host || 'not set'}</div>
                     </div>
@@ -116,7 +120,7 @@ function postHogDebugInfoMenuItem(
             { label: <EnabledStatusItem label="heatmaps" value={!!posthog?.heatmaps?.isEnabled} /> },
             {
                 label: (
-                    <div className="flex w-full justify-between items-center">
+                    <div className="flex justify-between items-center w-full">
                         <div>surveys: </div>
                         <div>
                             {loadingSurveys ? <Spinner /> : <LemonBadge.Number showZero={true} count={surveysCount} />}
@@ -127,7 +131,7 @@ function postHogDebugInfoMenuItem(
             { label: <EnabledStatusItem label="session recording" value={!!posthog?.sessionRecording?.started} /> },
             {
                 label: (
-                    <div className="flex w-full justify-between items-center">
+                    <div className="flex justify-between items-center w-full">
                         <div>session recording status: </div>
                         <div>{posthog?.sessionRecording?.status || 'unknown'}</div>
                     </div>
@@ -135,7 +139,7 @@ function postHogDebugInfoMenuItem(
             },
             {
                 label: (
-                    <div className="flex w-full items-center">
+                    <div className="flex items-center w-full">
                         <Link to={posthog?.get_session_replay_url()} target="_blank">
                             View current session recording
                         </Link>
@@ -199,9 +203,27 @@ function piiMaskingMenuItem(
 }
 
 function MoreMenu(): JSX.Element {
-    const { hedgehogMode, theme, posthog, piiMaskingEnabled, piiMaskingColor, piiWarning } = useValues(toolbarLogic)
-    const { setHedgehogMode, toggleTheme, setVisibleMenu, togglePiiMasking, setPiiMaskingColor, startGracefulExit } =
-        useActions(toolbarLogic)
+    const {
+        hedgehogModeEnabled,
+        hedgehogModeAvailable,
+        theme,
+        posthog,
+        piiMaskingEnabled,
+        piiMaskingColor,
+        piiWarning,
+    } = useValues(toolbarLogic)
+    const {
+        setHedgehogModeEnabled,
+        toggleTheme,
+        togglePiiMasking,
+        setPiiMaskingColor,
+        startGracefulExit,
+        openHedgehogOptions,
+    } = useActions(toolbarLogic)
+    const { isAuthenticated } = useValues(toolbarConfigLogic)
+    const { logout } = useActions(toolbarConfigLogic)
+    const { isTakingScreenshot } = useValues(screenshotUploadLogic)
+    const { takeScreenshot } = useActions(screenshotUploadLogic)
 
     const [loadingSurveys, setLoadingSurveys] = useState(true)
     const [surveysCount, setSurveysCount] = useState(0)
@@ -213,60 +235,75 @@ function MoreMenu(): JSX.Element {
         }, false)
     }, [posthog])
 
+    const showScreenshotForEvent = useToolbarFeatureFlag('event-media-previews')
+
     // KLUDGE: if there is no theme, assume light mode, which shouldn't be, but seems to be, necessary
     const currentlyLightMode = !theme || theme === 'light'
 
     return (
-        <LemonMenu
-            placement="top-end"
-            fallbackPlacements={['bottom-end']}
-            items={
-                [
-                    {
-                        icon: <>🦔</>,
-                        label: hedgehogMode ? 'Disable hedgehog mode' : 'Hedgehog mode',
-                        onClick: () => {
-                            setHedgehogMode(!hedgehogMode)
+        <>
+            <ScreenshotUploadModal />
+            <LemonMenu
+                placement="top-end"
+                fallbackPlacements={['bottom-end']}
+                items={
+                    [
+                        {
+                            icon: <>🦔</>,
+                            label: hedgehogModeEnabled ? 'Disable hedgehog mode' : 'Hedgehog mode',
+                            disabledReason: !hedgehogModeAvailable
+                                ? "Hedgehog mode is disabled. Hedgehog mode uses `new Function` directives to render WebGL, and that requires 'unsafe-eval' in your Content Security Policy's script-src directive"
+                                : undefined,
+                            onClick: () => {
+                                setHedgehogModeEnabled(!hedgehogModeEnabled)
+                            },
                         },
-                    },
-                    hedgehogMode
-                        ? {
-                              icon: <IconFlare />,
-                              label: 'Hedgehog options',
-                              onClick: () => {
-                                  setVisibleMenu('hedgehog')
-                              },
-                          }
-                        : undefined,
-                    {
-                        icon: currentlyLightMode ? <IconNight /> : <IconDay />,
-                        label: `Switch to ${currentlyLightMode ? 'dark' : 'light'} mode`,
-                        onClick: () => toggleTheme(),
-                    },
-                    ...piiMaskingMenuItem(
-                        piiMaskingEnabled,
-                        piiMaskingColor,
-                        togglePiiMasking,
-                        setPiiMaskingColor,
-                        piiWarning
-                    ),
-                    postHogDebugInfoMenuItem(posthog, loadingSurveys, surveysCount),
-                    {
-                        icon: <IconQuestion />,
-                        label: 'Help',
-                        onClick: () => {
-                            window.open(HELP_URL, '_blank')?.focus()
+                        hedgehogModeEnabled && hedgehogModeAvailable
+                            ? {
+                                  icon: <IconFlare />,
+                                  label: 'Hedgehog options',
+                                  onClick: () => {
+                                      openHedgehogOptions()
+                                  },
+                              }
+                            : undefined,
+                        {
+                            icon: currentlyLightMode ? <IconNight /> : <IconDay />,
+                            label: `Switch to ${currentlyLightMode ? 'dark' : 'light'} mode`,
+                            onClick: () => toggleTheme(),
                         },
-                    },
-                    { icon: <IconX />, label: 'Close toolbar', onClick: startGracefulExit },
-                ].filter(Boolean) as LemonMenuItems
-            }
-            maxContentWidth={true}
-        >
-            <ToolbarButton>
-                <IconMenu />
-            </ToolbarButton>
-        </LemonMenu>
+                        showScreenshotForEvent
+                            ? {
+                                  icon: <IconCamera />,
+                                  label: 'Screenshot for event',
+                                  onClick: takeScreenshot,
+                                  disabled: isTakingScreenshot,
+                              }
+                            : undefined,
+                        ...piiMaskingMenuItem(
+                            piiMaskingEnabled,
+                            piiMaskingColor,
+                            togglePiiMasking,
+                            setPiiMaskingColor,
+                            piiWarning
+                        ),
+                        postHogDebugInfoMenuItem(posthog, loadingSurveys, surveysCount),
+                        {
+                            icon: <IconQuestion />,
+                            label: 'Help',
+                            onClick: () => {
+                                window.open(HELP_URL, '_blank')?.focus()
+                            },
+                        },
+                        isAuthenticated ? { icon: <IconLeave />, label: 'Sign out', onClick: logout } : undefined,
+                        { icon: <IconX />, label: 'Close toolbar', onClick: startGracefulExit },
+                    ].filter(Boolean) as LemonMenuItems
+                }
+                maxContentWidth={true}
+            >
+                <ToolbarButton>{isTakingScreenshot ? <Spinner /> : <IconMenu />}</ToolbarButton>
+            </LemonMenu>
+        </>
     )
 }
 
@@ -289,8 +326,6 @@ export function ToolbarInfoMenu(): JSX.Element | null {
         <HeatmapToolbarMenu />
     ) : visibleMenu === 'actions' ? (
         <ActionsToolbarMenu />
-    ) : visibleMenu === 'hedgehog' ? (
-        <HedgehogMenu />
     ) : visibleMenu === 'debugger' ? (
         <EventDebugMenu />
     ) : visibleMenu === 'web-vitals' ? (
@@ -344,8 +379,8 @@ export function Toolbar(): JSX.Element | null {
         useValues(toolbarLogic)
     const { setVisibleMenu, toggleMinimized, onMouseOrTouchDown, setElement, setIsBlurred, completeGracefulExit } =
         useActions(toolbarLogic)
-    const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
-    const { authenticate } = useActions(toolbarConfigLogic)
+    const { isAuthenticated, userIntent, authStatus, uiHostConfigModalVisible } = useValues(toolbarConfigLogic)
+    const { authenticate, openUiHostConfigModal, closeUiHostConfigModal } = useActions(toolbarConfigLogic)
     const { selectedTourId, isPreviewing } = useValues(productToursLogic)
 
     const showExperimentsFlag = useToolbarFeatureFlag('web-experiments')
@@ -420,7 +455,7 @@ export function Toolbar(): JSX.Element | null {
                     titleMinimized={isAuthenticated ? 'Expand the toolbar' : 'Authenticate the PostHog Toolbar'}
                 >
                     <AnimatedLogomark
-                        animate={isLoading}
+                        animate={isLoading || authStatus === 'checking' || authStatus === 'authenticating'}
                         animateOnce={isExiting ? completeGracefulExit : undefined}
                         className="Toolbar__logomark"
                     />
@@ -447,7 +482,7 @@ export function Toolbar(): JSX.Element | null {
                         </ToolbarButton>
                         {showExperiments && (
                             <ToolbarButton menuId="experiments" title="Experiments">
-                                <IconTestTube />
+                                <IconFlask />
                             </ToolbarButton>
                         )}
                         {showProductTours && (
@@ -456,11 +491,28 @@ export function Toolbar(): JSX.Element | null {
                             </ToolbarButton>
                         )}
                     </>
+                ) : authStatus === 'checking' || authStatus === 'authenticating' ? (
+                    <ToolbarButton flex>
+                        <span className="flex items-center gap-1">
+                            <Spinner /> {authStatus === 'authenticating' ? 'Authenticating…' : 'Checking…'}
+                        </span>
+                    </ToolbarButton>
+                ) : authStatus === 'error' ? (
+                    <ToolbarButton
+                        flex
+                        onClick={openUiHostConfigModal}
+                        title="PostHog app unreachable — click for help"
+                    >
+                        <span className="flex items-center gap-1">
+                            Authenticate <IconWarning className="text-warning" />
+                        </span>
+                    </ToolbarButton>
                 ) : (
                     <ToolbarButton flex onClick={authenticate}>
                         Authenticate
                     </ToolbarButton>
                 )}
+                <UiHostConfigModal visible={uiHostConfigModalVisible} onClose={closeUiHostConfigModal} />
 
                 <MoreMenu />
             </div>

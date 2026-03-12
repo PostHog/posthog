@@ -10,6 +10,35 @@ SummarySource = Literal["chat", "api"]
 SummaryType = Literal["single", "group"]
 
 
+def capture_session_summary_timing(
+    *,
+    user_distinct_id: str | None,
+    team: Team,
+    session_id: str,
+    timing_type: Literal["video_render", "transcript", "single_session_flow", "group_session_flow"],
+    duration_seconds: float,
+    success: bool,
+    extra_properties: dict | None = None,
+) -> None:
+    if not user_distinct_id:
+        return
+    properties: dict = {
+        "ai_product": "signals",
+        "session_id": session_id,
+        "timing_type": timing_type,
+        "duration_seconds": duration_seconds,
+        "success": success,
+    }
+    if extra_properties:
+        properties.update(extra_properties)
+    posthoganalytics.capture(
+        distinct_id=user_distinct_id,
+        event="session summary timing",
+        properties=properties,
+        groups=groups(None, team),
+    )
+
+
 def capture_session_summary_started(
     *,
     user: User,
@@ -28,6 +57,7 @@ def capture_session_summary_started(
         distinct_id=user.distinct_id,
         event="session summary started",
         properties={
+            "ai_product": "signals",
             "tracking_id": tracking_id,
             "summary_source": summary_source,
             "summary_type": summary_type,
@@ -59,6 +89,7 @@ def capture_session_summary_generated(
     if not user.distinct_id:
         return
     properties: dict = {
+        "ai_product": "signals",
         "tracking_id": tracking_id,
         "summary_source": summary_source,
         "summary_type": summary_type,

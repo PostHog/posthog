@@ -1,15 +1,31 @@
 from typing import Optional
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import AlertState, ChartDisplayType, EventsNode, TrendsFilter, TrendsFormulaNode, TrendsQuery
+from parameterized import parameterized
+from tenacity import wait_none
+
+from posthog.schema import (
+    AlertConditionType,
+    AlertState,
+    ChartDisplayType,
+    EventsNode,
+    IntervalType,
+    TrendsFilter,
+    TrendsFormulaNode,
+    TrendsQuery,
+)
 
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.models import AlertConfiguration
-from posthog.models.alert import AlertCheck
+from posthog.caching.fetch_from_cache import InsightResult
+from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorS3Error, CHQueryErrorTooManySimultaneousQueries
+from posthog.models import AlertConfiguration, User
+from posthog.models.alert import AlertCheck, AlertSubscription
 from posthog.models.instance_setting import set_instance_setting
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.tasks.alerts.checks import check_alert
 from posthog.tasks.alerts.utils import send_notifications_for_breaches
 from posthog.tasks.test.utils_email_tests import mock_email_messages
@@ -671,3 +687,443 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
             "The insight value (Double Pageviews) for current interval (2.0) is more than upper threshold (1.0)"
             in anomalies_descriptions[0]
         )
+
+    def test_alert_is_not_triggered_when_insight_deleted(
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        self.set_thresholds(lower=1)
+
+        # Soft-delete the insight
+        from posthog.models.insight import Insight
+
+        insight = Insight.objects_including_soft_deleted.get(id=self.insight["id"])
+        insight.deleted = True
+        insight.save()
+
+        # Alert should be skipped without error
+        check_alert(self.alert["id"])
+        assert mock_send_notifications_for_breaches.call_count == 0
+        assert mock_send_errors.call_count == 0
+        assert AlertCheck.objects.filter(alert_configuration=self.alert["id"]).count() == 0
+
+    @parameterized.expand(
+        [
+            # result=[] treated as zero, threshold check still applies
+            (
+                "absolute_empty_within_bounds",
+                AlertConditionType.ABSOLUTE_VALUE,
+                False,
+                0,
+                100,
+                [],
+                AlertState.NOT_FIRING,
+                0,
+                0,
+            ),
+            (
+                "absolute_empty_below_lower",
+                AlertConditionType.ABSOLUTE_VALUE,
+                False,
+                1,
+                None,
+                [],
+                AlertState.FIRING,
+                1,
+                0,
+            ),
+            (
+                "relative_increase_empty_within_bounds",
+                AlertConditionType.RELATIVE_INCREASE,
+                True,
+                None,
+                1,
+                [],
+                AlertState.NOT_FIRING,
+                0,
+                0,
+            ),
+            (
+                "relative_increase_empty_below_lower",
+                AlertConditionType.RELATIVE_INCREASE,
+                True,
+                1,
+                None,
+                [],
+                AlertState.FIRING,
+                1,
+                0,
+            ),
+            (
+                "relative_decrease_empty_within_bounds",
+                AlertConditionType.RELATIVE_DECREASE,
+                True,
+                None,
+                1,
+                [],
+                AlertState.NOT_FIRING,
+                0,
+                0,
+            ),
+            (
+                "relative_decrease_empty_below_lower",
+                AlertConditionType.RELATIVE_DECREASE,
+                True,
+                1,
+                None,
+                [],
+                AlertState.FIRING,
+                1,
+                0,
+            ),
+            # result=None produces errored state
+            ("absolute_none_errored", AlertConditionType.ABSOLUTE_VALUE, False, 0, 100, None, AlertState.ERRORED, 0, 1),
+            (
+                "relative_increase_none_errored",
+                AlertConditionType.RELATIVE_INCREASE,
+                True,
+                0,
+                100,
+                None,
+                AlertState.ERRORED,
+                0,
+                1,
+            ),
+            (
+                "relative_decrease_none_errored",
+                AlertConditionType.RELATIVE_DECREASE,
+                True,
+                0,
+                100,
+                None,
+                AlertState.ERRORED,
+                0,
+                1,
+            ),
+        ]
+    )
+    def test_empty_or_none_insight_results(
+        self,
+        mock_send_notifications_for_breaches: MagicMock,
+        mock_send_errors: MagicMock,
+        _name: str,
+        condition_type: AlertConditionType,
+        time_series: bool,
+        lower: Optional[float],
+        upper: Optional[float],
+        result: Optional[list],
+        expected_state: AlertState,
+        expected_breach_count: int,
+        expected_error_count: int,
+    ) -> None:
+        query_dict = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            trendsFilter=TrendsFilter(
+                display=ChartDisplayType.ACTIONS_LINE_GRAPH if time_series else ChartDisplayType.BOLD_NUMBER,
+            ),
+            interval=IntervalType.WEEK,
+        ).model_dump()
+        insight = self.dashboard_api.create_insight(data={"name": "insight", "query": query_dict})[1]
+        alert = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            data={
+                "name": "test alert",
+                "insight": insight["id"],
+                "subscribed_users": [self.user.id],
+                "calculation_interval": "daily",
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "condition": {"type": condition_type},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"lower": lower, "upper": upper}}},
+            },
+        ).json()
+
+        with patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight") as mock_calculate:
+            mock_calculate.return_value = InsightResult(
+                result=result, last_refresh=None, cache_key=None, is_cached=False, timezone=None
+            )
+            check_alert(alert["id"])
+
+        assert mock_send_notifications_for_breaches.call_count == expected_breach_count
+        assert mock_send_errors.call_count == expected_error_count
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
+        assert alert_check.state == expected_state
+        if expected_error_count > 0:
+            assert alert_check.error is not None
+        else:
+            assert alert_check.calculated_value == 0
+
+    @parameterized.expand(
+        [
+            ("cannot_schedule", CHQueryErrorCannotScheduleTask),
+            ("too_many_queries", CHQueryErrorTooManySimultaneousQueries),
+            ("s3_error", CHQueryErrorS3Error),
+        ]
+    )
+    @patch.object(check_alert.retry, "wait", wait_none())  # type: ignore[attr-defined]
+    def test_transient_ch_errors_retry_and_succeed(
+        self,
+        _name: str,
+        error_class: type[Exception],
+        mock_send_notifications_for_breaches: MagicMock,
+        mock_send_errors: MagicMock,
+    ) -> None:
+        self.set_thresholds(lower=1)
+
+        with patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight") as mock_calculate:
+            mock_calculate.side_effect = [
+                error_class("transient failure"),
+                error_class("transient failure"),
+                InsightResult(result=[], last_refresh=None, cache_key=None, is_cached=False, timezone=None),
+            ]
+
+            check_alert(self.alert["id"])
+
+        assert mock_calculate.call_count == 3
+
+        # Alert evaluated successfully after retries
+        alert_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
+        assert mock_send_notifications_for_breaches.call_count == 1
+        assert mock_send_errors.call_count == 0
+        assert alert_check.state == AlertState.FIRING
+
+    @parameterized.expand(
+        [
+            ("cannot_schedule", CHQueryErrorCannotScheduleTask),
+            ("too_many_queries", CHQueryErrorTooManySimultaneousQueries),
+            ("s3_error", CHQueryErrorS3Error),
+        ]
+    )
+    @patch.object(check_alert.retry, "wait", wait_none())  # type: ignore[attr-defined]
+    def test_transient_ch_errors_exhaust_retries(
+        self,
+        _name: str,
+        error_class: type[Exception],
+        mock_send_notifications_for_breaches: MagicMock,
+        mock_send_errors: MagicMock,
+    ) -> None:
+        self.set_thresholds(lower=1)
+
+        with patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight") as mock_calculate:
+            mock_calculate.side_effect = error_class("transient failure")
+
+            with pytest.raises(error_class):
+                check_alert(self.alert["id"])
+
+        # 4 attempts (1 initial + 3 retries)
+        assert mock_calculate.call_count == 4
+        assert mock_send_notifications_for_breaches.call_count == 0
+        assert mock_send_errors.call_count == 0
+        # No ERRORED alert check; this so that it will be picked up at the next cycle
+        alert_checks = AlertCheck.objects.filter(alert_configuration=self.alert["id"])
+        assert alert_checks.count() == 0
+
+        # is_calculating cleared by the finally block so alert doesn't get stuck
+        alert = AlertConfiguration.objects.get(pk=self.alert["id"])
+        assert alert.is_calculating is False
+
+    @parameterized.expand(
+        [
+            ("invalid_condition", {"condition": {}}, "invalid condition"),
+            ("missing_config_type", {"config": {"series_index": 0}}, "Unsupported alert config type"),
+            ("relative_on_non_time_series", {"condition": {"type": "relative_increase"}}, "not compatible"),
+        ]
+    )
+    @patch("posthog.tasks.alerts.checks.send_notifications_for_disabled")
+    def test_invalid_config_auto_disables_alert(
+        self,
+        _name: str,
+        field_overrides: dict,
+        expected_error_fragment: str,
+        mock_send_disabled: MagicMock,
+        mock_send_notifications_for_breaches: MagicMock,
+        mock_send_errors: MagicMock,
+    ) -> None:
+        alert = AlertConfiguration.objects.get(pk=self.alert["id"])
+        assert alert.enabled is True
+        assert alert.state != AlertState.ERRORED
+
+        for field, value in field_overrides.items():
+            setattr(alert, field, value)
+        alert.save()
+
+        check_alert(self.alert["id"])
+
+        alert.refresh_from_db()
+        assert alert.enabled is False
+        assert alert.state == AlertState.ERRORED  # type: ignore[unreachable]
+        assert mock_send_disabled.call_count == 1
+        assert mock_send_notifications_for_breaches.call_count == 0
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
+        assert alert_check.state == AlertState.ERRORED
+        assert alert_check.calculated_value is None
+        assert alert_check.condition == alert.condition
+        assert alert_check.targets_notified == {"users": ["user1@posthog.com"]}
+        assert expected_error_fragment in alert_check.error["message"]
+
+    @patch("posthog.tasks.alerts.checks.send_notifications_for_disabled")
+    def test_auto_disable_with_no_subscribers_sets_targets_notified_to_none(
+        self,
+        mock_send_disabled: MagicMock,
+        mock_send_notifications_for_breaches: MagicMock,
+        mock_send_errors: MagicMock,
+    ) -> None:
+        alert = AlertConfiguration.objects.get(pk=self.alert["id"])
+        alert.condition = {}
+        alert.save()
+        AlertSubscription.objects.filter(alert_configuration=alert).delete()
+
+        check_alert(self.alert["id"])
+
+        alert.refresh_from_db()
+        assert alert.enabled is False
+        assert alert.state == AlertState.ERRORED
+        assert mock_send_disabled.call_count == 0
+        assert mock_send_notifications_for_breaches.call_count == 0
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
+        assert alert_check.state == AlertState.ERRORED
+        assert alert_check.targets_notified == {}
+
+
+@freeze_time("2024-06-02T08:55:00.000Z")
+class TestAlertSubscriptionOrgMembership(APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        set_instance_setting("EMAIL_HOST", "fake_host")
+        set_instance_setting("EMAIL_ENABLED", True)
+        self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
+
+        query_dict = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            trendsFilter=TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
+        ).model_dump()
+
+        self.insight = self.dashboard_api.create_insight(data={"name": "insight", "query": query_dict})[1]
+
+        self.other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+
+        self.alert = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            data={
+                "name": "alert name",
+                "insight": self.insight["id"],
+                "subscribed_users": [self.user.id, self.other_user.id],
+                "calculation_interval": "daily",
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "condition": {"type": "absolute_value"},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {}}},
+            },
+        ).json()
+
+    def test_get_subscribed_users_emails_excludes_removed_members(
+        self,
+    ) -> None:
+        alert = AlertConfiguration.objects.get(pk=self.alert["id"])
+
+        emails = alert.get_subscribed_users_emails()
+        assert sorted(emails) == sorted(["user1@posthog.com", "other@posthog.com"])
+
+        OrganizationMembership.objects.filter(user=self.other_user, organization=self.organization).delete()
+
+        emails = alert.get_subscribed_users_emails()
+        assert sorted(emails) == ["user1@posthog.com"]
+
+    def test_membership_deletion_removes_alert_subscriptions(
+        self,
+    ) -> None:
+        alert = AlertConfiguration.objects.get(pk=self.alert["id"])
+        assert AlertSubscription.objects.filter(alert_configuration=alert, user=self.other_user).exists()
+
+        OrganizationMembership.objects.filter(user=self.other_user, organization=self.organization).delete()
+
+        assert not AlertSubscription.objects.filter(alert_configuration=alert, user=self.other_user).exists()
+        assert AlertSubscription.objects.filter(alert_configuration=alert, user=self.user).exists()
+
+    @patch("posthog.tasks.alerts.utils.EmailMessage")
+    def test_send_notifications_excludes_removed_members(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        alert = AlertConfiguration.objects.get(pk=self.alert["id"])
+
+        OrganizationMembership.objects.filter(user=self.other_user, organization=self.organization).delete()
+
+        send_notifications_for_breaches(alert, ["test breach"])
+
+        assert len(mocked_email_messages) == 1
+        email = mocked_email_messages[0]
+        assert len(email.to) == 1
+        assert email.to[0]["recipient"] == "user1@posthog.com"
+
+
+@freeze_time("2024-06-02T08:55:00.000Z")
+class TestGetSubscribedUsersEmails(APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        set_instance_setting("EMAIL_HOST", "fake_host")
+        set_instance_setting("EMAIL_ENABLED", True)
+        self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
+
+        query_dict = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            trendsFilter=TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
+        ).model_dump()
+
+        self.insight = self.dashboard_api.create_insight(data={"name": "insight", "query": query_dict})[1]
+
+        self.alert_response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            data={
+                "name": "alert name",
+                "insight": self.insight["id"],
+                "subscribed_users": [self.user.id],
+                "calculation_interval": "daily",
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "condition": {"type": "absolute_value"},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {}}},
+            },
+        ).json()
+
+        self.alert = AlertConfiguration.objects.get(pk=self.alert_response["id"])
+
+    def test_filters_out_user_from_different_org_with_stale_subscription(self) -> None:
+        other_org = Organization.objects.create(name="Other Org")
+        outsider = User.objects.create_and_join(other_org, "outsider@other.com", "password")
+
+        # Directly create a stale subscription (simulates pre-fix state)
+        AlertSubscription.objects.create(alert_configuration=self.alert, user=outsider)
+
+        emails = self.alert.get_subscribed_users_emails()
+        assert sorted(emails) == ["user1@posthog.com"]
+
+    def test_includes_user_who_is_in_multiple_orgs_including_alerts_org(self) -> None:
+        other_org = Organization.objects.create(name="Other Org")
+        multi_org_user = User.objects.create_and_join(self.organization, "multi@posthog.com", "password")
+        OrganizationMembership.objects.create(user=multi_org_user, organization=other_org)
+
+        AlertSubscription.objects.create(alert_configuration=self.alert, user=multi_org_user)
+
+        emails = self.alert.get_subscribed_users_emails()
+        assert sorted(emails) == ["multi@posthog.com", "user1@posthog.com"]
+
+    def test_excludes_multi_org_user_removed_from_alerts_org(self) -> None:
+        other_org = Organization.objects.create(name="Other Org")
+        multi_org_user = User.objects.create_and_join(self.organization, "multi@posthog.com", "password")
+        OrganizationMembership.objects.create(user=multi_org_user, organization=other_org)
+
+        AlertSubscription.objects.create(alert_configuration=self.alert, user=multi_org_user)
+
+        # Remove from the alert's org but keep in the other org
+        OrganizationMembership.objects.filter(user=multi_org_user, organization=self.organization).delete()
+
+        emails = self.alert.get_subscribed_users_emails()
+        assert sorted(emails) == ["user1@posthog.com"]
+
+    def test_returns_empty_list_when_no_subscribers_are_org_members(self) -> None:
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).delete()
+
+        emails = self.alert.get_subscribed_users_emails()
+        assert emails == []

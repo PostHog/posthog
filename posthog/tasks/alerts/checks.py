@@ -11,11 +11,12 @@ import structlog
 from celery import shared_task
 from celery.canvas import chain
 from dateutil.relativedelta import relativedelta
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.schema import AlertCalculationInterval, AlertState, TrendsQuery
 
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
 from posthog.models import AlertConfiguration, User
 from posthog.models.alert import AlertCheck
@@ -28,8 +29,10 @@ from posthog.tasks.alerts.utils import (
     calculation_interval_to_order,
     next_check_time,
     send_notifications_for_breaches,
+    send_notifications_for_disabled,
     send_notifications_for_errors,
     skip_because_of_weekend,
+    validate_alert_config,
 )
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_from_dict_or_attr
@@ -73,7 +76,8 @@ def alerts_backlog_task() -> None:
             enabled=True,
             calculation_interval=AlertCalculationInterval.HOURLY,
             last_checked_at__lte=now - relativedelta(hours=1, minutes=5),
-        )
+        ),
+        insight__deleted=False,
     ).count()
 
     now = datetime.now(UTC)
@@ -83,7 +87,8 @@ def alerts_backlog_task() -> None:
             enabled=True,
             calculation_interval=AlertCalculationInterval.HOURLY,
             last_checked_at__lte=now - relativedelta(days=1, minutes=15),
-        )
+        ),
+        insight__deleted=False,
     ).count()
 
     with ph_scoped_capture() as capture_ph_event:
@@ -123,7 +128,8 @@ def reset_stuck_alerts_task() -> None:
             is_calculating=True,
             last_checked_at__isnull=True,
             created_at__lte=now - relativedelta(minutes=45),
-        )
+        ),
+        insight__deleted=False,
     )
 
     for alert in stuck_alerts:
@@ -153,6 +159,7 @@ def check_alerts_task() -> None:
             | Q(enabled=True, is_calculating=False, next_check_at__isnull=True)
         )
         .filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=now))
+        .filter(insight__deleted=False)
         .order_by(F("next_check_at").asc(nulls_first=True))
         .only("id", "team", "calculation_interval")
     )
@@ -176,10 +183,6 @@ def check_alerts_task() -> None:
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.ALERTS.value,
-    autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
-    retry_backoff=1,
-    retry_backoff_max=10,
-    max_retries=3,
     expires=60 * 60,
 )
 # @limit_concurrency(5)  Concurrency controlled by CeleryQueue.ALERTS for now
@@ -188,11 +191,26 @@ def check_alert_task(alert_id: str) -> None:
         check_alert(alert_id, capture_ph_event)
 
 
+@retry(
+    retry=retry_if_exception_type(CH_TRANSIENT_ERRORS),
+    stop=stop_after_attempt(4),
+    wait=wait_exponential_jitter(initial=1, max=10),
+    before_sleep=lambda rs: logger.info(
+        "check_alert.retrying",
+        attempt=rs.attempt_number,
+        error=str(rs.outcome.exception()) if rs.outcome else None,
+    ),
+    reraise=True,
+)
 def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwargs: None) -> None:
     try:
-        alert = AlertConfiguration.objects.get(id=alert_id, enabled=True)
+        alert = AlertConfiguration.objects.select_related("insight").get(id=alert_id, enabled=True)
     except AlertConfiguration.DoesNotExist:
         logger.warning("Alert not found or not enabled", alert_id=alert_id)
+        return
+
+    if alert.insight.deleted:
+        logger.info("Skipping alert for deleted insight", alert_id=alert_id, insight_id=alert.insight_id)
         return
 
     now = datetime.now(UTC)
@@ -235,6 +253,17 @@ def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwar
             alert.snoozed_until = None
             alert.state = AlertState.NOT_FIRING
 
+    try:
+        insight = alert.insight
+        with upgrade_query(insight):
+            if insight.query is None:
+                raise ValueError("Alert's insight has no valid query")
+            threshold_config = alert.threshold.configuration if alert.threshold else None
+            validate_alert_config(insight.query, alert.condition, alert.config, threshold_config)
+    except ValueError as e:
+        _disable_invalid_alert(alert, str(e))
+        return
+
     # we will attempt to check alert
     logger.info("check_alert", alert_id=alert.id)
     alert.last_checked_at = datetime.now(UTC)
@@ -253,6 +282,8 @@ def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwar
                 "alert_id": alert.id,
                 "error": f"AlertCheckError: {err}",
                 "traceback": traceback.format_exc(),
+                "insight_id": alert.insight_id,
+                "team_id": alert.team_id,
             },
         )
 
@@ -261,6 +292,8 @@ def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwar
             AlertCheckException(err),
             additional_properties={
                 "alert_configuration_id": alert_id,
+                "insight_id": alert.insight_id,
+                "team_id": alert.team_id,
             },
         )
 
@@ -295,6 +328,8 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_even
         properties={
             "alert_id": alert.id,
             "calculation_interval": alert.calculation_interval,
+            "insight_id": alert.insight_id,
+            "team_id": alert.team_id,
         },
     )
 
@@ -305,9 +340,8 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_even
         alert_evaluation_result = check_alert_for_insight(alert)
         value = alert_evaluation_result.value
         breaches = alert_evaluation_result.breaches
-    except CHQueryErrorTooManySimultaneousQueries:
-        # error on our side so we raise
-        # as celery task can be retried according to config
+    except CH_TRANSIENT_ERRORS:
+        # Re-raise so we retry the full flow
         raise
     except Exception as err:
         error_message = f"Alert id = {alert.id}, failed to evaluate"
@@ -319,6 +353,8 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_even
                 "alert_id": alert.id,
                 "error": error_message,
                 "traceback": traceback.format_exc(),
+                "insight_id": alert.insight_id,
+                "team_id": alert.team_id,
             },
         )
 
@@ -355,6 +391,28 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_even
         # so we raise again as @transaction.atomic decorator won't commit db updates
         # TODO: later should have a way just to retry notification mechanism
         raise
+
+
+def _disable_invalid_alert(alert: AlertConfiguration, reason: str) -> None:
+    logger.warning("check_alert.auto_disabling", alert_id=alert.id, reason=reason)
+    AlertConfiguration.objects.filter(pk=alert.pk).update(
+        enabled=False,
+        state=AlertState.ERRORED,
+        last_checked_at=datetime.now(UTC),
+    )
+    alert.refresh_from_db()
+
+    targets_to_notify = alert.get_subscribed_users_emails()
+    AlertCheck.objects.create(
+        alert_configuration=alert,
+        calculated_value=None,
+        condition=alert.condition,
+        targets_notified={"users": targets_to_notify} if targets_to_notify else {},
+        state=AlertState.ERRORED,
+        error={"message": reason},
+    )
+    if targets_to_notify:
+        send_notifications_for_disabled(alert, reason, targets_to_notify)
 
 
 def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
@@ -404,7 +462,7 @@ def add_alert_check(
 
     if notify:
         alert.last_notified_at = now
-        targets_notified = {"users": list(alert.subscribed_users.all().values_list("email", flat=True))}
+        targets_notified = {"users": alert.get_subscribed_users_emails()}
 
     alert_check = AlertCheck.objects.create(
         alert_configuration=alert,

@@ -1,30 +1,38 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LemonInput } from '~/lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
-import { createdAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
-import { LLMPrompt } from '~/types'
+import { atColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType, LLMPrompt } from '~/types'
 
 import { PROMPTS_PER_PAGE, llmPromptsLogic } from './llmPromptsLogic'
-import { openDeletePromptDialog } from './utils'
+import { openArchivePromptDialog } from './utils'
 
 export const scene: SceneExport = {
     component: LLMPromptsScene,
     logic: llmPromptsLogic,
+    productKey: ProductKey.LLM_ANALYTICS,
 }
 
 export function LLMPromptsScene(): JSX.Element {
     const { setFilters, deletePrompt } = useActions(llmPromptsLogic)
     const { prompts, promptsLoading, sorting, pagination, filters, promptCountLabel } = useValues(llmPromptsLogic)
+    const { searchParams } = useValues(router)
+    const promptUrl = (name: string): string => combineUrl(urls.llmAnalyticsPrompt(name), searchParams).url
 
     const columns: LemonTableColumns<LLMPrompt> = [
         {
@@ -34,11 +42,7 @@ export function LLMPromptsScene(): JSX.Element {
             width: '25%',
             render: function renderName(_, prompt) {
                 return (
-                    <Link
-                        to={urls.llmAnalyticsPrompt(prompt.id)}
-                        className="font-semibold"
-                        data-attr="prompt-name-link"
-                    >
+                    <Link to={promptUrl(prompt.name)} className="font-semibold" data-attr="llma-prompt-name-link">
                         {prompt.name}
                     </Link>
                 )
@@ -57,7 +61,7 @@ export function LLMPromptsScene(): JSX.Element {
             },
         },
         {
-            title: 'Created by',
+            title: 'Latest author',
             dataIndex: 'created_by',
             render: function renderCreatedBy(_, item) {
                 const { created_by } = item
@@ -69,7 +73,16 @@ export function LLMPromptsScene(): JSX.Element {
                 )
             },
         },
-        createdAtColumn<LLMPrompt>() as LemonTableColumn<LLMPrompt, keyof LLMPrompt | undefined>,
+        {
+            title: 'Versions',
+            dataIndex: 'version_count',
+            key: 'version_count',
+            width: 100,
+            render: function renderVersionCount(_, prompt) {
+                return <span className="text-muted-alt">{prompt.version_count}</span>
+            },
+        },
+        atColumn('created_at', 'Latest version created') as LemonTableColumn<LLMPrompt, keyof LLMPrompt | undefined>,
         {
             width: 0,
             render: function renderMore(_, prompt) {
@@ -78,21 +91,26 @@ export function LLMPromptsScene(): JSX.Element {
                         overlay={
                             <>
                                 <LemonButton
-                                    to={urls.llmAnalyticsPrompt(prompt.id)}
-                                    data-attr="prompt-dropdown-view"
+                                    to={promptUrl(prompt.name)}
+                                    data-attr="llma-prompt-dropdown-view"
                                     fullWidth
                                 >
                                     View
                                 </LemonButton>
 
-                                <LemonButton
-                                    status="danger"
-                                    onClick={() => openDeletePromptDialog(() => deletePrompt(prompt.id))}
-                                    data-attr="prompt-dropdown-delete"
-                                    fullWidth
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.LlmAnalytics}
+                                    minAccessLevel={AccessControlLevel.Editor}
                                 >
-                                    Delete
-                                </LemonButton>
+                                    <LemonButton
+                                        status="danger"
+                                        onClick={() => openArchivePromptDialog(() => deletePrompt(prompt.name))}
+                                        data-attr="llma-prompt-dropdown-delete"
+                                        fullWidth
+                                    >
+                                        Archive
+                                    </LemonButton>
+                                </AccessControlAction>
                             </>
                         }
                     />
@@ -102,9 +120,30 @@ export function LLMPromptsScene(): JSX.Element {
     ]
 
     return (
-        <div className="space-y-4">
-            <div className="flex gap-x-4 gap-y-2 items-center flex-wrap justify-between">
-                <div className="flex gap-x-4 items-center">
+        <SceneContent>
+            <SceneTitleSection
+                name="Prompts"
+                description="Track and manage your LLM prompts."
+                resourceType={{ type: 'llm_prompts' }}
+                actions={
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonButton
+                            type="primary"
+                            to={promptUrl('new')}
+                            icon={<IconPlusSmall />}
+                            data-attr="new-prompt-button"
+                        >
+                            New prompt
+                        </LemonButton>
+                    </AccessControlAction>
+                }
+            />
+
+            <div className="space-y-4">
+                <div className="flex gap-x-4 gap-y-2 items-center flex-wrap">
                     <LemonInput
                         type="search"
                         placeholder="Search prompts..."
@@ -116,34 +155,25 @@ export function LLMPromptsScene(): JSX.Element {
                     <div className="text-muted-alt">{promptCountLabel}</div>
                 </div>
 
-                <LemonButton
-                    type="primary"
-                    to={urls.llmAnalyticsPrompt('new')}
-                    icon={<IconPlusSmall />}
-                    data-attr="new-prompt-button"
-                >
-                    New prompt
-                </LemonButton>
+                <LemonTable
+                    loading={promptsLoading}
+                    columns={columns}
+                    dataSource={prompts.results}
+                    pagination={pagination}
+                    noSortingCancellation
+                    sorting={sorting}
+                    onSort={(newSorting) =>
+                        setFilters({
+                            order_by: newSorting
+                                ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                : undefined,
+                        })
+                    }
+                    rowKey="id"
+                    loadingSkeletonRows={PROMPTS_PER_PAGE}
+                    nouns={['prompt', 'prompts']}
+                />
             </div>
-
-            <LemonTable
-                loading={promptsLoading}
-                columns={columns}
-                dataSource={prompts.results}
-                pagination={pagination}
-                noSortingCancellation
-                sorting={sorting}
-                onSort={(newSorting) =>
-                    setFilters({
-                        order_by: newSorting
-                            ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                            : undefined,
-                    })
-                }
-                rowKey="id"
-                loadingSkeletonRows={PROMPTS_PER_PAGE}
-                nouns={['prompt', 'prompts']}
-            />
-        </div>
+        </SceneContent>
     )
 }

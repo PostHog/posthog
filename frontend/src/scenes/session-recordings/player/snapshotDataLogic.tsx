@@ -1,16 +1,17 @@
+import '~/queries/utils'
+
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import '@posthog/rrweb-types'
+import { keyForSource } from '@posthog/replay-shared'
+import { SnapshotStore, SourceLoadingState } from '@posthog/replay-shared'
 
-import api from 'lib/api'
+import api, { RecordingDeletedError } from 'lib/api'
 import 'lib/dayjs'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
-import { SourceKey, keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { windowIdRegistryLogic } from 'scenes/session-recordings/player/windowIdRegistryLogic'
 
-import '~/queries/utils'
 import {
     RecordingSnapshot,
     SessionRecordingId,
@@ -20,6 +21,7 @@ import {
     SnapshotSourceType,
 } from '~/types'
 
+import { LoadingScheduler } from './snapshot-store/LoadingScheduler'
 import type { snapshotDataLogicType } from './snapshotDataLogicType'
 
 const DEFAULT_V2_POLLING_INTERVAL_MS: number = 10000
@@ -57,12 +59,18 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         stopPolling: true,
         setPollingInterval: (intervalMs: number) => ({ intervalMs }),
         resetPollingInterval: true,
+        setTargetTimestamp: (timestamp: number | null) => ({ timestamp }),
+        updatePlaybackPosition: (timestamp: number) => ({ timestamp }),
+        setPlayerActive: (active: boolean) => ({ active }),
+        loadAllSources: true,
+        // dispatch after any cache.store mutation to trigger a new Redux notification cycle
+        storeUpdated: true,
     }),
     reducers(() => ({
-        snapshotsBySourceSuccessCount: [
+        storeUpdateCount: [
             0,
             {
-                loadSnapshotsForSourceSuccess: (state) => state + 1,
+                storeUpdated: (state: number) => state + 1,
             },
         ],
         loadingSources: [
@@ -87,15 +95,23 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 stopPolling: () => false,
             },
         ],
+        snapshotLoadError: [
+            null as Error | null,
+            {
+                loadSnapshotsForSource: () => null,
+                loadSnapshotsForSourceSuccess: () => null,
+                loadSnapshotsForSourceFailure: (_, { errorObject }) => errorObject ?? null,
+            },
+        ],
     })),
     loaders(({ values, props, cache, actions }) => ({
         snapshotSources: [
             null as SessionRecordingSnapshotSource[] | null,
             {
                 loadSnapshotSources: async ({ breakpointLength }, breakpoint) => {
-                    if (breakpointLength) {
-                        await breakpoint(breakpointLength)
-                    }
+                    // Always breakpoint before the API call so orphaned loaders
+                    // from StrictMode's unmounted logic get cancelled.
+                    await breakpoint(breakpointLength || 1)
 
                     const headers: Record<string, string> = {}
                     if (props.accessToken) {
@@ -160,6 +176,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         headers
                     )
 
+                    breakpoint()
+
                     // Create a local copy of the registry state for synchronous lookups during parsing
                     const localWindowIds: Record<string, number> = { ...values.uuidToIndex }
                     const registerWindowIdCallback = (uuid: string): number => {
@@ -187,18 +205,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                             actions.registerWindowId(uuid)
                         }
                     }
-                    // we store the data in the cache because we want to avoid copying this data as much as possible
-                    // and kea's immutability means we were copying all the data on every snapshot call
-                    cache.snapshotsBySource = cache.snapshotsBySource || {}
-                    // it doesn't matter which source we use as the key, since we combine the snapshots anyway
-                    cache.snapshotsBySource[keyForSource(sources[0])] = { snapshots: parsedSnapshots }
-                    // but we do want to mark the sources as loaded
-                    sources.forEach((s) => {
-                        const k = keyForSource(s)
-                        // we just need something against each key so we don't load it again
-                        cache.snapshotsBySource[k] = cache.snapshotsBySource[k] || {}
-                        cache.snapshotsBySource[k].sourceLoaded = true
-                    })
+                    cache.pendingBatch = { sources, snapshots: parsedSnapshots }
 
                     return { sources }
                 },
@@ -206,14 +213,70 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         ],
     })),
     listeners(({ values, actions, cache, props }) => ({
-        setSnapshots: ({ snapshots }: { snapshots: RecordingSnapshot[] }) => {
-            cache.snapshotsBySource = {
-                'file-file': {
-                    snapshots: snapshots,
-                    source: { source: SnapshotSourceType.file },
-                    sourceLoaded: true,
-                },
+        setTargetTimestamp: ({ timestamp }) => {
+            if (!cache.scheduler || !cache.store) {
+                return
             }
+            if (timestamp !== null) {
+                cache.playbackPosition = timestamp
+
+                const currentMode = cache.scheduler.currentMode
+                // Don't interrupt load_all (e.g. during export)
+                if (currentMode.kind === 'load_all') {
+                    actions.loadNextSnapshotSource()
+                    return
+                }
+                // Don't re-seek to the same target
+                if (currentMode.kind === 'seek' && currentMode.targetTimestamp === timestamp) {
+                    return
+                }
+                // If we can already play at this position (data is loaded), no need to seek —
+                // this handles segment transitions during normal forward playback
+                if (cache.store?.canPlayAt(timestamp)) {
+                    actions.loadNextSnapshotSource()
+                    return
+                }
+                // Don't enter seek mode when at source 0 and already in buffer_ahead mode —
+                // buffer_ahead loading already starts from the beginning
+                const targetIndex = cache.store?.getSourceIndexForTimestamp(timestamp) ?? 0
+                if (targetIndex === 0 && currentMode.kind === 'buffer_ahead') {
+                    actions.loadNextSnapshotSource()
+                    return
+                }
+
+                cache.scheduler.seekTo(timestamp)
+                actions.loadNextSnapshotSource()
+            }
+        },
+
+        updatePlaybackPosition: ({ timestamp }) => {
+            cache.playbackPosition = timestamp
+            // Trigger loading if the buffer ahead needs filling
+            actions.loadNextSnapshotSource()
+        },
+
+        setPlayerActive: ({ active }) => {
+            cache.playerActive = active
+            if (active) {
+                actions.loadNextSnapshotSource()
+            }
+        },
+
+        loadAllSources: () => {
+            if (cache.scheduler) {
+                cache.scheduler.loadAll()
+                actions.loadNextSnapshotSource()
+            }
+        },
+
+        setSnapshots: ({ snapshots }: { snapshots: RecordingSnapshot[] }) => {
+            if (cache.store) {
+                const fileSource = { source: SnapshotSourceType.file } as SessionRecordingSnapshotSource
+                cache.store.setSources([fileSource])
+                cache.store.markLoaded(0, snapshots)
+                cache.pendingBatch = { snapshots, sources: [fileSource] }
+            }
+
             // Set sources first, then trigger the success action
             // Otherwise processSnapshotsAsync will see null sources
             actions.loadSnapshotSourcesSuccess([{ source: SnapshotSourceType.file }])
@@ -252,25 +315,74 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 actions.setPollingInterval(newInterval)
             }
 
+            if (sourcesChanged) {
+                cache.store?.setSources(snapshotSources)
+            }
+
             actions.loadNextSnapshotSource()
         },
 
         loadSnapshotsForSourceSuccess: ({ snapshotsForSource }) => {
+            cache.loadFailureCount = 0
             const sources = values.snapshotSources
-            const sourceKey = snapshotsForSource.sources
-                ? keyForSource(snapshotsForSource.sources[0])
-                : keyForSource(snapshotsForSource.source)
-            const snapshotsData = (cache.snapshotsBySource || {})[sourceKey]
-            const snapshots = snapshotsData?.snapshots || []
-
-            if (!snapshots.length && sources?.length === 1 && sources[0].source !== SnapshotSourceType.file) {
-                // We got only a single source to load, loaded it successfully, but it had no snapshots.
-                posthog.capture('recording_snapshots_v2_empty_response', {
-                    source: sources[0],
-                })
+            if (!sources) {
+                return
             }
 
-            // if not then whenever we load a set of data, we try to load the next set right away
+            const pending = cache.pendingBatch
+            cache.pendingBatch = null
+            const allBatchSnapshots: RecordingSnapshot[] = pending?.snapshots || []
+            const loadedSources: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[] = pending?.sources ||
+                snapshotsForSource.sources || [snapshotsForSource.source]
+
+            if (!allBatchSnapshots.length && sources.length === 1 && sources[0].source !== SnapshotSourceType.file) {
+                posthog.capture('recording_snapshots_v2_empty_response', { source: sources[0] })
+            }
+
+            // Build ordered list of (sourceIndex, endMs) for the loaded sources
+            const sourceEntries: { sourceIndex: number; endMs: number }[] = []
+            for (const loaded of loadedSources) {
+                const sourceIndex = sources.findIndex((s) => keyForSource(s) === keyForSource(loaded))
+                if (sourceIndex < 0) {
+                    continue
+                }
+                const entry = cache.store?.getEntry(sourceIndex)
+                if (!entry) {
+                    continue
+                }
+                sourceEntries.push({ sourceIndex, endMs: entry.endMs })
+            }
+            sourceEntries.sort((a, b) => a.endMs - b.endMs)
+
+            // Split snapshots across sources by timestamp range
+            const buckets = new Map<number, RecordingSnapshot[]>()
+            for (const se of sourceEntries) {
+                buckets.set(se.sourceIndex, [])
+            }
+            let seIdx = 0
+            for (const snap of allBatchSnapshots) {
+                if (sourceEntries.length === 0) {
+                    break
+                }
+                while (seIdx < sourceEntries.length - 1 && snap.timestamp > sourceEntries[seIdx].endMs) {
+                    seIdx++
+                }
+                buckets.get(sourceEntries[seIdx].sourceIndex)?.push(snap)
+            }
+            for (const se of sourceEntries) {
+                cache.store?.markLoaded(se.sourceIndex, buckets.get(se.sourceIndex)!)
+            }
+            actions.storeUpdated()
+
+            actions.loadNextSnapshotSource()
+        },
+
+        loadSnapshotsForSourceFailure: async (_, breakpoint) => {
+            cache.loadFailureCount = (cache.loadFailureCount ?? 0) + 1
+            if (cache.loadFailureCount > 3) {
+                return
+            }
+            await breakpoint(cache.loadFailureCount * 2000)
             actions.loadNextSnapshotSource()
         },
 
@@ -291,79 +403,47 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         },
 
         loadNextSnapshotSource: async (_, breakpoint) => {
+            if (!cache.playerActive) {
+                return
+            }
             if (values.snapshotsForSourceLoading) {
-                // we already are
                 return
             }
 
             await breakpoint(1)
 
-            // yes this is ugly duplication, but we're going to deprecate v1 and I want it to be clear which is which
-            if (values.snapshotSources?.some((s) => s.source === SnapshotSourceType.blob_v2)) {
-                const nextSourcesToLoad = values.snapshotSources.filter((s) => {
-                    if (s.source === SnapshotSourceType.file) {
-                        return false
-                    }
-
-                    const sourceKey = keyForSource(s)
-                    return !cache.snapshotsBySource?.[sourceKey]?.sourceLoaded
-                })
-
-                // Load up to 10 sources at once
-                if (nextSourcesToLoad.length > 0) {
-                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 10))
-                }
-
-                actions.maybeStartPolling()
-            } else {
-                // V1 behavior unchanged
-                const nextSourceToLoad = values.snapshotSources?.find((s) => {
-                    const sourceKey = keyForSource(s)
-                    return !cache.snapshotsBySource?.[sourceKey]?.sourceLoaded && s.source !== SnapshotSourceType.file
-                })
-
-                if (nextSourceToLoad) {
-                    return actions.loadSnapshotsForSource([nextSourceToLoad])
-                }
+            const sources = values.snapshotSources
+            if (!sources?.length) {
+                return
             }
+
+            if (!cache.scheduler || !cache.store) {
+                return
+            }
+            const batch = cache.scheduler.getNextBatch(cache.store, 10, cache.playbackPosition)
+            if (!batch) {
+                actions.maybeStartPolling()
+                return
+            }
+            const batchSources = batch.sourceIndices.map((i: number) => sources[i]).filter(Boolean)
+            if (batchSources.length > 0) {
+                return actions.loadSnapshotsForSource(batchSources)
+            }
+            actions.maybeStartPolling()
         },
     })),
     selectors(({ cache }) => ({
         snapshotsLoading: [
-            (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading, s.snapshotsBySources],
-            (
-                snapshotSourcesLoading: boolean,
-                snapshotsForSourceLoading: boolean,
-                snapshotsBySources: Record<string, RecordingSnapshot[]>
-            ): boolean => {
-                const snapshots = Object.values(snapshotsBySources).flat()
-                return snapshots?.length === 0 && (snapshotSourcesLoading || snapshotsForSourceLoading)
+            (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading, s.storeVersion],
+            (snapshotSourcesLoading: boolean, snapshotsForSourceLoading: boolean): boolean => {
+                return (
+                    (cache.store?.getAllLoadedSnapshots().length ?? 0) === 0 &&
+                    (snapshotSourcesLoading || snapshotsForSourceLoading)
+                )
             },
         ],
 
         snapshotsLoaded: [(s) => [s.snapshotSources], (snapshotSources): boolean => !!snapshotSources],
-
-        snapshotsBySources: [
-            (s) => [s.snapshotsBySourceSuccessCount],
-            (
-                snapshotsBySourceSuccessCount: number
-            ): Record<SourceKey, SessionRecordingSnapshotSourceResponse> & { _count?: number } => {
-                if (!cache.snapshotsBySource) {
-                    return {}
-                }
-
-                // KLUDGE: we keep the data in a cache so we can avoid creating large objects every time something changes
-                // KLUDGE: but if we change the data without changing the object instance then dependents don't recalculate
-                if (cache.snapshotsBySource['_count'] !== snapshotsBySourceSuccessCount) {
-                    // so we make a new object instance when the count changes
-                    // technically this should only be called when success count changes anyway...
-                    // but let's be very careful, it is relatively free to track the count
-                    cache.snapshotsBySource = { ...cache.snapshotsBySource }
-                    cache.snapshotsBySource['_count'] = snapshotsBySourceSuccessCount
-                }
-                return cache.snapshotsBySource
-            },
-        ],
 
         isLoadingSnapshots: [
             (s) => [s.loadingSources],
@@ -373,19 +453,85 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         ],
 
         allSourcesLoaded: [
-            (s) => [s.snapshotSources, s.snapshotsBySourceSuccessCount],
+            (s) => [s.snapshotSources, s.storeUpdateCount],
             (snapshotSources): boolean => {
                 if (!snapshotSources || snapshotSources.length === 0) {
                     return false
                 }
-                return snapshotSources.every((source) => {
-                    const sourceKey = keyForSource(source)
-                    return cache.snapshotsBySource?.[sourceKey]?.sourceLoaded
-                })
+                return cache.store?.allLoaded ?? false
+            },
+        ],
+
+        storeVersion: [
+            (s) => [s.storeUpdateCount, s.snapshotSources],
+            (): number => {
+                return cache.store?.version ?? 0
+            },
+        ],
+
+        snapshotStore: [
+            (s) => [s.storeVersion],
+            (): SnapshotStore => {
+                // Always created in afterMount; storeUpdated() ensures
+                // this selector re-evaluates with the real instance.
+                return cache.store ?? new SnapshotStore()
+            },
+        ],
+
+        sourceLoadingStates: [
+            (s) => [s.storeVersion],
+            (): SourceLoadingState[] => {
+                return cache.store?.getSourceStates() ?? []
+            },
+        ],
+
+        isWaitingForPlayableFullSnapshot: [
+            (s) => [s.storeVersion],
+            (): boolean => {
+                if (!cache.scheduler || !cache.store) {
+                    return false
+                }
+                const mode = cache.scheduler.currentMode
+                if (mode.kind !== 'seek') {
+                    return false
+                }
+                return !cache.store.canPlayAt(mode.targetTimestamp)
+            },
+        ],
+
+        isRecordingDeleted: [
+            (s) => [s.snapshotLoadError],
+            (snapshotLoadError): boolean => {
+                return snapshotLoadError instanceof RecordingDeletedError
+            },
+        ],
+
+        recordingDeletedAt: [
+            (s) => [s.snapshotLoadError],
+            (snapshotLoadError): number | null => {
+                if (snapshotLoadError instanceof RecordingDeletedError) {
+                    return snapshotLoadError.deletedAt
+                }
+                return null
+            },
+        ],
+
+        recordingDeletedBy: [
+            (s) => [s.snapshotLoadError],
+            (snapshotLoadError): string | null => {
+                if (snapshotLoadError instanceof RecordingDeletedError) {
+                    return snapshotLoadError.deletedBy
+                }
+                return null
             },
         ],
     })),
     afterMount(({ actions, cache }) => {
+        cache.playerActive = true
+        cache.store = new SnapshotStore()
+        cache.scheduler = new LoadingScheduler()
+        actions.storeUpdated()
+
         cache.disposables.add(() => {
             const handleVisibilityChange = (): void => {
                 if (document.hidden) {
@@ -403,8 +549,13 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         }, 'visibilityChangeHandler')
     }),
     beforeUnmount(({ cache }) => {
-        cache.snapshotsBySource = undefined
+        cache.playerActive = false
+        cache.store = undefined
+        cache.scheduler = undefined
+        cache.pendingBatch = undefined
         cache.previousSourceKeys = undefined
         cache.lastSourcesChangeTime = undefined
+        cache.playbackPosition = undefined
+        cache.loadFailureCount = undefined
     }),
 ])

@@ -33,8 +33,8 @@ import { FunnelsQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { recordings } from '~/scenes/session-recordings/__mocks__/recordings'
 import { FilterLogicalOperator, InsightShortId, PendingApproval, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { MaxInstance, MaxInstanceProps } from './Max'
 import conversationList from './__mocks__/conversationList.json'
+import { MaxInstance, MaxInstanceProps } from './Max'
 import { AlertEntry, ChangelogEntry, maxChangelogLogic } from './maxChangelogLogic'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
@@ -1754,21 +1754,21 @@ export const DangerousOperationPendingApproval: StoryFn = () => {
 
     const previewText = `This will update the dashboard "Sales Analytics Q1":
 
-Changes:
+## Changes:
 • Remove 3 existing tiles
 • Add 2 new insight tiles
 • Update dashboard filters
 
-Tiles to be removed:
+## Tiles to be removed:
   - Weekly Revenue (insight-456)
   - Monthly Users (insight-789)
   - Conversion Rate (insight-012)
 
-Tiles to be added:
+## Tiles to be added:
   - Daily Active Users trend
   - Funnel: Signup to Purchase
 
-⚠️ This will modify the existing dashboard layout.`
+**⚠️ This will modify the existing dashboard layout.**`
 
     // PendingApproval event - this populates pendingApprovalsData in the logic
     const pendingApproval: PendingApproval = {
@@ -1804,6 +1804,21 @@ Tiles to be added:
                     )
                 ),
         },
+        get: {
+            [`/api/environments/:team_id/conversations/${CONVERSATION_ID}/`]: () => [
+                200,
+                {
+                    id: CONVERSATION_ID,
+                    status: 'idle',
+                    title: 'Test Conversation',
+                    created_at: '2025-04-29T17:44:21.654307Z',
+                    updated_at: '2025-04-29T17:44:29.184791Z',
+                    user: MOCK_DEFAULT_BASIC_USER,
+                    messages: [],
+                    pending_approvals: [pendingApproval],
+                },
+            ],
+        },
     })
 
     const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
@@ -1827,6 +1842,194 @@ Tiles to be added:
     return <Template />
 }
 DangerousOperationPendingApproval.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const DangerousOperationPendingApprovalLongContent: StoryFn = () => {
+    const toolCallMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content: "I'll perform the comprehensive migration. This requires your approval first.",
+        id: 'dangerous-op-long-msg',
+        tool_calls: [
+            {
+                id: 'dangerous_op_tool_long_1',
+                name: 'upsert_dashboard',
+                type: 'tool_call',
+                args: {
+                    dashboard_id: 'dashboard-long-preview',
+                    tiles: [],
+                },
+            },
+        ],
+    }
+
+    const longPreviewText = `# Database Migration Plan
+
+This migration will update **multiple tables** across the system.
+
+## Summary
+
+- **Total tables affected**: 15
+- **Total records to migrate**: 2,453,891
+- **Estimated downtime**: 0 (zero-downtime migration)
+- **Rollback strategy**: Automated via migration versioning
+
+## Phase 1: Schema Updates
+
+### Table: users
+\`\`\`sql
+ALTER TABLE users ADD COLUMN preferences JSONB DEFAULT '{}';
+ALTER TABLE users ADD COLUMN last_active_at TIMESTAMP;
+ALTER TABLE users ADD COLUMN notification_settings JSONB;
+\`\`\`
+
+### Table: organizations
+\`\`\`sql
+ALTER TABLE organizations ADD COLUMN billing_tier VARCHAR(50);
+ALTER TABLE organizations ADD COLUMN feature_flags JSONB DEFAULT '{}';
+ALTER TABLE organizations ADD COLUMN quota_limits JSONB;
+\`\`\`
+
+### Table: projects
+\`\`\`sql
+ALTER TABLE projects ADD COLUMN archived_at TIMESTAMP;
+ALTER TABLE projects ADD COLUMN metadata JSONB DEFAULT '{}';
+\`\`\`
+
+## Phase 2: Data Migration
+
+The following data transformations will be applied:
+
+1. **User preferences migration**
+   - Migrate legacy \`settings\` column to new \`preferences\` JSONB
+   - Parse and normalize date formats
+   - Apply default values for missing fields
+
+2. **Organization billing tier**
+   - Map existing \`plan_id\` to new \`billing_tier\`
+   - Free → \`starter\`
+   - Pro → \`growth\`
+   - Enterprise → \`scale\`
+
+3. **Project metadata**
+   - Consolidate \`extra_data\` and \`config\` into \`metadata\`
+   - Remove deprecated fields
+
+## Phase 3: Index Creation
+
+New indexes to improve query performance:
+
+| Table | Index Name | Columns | Type |
+|-------|-----------|---------|------|
+| users | idx_users_last_active | last_active_at | BTREE |
+| users | idx_users_preferences | preferences | GIN |
+| organizations | idx_org_billing | billing_tier | BTREE |
+| projects | idx_projects_archived | archived_at | BTREE |
+| events | idx_events_timestamp | timestamp, team_id | BTREE |
+
+## Phase 4: Cleanup
+
+After successful migration:
+
+- Drop legacy columns: \`users.old_settings\`, \`organizations.plan_id\`
+- Remove temporary migration tables
+- Update materialized views
+
+## Affected Services
+
+The following services will need to be notified:
+
+- ✅ API Gateway
+- ✅ Event Ingestion Pipeline
+- ✅ Query Engine
+- ✅ Billing Service
+- ✅ Notification Service
+- ✅ Export Service
+
+## Risks and Mitigations
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| Data loss | Low | High | Full backup before migration |
+| Performance degradation | Medium | Medium | Run during low-traffic hours |
+| Service interruption | Low | High | Blue-green deployment |
+| Rollback failure | Very Low | Critical | Tested rollback procedure |
+
+⚠️ **This is a significant operation that will modify your production database.**`
+
+    const pendingApproval: PendingApproval = {
+        proposal_id: 'proposal-long-content-123',
+        decision_status: 'pending',
+        tool_name: 'upsert_dashboard',
+        preview: longPreviewText,
+        payload: {
+            dashboard_id: 'dashboard-long-preview',
+            tiles: [],
+        },
+        original_tool_call_id: 'dangerous_op_tool_long_1',
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Run the database migration',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallMessage)}`,
+                            'event: approval',
+                            `data: ${JSON.stringify(pendingApproval)}`,
+                        ])
+                    )
+                ),
+        },
+        get: {
+            [`/api/environments/:team_id/conversations/${CONVERSATION_ID}/`]: () => [
+                200,
+                {
+                    id: CONVERSATION_ID,
+                    status: 'idle',
+                    title: 'Test Conversation',
+                    created_at: '2025-04-29T17:44:21.654307Z',
+                    updated_at: '2025-04-29T17:44:29.184791Z',
+                    user: MOCK_DEFAULT_BASIC_USER,
+                    messages: [],
+                    pending_approvals: [pendingApproval],
+                },
+            ],
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Run the database migration')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+DangerousOperationPendingApprovalLongContent.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
     },
@@ -1933,6 +2136,98 @@ export const ThreadWithMultiQuestionForm: StoryFn = () => {
     return <Template />
 }
 ThreadWithMultiQuestionForm.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const ThreadWithMultiFieldQuestion: StoryFn = () => {
+    const formQuestions: MultiQuestionFormQuestion[] = [
+        {
+            id: 'experiment_config',
+            title: 'Config',
+            question: 'Configure your experiment',
+            fields: [
+                {
+                    id: 'min_sample',
+                    type: 'number',
+                    label: 'Minimum sample size',
+                    min: 100,
+                    max: 100000,
+                    placeholder: 'e.g. 1000',
+                },
+                { id: 'confidence', type: 'slider', label: 'Confidence level (%)', min: 80, max: 99, step: 1 },
+                { id: 'notify_on_completion', type: 'toggle', label: 'Notify me when complete' },
+            ],
+        },
+        {
+            id: 'metric_type',
+            title: 'Metric',
+            question: 'What type of metric are you testing?',
+            options: [
+                { value: 'Conversion rate', description: 'Percentage of users who complete a goal' },
+                { value: 'Revenue per user', description: 'Average revenue generated per user' },
+                { value: 'Engagement score', description: 'Composite metric of user activity' },
+            ],
+        },
+    ]
+
+    const multiQuestionFormMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content: "Let's set up your experiment. Please configure the settings below:",
+        id: 'multi-field-form-msg',
+        tool_calls: [
+            {
+                id: 'create-form-multi-field',
+                name: 'create_form',
+                args: { questions: formQuestions },
+                type: 'tool_call',
+            },
+        ],
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Help me set up an A/B test',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(multiQuestionFormMessage)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Help me set up an A/B test')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+ThreadWithMultiFieldQuestion.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
     },
@@ -2102,7 +2397,7 @@ export const ThreadWithMultiQuestionFormLongContent: StoryFn = () => {
     const longContentFormMessage: AssistantMessage = {
         type: AssistantMessageType.Assistant,
         content:
-            "I've analyzed your request and identified several areas that need investigation. Before I proceed with the deep research, I need to confirm a few things to ensure I focus on what matters most to you.",
+            "I've analyzed your request and identified several areas that need investigation. Before I proceed with the research, I need to confirm a few things to ensure I focus on what matters most to you.",
         id: 'long-content-form-msg',
         tool_calls: [
             {
@@ -2744,6 +3039,283 @@ export const MultipleAlerts: StoryFn = () => {
 }
 MultipleAlerts.parameters = {
     featureFlags: ['posthog-ai-changelog', 'posthog-ai-alerts'],
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+// Multi-question form stories with new field types
+
+export const ThreadWithMixedFieldTypeForm: StoryFn = () => {
+    const formQuestions: MultiQuestionFormQuestion[] = [
+        {
+            id: 'goal',
+            title: 'Goal',
+            question: 'What is your primary goal for this analysis?',
+            type: 'select',
+            options: [
+                { value: 'Understand user behavior', description: 'See how users interact with your product' },
+                { value: 'Measure conversion', description: 'Track how users move through a funnel' },
+                { value: 'Compare segments', description: 'Analyze differences between user groups' },
+            ],
+        },
+        {
+            id: 'features',
+            title: 'Features',
+            type: 'multi_select',
+            question: 'Which analytics features are you interested in?',
+            options: [
+                { value: 'Funnels', description: 'Track conversion through steps' },
+                { value: 'Retention', description: 'Measure user stickiness over time' },
+                { value: 'Paths', description: 'Visualize user navigation flows' },
+                { value: 'Trends', description: 'Monitor metrics over time' },
+            ],
+        },
+        {
+            id: 'config',
+            title: 'Config',
+            type: 'multi_field',
+            question: 'A few more details',
+            fields: [
+                {
+                    id: 'team_size',
+                    type: 'slider',
+                    label: 'How many people are on your team?',
+                    min: 1,
+                    max: 100,
+                    step: 1,
+                },
+                { id: 'notify', type: 'toggle', label: 'Would you like weekly email reports?' },
+            ],
+        },
+    ]
+
+    const multiQuestionFormMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content: 'Let me tailor your experience. Please answer these quick questions:',
+        id: 'mixed-form-msg',
+        tool_calls: [
+            {
+                id: 'create-form-mixed-1',
+                name: 'create_form',
+                args: { questions: formQuestions },
+                type: 'tool_call',
+            },
+        ],
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Help me set up analytics for my team',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(multiQuestionFormMessage)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Help me set up analytics for my team')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+ThreadWithMixedFieldTypeForm.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const ThreadWithTextAndNumberForm: StoryFn = () => {
+    const formQuestions: MultiQuestionFormQuestion[] = [
+        {
+            id: 'project_details',
+            title: 'Details',
+            type: 'multi_field',
+            question: 'Tell me about your project',
+            fields: [
+                { id: 'project_name', type: 'text', label: 'Project name', placeholder: 'e.g. My SaaS App' },
+                {
+                    id: 'monthly_events',
+                    type: 'number',
+                    label: 'Expected monthly events',
+                    placeholder: 'e.g. 500000',
+                    min: 0,
+                    max: 100000000,
+                    step: 1000,
+                },
+                {
+                    id: 'data_source',
+                    type: 'dropdown',
+                    label: 'Primary data source',
+                    options: [
+                        { value: 'Web app', description: 'JavaScript/React/Vue application' },
+                        { value: 'Mobile app', description: 'iOS or Android application' },
+                        { value: 'Backend', description: 'Server-side events via API' },
+                        { value: 'Third-party', description: 'Import from another analytics tool' },
+                    ],
+                },
+            ],
+        },
+    ]
+
+    const multiQuestionFormMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content: "I'd like to learn more about your project to give you the best recommendations:",
+        id: 'text-number-form-msg',
+        tool_calls: [
+            {
+                id: 'create-form-text-number-1',
+                name: 'create_form',
+                args: { questions: formQuestions },
+                type: 'tool_call',
+            },
+        ],
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'I want to set up event tracking for my project',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(multiQuestionFormMessage)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('I want to set up event tracking for my project')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+ThreadWithTextAndNumberForm.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const ThreadWithSliderForm: StoryFn = () => {
+    const formQuestions: MultiQuestionFormQuestion[] = [
+        {
+            id: 'experiment_config',
+            title: 'Config',
+            type: 'multi_field',
+            question: 'Configure your experiment parameters',
+            fields: [
+                { id: 'confidence', type: 'slider', label: 'Confidence level (%)', min: 80, max: 99, step: 1 },
+                { id: 'duration', type: 'slider', label: 'Duration (days)', min: 7, max: 90, step: 7 },
+                { id: 'enable_holdout', type: 'toggle', label: 'Create a holdout group' },
+            ],
+        },
+    ]
+
+    const multiQuestionFormMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content: 'Let me configure your experiment parameters:',
+        id: 'slider-form-msg',
+        tool_calls: [
+            {
+                id: 'create-form-slider-1',
+                name: 'create_form',
+                args: { questions: formQuestions },
+                type: 'tool_call',
+            },
+        ],
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Help me set up an A/B test experiment',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(multiQuestionFormMessage)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Help me set up an A/B test experiment')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+ThreadWithSliderForm.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
     },
