@@ -40,12 +40,16 @@ import type {
 import { llmAnalyticsScoreDefinitionsLogic, SCORE_DEFINITIONS_PER_PAGE } from './llmAnalyticsScoreDefinitionsLogic'
 
 type ScoreDefinitionModalMode = 'create' | 'duplicate' | 'metadata' | 'config'
+type CategoricalSelectionMode = 'single' | 'multiple'
 
 interface ScoreDefinitionDraft {
     name: string
     description: string
     kind: ScoreDefinitionKind
     options: ScoreDefinitionOption[]
+    selectionMode: CategoricalSelectionMode
+    categoricalMinSelections: string
+    categoricalMaxSelections: string
     numericMin: string
     numericMax: string
     numericStep: string
@@ -64,6 +68,10 @@ const ARCHIVED_OPTIONS: { label: string; value: '' | 'false' | 'true' }[] = [
     { label: 'Active only', value: 'false' },
     { label: 'All scorers', value: '' },
     { label: 'Archived only', value: 'true' },
+]
+const CATEGORICAL_SELECTION_MODE_OPTIONS: { label: string; value: CategoricalSelectionMode }[] = [
+    { label: 'Single select', value: 'single' },
+    { label: 'Multi-select', value: 'multiple' },
 ]
 const DEFAULT_BOOLEAN_TRUE_LABEL = 'Good'
 const DEFAULT_BOOLEAN_FALSE_LABEL = 'Bad'
@@ -120,8 +128,22 @@ function parseOptionalNumber(value: string): number | null {
     return Number.isFinite(parsedValue) ? parsedValue : NaN
 }
 
+function parseOptionalInteger(value: string): number | null {
+    if (!value.trim()) {
+        return null
+    }
+
+    const parsedValue = Number(value)
+    return Number.isInteger(parsedValue) ? parsedValue : NaN
+}
+
 function getNumericInputValue(value: string): number | undefined {
     const parsedValue = parseOptionalNumber(value)
+    return parsedValue === null || Number.isNaN(parsedValue) ? undefined : parsedValue
+}
+
+function getIntegerInputValue(value: string): number | undefined {
+    const parsedValue = parseOptionalInteger(value)
     return parsedValue === null || Number.isNaN(parsedValue) ? undefined : parsedValue
 }
 
@@ -130,7 +152,7 @@ function formatNumericInputValue(value: number | undefined): string {
 }
 
 function getCategoricalConfig(config: ScoreDefinitionConfig): CategoricalScoreDefinitionConfig {
-    return 'options' in config ? config : { options: [] }
+    return 'options' in config ? { selection_mode: 'single', ...config } : { options: [], selection_mode: 'single' }
 }
 
 function getNumericConfig(config: ScoreDefinitionConfig): NumericScoreDefinitionConfig {
@@ -144,7 +166,9 @@ function getBooleanConfig(config: ScoreDefinitionConfig): BooleanScoreDefinition
 function createDraft(mode: ScoreDefinitionModalMode, scoreDefinition?: ScoreDefinition | null): ScoreDefinitionDraft {
     const baseDefinition = scoreDefinition || null
     const kind = baseDefinition?.kind || 'categorical'
-    const categoricalConfig = baseDefinition ? getCategoricalConfig(baseDefinition.config) : { options: [] }
+    const categoricalConfig: CategoricalScoreDefinitionConfig = baseDefinition
+        ? getCategoricalConfig(baseDefinition.config)
+        : { options: [], selection_mode: 'single' }
     const numericConfig = baseDefinition ? getNumericConfig(baseDefinition.config) : {}
     const booleanConfig = baseDefinition ? getBooleanConfig(baseDefinition.config) : {}
 
@@ -163,6 +187,15 @@ function createDraft(mode: ScoreDefinitionModalMode, scoreDefinition?: ScoreDefi
         description: baseDefinition?.description || '',
         kind,
         options: defaultOptions,
+        selectionMode: categoricalConfig.selection_mode || 'single',
+        categoricalMinSelections:
+            categoricalConfig.min_selections === undefined || categoricalConfig.min_selections === null
+                ? ''
+                : String(categoricalConfig.min_selections),
+        categoricalMaxSelections:
+            categoricalConfig.max_selections === undefined || categoricalConfig.max_selections === null
+                ? ''
+                : String(categoricalConfig.max_selections),
         numericMin: numericConfig.min === undefined || numericConfig.min === null ? '' : String(numericConfig.min),
         numericMax: numericConfig.max === undefined || numericConfig.max === null ? '' : String(numericConfig.max),
         numericStep: numericConfig.step === undefined || numericConfig.step === null ? '' : String(numericConfig.step),
@@ -173,12 +206,29 @@ function createDraft(mode: ScoreDefinitionModalMode, scoreDefinition?: ScoreDefi
 
 function buildConfigFromDraft(draft: ScoreDefinitionDraft): ScoreDefinitionConfig {
     if (draft.kind === 'categorical') {
-        return {
+        const categoricalConfig: CategoricalScoreDefinitionConfig = {
             options: draft.options.map((option) => ({
                 key: option.key.trim() || suggestKey(option.label),
                 label: option.label.trim(),
             })),
         }
+
+        if (draft.selectionMode === 'multiple') {
+            categoricalConfig.selection_mode = 'multiple'
+
+            const minimum = parseOptionalInteger(draft.categoricalMinSelections)
+            const maximum = parseOptionalInteger(draft.categoricalMaxSelections)
+
+            if (minimum !== null) {
+                categoricalConfig.min_selections = minimum
+            }
+
+            if (maximum !== null) {
+                categoricalConfig.max_selections = maximum
+            }
+        }
+
+        return categoricalConfig
     }
 
     if (draft.kind === 'numeric') {
@@ -243,6 +293,28 @@ function validateDraft(mode: ScoreDefinitionModalMode, draft: ScoreDefinitionDra
                 return 'Some option labels are too similar and would generate duplicate IDs. Please use more distinct labels.'
             }
             optionKeys.add(normalizedKey)
+        }
+
+        if (draft.selectionMode === 'multiple') {
+            const selectionValues = [draft.categoricalMinSelections, draft.categoricalMaxSelections]
+            if (selectionValues.some((value) => value.trim() && Number.isNaN(parseOptionalInteger(value)))) {
+                return 'Selection bounds must be whole numbers.'
+            }
+
+            const minimum = parseOptionalInteger(draft.categoricalMinSelections)
+            const maximum = parseOptionalInteger(draft.categoricalMaxSelections)
+
+            if (minimum !== null && minimum > draft.options.length) {
+                return 'Minimum selections cannot exceed the number of options.'
+            }
+
+            if (maximum !== null && maximum > draft.options.length) {
+                return 'Maximum selections cannot exceed the number of options.'
+            }
+
+            if (minimum !== null && maximum !== null && minimum > maximum) {
+                return 'Maximum selections must be greater than or equal to minimum selections.'
+            }
         }
     }
 
@@ -621,6 +693,52 @@ function ScoreDefinitionModal({
                     <>
                         {draft.kind === 'categorical' ? (
                             <div className="space-y-3">
+                                <div className="grid gap-4 sm:grid-cols-3">
+                                    <div className="space-y-1">
+                                        <label className="text-sm font-medium">Selection mode</label>
+                                        <LemonSelect<CategoricalSelectionMode>
+                                            value={draft.selectionMode}
+                                            onChange={(value) =>
+                                                setField(
+                                                    'selectionMode',
+                                                    (value as CategoricalSelectionMode) || 'single'
+                                                )
+                                            }
+                                            options={CATEGORICAL_SELECTION_MODE_OPTIONS}
+                                        />
+                                    </div>
+
+                                    {draft.selectionMode === 'multiple' ? (
+                                        <>
+                                            <div className="space-y-1">
+                                                <label className="text-sm font-medium">Min selections</label>
+                                                <LemonInput
+                                                    type="number"
+                                                    value={getIntegerInputValue(draft.categoricalMinSelections)}
+                                                    onChange={(value) =>
+                                                        setField(
+                                                            'categoricalMinSelections',
+                                                            formatNumericInputValue(value)
+                                                        )
+                                                    }
+                                                />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-sm font-medium">Max selections</label>
+                                                <LemonInput
+                                                    type="number"
+                                                    value={getIntegerInputValue(draft.categoricalMaxSelections)}
+                                                    onChange={(value) =>
+                                                        setField(
+                                                            'categoricalMaxSelections',
+                                                            formatNumericInputValue(value)
+                                                        )
+                                                    }
+                                                />
+                                            </div>
+                                        </>
+                                    ) : null}
+                                </div>
                                 <div className="flex items-center justify-between">
                                     <div className="text-sm font-medium">Options</div>
                                     <LemonButton type="secondary" size="small" onClick={addOption}>

@@ -22,6 +22,50 @@ class TestScoreDefinitionConfigValidation(unittest.TestCase):
                 {"options": ["Categorical option keys must be unique."]},
             ),
             (
+                "categorical_single_rejects_min_selections",
+                "categorical",
+                {
+                    "options": [{"key": "good", "label": "Good"}, {"key": "bad", "label": "Bad"}],
+                    "min_selections": 1,
+                },
+                {"min_selections": ["`min_selections` is only supported when `selection_mode` is `multiple`."]},
+            ),
+            (
+                "categorical_multiple_requires_min_to_fit_options",
+                "categorical",
+                {
+                    "options": [{"key": "good", "label": "Good"}, {"key": "bad", "label": "Bad"}],
+                    "selection_mode": "multiple",
+                    "min_selections": 3,
+                },
+                {"min_selections": ["Ensure `min_selections` is less than or equal to the number of options."]},
+            ),
+            (
+                "categorical_multiple_requires_max_to_fit_options",
+                "categorical",
+                {
+                    "options": [{"key": "good", "label": "Good"}, {"key": "bad", "label": "Bad"}],
+                    "selection_mode": "multiple",
+                    "max_selections": 3,
+                },
+                {"max_selections": ["Ensure `max_selections` is less than or equal to the number of options."]},
+            ),
+            (
+                "categorical_multiple_requires_max_above_min",
+                "categorical",
+                {
+                    "options": [
+                        {"key": "good", "label": "Good"},
+                        {"key": "mixed", "label": "Mixed"},
+                        {"key": "bad", "label": "Bad"},
+                    ],
+                    "selection_mode": "multiple",
+                    "min_selections": 3,
+                    "max_selections": 2,
+                },
+                {"max_selections": ["Ensure `max_selections` is greater than or equal to `min_selections`."]},
+            ),
+            (
                 "numeric_requires_positive_step",
                 "numeric",
                 {"step": 0},
@@ -56,6 +100,20 @@ class TestScoreDefinitionConfigValidation(unittest.TestCase):
                 "categorical",
                 "categorical",
                 {"options": [{"key": "good", "label": "Good"}, {"key": "bad", "label": "Bad"}]},
+            ),
+            (
+                "categorical_multiple",
+                "categorical",
+                {
+                    "options": [
+                        {"key": "good", "label": "Good"},
+                        {"key": "mixed", "label": "Mixed"},
+                        {"key": "bad", "label": "Bad"},
+                    ],
+                    "selection_mode": "multiple",
+                    "min_selections": 1,
+                    "max_selections": 2,
+                },
             ),
             ("numeric", "numeric", {"min": 0, "max": 5, "step": 1}),
             ("boolean", "boolean", {"true_label": "Yes", "false_label": "No"}),

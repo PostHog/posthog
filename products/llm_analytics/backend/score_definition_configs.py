@@ -37,6 +37,23 @@ class CategoricalScoreDefinitionConfigSerializer(serializers.Serializer):
         many=True,
         help_text="Ordered categorical options available to the scorer.",
     )
+    selection_mode = serializers.ChoiceField(
+        required=False,
+        choices=[("single", "single"), ("multiple", "multiple")],
+        help_text="Whether reviewers can select one option or multiple options. Defaults to `single`.",
+    )
+    min_selections = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        help_text="Optional minimum number of options that can be selected when `selection_mode` is `multiple`.",
+    )
+    max_selections = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        help_text="Optional maximum number of options that can be selected when `selection_mode` is `multiple`.",
+    )
 
     def validate_options(self, value: list[dict[str, str]]) -> list[dict[str, str]]:
         if len(value) == 0:
@@ -47,6 +64,40 @@ class CategoricalScoreDefinitionConfigSerializer(serializers.Serializer):
             raise serializers.ValidationError("Categorical option keys must be unique.")
 
         return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        selection_mode = attrs.get("selection_mode") or "single"
+        minimum = attrs.get("min_selections")
+        maximum = attrs.get("max_selections")
+        option_count = len(attrs.get("options", []))
+
+        if selection_mode == "single":
+            if minimum is not None:
+                raise serializers.ValidationError(
+                    {"min_selections": "`min_selections` is only supported when `selection_mode` is `multiple`."}
+                )
+            if maximum is not None:
+                raise serializers.ValidationError(
+                    {"max_selections": "`max_selections` is only supported when `selection_mode` is `multiple`."}
+                )
+            return attrs
+
+        if minimum is not None and minimum > option_count:
+            raise serializers.ValidationError(
+                {"min_selections": "Ensure `min_selections` is less than or equal to the number of options."}
+            )
+
+        if maximum is not None and maximum > option_count:
+            raise serializers.ValidationError(
+                {"max_selections": "Ensure `max_selections` is less than or equal to the number of options."}
+            )
+
+        if minimum is not None and maximum is not None and minimum > maximum:
+            raise serializers.ValidationError(
+                {"max_selections": "Ensure `max_selections` is greater than or equal to `min_selections`."}
+            )
+
+        return attrs
 
 
 class NumericScoreDefinitionConfigSerializer(serializers.Serializer):

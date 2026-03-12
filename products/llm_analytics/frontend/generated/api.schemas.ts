@@ -463,9 +463,37 @@ export interface CategoricalScoreOptionApi {
     label: string
 }
 
+/**
+ * * `single` - single
+ * `multiple` - multiple
+ */
+export type SelectionModeEnumApi = (typeof SelectionModeEnumApi)[keyof typeof SelectionModeEnumApi]
+
+export const SelectionModeEnumApi = {
+    Single: 'single',
+    Multiple: 'multiple',
+} as const
+
 export interface CategoricalScoreDefinitionConfigApi {
     /** Ordered categorical options available to the scorer. */
     options: CategoricalScoreOptionApi[]
+    /** Whether reviewers can select one option or multiple options. Defaults to `single`.
+
+* `single` - single
+* `multiple` - multiple */
+    selection_mode?: SelectionModeEnumApi
+    /**
+     * Optional minimum number of options that can be selected when `selection_mode` is `multiple`.
+     * @minimum 1
+     * @nullable
+     */
+    min_selections?: number | null
+    /**
+     * Optional maximum number of options that can be selected when `selection_mode` is `multiple`.
+     * @minimum 1
+     * @nullable
+     */
+    max_selections?: number | null
 }
 
 export interface NumericScoreDefinitionConfigApi {

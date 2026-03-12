@@ -35,7 +35,7 @@ class TestScoreDefinitionsApi(APIBaseTest):
     @parameterized.expand(
         [
             (
-                "categorical",
+                "categorical_single",
                 {
                     "name": "Quality",
                     "kind": "categorical",
@@ -44,6 +44,23 @@ class TestScoreDefinitionsApi(APIBaseTest):
                             {"key": "good", "label": "Good"},
                             {"key": "bad", "label": "Bad"},
                         ]
+                    },
+                },
+            ),
+            (
+                "categorical_multiple",
+                {
+                    "name": "Themes",
+                    "kind": "categorical",
+                    "config": {
+                        "options": [
+                            {"key": "helpful", "label": "Helpful"},
+                            {"key": "accurate", "label": "Accurate"},
+                            {"key": "complete", "label": "Complete"},
+                        ],
+                        "selection_mode": "multiple",
+                        "min_selections": 1,
+                        "max_selections": 2,
                     },
                 },
             ),
@@ -131,7 +148,18 @@ class TestScoreDefinitionsApi(APIBaseTest):
 
         response = self.client.post(
             f"{self._endpoint()}{definition.id}/new_version/",
-            {"config": {"options": [{"key": "pass", "label": "Pass"}, {"key": "fail", "label": "Fail"}]}},
+            {
+                "config": {
+                    "options": [
+                        {"key": "pass", "label": "Pass"},
+                        {"key": "needs_work", "label": "Needs work"},
+                        {"key": "fail", "label": "Fail"},
+                    ],
+                    "selection_mode": "multiple",
+                    "min_selections": 1,
+                    "max_selections": 2,
+                }
+            },
             format="json",
         )
 
@@ -143,7 +171,16 @@ class TestScoreDefinitionsApi(APIBaseTest):
         self.assertEqual(definition.versions.get(version=1).config, original_config)
         self.assertEqual(
             definition.versions.get(version=2).config,
-            {"options": [{"key": "pass", "label": "Pass"}, {"key": "fail", "label": "Fail"}]},
+            {
+                "options": [
+                    {"key": "pass", "label": "Pass"},
+                    {"key": "needs_work", "label": "Needs work"},
+                    {"key": "fail", "label": "Fail"},
+                ],
+                "selection_mode": "multiple",
+                "min_selections": 1,
+                "max_selections": 2,
+            },
         )
 
     def test_list_supports_search_kind_archived_and_ordering(self):
