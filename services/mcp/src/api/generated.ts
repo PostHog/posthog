@@ -14202,12 +14202,14 @@ export namespace Schemas {
     * `dictionary` - dictionary
     * `choice` - choice
     * `json` - json
+    * `hogql` - hogql
     * `integration` - integration
     * `integration_field` - integration_field
     * `email` - email
     * `native_email` - native_email
     * `posthog_assignee` - posthog_assignee
     * `posthog_ticket_tags` - posthog_ticket_tags
+    * `endpoint` - endpoint
      */
     export type InputsSchemaItemTypeEnum = typeof InputsSchemaItemTypeEnum[keyof typeof InputsSchemaItemTypeEnum];
 
@@ -14219,12 +14221,14 @@ export namespace Schemas {
       Dictionary: 'dictionary',
       Choice: 'choice',
       Json: 'json',
+      Hogql: 'hogql',
       Integration: 'integration',
       IntegrationField: 'integration_field',
       Email: 'email',
       NativeEmail: 'native_email',
       PosthogAssignee: 'posthog_assignee',
       PosthogTicketTags: 'posthog_ticket_tags',
+      Endpoint: 'endpoint',
     } as const;
 
     /**
