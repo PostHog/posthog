@@ -27,6 +27,7 @@ from posthog.models.group_type_mapping import GROUP_TYPES_CACHE_KEY_PREFIX, GROU
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import Organization
 from posthog.models.project import Project
+from posthog.models.quick_filter import QuickFilter
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mute_selected_signals
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -1283,6 +1284,64 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         duplicated_dashboard = Dashboard.objects.get(id=response["id"])
         self.assertEqual(duplicated_dashboard.data_color_theme_id, color_theme.id)
+
+    def test_dashboard_duplication_copies_quick_filter_ids(self):
+        qf1 = QuickFilter.objects.create(team=self.team, name="Filter 1", property_name="prop1")
+        qf2 = QuickFilter.objects.create(team=self.team, name="Filter 2", property_name="prop2")
+        qf3 = QuickFilter.objects.create(team=self.team, name="Filter 3", property_name="prop3")
+        quick_filter_ids = [str(qf1.id), str(qf2.id), str(qf3.id)]
+
+        existing_dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Dashboard with quick filters",
+            created_by=self.user,
+            quick_filter_ids=quick_filter_ids,
+        )
+
+        # Duplicate the dashboard
+        _, response = self.dashboard_api.create_dashboard(
+            {"name": "Duplicated dashboard", "use_dashboard": existing_dashboard.pk}
+        )
+
+        # Verify quick_filter_ids is copied
+        self.assertEqual(response["quick_filter_ids"], quick_filter_ids)
+
+        duplicated_dashboard = Dashboard.objects.get(id=response["id"])
+        self.assertEqual(duplicated_dashboard.quick_filter_ids, quick_filter_ids)
+
+    @parameterized.expand(
+        [
+            ("not_a_list", "not-a-list", status.HTTP_400_BAD_REQUEST),
+            ("invalid_uuid", ["not-a-uuid"], status.HTTP_400_BAD_REQUEST),
+            ("nonexistent_ids", ["00000000-0000-0000-0000-000000000001"], status.HTTP_400_BAD_REQUEST),
+            ("empty_list", [], status.HTTP_200_OK),
+            ("null_coerced_to_empty_list", None, status.HTTP_200_OK),
+        ]
+    )
+    def test_dashboard_patch_quick_filter_ids_validation(self, _name, value, expected_status):
+        dashboard = Dashboard.objects.create(team=self.team, name="test dashboard", created_by=self.user)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/dashboards/{dashboard.id}/",
+            {"quick_filter_ids": value},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+
+    def test_dashboard_patch_quick_filter_ids_with_existing_filters(self):
+        qf1 = QuickFilter.objects.create(team=self.team, name="Filter 1", property_name="prop1")
+        qf2 = QuickFilter.objects.create(team=self.team, name="Filter 2", property_name="prop2")
+        dashboard = Dashboard.objects.create(team=self.team, name="test dashboard", created_by=self.user)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/dashboards/{dashboard.id}/",
+            {"quick_filter_ids": [str(qf1.id), str(qf2.id)]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["quick_filter_ids"], [str(qf1.id), str(qf2.id)])
 
     def test_return_cached_results_dashboard_has_filters(self):
         # create a dashboard with no filters

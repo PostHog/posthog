@@ -27,6 +27,7 @@ import type {
     LLMProviderKeyApi,
     LlmAnalyticsClusteringJobsListParams,
     LlmAnalyticsProviderKeysListParams,
+    LlmAnalyticsScoreDefinitionsListParams,
     LlmPromptsListParams,
     LlmPromptsNameRetrieveParams,
     LlmPromptsResolveNameRetrieveParams,
@@ -36,11 +37,16 @@ import type {
     PaginatedEvaluationListApi,
     PaginatedLLMPromptListApi,
     PaginatedLLMProviderKeyListApi,
+    PaginatedScoreDefinitionListApi,
     PatchedClusteringJobApi,
     PatchedDatasetApi,
     PatchedDatasetItemApi,
     PatchedLLMPromptPublishApi,
     PatchedLLMProviderKeyApi,
+    PatchedScoreDefinitionMetadataApi,
+    ScoreDefinitionApi,
+    ScoreDefinitionCreateApi,
+    ScoreDefinitionNewVersionApi,
     SentimentBatchResponseApi,
     SentimentRequestApi,
     SummarizeRequestApi,
@@ -570,6 +576,104 @@ export const llmAnalyticsProviderKeysValidateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(lLMProviderKeyApi),
+    })
+}
+
+export const getLlmAnalyticsScoreDefinitionsListUrl = (
+    projectId: string,
+    params?: LlmAnalyticsScoreDefinitionsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/llm_analytics/score_definitions/?${stringifiedParams}`
+        : `/api/environments/${projectId}/llm_analytics/score_definitions/`
+}
+
+export const llmAnalyticsScoreDefinitionsList = async (
+    projectId: string,
+    params?: LlmAnalyticsScoreDefinitionsListParams,
+    options?: RequestInit
+): Promise<PaginatedScoreDefinitionListApi> => {
+    return apiMutator<PaginatedScoreDefinitionListApi>(getLlmAnalyticsScoreDefinitionsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLlmAnalyticsScoreDefinitionsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/score_definitions/`
+}
+
+export const llmAnalyticsScoreDefinitionsCreate = async (
+    projectId: string,
+    scoreDefinitionCreateApi: ScoreDefinitionCreateApi,
+    options?: RequestInit
+): Promise<ScoreDefinitionApi> => {
+    return apiMutator<ScoreDefinitionApi>(getLlmAnalyticsScoreDefinitionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scoreDefinitionCreateApi),
+    })
+}
+
+export const getLlmAnalyticsScoreDefinitionsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/score_definitions/${id}/`
+}
+
+export const llmAnalyticsScoreDefinitionsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ScoreDefinitionApi> => {
+    return apiMutator<ScoreDefinitionApi>(getLlmAnalyticsScoreDefinitionsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLlmAnalyticsScoreDefinitionsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/score_definitions/${id}/`
+}
+
+export const llmAnalyticsScoreDefinitionsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedScoreDefinitionMetadataApi: PatchedScoreDefinitionMetadataApi,
+    options?: RequestInit
+): Promise<ScoreDefinitionApi> => {
+    return apiMutator<ScoreDefinitionApi>(getLlmAnalyticsScoreDefinitionsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedScoreDefinitionMetadataApi),
+    })
+}
+
+export const getLlmAnalyticsScoreDefinitionsNewVersionCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/score_definitions/${id}/new_version/`
+}
+
+export const llmAnalyticsScoreDefinitionsNewVersionCreate = async (
+    projectId: string,
+    id: string,
+    scoreDefinitionNewVersionApi: ScoreDefinitionNewVersionApi,
+    options?: RequestInit
+): Promise<ScoreDefinitionApi> => {
+    return apiMutator<ScoreDefinitionApi>(getLlmAnalyticsScoreDefinitionsNewVersionCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scoreDefinitionNewVersionApi),
     })
 }
 
