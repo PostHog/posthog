@@ -1047,6 +1047,47 @@ class HogQLXTag(Expr):
         }
 
 
+@dataclass(kw_only=True)
+class CreateApiKeyCommand(Expr):
+    label: str
+    scopes: list[str]
+
+
+@dataclass(kw_only=True)
+class ShowApiKeysCommand(Expr):
+    pass
+
+
+@dataclass(kw_only=True)
+class AlterApiKeyRollCommand(Expr):
+    label: str
+
+
+@dataclass(kw_only=True)
+class GrantCommand(Expr):
+    access_level: str
+    resource: str
+    resource_name: Optional[str] = None  # human-readable name, resolved to ID at execution
+    target_type: str  # "role", "user", or "default"
+    target_name: Optional[str] = None  # role name or user email
+
+
+@dataclass(kw_only=True)
+class RevokeCommand(Expr):
+    resource: str
+    resource_name: Optional[str] = None  # human-readable name, resolved to ID at execution
+    target_type: str  # "role", "user", or "default"
+    target_name: Optional[str] = None
+
+
+@dataclass(kw_only=True)
+class ShowGrantsCommand(Expr):
+    resource: Optional[str] = None
+    resource_name: Optional[str] = None  # human-readable name, resolved to ID at execution
+    filter_type: Optional[str] = None  # "role" or "user"
+    filter_name: Optional[str] = None  # role name or user email
+
+
 def create_ast_classes_mapping() -> dict[str, AST]:
     current_module = sys.modules[__name__]
     ast_classes: dict[str, AST] = {}

@@ -3,7 +3,6 @@ from typing import cast
 
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
-from django.utils import timezone
 
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
@@ -18,15 +17,15 @@ from posthog.models.activity_logging.personal_api_key_utils import (
     log_personal_api_key_activity,
     log_personal_api_key_scope_change,
 )
-from posthog.models.personal_api_key import hash_key_value
+from posthog.models.personal_api_key_service import (
+    create_personal_api_key,
+    roll_personal_api_key as service_roll_personal_api_key,
+)
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
-from posthog.models.utils import generate_random_token_personal, mask_key_value
 from posthog.permissions import TimeSensitiveActionPermission
 from posthog.scopes import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS
 from posthog.user_permissions import UserPermissions
-
-MAX_API_KEYS_PER_USER = 10  # Same as in scopes.tsx
 
 
 class PersonalAPIKeySerializer(serializers.ModelSerializer):
@@ -134,33 +133,21 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: dict, **kwargs) -> PersonalAPIKey:
         user = self.context["request"].user
-        count = PersonalAPIKey.objects.filter(user=user).count()
-        if count >= MAX_API_KEYS_PER_USER:
-            raise serializers.ValidationError(
-                f"You can only have {MAX_API_KEYS_PER_USER} personal API keys. Remove an existing key before creating a new one."
+        try:
+            personal_api_key, value = create_personal_api_key(
+                user=user,
+                label=validated_data.pop("label"),
+                scopes=validated_data.pop("scopes"),
+                scoped_teams=validated_data.pop("scoped_teams", None),
+                scoped_organizations=validated_data.pop("scoped_organizations", None),
             )
-        value = generate_random_token_personal()
-        mask_value = mask_key_value(value)
-        secure_value = hash_key_value(value)
-        personal_api_key = PersonalAPIKey.objects.create(
-            user=user, secure_value=secure_value, mask_value=mask_value, **validated_data
-        )
+        except ValueError as e:
+            raise serializers.ValidationError(str(e))
         personal_api_key._value = value  # type: ignore
         return personal_api_key
 
     def roll(self, personal_api_key: PersonalAPIKey) -> PersonalAPIKey:
-        value = generate_random_token_personal()
-        mask_value = mask_key_value(value)
-        secure_value = hash_key_value(value)
-
-        personal_api_key = super().update(
-            personal_api_key,
-            {
-                "secure_value": secure_value,
-                "mask_value": mask_value,
-                "last_rolled_at": timezone.now(),
-            },
-        )
+        personal_api_key, value = service_roll_personal_api_key(personal_api_key)
         personal_api_key._value = value  # type: ignore
         return personal_api_key
 
