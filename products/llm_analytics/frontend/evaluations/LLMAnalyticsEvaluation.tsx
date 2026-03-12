@@ -94,10 +94,10 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         // If percentage is unset but other fields are valid, expand settings and scroll to triggers
         if (basicFieldsValid && percentageUnset) {
             setSettingsExpanded(true)
-            // Use setTimeout to allow the DOM to update before scrolling
-            setTimeout(() => {
+            // Use rAF to scroll after the expanded form has been painted
+            requestAnimationFrame(() => {
                 triggersRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-            }, 100)
+            })
             return
         }
 
@@ -181,8 +181,10 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
 
             {/* Configuration Form */}
             <div className="max-w-4xl">
-                <div
-                    className="flex items-center gap-2 cursor-pointer select-none py-2"
+                <button
+                    type="button"
+                    className="flex items-center gap-2 cursor-pointer select-none py-2 bg-transparent border-0 p-0"
+                    aria-expanded={settingsExpanded}
                     onClick={() => setSettingsExpanded(!settingsExpanded)}
                 >
                     {settingsExpanded ? (
@@ -191,7 +193,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                         <IconExpand className="text-muted text-lg" />
                     )}
                     <h3 className="text-lg font-semibold m-0">Settings</h3>
-                </div>
+                </button>
                 {settingsExpanded && (
                     <Form logic={llmEvaluationLogic} formKey="evaluation" className="space-y-6 mt-4">
                         {/* Basic Information */}
