@@ -78,7 +78,7 @@ task = Task.create_and_run(
 | `origin_product`       | Yes      | Which product created this task (see `Task.OriginProduct` choices)         |
 | `user_id`              | Yes      | User ID — used for feature flag validation and creating the scoped API key |
 | `repository`           | Yes      | GitHub repo in `org/repo` format (e.g., `posthog/posthog-js`)              |
-| `posthog_mcp_scopes`   | No       | Scope preset or explicit scope list (default: `"read_only"`)               |
+| `posthog_mcp_scopes`   | No       | Scope preset or explicit scope list (default: `"full"`)                    |
 | `create_pr`            | No       | Whether the agent should create a PR (default: `True`)                     |
 | `mode`                 | No       | Execution mode (default: `"background"`)                                   |
 | `slack_thread_context` | No       | Slack thread context for agents triggered from Slack                       |
@@ -107,10 +107,10 @@ Tokens expire after 6 hours and are scoped to a single team.
 
 Use the `posthog_mcp_scopes` parameter to control access:
 
-| Preset                  | What it grants                                                                                            | When to use                                                                                        |
-| ----------------------- | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `"read_only"` (default) | Read access to actions, cohorts, dashboards, experiments, feature flags, insights, queries, surveys, etc. | Agent only needs to read data for analysis or reporting                                            |
-| `"full"`                | Read + write access to all MCP-exposed resources                                                          | Agent needs to create or modify PostHog resources (e.g., create feature flags, update experiments) |
+| Preset             | What it grants                                                                                            | When to use                                                                                        |
+| ------------------ | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `"read_only"`      | Read access to actions, cohorts, dashboards, experiments, feature flags, insights, queries, surveys, etc. | Agent only needs to read data for analysis or reporting                                            |
+| `"full"` (default) | Read + write access to all MCP-exposed resources                                                          | Agent needs to create or modify PostHog resources (e.g., create feature flags, update experiments) |
 
 ### Custom scopes
 
