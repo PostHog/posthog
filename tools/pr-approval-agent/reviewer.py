@@ -12,8 +12,8 @@ import textwrap
 import subprocess
 from pathlib import Path
 
-from claude_agent_sdk import ClaudeAgentOptions, HookMatcher, query
-from claude_agent_sdk.types import AssistantMessage, TextBlock, ToolUseBlock
+from claude_agent_sdk import ClaudeAgentOptions, HookMatcher, ResultMessage, query
+from claude_agent_sdk.types import AssistantMessage, ToolUseBlock
 from github import PRData
 
 MODEL = "claude-sonnet-4-6"
@@ -54,22 +54,12 @@ VERDICT_SCHEMA = {
 }
 
 
-def _parse_verdict(text: str) -> dict:
-    """Parse structured verdict JSON from agent output.
+def _validate_verdict(result: dict) -> dict:
+    """Validate structured verdict from agent output.
 
-    output_format constrains the model to the VERDICT_SCHEMA, so the text
-    should always be valid JSON. If it isn't, we crash intentionally — the
-    caller catches RuntimeError and falls back to ESCALATE. We must NOT
-    try to extract JSON from markdown wrappers because that is the exact
-    code path a prompt injection would exploit.
+    structured_output from the SDK is already a parsed dict matching
+    VERDICT_SCHEMA. We just sanity-check the verdict value.
     """
-    text = text.strip()
-    if not text:
-        raise RuntimeError("Reviewer agent returned no output")
-    try:
-        result = json.loads(text)
-    except json.JSONDecodeError:
-        raise RuntimeError(f"Could not parse verdict JSON:\n{text[:500]}")
     if result.get("verdict") not in ("APPROVE", "REFUSE", "ESCALATE"):
         result["verdict"] = "ESCALATE"
         result.setdefault("issues", []).append("Invalid verdict value — escalating")
@@ -175,16 +165,8 @@ REVIEWER_SYSTEM = textwrap.dedent(
     - "Missing tests for new error handling path."
     - "Touches shared query builder — needs team review."
 
-    CRITICAL: Your final output MUST be a single JSON object — no markdown,
-    no prose, no explanation outside the JSON. The schema is:
-    {
-      "verdict": "APPROVE" | "REFUSE" | "ESCALATE",
-      "reasoning": "<1 sentence>",
-      "risk": "low" | "medium" | "high",
-      "issues": ["<issue1>", ...]
-    }
-    If there are no issues, use an empty array. Never wrap the JSON in
-    code fences or add text before/after it.
+    Your output is constrained to a JSON schema with verdict, reasoning,
+    risk, and issues fields. Fill them according to the rules above.
     """
 )
 
@@ -217,25 +199,25 @@ class Reviewer:
             hooks={"PreToolUse": [HookMatcher(matcher="Read|Grep|Glob", hooks=[path_validator])]},
         )
 
-        result_text = ""
+        structured_output = None
         async for message in query(prompt=prompt, options=options):
             if self.verbose:
                 print(f"\033[2m    [{type(message).__name__}]\033[0m", flush=True)
-            if isinstance(message, AssistantMessage):
-                # Keep only the last assistant message's text (tool-use
-                # messages in between are intermediate steps, not the verdict)
-                msg_text = ""
+            if isinstance(message, ResultMessage):
+                if message.subtype == "error_max_structured_output_retries":
+                    raise RuntimeError("Agent could not produce valid structured output after retries")
+                if message.structured_output:
+                    structured_output = message.structured_output
+            elif isinstance(message, AssistantMessage):
                 for block in message.content:
                     if isinstance(block, ToolUseBlock) and self.verbose:
                         self._log_tool_call(block)
-                    if isinstance(block, TextBlock):
-                        msg_text += block.text
-                if msg_text:
-                    result_text = msg_text
 
         diff_path.unlink(missing_ok=True)
 
-        return _parse_verdict(result_text)
+        if structured_output is None:
+            raise RuntimeError("Reviewer agent returned no structured output")
+        return _validate_verdict(structured_output)
 
     def _log_tool_call(self, block: ToolUseBlock) -> None:
         name = block.name
