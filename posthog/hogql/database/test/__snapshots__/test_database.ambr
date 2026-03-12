@@ -37,6 +37,7 @@
          "posthog_datamodelingnode"."id",
          "posthog_datamodelingnode"."team_id",
          "posthog_datamodelingnode"."saved_query_id",
+         "posthog_datamodelingnode"."dag_fk_id",
          "posthog_datamodelingnode"."dag_id",
          "posthog_datamodelingnode"."dag_id_text",
          "posthog_datamodelingnode"."name",
@@ -45,6 +46,7 @@
          "posthog_datamodelingnode"."properties",
          "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."updated_at",
          "posthog_datawarehousesavedquery"."deleted",
          "posthog_datawarehousesavedquery"."deleted_at",
          "posthog_datawarehousesavedquery"."id",
@@ -75,6 +77,7 @@
          "posthog_datamodelingnode"."id",
          "posthog_datamodelingnode"."team_id",
          "posthog_datamodelingnode"."saved_query_id",
+         "posthog_datamodelingnode"."dag_fk_id",
          "posthog_datamodelingnode"."dag_id",
          "posthog_datamodelingnode"."dag_id_text",
          "posthog_datamodelingnode"."name",
@@ -83,6 +86,7 @@
          "posthog_datamodelingnode"."properties",
          "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."updated_at",
          "posthog_datawarehousesavedquery"."deleted",
          "posthog_datawarehousesavedquery"."deleted_at",
          "posthog_datawarehousesavedquery"."id",
@@ -113,6 +117,7 @@
          "posthog_datamodelingnode"."id",
          "posthog_datamodelingnode"."team_id",
          "posthog_datamodelingnode"."saved_query_id",
+         "posthog_datamodelingnode"."dag_fk_id",
          "posthog_datamodelingnode"."dag_id",
          "posthog_datamodelingnode"."dag_id_text",
          "posthog_datamodelingnode"."name",
@@ -121,6 +126,7 @@
          "posthog_datamodelingnode"."properties",
          "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."updated_at",
          "posthog_datawarehousesavedquery"."deleted",
          "posthog_datawarehousesavedquery"."deleted_at",
          "posthog_datawarehousesavedquery"."id",
@@ -151,6 +157,7 @@
          "posthog_datamodelingnode"."id",
          "posthog_datamodelingnode"."team_id",
          "posthog_datamodelingnode"."saved_query_id",
+         "posthog_datamodelingnode"."dag_fk_id",
          "posthog_datamodelingnode"."dag_id",
          "posthog_datamodelingnode"."dag_id_text",
          "posthog_datamodelingnode"."name",
@@ -159,6 +166,7 @@
          "posthog_datamodelingnode"."properties",
          "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."updated_at",
          "posthog_datawarehousesavedquery"."deleted",
          "posthog_datawarehousesavedquery"."deleted_at",
          "posthog_datawarehousesavedquery"."id",
@@ -189,6 +197,7 @@
          "posthog_datamodelingnode"."id",
          "posthog_datamodelingnode"."team_id",
          "posthog_datamodelingnode"."saved_query_id",
+         "posthog_datamodelingnode"."dag_fk_id",
          "posthog_datamodelingnode"."dag_id",
          "posthog_datamodelingnode"."dag_id_text",
          "posthog_datamodelingnode"."name",
@@ -197,6 +206,7 @@
          "posthog_datamodelingnode"."properties",
          "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."updated_at",
          "posthog_datawarehousesavedquery"."deleted",
          "posthog_datawarehousesavedquery"."deleted_at",
          "posthog_datawarehousesavedquery"."id",
@@ -227,6 +237,7 @@
          "posthog_datamodelingnode"."id",
          "posthog_datamodelingnode"."team_id",
          "posthog_datamodelingnode"."saved_query_id",
+         "posthog_datamodelingnode"."dag_fk_id",
          "posthog_datamodelingnode"."dag_id",
          "posthog_datamodelingnode"."dag_id_text",
          "posthog_datamodelingnode"."name",
@@ -235,6 +246,7 @@
          "posthog_datamodelingnode"."properties",
          "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."updated_at",
          "posthog_datawarehousesavedquery"."deleted",
          "posthog_datawarehousesavedquery"."deleted_at",
          "posthog_datawarehousesavedquery"."id",
@@ -265,6 +277,7 @@
          "posthog_datamodelingnode"."id",
          "posthog_datamodelingnode"."team_id",
          "posthog_datamodelingnode"."saved_query_id",
+         "posthog_datamodelingnode"."dag_fk_id",
          "posthog_datamodelingnode"."dag_id",
          "posthog_datamodelingnode"."dag_id_text",
          "posthog_datamodelingnode"."name",
@@ -273,6 +286,7 @@
          "posthog_datamodelingnode"."properties",
          "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."updated_at",
          "posthog_datawarehousesavedquery"."deleted",
          "posthog_datawarehousesavedquery"."deleted_at",
          "posthog_datawarehousesavedquery"."id",
@@ -299,6 +313,7 @@
   '''
   SELECT "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."updated_at",
          "posthog_datawarehousesavedquery"."deleted",
          "posthog_datawarehousesavedquery"."deleted_at",
          "posthog_datawarehousesavedquery"."id",
@@ -360,6 +375,7 @@
   '''
   SELECT "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."updated_at",
          "posthog_datawarehousesavedquery"."deleted",
          "posthog_datawarehousesavedquery"."deleted_at",
          "posthog_datawarehousesavedquery"."id",
@@ -521,6 +537,7 @@
          "posthog_datamodelingnode"."id",
          "posthog_datamodelingnode"."team_id",
          "posthog_datamodelingnode"."saved_query_id",
+         "posthog_datamodelingnode"."dag_fk_id",
          "posthog_datamodelingnode"."dag_id",
          "posthog_datamodelingnode"."dag_id_text",
          "posthog_datamodelingnode"."name",
@@ -529,6 +546,7 @@
          "posthog_datamodelingnode"."properties",
          "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."updated_at",
          "posthog_datawarehousesavedquery"."deleted",
          "posthog_datawarehousesavedquery"."deleted_at",
          "posthog_datawarehousesavedquery"."id",
@@ -571,6 +589,26 @@
                   AND "posthog_datawarehousejoin"."deleted" IS NOT NULL))
   '''
 # ---
+# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.21
+  '''
+  SELECT "posthog_datawarehousejoin"."created_by_id",
+         "posthog_datawarehousejoin"."created_at",
+         "posthog_datawarehousejoin"."deleted",
+         "posthog_datawarehousejoin"."deleted_at",
+         "posthog_datawarehousejoin"."id",
+         "posthog_datawarehousejoin"."team_id",
+         "posthog_datawarehousejoin"."source_table_name",
+         "posthog_datawarehousejoin"."source_table_key",
+         "posthog_datawarehousejoin"."joining_table_name",
+         "posthog_datawarehousejoin"."joining_table_key",
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
+  FROM "posthog_datawarehousejoin"
+  WHERE ("posthog_datawarehousejoin"."team_id" = 99999
+         AND NOT ("posthog_datawarehousejoin"."deleted"
+                  AND "posthog_datawarehousejoin"."deleted" IS NOT NULL))
+  '''
+# ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.3
   '''
   SELECT "posthog_datamodelingnode"."created_by_id",
@@ -579,6 +617,7 @@
          "posthog_datamodelingnode"."id",
          "posthog_datamodelingnode"."team_id",
          "posthog_datamodelingnode"."saved_query_id",
+         "posthog_datamodelingnode"."dag_fk_id",
          "posthog_datamodelingnode"."dag_id",
          "posthog_datamodelingnode"."dag_id_text",
          "posthog_datamodelingnode"."name",
@@ -587,6 +626,7 @@
          "posthog_datamodelingnode"."properties",
          "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."updated_at",
          "posthog_datawarehousesavedquery"."deleted",
          "posthog_datawarehousesavedquery"."deleted_at",
          "posthog_datawarehousesavedquery"."id",
@@ -617,6 +657,7 @@
          "posthog_datamodelingnode"."id",
          "posthog_datamodelingnode"."team_id",
          "posthog_datamodelingnode"."saved_query_id",
+         "posthog_datamodelingnode"."dag_fk_id",
          "posthog_datamodelingnode"."dag_id",
          "posthog_datamodelingnode"."dag_id_text",
          "posthog_datamodelingnode"."name",
@@ -625,6 +666,7 @@
          "posthog_datamodelingnode"."properties",
          "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."updated_at",
          "posthog_datawarehousesavedquery"."deleted",
          "posthog_datawarehousesavedquery"."deleted_at",
          "posthog_datawarehousesavedquery"."id",
@@ -651,6 +693,7 @@
   '''
   SELECT "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."updated_at",
          "posthog_datawarehousesavedquery"."deleted",
          "posthog_datawarehousesavedquery"."deleted_at",
          "posthog_datawarehousesavedquery"."id",
@@ -712,6 +755,7 @@
   '''
   SELECT "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."updated_at",
          "posthog_datawarehousesavedquery"."deleted",
          "posthog_datawarehousesavedquery"."deleted_at",
          "posthog_datawarehousesavedquery"."id",

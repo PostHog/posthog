@@ -506,7 +506,10 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
     def cancel(self, request: Request, *args, **kwargs):
         conversation = self.get_object()
 
-        if conversation.status in [Conversation.Status.CANCELING, Conversation.Status.IDLE]:
+        # IDLE is intentionally not short-circuited: during the handoff between the main
+        # workflow completing and a queued workflow starting, the status is briefly IDLE
+        # even though a queued Temporal workflow may be running.
+        if conversation.status == Conversation.Status.CANCELING:
             return Response(status=status.HTTP_204_NO_CONTENT)
 
         async def cancel_workflow():

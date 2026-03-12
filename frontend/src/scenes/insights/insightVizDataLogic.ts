@@ -371,6 +371,12 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 )
             },
         ],
+        hasOnlyDataWarehouseSeries: [
+            (s) => [s.series],
+            (series): boolean => {
+                return !!series && series.length > 0 && series.every((node) => isDataWarehouseNode(node))
+            },
+        ],
 
         currentDataWarehouseSchemaColumns: [
             (s) => [

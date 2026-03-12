@@ -257,6 +257,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setSubscriptionMode: (enabled: boolean, id?: number | 'new') => ({ enabled, id }),
         /** Set the dashboard mode, see DashboardMode for details. */
         setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }),
+        /** Optimistic pin/unpin toggle. */
+        togglePinned: true,
+        /** Open/close the Terraform export modal. */
+        setTerraformModalOpen: (open: boolean) => ({ open }),
 
         /**
          * Dashboard layout & tiles.
@@ -831,6 +835,28 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
 
+        isPinned: [
+            false,
+            {
+                loadDashboardSuccess: (_, { dashboard }) => !!dashboard?.pinned,
+                togglePinned: (state) => !state,
+            },
+        ],
+
+        terraformModalOpen: [
+            false,
+            {
+                setTerraformModalOpen: (_, { open }) => open,
+            },
+        ],
+
+        dashboardLoadedAt: [
+            null as number | null,
+            {
+                loadDashboardSuccess: () => Date.now(),
+            },
+        ],
+
         lastDashboardRefresh: [
             null as Dayjs | null,
             {
@@ -1264,6 +1290,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     : false
             },
         ],
+        isNewDashboard: [
+            (s) => [s.dashboard, s.dashboardLoading, s.dashboardLoadedAt],
+            (dashboard, dashboardLoading, dashboardLoadedAt): boolean => {
+                if (!dashboard || dashboardLoading) {
+                    return false
+                }
+                const isRecentlyCreated =
+                    dashboardLoadedAt != null && dashboardLoadedAt - new Date(dashboard.created_at).getTime() < 30000
+                return (
+                    Boolean(dashboard._highlight) ||
+                    dashboard.name === 'New Dashboard' ||
+                    isRecentlyCreated ||
+                    !dashboard.tiles ||
+                    dashboard.tiles.length === 0
+                )
+            },
+        ],
         canRestrictDashboard: [
             // Sync conditions with backend can_user_restrict
             (s) => [s.dashboard, userLogic.selectors.user, teamLogic.selectors.currentTeam],
@@ -1426,6 +1469,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
     listeners(({ actions, values, cache, props, sharedListeners }) => ({
+        togglePinned: () => {
+            if (values.dashboard) {
+                // Reducers have already run, so values.isPinned reflects the desired new state.
+                if (values.isPinned) {
+                    dashboardsModel.actions.pinDashboard(values.dashboard.id, DashboardEventSource.SceneCommonButtons)
+                } else {
+                    dashboardsModel.actions.unpinDashboard(values.dashboard.id, DashboardEventSource.SceneCommonButtons)
+                }
+            }
+        },
         setAnalysisRating: ({ rating }) => {
             posthog.capture('dashboard refresh ai analysis feedback', {
                 rating: rating === 'up' ? 'thumbs_up' : 'thumbs_down',
@@ -1851,7 +1904,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setDashboardMode: async ({ mode, source }) => {
             if (mode === DashboardMode.Edit && source !== DashboardEventSource.DashboardHeaderDiscardChanges) {
                 clearDOMTextSelection()
-                lemonToast.info('Now editing the dashboard – save to persist changes')
+                lemonToast.info('Now editing the dashboard – press E or click Save to persist changes')
             } else if (source === DashboardEventSource.DashboardHeaderDiscardChanges) {
                 // cancel edit mode changesdashboardLogi
 

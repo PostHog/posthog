@@ -39,7 +39,7 @@ dependencies = [
     "dagster-webserver==1.10.18",
     "deltalake[pyarrow]==1.4.0",
     "dj-database-url==0.5.0",
-    "django~=4.2.28",
+    "django~=4.2.29",
     "django-axes[ipware]==8.0.0",
     "django-cors-headers~=4.8.0",
     "django-deprecate-fields==0.1.1",
@@ -382,7 +382,7 @@ warn_unreachable = true
 strict_equality = true
 ignore_missing_imports = true
 exclude_gitignore = true
-exclude = ["^(bin/.*|gunicorn\\.config\\.py|manage\\.py)$"]
+exclude = ["^(bin/.*|tools/.*|gunicorn\\.config\\.py|manage\\.py)$"]
 
 [[tool.mypy.overrides]]
 module = "bin.*"

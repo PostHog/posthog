@@ -1,8 +1,7 @@
 {
     "name": "@posthog/products-workflows",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short",
-        "backend:contract-check": "echo 'Contract files unchanged'"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
     },
     "dependencies": {
         "kea": "catalog:",
@@ -14,6 +13,7 @@
         "use-debounce": "catalog:"
     },
     "devDependencies": {
+        "@storybook/react": "catalog:",
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
