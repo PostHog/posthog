@@ -88,6 +88,10 @@ export interface LemonTableProps<T extends Record<string, any>> {
     maxHeaderWidth?: string
     /** Whether to hide the scrollbar. */
     hideScrollbar?: boolean
+    /**
+     * Whether the table content is allowed to scroll inside its container.
+     */
+    allowContentScroll?: boolean
     /** Row actions to display in a "More" menu at the end of each row. Return null to hide actions for specific rows. */
     rowActions?: (record: T, recordIndex: number) => React.ReactNode | null
     /** Whether to hide the sorting indicator when no sort is active. Defaults to false. */
@@ -129,6 +133,7 @@ export function LemonTable<T extends Record<string, any>>({
     pinnedColumns,
     maxHeaderWidth,
     hideScrollbar,
+    allowContentScroll = false,
     rowActions,
     hideSortingIndicatorWhenInactive = false,
 }: LemonTableProps<T>): JSX.Element {
@@ -267,6 +272,7 @@ export function LemonTable<T extends Record<string, any>>({
             <ScrollableShadows
                 innerClassName={hideScrollbar ? 'hide-scrollbar' : undefined}
                 direction="horizontal"
+                constrainToDirection={!allowContentScroll}
                 scrollRef={scrollRef}
             >
                 <div className="LemonTable__content">
