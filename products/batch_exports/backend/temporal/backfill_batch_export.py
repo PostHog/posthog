@@ -6,7 +6,6 @@ import asyncio
 import datetime as dt
 import dataclasses
 import collections.abc
-from contextlib import suppress
 
 from django.conf import settings
 from django.db.models import Sum
@@ -280,7 +279,7 @@ async def _get_backfill_info_for_events(
     exclude_events: list[str],
     filters_str: str,
     extra_query_parameters: dict[str, typing.Any],
-    log_comment: str = "{}",
+    log_comment: str,
 ) -> tuple[dt.datetime | None, int | None]:
     """Get earliest timestamp and estimated record count for events model.
 
@@ -354,7 +353,7 @@ async def _get_backfill_info_for_persons(
     batch_export: BatchExport,
     start_at: dt.datetime | None,
     end_at: dt.datetime | None,
-    log_comment: str = "{}",
+    log_comment: str,
 ) -> tuple[dt.datetime | None, int | None]:
     """Get earliest timestamp and estimated record count for persons model.
 
@@ -498,7 +497,7 @@ async def _get_backfill_info_for_sessions(
     batch_export: BatchExport,
     start_at: dt.datetime | None,
     end_at: dt.datetime | None,
-    log_comment: str | None = None,
+    log_comment: str,
 ) -> tuple[dt.datetime | None, int | None]:
     """Get earliest timestamp and estimated record count for sessions model.
 
@@ -538,8 +537,7 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
 
     tags = query_tagging.get_query_tags()
     tags.team_id = inputs.team_id
-    with suppress(Exception):
-        tags.batch_export_id = uuid.UUID(inputs.batch_export_id)
+    tags.batch_export_id = uuid.UUID(inputs.batch_export_id)
     tags.product = Product.BATCH_EXPORT
     tags.query_type = "backfill_estimate"
     log_comment = tags.to_json()
