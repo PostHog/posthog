@@ -9,4 +9,3 @@ __all__ = ("celery_app",)
 import os  # noqa: E402
 
 os.environ["SNOWFLAKE_HOME"] = "./.snowflake"
-# no-op: force turbo cache miss for CI sharding comparison
