@@ -3,7 +3,6 @@ import time
 from urllib.parse import urlencode
 
 import pytest
-
 from posthog.test.base import APIBaseTest
 
 from django.core.cache import cache
