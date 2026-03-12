@@ -373,6 +373,72 @@ func TestSearch_navigateWithNAndShiftN(t *testing.T) {
 	}
 }
 
+func TestSearch_incrementalUpdate(t *testing.T) {
+	m := readyModel(t, "backend")
+	p, _ := m.mgr.Get("backend")
+	// Seed two lines, start a search, then deliver a new matching line
+	// incrementally (simulating live output without triggering a full rescan).
+	for i, line := range []string{"error log", "info log"} {
+		p.AppendLine(line)
+		m = update(m, process.OutputMsg{Name: "backend", Line: line, LineIndex: i})
+	}
+	// Activate search
+	m = update(m, keypress('/'))
+	for _, ch := range "error" {
+		m = update(m, keypress(ch))
+	}
+	m = update(m, tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
+	if len(m.searchMatches) != 1 {
+		t.Fatalf("want 1 match for 'error', got %d", len(m.searchMatches))
+	}
+	// New matching line arrives — incremental path should append without full rescan
+	p.AppendLine("another error")
+	m = update(m, process.OutputMsg{Name: "backend", Line: "another error", LineIndex: 2})
+	if len(m.searchMatches) != 2 {
+		t.Errorf("after new matching line: want 2 matches, got %d", len(m.searchMatches))
+	}
+}
+
+func TestSearch_eviction(t *testing.T) {
+	// Use a tiny scrollback (3 lines) so eviction happens quickly.
+	f := false
+	mgr := process.NewManager(&config.Config{
+		Procs:            map[string]config.ProcConfig{"svc": {Shell: "true", Autostart: &f}},
+		MouseScrollSpeed: 3,
+		Scrollback:       3,
+	})
+	m := New(mgr, 3, nil)
+	m = update(m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	p, _ := mgr.Get("svc")
+
+	// Fill the scrollback: lines 0,1,2 = "err0","ok1","err2"
+	for i, line := range []string{"err0", "ok1", "err2"} {
+		p.AppendLine(line)
+		m = update(m, process.OutputMsg{Name: "svc", Line: line, LineIndex: i})
+	}
+	// Search for "err" → matches at indices 0 and 2
+	m = update(m, keypress('/'))
+	m = update(m, keypress('e'))
+	m = update(m, keypress('r'))
+	m = update(m, keypress('r'))
+	m = update(m, tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
+	if len(m.searchMatches) != 2 {
+		t.Fatalf("want 2 matches, got %d", len(m.searchMatches))
+	}
+
+	// Append "ok3" — evicts "err0" (index 0).
+	// Buffer becomes: ["ok1","err2","ok3"] at indices 0,1,2.
+	// "err0" is gone; "err2" shifts to index 1; new line "ok3" at index 2.
+	p.AppendLine("ok3")
+	m = update(m, process.OutputMsg{Name: "svc", Line: "ok3", LineIndex: 2, Evicted: true})
+	if len(m.searchMatches) != 1 {
+		t.Errorf("after evicting matching line: want 1 match, got %d", len(m.searchMatches))
+	}
+	if m.searchMatches[0] != 1 {
+		t.Errorf("surviving match should be at index 1, got %d", m.searchMatches[0])
+	}
+}
+
 func TestSearch_escClearsActiveSearch(t *testing.T) {
 	m := readyModel(t, "backend")
 	p, _ := m.mgr.Get("backend")

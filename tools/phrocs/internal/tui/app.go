@@ -128,9 +128,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.atBottom && !m.copyMode {
 				m.viewport.GotoBottom()
 			}
-			// Refresh match indices — scrollback eviction shifts line numbers
+			// Incrementally update search matches to avoid rescanning the full
+			// scrollback on every new line — O(M) per line instead of O(N).
 			if m.searchQuery != "" {
-				m.recomputeSearch()
+				m.updateSearchForNewLine(msg)
 			}
 		}
 
@@ -659,6 +660,31 @@ func (m *Model) applySearchStyle() {
 	}
 }
 
+// Incrementally maintains searchMatches when a single new line arrives.
+// Adjusts existing indices for scrollback eviction, then checks the new line.
+// This keeps search O(M) per incoming line rather than O(N).
+func (m *Model) updateSearchForNewLine(msg process.OutputMsg) {
+	if msg.Evicted && len(m.searchMatches) > 0 {
+		// The line at index 0 was dropped; remove it from matches if present.
+		if m.searchMatches[0] == 0 {
+			m.searchMatches = m.searchMatches[1:]
+			if m.searchCursor > 0 {
+				m.searchCursor--
+			} else if len(m.searchMatches) == 0 {
+				m.searchCursor = 0
+			}
+		}
+		// All remaining indices shifted down by one.
+		for i := range m.searchMatches {
+			m.searchMatches[i]--
+		}
+	}
+	if strings.Contains(strings.ToLower(ansi.Strip(msg.Line)), strings.ToLower(m.searchQuery)) {
+		m.searchMatches = append(m.searchMatches, msg.LineIndex)
+	}
+	m.applySearchStyle()
+}
+
 // Scrolls the viewport so the current search match is centered.
 func (m *Model) jumpToCurrentMatch() {
 	if len(m.searchMatches) == 0 {
@@ -861,7 +887,7 @@ func (m Model) viewportWithIndicator() string {
 	firstLine := lines[0]
 	firstLineW := lipgloss.Width(firstLine)
 	if firstLineW >= indicatorW {
-		// Tuncate the first line to make room for the indicator
+		// Truncate the first line to make room for the indicator
 		lines[0] = ansi.Truncate(firstLine, firstLineW-indicatorW, "") + indicator
 	}
 	return strings.Join(lines, "\n")

@@ -20,7 +20,7 @@ Each process writes two files:
 - `/tmp/posthog-<process>.log` — full stdout/stderr stream
 - `/tmp/posthog-<process>.json` — structured status (pid, status, ready flag, exit code, timestamps)
 
-The JSON status values are: `starting` → `running` → `ready` (once ready_pattern matches) → `stopped` or `crashed`.
+The `status` field transitions `starting` → `running` → `stopped` or `crashed`. A separate `ready` boolean flips to `true` once `ready_pattern` matches.
 
 ### MCP tools (preferred for agents)
 

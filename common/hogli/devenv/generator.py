@@ -313,8 +313,7 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
 
         Delegates to bin/process-monitor, which:
         - Tees stdout/stderr to /tmp/posthog-{name}.log
-        - Writes/updates /tmp/posthog-{name}.json with pid, status, ready flag,
-          exit code, and a rolling tail of recent log lines
+        - Writes/updates /tmp/posthog-{name}.json with pid, status, ready flag and exit code
 
         The ready_pattern from mprocs config is forwarded so both phrocs (TUI)
         and the JSON status file track readiness independently.

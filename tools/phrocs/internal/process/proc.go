@@ -50,8 +50,10 @@ type StatusMsg struct {
 
 // New output line from process
 type OutputMsg struct {
-	Name string
-	Line string
+	Name      string
+	Line      string
+	LineIndex int  // index of this line in the buffer after the append
+	Evicted   bool // true when the oldest buffered line was dropped to make room
 }
 
 // Represents a single managed subprocess
@@ -276,11 +278,13 @@ func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		p.mu.Lock()
-		if len(p.lines) >= p.maxLines {
+		evicted := len(p.lines) >= p.maxLines
+		if evicted {
 			// Discard oldest line to keep the buffer bounded.
 			p.lines = p.lines[1:]
 		}
 		p.lines = append(p.lines, line)
+		lineIndex := len(p.lines) - 1
 
 		// Check if this line matches the ready pattern
 		shouldNotifyCh := false
@@ -291,7 +295,7 @@ func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
 		}
 		p.mu.Unlock()
 
-		send(OutputMsg{Name: p.Name, Line: line})
+		send(OutputMsg{Name: p.Name, Line: line, LineIndex: lineIndex, Evicted: evicted})
 
 		// Send status update if we just became ready
 		if shouldNotifyCh {
