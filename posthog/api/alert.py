@@ -306,7 +306,7 @@ class AlertSerializer(serializers.ModelSerializer):
             return attrs
 
         if msg := AlertConfiguration.check_alert_limit(
-            self.context["team_id"], self.context["request"].user.organization
+            self.context["team_id"], self.context["get_organization"]()
         ):
             raise ValidationError({"alert": [msg]})
 
