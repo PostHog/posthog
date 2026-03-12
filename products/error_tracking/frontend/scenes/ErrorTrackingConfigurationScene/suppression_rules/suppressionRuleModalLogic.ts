@@ -16,6 +16,7 @@ function emptyRule(orderKey: number = 0): ErrorTrackingSuppressionRule {
         filters: { type: FilterLogicalOperator.Or, values: [] },
         disabled_data: null,
         order_key: orderKey,
+        sampling_rate: 1.0,
     }
 }
 
@@ -34,6 +35,7 @@ export const suppressionRuleModalLogic = kea<suppressionRuleModalLogicType>([
         openModal: (rule?: ErrorTrackingSuppressionRule) => ({ rule: rule ?? null }),
         closeModal: true,
         updateRule: (rule: ErrorTrackingSuppressionRule) => ({ rule }),
+        updateSamplingRate: (sampling_rate: number) => ({ sampling_rate }),
         increaseDateRange: true,
     }),
 
@@ -44,6 +46,7 @@ export const suppressionRuleModalLogic = kea<suppressionRuleModalLogicType>([
             {
                 openModal: (_, { rule }) => rule ?? emptyRule(),
                 updateRule: (_, { rule }) => rule,
+                updateSamplingRate: (state, { sampling_rate }) => ({ ...state, sampling_rate }),
             },
         ],
         dateRange: [
@@ -65,19 +68,19 @@ export const suppressionRuleModalLogic = kea<suppressionRuleModalLogicType>([
             {
                 loadMatchCount: async () => {
                     const filters = values.rule.filters as UniversalFiltersGroup
-                    const properties = filters.values as AnyPropertyFilter[]
+                    const properties = (filters.values as AnyPropertyFilter[]) ?? []
 
-                    if (properties.length === 0) {
-                        return null
-                    }
-
-                    const response = (await api.query({
+                    const query: Record<string, any> = {
                         kind: NodeKind.EventsQuery,
                         event: '$exception',
                         select: ['count()', 'count(distinct properties.$exception_issue_id)'],
-                        properties,
                         after: values.dateRange,
-                    })) as Record<string, any>
+                    }
+                    if (properties.length > 0) {
+                        query.properties = properties
+                    }
+
+                    const response = (await api.query(query)) as Record<string, any>
 
                     return {
                         exceptionCount: response.results?.[0]?.[0] ?? 0,

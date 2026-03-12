@@ -44,7 +44,7 @@ impl ValueOperator for RuleSuppression {
         rules.sort_unstable_by_key(|r| r.order_key);
 
         for rule in rules {
-            match rule.try_match(&props_json) {
+            match rule.should_suppress(&props_json, &input.uuid) {
                 Ok(false) => continue,
                 Ok(true) => {
                     counter!(RULE_SUPPRESSED_EVENTS).increment(1);

@@ -25,12 +25,14 @@ export function MatchResultBanner({
     suffix,
     dateRange = '-7d',
     onIncreaseDateRange,
+    samplingRate,
 }: {
     matchResult: { exceptionCount: number; issueCount: number }
     properties: AnyPropertyFilter[]
     suffix: (issuesLink: JSX.Element, dateRangeLabel: string) => JSX.Element
     dateRange?: string
     onIncreaseDateRange?: () => void
+    samplingRate?: number
 }): JSX.Element {
     const dateRangeLabel = DATE_RANGE_LABELS[dateRange] ?? '7 days'
     const nextRange = NEXT_DATE_RANGE[dateRange]
@@ -81,12 +83,24 @@ export function MatchResultBanner({
         </Link>
     )
 
+    const hasSampling = samplingRate !== undefined && samplingRate < 1
+
     return (
         <span>
-            <Link to={`${window.location.origin}${exceptionsUrl}`} target="_blank" targetBlankIcon={false}>
-                {matchResult.exceptionCount.toLocaleString()} exception
-                {matchResult.exceptionCount === 1 ? '' : 's'}
-            </Link>{' '}
+            {hasSampling ? (
+                <>
+                    ~{Math.round(matchResult.exceptionCount * samplingRate).toLocaleString()} of{' '}
+                    <Link to={`${window.location.origin}${exceptionsUrl}`} target="_blank" targetBlankIcon={false}>
+                        {matchResult.exceptionCount.toLocaleString()} matching exception
+                        {matchResult.exceptionCount === 1 ? '' : 's'}
+                    </Link>
+                </>
+            ) : (
+                <Link to={`${window.location.origin}${exceptionsUrl}`} target="_blank" targetBlankIcon={false}>
+                    {matchResult.exceptionCount.toLocaleString()} exception
+                    {matchResult.exceptionCount === 1 ? '' : 's'}
+                </Link>
+            )}{' '}
             {suffix(issuesLink, dateRangeLabel)}
         </span>
     )

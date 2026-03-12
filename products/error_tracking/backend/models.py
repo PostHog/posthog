@@ -295,6 +295,8 @@ class ErrorTrackingSuppressionRule(UUIDTModel):
     updated_at = models.DateTimeField(auto_now=True)
     # Suppression rules are ordered, and greedily evaluated
     order_key = models.IntegerField(null=False, blank=False)
+    # Fraction of matching events to suppress (1.0 = all, 0.5 = half, etc.)
+    sampling_rate = models.FloatField(null=False, default=1.0)
 
     class Meta:
         indexes = [

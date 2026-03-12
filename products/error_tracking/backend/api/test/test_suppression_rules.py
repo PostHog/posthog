@@ -6,104 +6,176 @@ from parameterized import parameterized
 from rest_framework import status
 
 from products.error_tracking.backend.api.suppression_rules import (
-    _has_negative_operator,
+    _get_client_safe_filters,
     get_client_safe_suppression_rules,
 )
 from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
 
 
-class TestHasNegativeOperator(TestCase):
+class TestGetClientSafeFilters(TestCase):
     @parameterized.expand(
         [
+            # AND rules: all filters must be client-safe, returned as-is or None
             (
-                "flat_is_operator",
-                {"values": [{"operator": "is", "key": "type", "value": "TypeError"}]},
-                False,
+                "and_all_client_safe",
+                {"type": "AND", "values": [{"operator": "is", "key": "$exception_types", "value": "TypeError"}]},
+                {"type": "AND", "values": [{"operator": "is", "key": "$exception_types", "value": "TypeError"}]},
             ),
             (
-                "flat_regex_operator",
-                {"values": [{"operator": "regex", "key": "type", "value": ".*Error"}]},
-                False,
+                "and_with_negative_operator_returns_none",
+                {"type": "AND", "values": [{"operator": "is_not", "key": "$exception_types", "value": "TypeError"}]},
+                None,
             ),
             (
-                "flat_icontains_operator",
-                {"values": [{"operator": "icontains", "key": "message", "value": "null"}]},
-                False,
+                "and_with_server_only_property_returns_none",
+                {"type": "AND", "values": [{"operator": "is", "key": "$exception_sources", "value": "app.js"}]},
+                None,
             ),
             (
-                "flat_is_not_operator",
-                {"values": [{"operator": "is_not", "key": "type", "value": "TypeError"}]},
-                True,
-            ),
-            (
-                "flat_not_regex_operator",
-                {"values": [{"operator": "not_regex", "key": "type", "value": ".*Error"}]},
-                True,
-            ),
-            (
-                "flat_not_icontains_operator",
-                {"values": [{"operator": "not_icontains", "key": "message", "value": "null"}]},
-                True,
-            ),
-            (
-                "nested_positive_only",
+                "and_mixed_safe_and_unsafe_returns_none",
                 {
+                    "type": "AND",
                     "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {"operator": "is", "key": "type", "value": "TypeError"},
-                                {"operator": "regex", "key": "message", "value": ".*null.*"},
-                            ],
-                        }
-                    ]
+                        {"operator": "is", "key": "$exception_types", "value": "TypeError"},
+                        {"operator": "is", "key": "$exception_sources", "value": "app.js"},
+                    ],
                 },
-                False,
+                None,
+            ),
+            # OR rules: strip server-only, keep client-safe
+            (
+                "or_all_client_safe",
+                {"type": "OR", "values": [{"operator": "is", "key": "$exception_types", "value": "TypeError"}]},
+                {"type": "OR", "values": [{"operator": "is", "key": "$exception_types", "value": "TypeError"}]},
             ),
             (
-                "nested_with_negative_in_inner_group",
+                "or_strips_server_only_keeps_safe",
                 {
+                    "type": "OR",
                     "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {"operator": "is", "key": "type", "value": "TypeError"},
-                                {"operator": "is_not", "key": "message", "value": "expected"},
-                            ],
-                        }
-                    ]
+                        {"operator": "is", "key": "$exception_types", "value": "TypeError"},
+                        {"operator": "is", "key": "$exception_sources", "value": "app.js"},
+                    ],
                 },
-                True,
+                {
+                    "type": "OR",
+                    "values": [{"operator": "is", "key": "$exception_types", "value": "TypeError"}],
+                },
             ),
+            (
+                "or_strips_negative_operator_keeps_safe",
+                {
+                    "type": "OR",
+                    "values": [
+                        {"operator": "is", "key": "$exception_types", "value": "TypeError"},
+                        {"operator": "is_not", "key": "$exception_values", "value": "expected"},
+                    ],
+                },
+                {
+                    "type": "OR",
+                    "values": [{"operator": "is", "key": "$exception_types", "value": "TypeError"}],
+                },
+            ),
+            (
+                "or_all_server_only_returns_none",
+                {
+                    "type": "OR",
+                    "values": [
+                        {"operator": "is", "key": "$exception_sources", "value": "app.js"},
+                        {"operator": "regex", "key": "$exception_functions", "value": "handleClick"},
+                    ],
+                },
+                None,
+            ),
+            # Default type is AND
+            (
+                "default_type_is_and",
+                {"values": [{"operator": "is", "key": "$exception_sources", "value": "app.js"}]},
+                None,
+            ),
+            # Edge cases
             (
                 "empty_values_list",
                 {"values": []},
-                False,
+                {"values": []},
             ),
             (
                 "missing_values_key",
                 {"type": "AND"},
-                False,
+                {"type": "AND"},
+            ),
+            # Nested groups
+            (
+                "nested_and_all_safe",
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"operator": "is", "key": "$exception_types", "value": "TypeError"},
+                                {"operator": "regex", "key": "$exception_values", "value": ".*null.*"},
+                            ],
+                        }
+                    ],
+                },
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"operator": "is", "key": "$exception_types", "value": "TypeError"},
+                                {"operator": "regex", "key": "$exception_values", "value": ".*null.*"},
+                            ],
+                        }
+                    ],
+                },
             ),
             (
-                "mixed_positive_and_negative",
+                "nested_and_with_server_only_returns_none",
                 {
+                    "type": "AND",
                     "values": [
-                        {"operator": "is", "key": "type", "value": "TypeError"},
-                        {"operator": "not_regex", "key": "message", "value": ".*expected.*"},
-                    ]
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"operator": "is", "key": "$exception_types", "value": "TypeError"},
+                                {"operator": "is", "key": "$exception_sources", "value": "app.js"},
+                            ],
+                        }
+                    ],
                 },
-                True,
+                None,
+            ),
+            (
+                "or_with_nested_and_strips_unsafe_group",
+                {
+                    "type": "OR",
+                    "values": [
+                        {"operator": "is", "key": "$exception_types", "value": "TypeError"},
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"operator": "is", "key": "$exception_sources", "value": "app.js"},
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "OR",
+                    "values": [{"operator": "is", "key": "$exception_types", "value": "TypeError"}],
+                },
             ),
         ]
     )
-    def test_has_negative_operator(self, _name: str, filters: dict, expected: bool) -> None:
-        assert _has_negative_operator(filters) is expected
+    def test_get_client_safe_filters(self, _name: str, filters: dict, expected: dict | None) -> None:
+        assert _get_client_safe_filters(filters) == expected
 
 
 class TestGetClientSafeSuppressionRules(APIBaseTest):
-    def test_returns_rules_with_positive_operators_only(self) -> None:
-        filters = {"values": [{"operator": "is", "key": "type", "value": "TypeError"}]}
+    def test_returns_fully_client_safe_rule(self) -> None:
+        filters = {"values": [{"operator": "is", "key": "$exception_types", "value": "TypeError"}]}
         ErrorTrackingSuppressionRule.objects.create(team=self.team, filters=filters, bytecode=[], order_key=0)
 
         result = get_client_safe_suppression_rules(self.team)
@@ -111,8 +183,46 @@ class TestGetClientSafeSuppressionRules(APIBaseTest):
         assert len(result) == 1
         assert result[0] == filters
 
-    def test_excludes_rules_with_negative_operators(self) -> None:
-        filters = {"values": [{"operator": "is_not", "key": "type", "value": "TypeError"}]}
+    def test_excludes_and_rule_with_server_only_filter(self) -> None:
+        filters = {
+            "type": "AND",
+            "values": [
+                {"operator": "is", "key": "$exception_types", "value": "TypeError"},
+                {"operator": "is", "key": "$exception_sources", "value": "app.js"},
+            ],
+        }
+        ErrorTrackingSuppressionRule.objects.create(team=self.team, filters=filters, bytecode=[], order_key=0)
+
+        result = get_client_safe_suppression_rules(self.team)
+
+        assert result == []
+
+    def test_or_rule_strips_server_only_keeps_client_safe(self) -> None:
+        filters = {
+            "type": "OR",
+            "values": [
+                {"operator": "is", "key": "$exception_types", "value": "TypeError"},
+                {"operator": "is", "key": "$exception_sources", "value": "app.js"},
+            ],
+        }
+        ErrorTrackingSuppressionRule.objects.create(team=self.team, filters=filters, bytecode=[], order_key=0)
+
+        result = get_client_safe_suppression_rules(self.team)
+
+        assert len(result) == 1
+        assert result[0] == {
+            "type": "OR",
+            "values": [{"operator": "is", "key": "$exception_types", "value": "TypeError"}],
+        }
+
+    def test_or_rule_all_server_only_excluded(self) -> None:
+        filters = {
+            "type": "OR",
+            "values": [
+                {"operator": "is", "key": "$exception_sources", "value": "app.js"},
+                {"operator": "regex", "key": "$exception_functions", "value": "handleClick"},
+            ],
+        }
         ErrorTrackingSuppressionRule.objects.create(team=self.team, filters=filters, bytecode=[], order_key=0)
 
         result = get_client_safe_suppression_rules(self.team)
@@ -125,20 +235,58 @@ class TestGetClientSafeSuppressionRules(APIBaseTest):
         assert result == []
 
     def test_handles_mixed_rules(self) -> None:
-        positive_filters = {"values": [{"operator": "is", "key": "type", "value": "TypeError"}]}
-        negative_filters = {"values": [{"operator": "is_not", "key": "type", "value": "RangeError"}]}
-        another_positive = {"values": [{"operator": "regex", "key": "message", "value": ".*null.*"}]}
+        safe_filters = {"values": [{"operator": "is", "key": "$exception_types", "value": "TypeError"}]}
+        and_with_server_only = {
+            "type": "AND",
+            "values": [
+                {"operator": "is", "key": "$exception_types", "value": "TypeError"},
+                {"operator": "is", "key": "$exception_sources", "value": "app.js"},
+            ],
+        }
+        or_mixed = {
+            "type": "OR",
+            "values": [
+                {"operator": "regex", "key": "$exception_values", "value": ".*null.*"},
+                {"operator": "is_not", "key": "$exception_types", "value": "RangeError"},
+            ],
+        }
 
-        ErrorTrackingSuppressionRule.objects.create(team=self.team, filters=positive_filters, bytecode=[], order_key=0)
-        ErrorTrackingSuppressionRule.objects.create(team=self.team, filters=negative_filters, bytecode=[], order_key=1)
-        ErrorTrackingSuppressionRule.objects.create(team=self.team, filters=another_positive, bytecode=[], order_key=2)
+        ErrorTrackingSuppressionRule.objects.create(team=self.team, filters=safe_filters, bytecode=[], order_key=0)
+        ErrorTrackingSuppressionRule.objects.create(
+            team=self.team, filters=and_with_server_only, bytecode=[], order_key=1
+        )
+        ErrorTrackingSuppressionRule.objects.create(team=self.team, filters=or_mixed, bytecode=[], order_key=2)
 
         result = get_client_safe_suppression_rules(self.team)
 
         assert len(result) == 2
-        assert positive_filters in result
-        assert another_positive in result
-        assert negative_filters not in result
+        assert safe_filters in result
+        assert {
+            "type": "OR",
+            "values": [{"operator": "regex", "key": "$exception_values", "value": ".*null.*"}],
+        } in result
+
+    def test_includes_sampling_rate_when_less_than_one(self) -> None:
+        filters = {"values": [{"operator": "is", "key": "$exception_types", "value": "TypeError"}]}
+        ErrorTrackingSuppressionRule.objects.create(
+            team=self.team, filters=filters, bytecode=[], order_key=0, sampling_rate=0.5
+        )
+
+        result = get_client_safe_suppression_rules(self.team)
+
+        assert len(result) == 1
+        assert result[0] == {**filters, "samplingRate": 0.5}
+
+    def test_omits_sampling_rate_when_one(self) -> None:
+        filters = {"values": [{"operator": "is", "key": "$exception_types", "value": "TypeError"}]}
+        ErrorTrackingSuppressionRule.objects.create(
+            team=self.team, filters=filters, bytecode=[], order_key=0, sampling_rate=1.0
+        )
+
+        result = get_client_safe_suppression_rules(self.team)
+
+        assert len(result) == 1
+        assert "samplingRate" not in result[0]
 
 
 VALID_FILTERS = {
@@ -181,15 +329,34 @@ class TestSuppressionRuleAPI(APIBaseTest):
         assert rule.bytecode is not None
         assert len(rule.bytecode) > 0
 
-    def test_create_missing_filters(self) -> None:
+    def test_create_without_filters_creates_match_all_rule(self) -> None:
         response = self.client.post(
             self._url(),
-            data={},
+            data={"sampling_rate": 0.5},
             format="json",
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["error"] == "Filters are required"
+        assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["filters"] == {"type": "AND", "values": []}
+        assert data["sampling_rate"] == 0.5
+
+        rule = ErrorTrackingSuppressionRule.objects.get(id=data["id"])
+        assert rule.bytecode is not None
+
+    def test_create_with_empty_filters_creates_match_all_rule(self) -> None:
+        response = self.client.post(
+            self._url(),
+            data={"filters": {"type": "OR", "values": []}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["filters"] == {"type": "OR", "values": []}
+
+        rule = ErrorTrackingSuppressionRule.objects.get(id=data["id"])
+        assert rule.bytecode is not None
 
     def test_create_invalid_filters(self) -> None:
         response = self.client.post(
@@ -297,3 +464,53 @@ class TestSuppressionRuleAPI(APIBaseTest):
         assert rule.disabled_data is None
         assert rule.filters == new_filters
         assert rule.bytecode != [1, 2, 3]
+
+    def test_create_with_sampling_rate(self) -> None:
+        response = self.client.post(
+            self._url(),
+            data={"filters": VALID_FILTERS, "sampling_rate": 0.5},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["sampling_rate"] == 0.5
+
+    def test_create_defaults_sampling_rate_to_one(self) -> None:
+        response = self.client.post(
+            self._url(),
+            data={"filters": VALID_FILTERS},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["sampling_rate"] == 1.0
+
+    def test_create_rejects_invalid_sampling_rate(self) -> None:
+        response = self.client.post(
+            self._url(),
+            data={"filters": VALID_FILTERS, "sampling_rate": 1.5},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "sampling_rate" in response.json()["error"]
+
+    def test_update_sampling_rate(self) -> None:
+        create_response = self.client.post(
+            self._url(),
+            data={"filters": VALID_FILTERS},
+            format="json",
+        )
+        rule_id = create_response.json()["id"]
+
+        response = self.client.put(
+            self._url(rule_id),
+            data={"sampling_rate": 0.25},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        rule = ErrorTrackingSuppressionRule.objects.get(id=rule_id)
+        assert rule.sampling_rate == 0.25

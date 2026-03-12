@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { ReactNode } from 'react'
+import { ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconFlask } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonModal, LemonSegmentedButton, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonSegmentedButton, Spinner } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -21,7 +21,10 @@ interface RuleModalProps {
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     saveDisabledReason?: string
     suffix: (issuesLink: JSX.Element, dateRangeLabel: string) => JSX.Element
-    extraContent?: ReactNode
+    filterLabels?: ReactNode
+    extraFields?: ReactNode
+    samplingRate?: number
+    filtersOptional?: boolean
 }
 
 export function RuleModal({
@@ -33,15 +36,49 @@ export function RuleModal({
     taxonomicGroupTypes,
     saveDisabledReason,
     suffix,
-    extraContent,
+    filterLabels,
+    extraFields,
+    samplingRate,
+    filtersOptional = false,
 }: RuleModalProps): JSX.Element {
     const { isOpen, rule, hasFilters, matchResult, matchResultLoading, savingLoading, deletingLoading, dateRange } =
         useValues(logic)
     const { closeModal, updateRule, loadMatchCount, saveRule, deleteRule, increaseDateRange } = useActions(logic)
 
     const isEditing = rule.id !== 'new'
-    const defaultSaveDisabled = !hasFilters ? 'Add at least one filter' : undefined
+    const defaultSaveDisabled = !filtersOptional && !hasFilters ? 'Add at least one filter' : undefined
     const resolvedSaveDisabled = saveDisabledReason ?? defaultSaveDisabled
+
+    const [confirmingDelete, setConfirmingDelete] = useState(false)
+    const [confirmEnabled, setConfirmEnabled] = useState(false)
+    const timersRef = useRef<ReturnType<typeof setTimeout>[]>([])
+
+    const clearTimers = useCallback(() => {
+        timersRef.current.forEach(clearTimeout)
+        timersRef.current = []
+    }, [])
+
+    useEffect(() => {
+        if (!isOpen) {
+            setConfirmingDelete(false)
+            setConfirmEnabled(false)
+            clearTimers()
+        }
+    }, [isOpen, clearTimers])
+
+    useEffect(() => {
+        if (confirmingDelete) {
+            clearTimers()
+            timersRef.current.push(setTimeout(() => setConfirmEnabled(true), 1000))
+            timersRef.current.push(
+                setTimeout(() => {
+                    setConfirmingDelete(false)
+                    setConfirmEnabled(false)
+                }, 3000)
+            )
+        }
+        return clearTimers
+    }, [confirmingDelete, clearTimers])
 
     return (
         <LemonModal
@@ -58,7 +95,9 @@ export function RuleModal({
                             type="secondary"
                             size="small"
                             icon={matchResultLoading ? <Spinner textColored /> : <IconFlask />}
-                            disabledReason={!hasFilters ? 'Add at least one filter first' : undefined}
+                            disabledReason={
+                                !filtersOptional && !hasFilters ? 'Add at least one filter first' : undefined
+                            }
                             onClick={loadMatchCount}
                         >
                             Test rule
@@ -69,21 +108,18 @@ export function RuleModal({
                                 status="danger"
                                 size="small"
                                 loading={deletingLoading}
-                                onClick={() =>
-                                    LemonDialog.open({
-                                        title: 'Delete rule',
-                                        description:
-                                            'Are you sure you want to delete this rule? This action cannot be undone.',
-                                        primaryButton: {
-                                            status: 'danger',
-                                            children: 'Delete',
-                                            onClick: () => deleteRule(),
-                                        },
-                                        secondaryButton: { children: 'Cancel' },
-                                    })
+                                disabledReason={
+                                    confirmingDelete && !confirmEnabled ? 'Click again to confirm' : undefined
                                 }
+                                onClick={() => {
+                                    if (confirmingDelete && confirmEnabled) {
+                                        deleteRule()
+                                    } else {
+                                        setConfirmingDelete(true)
+                                    }
+                                }}
                             >
-                                Delete
+                                {confirmingDelete ? 'Confirm delete' : 'Delete'}
                             </LemonButton>
                         )}
                     </div>
@@ -105,10 +141,17 @@ export function RuleModal({
         >
             <div className="space-y-4 py-2">
                 {rule.disabled_data && <DisabledRuleBanner rule={rule} onClose={closeModal} />}
-                {extraContent}
                 <div>
                     <div className="flex items-center justify-between mb-3">
-                        <span className="font-semibold text-sm">Filters</span>
+                        <div className="flex items-center gap-3">
+                            <span className="font-semibold text-sm">Filters</span>
+                            {filterLabels && (
+                                <>
+                                    <span className="text-muted">·</span>
+                                    {filterLabels}
+                                </>
+                            )}
+                        </div>
                         <div className="flex gap-2 items-center">
                             <span className="text-secondary text-sm">Match</span>
                             <LemonSegmentedButton
@@ -142,6 +185,8 @@ export function RuleModal({
                     />
                 </div>
 
+                {extraFields}
+
                 {matchResult !== null && !matchResultLoading ? (
                     <LemonBanner type={matchResult.exceptionCount === 0 ? 'error' : 'success'}>
                         <MatchResultBanner
@@ -150,6 +195,7 @@ export function RuleModal({
                             dateRange={dateRange}
                             onIncreaseDateRange={increaseDateRange}
                             suffix={suffix}
+                            samplingRate={samplingRate}
                         />
                     </LemonBanner>
                 ) : null}

@@ -154,17 +154,23 @@ export function RuleList({
                                         </div>
                                         <LemonDivider className="my-0" />
                                         <div className="px-3 py-2">
-                                            <PropertyFilters
-                                                editable={false}
-                                                propertyFilters={(rule.filters.values as AnyPropertyFilter[]) ?? []}
-                                                taxonomicGroupTypes={taxonomicGroupTypes}
-                                                onChange={() => {}}
-                                                pageKey={`${pageKeyPrefix}-${rule.id}`}
-                                                buttonSize="small"
-                                                propertyGroupType={rule.filters.type}
-                                                hasRowOperator={false}
-                                                disablePopover
-                                            />
+                                            {(rule.filters.values as AnyPropertyFilter[])?.length > 0 ? (
+                                                <PropertyFilters
+                                                    editable={false}
+                                                    propertyFilters={(rule.filters.values as AnyPropertyFilter[]) ?? []}
+                                                    taxonomicGroupTypes={taxonomicGroupTypes}
+                                                    onChange={() => {}}
+                                                    pageKey={`${pageKeyPrefix}-${rule.id}`}
+                                                    buttonSize="small"
+                                                    propertyGroupType={rule.filters.type}
+                                                    hasRowOperator={false}
+                                                    disablePopover
+                                                />
+                                            ) : (
+                                                <span className="text-xs text-secondary italic">
+                                                    Matches all exceptions
+                                                </span>
+                                            )}
                                         </div>
                                     </LemonCard>
                                 </SortableRuleItem>

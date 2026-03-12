@@ -10,7 +10,9 @@ export type ErrorTrackingBaseRule = {
     updated_at?: string
 }
 
-export type ErrorTrackingSuppressionRule = ErrorTrackingBaseRule
+export type ErrorTrackingSuppressionRule = ErrorTrackingBaseRule & {
+    sampling_rate: number
+}
 
 export type ErrorTrackingAssignmentRule = ErrorTrackingBaseRule & {
     assignee: ErrorTrackingIssueAssignee | null
@@ -19,6 +21,7 @@ export type ErrorTrackingAssignmentRule = ErrorTrackingBaseRule & {
 export type ErrorTrackingGroupingRule = ErrorTrackingBaseRule & {
     assignee: ErrorTrackingIssueAssignee | null
     description?: string
+    issue?: { id: string; name: string | null } | null
 }
 
 export type ErrorTrackingRule = ErrorTrackingSuppressionRule | ErrorTrackingGroupingRule | ErrorTrackingAssignmentRule
