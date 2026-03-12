@@ -38,6 +38,8 @@ interface DashboardProps {
     dashboard?: DashboardType<QueryBasedInsightModel>
     placement?: DashboardPlacement
     themes?: DataColorThemeModel[]
+    /** When set, the "Edit dashboard" menu item links to the dashboard editor with a back button pointing here. */
+    backTo?: { url: string; name: string }
 }
 
 export const scene: SceneExport<DashboardLogicProps> = {
@@ -50,17 +52,17 @@ export const scene: SceneExport<DashboardLogicProps> = {
     productKey: ProductKey.PRODUCT_ANALYTICS,
 }
 
-export function Dashboard({ id, dashboard, placement, themes }: DashboardProps): JSX.Element {
+export function Dashboard({ id, dashboard, placement, themes, backTo }: DashboardProps): JSX.Element {
     useMountedLogic(dataThemeLogic({ themes }))
 
     return (
         <BindLogic logic={dashboardLogic} props={{ id: parseInt(id as string), placement, dashboard }}>
-            <DashboardScene />
+            <DashboardScene backTo={backTo} />
         </BindLogic>
     )
 }
 
-function DashboardScene(): JSX.Element {
+function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }): JSX.Element {
     const {
         placement,
         dashboard,
@@ -229,10 +231,13 @@ function DashboardScene(): JSX.Element {
                                             <LemonMenu
                                                 items={[
                                                     {
-                                                        label: [DashboardPlacement.Group].includes(placement)
-                                                            ? 'Edit dashboard template'
-                                                            : 'Edit dashboard',
-                                                        to: urls.dashboard(dashboard.id),
+                                                        label:
+                                                            placement === DashboardPlacement.Group
+                                                                ? 'Edit dashboard template'
+                                                                : 'Edit dashboard',
+                                                        to: backTo
+                                                            ? `${urls.dashboard(dashboard.id)}?backUrl=${encodeURIComponent(backTo.url)}&backName=${encodeURIComponent(backTo.name)}`
+                                                            : urls.dashboard(dashboard.id),
                                                     },
                                                 ]}
                                                 placement="bottom-end"

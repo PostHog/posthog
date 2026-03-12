@@ -1350,15 +1350,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.dashboard, s.error404, s.dashboardFailedToLoad],
-            (dashboard, error404, dashboardFailedToLoad): Breadcrumb[] => {
+            (s) => [s.dashboard, s.error404, s.dashboardFailedToLoad, router.selectors.searchParams],
+            (dashboard, error404, dashboardFailedToLoad, searchParams): Breadcrumb[] => {
+                const backUrl = searchParams.backUrl as string | undefined
+                const backName = searchParams.backName as string | undefined
                 return [
-                    {
-                        key: Scene.Dashboards,
-                        name: 'Dashboards',
-                        path: urls.dashboards(),
-                        iconType: 'dashboard',
-                    },
+                    backUrl
+                        ? {
+                              key: backUrl,
+                              name: backName || 'Back',
+                              path: backUrl,
+                              iconType: 'dashboard',
+                          }
+                        : {
+                              key: Scene.Dashboards,
+                              name: 'Dashboards',
+                              path: urls.dashboards(),
+                              iconType: 'dashboard',
+                          },
                     {
                         key: [Scene.Dashboard, dashboard?.id || 'new'],
                         name: dashboard?.id

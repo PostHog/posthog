@@ -1,12 +1,14 @@
 import { useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { Dashboard } from 'scenes/dashboard/Dashboard'
+import { urls } from 'scenes/urls'
 
 import { DashboardPlacement } from '~/types'
 
-import { dataWarehouseSceneLogic } from '../dataWarehouseSceneLogic'
+import { DataWarehouseTab, dataWarehouseSceneLogic } from '../dataWarehouseSceneLogic'
 
 export function DashboardTab(): JSX.Element {
     const { dataOpsDashboardId, dataOpsDashboardIdLoading } = useValues(dataWarehouseSceneLogic)
@@ -20,5 +22,11 @@ export function DashboardTab(): JSX.Element {
         )
     }
 
-    return <Dashboard id={dataOpsDashboardId.toString()} placement={DashboardPlacement.DataOps} />
+    return (
+        <Dashboard
+            id={dataOpsDashboardId.toString()}
+            placement={DashboardPlacement.DataOps}
+            backTo={{ url: combineUrl(urls.dataOps(), { tab: DataWarehouseTab.DASHBOARD }).url, name: 'Data ops' }}
+        />
+    )
 }
