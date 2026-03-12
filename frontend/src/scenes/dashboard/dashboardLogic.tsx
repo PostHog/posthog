@@ -16,7 +16,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import uniqBy from 'lodash.uniqby'
 import posthog from 'posthog-js'
-import { Layout, Layouts } from 'react-grid-layout'
+import { ResponsiveLayouts } from 'react-grid-layout'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
@@ -70,6 +70,7 @@ import {
     ProjectTreeRef,
     QueryBasedInsightModel,
     TextModel,
+    TileLayout,
 } from '~/types'
 
 import { getResponseBytes, sortDayJsDates } from '../insights/utils'
@@ -265,7 +266,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /**
          * Dashboard layout & tiles.
          */
-        updateLayouts: (layouts: Layouts) => ({ layouts }),
+        updateLayouts: (layouts: ResponsiveLayouts) => ({ layouts }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: InsightColor | null) => ({ tileId, color }),
         toggleTileDescription: (tileId: number) => ({ tileId }),
@@ -1326,14 +1327,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         layouts: [(s) => [s.tiles], (tiles) => calculateLayouts(tiles)],
-        layout: [(s) => [s.layouts, s.sizeKey], (layouts, sizeKey) => (sizeKey ? layouts[sizeKey] : undefined)],
+        layout: [
+            (s) => [s.layouts, s.sizeKey],
+            (layouts: ResponsiveLayouts, sizeKey: DashboardLayoutSize | undefined) =>
+                sizeKey ? layouts[sizeKey] : undefined,
+        ],
         layoutForItem: [
             (s) => [s.layout],
-            (layout) => {
-                const layoutForItem: Record<string, Layout> = {}
+            (layout: TileLayout[] | undefined) => {
+                const layoutForItem: Record<string, TileLayout> = {}
                 if (layout) {
                     for (const obj of layout) {
-                        layoutForItem[obj.i] = obj
+                        if (obj.i) {
+                            layoutForItem[obj.i] = obj
+                        }
                     }
                 }
                 return layoutForItem
