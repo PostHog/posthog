@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 	"syscall"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -75,9 +74,6 @@ type Process struct {
 	ptmx         *os.File // pty master; nil when using pipes
 	readyPattern *regexp.Regexp
 	ready        bool // whether we've seen the ready pattern (or no pattern is set)
-	startedAt    time.Time
-	duration     time.Duration
-	exitCode     int // -1 = not exited yet
 }
 
 func NewProcess(name string, cfg config.ProcConfig, scrollback int) *Process {
@@ -93,7 +89,6 @@ func NewProcess(name string, cfg config.ProcConfig, scrollback int) *Process {
 		vtermW:   80,
 		vtermH:   24,
 		ready:    cfg.ReadyPattern == "",
-		exitCode: -1,
 	}
 	if cfg.ReadyPattern != "" {
 		if re, err := regexp.Compile(cfg.ReadyPattern); err == nil {
@@ -109,27 +104,6 @@ func (p *Process) Status() Status {
 	return p.status
 }
 
-// Duration returns the wall-clock time the process ran. For running
-// processes it returns the elapsed time since start.
-func (p *Process) Duration() time.Duration {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.startedAt.IsZero() {
-		return 0
-	}
-	if p.duration > 0 {
-		return p.duration
-	}
-	return time.Since(p.startedAt)
-}
-
-// ExitCode returns the process exit code, or -1 if it hasn't exited.
-func (p *Process) ExitCode() int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.exitCode
-}
-
 // Returns output lines extracted from the virtual terminal emulator.
 // Scrollback lines (historical content) are plain text; current screen
 // lines preserve ANSI styling for colors and formatting.
@@ -142,7 +116,7 @@ func (p *Process) Lines() []string {
 
 	var lines []string
 
-	// Scrollback: historical content that scrolled off the top of the screen
+	// Historical content that scrolled off the top of the screen
 	sb := p.vterm.Scrollback()
 	if sb != nil {
 		for i := range sb.Len() {
@@ -179,7 +153,9 @@ func (p *Process) AppendLine(line string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.vterm != nil {
-		p.vterm.WriteString(line + "\n")
+		if _, err := p.vterm.WriteString(line + "\n"); err != nil {
+			fmt.Fprintf(os.Stderr, "error writing to vterm: %v\n", err)
+		}
 	}
 }
 
@@ -198,9 +174,6 @@ func (p *Process) Start(send func(tea.Msg)) error {
 	p.vterm = vt.NewEmulator(p.vtermW, p.vtermH)
 	p.vterm.SetScrollbackSize(p.maxLines)
 	p.ready = p.readyPattern == nil
-	p.startedAt = time.Now()
-	p.duration = 0
-	p.exitCode = -1
 	p.mu.Unlock()
 
 	env := os.Environ()
@@ -211,16 +184,9 @@ func (p *Process) Start(send func(tea.Msg)) error {
 	cmd := exec.Command("bash", "-c", p.Cfg.Shell)
 	cmd.Env = env
 
-	// Skip PTY when explicitly disabled (e.g. for docker compose processes
-	// where cursor-movement sequences would corrupt the line buffer)
-	if p.Cfg.NoPTY {
-		return p.startWithPipe(cmd, send)
-	}
-
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
-		// Use combined stdout/stderr pipe when PTY allocation fails
-		return p.startWithPipe(cmd, send)
+		return err
 	}
 
 	p.mu.Lock()
@@ -260,71 +226,9 @@ func (p *Process) Start(send func(tea.Msg)) error {
 			st = StatusCrashed
 		}
 		p.mu.Lock()
-		p.recordFinish(exitErr)
-		if p.cmd == cmd && p.status != StatusStopped {
-			p.status = st
-		}
-		finalStatus := p.status
-		shouldRestart := p.cmd == cmd && p.Cfg.Autorestart && st == StatusCrashed
-		p.mu.Unlock()
 
-		send(StatusMsg{Name: p.Name, Status: finalStatus})
-
-		if shouldRestart {
-			_ = p.Start(send)
-		}
-	}()
-
-	return nil
-}
-
-// Falls back to stdout/stderr pipes when PTY allocation fails
-func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
-	pr, pw, err := os.Pipe()
-	if err != nil {
-		return err
-	}
-	cmd.Stdout = pw
-	cmd.Stderr = pw
-
-	if err := cmd.Start(); err != nil {
-		_ = pr.Close()
-		_ = pw.Close()
-		p.mu.Lock()
-		p.status = StatusCrashed
-		p.mu.Unlock()
-		send(StatusMsg{Name: p.Name, Status: StatusCrashed})
-		return err
-	}
-
-	p.mu.Lock()
-	p.cmd = cmd
-	if p.readyPattern == nil {
-		p.status = StatusRunning
-	}
-	currentStatus := p.status
-	p.mu.Unlock()
-	send(StatusMsg{Name: p.Name, Status: currentStatus})
-
-	readDone := make(chan struct{})
-	go func() {
-		p.readLoop(pr, send)
-		close(readDone)
-	}()
-
-	go func() {
-		exitErr := cmd.Wait()
-		_ = pw.Close()
-
-		<-readDone
-		_ = pr.Close()
-
-		st := StatusDone
-		if exitErr != nil {
-			st = StatusCrashed
-		}
-		p.mu.Lock()
-		p.recordFinish(exitErr)
+		// Don't update status if this cmd is no longer the active one
+		// (process was restarted) or if an explicit Stop() was called
 		if p.cmd == cmd && p.status != StatusStopped {
 			p.status = st
 		}
@@ -347,6 +251,10 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 // cursor movement, line erasure, and progress bar animations.
 func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
 	buf := make([]byte, 32*1024)
+	// Keep a bounded trailing window so readyPattern can match across read()
+	// chunk boundaries (e.g. "server sta" + "rted").
+	const readyMatchWindow = 4 * 1024
+	var tail []byte
 	for {
 		n, err := r.Read(buf)
 		if n > 0 {
@@ -358,10 +266,23 @@ func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
 			}
 
 			shouldNotify := false
-			if !p.ready && p.readyPattern != nil && p.readyPattern.Match(chunk) {
-				p.ready = true
-				p.status = StatusRunning
-				shouldNotify = true
+			if !p.ready && p.readyPattern != nil {
+				matched := p.readyPattern.Match(chunk)
+				if !matched && len(tail) > 0 {
+					combined := append(append(make([]byte, 0, len(tail)+len(chunk)), tail...), chunk...)
+					matched = p.readyPattern.Match(combined)
+				}
+				if matched {
+					p.ready = true
+					p.status = StatusRunning
+					shouldNotify = true
+					tail = nil
+				} else {
+					tail = append(tail, chunk...)
+					if len(tail) > readyMatchWindow {
+						tail = append([]byte(nil), tail[len(tail)-readyMatchWindow:]...)
+					}
+				}
 			}
 			p.mu.Unlock()
 
@@ -375,26 +296,6 @@ func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
 			break
 		}
 	}
-}
-
-// extractExitCode returns the exit code from a cmd.Wait() error.
-func extractExitCode(err error) int {
-	if err == nil {
-		return 0
-	}
-	if exitErr, ok := err.(*exec.ExitError); ok {
-		return exitErr.ExitCode()
-	}
-	return 1
-}
-
-// recordFinish stores the duration and exit code under the mutex.
-// Must be called with p.mu held.
-func (p *Process) recordFinish(exitErr error) {
-	if !p.startedAt.IsZero() {
-		p.duration = time.Since(p.startedAt)
-	}
-	p.exitCode = extractExitCode(exitErr)
 }
 
 // Sends SIGTERM to the process and marks it as stopped

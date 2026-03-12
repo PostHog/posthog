@@ -10,6 +10,7 @@ type keyMap struct {
 	GotoTop    key.Binding
 	GotoBottom key.Binding
 	SwapFocus  key.Binding
+	Expand     key.Binding
 	Restart    key.Binding
 	Docker     key.Binding
 	CopyMode   key.Binding
@@ -48,6 +49,11 @@ func defaultKeyMap() keyMap {
 			key.WithKeys("tab"),
 			key.WithHelp("tab:", "swap pane"),
 		),
+		Expand: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("↵:", "expand"),
+			key.WithDisabled(),
+		),
 		Restart: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r:", "restart"),
@@ -84,7 +90,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.NextProc, k.PrevProc},
 		{k.ScrollUp, k.ScrollDown},
-		{k.GotoTop, k.GotoBottom},
+		{k.GotoTop, k.GotoBottom, k.Expand},
 		{k.Restart, k.SwapFocus, k.Docker},
 		{k.CopyMode, k.CopyEsc},
 		{k.Quit, k.Help},

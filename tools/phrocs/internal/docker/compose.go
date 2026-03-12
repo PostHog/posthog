@@ -14,6 +14,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/posthog/posthog/phrocs/internal/expand"
 )
 
@@ -213,9 +214,9 @@ func (e *ComposeExpander) Init() tea.Cmd {
 }
 
 func (e *ComposeExpander) HandleMsg(msg tea.Msg) expand.Result {
-	switch msg.(type) {
+	switch msg := msg.(type) {
 	case containersMsg:
-		cm := msg.(containersMsg)
+		cm := msg
 		if cm.err != nil {
 			e.dbg("poll error: %v stderr=%q", cm.err, cm.stderr)
 		}
@@ -274,15 +275,6 @@ func (e *ComposeExpander) ChildrenFor(procName string) []expand.Child {
 }
 
 func (e *ComposeExpander) ParentIcon(procName string) string {
-	if !e.procNames[procName] {
-		return ""
-	}
-	e.mu.Lock()
-	hasContainers := len(e.containers) > 0
-	e.mu.Unlock()
-	if hasContainers {
-		return "🐳"
-	}
 	return ""
 }
 
@@ -392,7 +384,7 @@ func parseContainers(data []byte) []Container {
 
 // IsComposeCommand checks if a shell command invokes docker compose
 func IsComposeCommand(shell string) bool {
-	return strings.Contains(shell, "docker compose") || strings.Contains(shell, "docker-compose")
+	return strings.Contains(shell, "docker compose")
 }
 
 // ParseComposeFlags extracts -f and --profile flags from a shell command
@@ -441,29 +433,34 @@ func StripComposeLogs(shell string) string {
 }
 
 // ContainerIconChar returns the status icon character for a container.
-// Uses box-style glyphs (▣ ▢ ▤) to visually distinguish containers from
-// top-level processes which use circles (● ○).
 func ContainerIconChar(c Container) string {
 	switch c.State {
 	case "running":
 		switch c.Health {
 		case "unhealthy":
-			return "▣" // filled box = problem
+			return "✗" // crashed / problem
 		case "starting":
-			return "▤" // half-filled = warming up
+			return "◌" // pending = warming up
 		default:
-			return "▣" // filled box = healthy / no healthcheck
+			return "●" // running / healthy / no healthcheck
 		}
 	case "restarting":
-		return "▤"
-	case "exited", "dead", "removing":
-		return "▢" // empty box = stopped
-	case "created", "paused":
-		return "▢"
+		return "◌" // pending
+	case "exited", "dead":
+		return "✗" // crashed / error exit
+	case "removing", "created", "paused":
+		return "○" // stopped
 	default:
-		return "▢"
+		return "○"
 	}
 }
+
+var (
+	colorYellow = lipgloss.Color("#F7A501")
+	colorGrey   = lipgloss.Color("#9BA1B2")
+	colorGreen  = lipgloss.Color("#2DCC5D")
+	colorRed    = lipgloss.Color("#F04438")
+)
 
 // ContainerIconColor returns the icon colour for a container
 func ContainerIconColor(c Container) color.Color {
@@ -471,40 +468,17 @@ func ContainerIconColor(c Container) color.Color {
 	case "running":
 		switch c.Health {
 		case "unhealthy":
-			return parseHex("#F04438")
+			return colorRed
 		case "starting":
-			return parseHex("#F7A501")
+			return colorYellow
 		default:
-			return parseHex("#2DCC5D")
+			return colorGreen
 		}
 	case "restarting":
-		return parseHex("#F7A501")
+		return colorYellow
 	case "exited", "dead":
-		return parseHex("#F04438")
+		return colorRed
 	default:
-		return parseHex("#9BA1B2")
+		return colorGrey
 	}
-}
-
-func parseHex(hex string) color.Color {
-	hex = strings.TrimPrefix(hex, "#")
-	var r, g, b uint8
-	if len(hex) == 6 {
-		var rgb uint32
-		for _, c := range hex {
-			rgb <<= 4
-			switch {
-			case c >= '0' && c <= '9':
-				rgb |= uint32(c - '0')
-			case c >= 'a' && c <= 'f':
-				rgb |= uint32(c-'a') + 10
-			case c >= 'A' && c <= 'F':
-				rgb |= uint32(c-'A') + 10
-			}
-		}
-		r = uint8(rgb >> 16)
-		g = uint8(rgb >> 8)
-		b = uint8(rgb)
-	}
-	return color.RGBA{R: r, G: g, B: b, A: 255}
 }

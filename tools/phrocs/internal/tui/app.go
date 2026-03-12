@@ -6,7 +6,6 @@ import (
 	"log"
 	"os/exec"
 	"strings"
-	"time"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
@@ -15,6 +14,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/posthog/posthog/phrocs/internal/config"
+	"github.com/posthog/posthog/phrocs/internal/docker"
 	"github.com/posthog/posthog/phrocs/internal/expand"
 	"github.com/posthog/posthog/phrocs/internal/process"
 )
@@ -22,9 +23,10 @@ import (
 // A single row in the sidebar — either a top-level process or an indented
 // child contributed by an expander (e.g. a docker compose container)
 type sidebarRow struct {
-	proc      *process.Process // always set; for children this is the parent process
-	child     *expand.Child    // non-nil for child sub-rows
-	iconOverride string        // replaces the default status icon when set (e.g. "🐳")
+	proc         *process.Process // always set; for children this is the parent process
+	child        *expand.Child    // non-nil for child sub-rows
+	iconOverride string           // replaces the default status icon when set
+	hasChildren  bool             // true for parent rows that have expandable children
 }
 
 // outputLines returns the lines to display for this row. Child rows with
@@ -76,6 +78,9 @@ type Model struct {
 	spinner  spinner.Model
 	showHelp bool
 
+	// Tracks which expandable parent procs are expanded in the sidebar
+	expanded map[string]bool
+
 	width  int
 	height int
 	ready  bool
@@ -87,7 +92,7 @@ type Model struct {
 }
 
 // Pass a non-nil logger to enable debug logging (key inputs, selection changes, etc.)
-func New(mgr *process.Manager, expanders []expand.Expander, mouseScrollSpeed int, logger *log.Logger) Model {
+func New(cfg *config.Config, logger *log.Logger) Model {
 	keys := defaultKeyMap()
 
 	// Enable docker key only if lazydocker is installed
@@ -95,17 +100,37 @@ func New(mgr *process.Manager, expanders []expand.Expander, mouseScrollSpeed int
 		keys.Docker.SetEnabled(true)
 	}
 
-	procs := mgr.Procs()
+	// Detect compose processes, strip their log-follow tails (phrocs takes
+	// over per-container log streaming), and register the compose expander.
+	shells := make(map[string]string, len(cfg.Procs))
+	for name, proc := range cfg.Procs {
+		shells[name] = proc.Shell
+	}
+	composeExp := docker.NewComposeExpander(shells, cfg.Scrollback, logger)
+
+	var expanders []expand.Expander
+	if composeExp.HasComposeProcs() {
+		expanders = append(expanders, composeExp)
+		for name, proc := range cfg.Procs {
+			if composeExp.IsComposeProc(name) {
+				proc.Shell = docker.StripComposeLogs(proc.Shell)
+				cfg.Procs[name] = proc
+			}
+		}
+	}
+
+	mgr := process.NewManager(cfg)
 
 	m := Model{
 		mgr:              mgr,
-		procs:            procs,
+		procs:            mgr.Procs(),
 		expanders:        expanders,
+		expanded:         make(map[string]bool),
 		cursor:           0,
 		sidebarOffset:    0,
 		focusedPane:      focusSidebar,
 		atBottom:         true,
-		mouseScrollSpeed: mouseScrollSpeed,
+		mouseScrollSpeed: cfg.MouseScrollSpeed,
 		keys:             keys,
 		help:             help.New(),
 		spinner:          spinner.New(spinner.WithSpinner(spinner.MiniDot)),
@@ -113,6 +138,21 @@ func New(mgr *process.Manager, expanders []expand.Expander, mouseScrollSpeed int
 	}
 	m.rebuildRows()
 	return m
+}
+
+// SetSend wires the program's Send function into all internal components that
+// need to push messages from background goroutines into the event loop.
+func (m Model) SetSend(send func(tea.Msg)) {
+	m.mgr.SetSend(send)
+	for _, exp := range m.expanders {
+		exp.SetSend(send)
+	}
+}
+
+// StartAll starts all configured processes. Call this in a goroutine after
+// wiring up SetSend.
+func (m Model) StartAll() {
+	m.mgr.StartAll()
 }
 
 func (m Model) dbg(format string, args ...any) {
@@ -332,6 +372,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				go row.proc.Restart(send)
 			}
 
+		case key.Matches(msg, m.keys.Expand):
+			if m.focusedPane == focusSidebar {
+				row := m.activeRow()
+				if row != nil && row.child == nil && row.hasChildren {
+					procName := row.proc.Name
+					cursorPos := m.cursor
+					m.expanded[procName] = !m.expanded[procName]
+					m.dbg("expand toggle: proc=%s expanded=%v", procName, m.expanded[procName])
+					m.rebuildRows()
+					m.cursor = cursorPos
+					m.ensureSidebarCursorVisible()
+					m.syncKeyBindings()
+				}
+			} else {
+				var vpCmd tea.Cmd
+				m.viewport, vpCmd = m.viewport.Update(msg)
+				cmds = append(cmds, vpCmd)
+				m.atBottom = m.viewport.AtBottom()
+			}
+
 		case key.Matches(msg, m.keys.Docker):
 			m.dbg("docker: launching lazydocker")
 			return m, tea.ExecProcess(exec.Command("lazydocker"), nil)
@@ -440,16 +500,23 @@ func (m Model) activeProc() *process.Process {
 func (m *Model) rebuildRows() {
 	var rows []sidebarRow
 	for _, p := range m.procs {
-		parentRow := sidebarRow{proc: p}
-		// Ask each expander for an icon override and children
+		// Collect children from all expanders
+		var allChildren []expand.Child
+		for _, exp := range m.expanders {
+			allChildren = append(allChildren, exp.ChildrenFor(p.Name)...)
+		}
+
+		parentRow := sidebarRow{proc: p, hasChildren: len(allChildren) > 0}
 		for _, exp := range m.expanders {
 			if icon := exp.ParentIcon(p.Name); icon != "" {
 				parentRow.iconOverride = icon
 			}
 		}
 		rows = append(rows, parentRow)
-		for _, exp := range m.expanders {
-			for _, ch := range exp.ChildrenFor(p.Name) {
+
+		// Only show children when this proc is explicitly expanded
+		if m.expanded[p.Name] {
+			for _, ch := range allChildren {
 				ch := ch // capture
 				rows = append(rows, sidebarRow{proc: p, child: &ch})
 			}
@@ -500,52 +567,13 @@ func (m Model) applySize() Model {
 	return m
 }
 
-// procSuffix returns a short annotation for the sidebar, e.g. " (2.3s)"
-// for finished processes, " exit:1" for crashes, or " (manual)" for
-// non-autostart processes that haven't been started yet.
-func procSuffix(p *process.Process) string {
-	st := p.Status()
-	switch st {
-	case process.StatusDone:
-		return " " + formatDuration(p.Duration())
-	case process.StatusCrashed:
-		code := p.ExitCode()
-		d := formatDuration(p.Duration())
-		if code > 0 {
-			return fmt.Sprintf(" %s exit:%d", d, code)
-		}
-		return " " + d
-	case process.StatusStopped:
-		if !p.Cfg.ShouldAutostart() && p.Duration() == 0 {
-			return " (manual)"
-		}
-	}
-	return ""
-}
-
-func formatDuration(d time.Duration) string {
-	switch {
-	case d < time.Second:
-		return fmt.Sprintf("%dms", d.Milliseconds())
-	case d < time.Minute:
-		return fmt.Sprintf("%.1fs", d.Seconds())
-	case d < time.Hour:
-		m := int(d.Minutes())
-		s := int(d.Seconds()) % 60
-		return fmt.Sprintf("%dm%ds", m, s)
-	default:
-		h := int(d.Hours())
-		m := int(d.Minutes()) % 60
-		return fmt.Sprintf("%dh%dm", h, m)
-	}
-}
-
 // Syncs key binding enabled state to the active row. Actions like restart
 // don't apply to expander children (individual docker containers).
 func (m *Model) syncKeyBindings() {
 	row := m.activeRow()
 	onChild := row != nil && row.child != nil
 	m.keys.Restart.SetEnabled(!onChild)
+	m.keys.Expand.SetEnabled(row != nil && row.hasChildren && !onChild)
 }
 
 // Reloads the viewport with the selected row's output
@@ -721,7 +749,14 @@ func (m Model) renderSidebar() string {
 				}
 			}
 			iconColor = statusIconColor(st)
-			name = p.Name + procSuffix(p)
+			name = p.Name
+			if row.hasChildren {
+				if m.expanded[p.Name] {
+					name = "▼ " + name
+				} else {
+					name = "▶ " + name
+				}
+			}
 		}
 
 		// Reserve visible chars: left-padding (1) + indent + icon (1) + space (1)
@@ -729,16 +764,12 @@ func (m Model) renderSidebar() string {
 
 		if i == m.cursor {
 			base := lipgloss.NewStyle().Background(colorDarkGrey).Bold(true)
-			iconSeg := base.PaddingLeft(1+indent).Foreground(iconColor).Render(iconChar)
+			iconSeg := base.PaddingLeft(1 + indent).Foreground(iconColor).Render(iconChar)
 			nameSeg := base.Foreground(colorWhite).Width(innerW - 2 - indent).Render(" " + name)
 			rows = append(rows, iconSeg+nameSeg)
 		} else {
-			iconSeg := lipgloss.NewStyle().PaddingLeft(1+indent).Foreground(iconColor).Render(iconChar)
-			var nameColor color.Color = colorGrey
-			if row.child != nil {
-				nameColor = colorChildGrey
-			}
-			nameSeg := lipgloss.NewStyle().Foreground(nameColor).Width(innerW - 2 - indent).Render(" " + name)
+			iconSeg := lipgloss.NewStyle().PaddingLeft(1 + indent).Foreground(iconColor).Render(iconChar)
+			nameSeg := lipgloss.NewStyle().Foreground(colorGrey).Width(innerW - 2 - indent).Render(" " + name)
 			rows = append(rows, iconSeg+nameSeg)
 		}
 	}

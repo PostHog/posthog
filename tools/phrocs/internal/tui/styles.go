@@ -26,9 +26,6 @@ var (
 	colorRed      = lipgloss.Color("#F04438")
 	colorWhite    = lipgloss.Color("#FFFFFF")
 	colorBlack    = lipgloss.Color("#151515")
-
-	// Slightly dimmer text for expander child rows
-	colorChildGrey = lipgloss.Color("#6B7280")
 )
 
 // Outer width of the process list column (including border)

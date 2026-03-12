@@ -22,9 +22,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/posthog/posthog/phrocs/internal/config"
-	"github.com/posthog/posthog/phrocs/internal/docker"
-	"github.com/posthog/posthog/phrocs/internal/expand"
-	"github.com/posthog/posthog/phrocs/internal/process"
 	"github.com/posthog/posthog/phrocs/internal/tui"
 )
 
@@ -63,39 +60,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Build sidebar expanders. Currently just docker compose, but the
-	// interface is generic so other providers can be added later.
-	var expanders []expand.Expander
-
-	// Detect compose processes, strip their log-follow tails (phrocs takes
-	// over per-container log streaming), and register the compose expander.
-	shells := make(map[string]string, len(cfg.Procs))
-	for name, proc := range cfg.Procs {
-		shells[name] = proc.Shell
-	}
-	composeExp := docker.NewComposeExpander(shells, cfg.Scrollback, logger)
-	if composeExp.HasComposeProcs() {
-		expanders = append(expanders, composeExp)
-		// Strip `docker compose logs -f` from compose process shells so the
-		// compose process only does `up -d`. Phrocs handles per-container
-		// log streaming via the expander.
-		for name, proc := range cfg.Procs {
-			if composeExp.IsComposeProc(name) {
-				proc.Shell = docker.StripComposeLogs(proc.Shell)
-				cfg.Procs[name] = proc
-			}
-		}
-	}
-
-	mgr := process.NewManager(cfg)
-	m := tui.New(mgr, expanders, cfg.MouseScrollSpeed, logger)
+	m := tui.New(cfg, logger)
 	p := tea.NewProgram(m)
-
-	// Wire up the send function for async message passing
-	mgr.SetSend(p.Send)
-	composeExp.SetSend(p.Send)
-
-	go mgr.StartAll()
+	m.SetSend(p.Send)
+	go m.StartAll()
 
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "phrocs: %v\n", err)

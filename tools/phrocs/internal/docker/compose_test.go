@@ -57,7 +57,7 @@ func TestIsComposeCommand(t *testing.T) {
 		want  bool
 	}{
 		{"docker compose -f docker-compose.dev.yml up", true},
-		{"docker-compose up -d", true},
+		{"docker-compose up -d", false},
 		{"docker compose up db redis", true},
 		{"python manage.py runserver", false},
 		{"pnpm dev", false},
@@ -176,14 +176,14 @@ func TestContainerIconChar(t *testing.T) {
 		health string
 		want   string
 	}{
-		{"running", "", "▣"},
-		{"running", "healthy", "▣"},
-		{"running", "unhealthy", "▣"},
-		{"running", "starting", "▤"},
-		{"restarting", "", "▤"},
-		{"exited", "", "▢"},
-		{"created", "", "▢"},
-		{"unknown", "", "▢"},
+		{"running", "", "●"},
+		{"running", "healthy", "●"},
+		{"running", "unhealthy", "✗"},
+		{"running", "starting", "◌"},
+		{"restarting", "", "◌"},
+		{"exited", "", "✗"},
+		{"created", "", "○"},
+		{"unknown", "", "○"},
 	}
 	for _, tt := range tests {
 		got := ContainerIconChar(Container{State: tt.state, Health: tt.health})

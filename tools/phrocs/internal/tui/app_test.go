@@ -8,25 +8,24 @@ import (
 	"github.com/posthog/posthog/phrocs/internal/process"
 )
 
-// testManager creates a Manager with the named stub processes (no autostart).
-func testManager(names ...string) *process.Manager {
+// Creates a config with the named stub processes (no autostart).
+func testConfig(names ...string) *config.Config {
 	f := false
 	procs := make(map[string]config.ProcConfig, len(names))
 	for _, n := range names {
 		procs[n] = config.ProcConfig{Shell: "true", Autostart: &f}
 	}
-	return process.NewManager(&config.Config{
+	return &config.Config{
 		Procs:            procs,
 		MouseScrollSpeed: 3,
 		Scrollback:       1000,
-	})
+	}
 }
 
 // readyModel returns a model that has processed a WindowSizeMsg and is ready.
 func readyModel(t *testing.T, names ...string) Model {
 	t.Helper()
-	mgr := testManager(names...)
-	m := New(mgr, nil, 3, nil)
+	m := New(testConfig(names...), nil)
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	return next.(Model)
 }
@@ -47,8 +46,7 @@ func update(m Model, msg tea.Msg) Model {
 // ── New() initial state ───────────────────────────────────────────────────────
 
 func TestNew_initialState(t *testing.T) {
-	mgr := testManager("backend", "frontend")
-	m := New(mgr, nil, 3, nil)
+	m := New(testConfig("backend", "frontend"), nil)
 	if m.ready {
 		t.Error("model should not be ready before WindowSizeMsg")
 	}
@@ -67,8 +65,7 @@ func TestNew_initialState(t *testing.T) {
 }
 
 func TestUpdate_windowSizeSetsReady(t *testing.T) {
-	mgr := testManager("backend")
-	m := New(mgr, nil, 3, nil)
+	m := New(testConfig("backend"), nil)
 	m = update(m, tea.WindowSizeMsg{Width: 120, Height: 40})
 	if !m.ready {
 		t.Error("model should be ready after WindowSizeMsg")

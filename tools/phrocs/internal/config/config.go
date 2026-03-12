@@ -16,7 +16,6 @@ type ProcConfig struct {
 	AskSkip      bool              `yaml:"ask_skip"`
 	Env          map[string]string `yaml:"env"`
 	ReadyPattern string            `yaml:"ready_pattern"`
-	NoPTY        bool              `yaml:"-"` // set programmatically, forces pipe mode
 }
 
 // Reports whether the process should start automatically
@@ -54,26 +53,15 @@ func Load(path string) (*Config, error) {
 // OrderedNames returns process names in a stable, predictable order.
 // "info" is always first (if present), then remaining names sorted alphabetically.
 func (c *Config) OrderedNames() []string {
-	// Pinned names appear first in this order, then the rest alphabetically
-	pinned := []string{"info", "docker-compose"}
-
 	names := make([]string, 0, len(c.Procs))
-	pinnedSet := make(map[string]bool, len(pinned))
-	for _, p := range pinned {
-		pinnedSet[p] = true
-	}
 	for name := range c.Procs {
-		if !pinnedSet[name] {
+		if name != "info" {
 			names = append(names, name)
 		}
 	}
 	sort.Strings(names)
-
-	var result []string
-	for _, p := range pinned {
-		if _, ok := c.Procs[p]; ok {
-			result = append(result, p)
-		}
+	if _, ok := c.Procs["info"]; ok {
+		names = append([]string{"info"}, names...)
 	}
-	return append(result, names...)
+	return names
 }
