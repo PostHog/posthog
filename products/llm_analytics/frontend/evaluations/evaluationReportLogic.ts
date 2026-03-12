@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { evaluationReportLogicType } from './evaluationReportLogicType'
@@ -160,6 +161,12 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        generateReportSuccess: () => {
+            lemonToast.success('Report is being generated and will be delivered to your configured targets shortly.')
+        },
+        generateReportFailure: () => {
+            lemonToast.error('Failed to trigger report generation. Please try again.')
+        },
         createReportSuccess: () => {
             actions.loadReports()
         },

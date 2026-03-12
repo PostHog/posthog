@@ -62,17 +62,22 @@ async def prepare_report_context_activity(
         evaluation = report.evaluation
         now = dt.datetime.now(tz=dt.UTC)
 
-        # Period end is now, period start is last_delivered_at or based on frequency
+        # Period end is now, period start depends on context
         period_end = now
-        if report.last_delivered_at:
+        freq_deltas = {
+            "hourly": dt.timedelta(hours=1),
+            "daily": dt.timedelta(days=1),
+            "weekly": dt.timedelta(weeks=1),
+        }
+
+        if inputs.manual:
+            # Manual "Generate now": always look back one full frequency period
+            # so the user always gets a meaningful report regardless of last delivery
+            period_start = now - freq_deltas.get(report.frequency, dt.timedelta(days=1))
+        elif report.last_delivered_at:
             period_start = report.last_delivered_at
         else:
-            # First run: look back one period
-            freq_deltas = {
-                "hourly": dt.timedelta(hours=1),
-                "daily": dt.timedelta(days=1),
-                "weekly": dt.timedelta(weeks=1),
-            }
+            # First scheduled run: look back one period
             period_start = now - freq_deltas.get(report.frequency, dt.timedelta(days=1))
 
         # Previous period for comparison (same duration, shifted back)

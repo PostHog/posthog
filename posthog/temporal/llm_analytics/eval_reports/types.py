@@ -17,6 +17,7 @@ class FetchDueEvalReportsOutput:
 @dataclasses.dataclass
 class PrepareReportContextInput:
     report_id: str
+    manual: bool = False
 
 
 @dataclasses.dataclass
@@ -86,3 +87,4 @@ class UpdateNextDeliveryDateInput:
 @dataclasses.dataclass
 class GenerateAndDeliverEvalReportWorkflowInput:
     report_id: str
+    manual: bool = False
