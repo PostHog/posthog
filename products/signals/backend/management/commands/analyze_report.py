@@ -82,6 +82,13 @@ TEST_SUMMARY = (
     "Zendesk support ticket backing."
 )
 
+# # TODO: Remove after tests
+# simple_test_prompt = 'Return how many signups I got in the last 30 days. Return in JSON format: `{"answer": N}`'
+
+
+# class SimpleTestModel(BaseModel):
+#     answer: str
+
 
 class Command(BaseCommand):
     help = "Test the report research agent via sandbox against simulated funnel enhancement signals."
@@ -111,8 +118,10 @@ class Command(BaseCommand):
 
         result = asyncio.run(
             run_sandbox_agent_get_structured_output(
+                # prompt=simple_test_prompt,
                 prompt=prompt,
                 branch="master",
+                # model_to_validate=SimpleTestModel,
                 model_to_validate=ReportResearchOutput,
                 step_name="report_research",
                 verbose=verbose,
