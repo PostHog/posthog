@@ -43,6 +43,29 @@ fn attributes_to_map(attrs: &[KeyValue]) -> serde_json::Map<String, Value> {
         .collect()
 }
 
+/// OTel SDK auto-detected resource attribute prefixes that are noise for AI
+/// events. User-set resource attributes (e.g. `user.id`, `posthog.ai.debug`)
+/// pass through since they don't match these prefixes.
+const NOISY_RESOURCE_PREFIXES: &[&str] = &["host.", "process.", "os.", "telemetry.", "service."];
+
+fn filter_resource_attributes(attrs: &[KeyValue]) -> serde_json::Map<String, Value> {
+    attrs
+        .iter()
+        .filter_map(|kv| {
+            if NOISY_RESOURCE_PREFIXES
+                .iter()
+                .any(|prefix| kv.key.starts_with(prefix))
+            {
+                return None;
+            }
+            kv.value
+                .as_ref()
+                .and_then(|v| v.value.as_ref())
+                .map(|v| (kv.key.clone(), any_value_to_json(v)))
+        })
+        .collect()
+}
+
 fn nanos_to_datetime(nanos: u64) -> Option<DateTime<Utc>> {
     if nanos == 0 {
         return None;
@@ -68,7 +91,7 @@ pub fn expand_into_events(
         let resource_attrs = rs
             .resource
             .as_ref()
-            .map(|r| attributes_to_map(&r.attributes))
+            .map(|r| filter_resource_attributes(&r.attributes))
             .unwrap_or_default();
 
         for ss in &rs.scope_spans {
@@ -259,7 +282,7 @@ mod tests {
         assert_eq!(props["$ai_trace_id"], "0102030405060708090a0b0c0d0e0f10");
         assert_eq!(props["$ai_span_id"], "0102030405060708");
         assert_eq!(props["$ai_ingestion_source"], "otel");
-        assert_eq!(props["service.name"], "test-svc");
+        assert!(!props.contains_key("service.name"), "noisy resource attrs should be filtered");
         assert_eq!(props["$otel_span_name"], "chat gpt-4");
         assert_eq!(props["$otel_start_time_unix_nano"], "1704067200000000000");
         assert_eq!(props["$otel_end_time_unix_nano"], "1704067201500000000");
@@ -267,14 +290,32 @@ mod tests {
     }
 
     #[test]
-    fn test_span_attrs_override_resource_attrs() {
+    fn test_noisy_resource_attrs_are_filtered() {
         let request = ExportTraceServiceRequest {
             resource_spans: vec![ResourceSpans {
                 resource: Some(Resource {
-                    attributes: vec![make_kv(
-                        "shared.key",
-                        any_value::Value::StringValue("resource-val".to_string()),
-                    )],
+                    attributes: vec![
+                        make_kv(
+                            "service.name",
+                            any_value::Value::StringValue("my-svc".to_string()),
+                        ),
+                        make_kv(
+                            "host.name",
+                            any_value::Value::StringValue("my-host".to_string()),
+                        ),
+                        make_kv(
+                            "process.pid",
+                            any_value::Value::IntValue(1234),
+                        ),
+                        make_kv(
+                            "user.id",
+                            any_value::Value::StringValue("user-123".to_string()),
+                        ),
+                        make_kv(
+                            "posthog.ai.debug",
+                            any_value::Value::StringValue("true".to_string()),
+                        ),
+                    ],
                     dropped_attributes_count: 0,
                 }),
                 scope_spans: vec![ScopeSpans {
@@ -286,10 +327,7 @@ mod tests {
                         0,
                         0,
                         "",
-                        vec![make_kv(
-                            "shared.key",
-                            any_value::Value::StringValue("span-val".to_string()),
-                        )],
+                        vec![],
                     )],
                     schema_url: String::new(),
                 }],
@@ -299,7 +337,11 @@ mod tests {
 
         let events = expand_into_events(&request, "user");
         let props = events[0].properties.as_object().unwrap();
-        assert_eq!(props["shared.key"], "span-val");
+        assert!(!props.contains_key("service.name"));
+        assert!(!props.contains_key("host.name"));
+        assert!(!props.contains_key("process.pid"));
+        assert_eq!(props["user.id"], "user-123");
+        assert_eq!(props["posthog.ai.debug"], "true");
     }
 
     #[test]

@@ -3,15 +3,18 @@ import { PluginEvent } from '~/plugin-scaffold'
 import { parseJSON } from '../../../../utils/json-parse'
 import { OtelLibraryMiddleware } from './types'
 
-// Vercel AI SDK attributes to strip after processing. These are all prefixed
-// with ai.* and are Vercel-specific, not part of the GenAI semantic conventions.
+// Vercel AI SDK attributes to strip after processing. Includes both
+// Vercel-specific ai.* attributes and standard GenAI semantic convention
+// attributes that have already been mapped to $ai_* properties.
 const STRIP_KEYS = [
+    // Vercel AI SDK specific
     'ai.operationId',
     'ai.telemetry.functionId',
     'ai.model.id',
     'ai.model.provider',
     'ai.settings.maxRetries',
     'ai.settings.maxOutputTokens',
+    'ai.settings.output',
     'ai.usage.promptTokens',
     'ai.usage.completionTokens',
     'ai.usage.tokens',
@@ -23,10 +26,12 @@ const STRIP_KEYS = [
     'ai.response.avgCompletionTokensPerSecond',
     'ai.response.msToFirstChunk',
     'ai.response.msToFinish',
+    'ai.response.reasoning',
+    'ai.response.object',
+    'ai.response.toolCalls',
     'ai.prompt',
     'ai.prompt.tools',
     'ai.prompt.toolChoice',
-    'ai.response.toolCalls',
     'ai.value',
     'ai.embedding',
     'ai.values',
@@ -34,10 +39,12 @@ const STRIP_KEYS = [
     'ai.schema',
     'ai.schema.name',
     'ai.schema.description',
-    'ai.response.object',
-    'ai.settings.output',
     'operation.name',
     'resource.name',
+    // Standard GenAI semantic convention attributes not mapped to $ai_* properties
+    'gen_ai.request.max_tokens',
+    'gen_ai.response.finish_reasons',
+    'gen_ai.response.id',
 ]
 
 function process(event: PluginEvent, next: () => void): void {
