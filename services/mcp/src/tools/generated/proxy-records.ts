@@ -29,7 +29,7 @@ const proxyList = (): ToolBase<typeof ProxyListSchema, Schemas.PaginatedProxyRec
         })
         return {
             ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl('@current')}/organization-proxy`,
+            _posthogUrl: `${context.api.getProjectBaseUrl('@current')}/settings/organization-proxy`,
         }
     },
 })

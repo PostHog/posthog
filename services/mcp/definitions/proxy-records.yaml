@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Reverse proxy
 feature: reverse_proxy
-url_prefix: /organization-proxy
+url_prefix: /settings/organization-proxy
 tools:
     proxy-list:
         operation: proxy_records_list

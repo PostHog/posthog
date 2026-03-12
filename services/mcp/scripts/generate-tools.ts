@@ -794,14 +794,13 @@ function main(): void {
     }
 
     // Barrel index
-    const imports = generatedModules
-        .map((m) => `import { GENERATED_TOOLS as ${toCamelCase(m)} } from './${m}'`)
-        .join('\n')
-    const spreads = generatedModules.map((m) => `    ...${toCamelCase(m)},`).join('\n')
+    const sortedModules = [...generatedModules].sort()
+    const imports = sortedModules.map((m) => `import { GENERATED_TOOLS as ${toCamelCase(m)} } from './${m}'`).join('\n')
+    const spreads = sortedModules.map((m) => `    ...${toCamelCase(m)},`).join('\n')
     const barrelCode = `// AUTO-GENERATED — do not edit
-${imports}
-
 import type { ToolBase, ZodObjectAny } from '@/tools/types'
+
+${imports}
 
 export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 ${spreads}
