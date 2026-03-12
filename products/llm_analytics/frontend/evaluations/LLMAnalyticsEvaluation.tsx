@@ -147,19 +147,21 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                     <LemonButton type="secondary" icon={<IconArrowLeft />} onClick={handleCancel}>
                         {hasUnsavedChanges ? 'Cancel' : 'Back'}
                     </LemonButton>
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton
-                            type="primary"
-                            onClick={handleSave}
-                            disabled={saveButtonDisabled}
-                            loading={evaluationFormSubmitting}
+                    {activeTab !== 'runs' && (
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            minAccessLevel={AccessControlLevel.Editor}
                         >
-                            {isNewEvaluation ? 'Create evaluation' : 'Save changes'}
-                        </LemonButton>
-                    </AccessControlAction>
+                            <LemonButton
+                                type="primary"
+                                onClick={handleSave}
+                                disabled={saveButtonDisabled}
+                                loading={evaluationFormSubmitting}
+                            >
+                                {isNewEvaluation ? 'Create evaluation' : 'Save changes'}
+                            </LemonButton>
+                        </AccessControlAction>
+                    )}
                 </div>
             </div>
 
