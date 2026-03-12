@@ -1,5 +1,17 @@
 import { Monaco } from '@monaco-editor/react'
-import { actions, beforeUnmount, connect, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import {
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -177,6 +189,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ['featureFlags'],
             externalDataSourcesLogic,
             ['dataWarehouseSources'],
+            databaseTableListLogic,
+            ['database', 'databaseLoading'],
             outputPaneLogic({ tabId: props.tabId }),
             ['activeTab as outputActiveTab'],
         ],
@@ -1071,7 +1085,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
         },
     })),
-    subscriptions(({ actions, values }) => ({
+    subscriptions(({ actions, values, cache }) => ({
         showLegacyFilters: (showLegacyFilters: boolean) => {
             if (showLegacyFilters) {
                 if (typeof values.sourceQuery.source.filters !== 'object') {
@@ -1113,6 +1127,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     })
                 }
             }
+        },
+        selectedConnectionId: (selectedConnectionId) => {
+            if (cache.lastSelectedConnectionId === selectedConnectionId) {
+                return
+            }
+
+            cache.lastSelectedConnectionId = selectedConnectionId
+            actions.setConnection(selectedConnectionId ?? null)
+            actions.loadDatabase()
         },
     })),
     selectors({
@@ -1473,8 +1496,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         connectionId: connectionIdFromHash,
                     },
                 })
-                actions.setConnection(connectionIdFromHash ? connectionIdFromHash : null)
-                actions.loadDatabase()
             }
 
             let tabAdded = false
@@ -1639,8 +1660,25 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     await createQueryTab()
                 })
             }
+
+            if (!values.database && !values.databaseLoading && connectionIdFromHash === undefined) {
+                actions.setConnection(values.selectedConnectionId ?? null)
+                actions.loadDatabase()
+            }
         },
     })),
+    afterMount(({ actions, props, values, cache }) => {
+        cache.lastSelectedConnectionId = values.selectedConnectionId
+
+        if (
+            isEmbeddedSQLEditorMode(props.mode ?? SQLEditorMode.FullScene) &&
+            !values.database &&
+            !values.databaseLoading
+        ) {
+            actions.setConnection(values.selectedConnectionId ?? null)
+            actions.loadDatabase()
+        }
+    }),
     beforeUnmount(({ cache }) => {
         cache.umountDataNode?.()
 

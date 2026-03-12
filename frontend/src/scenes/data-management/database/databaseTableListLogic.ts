@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -41,22 +41,8 @@ const toMapById = <T extends { id: string }>(items: T[]): Record<string, T> =>
 const isDirectQueryEnabled = (): boolean =>
     !!featureFlagLogic.values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
 
-const getInitialConnectionIdFromHash = (): string | null => {
-    if (typeof window === 'undefined' || !isDirectQueryEnabled()) {
-        return null
-    }
-
-    const hashConnectionId = new URLSearchParams(window.location.hash.slice(1)).get('c')
-    return hashConnectionId && hashConnectionId.length > 0 ? hashConnectionId : null
-}
-
-const shouldDeferInitialDatabaseLoad = (connectionId: string | null): boolean => {
-    if (typeof window === 'undefined' || !connectionId) {
-        return false
-    }
-
-    return window.location.pathname === '/sql'
-}
+let inFlightDatabaseLoadKey: string | null = null
+let inFlightDatabaseLoadPromise: Promise<Required<DatabaseSchemaQueryResponse> | null> | null = null
 
 export const databaseTableListLogic = kea<databaseTableListLogicType>([
     path(['scenes', 'data-management', 'database', 'databaseTableListLogic']),
@@ -71,13 +57,33 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
         database: [
             null as Required<DatabaseSchemaQueryResponse> | null,
             {
-                loadDatabase: async (): Promise<Required<DatabaseSchemaQueryResponse> | null> =>
-                    await performQuery(
+                loadDatabase: async (): Promise<Required<DatabaseSchemaQueryResponse> | null> => {
+                    const requestConnectionId = isDirectQueryEnabled() ? (values.connectionId ?? undefined) : undefined
+                    const requestKey = requestConnectionId ?? '__posthog__'
+
+                    if (inFlightDatabaseLoadKey === requestKey && inFlightDatabaseLoadPromise) {
+                        return await inFlightDatabaseLoadPromise
+                    }
+
+                    const request = performQuery(
                         setLatestVersionsOnQuery({
                             kind: NodeKind.DatabaseSchemaQuery,
-                            connectionId: isDirectQueryEnabled() ? (values.connectionId ?? undefined) : undefined,
+                            connectionId: requestConnectionId,
                         }) as DatabaseSchemaQuery
-                    ),
+                    )
+
+                    inFlightDatabaseLoadKey = requestKey
+                    inFlightDatabaseLoadPromise = request
+
+                    try {
+                        return await request
+                    } finally {
+                        if (inFlightDatabaseLoadKey === requestKey) {
+                            inFlightDatabaseLoadKey = null
+                            inFlightDatabaseLoadPromise = null
+                        }
+                    }
+                },
             },
         ],
     })),
@@ -242,14 +248,5 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                 toMapById([...views, ...managedViews, ...endpointTables]),
             { resultEqualityCheck: objectsEqual },
         ],
-    }),
-    afterMount(({ actions }) => {
-        const initialConnectionId = getInitialConnectionIdFromHash()
-
-        actions.setConnection(initialConnectionId)
-
-        if (!shouldDeferInitialDatabaseLoad(initialConnectionId)) {
-            actions.loadDatabase()
-        }
     }),
 ])

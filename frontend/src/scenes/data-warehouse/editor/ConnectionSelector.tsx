@@ -5,7 +5,6 @@ import { useEffect, useMemo } from 'react'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 import { urls } from 'scenes/urls'
 
@@ -22,7 +21,6 @@ export function ConnectionSelector(): JSX.Element | null {
     const { loadSources } = useActions(externalDataSourcesLogic)
     const { sourceQuery, selectedConnectionId } = useValues(sqlEditorLogic)
     const { setSourceQuery, syncUrlWithQuery } = useActions(sqlEditorLogic)
-    const { setConnection, loadDatabase } = useActions(databaseTableListLogic)
     const isDirectQueryEnabled = !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
 
     useEffect(() => {
@@ -90,8 +88,6 @@ export function ConnectionSelector(): JSX.Element | null {
                             connectionId: undefined,
                         },
                     } as typeof sourceQuery)
-                    setConnection(null)
-                    loadDatabase()
                     syncUrlWithQuery()
                     return
                 }
@@ -113,8 +109,6 @@ export function ConnectionSelector(): JSX.Element | null {
                         connectionId: nextValue,
                     },
                 } as typeof sourceQuery)
-                setConnection(nextValue)
-                loadDatabase()
                 syncUrlWithQuery()
             }}
             options={options}
