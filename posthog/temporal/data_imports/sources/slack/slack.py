@@ -10,7 +10,7 @@ from dlt.sources.helpers.rest_client.paginators import BasePaginator
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.security.outbound_proxy import external_requests
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SortMode, SourceResponse
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from posthog.temporal.data_imports.sources.slack.settings import ENDPOINTS, messages_endpoint_config
@@ -257,7 +257,7 @@ def slack_source(
     channel_id: str | None = None,
 ) -> SourceResponse:
     items: Callable[[], Iterable[Any]]
-    sort_mode = "asc"
+    sort_mode: SortMode = "asc"
 
     if endpoint in ENDPOINTS:
         # Metadata endpoints ($channels, $users) — served via REST

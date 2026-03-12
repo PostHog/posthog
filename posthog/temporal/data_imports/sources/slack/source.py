@@ -61,7 +61,9 @@ class SlackSource(SimpleSource[SlackSourceConfig], OAuthMixin):
             "Slack access token not found": "Your Slack access token is missing. Please reconnect the source.",
         }
 
-    def get_schemas(self, config: SlackSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: SlackSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
         schemas: list[SourceSchema] = [
             SourceSchema(
                 name=name,
