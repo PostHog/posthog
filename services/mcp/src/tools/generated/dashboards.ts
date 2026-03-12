@@ -41,12 +41,7 @@ const dashboardsGetAll = (): ToolBase<typeof DashboardsGetAllSchema, unknown> =>
     },
 })
 
-const DashboardCreateSchema = DashboardsCreateBody.omit({
-    last_accessed_at: true,
-    deleted: true,
-    last_refresh: true,
-    _create_in_folder: true,
-})
+const DashboardCreateSchema = DashboardsCreateBody
 
 const dashboardCreate = (): ToolBase<typeof DashboardCreateSchema, Schemas.Dashboard & { _posthogUrl: string }> => ({
     name: 'dashboard-create',
@@ -74,6 +69,9 @@ const dashboardCreate = (): ToolBase<typeof DashboardCreateSchema, Schemas.Dashb
         }
         if (params.restriction_level !== undefined) {
             body['restriction_level'] = params.restriction_level
+        }
+        if (params.quick_filter_ids !== undefined) {
+            body['quick_filter_ids'] = params.quick_filter_ids
         }
         if (params.use_template !== undefined) {
             body['use_template'] = params.use_template
@@ -115,12 +113,7 @@ const dashboardGet = (): ToolBase<typeof DashboardGetSchema, Schemas.Dashboard &
 })
 
 const DashboardUpdateSchema = DashboardsPartialUpdateParams.omit({ project_id: true }).extend(
-    DashboardsPartialUpdateBody.omit({
-        last_accessed_at: true,
-        deleted: true,
-        last_refresh: true,
-        _create_in_folder: true,
-    }).shape
+    DashboardsPartialUpdateBody.shape
 )
 
 const dashboardUpdate = (): ToolBase<typeof DashboardUpdateSchema, Schemas.Dashboard & { _posthogUrl: string }> => ({
@@ -149,6 +142,9 @@ const dashboardUpdate = (): ToolBase<typeof DashboardUpdateSchema, Schemas.Dashb
         }
         if (params.restriction_level !== undefined) {
             body['restriction_level'] = params.restriction_level
+        }
+        if (params.quick_filter_ids !== undefined) {
+            body['quick_filter_ids'] = params.quick_filter_ids
         }
         if (params.use_template !== undefined) {
             body['use_template'] = params.use_template

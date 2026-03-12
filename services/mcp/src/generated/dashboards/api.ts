@@ -26,34 +26,45 @@ export const dashboardsCollaboratorsListResponseUserOneLastNameMax = 150
 export const dashboardsCollaboratorsListResponseUserOneEmailMax = 254
 
 export const DashboardsCollaboratorsListResponseItem = zod.object({
-    id: zod.string(),
-    dashboard_id: zod.number(),
-    user: zod.object({
-        id: zod.number(),
-        uuid: zod.string(),
-        distinct_id: zod.string().max(dashboardsCollaboratorsListResponseUserOneDistinctIdMax).nullish(),
-        first_name: zod.string().max(dashboardsCollaboratorsListResponseUserOneFirstNameMax).optional(),
-        last_name: zod.string().max(dashboardsCollaboratorsListResponseUserOneLastNameMax).optional(),
-        email: zod.string().email().max(dashboardsCollaboratorsListResponseUserOneEmailMax),
-        is_email_verified: zod.boolean().nullish(),
-        hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-        role_at_organization: zod
-            .union([
-                zod
-                    .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
-                    .describe(
-                        '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                    ),
-                zod.enum(['']),
-                zod.literal(null),
-            ])
-            .nullish(),
-    }),
+    id: zod.string().optional(),
+    dashboard_id: zod.number().optional(),
+    user: zod
+        .object({
+            id: zod.number().optional(),
+            uuid: zod.string().optional(),
+            distinct_id: zod.string().max(dashboardsCollaboratorsListResponseUserOneDistinctIdMax).nullish(),
+            first_name: zod.string().max(dashboardsCollaboratorsListResponseUserOneFirstNameMax).optional(),
+            last_name: zod.string().max(dashboardsCollaboratorsListResponseUserOneLastNameMax).optional(),
+            email: zod.string().email().max(dashboardsCollaboratorsListResponseUserOneEmailMax),
+            is_email_verified: zod.boolean().nullish(),
+            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+            role_at_organization: zod
+                .union([
+                    zod
+                        .enum([
+                            'engineering',
+                            'data',
+                            'product',
+                            'founder',
+                            'leadership',
+                            'marketing',
+                            'sales',
+                            'other',
+                        ])
+                        .describe(
+                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                        ),
+                    zod.enum(['']),
+                    zod.literal(null),
+                ])
+                .nullish(),
+        })
+        .optional(),
     level: zod
         .union([zod.literal(21), zod.literal(37)])
         .describe('* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'),
-    added_at: zod.string().datetime({}),
-    updated_at: zod.string().datetime({}),
+    added_at: zod.string().datetime({}).optional(),
+    updated_at: zod.string().datetime({}).optional(),
     user_uuid: zod.string(),
 })
 export const DashboardsCollaboratorsListResponse = zod.array(DashboardsCollaboratorsListResponseItem)
@@ -113,68 +124,81 @@ export const DashboardsListResponse = zod.object({
     results: zod.array(
         zod
             .object({
-                id: zod.number(),
-                name: zod.string().nullable().describe('Name of the dashboard.'),
-                description: zod.string().describe('Description of the dashboard.'),
-                pinned: zod.boolean().describe('Whether the dashboard is pinned to the top of the list.'),
-                created_at: zod.string().datetime({}),
-                created_by: zod.object({
-                    id: zod.number(),
-                    uuid: zod.string(),
-                    distinct_id: zod.string().max(dashboardsListResponseResultsItemCreatedByOneDistinctIdMax).nullish(),
-                    first_name: zod.string().max(dashboardsListResponseResultsItemCreatedByOneFirstNameMax).optional(),
-                    last_name: zod.string().max(dashboardsListResponseResultsItemCreatedByOneLastNameMax).optional(),
-                    email: zod.string().email().max(dashboardsListResponseResultsItemCreatedByOneEmailMax),
-                    is_email_verified: zod.boolean().nullish(),
-                    hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-                    role_at_organization: zod
-                        .union([
-                            zod
-                                .enum([
-                                    'engineering',
-                                    'data',
-                                    'product',
-                                    'founder',
-                                    'leadership',
-                                    'marketing',
-                                    'sales',
-                                    'other',
-                                ])
-                                .describe(
-                                    '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                                ),
-                            zod.enum(['']),
-                            zod.literal(null),
-                        ])
-                        .nullish(),
-                }),
-                last_accessed_at: zod.string().datetime({}).nullable(),
-                last_viewed_at: zod.string().datetime({}).nullable(),
-                is_shared: zod.boolean(),
-                deleted: zod.boolean(),
+                id: zod.number().optional(),
+                name: zod.string().nullish().describe('Name of the dashboard.'),
+                description: zod.string().optional().describe('Description of the dashboard.'),
+                pinned: zod.boolean().optional().describe('Whether the dashboard is pinned to the top of the list.'),
+                created_at: zod.string().datetime({}).optional(),
+                created_by: zod
+                    .object({
+                        id: zod.number().optional(),
+                        uuid: zod.string().optional(),
+                        distinct_id: zod
+                            .string()
+                            .max(dashboardsListResponseResultsItemCreatedByOneDistinctIdMax)
+                            .nullish(),
+                        first_name: zod
+                            .string()
+                            .max(dashboardsListResponseResultsItemCreatedByOneFirstNameMax)
+                            .optional(),
+                        last_name: zod
+                            .string()
+                            .max(dashboardsListResponseResultsItemCreatedByOneLastNameMax)
+                            .optional(),
+                        email: zod.string().email().max(dashboardsListResponseResultsItemCreatedByOneEmailMax),
+                        is_email_verified: zod.boolean().nullish(),
+                        hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                        role_at_organization: zod
+                            .union([
+                                zod
+                                    .enum([
+                                        'engineering',
+                                        'data',
+                                        'product',
+                                        'founder',
+                                        'leadership',
+                                        'marketing',
+                                        'sales',
+                                        'other',
+                                    ])
+                                    .describe(
+                                        '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                                    ),
+                                zod.enum(['']),
+                                zod.literal(null),
+                            ])
+                            .nullish(),
+                    })
+                    .optional(),
+                last_accessed_at: zod.string().datetime({}).nullish(),
+                last_viewed_at: zod.string().datetime({}).nullish(),
+                is_shared: zod.boolean().optional(),
+                deleted: zod.boolean().optional(),
                 creation_mode: zod
                     .enum(['default', 'template', 'duplicate', 'unlisted'])
                     .describe(
                         '* `default` - Default\n* `template` - Template\n* `duplicate` - Duplicate\n* `unlisted` - Unlisted (product-embedded)'
-                    ),
+                    )
+                    .optional(),
                 tags: zod.array(zod.unknown()).optional(),
                 restriction_level: zod
                     .union([zod.literal(21), zod.literal(37)])
                     .describe(
                         '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
                     )
+                    .optional()
                     .describe(
                         'Controls who can edit the dashboard.\n\n* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
                     ),
-                effective_restriction_level: zod.union([zod.literal(21), zod.literal(37)]),
-                effective_privilege_level: zod.union([zod.literal(21), zod.literal(37)]),
+                effective_restriction_level: zod.union([zod.literal(21), zod.literal(37)]).optional(),
+                effective_privilege_level: zod.union([zod.literal(21), zod.literal(37)]).optional(),
                 user_access_level: zod
                     .string()
-                    .nullable()
+                    .nullish()
                     .describe('The effective access level the user has for this object'),
-                access_control_version: zod.string(),
-                last_refresh: zod.string().datetime({}).nullable(),
-                team_id: zod.number(),
+                access_control_version: zod.string().optional(),
+                last_refresh: zod.string().datetime({}).nullish(),
+                team_id: zod.number().optional(),
             })
             .describe('Serializer mixin that handles tags for objects.')
     ),
@@ -201,8 +225,6 @@ export const DashboardsCreateBody = zod
         name: zod.string().max(dashboardsCreateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
-        last_accessed_at: zod.string().datetime({}).nullish(),
-        deleted: zod.boolean().optional(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
@@ -212,7 +234,10 @@ export const DashboardsCreateBody = zod
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
             )
             .optional(),
-        last_refresh: zod.string().datetime({}).nullish(),
+        quick_filter_ids: zod
+            .array(zod.string())
+            .nullish()
+            .describe('List of quick filter IDs associated with this dashboard'),
         use_template: zod
             .string()
             .optional()
@@ -222,7 +247,6 @@ export const DashboardsCreateBody = zod
             .boolean()
             .default(dashboardsCreateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
-        _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -236,12 +260,12 @@ export const DashboardsSharingListParams = zod.object({
 })
 
 export const DashboardsSharingListResponseItem = zod.object({
-    created_at: zod.string().datetime({}),
+    created_at: zod.string().datetime({}).optional(),
     enabled: zod.boolean().optional(),
-    access_token: zod.string().nullable(),
+    access_token: zod.string().nullish(),
     settings: zod.unknown().nullish(),
     password_required: zod.boolean().optional(),
-    share_passwords: zod.string(),
+    share_passwords: zod.string().optional(),
 })
 export const DashboardsSharingListResponse = zod.array(DashboardsSharingListResponseItem)
 
@@ -264,12 +288,12 @@ export const DashboardsSharingPasswordsCreateBody = zod.object({
 })
 
 export const DashboardsSharingPasswordsCreateResponse = zod.object({
-    created_at: zod.string().datetime({}),
+    created_at: zod.string().datetime({}).optional(),
     enabled: zod.boolean().optional(),
-    access_token: zod.string().nullable(),
+    access_token: zod.string().nullish(),
     settings: zod.unknown().nullish(),
     password_required: zod.boolean().optional(),
-    share_passwords: zod.string(),
+    share_passwords: zod.string().optional(),
 })
 
 /**
@@ -301,12 +325,12 @@ export const DashboardsSharingRefreshCreateBody = zod.object({
 })
 
 export const DashboardsSharingRefreshCreateResponse = zod.object({
-    created_at: zod.string().datetime({}),
+    created_at: zod.string().datetime({}).optional(),
     enabled: zod.boolean().optional(),
-    access_token: zod.string().nullable(),
+    access_token: zod.string().nullish(),
     settings: zod.unknown().nullish(),
     password_required: zod.boolean().optional(),
-    share_passwords: zod.string(),
+    share_passwords: zod.string().optional(),
 })
 
 export const DashboardsRetrieveParams = zod.object({
@@ -336,52 +360,46 @@ export const dashboardsRetrieveResponseDeleteInsightsDefault = false
 
 export const DashboardsRetrieveResponse = zod
     .object({
-        id: zod.number(),
+        id: zod.number().optional(),
         name: zod.string().max(dashboardsRetrieveResponseNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
-        created_at: zod.string().datetime({}),
-        created_by: zod.object({
-            id: zod.number(),
-            uuid: zod.string(),
-            distinct_id: zod.string().max(dashboardsRetrieveResponseCreatedByOneDistinctIdMax).nullish(),
-            first_name: zod.string().max(dashboardsRetrieveResponseCreatedByOneFirstNameMax).optional(),
-            last_name: zod.string().max(dashboardsRetrieveResponseCreatedByOneLastNameMax).optional(),
-            email: zod.string().email().max(dashboardsRetrieveResponseCreatedByOneEmailMax),
-            is_email_verified: zod.boolean().nullish(),
-            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-            role_at_organization: zod
-                .union([
-                    zod
-                        .enum([
-                            'engineering',
-                            'data',
-                            'product',
-                            'founder',
-                            'leadership',
-                            'marketing',
-                            'sales',
-                            'other',
-                        ])
-                        .describe(
-                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                        ),
-                    zod.enum(['']),
-                    zod.literal(null),
-                ])
-                .nullish(),
-        }),
-        last_accessed_at: zod.string().datetime({}).nullish(),
-        last_viewed_at: zod.string().datetime({}).nullable(),
-        is_shared: zod.boolean(),
-        deleted: zod.boolean().optional(),
-        creation_mode: zod
-            .enum(['default', 'template', 'duplicate', 'unlisted'])
-            .describe(
-                '* `default` - Default\n* `template` - Template\n* `duplicate` - Duplicate\n* `unlisted` - Unlisted (product-embedded)'
-            ),
-        filters: zod.record(zod.string(), zod.unknown()),
-        variables: zod.record(zod.string(), zod.unknown()).nullable(),
+        created_at: zod.string().datetime({}).optional(),
+        created_by: zod
+            .object({
+                id: zod.number().optional(),
+                uuid: zod.string().optional(),
+                distinct_id: zod.string().max(dashboardsRetrieveResponseCreatedByOneDistinctIdMax).nullish(),
+                first_name: zod.string().max(dashboardsRetrieveResponseCreatedByOneFirstNameMax).optional(),
+                last_name: zod.string().max(dashboardsRetrieveResponseCreatedByOneLastNameMax).optional(),
+                email: zod.string().email().max(dashboardsRetrieveResponseCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'other',
+                            ])
+                            .describe(
+                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.literal(null),
+                    ])
+                    .nullish(),
+            })
+            .optional(),
+        last_viewed_at: zod.string().datetime({}).nullish(),
+        filters: zod.record(zod.string(), zod.unknown()).optional(),
+        variables: zod.record(zod.string(), zod.unknown()).nullish(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
@@ -391,15 +409,13 @@ export const DashboardsRetrieveResponse = zod
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
             )
             .optional(),
-        effective_restriction_level: zod.union([zod.literal(21), zod.literal(37)]),
-        effective_privilege_level: zod.union([zod.literal(21), zod.literal(37)]),
-        user_access_level: zod.string().nullable().describe('The effective access level the user has for this object'),
-        access_control_version: zod.string(),
-        last_refresh: zod.string().datetime({}).nullish(),
-        persisted_filters: zod.record(zod.string(), zod.unknown()).nullable(),
-        persisted_variables: zod.record(zod.string(), zod.unknown()).nullable(),
-        team_id: zod.number(),
-        tiles: zod.array(zod.record(zod.string(), zod.unknown())).nullable(),
+        user_access_level: zod.string().nullish().describe('The effective access level the user has for this object'),
+        team_id: zod.number().optional(),
+        quick_filter_ids: zod
+            .array(zod.string())
+            .nullish()
+            .describe('List of quick filter IDs associated with this dashboard'),
+        tiles: zod.array(zod.record(zod.string(), zod.unknown())).nullish(),
         use_template: zod
             .string()
             .optional()
@@ -409,7 +425,6 @@ export const DashboardsRetrieveResponse = zod
             .boolean()
             .default(dashboardsRetrieveResponseDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
-        _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -435,8 +450,6 @@ export const DashboardsUpdateBody = zod
         name: zod.string().max(dashboardsUpdateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
-        last_accessed_at: zod.string().datetime({}).nullish(),
-        deleted: zod.boolean().optional(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
@@ -446,7 +459,10 @@ export const DashboardsUpdateBody = zod
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
             )
             .optional(),
-        last_refresh: zod.string().datetime({}).nullish(),
+        quick_filter_ids: zod
+            .array(zod.string())
+            .nullish()
+            .describe('List of quick filter IDs associated with this dashboard'),
         use_template: zod
             .string()
             .optional()
@@ -456,7 +472,6 @@ export const DashboardsUpdateBody = zod
             .boolean()
             .default(dashboardsUpdateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
-        _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -474,52 +489,46 @@ export const dashboardsUpdateResponseDeleteInsightsDefault = false
 
 export const DashboardsUpdateResponse = zod
     .object({
-        id: zod.number(),
+        id: zod.number().optional(),
         name: zod.string().max(dashboardsUpdateResponseNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
-        created_at: zod.string().datetime({}),
-        created_by: zod.object({
-            id: zod.number(),
-            uuid: zod.string(),
-            distinct_id: zod.string().max(dashboardsUpdateResponseCreatedByOneDistinctIdMax).nullish(),
-            first_name: zod.string().max(dashboardsUpdateResponseCreatedByOneFirstNameMax).optional(),
-            last_name: zod.string().max(dashboardsUpdateResponseCreatedByOneLastNameMax).optional(),
-            email: zod.string().email().max(dashboardsUpdateResponseCreatedByOneEmailMax),
-            is_email_verified: zod.boolean().nullish(),
-            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-            role_at_organization: zod
-                .union([
-                    zod
-                        .enum([
-                            'engineering',
-                            'data',
-                            'product',
-                            'founder',
-                            'leadership',
-                            'marketing',
-                            'sales',
-                            'other',
-                        ])
-                        .describe(
-                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                        ),
-                    zod.enum(['']),
-                    zod.literal(null),
-                ])
-                .nullish(),
-        }),
-        last_accessed_at: zod.string().datetime({}).nullish(),
-        last_viewed_at: zod.string().datetime({}).nullable(),
-        is_shared: zod.boolean(),
-        deleted: zod.boolean().optional(),
-        creation_mode: zod
-            .enum(['default', 'template', 'duplicate', 'unlisted'])
-            .describe(
-                '* `default` - Default\n* `template` - Template\n* `duplicate` - Duplicate\n* `unlisted` - Unlisted (product-embedded)'
-            ),
-        filters: zod.record(zod.string(), zod.unknown()),
-        variables: zod.record(zod.string(), zod.unknown()).nullable(),
+        created_at: zod.string().datetime({}).optional(),
+        created_by: zod
+            .object({
+                id: zod.number().optional(),
+                uuid: zod.string().optional(),
+                distinct_id: zod.string().max(dashboardsUpdateResponseCreatedByOneDistinctIdMax).nullish(),
+                first_name: zod.string().max(dashboardsUpdateResponseCreatedByOneFirstNameMax).optional(),
+                last_name: zod.string().max(dashboardsUpdateResponseCreatedByOneLastNameMax).optional(),
+                email: zod.string().email().max(dashboardsUpdateResponseCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'other',
+                            ])
+                            .describe(
+                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.literal(null),
+                    ])
+                    .nullish(),
+            })
+            .optional(),
+        last_viewed_at: zod.string().datetime({}).nullish(),
+        filters: zod.record(zod.string(), zod.unknown()).optional(),
+        variables: zod.record(zod.string(), zod.unknown()).nullish(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
@@ -529,15 +538,13 @@ export const DashboardsUpdateResponse = zod
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
             )
             .optional(),
-        effective_restriction_level: zod.union([zod.literal(21), zod.literal(37)]),
-        effective_privilege_level: zod.union([zod.literal(21), zod.literal(37)]),
-        user_access_level: zod.string().nullable().describe('The effective access level the user has for this object'),
-        access_control_version: zod.string(),
-        last_refresh: zod.string().datetime({}).nullish(),
-        persisted_filters: zod.record(zod.string(), zod.unknown()).nullable(),
-        persisted_variables: zod.record(zod.string(), zod.unknown()).nullable(),
-        team_id: zod.number(),
-        tiles: zod.array(zod.record(zod.string(), zod.unknown())).nullable(),
+        user_access_level: zod.string().nullish().describe('The effective access level the user has for this object'),
+        team_id: zod.number().optional(),
+        quick_filter_ids: zod
+            .array(zod.string())
+            .nullish()
+            .describe('List of quick filter IDs associated with this dashboard'),
+        tiles: zod.array(zod.record(zod.string(), zod.unknown())).nullish(),
         use_template: zod
             .string()
             .optional()
@@ -547,7 +554,6 @@ export const DashboardsUpdateResponse = zod
             .boolean()
             .default(dashboardsUpdateResponseDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
-        _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -573,8 +579,6 @@ export const DashboardsPartialUpdateBody = zod
         name: zod.string().max(dashboardsPartialUpdateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
-        last_accessed_at: zod.string().datetime({}).nullish(),
-        deleted: zod.boolean().optional(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
@@ -584,7 +588,10 @@ export const DashboardsPartialUpdateBody = zod
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
             )
             .optional(),
-        last_refresh: zod.string().datetime({}).nullish(),
+        quick_filter_ids: zod
+            .array(zod.string())
+            .nullish()
+            .describe('List of quick filter IDs associated with this dashboard'),
         use_template: zod
             .string()
             .optional()
@@ -594,7 +601,6 @@ export const DashboardsPartialUpdateBody = zod
             .boolean()
             .default(dashboardsPartialUpdateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
-        _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -612,52 +618,46 @@ export const dashboardsPartialUpdateResponseDeleteInsightsDefault = false
 
 export const DashboardsPartialUpdateResponse = zod
     .object({
-        id: zod.number(),
+        id: zod.number().optional(),
         name: zod.string().max(dashboardsPartialUpdateResponseNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
-        created_at: zod.string().datetime({}),
-        created_by: zod.object({
-            id: zod.number(),
-            uuid: zod.string(),
-            distinct_id: zod.string().max(dashboardsPartialUpdateResponseCreatedByOneDistinctIdMax).nullish(),
-            first_name: zod.string().max(dashboardsPartialUpdateResponseCreatedByOneFirstNameMax).optional(),
-            last_name: zod.string().max(dashboardsPartialUpdateResponseCreatedByOneLastNameMax).optional(),
-            email: zod.string().email().max(dashboardsPartialUpdateResponseCreatedByOneEmailMax),
-            is_email_verified: zod.boolean().nullish(),
-            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-            role_at_organization: zod
-                .union([
-                    zod
-                        .enum([
-                            'engineering',
-                            'data',
-                            'product',
-                            'founder',
-                            'leadership',
-                            'marketing',
-                            'sales',
-                            'other',
-                        ])
-                        .describe(
-                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                        ),
-                    zod.enum(['']),
-                    zod.literal(null),
-                ])
-                .nullish(),
-        }),
-        last_accessed_at: zod.string().datetime({}).nullish(),
-        last_viewed_at: zod.string().datetime({}).nullable(),
-        is_shared: zod.boolean(),
-        deleted: zod.boolean().optional(),
-        creation_mode: zod
-            .enum(['default', 'template', 'duplicate', 'unlisted'])
-            .describe(
-                '* `default` - Default\n* `template` - Template\n* `duplicate` - Duplicate\n* `unlisted` - Unlisted (product-embedded)'
-            ),
-        filters: zod.record(zod.string(), zod.unknown()),
-        variables: zod.record(zod.string(), zod.unknown()).nullable(),
+        created_at: zod.string().datetime({}).optional(),
+        created_by: zod
+            .object({
+                id: zod.number().optional(),
+                uuid: zod.string().optional(),
+                distinct_id: zod.string().max(dashboardsPartialUpdateResponseCreatedByOneDistinctIdMax).nullish(),
+                first_name: zod.string().max(dashboardsPartialUpdateResponseCreatedByOneFirstNameMax).optional(),
+                last_name: zod.string().max(dashboardsPartialUpdateResponseCreatedByOneLastNameMax).optional(),
+                email: zod.string().email().max(dashboardsPartialUpdateResponseCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'other',
+                            ])
+                            .describe(
+                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.literal(null),
+                    ])
+                    .nullish(),
+            })
+            .optional(),
+        last_viewed_at: zod.string().datetime({}).nullish(),
+        filters: zod.record(zod.string(), zod.unknown()).optional(),
+        variables: zod.record(zod.string(), zod.unknown()).nullish(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
@@ -667,15 +667,13 @@ export const DashboardsPartialUpdateResponse = zod
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
             )
             .optional(),
-        effective_restriction_level: zod.union([zod.literal(21), zod.literal(37)]),
-        effective_privilege_level: zod.union([zod.literal(21), zod.literal(37)]),
-        user_access_level: zod.string().nullable().describe('The effective access level the user has for this object'),
-        access_control_version: zod.string(),
-        last_refresh: zod.string().datetime({}).nullish(),
-        persisted_filters: zod.record(zod.string(), zod.unknown()).nullable(),
-        persisted_variables: zod.record(zod.string(), zod.unknown()).nullable(),
-        team_id: zod.number(),
-        tiles: zod.array(zod.record(zod.string(), zod.unknown())).nullable(),
+        user_access_level: zod.string().nullish().describe('The effective access level the user has for this object'),
+        team_id: zod.number().optional(),
+        quick_filter_ids: zod
+            .array(zod.string())
+            .nullish()
+            .describe('List of quick filter IDs associated with this dashboard'),
+        tiles: zod.array(zod.record(zod.string(), zod.unknown())).nullish(),
         use_template: zod
             .string()
             .optional()
@@ -685,7 +683,6 @@ export const DashboardsPartialUpdateResponse = zod
             .boolean()
             .default(dashboardsPartialUpdateResponseDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
-        _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -731,8 +728,6 @@ export const DashboardsAnalyzeRefreshResultCreateBody = zod
         name: zod.string().max(dashboardsAnalyzeRefreshResultCreateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
-        last_accessed_at: zod.string().datetime({}).nullish(),
-        deleted: zod.boolean().optional(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
@@ -742,7 +737,10 @@ export const DashboardsAnalyzeRefreshResultCreateBody = zod
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
             )
             .optional(),
-        last_refresh: zod.string().datetime({}).nullish(),
+        quick_filter_ids: zod
+            .array(zod.string())
+            .nullish()
+            .describe('List of quick filter IDs associated with this dashboard'),
         use_template: zod
             .string()
             .optional()
@@ -752,7 +750,6 @@ export const DashboardsAnalyzeRefreshResultCreateBody = zod
             .boolean()
             .default(dashboardsAnalyzeRefreshResultCreateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
-        _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -778,8 +775,6 @@ export const DashboardsMoveTilePartialUpdateBody = zod
         name: zod.string().max(dashboardsMoveTilePartialUpdateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
-        last_accessed_at: zod.string().datetime({}).nullish(),
-        deleted: zod.boolean().optional(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
@@ -789,7 +784,10 @@ export const DashboardsMoveTilePartialUpdateBody = zod
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
             )
             .optional(),
-        last_refresh: zod.string().datetime({}).nullish(),
+        quick_filter_ids: zod
+            .array(zod.string())
+            .nullish()
+            .describe('List of quick filter IDs associated with this dashboard'),
         use_template: zod
             .string()
             .optional()
@@ -799,7 +797,6 @@ export const DashboardsMoveTilePartialUpdateBody = zod
             .boolean()
             .default(dashboardsMoveTilePartialUpdateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
-        _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -837,52 +834,46 @@ export const dashboardsReorderTilesCreateResponseDeleteInsightsDefault = false
 
 export const DashboardsReorderTilesCreateResponse = zod
     .object({
-        id: zod.number(),
+        id: zod.number().optional(),
         name: zod.string().max(dashboardsReorderTilesCreateResponseNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
-        created_at: zod.string().datetime({}),
-        created_by: zod.object({
-            id: zod.number(),
-            uuid: zod.string(),
-            distinct_id: zod.string().max(dashboardsReorderTilesCreateResponseCreatedByOneDistinctIdMax).nullish(),
-            first_name: zod.string().max(dashboardsReorderTilesCreateResponseCreatedByOneFirstNameMax).optional(),
-            last_name: zod.string().max(dashboardsReorderTilesCreateResponseCreatedByOneLastNameMax).optional(),
-            email: zod.string().email().max(dashboardsReorderTilesCreateResponseCreatedByOneEmailMax),
-            is_email_verified: zod.boolean().nullish(),
-            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-            role_at_organization: zod
-                .union([
-                    zod
-                        .enum([
-                            'engineering',
-                            'data',
-                            'product',
-                            'founder',
-                            'leadership',
-                            'marketing',
-                            'sales',
-                            'other',
-                        ])
-                        .describe(
-                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                        ),
-                    zod.enum(['']),
-                    zod.literal(null),
-                ])
-                .nullish(),
-        }),
-        last_accessed_at: zod.string().datetime({}).nullish(),
-        last_viewed_at: zod.string().datetime({}).nullable(),
-        is_shared: zod.boolean(),
-        deleted: zod.boolean().optional(),
-        creation_mode: zod
-            .enum(['default', 'template', 'duplicate', 'unlisted'])
-            .describe(
-                '* `default` - Default\n* `template` - Template\n* `duplicate` - Duplicate\n* `unlisted` - Unlisted (product-embedded)'
-            ),
-        filters: zod.record(zod.string(), zod.unknown()),
-        variables: zod.record(zod.string(), zod.unknown()).nullable(),
+        created_at: zod.string().datetime({}).optional(),
+        created_by: zod
+            .object({
+                id: zod.number().optional(),
+                uuid: zod.string().optional(),
+                distinct_id: zod.string().max(dashboardsReorderTilesCreateResponseCreatedByOneDistinctIdMax).nullish(),
+                first_name: zod.string().max(dashboardsReorderTilesCreateResponseCreatedByOneFirstNameMax).optional(),
+                last_name: zod.string().max(dashboardsReorderTilesCreateResponseCreatedByOneLastNameMax).optional(),
+                email: zod.string().email().max(dashboardsReorderTilesCreateResponseCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'other',
+                            ])
+                            .describe(
+                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.literal(null),
+                    ])
+                    .nullish(),
+            })
+            .optional(),
+        last_viewed_at: zod.string().datetime({}).nullish(),
+        filters: zod.record(zod.string(), zod.unknown()).optional(),
+        variables: zod.record(zod.string(), zod.unknown()).nullish(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
@@ -892,15 +883,13 @@ export const DashboardsReorderTilesCreateResponse = zod
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
             )
             .optional(),
-        effective_restriction_level: zod.union([zod.literal(21), zod.literal(37)]),
-        effective_privilege_level: zod.union([zod.literal(21), zod.literal(37)]),
-        user_access_level: zod.string().nullable().describe('The effective access level the user has for this object'),
-        access_control_version: zod.string(),
-        last_refresh: zod.string().datetime({}).nullish(),
-        persisted_filters: zod.record(zod.string(), zod.unknown()).nullable(),
-        persisted_variables: zod.record(zod.string(), zod.unknown()).nullable(),
-        team_id: zod.number(),
-        tiles: zod.array(zod.record(zod.string(), zod.unknown())).nullable(),
+        user_access_level: zod.string().nullish().describe('The effective access level the user has for this object'),
+        team_id: zod.number().optional(),
+        quick_filter_ids: zod
+            .array(zod.string())
+            .nullish()
+            .describe('List of quick filter IDs associated with this dashboard'),
+        tiles: zod.array(zod.record(zod.string(), zod.unknown())).nullish(),
         use_template: zod
             .string()
             .optional()
@@ -910,7 +899,6 @@ export const DashboardsReorderTilesCreateResponse = zod
             .boolean()
             .default(dashboardsReorderTilesCreateResponseDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
-        _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -940,8 +928,6 @@ export const DashboardsSnapshotCreateBody = zod
         name: zod.string().max(dashboardsSnapshotCreateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
-        last_accessed_at: zod.string().datetime({}).nullish(),
-        deleted: zod.boolean().optional(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
@@ -951,7 +937,10 @@ export const DashboardsSnapshotCreateBody = zod
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
             )
             .optional(),
-        last_refresh: zod.string().datetime({}).nullish(),
+        quick_filter_ids: zod
+            .array(zod.string())
+            .nullish()
+            .describe('List of quick filter IDs associated with this dashboard'),
         use_template: zod
             .string()
             .optional()
@@ -961,7 +950,6 @@ export const DashboardsSnapshotCreateBody = zod
             .boolean()
             .default(dashboardsSnapshotCreateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
-        _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -1002,8 +990,6 @@ export const DashboardsCreateFromTemplateJsonCreateBody = zod
         name: zod.string().max(dashboardsCreateFromTemplateJsonCreateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
-        last_accessed_at: zod.string().datetime({}).nullish(),
-        deleted: zod.boolean().optional(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
@@ -1013,7 +999,10 @@ export const DashboardsCreateFromTemplateJsonCreateBody = zod
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
             )
             .optional(),
-        last_refresh: zod.string().datetime({}).nullish(),
+        quick_filter_ids: zod
+            .array(zod.string())
+            .nullish()
+            .describe('List of quick filter IDs associated with this dashboard'),
         use_template: zod
             .string()
             .optional()
@@ -1023,7 +1012,6 @@ export const DashboardsCreateFromTemplateJsonCreateBody = zod
             .boolean()
             .default(dashboardsCreateFromTemplateJsonCreateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
-        _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -1053,8 +1041,6 @@ export const DashboardsCreateUnlistedDashboardCreateBody = zod
         name: zod.string().max(dashboardsCreateUnlistedDashboardCreateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
-        last_accessed_at: zod.string().datetime({}).nullish(),
-        deleted: zod.boolean().optional(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
@@ -1064,7 +1050,10 @@ export const DashboardsCreateUnlistedDashboardCreateBody = zod
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
             )
             .optional(),
-        last_refresh: zod.string().datetime({}).nullish(),
+        quick_filter_ids: zod
+            .array(zod.string())
+            .nullish()
+            .describe('List of quick filter IDs associated with this dashboard'),
         use_template: zod
             .string()
             .optional()
@@ -1074,7 +1063,6 @@ export const DashboardsCreateUnlistedDashboardCreateBody = zod
             .boolean()
             .default(dashboardsCreateUnlistedDashboardCreateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
-        _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -1107,44 +1095,52 @@ export const DataColorThemesListResponse = zod.object({
     previous: zod.string().url().nullish(),
     results: zod.array(
         zod.object({
-            id: zod.number(),
+            id: zod.number().optional(),
             name: zod.string().max(dataColorThemesListResponseResultsItemNameMax),
             colors: zod.unknown().optional(),
-            is_global: zod.string(),
-            created_at: zod.string().datetime({}).nullable(),
-            created_by: zod.object({
-                id: zod.number(),
-                uuid: zod.string(),
-                distinct_id: zod
-                    .string()
-                    .max(dataColorThemesListResponseResultsItemCreatedByOneDistinctIdMax)
-                    .nullish(),
-                first_name: zod.string().max(dataColorThemesListResponseResultsItemCreatedByOneFirstNameMax).optional(),
-                last_name: zod.string().max(dataColorThemesListResponseResultsItemCreatedByOneLastNameMax).optional(),
-                email: zod.string().email().max(dataColorThemesListResponseResultsItemCreatedByOneEmailMax),
-                is_email_verified: zod.boolean().nullish(),
-                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-                role_at_organization: zod
-                    .union([
-                        zod
-                            .enum([
-                                'engineering',
-                                'data',
-                                'product',
-                                'founder',
-                                'leadership',
-                                'marketing',
-                                'sales',
-                                'other',
-                            ])
-                            .describe(
-                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                            ),
-                        zod.enum(['']),
-                        zod.literal(null),
-                    ])
-                    .nullish(),
-            }),
+            is_global: zod.string().optional(),
+            created_at: zod.string().datetime({}).nullish(),
+            created_by: zod
+                .object({
+                    id: zod.number().optional(),
+                    uuid: zod.string().optional(),
+                    distinct_id: zod
+                        .string()
+                        .max(dataColorThemesListResponseResultsItemCreatedByOneDistinctIdMax)
+                        .nullish(),
+                    first_name: zod
+                        .string()
+                        .max(dataColorThemesListResponseResultsItemCreatedByOneFirstNameMax)
+                        .optional(),
+                    last_name: zod
+                        .string()
+                        .max(dataColorThemesListResponseResultsItemCreatedByOneLastNameMax)
+                        .optional(),
+                    email: zod.string().email().max(dataColorThemesListResponseResultsItemCreatedByOneEmailMax),
+                    is_email_verified: zod.boolean().nullish(),
+                    hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                    role_at_organization: zod
+                        .union([
+                            zod
+                                .enum([
+                                    'engineering',
+                                    'data',
+                                    'product',
+                                    'founder',
+                                    'leadership',
+                                    'marketing',
+                                    'sales',
+                                    'other',
+                                ])
+                                .describe(
+                                    '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                                ),
+                            zod.enum(['']),
+                            zod.literal(null),
+                        ])
+                        .nullish(),
+                })
+                .optional(),
         })
     ),
 })
@@ -1184,32 +1180,43 @@ export const dataColorThemesRetrieveResponseCreatedByOneLastNameMax = 150
 export const dataColorThemesRetrieveResponseCreatedByOneEmailMax = 254
 
 export const DataColorThemesRetrieveResponse = zod.object({
-    id: zod.number(),
+    id: zod.number().optional(),
     name: zod.string().max(dataColorThemesRetrieveResponseNameMax),
     colors: zod.unknown().optional(),
-    is_global: zod.string(),
-    created_at: zod.string().datetime({}).nullable(),
-    created_by: zod.object({
-        id: zod.number(),
-        uuid: zod.string(),
-        distinct_id: zod.string().max(dataColorThemesRetrieveResponseCreatedByOneDistinctIdMax).nullish(),
-        first_name: zod.string().max(dataColorThemesRetrieveResponseCreatedByOneFirstNameMax).optional(),
-        last_name: zod.string().max(dataColorThemesRetrieveResponseCreatedByOneLastNameMax).optional(),
-        email: zod.string().email().max(dataColorThemesRetrieveResponseCreatedByOneEmailMax),
-        is_email_verified: zod.boolean().nullish(),
-        hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-        role_at_organization: zod
-            .union([
-                zod
-                    .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
-                    .describe(
-                        '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                    ),
-                zod.enum(['']),
-                zod.literal(null),
-            ])
-            .nullish(),
-    }),
+    is_global: zod.string().optional(),
+    created_at: zod.string().datetime({}).nullish(),
+    created_by: zod
+        .object({
+            id: zod.number().optional(),
+            uuid: zod.string().optional(),
+            distinct_id: zod.string().max(dataColorThemesRetrieveResponseCreatedByOneDistinctIdMax).nullish(),
+            first_name: zod.string().max(dataColorThemesRetrieveResponseCreatedByOneFirstNameMax).optional(),
+            last_name: zod.string().max(dataColorThemesRetrieveResponseCreatedByOneLastNameMax).optional(),
+            email: zod.string().email().max(dataColorThemesRetrieveResponseCreatedByOneEmailMax),
+            is_email_verified: zod.boolean().nullish(),
+            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+            role_at_organization: zod
+                .union([
+                    zod
+                        .enum([
+                            'engineering',
+                            'data',
+                            'product',
+                            'founder',
+                            'leadership',
+                            'marketing',
+                            'sales',
+                            'other',
+                        ])
+                        .describe(
+                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                        ),
+                    zod.enum(['']),
+                    zod.literal(null),
+                ])
+                .nullish(),
+        })
+        .optional(),
 })
 
 export const DataColorThemesUpdateParams = zod.object({
@@ -1239,32 +1246,43 @@ export const dataColorThemesUpdateResponseCreatedByOneLastNameMax = 150
 export const dataColorThemesUpdateResponseCreatedByOneEmailMax = 254
 
 export const DataColorThemesUpdateResponse = zod.object({
-    id: zod.number(),
+    id: zod.number().optional(),
     name: zod.string().max(dataColorThemesUpdateResponseNameMax),
     colors: zod.unknown().optional(),
-    is_global: zod.string(),
-    created_at: zod.string().datetime({}).nullable(),
-    created_by: zod.object({
-        id: zod.number(),
-        uuid: zod.string(),
-        distinct_id: zod.string().max(dataColorThemesUpdateResponseCreatedByOneDistinctIdMax).nullish(),
-        first_name: zod.string().max(dataColorThemesUpdateResponseCreatedByOneFirstNameMax).optional(),
-        last_name: zod.string().max(dataColorThemesUpdateResponseCreatedByOneLastNameMax).optional(),
-        email: zod.string().email().max(dataColorThemesUpdateResponseCreatedByOneEmailMax),
-        is_email_verified: zod.boolean().nullish(),
-        hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-        role_at_organization: zod
-            .union([
-                zod
-                    .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
-                    .describe(
-                        '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                    ),
-                zod.enum(['']),
-                zod.literal(null),
-            ])
-            .nullish(),
-    }),
+    is_global: zod.string().optional(),
+    created_at: zod.string().datetime({}).nullish(),
+    created_by: zod
+        .object({
+            id: zod.number().optional(),
+            uuid: zod.string().optional(),
+            distinct_id: zod.string().max(dataColorThemesUpdateResponseCreatedByOneDistinctIdMax).nullish(),
+            first_name: zod.string().max(dataColorThemesUpdateResponseCreatedByOneFirstNameMax).optional(),
+            last_name: zod.string().max(dataColorThemesUpdateResponseCreatedByOneLastNameMax).optional(),
+            email: zod.string().email().max(dataColorThemesUpdateResponseCreatedByOneEmailMax),
+            is_email_verified: zod.boolean().nullish(),
+            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+            role_at_organization: zod
+                .union([
+                    zod
+                        .enum([
+                            'engineering',
+                            'data',
+                            'product',
+                            'founder',
+                            'leadership',
+                            'marketing',
+                            'sales',
+                            'other',
+                        ])
+                        .describe(
+                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                        ),
+                    zod.enum(['']),
+                    zod.literal(null),
+                ])
+                .nullish(),
+        })
+        .optional(),
 })
 
 export const DataColorThemesPartialUpdateParams = zod.object({
@@ -1294,32 +1312,43 @@ export const dataColorThemesPartialUpdateResponseCreatedByOneLastNameMax = 150
 export const dataColorThemesPartialUpdateResponseCreatedByOneEmailMax = 254
 
 export const DataColorThemesPartialUpdateResponse = zod.object({
-    id: zod.number(),
+    id: zod.number().optional(),
     name: zod.string().max(dataColorThemesPartialUpdateResponseNameMax),
     colors: zod.unknown().optional(),
-    is_global: zod.string(),
-    created_at: zod.string().datetime({}).nullable(),
-    created_by: zod.object({
-        id: zod.number(),
-        uuid: zod.string(),
-        distinct_id: zod.string().max(dataColorThemesPartialUpdateResponseCreatedByOneDistinctIdMax).nullish(),
-        first_name: zod.string().max(dataColorThemesPartialUpdateResponseCreatedByOneFirstNameMax).optional(),
-        last_name: zod.string().max(dataColorThemesPartialUpdateResponseCreatedByOneLastNameMax).optional(),
-        email: zod.string().email().max(dataColorThemesPartialUpdateResponseCreatedByOneEmailMax),
-        is_email_verified: zod.boolean().nullish(),
-        hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-        role_at_organization: zod
-            .union([
-                zod
-                    .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
-                    .describe(
-                        '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                    ),
-                zod.enum(['']),
-                zod.literal(null),
-            ])
-            .nullish(),
-    }),
+    is_global: zod.string().optional(),
+    created_at: zod.string().datetime({}).nullish(),
+    created_by: zod
+        .object({
+            id: zod.number().optional(),
+            uuid: zod.string().optional(),
+            distinct_id: zod.string().max(dataColorThemesPartialUpdateResponseCreatedByOneDistinctIdMax).nullish(),
+            first_name: zod.string().max(dataColorThemesPartialUpdateResponseCreatedByOneFirstNameMax).optional(),
+            last_name: zod.string().max(dataColorThemesPartialUpdateResponseCreatedByOneLastNameMax).optional(),
+            email: zod.string().email().max(dataColorThemesPartialUpdateResponseCreatedByOneEmailMax),
+            is_email_verified: zod.boolean().nullish(),
+            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+            role_at_organization: zod
+                .union([
+                    zod
+                        .enum([
+                            'engineering',
+                            'data',
+                            'product',
+                            'founder',
+                            'leadership',
+                            'marketing',
+                            'sales',
+                            'other',
+                        ])
+                        .describe(
+                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                        ),
+                    zod.enum(['']),
+                    zod.literal(null),
+                ])
+                .nullish(),
+        })
+        .optional(),
 })
 
 export const DataColorThemesDestroyParams = zod.object({
