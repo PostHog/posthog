@@ -42,6 +42,8 @@ def _format_paddle_datetime_query_value(value: Any) -> str:
 
 
 def _get_paddle_session() -> requests.Session:
+    # Plain session with no retry adapter: errors fail fast so the caller
+    # can surface them immediately rather than silently retrying.
     return requests.Session()
 
 
