@@ -96,7 +96,14 @@ def create_initial_channel_type(
                 referring_domain=ast.Call(
                     name="toString", args=[ast.Field(chain=[*properties_path, "$initial_referring_domain"])]
                 ),
-                url=ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_url"])]),
+                # SDK sets $initial_current_url; fall back to $initial_url for backwards compatibility
+                url=ast.Call(
+                    name="coalesce",
+                    args=[
+                        ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_current_url"])]),
+                        ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_url"])]),
+                    ],
+                ),
                 hostname=ast.Call(
                     name="domain",
                     args=[ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_hostname"])])],
