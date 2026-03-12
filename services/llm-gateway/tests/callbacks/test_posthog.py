@@ -338,6 +338,77 @@ class TestPostHogCallback:
             assert call_kwargs["distinct_id"] == "openai-end-user-789"
             assert call_kwargs["properties"]["$ai_trace_id"] == "trace-id-from-metadata"
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("method_name", ["_on_success", "_on_failure"])
+    async def test_client_user_param_used_as_distinct_id(
+        self, callback: PostHogCallback, auth_user: AuthenticatedUser, method_name: str, mock_posthog_client: tuple
+    ) -> None:
+        """The OpenAI 'user' param should be used for analytics distinct_id
+        so server-side callers (e.g. temporal workflows) can attribute events
+        to the correct entity."""
+        _, mock_client = mock_posthog_client
+        kwargs = {
+            "user": "temporal-workflow-team-42",
+            "standard_logging_object": {
+                "model": "gpt-4.1-nano",
+                "custom_llm_provider": "openai",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "prompt_tokens": 10,
+                "completion_tokens": 20,
+                "response_time": 1.0,
+                "response_cost": 0.01,
+                "response": "Hi",
+            },
+            "litellm_params": {},
+        }
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="llma_summarization"),
+        ):
+            method = getattr(callback, method_name)
+            await method(kwargs, None, 0.0, 1.0, end_user_id="123")
+
+            call_kwargs = mock_client.capture.call_args.kwargs
+            assert call_kwargs["distinct_id"] == "temporal-workflow-team-42"
+
+    @pytest.mark.asyncio
+    async def test_client_user_param_ignored_for_oauth(
+        self, callback: PostHogCallback, mock_posthog_client: tuple
+    ) -> None:
+        """OAuth users should always use auth_user.distinct_id, even if
+        a client 'user' param is provided."""
+        _, mock_client = mock_posthog_client
+        oauth_user = AuthenticatedUser(
+            user_id=123,
+            team_id=456,
+            auth_method="oauth_access_token",
+            distinct_id="real-posthog-distinct-id",
+        )
+        kwargs = {
+            "user": "temporal-workflow-team-42",
+            "standard_logging_object": {
+                "model": "gpt-4",
+                "custom_llm_provider": "openai",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "prompt_tokens": 10,
+                "completion_tokens": 20,
+                "response_time": 1.0,
+                "response_cost": 0.01,
+                "response": "Hi",
+            },
+            "litellm_params": {},
+        }
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=oauth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="wizard"),
+        ):
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id="123")
+
+            call_kwargs = mock_client.capture.call_args.kwargs
+            assert call_kwargs["distinct_id"] == "real-posthog-distinct-id"
+
 
 class TestReplaceBinaryContent:
     @pytest.mark.parametrize(

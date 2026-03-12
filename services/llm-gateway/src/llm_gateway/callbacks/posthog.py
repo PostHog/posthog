@@ -81,6 +81,24 @@ class PostHogCallback(InstrumentedCallback):
         self._api_key = api_key
         self._host = host
 
+    def _resolve_distinct_id(self, kwargs: dict[str, Any], end_user_id: str | None) -> str:
+        """Resolve the distinct_id for analytics event capture.
+
+        Rate limiting uses auth_user.user_id (via _extract_end_user_id in base)
+        to prevent poisoning. For analytics, we prefer the client-provided
+        OpenAI 'user' param so server-side callers (e.g. temporal workflows)
+        can attribute events to the correct entity (team, workflow, etc.).
+        """
+        auth_user = get_auth_user()
+        if auth_user and auth_user.auth_method == "oauth_access_token":
+            return auth_user.distinct_id
+
+        # Prefer client-provided 'user' param for analytics attribution
+        if client_user := kwargs.get("user"):
+            return str(client_user)
+
+        return end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
+
     async def _on_success(
         self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float, end_user_id: str | None
     ) -> None:
@@ -92,10 +110,7 @@ class PostHogCallback(InstrumentedCallback):
         trace_id = (
             metadata.get("user_id") or str(uuid4())
         )  # anthropic stores user_id in metadata, but it actually refers to the trace_id rather than the user for claude code.
-        if auth_user and auth_user.auth_method == "oauth_access_token":
-            distinct_id = auth_user.distinct_id
-        else:
-            distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
+        distinct_id = self._resolve_distinct_id(kwargs, end_user_id)
         team_id = auth_user.team_id if auth_user and auth_user.team_id else None
 
         logger.debug(
@@ -178,10 +193,7 @@ class PostHogCallback(InstrumentedCallback):
         trace_id = (
             metadata.get("user_id") or str(uuid4())
         )  # anthropic stores user_id in metadata, but it actually refers to the trace_id rather than the user for claude code.
-        if auth_user and auth_user.auth_method == "oauth_access_token":
-            distinct_id = auth_user.distinct_id
-        else:
-            distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
+        distinct_id = self._resolve_distinct_id(kwargs, end_user_id)
         team_id = auth_user.team_id if auth_user and auth_user.team_id else None
 
         logger.debug(
