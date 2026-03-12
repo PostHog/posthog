@@ -1,26 +1,50 @@
 import { render } from '@testing-library/react'
 import { useState } from 'react'
 
-import { useMocks } from '~/mocks/jest'
 import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 
 import { resetCapturedCharts } from './chartjs-mock'
-import type { MockResponse } from './fixtures'
+import { setupInsightMocks, type MockResponse, type SetupMocksOptions } from './mocks'
 
 export const HARNESS_INSIGHT_KEY = 'test-harness'
 export const HARNESS_INSIGHT_ID = `new-AdHoc.InsightViz.${HARNESS_INSIGHT_KEY}`
 
-export interface InsightTestHarnessProps {
-    query: TrendsQuery
-    mockResponses: MockResponse[]
-    showFilters?: boolean
+export function buildTrendsQuery(overrides?: Partial<TrendsQuery>): TrendsQuery {
+    return {
+        kind: NodeKind.TrendsQuery,
+        series: [{ kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' }],
+        ...overrides,
+    }
 }
 
-function InsightTestHarnessInner({ query, showFilters = false }: InsightTestHarnessProps): JSX.Element {
+export interface InsightTestHarnessProps {
+    query?: TrendsQuery
+    showFilters?: boolean
+    mocks?: SetupMocksOptions
+    mockResponses?: MockResponse[]
+}
+
+export function generateData(label: string, points = 5): number[] {
+    let seed = 0
+    for (const ch of label) {
+        seed = ((seed << 5) - seed + ch.charCodeAt(0)) | 0
+    }
+    return Array.from({ length: points }, (_, i) => Math.abs((seed + i * 17) % 50) + 1)
+}
+
+function InsightTestHarnessInner({
+    query,
+    showFilters = false,
+}: {
+    query: TrendsQuery
+    showFilters: boolean
+}): JSX.Element {
     const [vizQuery, setVizQuery] = useState<InsightVizNode>({
         kind: NodeKind.InsightVizNode,
         source: query,
         showFilters,
+        showHeader: showFilters,
+        full: showFilters,
     })
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -29,26 +53,15 @@ function InsightTestHarnessInner({ query, showFilters = false }: InsightTestHarn
     return <InsightViz uniqueKey={HARNESS_INSIGHT_KEY} query={vizQuery} setQuery={setVizQuery} />
 }
 
-// eslint-disable-next-line react-hooks/rules-of-hooks -- useMocks is an MSW helper, not a React hook
-export function renderInsight(props: InsightTestHarnessProps): ReturnType<typeof render> {
+export function renderInsight(props: InsightTestHarnessProps = {}): ReturnType<typeof render> {
     resetCapturedCharts()
 
-    useMocks({
-        post: {
-            '/api/environments/:team_id/query': (req) => {
-                const body = (req as any).body as Record<string, any>
-                const queryBody = body?.query ?? body
-
-                for (const mock of props.mockResponses) {
-                    if (mock.match(queryBody)) {
-                        return [200, mock.response]
-                    }
-                }
-
-                return [200, { results: [] }]
-            },
-        },
+    setupInsightMocks({
+        ...props.mocks,
+        mockResponses: props.mockResponses,
     })
 
-    return render(<InsightTestHarnessInner {...props} />)
+    return render(
+        <InsightTestHarnessInner query={props.query ?? buildTrendsQuery()} showFilters={props.showFilters ?? false} />
+    )
 }

@@ -1,5 +1,32 @@
+export interface ChartDataset {
+    label?: string
+    data?: number[]
+    hidden?: boolean
+    count?: number
+    compare?: boolean
+    compare_label?: string
+    status?: string
+    borderColor?: string
+    backgroundColor?: string
+    yAxisID?: string
+}
+
+interface ChartScaleConfig {
+    display?: boolean
+    type?: string
+    stacked?: boolean
+    position?: string
+    ticks?: { callback?: (value: number | string, index: number, values: unknown[]) => string }
+}
+
+export interface ChartConfig {
+    type?: string
+    data?: { labels?: string[]; datasets?: ChartDataset[] }
+    options?: { scales?: Record<string, ChartScaleConfig>; [key: string]: unknown }
+}
+
 interface CapturedChart {
-    config: { type: string; data: { labels: string[]; datasets: any[] }; options: any }
+    config: ChartConfig
     canvas: HTMLCanvasElement
 }
 
@@ -13,13 +40,19 @@ export function getCapturedChartConfigs(): CapturedChart[] {
     return capturedCharts
 }
 
+const defaults: Record<string, unknown> = {
+    animation: false,
+    plugins: { legend: { labels: { generateLabels: () => [] } } },
+}
+
 class MockChart {
     static _instances: MockChart[] = []
-    config: any
+    static defaults = defaults
+    config: ChartConfig
     canvas: HTMLCanvasElement
-    data: any
+    data: ChartConfig['data']
 
-    constructor(canvas: HTMLCanvasElement, config: any) {
+    constructor(canvas: HTMLCanvasElement, config: ChartConfig) {
         this.canvas = canvas
         this.config = config
         this.data = config.data
@@ -47,12 +80,12 @@ class MockChart {
     toBase64Image(): string {
         return ''
     }
-    getElementsAtEventForMode(): any[] {
+    getElementsAtEventForMode(): unknown[] {
         return []
     }
 }
 
-function renderChartDOM(container: HTMLElement, config: any): void {
+function renderChartDOM(container: HTMLElement, config: ChartConfig): void {
     const wrapper = document.createElement('div')
     wrapper.setAttribute('data-attr', 'chart-data')
     wrapper.setAttribute('data-type', config.type ?? '')
@@ -91,9 +124,7 @@ function renderChartDOM(container: HTMLElement, config: any): void {
     container.appendChild(wrapper)
 }
 
-export const chartJsMock = {
-    Chart: MockChart,
-    defaults: { animation: false, plugins: { legend: { labels: { generateLabels: () => [] } } } },
-    registerables: [],
-    Tooltip: { positioners: {} as Record<string, any> },
-}
+export const Chart = MockChart
+export { defaults }
+export const registerables: unknown[] = []
+export const Tooltip = { positioners: {} as Record<string, unknown> }

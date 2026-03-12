@@ -1,3 +1,4 @@
+import type { ChartConfig, ChartDataset } from './chartjs-mock'
 import { getCapturedChartConfigs } from './chartjs-mock'
 
 interface DatasetAccessor {
@@ -25,16 +26,24 @@ interface AxesAccessor {
     y: AxisAccessor
 }
 
+interface ScaleConfig {
+    display?: boolean
+    type?: string
+    stacked?: boolean
+    position?: string
+    ticks?: { callback?: (value: number | string, index: number, values: unknown[]) => string }
+}
+
 interface ChartAccessor {
     datasets: DatasetAccessor[]
     labels: string[]
     axes: AxesAccessor
     type: string
-    options: any
-    config: any
+    options: ChartConfig['options']
+    config: ChartConfig
 }
 
-function makeAxisAccessor(scaleConfig: any): AxisAccessor {
+function makeAxisAccessor(scaleConfig: ScaleConfig | undefined): AxisAccessor {
     return {
         display: scaleConfig?.display ?? true,
         type: scaleConfig?.type ?? 'linear',
@@ -50,7 +59,7 @@ function makeAxisAccessor(scaleConfig: any): AxisAccessor {
     }
 }
 
-function makeDatasetAccessor(ds: any): DatasetAccessor {
+function makeDatasetAccessor(ds: ChartDataset): DatasetAccessor {
     const data: number[] = ds.data ?? []
 
     return new Proxy(
@@ -68,18 +77,22 @@ function makeDatasetAccessor(ds: any): DatasetAccessor {
                 if (typeof prop === 'string' && /^\d+$/.test(prop)) {
                     return data[Number(prop)]
                 }
-                return (target as any)[prop]
+                return target[prop as keyof typeof target]
             },
         }
     ) as DatasetAccessor
 }
 
-export function getChart(index = 0): ChartAccessor {
+export function getChart(index = -1): ChartAccessor {
     const charts = getCapturedChartConfigs()
-    if (index >= charts.length) {
-        throw new Error(`No chart at index ${index} (${charts.length} captured)`)
+    if (charts.length === 0) {
+        throw new Error('No charts captured')
     }
-    const { config } = charts[index]
+    const resolvedIndex = index < 0 ? charts.length + index : index
+    if (resolvedIndex < 0 || resolvedIndex >= charts.length) {
+        throw new Error(`No chart at index ${resolvedIndex} (${charts.length} captured)`)
+    }
+    const { config } = charts[resolvedIndex]
     const scales = config.options?.scales ?? {}
 
     const axes = new Proxy(
@@ -92,7 +105,7 @@ export function getChart(index = 0): ChartAccessor {
                 if (typeof prop === 'string' && !(prop in target)) {
                     return makeAxisAccessor(scales[prop])
                 }
-                return (target as any)[prop]
+                return target[prop as keyof typeof target]
             },
         }
     ) as AxesAccessor

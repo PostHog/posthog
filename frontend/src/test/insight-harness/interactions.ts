@@ -1,124 +1,112 @@
+import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { BreakdownFilter, EventsNode, NodeKind, TrendsFilter } from '~/queries/schema/schema-general'
-import { ChartDisplayType, InsightLogicProps } from '~/types'
+import { TrendsQuery } from '~/queries/schema/schema-general'
+import { InsightLogicProps } from '~/types'
 
 import { HARNESS_INSIGHT_ID } from './InsightHarness'
+
+const DEBOUNCE_TIMEOUT = 3000
 
 function getLogic(): ReturnType<typeof insightVizDataLogic.build> {
     const props: InsightLogicProps = { dashboardItemId: HARNESS_INSIGHT_ID }
     return insightVizDataLogic(props)
 }
 
+async function clickSelect(dataAttr: string, optionText: string | RegExp): Promise<void> {
+    const trigger = screen.getByTestId(dataAttr)
+    await userEvent.click(trigger)
+    const name = typeof optionText === 'string' ? new RegExp(`^${optionText}`) : optionText
+    const options = screen.getAllByRole('menuitem', { name })
+    await userEvent.click(options[0])
+}
+
+async function searchAndSelect(triggerAttr: string, searchText: string, resultAttr: string): Promise<void> {
+    await userEvent.click(screen.getByTestId(triggerAttr))
+
+    const searchInput = await screen.findByTestId('taxonomic-filter-searchfield')
+    await userEvent.clear(searchInput)
+    await userEvent.type(searchInput, searchText)
+
+    await waitFor(
+        () => {
+            const el = screen.getByTestId(resultAttr)
+            expect(el.textContent).toContain(searchText)
+        },
+        { timeout: DEBOUNCE_TIMEOUT }
+    )
+
+    await userEvent.click(screen.getByTestId(resultAttr))
+}
+
 export const series = {
-    set(events: Array<{ event: string; name?: string; math?: string }>): void {
-        getLogic().actions.updateQuerySource({
-            series: events.map((e) => ({
-                kind: NodeKind.EventsNode,
-                event: e.event,
-                name: e.name ?? e.event,
-                ...(e.math ? { math: e.math } : {}),
-            })),
-        })
+    async select(index: number, eventName: string): Promise<void> {
+        await searchAndSelect(`trend-element-subject-${index}`, eventName, 'prop-filter-events-0')
+
+        await waitFor(() => expect(getQuerySource().series[index].event).toBe(eventName), { timeout: DEBOUNCE_TIMEOUT })
     },
 
-    add(event: string, options?: { name?: string; math?: string }): void {
-        const current = getLogic().values.querySource
-        const existing = (current as any)?.series ?? []
-        getLogic().actions.updateQuerySource({
-            series: [
-                ...existing,
-                {
-                    kind: NodeKind.EventsNode,
-                    event,
-                    name: options?.name ?? event,
-                    ...(options?.math ? { math: options.math } : {}),
-                } as EventsNode,
-            ],
-        })
-    },
+    async add(eventName: string): Promise<void> {
+        const before = getQuerySource().series.length
+        await searchAndSelect('add-action-event-button', eventName, 'prop-filter-events-0')
 
-    remove(index: number): void {
-        const current = getLogic().values.querySource
-        const existing = [...((current as any)?.series ?? [])]
-        existing.splice(index, 1)
-        getLogic().actions.updateQuerySource({ series: existing })
+        await waitFor(
+            () => {
+                const src = getQuerySource()
+                expect(src.series).toHaveLength(before + 1)
+                expect(src.series[before].event).toBe(eventName)
+            },
+            { timeout: DEBOUNCE_TIMEOUT }
+        )
     },
 }
 
 export const breakdown = {
-    set(property: string, type: BreakdownFilter['breakdown_type'] = 'event'): void {
-        const current = (getLogic().values.querySource as any)?.breakdownFilter ?? {}
-        getLogic().actions.updateQuerySource({
-            breakdownFilter: { ...current, breakdown_type: type, breakdown: property },
-        })
-    },
+    async set(propertyName: string): Promise<void> {
+        await searchAndSelect('add-breakdown-button', propertyName, 'prop-filter-event_properties-0')
 
-    clear(): void {
-        getLogic().actions.updateQuerySource({
-            breakdownFilter: { breakdown: undefined, breakdown_type: undefined, breakdowns: undefined },
-        })
+        await waitFor(
+            () => {
+                const bf = getQuerySource().breakdownFilter
+                expect(bf?.breakdowns?.[0]?.property ?? bf?.breakdown).toBe(propertyName)
+            },
+            { timeout: DEBOUNCE_TIMEOUT }
+        )
     },
 }
 
 export const interval = {
-    set(value: 'minute' | 'hour' | 'day' | 'week' | 'month'): void {
-        getLogic().actions.updateQuerySource({ interval: value })
-    },
-}
+    async set(value: 'minute' | 'hour' | 'day' | 'week' | 'month'): Promise<void> {
+        await clickSelect('interval-filter', value)
 
-export const dateRange = {
-    set(from: string, to?: string | null): void {
-        const current = (getLogic().values.querySource as any)?.dateRange ?? {}
-        getLogic().actions.updateQuerySource({
-            dateRange: { ...current, date_from: from, date_to: to ?? undefined },
-        })
-    },
-
-    last(n: number, unit: 'h' | 'd' | 'w' | 'm' = 'd'): void {
-        getLogic().actions.updateQuerySource({
-            dateRange: { date_from: `-${n}${unit}`, date_to: undefined },
-        })
+        await waitFor(() => expect(getQuerySource().interval).toBe(value), { timeout: DEBOUNCE_TIMEOUT })
     },
 }
 
 export const display = {
-    set(type: ChartDisplayType): void {
-        const current = (getLogic().values.querySource as any)?.trendsFilter ?? {}
-        getLogic().actions.updateQuerySource({
-            trendsFilter: { ...current, display: type },
-        })
+    async set(optionText: string): Promise<void> {
+        await clickSelect('chart-filter', optionText)
+
+        await waitFor(() => expect(getQuerySource().trendsFilter?.display).toBeTruthy(), { timeout: DEBOUNCE_TIMEOUT })
     },
 }
 
 export const compare = {
-    enable(options?: { compareTo?: string }): void {
-        const current = (getLogic().values.querySource as any)?.compareFilter ?? {}
-        getLogic().actions.updateQuerySource({
-            compareFilter: { ...current, compare: true, compare_to: options?.compareTo },
-        })
+    async enable(): Promise<void> {
+        await clickSelect('compare-filter', 'Compare to previous period')
+
+        await waitFor(() => expect(getQuerySource().compareFilter?.compare).toBe(true), { timeout: DEBOUNCE_TIMEOUT })
     },
 
-    disable(): void {
-        getLogic().actions.updateQuerySource({
-            compareFilter: { compare: false },
-        })
-    },
-}
+    async disable(): Promise<void> {
+        await clickSelect('compare-filter', 'No comparison')
 
-export const filter = {
-    update(insightFilter: Partial<TrendsFilter>): void {
-        const current = (getLogic().values.querySource as any)?.trendsFilter ?? {}
-        getLogic().actions.updateQuerySource({
-            trendsFilter: { ...current, ...insightFilter },
-        })
-    },
-
-    setTestAccountsFilter(enabled: boolean): void {
-        getLogic().actions.updateQuerySource({ filterTestAccounts: enabled })
+        await waitFor(() => expect(getQuerySource().compareFilter?.compare).toBeFalsy(), { timeout: DEBOUNCE_TIMEOUT })
     },
 }
 
-export function getQuerySource(): any {
-    return getLogic().values.querySource
+export function getQuerySource(): TrendsQuery {
+    return getLogic().values.querySource as TrendsQuery
 }
