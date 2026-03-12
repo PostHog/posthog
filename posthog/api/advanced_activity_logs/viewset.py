@@ -111,7 +111,8 @@ class ActivityLogQueryParamsSerializer(serializers.Serializer):
         required=False,
         help_text='Filter by a single activity scope, e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment".',
     )
-    scopes = serializers.CharField(
+    scopes = serializers.ListField(
+        child=ActivityLogScopeField(),
         required=False,
         help_text='Filter by multiple activity scopes, comma-separated. Values must be valid ActivityScope enum values. E.g. "FeatureFlag,Insight".',
     )

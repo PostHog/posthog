@@ -20,6 +20,8 @@ const activityLogsList = (): ToolBase<
             path: `/api/projects/${projectId}/activity_log/`,
             query: {
                 item_id: params.item_id,
+                page: params.page,
+                page_size: params.page_size,
                 scope: params.scope,
                 scopes: params.scopes,
                 user: params.user,

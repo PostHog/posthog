@@ -125,6 +125,24 @@ function stripReadOnlyFromRequired(obj) {
 }
 
 /**
+ * Strip `minLength` from string schemas that have an `enum` constraint.
+ * drf-spectacular adds `minLength: 1` to ChoiceField (which inherits CharField),
+ * but it's redundant when `enum` already constrains the values.
+ * Orval translates this into `.min(1).enum([...])` which is incorrect for enums.
+ */
+function stripEnumMinLength(obj) {
+    if (!obj || typeof obj !== 'object') {
+        return
+    }
+    if (obj.enum && obj.minLength !== undefined) {
+        delete obj.minLength
+    }
+    for (const value of Object.values(obj)) {
+        stripEnumMinLength(value)
+    }
+}
+
+/**
  * Strip `format: "uuid"` from all string properties in the schema.
  * Zod 4's `.uuid()` enforces strict RFC 4122 version/variant bits,
  * which some PostHog UUID generation paths don't satisfy.
@@ -220,6 +238,7 @@ for (const def of definitions) {
     stripUuidFormat(filtered)
     stripReadOnlyFromRequired(filtered)
     applyNestedExclusions(filtered, schemaExclusions)
+    stripEnumMinLength(filtered)
     const pathCount = Object.keys(filtered.paths).length
     const schemaCount = Object.keys(filtered.components.schemas).length
 
