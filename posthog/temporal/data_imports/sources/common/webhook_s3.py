@@ -4,6 +4,7 @@ from collections.abc import AsyncGenerator, Callable
 from typing import Optional
 
 from django.conf import settings
+from django.db.models import Q
 
 import orjson
 import pyarrow as pa
@@ -53,15 +54,16 @@ class WebhookSourceManager:
         if not schema.is_incremental or not schema.initial_sync_complete or self._inputs.reset_pipeline:
             return False
 
+        schema_id_str = str(self._inputs.schema_id)
+
         has_webhook_function = await database_sync_to_async_pool(
             HogFunction.objects.filter(
+                Q(inputs__contains={"schema_id": {"value": schema_id_str}})
+                | Q(inputs__schema_ids__value__contains=[schema_id_str]),
                 team_id=self._inputs.team_id,
                 type="warehouse_source_webhook",
                 enabled=True,
                 deleted=False,
-                inputs__contains={
-                    "schema_id": {"value": str(self._inputs.schema_id)},
-                },
             ).exists
         )()
 
