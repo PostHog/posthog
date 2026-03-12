@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 
 from django.db.models import Q, QuerySet
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import BasePagination, CursorPagination, PageNumberPagination
@@ -91,12 +92,36 @@ class ActivityLogPagination(BasePagination):
             return self.cursor_pagination.get_paginated_response(data)
 
 
+class ActivityLogQueryParamsSerializer(serializers.Serializer):
+    user = serializers.UUIDField(
+        required=False,
+        help_text="Filter by user UUID who performed the action.",
+    )
+    scope = serializers.CharField(
+        required=False,
+        help_text='Filter by a single activity scope, e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment".',
+    )
+    scopes = serializers.CharField(
+        required=False,
+        help_text='Filter by multiple scopes, comma-separated. E.g. "FeatureFlag,Insight".',
+    )
+    item_id = serializers.CharField(
+        required=False,
+        help_text="Filter by the ID of the affected resource.",
+    )
+
+
+@extend_schema(tags=["activity_logs"])
 class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins.ListModelMixin):
     scope_object = "activity_log"
     queryset = ActivityLog.objects.all()
     serializer_class = ActivityLogSerializer
     pagination_class = ActivityLogPagination
     filter_rewrite_rules = {"project_id": "team_id"}
+
+    @extend_schema(parameters=[ActivityLogQueryParamsSerializer])
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
 
     def _should_skip_parents_filter(self) -> bool:
         """

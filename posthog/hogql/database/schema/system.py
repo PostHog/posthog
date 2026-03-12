@@ -344,6 +344,22 @@ notebooks: PostgresTable = PostgresTable(
     },
 )
 
+activity_logs: PostgresTable = PostgresTable(
+    name="activity_logs",
+    postgres_table_name="posthog_activitylog",
+    access_scope="activity_log",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "user_id": IntegerDatabaseField(name="user_id"),
+        "activity": StringDatabaseField(name="activity"),
+        "scope": StringDatabaseField(name="scope"),
+        "item_id": StringDatabaseField(name="item_id"),
+        "detail": StringJSONDatabaseField(name="detail"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+    },
+)
+
 error_tracking_issues: PostgresTable = PostgresTable(
     name="error_tracking_issues",
     postgres_table_name="posthog_errortrackingissue",
@@ -363,6 +379,7 @@ class SystemTables(TableNode):
     name: str = "system"
     children: dict[str, TableNode] = {
         "actions": TableNode(name="actions", table=actions),
+        "activity_logs": TableNode(name="activity_logs", table=activity_logs),
         "cohort_calculation_history": TableNode(name="cohort_calculation_history", table=cohort_calculation_history),
         "cohorts": TableNode(name="cohorts", table=cohorts),
         "dashboards": TableNode(name="dashboards", table=dashboards),
