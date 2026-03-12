@@ -104,7 +104,7 @@ test.describe('Workflows', () => {
             // The new category button should be visible
             await expect(page.locator('[data-attr="new-optout-category"]')).toBeVisible()
             // Section headings should be present
-            await expect(page.getByText('Message categories')).toBeVisible()
+            await expect(page.getByRole('heading', { name: 'Message categories' })).toBeVisible()
             await expect(page.getByText('Marketing opt-out list')).toBeVisible()
 
             await expect(page).toHaveScreenshot('opt-outs-tab.png', { fullPage: true })
