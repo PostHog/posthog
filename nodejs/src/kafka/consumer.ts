@@ -786,6 +786,7 @@ export class KafkaConsumer {
                 // Once we are stopping, make sure that we wait for all background work to finish
                 await Promise.all(this.backgroundTask.map((t) => t.promise))
             } catch (error) {
+                logger.error('🔁', 'main_loop_error', { error: String(error) })
                 throw error
             } finally {
                 logger.info('🔁', 'main_loop_stopping')
