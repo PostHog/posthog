@@ -635,7 +635,7 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
 // ============================================================
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn test_checkpoint_with_pre_cancelled_token_fails() {
+async fn test_checkpoint_with_pre_cancelled_token_skips() {
     let test_topic = "test_pre_cancelled";
     let test_partition = 0;
     let tmp_store_dir = TempDir::new().unwrap();
@@ -682,17 +682,14 @@ async fn test_checkpoint_with_pre_cancelled_token_fails() {
     let cancel_token = CancellationToken::new();
     cancel_token.cancel();
 
-    // Checkpoint should fail with cancellation error
+    // Pre-cancelled checkpoint should be cooperatively skipped
     let result = worker
         .checkpoint_partition_cancellable(&store, None, Some(&cancel_token), Some("test"))
         .await;
 
-    assert!(result.is_err(), "Checkpoint should fail when pre-cancelled");
-    let err_msg = result.unwrap_err().to_string();
     assert!(
-        err_msg.to_lowercase().contains("cancelled"),
-        "Error should mention cancellation: {}",
-        err_msg
+        matches!(result, Ok(None)),
+        "Checkpoint should be skipped when pre-cancelled, got: {result:?}"
     );
 
     // Verify no files were uploaded
