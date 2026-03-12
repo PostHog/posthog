@@ -6,6 +6,7 @@ import { seriesColor } from 'lib/charts/utils/theme'
 import type {
     AxisConfig,
     BaseChartProps,
+    DataPoint,
     GoalLine,
     HogChartTheme,
     Series,
@@ -47,16 +48,16 @@ export function crosshairConfig(enabled: boolean, crosshairColor: string | null 
     }
 }
 
-export function incompleteSegment(
-    dataLength: number,
-    count: number
+/** Returns a Chart.js segment config that dashes any data points with `status: 'incomplete'`. */
+export function statusSegment(
+    dataPoints: DataPoint[]
 ): { borderDash: (ctx: { p1DataIndex: number }) => number[] | undefined } | undefined {
-    if (count <= 0) {
+    if (!dataPoints.some((d) => d.status === 'incomplete')) {
         return undefined
     }
-    const startIndex = dataLength - count
     return {
-        borderDash: (ctx: { p1DataIndex: number }) => (ctx.p1DataIndex >= startIndex ? [10, 10] : undefined),
+        borderDash: (ctx: { p1DataIndex: number }) =>
+            dataPoints[ctx.p1DataIndex]?.status === 'incomplete' ? [10, 10] : undefined,
     }
 }
 

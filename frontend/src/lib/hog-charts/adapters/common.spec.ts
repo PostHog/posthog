@@ -1,12 +1,12 @@
-import type { HogChartTheme, Series } from '../types'
+import type { DataPoint, HogChartTheme, Series } from '../types'
 import {
     buildGoalLineAnnotations,
     buildScaleConfig,
     buildTooltipContext,
     buildYAxes,
     crosshairConfig,
-    incompleteSegment,
     resolvePointRadius,
+    statusSegment,
 } from './common'
 
 jest.mock('lib/charts/utils/theme', () => ({
@@ -74,18 +74,29 @@ describe('hog-charts adapters/common', () => {
         })
     })
 
-    describe('incompleteSegment', () => {
-        it('returns undefined when count is 0 or negative', () => {
-            expect(incompleteSegment(10, 0)).toBeUndefined()
-            expect(incompleteSegment(10, -1)).toBeUndefined()
+    describe('statusSegment', () => {
+        function dp(x: string, y: number, status?: 'incomplete'): DataPoint {
+            return status ? { x, y, status } : { x, y }
+        }
+
+        it('returns undefined when no points have incomplete status', () => {
+            expect(statusSegment([dp('a', 1), dp('b', 2)])).toBeUndefined()
+            expect(statusSegment([])).toBeUndefined()
         })
 
-        it('returns dashes for points at or after the start index, undefined before', () => {
-            const segment = incompleteSegment(10, 3)
-            // startIndex = 10 - 3 = 7
-            expect(segment!.borderDash({ p1DataIndex: 7 })).toEqual([10, 10])
-            expect(segment!.borderDash({ p1DataIndex: 9 })).toEqual([10, 10])
-            expect(segment!.borderDash({ p1DataIndex: 6 })).toBeUndefined()
+        it('dashes points with incomplete status, not others', () => {
+            const segment = statusSegment([dp('a', 1), dp('b', 2), dp('c', 3, 'incomplete'), dp('d', 4, 'incomplete')])
+            expect(segment!.borderDash({ p1DataIndex: 0 })).toBeUndefined()
+            expect(segment!.borderDash({ p1DataIndex: 1 })).toBeUndefined()
+            expect(segment!.borderDash({ p1DataIndex: 2 })).toEqual([10, 10])
+            expect(segment!.borderDash({ p1DataIndex: 3 })).toEqual([10, 10])
+        })
+
+        it('handles non-trailing incomplete points', () => {
+            const segment = statusSegment([dp('a', 1, 'incomplete'), dp('b', 2), dp('c', 3)])
+            expect(segment!.borderDash({ p1DataIndex: 0 })).toEqual([10, 10])
+            expect(segment!.borderDash({ p1DataIndex: 1 })).toBeUndefined()
+            expect(segment!.borderDash({ p1DataIndex: 2 })).toBeUndefined()
         })
     })
 
@@ -125,14 +136,14 @@ describe('hog-charts adapters/common', () => {
 
         it('returns single y axis for object or undefined yAxis', () => {
             for (const yAxis of [{ label: 'Count' }, undefined]) {
-                const result = buildYAxes({ data: [], labels: [], yAxis }, theme)
+                const result = buildYAxes({ series: [], yAxis }, theme)
                 expect(result).toHaveProperty('y')
                 expect(result).not.toHaveProperty('y1')
             }
         })
 
         it('returns dual y axes with correct positions for tuple yAxis', () => {
-            const result = buildYAxes({ data: [], labels: [], yAxis: [{}, {}] as [object, object] }, theme) as {
+            const result = buildYAxes({ series: [], yAxis: [{}, {}] as [object, object] }, theme) as {
                 y: { position: string }
                 y1: { position: string; grid: { display: boolean } }
             }

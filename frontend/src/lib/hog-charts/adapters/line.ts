@@ -10,26 +10,34 @@ import {
     buildScaleConfig,
     buildYAxes,
     crosshairConfig,
-    incompleteSegment,
     resolveColor,
     resolveLineStyle,
     resolvePointRadius,
+    statusSegment,
 } from './common'
+
+/** Regex check for ISO date prefix like `2024-01-15` or `2024-01-15T...`. */
+function looksLikeDate(value: string | number): boolean {
+    return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)
+}
 
 export function buildLineConfig(props: LineProps): ChartConfiguration<'line'> {
     const theme = mergeTheme(props.theme)
-    const maxSeries = props.maxSeries ?? Infinity
-    const seriesData = props.data.slice(0, maxSeries)
-    const isArea = props.isArea ?? false
-    const fillOpacity = props.fillOpacity ?? 0.5
-    const stacked = props.stacked ?? false
-    const percentStacked = props.percentStacked ?? false
-    const incompletePoints = props.incompletePoints ?? 0
+    const opts_ = props.options ?? {}
+    const maxSeries = opts_.maxSeries ?? Infinity
+    const seriesData = props.series.slice(0, maxSeries)
+    const isArea = opts_.isArea ?? false
+    const fillOpacity = opts_.fillOpacity ?? 0.5
+    const stacked = opts_.stacked ?? false
+    const percentStacked = opts_.percentStacked ?? false
     const highlightIdx = props.highlightSeriesIndex ?? null
 
+    // Derive labels from x-values of the first series
+    const labels = (props.series[0]?.data ?? []).map((d) => String(d.x))
+
     const datasets: ChartDataset<'line'>[] = seriesData.map((s, i) => {
-        let data = s.data
-        if (props.cumulative) {
+        let data = s.data.map((d) => d.y)
+        if (opts_.cumulative) {
             let sum = 0
             data = data.map((v) => (sum += v))
         }
@@ -51,7 +59,7 @@ export function buildLineConfig(props: LineProps): ChartConfiguration<'line'> {
         }
 
         const borderDash = resolveLineStyle(s.lineStyle)
-        const segment = incompleteSegment(data.length, incompletePoints)
+        const segment = statusSegment(s.data)
 
         let yAxisID = 'y'
         if (s.yAxisPosition === 'right') {
@@ -63,12 +71,12 @@ export function buildLineConfig(props: LineProps): ChartConfiguration<'line'> {
             data,
             borderColor: isDimmed ? `${color}55` : color,
             backgroundColor: bgColor,
-            borderWidth: props.lineWidth ?? 2,
+            borderWidth: opts_.lineWidth ?? 2,
             borderDash,
-            pointRadius: resolvePointRadius(props.showDots, data.length),
+            pointRadius: resolvePointRadius(opts_.showDots, data.length),
             pointHoverRadius: 5,
-            tension: props.interpolation === 'smooth' ? 0.35 : 0,
-            stepped: props.interpolation === 'step' ? 'before' : false,
+            tension: opts_.interpolation === 'smooth' ? 0.35 : 0,
+            stepped: opts_.interpolation === 'step' ? 'before' : false,
             hidden: s.hidden,
             fill: shouldFill ? (stacked || percentStacked ? 'origin' : true) : false,
             yAxisID,
@@ -92,10 +100,10 @@ export function buildLineConfig(props: LineProps): ChartConfiguration<'line'> {
         for (const cs of props.compare) {
             datasets.push({
                 label: `${cs.label} (${cs.compareLabel})`,
-                data: cs.data,
+                data: cs.data.map((d) => d.y),
                 borderColor: `${resolveColor(cs, datasets.length, theme)}60`,
                 backgroundColor: 'transparent',
-                borderWidth: (props.lineWidth ?? 2) - 0.5,
+                borderWidth: (opts_.lineWidth ?? 2) - 0.5,
                 borderDash: [6, 4],
                 pointRadius: 0,
                 hidden: cs.hidden,
@@ -106,28 +114,30 @@ export function buildLineConfig(props: LineProps): ChartConfiguration<'line'> {
     }
 
     const yAxes = buildYAxes(props, theme)
-    const opts = baseOptions(props, theme, seriesData)
+    const baseOpts = baseOptions(props, theme, seriesData)
 
-    const showCrosshair = props.crosshair ?? true
+    const showCrosshair = opts_.crosshair ?? true
     const crosshairPluginConfig = crosshairConfig(showCrosshair, theme.axisColor)
 
     const xScale = buildScaleConfig(props.xAxis, theme)
-    const tickCallback =
-        props.xAxisTickCallback ??
-        (props.dates?.length
-            ? createXAxisTickCallback({
-                  interval: props.interval ?? 'day',
-                  allDays: props.dates,
-                  timezone: props.timezone ?? 'UTC',
-              })
-            : undefined)
+
+    // Auto-detect dates from x-values and set up tick formatting
+    const firstX = props.series[0]?.data?.[0]?.x
+    const hasDates = firstX !== undefined && looksLikeDate(firstX)
+    const tickCallback = hasDates
+        ? createXAxisTickCallback({
+              interval: props.interval ?? 'day',
+              allDays: (props.series[0]?.data ?? []).map((d) => d.x),
+              timezone: 'UTC',
+          })
+        : undefined
     if (tickCallback) {
         const ticks = (xScale as Record<string, Record<string, unknown>>).ticks
         ticks.callback = tickCallback
         ticks.maxRotation = 0
         ticks.autoSkipPadding = 20
     }
-    if (props.hideXAxis) {
+    if (opts_.hideXAxis) {
         ;(xScale as Record<string, unknown>).display = false
     }
     if (stacked || percentStacked) {
@@ -139,7 +149,7 @@ export function buildLineConfig(props: LineProps): ChartConfiguration<'line'> {
             ;(yAxes as Record<string, Record<string, unknown>>)[key].stacked = true
         }
     }
-    if (props.hideYAxis) {
+    if (opts_.hideYAxis) {
         for (const key of Object.keys(yAxes)) {
             ;(yAxes as Record<string, Record<string, unknown>>)[key].display = false
         }
@@ -147,21 +157,21 @@ export function buildLineConfig(props: LineProps): ChartConfiguration<'line'> {
 
     const chartConfig = {
         type: 'line' as const,
-        data: { labels: props.labels, datasets },
+        data: { labels, datasets },
         options: {
-            ...opts,
+            ...baseOpts,
             scales: {
                 x: xScale as never,
                 ...yAxes,
             },
             plugins: {
-                ...opts.plugins,
+                ...baseOpts.plugins,
                 ...crosshairPluginConfig,
                 annotation: {
                     annotations: buildGoalLineAnnotations(props.goalLines, theme),
                 },
                 stacked100: percentStacked ? { enable: true, precision: 1 } : undefined,
-                datalabels: props.showValues ? { display: true, color: theme.axisColor } : { display: false },
+                datalabels: opts_.showValues ? { display: true, color: theme.axisColor } : { display: false },
             },
         } as never,
     }
@@ -171,7 +181,10 @@ export function buildLineConfig(props: LineProps): ChartConfiguration<'line'> {
 export function buildAreaConfig(props: AreaProps): ChartConfiguration<'line'> {
     return buildLineConfig({
         ...props,
-        isArea: true,
-        fillOpacity: props.fillOpacity ?? 0.1,
+        options: {
+            ...props.options,
+            isArea: true,
+            fillOpacity: props.options?.fillOpacity ?? 0.1,
+        },
     })
 }
