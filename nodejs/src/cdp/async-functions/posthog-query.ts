@@ -7,10 +7,10 @@ import { registerAsyncFunction } from '../async-function-registry'
 registerAsyncFunction('postHogQuery', {
     execute: async (args, context, result) => {
         const [opts] = args as [Record<string, any> | undefined]
-        const query = opts?.query
+        const endpointName = opts?.endpoint_name
 
-        if (!query || typeof query !== 'string') {
-            throw new Error("[HogFunction] - postHogQuery call missing 'query' property")
+        if (!endpointName || typeof endpointName !== 'string') {
+            throw new Error("[HogFunction] - postHogQuery call missing 'endpoint_name' property")
         }
 
         const team = await context.teamManager.getTeam(context.invocation.teamId)
@@ -20,9 +20,9 @@ registerAsyncFunction('postHogQuery', {
 
         result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
             type: 'fetch',
-            url: `${context.siteUrl}/api/environments/${context.invocation.teamId}/query/`,
+            url: `${context.siteUrl}/api/environments/${context.invocation.teamId}/endpoints/${endpointName}/run`,
             method: 'POST',
-            body: JSON.stringify({ query: { kind: 'HogQLQuery', query } }),
+            body: JSON.stringify({}),
             headers: {
                 'Content-Type': 'application/json',
                 Authorization: `Bearer ${team.api_token}`,
@@ -52,7 +52,7 @@ registerAsyncFunction('postHogQuery', {
                     ['$identify', 250],
                 ],
                 hasMore: false,
-                hogql: args[0]?.query ?? '',
+                endpoint_name: args[0]?.endpoint_name ?? '',
             },
         }
     },

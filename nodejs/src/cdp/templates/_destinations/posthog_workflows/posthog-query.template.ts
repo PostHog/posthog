@@ -11,11 +11,11 @@ export const template: HogFunctionTemplate = {
     category: ['Custom', 'Analytics'],
     code_language: 'hog',
     code: `
-if (empty(inputs.query)) {
-  throw Error('Query is required')
+if (empty(inputs.endpoint_name)) {
+  throw Error('Endpoint is required')
 }
 
-let response := postHogQuery({'query': inputs.query})
+let response := postHogQuery({'endpoint_name': inputs.endpoint_name})
 
 if (response.status != 200) {
   throw Error(f'Query failed with status: {response.status}')
@@ -25,14 +25,14 @@ return response.body
 `,
     inputs_schema: [
         {
-            key: 'query',
-            type: 'hogql',
-            label: 'HogQL query',
+            key: 'endpoint_name',
+            type: 'endpoint',
+            label: 'Endpoint',
             secret: false,
             required: true,
             templating: false,
-            default: 'SELECT event, count() AS count FROM events GROUP BY event ORDER BY count DESC LIMIT 10',
-            description: 'The HogQL query to run against PostHog data.',
+            default: '',
+            description: 'The name of the endpoint to query.',
         },
     ],
 }
