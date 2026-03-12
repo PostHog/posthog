@@ -11,7 +11,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     category=["Data warehouse"],
     code_language="hog",
     code="""\
-if(request.method != 'POST') {
+if (request.method != 'POST') {
   return {
     'httpResponse': {
       'status': 405,
@@ -86,7 +86,7 @@ if (empty(objectType)) {
   }
 }
 
-let schemaId := inputs.schema_mapping?[objectType]
+let schemaId := inputs.schema_mapping?.[objectType]
 
 if (empty(schemaId)) {
   return {
