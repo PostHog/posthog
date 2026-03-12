@@ -37,16 +37,8 @@ import { renderTableCount } from '../editorSceneLogic'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
 
 export const QueryDatabase = (): JSX.Element => {
-    const {
-        expandedFolders,
-        expandedSearchFolders,
-        searchTerm,
-        joinsByFieldName,
-        editingDraftId,
-        connectionId,
-        displayedTreeData,
-        defaultExpandedRootIds,
-    } = useValues(queryDatabaseLogic)
+    const { searchTerm, joinsByFieldName, editingDraftId, displayedTreeData, expandedItemIds } =
+        useValues(queryDatabaseLogic)
     const {
         setExpandedFolders,
         toggleFolderOpen,
@@ -188,15 +180,7 @@ export const QueryDatabase = (): JSX.Element => {
         <LemonTree
             ref={treeRef}
             data={displayedTreeData}
-            expandedItemIds={
-                connectionId
-                    ? searchTerm
-                        ? [...defaultExpandedRootIds, ...expandedSearchFolders]
-                        : [...defaultExpandedRootIds, ...expandedFolders]
-                    : searchTerm
-                      ? expandedSearchFolders
-                      : expandedFolders
-            }
+            expandedItemIds={expandedItemIds}
             onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
             onFolderClick={(folder, isExpanded) => {
                 if (folder) {
@@ -623,20 +607,7 @@ export const QueryDatabase = (): JSX.Element => {
                 if (item.record?.type === 'column') {
                     return getFieldTypeIcon(item.record.field?.type)
                 }
-                return (
-                    <TreeNodeDisplayIcon
-                        item={item}
-                        expandedItemIds={
-                            connectionId
-                                ? searchTerm
-                                    ? ['search-tables', ...expandedSearchFolders]
-                                    : ['tables', ...expandedFolders]
-                                : searchTerm
-                                  ? expandedSearchFolders
-                                  : expandedFolders
-                        }
-                    />
-                )
+                return <TreeNodeDisplayIcon item={item} expandedItemIds={expandedItemIds} />
             }}
         />
     )

@@ -1763,6 +1763,12 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 ]
             },
         ],
+        activeExpandedFolderIds: [
+            (s) => [s.searchTerm, s.expandedSearchFolders, s.expandedFolders],
+            (searchTerm: string, expandedSearchFolders: string[], expandedFolders: string[]): string[] => {
+                return searchTerm ? expandedSearchFolders : expandedFolders
+            },
+        ],
         defaultExpandedRootIds: [
             (s) => [s.connectionId, s.displayedTreeData],
             (connectionId: string | null, displayedTreeData: TreeDataItem[]): string[] => {
@@ -1771,6 +1777,12 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 }
 
                 return displayedTreeData.map((item) => item.id)
+            },
+        ],
+        expandedItemIds: [
+            (s) => [s.activeExpandedFolderIds, s.defaultExpandedRootIds],
+            (activeExpandedFolderIds: string[], defaultExpandedRootIds: string[]): string[] => {
+                return Array.from(new Set([...defaultExpandedRootIds, ...activeExpandedFolderIds]))
             },
         ],
         joinsByFieldName: [
