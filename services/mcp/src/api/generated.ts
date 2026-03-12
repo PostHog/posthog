@@ -28466,6 +28466,28 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
+    export type ActivityLogListParams = {
+    /**
+     * Filter by the ID of the affected resource.
+     * @minLength 1
+     */
+    item_id?: string;
+    /**
+     * Filter by a single activity scope, e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment".
+     * @minLength 1
+     */
+    scope?: string;
+    /**
+     * Filter by multiple scopes, comma-separated. E.g. "FeatureFlag,Insight".
+     * @minLength 1
+     */
+    scopes?: string;
+    /**
+     * Filter by user UUID who performed the action.
+     */
+    user?: string;
+    };
+
     export type AlertsListParams = {
     /**
      * Number of results to return per page.
