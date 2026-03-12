@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"image/color"
 	"log"
 	"os/exec"
 	"strings"
@@ -13,8 +14,28 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/posthog/posthog/phrocs/internal/expand"
 	"github.com/posthog/posthog/phrocs/internal/process"
 )
+
+// A single row in the sidebar — either a top-level process or an indented
+// child contributed by an expander (e.g. a docker compose container)
+type sidebarRow struct {
+	proc  *process.Process // always set; for children this is the parent process
+	child *expand.Child    // non-nil for child sub-rows
+}
+
+// outputLines returns the lines to display for this row. Child rows with
+// their own output show that; otherwise fall back to the parent process.
+func (r sidebarRow) outputLines() []string {
+	if r.child != nil && r.child.Output != nil {
+		return r.child.Output()
+	}
+	if r.proc != nil {
+		return r.proc.Lines()
+	}
+	return nil
+}
 
 type focusPane int
 
@@ -27,9 +48,13 @@ type Model struct {
 	mgr   *process.Manager
 	procs []*process.Process
 
-	// Currently selected process in the sidebar
+	// Generic sidebar expansion
+	expanders []expand.Expander
+	rows      []sidebarRow // computed from procs + expander children
+
+	// Currently selected row in the sidebar
 	cursor int
-	// First visible process row in the sidebar
+	// First visible row in the sidebar
 	sidebarOffset int
 
 	// Tracks which pane has focus (sidebar or output)
@@ -60,7 +85,7 @@ type Model struct {
 }
 
 // Pass a non-nil logger to enable debug logging (key inputs, selection changes, etc.)
-func New(mgr *process.Manager, mouseScrollSpeed int, logger *log.Logger) Model {
+func New(mgr *process.Manager, expanders []expand.Expander, mouseScrollSpeed int, logger *log.Logger) Model {
 	keys := defaultKeyMap()
 
 	// Enable docker key only if lazydocker is installed
@@ -68,9 +93,12 @@ func New(mgr *process.Manager, mouseScrollSpeed int, logger *log.Logger) Model {
 		keys.Docker.SetEnabled(true)
 	}
 
-	return Model{
+	procs := mgr.Procs()
+
+	m := Model{
 		mgr:              mgr,
-		procs:            mgr.Procs(),
+		procs:            procs,
+		expanders:        expanders,
 		cursor:           0,
 		sidebarOffset:    0,
 		focusedPane:      focusSidebar,
@@ -81,6 +109,8 @@ func New(mgr *process.Manager, mouseScrollSpeed int, logger *log.Logger) Model {
 		spinner:          spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 		log:              logger,
 	}
+	m.rebuildRows()
+	return m
 }
 
 func (m Model) dbg(format string, args ...any) {
@@ -91,11 +121,38 @@ func (m Model) dbg(format string, args ...any) {
 
 // Note: Processes are started externally before p.Run()
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(tea.RequestBackgroundColor, m.spinner.Tick)
+	cmds := []tea.Cmd{tea.RequestBackgroundColor, m.spinner.Tick}
+	for _, exp := range m.expanders {
+		if cmd := exp.Init(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
+
+	// Forward every message to expanders so they can handle their own types
+	for _, exp := range m.expanders {
+		result := exp.HandleMsg(msg)
+		if result.Cmd != nil {
+			cmds = append(cmds, result.Cmd)
+		}
+		if result.RebuildRows {
+			m.rebuildRows()
+			m.ensureSidebarCursorVisible()
+		}
+		if result.RefreshOutput && m.ready {
+			row := m.activeRow()
+			if row != nil && row.child != nil {
+				m.viewport.SetContent(m.buildContent())
+				if m.atBottom && !m.copyMode {
+					m.viewport.GotoBottom()
+				}
+			}
+		}
+	}
 
 	switch msg := msg.(type) {
 
@@ -116,11 +173,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case process.OutputMsg:
 		// Rebuild viewport content only for the active process to keep rendering cheap
-		if m.ready && m.activeProc() != nil && m.activeProc().Name == msg.Name {
-			m.viewport.SetContent(m.buildContent())
-			// Don't auto-scroll while the user is selecting text in copy mode
-			if m.atBottom && !m.copyMode {
-				m.viewport.GotoBottom()
+		if m.ready {
+			row := m.activeRow()
+			if row != nil && row.child == nil && row.proc != nil && row.proc.Name == msg.Name {
+				m.viewport.SetContent(m.buildContent())
+				// Don't auto-scroll while the user is selecting text in copy mode
+				if m.atBottom && !m.copyMode {
+					m.viewport.GotoBottom()
+				}
 			}
 		}
 
@@ -128,9 +188,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dbg("status: proc=%s status=%s", msg.Name, msg.Status)
 		// Re-fetch the process slice so status icons refresh on next render
 		m.procs = m.mgr.Procs()
-		if m.cursor >= len(m.procs) {
-			m.cursor = max(0, len(m.procs)-1)
-		}
+		m.rebuildRows()
 		m.ensureSidebarCursorVisible()
 
 	case tea.KeyPressMsg:
@@ -142,6 +200,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.copyMode {
 			switch {
 			case key.Matches(msg, m.keys.Quit):
+				m.stopExpanders()
 				m.mgr.StopAll()
 				return m, tea.Quit
 
@@ -201,6 +260,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch {
 		case key.Matches(msg, m.keys.Quit):
+			m.stopExpanders()
 			m.mgr.StopAll()
 			return m, tea.Quit
 
@@ -220,18 +280,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, m.keys.NextProc):
-			// When sidebar focused: navigate to next process
-			// When output focused: scroll down
 			if m.focusedPane == focusSidebar {
-				if m.cursor < len(m.procs)-1 {
+				if m.cursor < len(m.rows)-1 {
 					prev := m.cursor
 					m.cursor++
 					m.ensureSidebarCursorVisible()
-					m.dbg("proc selected: %d→%d (%s)", prev, m.cursor, m.procs[m.cursor].Name)
+					m.dbg("row selected: %d→%d", prev, m.cursor)
 					m = m.loadActiveProc()
 				}
 			} else {
-				// Forward to viewport for scrolling
 				var vpCmd tea.Cmd
 				m.viewport, vpCmd = m.viewport.Update(msg)
 				cmds = append(cmds, vpCmd)
@@ -239,18 +296,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, m.keys.PrevProc):
-			// When sidebar focused: navigate to previous process
-			// When output focused: scroll up
 			if m.focusedPane == focusSidebar {
 				if m.cursor > 0 {
 					prev := m.cursor
 					m.cursor--
 					m.ensureSidebarCursorVisible()
-					m.dbg("proc selected: %d→%d (%s)", prev, m.cursor, m.procs[m.cursor].Name)
+					m.dbg("row selected: %d→%d", prev, m.cursor)
 					m = m.loadActiveProc()
 				}
 			} else {
-				// Forward to viewport for scrolling
 				var vpCmd tea.Cmd
 				m.viewport, vpCmd = m.viewport.Update(msg)
 				cmds = append(cmds, vpCmd)
@@ -279,20 +333,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.ExecProcess(exec.Command("lazydocker"), nil)
 
 		case key.Matches(msg, m.keys.CopyMode):
-			// Enter copy mode
 			m.copyMode = true
-			// Expand the viewport to full width before recording the cursor
-			// position so YOffset stays meaningful after the resize
 			m = m.applySize()
-			// Place cursor at top of visible area; anchor is unset until
-			// the user presses 'c' again to mark the selection start
 			m.copyCursor = m.viewport.YOffset()
 			m.copyAnchor = -1
 			m.applyCopyStyle()
 			m.dbg("copy mode: enter at line %d", m.copyCursor)
 
 		default:
-			// Forward remaining key events to the viewport for scrolling
 			var vpCmd tea.Cmd
 			m.viewport, vpCmd = m.viewport.Update(msg)
 			cmds = append(cmds, vpCmd)
@@ -300,37 +348,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.MouseClickMsg:
-		// Handle left clicks in the sidebar to select a process
 		if msg.Button == tea.MouseLeft {
-			// Sidebar is from x=0 to x=sidebarWidth-1, content starts at y=headerHeight
 			if msg.X < sidebarWidth && msg.Y >= headerHeight {
 				m.focusedPane = focusSidebar
 				m.dbg("focus: mouse click → sidebar")
 				row := msg.Y - headerHeight
 				idx := m.sidebarOffset + row
-				if idx >= 0 && idx < len(m.procs) {
+				if idx >= 0 && idx < len(m.rows) {
 					prev := m.cursor
 					m.cursor = idx
 					m.ensureSidebarCursorVisible()
 					if prev != m.cursor {
-						m.dbg("proc selected (mouse): %d→%d (%s)", prev, m.cursor, m.procs[m.cursor].Name)
+						m.dbg("row selected (mouse): %d→%d", prev, m.cursor)
 						m = m.loadActiveProc()
 					}
 					return m, nil
 				}
 			} else if msg.X >= sidebarWidth {
-				// Clicked in output pane
 				m.focusedPane = focusOutput
 				m.dbg("focus: mouse click → output")
 			}
 		}
-		// Forward clicks outside sidebar to viewport
 		var vpCmd tea.Cmd
 		m.viewport, vpCmd = m.viewport.Update(msg)
 		cmds = append(cmds, vpCmd)
 
 	case tea.MouseMsg:
-		// Forward other mouse events (wheel, motion, etc.) to viewport
 		var vpCmd tea.Cmd
 		m.viewport, vpCmd = m.viewport.Update(msg)
 		cmds = append(cmds, vpCmd)
@@ -360,8 +403,6 @@ func (m Model) View() tea.View {
 		m.renderFooter(),
 	))
 	v.AltScreen = true
-	// Disable mouse capture in copy mode so the terminal handles native text
-	// selection within the expanded output pane
 	if m.copyMode {
 		v.MouseMode = tea.MouseModeNone
 	} else {
@@ -370,11 +411,44 @@ func (m Model) View() tea.View {
 	return v
 }
 
-func (m Model) activeProc() *process.Process {
-	if len(m.procs) == 0 || m.cursor >= len(m.procs) {
+func (m *Model) stopExpanders() {
+	for _, exp := range m.expanders {
+		exp.StopAll()
+	}
+}
+
+func (m Model) activeRow() *sidebarRow {
+	if len(m.rows) == 0 || m.cursor >= len(m.rows) {
 		return nil
 	}
-	return m.procs[m.cursor]
+	return &m.rows[m.cursor]
+}
+
+func (m Model) activeProc() *process.Process {
+	r := m.activeRow()
+	if r == nil {
+		return nil
+	}
+	return r.proc
+}
+
+// Rebuilds the sidebar row list from processes + expander children
+func (m *Model) rebuildRows() {
+	var rows []sidebarRow
+	for _, p := range m.procs {
+		rows = append(rows, sidebarRow{proc: p})
+		// Ask each expander for children under this process
+		for _, exp := range m.expanders {
+			for _, ch := range exp.ChildrenFor(p.Name) {
+				ch := ch // capture
+				rows = append(rows, sidebarRow{proc: p, child: &ch})
+			}
+		}
+	}
+	m.rows = rows
+	if m.cursor >= len(m.rows) {
+		m.cursor = max(0, len(m.rows)-1)
+	}
 }
 
 // Recalculates viewport/sidebar dimensions whenever the terminal resizes
@@ -388,14 +462,10 @@ func (m Model) applySize() Model {
 	if contentH < 1 {
 		contentH = 1
 	}
-	// In copy mode the sidebar is hidden, so the viewport fills the full width.
-	// The PTY width is always the sidebar-adjusted value so processes don't
-	// receive a spurious resize when the user enters or exits copy mode
 	ptyW := m.width - sidebarWidth
 	if ptyW < 1 {
 		ptyW = 1
 	}
-	// Reduce the viewport width by 3 chars to account for the borders
 	vpW := ptyW - 3
 	if m.copyMode {
 		vpW = m.width - 3
@@ -413,9 +483,6 @@ func (m Model) applySize() Model {
 
 	m.ensureSidebarCursorVisible()
 
-	// Keep every pty window size in sync with the sidebar-adjusted width so
-	// programs that detect terminal width (webpack, Django dev-server) reflow
-	// correctly, and are not affected by copy mode toggling
 	for _, p := range m.procs {
 		p.Resize(uint16(ptyW), uint16(contentH))
 	}
@@ -423,8 +490,7 @@ func (m Model) applySize() Model {
 	return m
 }
 
-// Reloads the viewport with the selected process's output
-// Note that switching processes always exits copy mode
+// Reloads the viewport with the selected row's output
 func (m Model) loadActiveProc() Model {
 	if !m.ready {
 		return m
@@ -438,18 +504,15 @@ func (m Model) loadActiveProc() Model {
 	return m
 }
 
-// Joins the active process's output lines into a viewport content string
+// Joins the active row's output lines into a viewport content string
 func (m Model) buildContent() string {
-	p := m.activeProc()
-	if p == nil {
+	r := m.activeRow()
+	if r == nil {
 		return ""
 	}
-	return strings.Join(p.Lines(), "\n")
+	return strings.Join(r.outputLines(), "\n")
 }
 
-// Updates the viewport's StyleLineFunc to highlight the
-// current copy selection. Must be called after any change to copyMode,
-// copyAnchor, or copyCursor.
 func (m *Model) applyCopyStyle() {
 	if !m.copyMode {
 		m.viewport.StyleLineFunc = nil
@@ -457,8 +520,6 @@ func (m *Model) applyCopyStyle() {
 	}
 	cursor := m.copyCursor
 
-	// When no anchor is set, only the cursor line is highlighted so the user
-	// can navigate to the desired start position before committing.
 	if m.copyAnchor < 0 {
 		m.viewport.StyleLineFunc = func(idx int) lipgloss.Style {
 			if idx == cursor {
@@ -482,7 +543,6 @@ func (m *Model) applyCopyStyle() {
 	}
 }
 
-// Scrolls the viewport so copyCursor is visible.
 func (m *Model) ensureCopyCursorVisible() {
 	h := m.viewport.Height()
 	if m.copyCursor < m.viewport.YOffset() {
@@ -492,14 +552,12 @@ func (m *Model) ensureCopyCursorVisible() {
 	}
 }
 
-// Returns the plain text of the selected line range, with
-// ANSI escape codes stripped so the clipboard gets clean text.
 func (m Model) copySelectedText() string {
-	p := m.activeProc()
-	if p == nil {
+	r := m.activeRow()
+	if r == nil {
 		return ""
 	}
-	lines := p.Lines()
+	lines := r.outputLines()
 	anchor := m.copyAnchor
 	if anchor < 0 {
 		anchor = m.copyCursor
@@ -565,48 +623,58 @@ func (m Model) renderSidebar() string {
 		h = 1
 	}
 
-	// Usable column width inside the border
 	innerW := sidebarWidth - 1
 
 	start := m.sidebarOffset
 	if start < 0 {
 		start = 0
 	}
-	if start > max(0, len(m.procs)-1) {
-		start = max(0, len(m.procs)-1)
+	if start > max(0, len(m.rows)-1) {
+		start = max(0, len(m.rows)-1)
 	}
-	end := min(len(m.procs), start+h)
+	end := min(len(m.rows), start+h)
 
 	var rows []string
 	for i := start; i < end; i++ {
-		p := m.procs[i]
-		iconChar := statusIconChar(p.Status())
-		// For pending processes, swap in the current spinner frame. Strip ANSI
-		// from spinner.View() so the raw character can be safely composed inside
-		// the surrounding lipgloss styles without breaking their background colour.
-		if p.Status() == process.StatusPending {
-			iconChar = ansi.Strip(m.spinner.View())
+		row := m.rows[i]
+
+		var iconChar string
+		var iconColor color.Color
+		var name string
+		indent := 0
+
+		if row.child != nil {
+			// Expander child sub-row: indented
+			iconChar = row.child.IconChar
+			iconColor = row.child.IconColor
+			name = row.child.Name
+			indent = 2
+		} else {
+			// Regular process row
+			p := row.proc
+			iconChar = statusIconChar(p.Status())
+			if p.Status() == process.StatusPending {
+				iconChar = ansi.Strip(m.spinner.View())
+			}
+			iconColor = statusIconColor(p.Status())
+			name = p.Name
 		}
-		iconColor := statusIconColor(p.Status())
 
-		// Reserve 3 visible chars for left-padding (1) + icon (1) + space (1)
-		name := truncate(p.Name, innerW-3)
+		// Reserve visible chars: left-padding (1) + indent + icon (1) + space (1)
+		name = truncate(name, innerW-3-indent)
 
-		// Render icon and name as *separate* lipgloss segments that share the
-		// same background colour. This avoids embedding pre-rendered ANSI
-		// strings (which carry their own \033[m reset) inside an outer style,
-		// which would silently terminate the background highlight after the icon
-		// and make the active-row cursor invisible.
 		if i == m.cursor {
 			base := lipgloss.NewStyle().Background(colorDarkGrey).Bold(true)
-			iconSeg := base.PaddingLeft(1).Foreground(iconColor).Render(iconChar)
-			// Width covers the remaining columns: innerW minus the 2 chars
-			// already consumed by PaddingLeft + icon
-			nameSeg := base.Foreground(colorWhite).Width(innerW - 2).Render(" " + name)
+			iconSeg := base.PaddingLeft(1+indent).Foreground(iconColor).Render(iconChar)
+			nameSeg := base.Foreground(colorWhite).Width(innerW - 2 - indent).Render(" " + name)
 			rows = append(rows, iconSeg+nameSeg)
 		} else {
-			iconSeg := lipgloss.NewStyle().PaddingLeft(1).Foreground(iconColor).Render(iconChar)
-			nameSeg := lipgloss.NewStyle().Foreground(colorGrey).Width(innerW - 2).Render(" " + name)
+			iconSeg := lipgloss.NewStyle().PaddingLeft(1+indent).Foreground(iconColor).Render(iconChar)
+			var nameColor color.Color = colorGrey
+			if row.child != nil {
+				nameColor = colorChildGrey
+			}
+			nameSeg := lipgloss.NewStyle().Foreground(nameColor).Width(innerW - 2 - indent).Render(" " + name)
 			rows = append(rows, iconSeg+nameSeg)
 		}
 	}
@@ -637,16 +705,14 @@ func (m Model) sidebarHeight() int {
 	return h
 }
 
-// Keep selected process row within the visible
-// sidebar window by adjusting sidebarOffset
 func (m *Model) ensureSidebarCursorVisible() {
 	h := m.sidebarHeight()
-	if len(m.procs) <= h {
+	if len(m.rows) <= h {
 		m.sidebarOffset = 0
 		return
 	}
 
-	maxOffset := len(m.procs) - h
+	maxOffset := len(m.rows) - h
 	if m.sidebarOffset > maxOffset {
 		m.sidebarOffset = maxOffset
 	}

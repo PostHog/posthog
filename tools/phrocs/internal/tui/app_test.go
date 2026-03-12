@@ -26,7 +26,7 @@ func testManager(names ...string) *process.Manager {
 func readyModel(t *testing.T, names ...string) Model {
 	t.Helper()
 	mgr := testManager(names...)
-	m := New(mgr, 3, nil)
+	m := New(mgr, nil, 3, nil)
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	return next.(Model)
 }
@@ -48,7 +48,7 @@ func update(m Model, msg tea.Msg) Model {
 
 func TestNew_initialState(t *testing.T) {
 	mgr := testManager("backend", "frontend")
-	m := New(mgr, 3, nil)
+	m := New(mgr, nil, 3, nil)
 	if m.ready {
 		t.Error("model should not be ready before WindowSizeMsg")
 	}
@@ -68,7 +68,7 @@ func TestNew_initialState(t *testing.T) {
 
 func TestUpdate_windowSizeSetsReady(t *testing.T) {
 	mgr := testManager("backend")
-	m := New(mgr, 3, nil)
+	m := New(mgr, nil, 3, nil)
 	m = update(m, tea.WindowSizeMsg{Width: 120, Height: 40})
 	if !m.ready {
 		t.Error("model should be ready after WindowSizeMsg")
@@ -291,7 +291,7 @@ func TestStatusMsg_updatesCursor(t *testing.T) {
 	// Manager internals, so just verify that a StatusMsg for a known proc
 	// doesn't panic and doesn't move the cursor unnecessarily.
 	m = update(m, process.StatusMsg{Name: "backend", Status: process.StatusRunning})
-	if m.cursor > len(m.procs)-1 {
+	if m.cursor > len(m.rows)-1 {
 		t.Errorf("cursor %d out of bounds after StatusMsg", m.cursor)
 	}
 }

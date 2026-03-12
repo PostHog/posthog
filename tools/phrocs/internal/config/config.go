@@ -16,6 +16,7 @@ type ProcConfig struct {
 	AskSkip      bool              `yaml:"ask_skip"`
 	Env          map[string]string `yaml:"env"`
 	ReadyPattern string            `yaml:"ready_pattern"`
+	NoPTY        bool              `yaml:"-"` // set programmatically, forces pipe mode
 }
 
 // Reports whether the process should start automatically

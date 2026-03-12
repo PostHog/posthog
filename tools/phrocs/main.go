@@ -22,6 +22,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/posthog/posthog/phrocs/internal/config"
+	"github.com/posthog/posthog/phrocs/internal/docker"
+	"github.com/posthog/posthog/phrocs/internal/expand"
 	"github.com/posthog/posthog/phrocs/internal/process"
 	"github.com/posthog/posthog/phrocs/internal/tui"
 )
@@ -61,16 +63,38 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Build sidebar expanders. Currently just docker compose, but the
+	// interface is generic so other providers can be added later.
+	var expanders []expand.Expander
+
+	// Detect compose processes, strip their log-follow tails (phrocs takes
+	// over per-container log streaming), and register the compose expander.
+	shells := make(map[string]string, len(cfg.Procs))
+	for name, proc := range cfg.Procs {
+		shells[name] = proc.Shell
+	}
+	composeExp := docker.NewComposeExpander(shells, cfg.Scrollback, logger)
+	if composeExp.HasComposeProcs() {
+		expanders = append(expanders, composeExp)
+		// Strip `docker compose logs -f` from compose process shells so the
+		// compose process only does `up -d`. Phrocs handles per-container
+		// log streaming via the expander.
+		for name, proc := range cfg.Procs {
+			if composeExp.IsComposeProc(name) {
+				proc.Shell = docker.StripComposeLogs(proc.Shell)
+				cfg.Procs[name] = proc
+			}
+		}
+	}
+
 	mgr := process.NewManager(cfg)
-	m := tui.New(mgr, cfg.MouseScrollSpeed, logger)
+	m := tui.New(mgr, expanders, cfg.MouseScrollSpeed, logger)
 	p := tea.NewProgram(m)
 
-	// StartAll is launched in a goroutine so it doesn't block: p.Send() inside
-	// Start() will block briefly on the Bubble Tea channel until p.Run() starts
-	// its event loop, at which point everything unblocks naturally. Calling
-	// StartAll synchronously before p.Run() deadlocks because the main goroutine
-	// would be stuck in p.Send() and p.Run() would never be reached.
+	// Wire up the send function for async message passing
 	mgr.SetSend(p.Send)
+	composeExp.SetSend(p.Send)
+
 	go mgr.StartAll()
 
 	if _, err := p.Run(); err != nil {
