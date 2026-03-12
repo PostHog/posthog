@@ -1812,6 +1812,7 @@ class FileSystemIconType(StrEnum):
     LINK = "link"
     LIVE_DEBUGGER = "live_debugger"
     LOGS = "logs"
+    TRACING = "tracing"
     WORKFLOWS = "workflows"
     NOTEBOOK = "notebook"
     ACTION = "action"
@@ -2358,7 +2359,7 @@ class LinkedinAdsTableExclusions(StrEnum):
 
 
 class LinkedinAdsTableKeywords(StrEnum):
-    CAMPAIGNS = "campaigns"
+    CAMPAIGN_GROUPS = "campaign_groups"
 
 
 class LlmEvalSignalExtra(BaseModel):
@@ -2502,13 +2503,13 @@ class MarketingIntegrationConfig2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    campaignTableName: Literal["campaigns"] = "campaigns"
+    campaignTableName: Literal["campaign_groups"] = "campaign_groups"
     defaultSources: list[str] = Field(..., max_length=2, min_length=2)
     idField: Literal["id"] = "id"
     nameField: Literal["name"] = "name"
     primarySource: Literal["linkedin"] = "linkedin"
     sourceType: Literal["LinkedinAds"] = "LinkedinAds"
-    statsTableName: Literal["campaign_stats"] = "campaign_stats"
+    statsTableName: Literal["campaign_group_stats"] = "campaign_group_stats"
     tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
     tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
@@ -2517,8 +2518,9 @@ class ConversionActionTypes(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    fallback: list[str] = Field(..., max_length=14, min_length=14)
+    fallback: list[str] = Field(..., max_length=5, min_length=5)
     omni: list[str] = Field(..., max_length=5, min_length=5)
+    specific: list[str] = Field(..., max_length=9, min_length=9)
 
 
 class MarketingIntegrationConfig3(BaseModel):
@@ -2856,19 +2858,10 @@ class MaxProductInfo(BaseModel):
 
 class MetaAdsConversionFallbackActionTypes(StrEnum):
     PURCHASE = "purchase"
-    OFFSITE_CONVERSION_FB_PIXEL_PURCHASE = "offsite_conversion.fb_pixel_purchase"
-    APP_CUSTOM_EVENT_FB_MOBILE_PURCHASE = "app_custom_event.fb_mobile_purchase"
     LEAD = "lead"
-    OFFSITE_CONVERSION_FB_PIXEL_LEAD = "offsite_conversion.fb_pixel_lead"
-    ONSITE_CONVERSION_LEAD_GROUPED = "onsite_conversion.lead_grouped"
     COMPLETE_REGISTRATION = "complete_registration"
-    OFFSITE_CONVERSION_FB_PIXEL_COMPLETE_REGISTRATION = "offsite_conversion.fb_pixel_complete_registration"
-    APP_CUSTOM_EVENT_FB_MOBILE_COMPLETE_REGISTRATION = "app_custom_event.fb_mobile_complete_registration"
-    OFFSITE_COMPLETE_REGISTRATION_ADD_META_LEADS = "offsite_complete_registration_add_meta_leads"
     APP_INSTALL = "app_install"
-    MOBILE_APP_INSTALL = "mobile_app_install"
     SUBSCRIBE = "subscribe"
-    OFFSITE_CONVERSION_FB_PIXEL_SUBSCRIBE = "offsite_conversion.fb_pixel_subscribe"
 
 
 class MetaAdsConversionOmniActionTypes(StrEnum):
@@ -2877,6 +2870,18 @@ class MetaAdsConversionOmniActionTypes(StrEnum):
     OMNI_COMPLETE_REGISTRATION = "omni_complete_registration"
     OMNI_APP_INSTALL = "omni_app_install"
     OMNI_SUBSCRIBE = "omni_subscribe"
+
+
+class MetaAdsConversionSpecificActionTypes(StrEnum):
+    OFFSITE_CONVERSION_FB_PIXEL_PURCHASE = "offsite_conversion.fb_pixel_purchase"
+    APP_CUSTOM_EVENT_FB_MOBILE_PURCHASE = "app_custom_event.fb_mobile_purchase"
+    OFFSITE_CONVERSION_FB_PIXEL_LEAD = "offsite_conversion.fb_pixel_lead"
+    ONSITE_CONVERSION_LEAD_GROUPED = "onsite_conversion.lead_grouped"
+    OFFSITE_CONVERSION_FB_PIXEL_COMPLETE_REGISTRATION = "offsite_conversion.fb_pixel_complete_registration"
+    APP_CUSTOM_EVENT_FB_MOBILE_COMPLETE_REGISTRATION = "app_custom_event.fb_mobile_complete_registration"
+    OFFSITE_COMPLETE_REGISTRATION_ADD_META_LEADS = "offsite_complete_registration_add_meta_leads"
+    MOBILE_APP_INSTALL = "mobile_app_install"
+    OFFSITE_CONVERSION_FB_PIXEL_SUBSCRIBE = "offsite_conversion.fb_pixel_subscribe"
 
 
 class MetaAdsDefaultSources(StrEnum):
@@ -3289,6 +3294,7 @@ class ProductKey(StrEnum):
     TASKS = "tasks"
     TEAMS = "teams"
     TOOLBAR = "toolbar"
+    TRACING = "tracing"
     USER_INTERVIEWS = "user_interviews"
     VISUAL_REVIEW = "visual_review"
     WEB_ANALYTICS = "web_analytics"
@@ -3450,6 +3456,7 @@ class QueryTiming(BaseModel):
 
 
 class QuickFilterContext(StrEnum):
+    DASHBOARDS = "dashboards"
     ERROR_TRACKING_ISSUE_FILTERS = "error-tracking-issue-filters"
     LOGS_FILTERS = "logs-filters"
 
@@ -16173,6 +16180,10 @@ class GroupsQuery(BaseModel):
 class HogQLQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    connectionId: str | None = Field(
+        default=None,
+        description=("Optional direct external data source id for running against a specific source"),
     )
     explain: bool | None = None
     filters: HogQLFilters | None = None

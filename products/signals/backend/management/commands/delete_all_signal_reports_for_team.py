@@ -2,14 +2,15 @@ import logging
 from datetime import timedelta
 
 from django.conf import settings
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from asgiref.sync import async_to_sync
+from temporalio.client import WorkflowHandle
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Team
-from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.client import async_connect
 
 from products.signals.backend.models import SignalReport
 from products.signals.backend.temporal.deletion import SignalReportDeletionWorkflow
@@ -23,10 +24,79 @@ logger = logging.getLogger(__name__)
 
 ACTION_DELETE = "delete"
 ACTION_REINGEST = "reingest"
+DEFAULT_BATCH_SIZE = 50
+
+WORKFLOW_CONFIG: dict[str, dict] = {
+    ACTION_DELETE: {
+        "workflow_name": "signal-report-deletion",
+        "workflow_id_fn": SignalReportDeletionWorkflow.workflow_id_for,
+        "inputs_cls": SignalReportDeletionWorkflowInputs,
+    },
+    ACTION_REINGEST: {
+        "workflow_name": "signal-report-reingestion",
+        "workflow_id_fn": SignalReportReingestionWorkflow.workflow_id_for,
+        "inputs_cls": SignalReportReingestionWorkflowInputs,
+    },
+}
+
+
+async def _run_workflows_batched(
+    team_id: int,
+    reports: list[tuple[str, str]],
+    action: str,
+    batch_size: int,
+) -> tuple[int, int, int, int]:
+    """Start workflows in batches, waiting for each batch to complete before starting the next."""
+    client = await async_connect()
+    config = WORKFLOW_CONFIG[action]
+    # Track the progress
+    started = 0
+    skipped = 0
+    start_failed = 0
+    execution_failed = 0
+    total = len(reports)
+    total_batches = (total + batch_size - 1) // batch_size
+    # Split the jobs into batches and process
+    for batch_idx in range(0, total, batch_size):
+        batch = reports[batch_idx : batch_idx + batch_size]
+        batch_num = batch_idx // batch_size + 1
+        logger.info("Starting batch %d/%d (%d reports)", batch_num, total_batches, len(batch))
+        handles: list[tuple[str, str, WorkflowHandle]] = []
+        for report_id, title in batch:
+            workflow_id = config["workflow_id_fn"](team_id, report_id)
+            workflow_inputs = config["inputs_cls"](team_id=team_id, report_id=report_id)
+            try:
+                handle = await client.start_workflow(
+                    config["workflow_name"],
+                    workflow_inputs,
+                    id=workflow_id,
+                    task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                    execution_timeout=timedelta(minutes=90),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+                handles.append((report_id, title, handle))
+                started += 1
+                logger.info("Started %s workflow for report %s — %s", action, report_id, title)
+            except WorkflowAlreadyStartedError:
+                skipped += 1
+                logger.warning("Workflow already running for report %s, skipping.", report_id)
+            except Exception:
+                start_failed += 1
+                logger.exception("Failed to start %s workflow for report %s", action, report_id)
+        # Wait for all workflows in this batch to complete before starting the next
+        for report_id, title, handle in handles:
+            try:
+                await handle.result()
+                logger.info("Completed %s for report %s — %s", action, report_id, title)
+            except Exception:
+                execution_failed += 1
+                logger.exception("Workflow failed for report %s — %s", report_id, title)
+        logger.info("Batch %d/%d complete", batch_num, total_batches)
+    return started, skipped, start_failed, execution_failed
 
 
 class Command(BaseCommand):
-    help = "Delete or re-ingest ALL signal reports for a given team using the appropriate Temporal workflow. Defaults to re-ingestion."
+    help = "Delete or re-ingest ALL signal reports for a given team using the appropriate Temporal workflow. Defaults to deletion."
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -35,8 +105,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "--action",
             choices=[ACTION_DELETE, ACTION_REINGEST],
-            default=ACTION_REINGEST,
-            help="Whether to delete or re-ingest reports. Defaults to reingest.",
+            default=ACTION_DELETE,
+            help="Whether to delete or re-ingest reports. Defaults to delete.",
         )
         parser.add_argument(
             "--dry-run",
@@ -44,8 +114,18 @@ class Command(BaseCommand):
             default=False,
             help="List reports that would be affected without actually starting any workflows.",
         )
+        parser.add_argument(
+            "--batch-size",
+            type=int,
+            default=DEFAULT_BATCH_SIZE,
+            help=f"Number of workflows to run concurrently per batch. Defaults to {DEFAULT_BATCH_SIZE}.",
+        )
 
     def handle(self, *args, **options):
+        batch_size = options["batch_size"]
+        if batch_size < 1:
+            raise CommandError("--batch-size must be at least 1")
+
         team_id = options["team_id"]
         action = options["action"]
         dry_run = options["dry_run"]
@@ -74,42 +154,22 @@ class Command(BaseCommand):
             logger.info("Dry run complete. %d report(s) would be affected.", report_count)
             return
 
-        client = sync_connect()
-        started = 0
-        skipped = 0
-        failed = 0
-
-        for report in reports:
-            report_id = str(report.id)
-
-            workflow_inputs: SignalReportDeletionWorkflowInputs | SignalReportReingestionWorkflowInputs
-            if action == ACTION_DELETE:
-                workflow_name = "signal-report-deletion"
-                workflow_id = SignalReportDeletionWorkflow.workflow_id_for(team_id, report_id)
-                workflow_inputs = SignalReportDeletionWorkflowInputs(team_id=team_id, report_id=report_id)
-            else:
-                workflow_name = "signal-report-reingestion"
-                workflow_id = SignalReportReingestionWorkflow.workflow_id_for(team_id, report_id)
-                workflow_inputs = SignalReportReingestionWorkflowInputs(team_id=team_id, report_id=report_id)
-
-            try:
-                async_to_sync(client.start_workflow)(  # type: ignore
-                    workflow_name,  # type: ignore
-                    workflow_inputs,  # type: ignore
-                    id=workflow_id,
-                    task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-                    execution_timeout=timedelta(minutes=30),
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                )
-                started += 1
-                logger.info("Started %s workflow for report %s — %s", action, report_id, report.title)
-            except WorkflowAlreadyStartedError:
-                skipped += 1
-                logger.warning("Workflow already running for report %s, skipping.", report_id)
-            except Exception:
-                failed += 1
-                logger.exception("Failed to start %s workflow for report %s", action, report_id)
-
-        logger.info(
-            "Done. Started: %d, Already running: %d, Failed: %d (total: %d)", started, skipped, failed, report_count
+        report_data = [(str(id), title or "") for id, title in reports.values_list("id", "title")]
+        started, skipped, start_failed, execution_failed = async_to_sync(_run_workflows_batched)(
+            team_id, report_data, action, batch_size
         )
+        total_failed = start_failed + execution_failed
+        completed = started - execution_failed
+        logger.info(
+            "Done. Started: %d, Completed: %d, Already running: %d, Start failed: %d, Execution failed: %d (total: %d)",
+            started,
+            completed,
+            skipped,
+            start_failed,
+            execution_failed,
+            report_count,
+        )
+        if total_failed > 0 and completed == 0 and skipped == 0:
+            raise CommandError(f"All {total_failed} workflow(s) failed out of {report_count}")
+        elif total_failed > 0:
+            logger.warning("%d workflow(s) failed out of %d", total_failed, report_count)

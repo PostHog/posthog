@@ -161,13 +161,13 @@ export class ApiClient {
         method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
         path: string
         body?: Record<string, unknown>
-        query?: Record<string, string | number | undefined>
+        query?: Record<string, string | number | boolean | string[] | undefined>
     }): Promise<T> {
         const searchParams = new URLSearchParams()
         if (opts.query) {
             for (const [k, v] of Object.entries(opts.query)) {
                 if (v !== undefined) {
-                    searchParams.append(k, String(v))
+                    searchParams.append(k, Array.isArray(v) ? v.join(',') : String(v))
                 }
             }
         }
@@ -237,9 +237,11 @@ export class ApiClient {
                         errorData = { detail: errorText }
                     }
 
-                    if (errorData.type === 'validation_error' && errorData.code) {
-                        console.error(`[API] Validation error on ${method} ${url}: ${errorData.code}`)
-                        throw new Error(`Validation error: ${errorData.code}`)
+                    if (errorData.type === 'validation_error') {
+                        const detail = errorData.detail || errorData.code || 'unknown'
+                        const attr = errorData.attr ? ` (field: ${errorData.attr})` : ''
+                        console.error(`[API] Validation error on ${method} ${url}: ${detail}${attr}`)
+                        throw new Error(`Validation error: ${detail}${attr}`)
                     }
 
                     console.error(`[API] Request failed on ${method} ${url}: ${response.status} ${response.statusText}`)

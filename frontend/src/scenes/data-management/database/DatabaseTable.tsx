@@ -176,7 +176,15 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                         if (type === 'virtual_table' || type === 'view') {
                             return (
                                 <>
-                                    Fields: <code>{(field as any).fields.join(', ')}</code>
+                                    {(field as any).fields ? (
+                                        <>
+                                            Fields: <code>{(field as any).fields.join(', ')}</code>
+                                        </>
+                                    ) : (
+                                        <>
+                                            To table: <code>{String((field as any).table)}</code>
+                                        </>
+                                    )}
                                 </>
                             )
                         } else if (type === 'lazy_table') {

@@ -162,7 +162,6 @@ export interface PluginServerCapabilities {
     cdpApi?: boolean
     appManagementSingleton?: boolean
     evaluationScheduler?: boolean
-    cdpCyclotronShadowWorker?: boolean
     cdpCyclotronV2Janitor?: boolean
     recordingApi?: boolean
     ingestionV2Testing?: boolean

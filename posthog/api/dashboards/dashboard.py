@@ -1,4 +1,5 @@
 import json
+import uuid
 from collections.abc import AsyncGenerator
 from contextlib import nullcontext
 from typing import Any, Optional, cast
@@ -50,6 +51,7 @@ from posthog.models.alert import AlertConfiguration
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.group_type_mapping import GroupTypeMapping, invalidate_group_types_cache
 from posthog.models.insight_variable import InsightVariable
+from posthog.models.quick_filter import QuickFilter
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
@@ -91,6 +93,7 @@ DASHBOARD_SHARED_FIELDS = [
     "persisted_filters",
     "persisted_variables",
     "team_id",
+    "quick_filter_ids",
 ]
 
 
@@ -273,6 +276,12 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
     breakdown_colors = serializers.JSONField(required=False)
     data_color_theme_id = serializers.IntegerField(required=False, allow_null=True)
+    quick_filter_ids = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text="List of quick filter IDs associated with this dashboard",
+    )
     persisted_filters = serializers.SerializerMethodField()
     persisted_variables = serializers.SerializerMethodField()
 
@@ -294,6 +303,37 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
 
     def get_persisted_variables(self, dashboard: Dashboard) -> dict | None:
         return dashboard.variables if dashboard.variables else None
+
+    def to_representation(self, instance: Dashboard) -> ReturnDict:
+        ret = super().to_representation(instance)
+        if ret.get("quick_filter_ids") is None:
+            ret["quick_filter_ids"] = []
+        return ret
+
+    def _filter_out_non_existing_quick_filter_ids(self, quick_filter_ids: list[str], team_id: int) -> list[str]:
+        existing_quick_filter_ids = {
+            str(uid)
+            for uid in QuickFilter.objects.filter(team_id=team_id, id__in=quick_filter_ids).values_list("id", flat=True)
+        }
+        return [qf_id for qf_id in quick_filter_ids if qf_id in existing_quick_filter_ids]
+
+    def validate_quick_filter_ids(self, value: list[str] | None) -> list[str]:
+        if not value:
+            return []
+
+        normalized = []
+        for v in value:
+            try:
+                normalized.append(str(uuid.UUID(v)))
+            except ValueError:
+                raise serializers.ValidationError(f"Invalid UUID: {v}")
+
+        valid_ids = self._filter_out_non_existing_quick_filter_ids(normalized, self.context["get_team"]().id)
+        if len(valid_ids) != len(normalized):
+            missing = [v for v in normalized if v not in valid_ids]
+            raise serializers.ValidationError(f"Quick filters not found: {', '.join(missing)}")
+
+        return normalized
 
 
 class DashboardSerializer(DashboardMetadataSerializer):
@@ -364,6 +404,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         if existing_dashboard and existing_dashboard.data_color_theme_id:
             validated_data["data_color_theme_id"] = existing_dashboard.data_color_theme_id
+
+        if existing_dashboard and existing_dashboard.quick_filter_ids:
+            validated_data["quick_filter_ids"] = self._filter_out_non_existing_quick_filter_ids(
+                existing_dashboard.quick_filter_ids, team_id
+            )
 
         dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
 

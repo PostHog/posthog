@@ -53,7 +53,6 @@ import {
 
 import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
-import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
 import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 import { flagSelectionLogic } from './flagSelectionLogic'
@@ -437,16 +436,7 @@ export function OverViewTab({
                 if (!tags || tags.length === 0) {
                     return null
                 }
-                return enabledFeatureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
-                    <FeatureFlagEvaluationTags
-                        tags={tags}
-                        evaluationTags={featureFlag.evaluation_tags || []}
-                        flagId={featureFlag.id}
-                        context="static"
-                    />
-                ) : (
-                    <ObjectTags tags={tags} staticOnly />
-                )
+                return <ObjectTags tags={tags} staticOnly />
             },
         } as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
         createdByColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
