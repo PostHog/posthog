@@ -98,13 +98,11 @@ def build_dependent_resource(
         "params": child_params,
     }
 
-    use_merge = (
-        should_use_incremental_field
-        and bool(child_config.incremental_fields)
-        and incremental_config_factory is not None
-    )
+    use_merge = should_use_incremental_field and bool(child_config.incremental_fields)
     if use_merge:
-        child_endpoint_config["incremental"] = incremental_config_factory(  # pyright: ignore[reportOptionalCall]
+        if incremental_config_factory is None:
+            raise ValueError("incremental_config_factory is required for incremental fan-out resources")
+        child_endpoint_config["incremental"] = incremental_config_factory(
             incremental_field or child_config.default_incremental_field or "id"
         )
 
