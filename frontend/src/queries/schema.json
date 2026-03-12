@@ -17668,6 +17668,10 @@
         "HogQLQuery": {
             "additionalProperties": false,
             "properties": {
+                "connectionId": {
+                    "description": "Optional direct external data source id for running against a specific source",
+                    "type": "string"
+                },
                 "explain": {
                     "deprecated": "use modifiers.debug instead",
                     "type": "boolean"
