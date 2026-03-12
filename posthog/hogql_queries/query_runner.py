@@ -122,8 +122,8 @@ logger = structlog.get_logger(__name__)
 
 QUERY_EXECUTION_TOTAL = Counter(
     "posthog_query_execution_total",
-    "Query executions by status",
-    labelnames=["query_type", "status", "error_type", "error_category"],
+    "Query executions by category",
+    labelnames=["query_type", "category", "error_type"],
 )
 
 QUERY_EXECUTION_DURATION = Histogram(
@@ -1401,15 +1401,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query_start = perf_counter()
             try:
                 query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=dashboard_id)
-                QUERY_EXECUTION_TOTAL.labels(
-                    query_type=query_type, status="success", error_type="none", error_category="success"
-                ).inc()
+                QUERY_EXECUTION_TOTAL.labels(query_type=query_type, category="success", error_type="none").inc()
             except Exception as e:
                 QUERY_EXECUTION_TOTAL.labels(
                     query_type=query_type,
-                    status="failure",
+                    category=classify_query_error(e),
                     error_type=clickhouse_error_type(e),
-                    error_category=classify_query_error(e),
                 ).inc()
                 raise
             finally:
