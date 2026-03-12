@@ -14,8 +14,10 @@ use embedding_worker::{
     app_context::AppContext,
     config::Config,
     handle_batch,
+    metrics_utils::DROPPED_REQUESTS,
 };
 
+use metrics::counter;
 use tokio::task::JoinHandle;
 use tracing::level_filters::LevelFilter;
 use tracing::{error, info, warn};
@@ -139,6 +141,7 @@ async fn main() {
                     // If we failed to parse the message, or it was empty, just log and continue, our
                     // consumer has already stored the offset for us.
                     error!("Error receiving message: {:?}", err);
+                    counter!(DROPPED_REQUESTS, &[("cause", "recv_err")]).increment(1);
                     continue;
                 }
             };
