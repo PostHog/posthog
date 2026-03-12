@@ -98,6 +98,7 @@ class Integration(models.Model):
         GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
         GOOGLE_ADS = "google-ads"
         GOOGLE_SHEETS = "google-sheets"
+        GOOGLE_CLOUD_SERVICE_ACCOUNT = "google-cloud-service-account"
         SNAPCHAT = "snapchat"
         LINKEDIN_ADS = "linkedin-ads"
         REDDIT_ADS = "reddit-ads"
@@ -1168,6 +1169,76 @@ class GoogleAdsIntegration:
             all_accounts = dfs(account.split("/")[1], all_accounts, account.split("/")[1])
 
         return all_accounts
+
+
+class GoogleCloudServiceAccountIntegration:
+    integration: Integration
+    project_id: str
+    service_account_email: str
+    private_key: str | None
+    private_key_id: str | None
+    token_uri: str | None
+
+    def __init__(self, integration: Integration) -> None:
+        self.integration = integration
+
+    @classmethod
+    def integration_from_service_account(
+        cls,
+        team_id: int,
+        organization_id: str,
+        service_account_email: str,
+        project_id: str,
+        private_key: str | None = None,
+        private_key_id: str | None = None,
+        token_uri: str | None = None,
+        created_by: User | None = None,
+    ) -> Integration:
+        sensitive_config = {
+            "service_account_email": service_account_email,
+        }
+        if all((private_key, private_key_id, token_uri)):
+            sensitive_config["private_key"] = private_key
+            sensitive_config["private_key_id"] = private_key_id
+            sensitive_config["token_uri"] = token_uri
+
+        # Do not allow the same project_id in multiple organizations
+        same_project_id_integrations = Integration.objects.filter(
+            kind="google-cloud-service-account", config__project_id=project_id
+        )
+        for integration in same_project_id_integrations:
+            if str(integration.team.organization.id) != str(organization_id):
+                raise ValidationError("Cannot create Google Cloud service account integration: Invalid project")
+
+        integration, _ = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT.value,
+            # Including team_id to allow teams from the same organization to export to the same project
+            integration_id=f"{team_id}-{project_id}",
+            defaults={
+                "config": {
+                    "project_id": project_id,
+                },
+                "sensitive_config": sensitive_config,
+                "created_by": created_by,
+            },
+        )
+
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
+
+    def is_impersonated(self) -> bool:
+        """Return if this integration refers to an impersonated service account.
+
+        If not, then it is an actual service account.
+        """
+        actual_credentials = ("private_key", "private_key_id", "token_uri")
+        return all(key in self.integration.sensitive_config for key in actual_credentials) and all(
+            self.integration.sensitive_config[key] for key in actual_credentials
+        )
 
 
 class GoogleCloudIntegration:
