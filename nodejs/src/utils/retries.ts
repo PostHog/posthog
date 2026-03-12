@@ -56,7 +56,12 @@ export async function retryIfRetriable<T>(fn: () => Promise<T>, tries = 3, sleep
         try {
             return await fn()
         } catch (error) {
-            if (error?.isRetriable === false || i === tries - 1) {
+            // rdkafka marks ERR_UNKNOWN (code -1) as non-retriable, but these are
+            // transient errors that occur.
+            // We have hit RejectedExecutionException when reading from tiered storage
+            // and not handling this led to pods being constantly restarted.
+            const isKafkaUnknownError = (error as any)?.code === -1
+            if ((error?.isRetriable === false && !isKafkaUnknownError) || i === tries - 1) {
                 // Throw if the error is not retryable or if we're out of tries.
                 throw error
             }

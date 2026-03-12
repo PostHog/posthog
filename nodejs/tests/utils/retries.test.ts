@@ -1,7 +1,63 @@
-import { getNextRetryMs } from '../../src/utils/retries'
+import { getNextRetryMs, retryIfRetriable } from '../../src/utils/retries'
 
 jest.useFakeTimers()
 jest.spyOn(global, 'setTimeout')
+
+describe('retryIfRetriable', () => {
+    beforeEach(() => {
+        jest.clearAllTimers()
+    })
+
+    it('does not retry when error.isRetriable is false', async () => {
+        const error = new Error('non-retriable') as any
+        error.isRetriable = false
+        const fn = jest.fn().mockRejectedValue(error)
+
+        await expect(retryIfRetriable(fn, 3, 0)).rejects.toThrow('non-retriable')
+        expect(fn).toHaveBeenCalledTimes(1)
+    })
+
+    it('retries when error.isRetriable is true', async () => {
+        const error = new Error('retriable') as any
+        error.isRetriable = true
+        const fn = jest.fn().mockRejectedValueOnce(error).mockResolvedValue('ok')
+
+        const result = await retryIfRetriable(fn, 3, 0)
+        expect(result).toBe('ok')
+        expect(fn).toHaveBeenCalledTimes(2)
+    })
+
+    it('retries kafka ERR_UNKNOWN (code -1) even when isRetriable is false', async () => {
+        const error = new Error('Unknown broker error') as any
+        error.isRetriable = false
+        error.code = -1
+        const fn = jest.fn().mockRejectedValueOnce(error).mockResolvedValue('ok')
+
+        const result = await retryIfRetriable(fn, 3, 0)
+        expect(result).toBe('ok')
+        expect(fn).toHaveBeenCalledTimes(2)
+    })
+
+    it('retries kafka ERR_UNKNOWN (code -1) when isRetriable is not set', async () => {
+        const error = new Error('Unknown broker error') as any
+        error.code = -1
+        const fn = jest.fn().mockRejectedValueOnce(error).mockResolvedValue('ok')
+
+        const result = await retryIfRetriable(fn, 3, 0)
+        expect(result).toBe('ok')
+        expect(fn).toHaveBeenCalledTimes(2)
+    })
+
+    it('throws kafka ERR_UNKNOWN (code -1) after exhausting retries', async () => {
+        const error = new Error('Unknown broker error') as any
+        error.isRetriable = false
+        error.code = -1
+        const fn = jest.fn().mockRejectedValue(error)
+
+        await expect(retryIfRetriable(fn, 3, 0)).rejects.toThrow('Unknown broker error')
+        expect(fn).toHaveBeenCalledTimes(3)
+    })
+})
 
 describe('getNextRetryMs', () => {
     it('returns the correct number of milliseconds with a multiplier of 1', () => {
