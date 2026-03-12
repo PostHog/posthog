@@ -45,15 +45,17 @@ class TestSignalReportDeleteAPI(APIBaseTest):
         if expected_status == status.HTTP_202_ACCEPTED:
             assert response.json() == {"status": "deletion_started", "report_id": str(report.id)}
         report.refresh_from_db()
-        # Deletion happens asynchronously in the Temporal workflow.
-        assert report.status == initial_status
+        if expected_status == status.HTTP_202_ACCEPTED:
+            assert report.status == SignalReport.Status.DELETED
+        else:
+            assert report.status == initial_status
 
-    def test_delete_report_not_immediately_excluded_from_list(self):
+    def test_deleted_report_excluded_from_list(self):
         report = self._create_report()
         self.client.delete(self._url(str(report.id)))
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
-        assert any(r["id"] == str(report.id) for r in response.json()["results"])
+        assert all(r["id"] != str(report.id) for r in response.json()["results"])
 
     def test_delete_other_teams_report_forbidden(self):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
