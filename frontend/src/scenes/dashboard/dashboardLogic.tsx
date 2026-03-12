@@ -1326,7 +1326,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         layouts: [(s) => [s.tiles], (tiles) => calculateLayouts(tiles)],
-        layout: [(s) => [s.layouts, s.sizeKey], (layouts, sizeKey) => (sizeKey ? layouts[sizeKey] : undefined)],
+        layout: [
+            (s) => [s.layouts, s.sizeKey],
+            (layouts: ResponsiveLayouts, sizeKey: DashboardLayoutSize | undefined) =>
+                sizeKey ? layouts[sizeKey] : undefined,
+        ],
         layoutForItem: [
             (s) => [s.layout],
             (layout) => {
