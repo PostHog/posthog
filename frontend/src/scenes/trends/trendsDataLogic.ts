@@ -42,7 +42,7 @@ import {
 
 import type { trendsDataLogicType } from './trendsDataLogicType'
 import { IndexedTrendResult } from './types'
-import { buildTrendsSeries, getCompareLabels } from './viz/trendsChartUtils'
+import { buildTrendsSeries } from './viz/trendsChartUtils'
 
 export const RESULT_CUSTOMIZATION_DEFAULT = ResultCustomizationBy.Value
 
@@ -472,8 +472,6 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     getTrendsHidden,
                 }),
         ],
-
-        trendsLabels: [(s) => [s.indexedResults], (indexedResults): string[] => getCompareLabels(indexedResults)],
 
         getTrendsColorToken: [
             (s) => [s.resultCustomizationBy, s.resultCustomizations, s.getTheme, s.breakdownFilter, s.querySource],

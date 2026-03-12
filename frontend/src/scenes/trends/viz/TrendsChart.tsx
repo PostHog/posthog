@@ -5,7 +5,6 @@ import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { Line } from 'lib/hog-charts'
 import type { TooltipContext } from 'lib/hog-charts'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { ChartParams } from '~/types'
@@ -39,10 +38,8 @@ function TrendsChartInner({ showPersonsModal = true, context }: ChartParams): JS
         isLog10,
         incompletePoints,
         trendsSeries,
-        trendsLabels,
     } = useValues(trendsDataLogic(insightProps))
 
-    const { timezone } = useValues(teamLogic)
     const { alertThresholdLines } = useValues(
         insightAlertsLogic({ insightId: insight.id!, insightLogicProps: insightProps })
     )
@@ -61,18 +58,20 @@ function TrendsChartInner({ showPersonsModal = true, context }: ChartParams): JS
                 axisColor: graphColors.axisLabel ?? '#94949480',
                 gridColor: graphColors.axisLine ?? '#94949420',
             }}
-            data={trendsSeries}
-            labels={trendsLabels}
+            series={trendsSeries}
             yAxis={buildYAxis(isLog10, isPercentStackView, showMultipleYAxes ?? null, trendsSeries.length)}
             goalLines={buildGoalLines(alertThresholdLines, schemaGoalLines ?? undefined)}
             className="TrendsChart w-full grow relative overflow-hidden"
-            stacked={isStacked}
-            percentStacked={isPercentStackView}
-            isArea={isArea}
-            fillOpacity={isPercentStackView ? 1 : 0.5}
-            incompletePoints={incompletePoints}
-            showValues={!!showValuesOnSeries}
-            maxSeries={50}
+            interval={interval ?? undefined}
+            options={{
+                stacked: isStacked,
+                percentStacked: isPercentStackView,
+                isArea,
+                fillOpacity: isPercentStackView ? 1 : 0.5,
+                incompletePoints,
+                showValues: !!showValuesOnSeries,
+                maxSeries: 50,
+            }}
             tooltip={{
                 shared: true,
                 render: (ctx: TooltipContext) => (
@@ -84,9 +83,6 @@ function TrendsChartInner({ showPersonsModal = true, context }: ChartParams): JS
                 ),
             }}
             onClick={handleClick}
-            dates={indexedResults[0]?.days}
-            interval={interval ?? undefined}
-            timezone={timezone}
         />
     )
 }

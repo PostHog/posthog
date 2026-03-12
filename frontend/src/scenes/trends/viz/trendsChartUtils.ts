@@ -1,5 +1,5 @@
 import { getBarColorFromStatus } from 'lib/colors'
-import type { Series } from 'lib/hog-charts'
+import type { DataPoint, Series } from 'lib/hog-charts'
 import { ciRanges, movingAverage } from 'lib/statistics'
 import { capitalizeFirstLetter, hexToRGBA } from 'lib/utils'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -72,11 +72,14 @@ export function buildTrendsSeries(opts: BuildSeriesOptions): Series[] {
             data = data.map((v) => (typeof v === 'number' && count > 0 ? (v / count) * 100 : 0))
         }
 
+        const days = (dataset.days as string[] | undefined) ?? []
+        const dataPoints: DataPoint[] = data.map((v, i) => ({ x: days[i] ?? String(i), y: v }))
+
         const yAxisID = opts.showMultipleYAxes && index > 0 ? `y${index}` : 'y'
 
         result.push({
             label: dataset.label ?? `Series ${index}`,
-            data,
+            data: dataPoints,
             color: dataset.status
                 ? getBarColorFromStatus(dataset.status as LifecycleToggle)
                 : isPrevious
@@ -114,14 +117,14 @@ export function buildTrendsSeries(opts: BuildSeriesOptions): Series[] {
             const [lower, upper] = ciRanges(dataset.data, opts.confidenceLevel / 100)
             result.push({
                 label: `${dataset.label} (CI lower)`,
-                data: lower,
+                data: lower.map((v, i) => ({ x: days[i] ?? String(i), y: v })),
                 color,
                 hideFromTooltip: true,
                 meta: { auxiliary: true },
             })
             result.push({
                 label: `${dataset.label} (CI upper)`,
-                data: upper,
+                data: upper.map((v, i) => ({ x: days[i] ?? String(i), y: v })),
                 color: hexToRGBA(color, 0.2),
                 fill: true,
                 hideFromTooltip: true,
@@ -133,7 +136,7 @@ export function buildTrendsSeries(opts: BuildSeriesOptions): Series[] {
             const movingAvgData = movingAverage(dataset.data, opts.movingAverageIntervals)
             result.push({
                 label: `${dataset.label} (Moving avg)`,
-                data: movingAvgData,
+                data: movingAvgData.map((v, i) => ({ x: days[i] ?? String(i), y: v })),
                 color,
                 lineStyle: 'dashed',
                 hideFromTooltip: true,
@@ -143,17 +146,6 @@ export function buildTrendsSeries(opts: BuildSeriesOptions): Series[] {
     }
 
     return result
-}
-
-export function getCompareLabels(indexedResults: IndexedTrendResult[]): string[] {
-    if (
-        indexedResults.length === 2 &&
-        indexedResults.every((x) => x.compare) &&
-        indexedResults.find((x) => x.compare_label === 'current')?.labels
-    ) {
-        return indexedResults.find((x) => x.compare_label === 'current')!.labels!
-    }
-    return indexedResults[0]?.labels ?? []
 }
 
 export function lifecycleSeriesLabel(datum: SeriesDatum): string {
