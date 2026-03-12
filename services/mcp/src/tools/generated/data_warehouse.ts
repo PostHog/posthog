@@ -115,6 +115,9 @@ const warehouseSavedQueriesPartialUpdate = (): ToolBase<
         if (params.query !== undefined) {
             body['query'] = params.query
         }
+        if (params.edited_history_id !== undefined) {
+            body['edited_history_id'] = params.edited_history_id
+        }
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'PATCH',
             path: `/api/projects/${projectId}/warehouse_saved_queries/${params.id}/`,

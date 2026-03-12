@@ -605,6 +605,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
     @action(
         methods=["POST"],
         detail=True,
+        required_scopes=["warehouse_view:write"],
         throttle_classes=[RunSavedQueryRateThrottle],
     )
     def run(self, request: request.Request, *args, **kwargs) -> response.Response:
