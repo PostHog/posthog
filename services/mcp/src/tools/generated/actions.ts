@@ -1,6 +1,7 @@
-// AUTO-GENERATED from definitions/actions.yaml + OpenAPI — do not edit
+// AUTO-GENERATED from products/actions/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Schemas } from '@/api/generated'
 import {
     ActionsCreateBody,
     ActionsDestroyParams,
@@ -13,12 +14,12 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ActionsGetAllSchema = ActionsListQueryParams.omit({ format: true })
 
-const actionsGetAll = (): ToolBase<typeof ActionsGetAllSchema> => ({
+const actionsGetAll = (): ToolBase<typeof ActionsGetAllSchema, unknown> => ({
     name: 'actions-get-all',
     schema: ActionsGetAllSchema,
     handler: async (context: Context, params: z.infer<typeof ActionsGetAllSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request({
+        const result = await context.api.request<Schemas.PaginatedActionList>({
             method: 'GET',
             path: `/api/projects/${projectId}/actions/`,
             query: {
@@ -27,16 +28,25 @@ const actionsGetAll = (): ToolBase<typeof ActionsGetAllSchema> => ({
             },
         })
         const items = (result as any).results ?? result
-        return (items as any[]).map((item: any) => ({
-            ...item,
-            url: `${context.api.getProjectBaseUrl(projectId)}/data-management/actions/${item.id}`,
-        }))
+        return {
+            ...(result as any),
+            results: (items as any[]).map((item: any) => ({
+                ...item,
+                _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/data-management/actions/${item.id}`,
+            })),
+            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/data-management/actions`,
+        }
+    },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/action-list.html',
+        },
     },
 })
 
-const ActionCreateSchema = ActionsCreateBody.omit({ deleted: true, last_calculated_at: true, _create_in_folder: true })
+const ActionCreateSchema = ActionsCreateBody.omit({ _create_in_folder: true })
 
-const actionCreate = (): ToolBase<typeof ActionCreateSchema> => ({
+const actionCreate = (): ToolBase<typeof ActionCreateSchema, Schemas.Action & { _posthogUrl: string }> => ({
     name: 'action-create',
     schema: ActionCreateSchema,
     handler: async (context: Context, params: z.infer<typeof ActionCreateSchema>) => {
@@ -63,41 +73,51 @@ const actionCreate = (): ToolBase<typeof ActionCreateSchema> => ({
         if (params.pinned_at !== undefined) {
             body['pinned_at'] = params.pinned_at
         }
-        const result = await context.api.request({
+        const result = await context.api.request<Schemas.Action>({
             method: 'POST',
             path: `/api/projects/${projectId}/actions/`,
             body,
         })
         return {
             ...(result as any),
-            url: `${context.api.getProjectBaseUrl(projectId)}/data-management/actions/${(result as any).id}`,
+            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/data-management/actions/${(result as any).id}`,
         }
+    },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/action.html',
+        },
     },
 })
 
 const ActionGetSchema = ActionsRetrieveParams.omit({ project_id: true })
 
-const actionGet = (): ToolBase<typeof ActionGetSchema> => ({
+const actionGet = (): ToolBase<typeof ActionGetSchema, Schemas.Action & { _posthogUrl: string }> => ({
     name: 'action-get',
     schema: ActionGetSchema,
     handler: async (context: Context, params: z.infer<typeof ActionGetSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request({
+        const result = await context.api.request<Schemas.Action>({
             method: 'GET',
             path: `/api/projects/${projectId}/actions/${params.id}/`,
         })
         return {
             ...(result as any),
-            url: `${context.api.getProjectBaseUrl(projectId)}/data-management/actions/${(result as any).id}`,
+            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/data-management/actions/${(result as any).id}`,
         }
+    },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/action.html',
+        },
     },
 })
 
 const ActionUpdateSchema = ActionsPartialUpdateParams.omit({ project_id: true }).extend(
-    ActionsPartialUpdateBody.omit({ deleted: true, last_calculated_at: true, _create_in_folder: true }).shape
+    ActionsPartialUpdateBody.omit({ _create_in_folder: true }).shape
 )
 
-const actionUpdate = (): ToolBase<typeof ActionUpdateSchema> => ({
+const actionUpdate = (): ToolBase<typeof ActionUpdateSchema, Schemas.Action & { _posthogUrl: string }> => ({
     name: 'action-update',
     schema: ActionUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof ActionUpdateSchema>) => {
@@ -124,28 +144,34 @@ const actionUpdate = (): ToolBase<typeof ActionUpdateSchema> => ({
         if (params.pinned_at !== undefined) {
             body['pinned_at'] = params.pinned_at
         }
-        const result = await context.api.request({
+        const result = await context.api.request<Schemas.Action>({
             method: 'PATCH',
             path: `/api/projects/${projectId}/actions/${params.id}/`,
             body,
         })
         return {
             ...(result as any),
-            url: `${context.api.getProjectBaseUrl(projectId)}/data-management/actions/${(result as any).id}`,
+            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/data-management/actions/${(result as any).id}`,
         }
+    },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/action.html',
+        },
     },
 })
 
 const ActionDeleteSchema = ActionsDestroyParams.omit({ project_id: true })
 
-const actionDelete = (): ToolBase<typeof ActionDeleteSchema> => ({
+const actionDelete = (): ToolBase<typeof ActionDeleteSchema, unknown> => ({
     name: 'action-delete',
     schema: ActionDeleteSchema,
     handler: async (context: Context, params: z.infer<typeof ActionDeleteSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request({
-            method: 'DELETE',
+        const result = await context.api.request<unknown>({
+            method: 'PATCH',
             path: `/api/projects/${projectId}/actions/${params.id}/`,
+            body: { deleted: true },
         })
         return result
     },

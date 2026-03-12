@@ -1,6 +1,5 @@
 import { z } from 'zod'
 
-import { CreateActionInputSchema, ListActionsInputSchema, UpdateActionInputSchema } from './actions'
 import {
     AddInsightToDashboardSchema,
     CreateDashboardInputSchema,
@@ -433,26 +432,6 @@ export const QueryRunInputSchema = z.object({
 
 export { LogsQueryInputSchema, LogsListAttributesInputSchema, LogsListAttributeValuesInputSchema }
 
-// Actions
-export const ActionCreateSchema = CreateActionInputSchema
-
-export const ActionDeleteSchema = z.object({
-    actionId: z.number().int().positive().describe('The ID of the action to delete'),
-})
-
-export const ActionGetSchema = z.object({
-    actionId: z.number().int().positive().describe('The ID of the action to retrieve'),
-})
-
-export const ActionGetAllSchema = z.object({
-    data: ListActionsInputSchema.optional(),
-})
-
-export const ActionUpdateSchema = z.object({
-    actionId: z.number().int().positive().describe('The ID of the action to update'),
-    data: UpdateActionInputSchema,
-})
-
 // Entity Search
 export const EntitySearchSchema = z.object({
     query: z.string().min(1).describe('Search query to find entities by name or description'),
@@ -481,35 +460,6 @@ export const DebugMcpUiAppsSchema = z.object({
     message: z.string().optional().describe('Optional message to include in the debug data'),
 })
 
-// Prompts
-export const PromptListSchema = z.object({
-    search: z.string().optional().describe('Filter prompts by name'),
-})
-
-const PromptNameSchema = z
-    .string()
-    .regex(/^[a-zA-Z0-9_-]+$/, 'Name must only contain letters, numbers, hyphens, or underscores')
-
-export const PromptGetSchema = z.object({
-    name: PromptNameSchema.describe('The name of the prompt to retrieve'),
-    version: z.number().int().positive().optional().describe('Specific version number to retrieve. Omit for latest'),
-})
-
-export const PromptCreateSchema = z.object({
-    name: PromptNameSchema.describe('Unique name (letters, numbers, hyphens, underscores only)'),
-    prompt: z.any().describe('The prompt content (string or JSON object)'),
-})
-
-export const PromptUpdateSchema = z.object({
-    name: PromptNameSchema.describe('The name of the prompt to update'),
-    prompt: z.any().describe('The updated prompt content'),
-    base_version: z
-        .number()
-        .int()
-        .positive()
-        .describe('The version number you are basing this update on (for conflict detection)'),
-})
-
 // PostHog AI tools
 export const ExecuteSQLSchema = z.object({
     query: z.string().min(1).describe('The final SQL query to be executed.'),
@@ -528,6 +478,8 @@ export const ReadDataWarehouseSchemaSchema = z
 
 const ReadEventsQuerySchema = z.object({
     kind: z.literal('events'),
+    limit: z.number().int().min(1).max(500).default(500).optional().describe('Number of events to return per page.'),
+    offset: z.number().int().min(0).default(0).optional().describe('Number of events to skip for pagination.'),
 })
 
 const ReadEventPropertiesQuerySchema = z.object({

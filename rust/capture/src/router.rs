@@ -17,6 +17,7 @@ use tower_http::trace::TraceLayer;
 use crate::ai_s3::BlobStorage;
 use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
+use crate::otel;
 use crate::test_endpoint;
 use crate::v0_request::DataType;
 use crate::{ai_endpoint, sinks, time::TimeSource, v0_endpoint};
@@ -275,12 +276,24 @@ pub fn router<
         )
         .layer(DefaultBodyLimit::max(ai_body_limit));
 
+    let otel_router = Router::new()
+        .route(
+            "/i/v0/ai/otel",
+            post(otel::otel_handler).options(otel::options),
+        )
+        .route(
+            "/i/v0/ai/otel/",
+            post(otel::otel_handler).options(otel::options),
+        )
+        .layer(DefaultBodyLimit::max(otel::OTEL_BODY_SIZE));
+
     let mut router = match capture_mode {
         CaptureMode::Events | CaptureMode::Ai => Router::new()
             .merge(batch_router)
             .merge(event_router)
             .merge(test_router)
-            .merge(ai_router),
+            .merge(ai_router)
+            .merge(otel_router),
         CaptureMode::Recordings => Router::new().merge(recordings_router),
     };
 

@@ -35,8 +35,10 @@ class ChargebeeSource(SimpleSource[ChargebeeSourceConfig]):
             "Unauthorized for url": "Chargebee authentication failed. Please check your API key and site name.",
         }
 
-    def get_schemas(self, config: ChargebeeSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
-        return [
+    def get_schemas(
+        self, config: ChargebeeSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
+        schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
@@ -45,6 +47,12 @@ class ChargebeeSource(SimpleSource[ChargebeeSourceConfig]):
             )
             for endpoint in list(ENDPOINTS)
         ]
+
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+
+        return schemas
 
     def validate_credentials(
         self, config: ChargebeeSourceConfig, team_id: int, schema_name: Optional[str] = None

@@ -5,6 +5,8 @@ use bytesize::ByteSize;
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 
+use crate::rocksdb::store::RocksDbConfig;
+
 /// Pipeline type for the deduplicator service.
 ///
 /// Each pipeline type handles a different event format:
@@ -97,6 +99,18 @@ pub struct Config {
     // RocksDB storage configuration
     #[envconfig(default = "/tmp/deduplication-store")]
     pub store_path: String,
+
+    // RocksDB tuning (optional — omit to use compiled-in defaults from RocksDbConfig)
+    pub rocksdb_shared_cache_size_bytes: Option<usize>,
+    pub rocksdb_total_write_buffer_size_bytes: Option<usize>,
+    pub rocksdb_max_background_jobs: Option<i32>,
+    pub rocksdb_write_buffer_size_bytes: Option<usize>,
+    pub rocksdb_target_file_size_base_bytes: Option<u64>,
+    pub rocksdb_max_open_files: Option<i32>,
+    pub rocksdb_l0_compaction_trigger: Option<i32>,
+    pub rocksdb_l0_slowdown_writes_trigger: Option<i32>,
+    pub rocksdb_l0_stop_writes_trigger: Option<i32>,
+    pub rocksdb_write_buffer_manager_allow_stall: Option<bool>,
 
     #[envconfig(default = "1073741824")]
     // 1GB default, supports: raw bytes, scientific notation (9.663676416e+09), or units (9Gi, 1GB)
@@ -267,12 +281,12 @@ pub struct Config {
     // Limits memory usage by bounding the number of in-flight HTTP connections
     // Critical during rebalance when many partitions are assigned simultaneously
     // Higher values speed up rebalance; streaming bounds memory per download to ~8KB
-    #[envconfig(default = "1000")]
+    #[envconfig(default = "200")]
     pub max_concurrent_checkpoint_file_downloads: usize,
 
     // Maximum concurrent S3 file uploads during checkpoint export
     // Less critical than downloads since uploads are bounded by max_concurrent_checkpoints
-    #[envconfig(default = "1000")]
+    #[envconfig(default = "200")]
     pub max_concurrent_checkpoint_file_uploads: usize,
 
     // Maximum time allowed for a complete checkpoint import for a single partition (seconds).
@@ -440,6 +454,54 @@ impl Config {
         // Try as raw integer
         s.parse::<u64>()
             .with_context(|| format!("Failed to parse storage capacity: '{s}'. Expected format: raw bytes, scientific notation, or units (1Gi, 1GB)"))
+    }
+
+    /// Build a RocksDbConfig from env-configured overrides, falling back to defaults.
+    /// Validates max_background_jobs >= 1, clamping with a warning if invalid.
+    pub fn build_rocksdb_config(&self) -> RocksDbConfig {
+        let defaults = RocksDbConfig::default();
+        let max_background_jobs = match self.rocksdb_max_background_jobs {
+            Some(v) if v >= 1 => v,
+            Some(v) => {
+                tracing::warn!(
+                    value = v,
+                    default = defaults.max_background_jobs,
+                    "ROCKSDB_MAX_BACKGROUND_JOBS must be >= 1, using default"
+                );
+                defaults.max_background_jobs
+            }
+            None => defaults.max_background_jobs,
+        };
+        RocksDbConfig {
+            shared_cache_size_bytes: self
+                .rocksdb_shared_cache_size_bytes
+                .unwrap_or(defaults.shared_cache_size_bytes),
+            total_write_buffer_size_bytes: self
+                .rocksdb_total_write_buffer_size_bytes
+                .unwrap_or(defaults.total_write_buffer_size_bytes),
+            max_background_jobs,
+            write_buffer_size_bytes: self
+                .rocksdb_write_buffer_size_bytes
+                .unwrap_or(defaults.write_buffer_size_bytes),
+            target_file_size_base_bytes: self
+                .rocksdb_target_file_size_base_bytes
+                .unwrap_or(defaults.target_file_size_base_bytes),
+            max_open_files: self
+                .rocksdb_max_open_files
+                .unwrap_or(defaults.max_open_files),
+            l0_compaction_trigger: self
+                .rocksdb_l0_compaction_trigger
+                .unwrap_or(defaults.l0_compaction_trigger),
+            l0_slowdown_writes_trigger: self
+                .rocksdb_l0_slowdown_writes_trigger
+                .unwrap_or(defaults.l0_slowdown_writes_trigger),
+            l0_stop_writes_trigger: self
+                .rocksdb_l0_stop_writes_trigger
+                .unwrap_or(defaults.l0_stop_writes_trigger),
+            write_buffer_manager_allow_stall: self
+                .rocksdb_write_buffer_manager_allow_stall
+                .unwrap_or(defaults.write_buffer_manager_allow_stall),
+        }
     }
 
     // Check multiple conditions for safe checkpoint export enablement

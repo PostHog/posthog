@@ -111,6 +111,6 @@ async def record_cost(cost: float, end_user_id: str | None = None) -> None:
     runner = throttle_runner_var.get()
     context = throttle_context_var.get()
     if runner and context:
-        if end_user_id:
+        if end_user_id and not context.end_user_id:
             context.end_user_id = end_user_id
         await runner.record_cost(context, cost)

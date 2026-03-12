@@ -31,10 +31,10 @@ jobs:
                   filters: |
                       mcp:
                         - 'services/mcp/**'
-                        - 'products/**' 
+                        - 'products/**'
                         - 'ee/**/*'
                         - 'posthog/**/*'
-                        - '.github/workflows/mcp-ci.yml'
+                        - '.github/workflows/ci-mcp.yml'
                         - '.github/workflows/mcp-publish.yml'
     build:
         name: Build Package
@@ -74,7 +74,7 @@ jobs:
                   cache: 'pnpm'
 
             - name: Install dependencies
-              run: pnpm install --frozen-lockfile
+              run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
 
             - name: Build package
               run: cd services/mcp && pnpm build
@@ -113,7 +113,7 @@ jobs:
                   cache: 'pnpm'
 
             - name: Install dependencies
-              run: pnpm install --frozen-lockfile
+              run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
 
             - name: Run unit tests
               run: cd services/mcp && pnpm run test
@@ -125,6 +125,7 @@ jobs:
         timeout-minutes: 30
         if: needs.changes.outputs.mcp == 'true'
         env:
+            OPT_OUT_CAPTURE: 1
             SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
             PERSONS_DB_WRITER_URL: 'postgres://posthog:posthog@localhost:5432/posthog_persons'
@@ -225,7 +226,7 @@ jobs:
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install Node dependencies
-              run: pnpm install --frozen-lockfile
+              run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
 
             - name: Set up needed files
               shell: bash

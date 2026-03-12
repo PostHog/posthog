@@ -12,7 +12,13 @@ from posthog.temporal.data_imports.signals.registry import (
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
-_BASE_FIELDS = {"emitter": lambda tid, r: None, "partition_field": "created_at", "fields": ("id",)}
+_BASE_FIELDS = {
+    "source_product": "test_product",
+    "source_type": "test",
+    "emitter": lambda tid, r: None,
+    "partition_field": "created_at",
+    "fields": ("id",),
+}
 
 
 @pytest.fixture(autouse=True)

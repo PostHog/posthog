@@ -618,20 +618,6 @@ class BingAdsTableKeywords(StrEnum):
     CAMPAIGNS = "campaigns"
 
 
-class BoxPlotDatum(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    day: str
-    label: str
-    max: float
-    mean: float
-    median: float
-    min: float
-    p25: float
-    p75: float
-
-
 class BreakdownAttributionType(StrEnum):
     FIRST_TOUCH = "first_touch"
     LAST_TOUCH = "last_touch"
@@ -1091,6 +1077,7 @@ class DatabaseSchemaSource(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    access_method: str | None = None
     id: str
     last_synced_at: str | None = None
     prefix: str
@@ -1401,7 +1388,6 @@ class OrderBy1(StrEnum):
     OCCURRENCES = "occurrences"
     USERS = "users"
     SESSIONS = "sessions"
-    REVENUE = "revenue"
 
 
 class OrderDirection1(StrEnum):
@@ -1422,20 +1408,6 @@ class ErrorTrackingIssueStatus(StrEnum):
     RESOLVED = "resolved"
     PENDING_RELEASE = "pending_release"
     SUPPRESSED = "suppressed"
-
-
-class RevenueEntity(StrEnum):
-    PERSON = "person"
-    GROUP_0 = "group_0"
-    GROUP_1 = "group_1"
-    GROUP_2 = "group_2"
-    GROUP_3 = "group_3"
-    GROUP_4 = "group_4"
-
-
-class RevenuePeriod(StrEnum):
-    ALL_TIME = "all_time"
-    MRR = "mrr"
 
 
 class EventDefinition(BaseModel):
@@ -1840,6 +1812,7 @@ class FileSystemIconType(StrEnum):
     LINK = "link"
     LIVE_DEBUGGER = "live_debugger"
     LOGS = "logs"
+    TRACING = "tracing"
     WORKFLOWS = "workflows"
     NOTEBOOK = "notebook"
     ACTION = "action"
@@ -1871,6 +1844,7 @@ class FileSystemIconType(StrEnum):
     FOLDER_OPEN = "folder_open"
     CONVERSATIONS = "conversations"
     TOOLBAR = "toolbar"
+    VISUAL_REVIEW = "visual_review"
     SETTINGS = "settings"
     HEALTH = "health"
     INBOX = "inbox"
@@ -2385,7 +2359,7 @@ class LinkedinAdsTableExclusions(StrEnum):
 
 
 class LinkedinAdsTableKeywords(StrEnum):
-    CAMPAIGNS = "campaigns"
+    CAMPAIGN_GROUPS = "campaign_groups"
 
 
 class LlmEvalSignalExtra(BaseModel):
@@ -2529,13 +2503,13 @@ class MarketingIntegrationConfig2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    campaignTableName: Literal["campaigns"] = "campaigns"
+    campaignTableName: Literal["campaign_groups"] = "campaign_groups"
     defaultSources: list[str] = Field(..., max_length=2, min_length=2)
     idField: Literal["id"] = "id"
     nameField: Literal["name"] = "name"
     primarySource: Literal["linkedin"] = "linkedin"
     sourceType: Literal["LinkedinAds"] = "LinkedinAds"
-    statsTableName: Literal["campaign_stats"] = "campaign_stats"
+    statsTableName: Literal["campaign_group_stats"] = "campaign_group_stats"
     tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
     tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
@@ -2544,8 +2518,9 @@ class ConversionActionTypes(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    fallback: list[str] = Field(..., max_length=14, min_length=14)
+    fallback: list[str] = Field(..., max_length=5, min_length=5)
     omni: list[str] = Field(..., max_length=5, min_length=5)
+    specific: list[str] = Field(..., max_length=9, min_length=9)
 
 
 class MarketingIntegrationConfig3(BaseModel):
@@ -2626,6 +2601,21 @@ class MarketingIntegrationConfig7(BaseModel):
     tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
+class MarketingIntegrationConfig8(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: Literal["campaigns"] = "campaigns"
+    defaultSources: list[str] = Field(..., max_length=1, min_length=1)
+    idField: Literal["id"] = "id"
+    nameField: Literal["name"] = "name"
+    primarySource: Literal["pinterest"] = "pinterest"
+    sourceType: Literal["PinterestAds"] = "PinterestAds"
+    statsTableName: Literal["campaign_analytics"] = "campaign_analytics"
+    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
+    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
+
+
 class MarketingIntegrationConfig(
     RootModel[
         MarketingIntegrationConfig1
@@ -2635,6 +2625,7 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig5
         | MarketingIntegrationConfig6
         | MarketingIntegrationConfig7
+        | MarketingIntegrationConfig8
     ]
 ):
     root: (
@@ -2645,6 +2636,7 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig5
         | MarketingIntegrationConfig6
         | MarketingIntegrationConfig7
+        | MarketingIntegrationConfig8
     )
 
 
@@ -2835,6 +2827,15 @@ class MaxExperimentVariantResultFrequentist(BaseModel):
     significant: bool
 
 
+class MaxNotebookContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    name: str | None = None
+    type: Literal["notebook"] = "notebook"
+
+
 class MaxProductInfo(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2857,19 +2858,10 @@ class MaxProductInfo(BaseModel):
 
 class MetaAdsConversionFallbackActionTypes(StrEnum):
     PURCHASE = "purchase"
-    OFFSITE_CONVERSION_FB_PIXEL_PURCHASE = "offsite_conversion.fb_pixel_purchase"
-    APP_CUSTOM_EVENT_FB_MOBILE_PURCHASE = "app_custom_event.fb_mobile_purchase"
     LEAD = "lead"
-    OFFSITE_CONVERSION_FB_PIXEL_LEAD = "offsite_conversion.fb_pixel_lead"
-    ONSITE_CONVERSION_LEAD_GROUPED = "onsite_conversion.lead_grouped"
     COMPLETE_REGISTRATION = "complete_registration"
-    OFFSITE_CONVERSION_FB_PIXEL_COMPLETE_REGISTRATION = "offsite_conversion.fb_pixel_complete_registration"
-    APP_CUSTOM_EVENT_FB_MOBILE_COMPLETE_REGISTRATION = "app_custom_event.fb_mobile_complete_registration"
-    OFFSITE_COMPLETE_REGISTRATION_ADD_META_LEADS = "offsite_complete_registration_add_meta_leads"
     APP_INSTALL = "app_install"
-    MOBILE_APP_INSTALL = "mobile_app_install"
     SUBSCRIBE = "subscribe"
-    OFFSITE_CONVERSION_FB_PIXEL_SUBSCRIBE = "offsite_conversion.fb_pixel_subscribe"
 
 
 class MetaAdsConversionOmniActionTypes(StrEnum):
@@ -2878,6 +2870,18 @@ class MetaAdsConversionOmniActionTypes(StrEnum):
     OMNI_COMPLETE_REGISTRATION = "omni_complete_registration"
     OMNI_APP_INSTALL = "omni_app_install"
     OMNI_SUBSCRIBE = "omni_subscribe"
+
+
+class MetaAdsConversionSpecificActionTypes(StrEnum):
+    OFFSITE_CONVERSION_FB_PIXEL_PURCHASE = "offsite_conversion.fb_pixel_purchase"
+    APP_CUSTOM_EVENT_FB_MOBILE_PURCHASE = "app_custom_event.fb_mobile_purchase"
+    OFFSITE_CONVERSION_FB_PIXEL_LEAD = "offsite_conversion.fb_pixel_lead"
+    ONSITE_CONVERSION_LEAD_GROUPED = "onsite_conversion.lead_grouped"
+    OFFSITE_CONVERSION_FB_PIXEL_COMPLETE_REGISTRATION = "offsite_conversion.fb_pixel_complete_registration"
+    APP_CUSTOM_EVENT_FB_MOBILE_COMPLETE_REGISTRATION = "app_custom_event.fb_mobile_complete_registration"
+    OFFSITE_COMPLETE_REGISTRATION_ADD_META_LEADS = "offsite_complete_registration_add_meta_leads"
+    MOBILE_APP_INSTALL = "mobile_app_install"
+    OFFSITE_CONVERSION_FB_PIXEL_SUBSCRIBE = "offsite_conversion.fb_pixel_subscribe"
 
 
 class MetaAdsDefaultSources(StrEnum):
@@ -2918,6 +2922,14 @@ class ModeContext(BaseModel):
     type: Literal["mode"] = "mode"
 
 
+class MultiQuestionFormFieldType(StrEnum):
+    TEXT = "text"
+    NUMBER = "number"
+    SLIDER = "slider"
+    DROPDOWN = "dropdown"
+    TOGGLE = "toggle"
+
+
 class MultiQuestionFormQuestionOption(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2930,6 +2942,12 @@ class MultiQuestionFormQuestionOption(BaseModel):
         ...,
         description="A short value to use when this option is selected, in a few words",
     )
+
+
+class MultiQuestionFormQuestionType(StrEnum):
+    SELECT = "select"
+    MULTI_SELECT = "multi_select"
+    MULTI_FIELD = "multi_field"
 
 
 class MultipleBreakdownType(StrEnum):
@@ -2951,6 +2969,7 @@ class NativeMarketingSource(StrEnum):
     REDDIT_ADS = "RedditAds"
     BING_ADS = "BingAds"
     SNAPCHAT_ADS = "SnapchatAds"
+    PINTEREST_ADS = "PinterestAds"
 
 
 class NodeKind(StrEnum):
@@ -3123,6 +3142,18 @@ class PersonType(BaseModel):
     uuid: str | None = None
 
 
+class PinterestAdsDefaultSources(StrEnum):
+    PINTEREST = "pinterest"
+
+
+class PinterestAdsTableExclusions(StrEnum):
+    ANALYTICS = "analytics"
+
+
+class PinterestAdsTableKeywords(StrEnum):
+    CAMPAIGNS = "campaigns"
+
+
 class PlanningStepStatus(StrEnum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
@@ -3263,7 +3294,9 @@ class ProductKey(StrEnum):
     TASKS = "tasks"
     TEAMS = "teams"
     TOOLBAR = "toolbar"
+    TRACING = "tracing"
     USER_INTERVIEWS = "user_interviews"
+    VISUAL_REVIEW = "visual_review"
     WEB_ANALYTICS = "web_analytics"
     WORKFLOWS = "workflows"
 
@@ -3423,6 +3456,7 @@ class QueryTiming(BaseModel):
 
 
 class QuickFilterContext(StrEnum):
+    DASHBOARDS = "dashboards"
     ERROR_TRACKING_ISSUE_FILTERS = "error-tracking-issue-filters"
     LOGS_FILTERS = "logs-filters"
 
@@ -4367,6 +4401,7 @@ class WebStatsBreakdown(StrEnum):
     SCREEN_NAME = "ScreenName"
     INITIAL_CHANNEL_TYPE = "InitialChannelType"
     INITIAL_REFERRING_DOMAIN = "InitialReferringDomain"
+    INITIAL_REFERRING_URL = "InitialReferringURL"
     INITIAL_UTM_SOURCE = "InitialUTMSource"
     INITIAL_UTM_CAMPAIGN = "InitialUTMCampaign"
     INITIAL_UTM_MEDIUM = "InitialUTMMedium"
@@ -5014,6 +5049,22 @@ class AutocompleteCompletionItem(BaseModel):
     )
 
 
+class BoxPlotDatum(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    day: str
+    label: str
+    max: float
+    mean: float
+    median: float
+    min: float
+    p25: float
+    p75: float
+    series_index: int | None = None
+    series_label: str | None = None
+
+
 class Breakdown(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5092,6 +5143,7 @@ class ChartSettings(BaseModel):
     rightYAxisSettings: YAxisSettings | None = None
     seriesBreakdownColumn: str | None = None
     showLegend: bool | None = None
+    showNullsAsZero: bool | None = None
     showTotalRow: bool | None = None
     showXAxisBorder: bool | None = None
     showXAxisTicks: bool | None = None
@@ -5571,7 +5623,7 @@ class FormResumePayload(BaseModel):
         extra="forbid",
     )
     action: Literal["form"] = "form"
-    form_answers: dict[str, str]
+    form_answers: dict[str, str | list[str]]
 
 
 class FunnelCorrelationResult(BaseModel):
@@ -5614,6 +5666,7 @@ class GroupPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    group_key_names: dict[str, str] | None = None
     group_type_index: int | None = None
     key: str
     label: str | None = None
@@ -5917,20 +5970,51 @@ class MaxRecordingEventFilter(BaseModel):
     type: Literal["events"] = "events"
 
 
+class MultiQuestionFormField(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str = Field(..., description="Unique identifier for this field, used as the answer key")
+    label: str = Field(..., description="Label displayed above/beside the field")
+    max: float | None = Field(default=None, description="Maximum value (for number and slider types)")
+    min: float | None = Field(default=None, description="Minimum value (for number and slider types)")
+    optional: bool | None = Field(
+        default=None,
+        description="Whether this field can be left empty (default: false)",
+    )
+    options: list[MultiQuestionFormQuestionOption] | None = Field(
+        default=None, description="Available answer options (required for dropdown)"
+    )
+    placeholder: str | None = Field(default=None, description="Placeholder text (for text and number types)")
+    step: float | None = Field(default=None, description="Step size (for number and slider types)")
+    type: MultiQuestionFormFieldType = Field(..., description="Field type (required, no default)")
+
+
 class MultiQuestionFormQuestion(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     allow_custom_answer: bool | None = Field(
         default=None,
-        description='Whether to show a "Type your answer" option (default: true)',
+        description=('Whether to show a "Type your answer" option (default: true). Only used for select type.'),
+    )
+    fields: list[MultiQuestionFormField] | None = Field(
+        default=None,
+        description=("Fields for multi_field type questions, grouped with a shared submit button"),
     )
     id: str = Field(..., description="Unique identifier for this question")
-    options: list[MultiQuestionFormQuestionOption] = Field(..., description="Available answer options")
+    options: list[MultiQuestionFormQuestionOption] | None = Field(
+        default=None,
+        description="Available answer options (required for select and multi_select)",
+    )
     question: str = Field(..., description="The question text to display")
     title: str = Field(
         ...,
         description=('One word title for the question e.g. "Use case", "Team size", "Experience"'),
+    )
+    type: MultiQuestionFormQuestionType | None = Field(
+        default=MultiQuestionFormQuestionType.SELECT,
+        description=("Question type. Use 'multi_field' with fields array for composite questions."),
     )
 
 
@@ -6580,6 +6664,7 @@ class SessionBatchEventsQueryResponse(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -8372,6 +8457,7 @@ class CachedEventsQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
@@ -9191,6 +9277,7 @@ class CachedSessionBatchEventsQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
@@ -9372,11 +9459,14 @@ class CachedTeamTaxonomyQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
+    limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -10211,6 +10301,7 @@ class Response(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -11189,7 +11280,6 @@ class ErrorTrackingIssue(BaseModel):
     last_seen: AwareDatetime
     library: str | None = None
     name: str | None = None
-    revenue: float | None = None
     source: str | None = None
     status: ErrorTrackingIssueStatus
 
@@ -11425,6 +11515,7 @@ class EventsQueryResponse(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -12408,6 +12499,38 @@ class QueryResponseAlternative1(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
+    offset: int | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[list]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    types: list[str]
+
+
+class QueryResponseAlternative2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool | None = None
+    hogql: str = Field(..., description="Generated HogQL query.")
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -13097,6 +13220,7 @@ class QueryResponseAlternative38(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -14001,8 +14125,11 @@ class QueryResponseAlternative77(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -14636,8 +14763,11 @@ class TeamTaxonomyQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -16051,6 +16181,10 @@ class HogQLQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    connectionId: str | None = Field(
+        default=None,
+        description=("Optional direct external data source id for running against a specific source"),
+    )
     explain: bool | None = None
     filters: HogQLFilters | None = None
     kind: Literal["HogQLQuery"] = "HogQLQuery"
@@ -16566,7 +16700,9 @@ class TeamTaxonomyQuery(BaseModel):
         extra="forbid",
     )
     kind: Literal["TeamTaxonomyQuery"] = "TeamTaxonomyQuery"
+    limit: int | None = Field(default=None, description="Number of rows to return")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = Field(default=None, description="Number of rows to skip before returning rows")
     response: TeamTaxonomyQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -16991,8 +17127,6 @@ class ErrorTrackingQuery(BaseModel):
     orderDirection: OrderDirection1 | None = None
     personId: str | None = None
     response: ErrorTrackingQueryResponse | None = None
-    revenueEntity: RevenueEntity | None = None
-    revenuePeriod: RevenuePeriod | None = None
     searchQuery: str | None = None
     status: ErrorTrackingIssueStatus | str | None = Field(default=None, title="ErrorTrackingQueryStatus")
     tags: QueryLogTags | None = None
@@ -18152,6 +18286,10 @@ class NotebookArtifactContent(BaseModel):
         ..., description="Structured blocks for the notebook content"
     )
     content_type: Literal["notebook"] = Field(default="notebook", description="Notebook")
+    is_saved: bool | None = Field(
+        default=None,
+        description=("Whether this notebook has been saved to the database (not stored, set during enrichment)"),
+    )
     title: str | None = Field(default=None, description="Title for the notebook")
 
 
@@ -18231,6 +18369,7 @@ class QueryResponseAlternative(
     RootModel[
         dict[str, Any]
         | QueryResponseAlternative1
+        | QueryResponseAlternative2
         | QueryResponseAlternative3
         | QueryResponseAlternative4
         | QueryResponseAlternative5
@@ -18315,6 +18454,7 @@ class QueryResponseAlternative(
     root: (
         dict[str, Any]
         | QueryResponseAlternative1
+        | QueryResponseAlternative2
         | QueryResponseAlternative3
         | QueryResponseAlternative4
         | QueryResponseAlternative5
@@ -18537,6 +18677,10 @@ class WebVitalsQuery(BaseModel):
 class DatabaseSchemaQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    connectionId: str | None = Field(
+        default=None,
+        description="Optional direct external data source id for schema introspection",
     )
     kind: Literal["DatabaseSchemaQuery"] = "DatabaseSchemaQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -19055,6 +19199,10 @@ class HogQLAutocomplete(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    connectionId: str | None = Field(
+        default=None,
+        description=("Optional direct external data source id for running against a specific source"),
+    )
     endPosition: int = Field(..., description="End position of the editor word")
     filters: HogQLFilters | None = Field(default=None, description="Table to validate the expression against")
     globals: dict[str, Any] | None = Field(default=None, description="Global values in scope")
@@ -19127,6 +19275,10 @@ class HogQLAutocomplete(BaseModel):
 class HogQLMetadata(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    connectionId: str | None = Field(
+        default=None,
+        description=("Optional direct external data source id for running against a specific source"),
     )
     debug: bool | None = Field(
         default=None,
@@ -19326,6 +19478,7 @@ class MaxUIContext(BaseModel):
     events: list[MaxEventContext] | None = None
     form_answers: dict[str, str] | None = None
     insights: list[MaxInsightContext] | None = None
+    notebooks: list[MaxNotebookContext] | None = None
 
 
 class QueryRequest(BaseModel):

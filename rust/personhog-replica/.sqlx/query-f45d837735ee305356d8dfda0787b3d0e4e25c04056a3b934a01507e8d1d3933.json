@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT ppd.person_id, ppd.distinct_id,\n                       fhko.feature_flag_key as \"feature_flag_key?\",\n                       fhko.hash_key as \"hash_key?\"\n                FROM posthog_persondistinctid ppd\n                LEFT JOIN posthog_featureflaghashkeyoverride fhko\n                    ON fhko.person_id = ppd.person_id AND fhko.team_id = ppd.team_id\n                WHERE ppd.team_id = $1 AND ppd.distinct_id = ANY($2)\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "person_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "distinct_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "feature_flag_key?",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "hash_key?",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "f45d837735ee305356d8dfda0787b3d0e4e25c04056a3b934a01507e8d1d3933"
+}

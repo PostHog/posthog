@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { DefinitionPopoverState, definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -23,6 +24,26 @@ import { ActionType, CohortType, PersonProperty, PropertyDefinition } from '~/ty
 
 describe('definitionPopoverLogic', () => {
     let logic: ReturnType<typeof definitionPopoverLogic.build>
+    const mockDataWarehouseTable: DataWarehouseTableForInsight = {
+        id: 'warehouse-table-id',
+        name: 'warehouse_table',
+        type: 'data_warehouse',
+        format: 'Parquet',
+        url_pattern: '',
+        fields: {
+            id: { name: 'id', hogql_value: 'id', type: 'integer', schema_valid: true },
+            distinct_id: { name: 'distinct_id', hogql_value: 'distinct_id', type: 'string', schema_valid: true },
+            created_at: { name: 'created_at', hogql_value: 'created_at', type: 'datetime', schema_valid: true },
+            user_uuid: { name: 'user_uuid', hogql_value: 'user_uuid', type: 'string', schema_valid: true },
+            event_timestamp: {
+                name: 'event_timestamp',
+                hogql_value: 'event_timestamp',
+                type: 'datetime',
+                schema_valid: true,
+            },
+            row_uuid: { name: 'row_uuid', hogql_value: 'row_uuid', type: 'string', schema_valid: true },
+        },
+    }
 
     beforeEach(() => {
         useMocks({
@@ -216,6 +237,32 @@ describe('definitionPopoverLogic', () => {
     })
 
     describe('view mode', () => {
+        it('hydrates data warehouse fields from the selected filter before applying defaults', async () => {
+            logic = definitionPopoverLogic({
+                type: TaxonomicFilterGroupType.DataWarehouse,
+                selectedItemMeta: {
+                    id: 'warehouse_table',
+                    table_name: 'warehouse_table',
+                    distinct_id_field: 'user_uuid',
+                    timestamp_field: 'event_timestamp',
+                    id_field: 'row_uuid',
+                },
+            })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDefinition(mockDataWarehouseTable)
+            })
+                .toDispatchActions(['setDefinitionSuccess'])
+                .toMatchValues({
+                    localDefinition: expect.objectContaining({
+                        distinct_id_field: 'user_uuid',
+                        timestamp_field: 'event_timestamp',
+                        id_field: 'row_uuid',
+                    }),
+                })
+        })
+
         it('change context', async () => {
             logic = definitionPopoverLogic({
                 type: TaxonomicFilterGroupType.Events,

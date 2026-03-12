@@ -1,8 +1,10 @@
 import { useValues } from 'kea'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { IconCopy } from '@posthog/icons'
+import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber, pluralize } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { AnalyzeResponsesButton } from 'scenes/surveys/components/AnalyzeResponsesButton'
 import { MultipleChoiceQuestionViz } from 'scenes/surveys/components/question-visualizations/MultipleChoiceQuestionViz'
@@ -12,7 +14,7 @@ import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { QuestionProcessedResponses, SurveyQuestion, SurveyQuestionType } from '~/types'
+import { QuestionProcessedResponses, SurveyEventProperties, SurveyQuestion, SurveyQuestionType } from '~/types'
 
 import { SCALE_LABELS } from '../../constants'
 import { isThumbQuestion } from '../../utils'
@@ -28,8 +30,9 @@ function QuestionTitle({
     question,
     questionIndex,
     totalResponses = 0,
+    noResponseCount = 0,
     displayedResponsesCount,
-}: Props & { totalResponses?: number; displayedResponsesCount?: number }): JSX.Element {
+}: Props & { totalResponses?: number; noResponseCount?: number; displayedResponsesCount?: number }): JSX.Element {
     const shouldShowAnalyzeButton =
         question.type === SurveyQuestionType.Open ||
         (question.type === SurveyQuestionType.SingleChoice && question.hasOpenChoice) ||
@@ -47,6 +50,12 @@ function QuestionTitle({
         metaParts.push({
             text: `${humanFriendlyNumber(totalResponses)} ${pluralize(totalResponses, 'response', 'responses', false)}`,
             className: 'text-text-secondary',
+        })
+    }
+    if (noResponseCount > 0) {
+        metaParts.push({
+            text: `${humanFriendlyNumber(noResponseCount)} skipped`,
+            className: 'text-muted',
         })
     }
     if (question.type === SurveyQuestionType.Open && displayedResponsesCount !== undefined && totalResponses > 0) {
@@ -68,6 +77,24 @@ function QuestionTitle({
                         <span className={part.className}>{part.text}</span>
                     </span>
                 ))}
+                {question.id && (
+                    <>
+                        <span className="text-border-dark">•</span>
+                        <LemonButton
+                            size="xxsmall"
+                            type="tertiary"
+                            icon={<IconCopy />}
+                            onClick={() =>
+                                void copyToClipboard(
+                                    `${SurveyEventProperties.SURVEY_RESPONSE}_${question.id}`,
+                                    'survey response key'
+                                )
+                            }
+                        >
+                            Copy response key
+                        </LemonButton>
+                    </>
+                )}
             </div>
             <div className="flex flex-row justify-between items-center gap-3">
                 <h3 className="text-xl font-semibold mb-0 leading-tight">
@@ -231,9 +258,10 @@ export function SurveyQuestionVisualization({ question, questionIndex, demoData 
     }
 
     if (processedData.totalResponses === 0 || processedData.data.length === 0) {
+        const skipCount = 'noResponseCount' in processedData ? processedData.noResponseCount : 0
         return (
             <div className="flex flex-col gap-2">
-                <QuestionTitle question={question} questionIndex={questionIndex} />
+                <QuestionTitle question={question} questionIndex={questionIndex} noResponseCount={skipCount} />
 
                 <SurveyNoResponsesBanner type="question" />
             </div>
@@ -246,6 +274,7 @@ export function SurveyQuestionVisualization({ question, questionIndex, demoData 
                 question={question}
                 questionIndex={questionIndex}
                 totalResponses={processedData.totalResponses}
+                noResponseCount={'noResponseCount' in processedData ? processedData.noResponseCount : 0}
                 displayedResponsesCount={
                     processedData.type === SurveyQuestionType.Open ? processedData.data.length : undefined
                 }

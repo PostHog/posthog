@@ -11,6 +11,7 @@ from rest_framework import filters, pagination, serializers, viewsets
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import Annotation, Dashboard, Insight
@@ -32,9 +33,7 @@ class AnnotationContext(ActivityContextBase):
 class AnnotationSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     dashboard_id = serializers.IntegerField(required=False, allow_null=True)
-    dashboard_item = serializers.PrimaryKeyRelatedField(
-        queryset=Insight.objects.none(), required=False, allow_null=True
-    )
+    dashboard_item = TeamScopedPrimaryKeyRelatedField(queryset=Insight.objects.all(), required=False, allow_null=True)
 
     class Meta:
         model = Annotation
@@ -65,13 +64,6 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-
-    def get_fields(self):
-        fields = super().get_fields()
-        team_id = self.context.get("team_id")
-        if team_id:
-            fields["dashboard_item"].queryset = Insight.objects.filter(team_id=team_id)
-        return fields
 
     def update(self, instance: Annotation, validated_data: dict[str, Any]) -> Annotation:
         instance.team_id = self.context["team_id"]

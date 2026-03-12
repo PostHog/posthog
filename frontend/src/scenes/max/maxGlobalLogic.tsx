@@ -94,6 +94,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         deregisterTool: (key: string) => ({ key }),
         prependOrReplaceConversation: (conversation: ConversationDetail | Conversation) => ({ conversation }),
         dismissLiabilityNotice: true,
+        dismissDataProcessing: true,
     }),
 
     loaders(({ values }) => ({
@@ -153,6 +154,12 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             { persist: true, storageKey: AI_LIABILITY_NOTICE_STORAGE_KEY },
             {
                 dismissLiabilityNotice: () => true,
+            },
+        ],
+        dataProcessingDismissed: [
+            false,
+            {
+                dismissDataProcessing: () => true,
             },
         ],
     }),
