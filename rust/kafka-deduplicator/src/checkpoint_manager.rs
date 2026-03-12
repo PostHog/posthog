@@ -7,7 +7,8 @@
 //!
 //! Rebalance triggers checkpoint imports (S3 downloads); exports are suppressed so imports get bandwidth.
 //! Workers take a token from `RebalanceTracker::get_export_token()` — cancelled on any rebalance start (0→1),
-//! recreated when all rebalances finish (1→0). Workers check before I/O and pass to exporter for upload cancellation.
+//! recreated when all rebalances finish (1→0). Workers check that token before local checkpoint
+//! creation, around checkpoint planning, and pass it to the exporter for upload cancellation.
 
 use std::collections::HashSet;
 use std::path::Path;

@@ -23,7 +23,9 @@ pub struct CheckpointPlan {
     pub files_to_upload: Vec<LocalCheckpointFile>,
 }
 
-/// Create a checkpoint plan with new metadata and list of files to upload
+/// Create a checkpoint plan with new metadata and list of files to upload.
+/// If a cancellation token is provided, planning checks it during directory walk
+/// and before hashing non-SST files so rebalance can stop export before upload starts.
 #[allow(clippy::too_many_arguments)]
 pub fn plan_checkpoint(
     local_checkpoint_attempt_dir: &Path,

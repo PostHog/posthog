@@ -134,7 +134,8 @@ impl CheckpointWorker {
     }
 
     /// Perform a complete checkpoint operation with cancellation support.
-    /// If cancel_token is provided and cancelled during export, returns an error early.
+    /// If cancel_token is provided and cancelled, the worker may skip before local
+    /// checkpoint creation, during checkpoint planning, or during export/upload.
     ///
     /// The optional `cancel_cause` is used for metrics when cancelled (e.g., "rebalance" or "shutdown").
     pub async fn checkpoint_partition_cancellable(
