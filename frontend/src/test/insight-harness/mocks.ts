@@ -63,6 +63,13 @@ function filterBySearch<T extends { name: string }>(items: T[], search: string):
     return search ? items.filter((item) => item.name.includes(search)) : items
 }
 
+function extractQueryBody(body: unknown): QueryBody {
+    if (body && typeof body === 'object' && 'query' in body) {
+        return (body as { query: QueryBody }).query
+    }
+    return (body as QueryBody) ?? {}
+}
+
 export interface SetupMocksOptions {
     eventDefinitions?: EventDefinition[]
     propertyDefinitions?: PropertyDefinition[]
@@ -107,13 +114,11 @@ export function setupInsightMocks({
         },
         post: {
             '/api/environments/:team_id/query': (req: RestRequest) => {
-                const body = req.body as QueryBody | { query: QueryBody } | null
-                const queryBody = (body && 'query' in body ? body.query : body) ?? {}
+                const queryBody = extractQueryBody(req.body)
 
                 for (const mock of responses) {
-                    if (mock.match(queryBody as QueryBody)) {
-                        const response =
-                            typeof mock.response === 'function' ? mock.response(queryBody as QueryBody) : mock.response
+                    if (mock.match(queryBody)) {
+                        const response = typeof mock.response === 'function' ? mock.response(queryBody) : mock.response
                         return [200, response]
                     }
                 }

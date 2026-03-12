@@ -11,7 +11,7 @@ export interface ChartDataset {
     yAxisID?: string
 }
 
-interface ChartScaleConfig {
+export interface ChartScaleConfig {
     display?: boolean
     type?: string
     stacked?: boolean
@@ -86,39 +86,47 @@ class MockChart {
     }
 }
 
+function buildLabelsDOM(labels: string[]): HTMLDivElement {
+    const el = document.createElement('div')
+    el.setAttribute('data-attr', 'chart-labels')
+    for (const [i, label] of labels.entries()) {
+        const span = document.createElement('span')
+        span.setAttribute('data-attr', `label-${i}`)
+        span.textContent = String(label)
+        el.appendChild(span)
+    }
+    return el
+}
+
+function buildDatasetDOM(ds: ChartDataset, index: number): HTMLDivElement {
+    const el = document.createElement('div')
+    el.setAttribute('data-attr', `dataset-${index}`)
+    el.setAttribute('data-label', ds.label ?? '')
+    el.setAttribute('data-hidden', String(ds.hidden ?? false))
+    el.setAttribute('data-count', String(ds.count ?? ''))
+    el.setAttribute('data-compare', String(ds.compare ?? false))
+    el.setAttribute('data-compare-label', ds.compare_label ?? '')
+    el.setAttribute('data-status', ds.status ?? '')
+    for (const [j, v] of (ds.data ?? []).entries()) {
+        const point = document.createElement('span')
+        point.setAttribute('data-attr', `dataset-${index}-point-${j}`)
+        point.setAttribute('data-value', String(v))
+        el.appendChild(point)
+    }
+    return el
+}
+
 function renderChartDOM(container: HTMLElement, config: ChartConfig): void {
     const wrapper = document.createElement('div')
     wrapper.setAttribute('data-attr', 'chart-data')
     wrapper.setAttribute('data-type', config.type ?? '')
 
-    const labelsEl = document.createElement('div')
-    labelsEl.setAttribute('data-attr', 'chart-labels')
-    for (const [i, label] of (config.data?.labels ?? []).entries()) {
-        const span = document.createElement('span')
-        span.setAttribute('data-attr', `label-${i}`)
-        span.textContent = String(label)
-        labelsEl.appendChild(span)
-    }
-    wrapper.appendChild(labelsEl)
+    wrapper.appendChild(buildLabelsDOM(config.data?.labels ?? []))
 
     const datasetsEl = document.createElement('div')
     datasetsEl.setAttribute('data-attr', 'chart-datasets')
     for (const [i, ds] of (config.data?.datasets ?? []).entries()) {
-        const dsEl = document.createElement('div')
-        dsEl.setAttribute('data-attr', `dataset-${i}`)
-        dsEl.setAttribute('data-label', ds.label ?? '')
-        dsEl.setAttribute('data-hidden', String(ds.hidden ?? false))
-        dsEl.setAttribute('data-count', String(ds.count ?? ''))
-        dsEl.setAttribute('data-compare', String(ds.compare ?? false))
-        dsEl.setAttribute('data-compare-label', ds.compare_label ?? '')
-        dsEl.setAttribute('data-status', ds.status ?? '')
-        for (const [j, v] of (ds.data ?? []).entries()) {
-            const point = document.createElement('span')
-            point.setAttribute('data-attr', `dataset-${i}-point-${j}`)
-            point.setAttribute('data-value', String(v))
-            dsEl.appendChild(point)
-        }
-        datasetsEl.appendChild(dsEl)
+        datasetsEl.appendChild(buildDatasetDOM(ds, i))
     }
     wrapper.appendChild(datasetsEl)
 
