@@ -8,7 +8,7 @@ import {
     IconCircleDashed,
     IconClock,
     IconCode,
-    IconCode2,
+    IconEndpoints,
     IconDashboard,
     IconDatabase,
     IconDecisionTree,
@@ -109,7 +109,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         iconColor: ['var(--color-product-web-analytics-light)', 'var(--color-product-web-analytics-dark)'],
     },
     endpoints: {
-        icon: <IconCode2 />,
+        icon: <IconEndpoints />,
         iconColor: ['var(--color-product-endpoints-light)', 'var(--color-product-endpoints-dark)'],
     },
     sql_editor: {
