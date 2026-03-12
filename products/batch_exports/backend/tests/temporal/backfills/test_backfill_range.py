@@ -136,72 +136,35 @@ def test_backfill_range(start_at, end_at, step, expected):
     assert result == expected
 
 
-def test_backfill_range_dst_spring_forward():
-    """backfill_range with timezone produces DST-aware intervals during spring-forward.
-
-    For a daily batch export at midnight US/Eastern, intervals spanning the 2024
-    spring-forward (March 10) should have variable UTC lengths: 24h before,
-    23h on the transition day, then 24h after.
-    """
-    # _align_timestamp_to_interval outputs UTC. A daily export at midnight ET:
-    # Mar 9 midnight EST = 05:00 UTC
-    start_at = dt.datetime(2024, 3, 9, 5, 0, 0, tzinfo=dt.UTC)
-    # Mar 12 midnight EDT = 04:00 UTC (after spring-forward)
-    end_at = dt.datetime(2024, 3, 12, 4, 0, 0, tzinfo=dt.UTC)
-    step = dt.timedelta(days=1)
-
-    result = list(backfill_range(start_at, end_at, step, timezone="US/Eastern"))
-
-    # Should produce 3 intervals aligned to local midnight:
-    # [Mar 9 05:00, Mar 10 05:00) = 24h (pre-DST)
-    # [Mar 10 05:00, Mar 11 04:00) = 23h (DST transition day)
-    # [Mar 11 04:00, Mar 12 04:00) = 24h (post-DST)
-    assert len(result) == 3, f"Expected 3 intervals covering the full range, got {len(result)}"
-
-    assert result[0] == (
-        dt.datetime(2024, 3, 9, 5, 0, 0, tzinfo=dt.UTC),
-        dt.datetime(2024, 3, 10, 5, 0, 0, tzinfo=dt.UTC),
-    )
-    assert result[1] == (
-        dt.datetime(2024, 3, 10, 5, 0, 0, tzinfo=dt.UTC),
-        dt.datetime(2024, 3, 11, 4, 0, 0, tzinfo=dt.UTC),
-    )
-    assert result[2] == (
-        dt.datetime(2024, 3, 11, 4, 0, 0, tzinfo=dt.UTC),
-        dt.datetime(2024, 3, 12, 4, 0, 0, tzinfo=dt.UTC),
-    )
-
-
-def test_backfill_range_dst_fall_back():
-    """backfill_range with timezone produces DST-aware intervals during fall-back.
-
-    During fall-back (2024-11-03), midnight ET shifts from 04:00 UTC (EDT) to
-    05:00 UTC (EST). With timezone awareness, intervals align to local midnight,
-    producing a 25h interval on the transition day.
-    """
-    # Midnight EDT on Nov 2 = 04:00 UTC
-    start_at = dt.datetime(2024, 11, 2, 4, 0, 0, tzinfo=dt.UTC)
-    # Midnight EST on Nov 5 = 05:00 UTC (after fall-back)
-    end_at = dt.datetime(2024, 11, 5, 5, 0, 0, tzinfo=dt.UTC)
-    step = dt.timedelta(days=1)
-
-    result = list(backfill_range(start_at, end_at, step, timezone="US/Eastern"))
-
-    # Should produce 3 intervals aligned to local midnight:
-    # [Nov 2 04:00, Nov 3 04:00) = 24h (pre-DST)
-    # [Nov 3 04:00, Nov 4 05:00) = 25h (DST transition day)
-    # [Nov 4 05:00, Nov 5 05:00) = 24h (post-DST)
-    assert len(result) == 3
-
-    assert result[0] == (
-        dt.datetime(2024, 11, 2, 4, 0, 0, tzinfo=dt.UTC),
-        dt.datetime(2024, 11, 3, 4, 0, 0, tzinfo=dt.UTC),
-    )
-    assert result[1] == (
-        dt.datetime(2024, 11, 3, 4, 0, 0, tzinfo=dt.UTC),
-        dt.datetime(2024, 11, 4, 5, 0, 0, tzinfo=dt.UTC),
-    )
-    assert result[2] == (
-        dt.datetime(2024, 11, 4, 5, 0, 0, tzinfo=dt.UTC),
-        dt.datetime(2024, 11, 5, 5, 0, 0, tzinfo=dt.UTC),
-    )
+@pytest.mark.parametrize(
+    "start_at,end_at,expected_intervals",
+    [
+        pytest.param(
+            # Spring-forward: 2024-03-10 clocks skip 2am->3am
+            # Midnight EST = 05:00 UTC, midnight EDT = 04:00 UTC
+            dt.datetime(2024, 3, 9, 5, 0, 0, tzinfo=dt.UTC),
+            dt.datetime(2024, 3, 12, 4, 0, 0, tzinfo=dt.UTC),
+            [
+                (dt.datetime(2024, 3, 9, 5, 0, 0, tzinfo=dt.UTC), dt.datetime(2024, 3, 10, 5, 0, 0, tzinfo=dt.UTC)),
+                (dt.datetime(2024, 3, 10, 5, 0, 0, tzinfo=dt.UTC), dt.datetime(2024, 3, 11, 4, 0, 0, tzinfo=dt.UTC)),
+                (dt.datetime(2024, 3, 11, 4, 0, 0, tzinfo=dt.UTC), dt.datetime(2024, 3, 12, 4, 0, 0, tzinfo=dt.UTC)),
+            ],
+            id="spring_forward",
+        ),
+        pytest.param(
+            # Fall-back: 2024-11-03 clocks repeat 1am->2am
+            # Midnight EDT = 04:00 UTC, midnight EST = 05:00 UTC
+            dt.datetime(2024, 11, 2, 4, 0, 0, tzinfo=dt.UTC),
+            dt.datetime(2024, 11, 5, 5, 0, 0, tzinfo=dt.UTC),
+            [
+                (dt.datetime(2024, 11, 2, 4, 0, 0, tzinfo=dt.UTC), dt.datetime(2024, 11, 3, 4, 0, 0, tzinfo=dt.UTC)),
+                (dt.datetime(2024, 11, 3, 4, 0, 0, tzinfo=dt.UTC), dt.datetime(2024, 11, 4, 5, 0, 0, tzinfo=dt.UTC)),
+                (dt.datetime(2024, 11, 4, 5, 0, 0, tzinfo=dt.UTC), dt.datetime(2024, 11, 5, 5, 0, 0, tzinfo=dt.UTC)),
+            ],
+            id="fall_back",
+        ),
+    ],
+)
+def test_backfill_range_dst_transitions(start_at, end_at, expected_intervals):
+    result = list(backfill_range(start_at, end_at, dt.timedelta(days=1), timezone="US/Eastern"))
+    assert result == expected_intervals
