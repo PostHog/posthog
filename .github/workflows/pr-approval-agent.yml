@@ -18,7 +18,7 @@ jobs:
         # external PRs. Do not weaken without security review.
         if: >-
             !github.event.pull_request.draft
-            && contains(fromJSON('["MEMBER","OWNER"]'), github.event.pull_request.author_association)
+            && contains(fromJSON('["MEMBER","OWNER","COLLABORATOR"]'), github.event.pull_request.author_association)
             && (
               github.event.label.name == 'stamphog'
               || (github.event.action == 'ready_for_review' && contains(github.event.pull_request.labels.*.name, 'stamphog'))
