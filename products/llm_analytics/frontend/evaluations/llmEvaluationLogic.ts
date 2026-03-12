@@ -88,6 +88,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         // Signal emission
         setSignalEmission: (enabled: boolean) => ({ enabled }),
 
+        // Settings panel
+        setSettingsExpanded: (expanded: boolean) => ({ expanded }),
+
         // Evaluation management actions
         saveEvaluation: true,
         saveEvaluationSuccess: (evaluation: EvaluationConfig) => ({ evaluation }),
@@ -340,6 +343,14 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             {
                 toggleSummaryExpanded: (state) => !state,
                 generateEvaluationSummarySuccess: () => true,
+            },
+        ],
+        settingsExpanded: [
+            true,
+            {
+                setSettingsExpanded: (_, { expanded }) => expanded,
+                // Collapse settings once an existing evaluation loads, expand for new
+                loadEvaluationSuccess: (_, { evaluation }) => !evaluation?.id,
             },
         ],
     }),
