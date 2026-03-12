@@ -33,18 +33,18 @@ test.describe('Workflows', () => {
     // ──────────────────────────────────────────
 
     test.describe('workflows tab', () => {
-        test('shows workflows list page with table and controls', async ({ page }) => {
+        test.beforeEach(async ({ page }) => {
             await page.waitForSelector('[data-attr="new-workflow"]', { timeout: 10000 })
             await page.waitForSelector('[data-attr="workflows-table"][data-loading="false"]', { timeout: 10000 })
+        })
+
+        test('shows workflows list page with table and controls', async ({ page }) => {
             await expect(page.getByText('Loading', { exact: true })).not.toBeVisible({ timeout: 5000 })
 
             await expect(page).toHaveScreenshot('workflows-list.png', { fullPage: true })
         })
 
         test('new workflow button opens modal with template chooser', async ({ page }) => {
-            await page.waitForSelector('[data-attr="new-workflow"]', { timeout: 10000 })
-            await page.waitForSelector('[data-attr="workflows-table"][data-loading="false"]', { timeout: 10000 })
-
             await page.click('[data-attr="new-workflow"]')
             await page.waitForSelector('[data-attr="new-workflow-chooser"]', { timeout: 3000 })
 
@@ -55,9 +55,6 @@ test.describe('Workflows', () => {
         })
 
         test('create blank workflow and see editor', async ({ page }) => {
-            await page.waitForSelector('[data-attr="new-workflow"]', { timeout: 10000 })
-            await page.waitForSelector('[data-attr="workflows-table"][data-loading="false"]', { timeout: 10000 })
-
             await page.click('[data-attr="new-workflow"]')
             await page.waitForSelector('[data-attr="new-workflow-chooser"]', { timeout: 3000 })
             await page.click('[data-attr="create-workflow-blank"]', { force: true })
