@@ -244,7 +244,11 @@ class TestEventDefinitionAPI(APIBaseTest):
             ("shorter match first for 'app'", "app", ["rated_app", "installed_app"]),
             ("shorter match first for uppercase 'APP'", "APP", ["rated_app", "installed_app"]),
             ("shorter match first for encoded ' app '", "%20app%20", ["rated_app", "installed_app"]),
-            ("multiple matches sorted by length for 'ed'", "ed", ["rated_app", "watched_movie", "entered_free_trial"]),
+            (
+                "multiple matches sorted by length for 'ed'",
+                "ed",
+                ["rated_app", "installed_app", "watched_movie", "entered_free_trial"],
+            ),
         ]
     )
     def test_search_results_ordered_by_name_length(
