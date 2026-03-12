@@ -346,11 +346,11 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             },
         ],
         activeTab: [
-            'settings' as string,
+            'configuration' as string,
             {
                 setActiveTab: (_, { tab }) => tab,
-                // Show runs tab for existing evaluations, settings for new
-                loadEvaluationSuccess: (_, { evaluation }) => (evaluation?.id ? 'runs' : 'settings'),
+                // Show runs tab for existing evaluations, configuration for new
+                loadEvaluationSuccess: (_, { evaluation }) => (evaluation?.id ? 'runs' : 'configuration'),
             },
         ],
     }),

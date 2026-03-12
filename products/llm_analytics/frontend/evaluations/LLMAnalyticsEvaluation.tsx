@@ -93,7 +93,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
     const handleSave = (): void => {
         // If percentage is unset but other fields are valid, switch to settings and scroll to triggers
         if (basicFieldsValid && percentageUnset) {
-            setActiveTab('settings')
+            setActiveTab('configuration')
             requestAnimationFrame(() => {
                 triggersRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
             })
@@ -183,10 +183,53 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                 onChange={(key) => setActiveTab(key)}
                 data-attr="llma-evaluation-tabs"
                 tabs={[
+                    !isNewEvaluation && {
+                        key: 'runs',
+                        label: 'Runs',
+                        'data-attr': 'llma-evaluation-runs-tab',
+                        content: (
+                            <div className="max-w-6xl">
+                                <div className="flex justify-between items-center mb-4">
+                                    <p className="text-muted text-sm m-0">
+                                        History of when this evaluation has been executed.
+                                    </p>
+                                    {runsSummary && (
+                                        <div className="flex gap-4 text-sm">
+                                            <div className="text-center">
+                                                <div className="font-semibold text-lg">{runsSummary.total}</div>
+                                                <div className="text-muted">Total runs</div>
+                                            </div>
+                                            <div className="text-center">
+                                                <div className="font-semibold text-lg text-success">
+                                                    {runsSummary.successRate}%
+                                                </div>
+                                                <div className="text-muted">Success rate</div>
+                                            </div>
+                                            {evaluation.output_config.allows_na && (
+                                                <div className="text-center">
+                                                    <div className="font-semibold text-lg">
+                                                        {runsSummary.applicabilityRate}%
+                                                    </div>
+                                                    <div className="text-muted">Applicable</div>
+                                                </div>
+                                            )}
+                                            <div className="text-center">
+                                                <div className="font-semibold text-lg text-danger">
+                                                    {runsSummary.errors}
+                                                </div>
+                                                <div className="text-muted">Errors</div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                                <EvaluationRunsTable />
+                            </div>
+                        ),
+                    },
                     {
-                        key: 'settings',
-                        label: 'Settings',
-                        'data-attr': 'llma-evaluation-settings-tab',
+                        key: 'configuration',
+                        label: 'Configuration',
+                        'data-attr': 'llma-evaluation-configuration-tab',
                         content: (
                             <div className="max-w-4xl">
                                 <Form logic={llmEvaluationLogic} formKey="evaluation" className="space-y-6">
@@ -330,49 +373,6 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                         <EvaluationTriggers />
                                     </div>
                                 </Form>
-                            </div>
-                        ),
-                    },
-                    !isNewEvaluation && {
-                        key: 'runs',
-                        label: 'Runs',
-                        'data-attr': 'llma-evaluation-runs-tab',
-                        content: (
-                            <div className="max-w-6xl">
-                                <div className="flex justify-between items-center mb-4">
-                                    <p className="text-muted text-sm m-0">
-                                        History of when this evaluation has been executed.
-                                    </p>
-                                    {runsSummary && (
-                                        <div className="flex gap-4 text-sm">
-                                            <div className="text-center">
-                                                <div className="font-semibold text-lg">{runsSummary.total}</div>
-                                                <div className="text-muted">Total runs</div>
-                                            </div>
-                                            <div className="text-center">
-                                                <div className="font-semibold text-lg text-success">
-                                                    {runsSummary.successRate}%
-                                                </div>
-                                                <div className="text-muted">Success rate</div>
-                                            </div>
-                                            {evaluation.output_config.allows_na && (
-                                                <div className="text-center">
-                                                    <div className="font-semibold text-lg">
-                                                        {runsSummary.applicabilityRate}%
-                                                    </div>
-                                                    <div className="text-muted">Applicable</div>
-                                                </div>
-                                            )}
-                                            <div className="text-center">
-                                                <div className="font-semibold text-lg text-danger">
-                                                    {runsSummary.errors}
-                                                </div>
-                                                <div className="text-muted">Errors</div>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                                <EvaluationRunsTable />
                             </div>
                         ),
                     },
