@@ -206,7 +206,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         # Saved queries store {"query": "SELECT ..."} without a kind discriminator.
         # process_query_dict requires a valid QuerySchemaRoot, so wrap as HogQLQuery.
         if "kind" not in query and "query" in query:
-            query = {"kind": "HogQLQuery", "query": query["query"]}
+            query = {"kind": "HogQLQuery", **query}
 
         response = process_query_dict(self.team, query, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         result = getattr(response, "types", [])
