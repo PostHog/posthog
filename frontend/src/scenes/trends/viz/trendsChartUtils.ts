@@ -115,7 +115,6 @@ export function buildTrendsSeries(opts: BuildSeriesOptions): Series[] {
                 status: dataset.status,
                 id: dataset.id,
                 count: dataset.count,
-                _dataset: dataset,
             },
         })
 

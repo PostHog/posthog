@@ -13,7 +13,7 @@ import { InsightEmptyState } from '../../insights/EmptyStates'
 import { trendsDataLogic } from '../trendsDataLogic'
 import { buildGoalLines, buildYAxis } from './trendsChartUtils'
 import { TrendsTooltip } from './TrendsTooltip'
-import { useTrendsChartClick } from './useTrendsChartClick'
+import { useTrendsPersonsModal } from './useTrendsPersonsModal'
 
 export function TrendsChart(props: ChartParams): JSX.Element | null {
     return (
@@ -43,7 +43,7 @@ function TrendsChartInner({ showPersonsModal = true, context }: ChartParams): JS
         insightAlertsLogic({ insightId: insight.id!, insightLogicProps: insightProps })
     )
 
-    const handleClick = useTrendsChartClick({ showPersonsModal, context })
+    const handleClick = useTrendsPersonsModal({ showPersonsModal, context })
 
     if (!(indexedResults && indexedResults[0]?.data && indexedResults.filter((r) => r.count !== 0).length > 0)) {
         return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
