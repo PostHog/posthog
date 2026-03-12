@@ -274,6 +274,7 @@ export interface ErrorTrackingSuppressionRuleApi {
      */
     order_key: number
     disabled_data?: unknown | null
+    sampling_rate?: number
     readonly created_at: string
     readonly updated_at: string
 }
@@ -296,6 +297,7 @@ export interface PatchedErrorTrackingSuppressionRuleApi {
      */
     order_key?: number
     disabled_data?: unknown | null
+    sampling_rate?: number
     readonly created_at?: string
     readonly updated_at?: string
 }
