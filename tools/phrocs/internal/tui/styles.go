@@ -92,6 +92,14 @@ var (
 	copyModeStyle = lipgloss.NewStyle().
 			Background(colorBlue).
 			Foreground(colorWhite)
+
+	// Search mode
+	searchMatchStyle = lipgloss.NewStyle().
+				Background(colorDarkGrey)
+
+	searchCurrentMatchStyle = lipgloss.NewStyle().
+				Background(colorYellow).
+				Foreground(colorBlack)
 )
 
 func statusIconChar(s process.Status) string {

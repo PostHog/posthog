@@ -155,8 +155,8 @@ func TestFocus_swapWithTab(t *testing.T) {
 
 func TestFocus_mouseClickSidebar(t *testing.T) {
 	m := readyModel(t, "backend", "frontend")
-	// Click second row in sidebar (row 1 = y=headerHeight+1)
-	m = update(m, tea.MouseClickMsg{Button: tea.MouseLeft, X: 5, Y: headerHeight + 1})
+	// Click second row in sidebar: header (1) + top border (1) + first row (1) = Y=3
+	m = update(m, tea.MouseClickMsg{Button: tea.MouseLeft, X: 5, Y: headerHeight + 2})
 	if m.focusedPane != focusSidebar {
 		t.Error("click in sidebar should focus sidebar")
 	}
@@ -249,10 +249,149 @@ func TestCopyMode_exitOnProcSwitch(t *testing.T) {
 		t.Fatal("should be in copy mode")
 	}
 	// Mouse-clicking a different process in the sidebar calls loadActiveProc,
-	// which always exits copy mode.
-	m = update(m, tea.MouseClickMsg{Button: tea.MouseLeft, X: 5, Y: headerHeight + 1})
+	// which always exits copy mode. Y=headerHeight+2 hits the second sidebar row.
+	m = update(m, tea.MouseClickMsg{Button: tea.MouseLeft, X: 5, Y: headerHeight + 2})
 	if m.copyMode {
 		t.Error("switching process should exit copy mode")
+	}
+}
+
+// ── Search ────────────────────────────────────────────────────────────────────
+
+func TestSearch_enterAndExit(t *testing.T) {
+	m := readyModel(t, "backend")
+	m = update(m, keypress('/'))
+	if !m.searchMode {
+		t.Error("/ should enter search mode")
+	}
+	m = update(m, specialKey(tea.KeyEscape))
+	if m.searchMode {
+		t.Error("esc should exit search mode")
+	}
+	if m.searchQuery != "" {
+		t.Error("esc should clear query")
+	}
+}
+
+func TestSearch_typeQuery(t *testing.T) {
+	m := readyModel(t, "backend")
+	m = update(m, keypress('/'))
+	m = update(m, keypress('e'))
+	m = update(m, keypress('r'))
+	m = update(m, keypress('r'))
+	if m.searchQuery != "err" {
+		t.Errorf("typed 'err', got %q", m.searchQuery)
+	}
+}
+
+func TestSearch_spaceInQuery(t *testing.T) {
+	m := readyModel(t, "backend")
+	m = update(m, keypress('/'))
+	m = update(m, keypress('h'))
+	m = update(m, tea.KeyPressMsg{Code: tea.KeySpace, Text: "space"})
+	m = update(m, keypress('w'))
+	if m.searchQuery != "h w" {
+		t.Errorf("space in query: want %q, got %q", "h w", m.searchQuery)
+	}
+}
+
+func TestSearch_backspace(t *testing.T) {
+	m := readyModel(t, "backend")
+	m = update(m, keypress('/'))
+	m = update(m, keypress('e'))
+	m = update(m, keypress('r'))
+	m = update(m, tea.KeyPressMsg{Code: tea.KeyBackspace, Text: "backspace"})
+	if m.searchQuery != "e" {
+		t.Errorf("after backspace want %q, got %q", "e", m.searchQuery)
+	}
+}
+
+func TestSearch_matchesHighlighted(t *testing.T) {
+	m := readyModel(t, "backend")
+	p, _ := m.mgr.Get("backend")
+	for _, line := range []string{"hello world", "error here", "another error"} {
+		p.AppendLine(line)
+		m = update(m, process.OutputMsg{Name: "backend", Line: line})
+	}
+	m = update(m, keypress('/'))
+	m = update(m, keypress('e'))
+	m = update(m, keypress('r'))
+	m = update(m, keypress('r'))
+	if len(m.searchMatches) != 2 {
+		t.Errorf("want 2 matches for 'err', got %d", len(m.searchMatches))
+	}
+}
+
+func TestSearch_enterConfirmsAndKeepsMatches(t *testing.T) {
+	m := readyModel(t, "backend")
+	p, _ := m.mgr.Get("backend")
+	for _, line := range []string{"foo", "bar", "foo again"} {
+		p.AppendLine(line)
+		m = update(m, process.OutputMsg{Name: "backend", Line: line})
+	}
+	m = update(m, keypress('/'))
+	m = update(m, keypress('f'))
+	m = update(m, keypress('o'))
+	m = update(m, keypress('o'))
+	m = update(m, tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
+	if m.searchMode {
+		t.Error("enter should exit search typing mode")
+	}
+	if m.searchQuery != "foo" {
+		t.Errorf("query should be preserved after enter, got %q", m.searchQuery)
+	}
+	if len(m.searchMatches) != 2 {
+		t.Errorf("matches should persist after enter, want 2 got %d", len(m.searchMatches))
+	}
+}
+
+func TestSearch_navigateWithNAndShiftN(t *testing.T) {
+	m := readyModel(t, "backend")
+	p, _ := m.mgr.Get("backend")
+	for _, line := range []string{"match one", "no match", "match two"} {
+		p.AppendLine(line)
+		m = update(m, process.OutputMsg{Name: "backend", Line: line})
+	}
+	// Enter search and confirm
+	m = update(m, keypress('/'))
+	for _, ch := range "match" {
+		m = update(m, keypress(ch))
+	}
+	m = update(m, tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
+	if m.searchCursor != 0 {
+		t.Fatalf("after enter cursor should be 0, got %d", m.searchCursor)
+	}
+	// n → next match
+	m = update(m, keypress('n'))
+	if m.searchCursor != 1 {
+		t.Errorf("n: want cursor 1, got %d", m.searchCursor)
+	}
+	// N → prev match
+	m = update(m, keypress('N'))
+	if m.searchCursor != 0 {
+		t.Errorf("N: want cursor 0, got %d", m.searchCursor)
+	}
+}
+
+func TestSearch_escClearsActiveSearch(t *testing.T) {
+	m := readyModel(t, "backend")
+	p, _ := m.mgr.Get("backend")
+	p.AppendLine("something")
+	m = update(m, process.OutputMsg{Name: "backend", Line: "something"})
+	// Build a search result, then exit typing mode
+	m = update(m, keypress('/'))
+	m = update(m, keypress('s'))
+	m = update(m, tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
+	if m.searchQuery == "" {
+		t.Fatal("search query should be set")
+	}
+	// Esc in normal mode should clear the search
+	m = update(m, specialKey(tea.KeyEscape))
+	if m.searchQuery != "" {
+		t.Error("esc in normal mode should clear search query")
+	}
+	if len(m.searchMatches) != 0 {
+		t.Error("esc should clear search matches")
 	}
 }
 

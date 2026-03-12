@@ -3,20 +3,23 @@ package tui
 import "charm.land/bubbles/v2/key"
 
 type keyMap struct {
-	PrevProc   key.Binding
-	NextProc   key.Binding
-	ScrollUp   key.Binding
-	ScrollDown key.Binding
-	GotoTop    key.Binding
-	GotoBottom key.Binding
-	SwapFocus  key.Binding
-	Restart    key.Binding
-	Stop       key.Binding
-	Docker     key.Binding
-	CopyMode   key.Binding
-	CopyEsc    key.Binding
-	Quit       key.Binding
-	Help       key.Binding
+	PrevProc    key.Binding
+	NextProc    key.Binding
+	ScrollUp    key.Binding
+	ScrollDown  key.Binding
+	GotoTop     key.Binding
+	GotoBottom  key.Binding
+	SwapFocus   key.Binding
+	Restart     key.Binding
+	Stop        key.Binding
+	Docker      key.Binding
+	CopyMode    key.Binding
+	CopyEsc     key.Binding
+	Search      key.Binding
+	SearchNext  key.Binding
+	SearchPrev  key.Binding
+	Quit        key.Binding
+	Help        key.Binding
 }
 
 func defaultKeyMap() keyMap {
@@ -70,6 +73,18 @@ func defaultKeyMap() keyMap {
 			key.WithKeys("esc"),
 			key.WithHelp("esc:", "esc copy"),
 		),
+		Search: key.NewBinding(
+			key.WithKeys("/"),
+			key.WithHelp("/:", "search"),
+		),
+		SearchNext: key.NewBinding(
+			key.WithKeys("n"),
+			key.WithHelp("n:", "next match"),
+		),
+		SearchPrev: key.NewBinding(
+			key.WithKeys("N"),
+			key.WithHelp("N:", "prev match"),
+		),
 		Quit: key.NewBinding(
 			key.WithKeys("q", "ctrl+c"),
 			key.WithHelp("q:", "quit"),
@@ -82,7 +97,7 @@ func defaultKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.NextProc, k.PrevProc, k.SwapFocus, k.CopyMode, k.Restart, k.Stop, k.Quit, k.Help}
+	return []key.Binding{k.NextProc, k.PrevProc, k.SwapFocus, k.Search, k.CopyMode, k.Restart, k.Stop, k.Quit, k.Help}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
@@ -91,6 +106,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.ScrollUp, k.ScrollDown},
 		{k.GotoTop, k.GotoBottom},
 		{k.Restart, k.Stop, k.SwapFocus},
+		{k.Search, k.SearchNext, k.SearchPrev},
 		{k.CopyMode, k.Docker},
 		{k.Quit, k.Help},
 	}

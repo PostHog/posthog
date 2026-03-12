@@ -44,6 +44,12 @@ type Model struct {
 	copyAnchor int
 	copyCursor int
 
+	// Search mode: output line filtering
+	searchMode    bool
+	searchQuery   string
+	searchMatches []int // line indices that contain the match
+	searchCursor  int   // index into searchMatches (current highlighted match)
+
 	keys     keyMap
 	help     help.Model
 	spinner  spinner.Model
@@ -122,6 +128,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.atBottom && !m.copyMode {
 				m.viewport.GotoBottom()
 			}
+			// Refresh match indices — scrollback eviction shifts line numbers
+			if m.searchQuery != "" {
+				m.recomputeSearch()
+			}
 		}
 
 	case process.StatusMsg:
@@ -135,6 +145,48 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		m.dbg("key: %q", msg.String())
+
+		// Search mode: '/' to enter, type to filter, enter to confirm,
+		// esc to clear, n/N to navigate matches.
+		if m.searchMode {
+			switch s := msg.String(); {
+			case s == "ctrl+c":
+				m.mgr.StopAll()
+				return m, tea.Quit
+			case s == "esc":
+				m.searchMode = false
+				m.searchQuery = ""
+				m.searchMatches = nil
+				m.searchCursor = 0
+				m.viewport.StyleLineFunc = nil
+			case s == "enter":
+				m.searchMode = false
+				// Keep matches visible; n/N can now navigate them.
+				if len(m.searchMatches) > 0 {
+					m.searchCursor = 0
+					m.applySearchStyle()
+					m.jumpToCurrentMatch()
+				}
+			case s == "backspace" || s == "ctrl+h":
+				if len(m.searchQuery) > 0 {
+					runes := []rune(m.searchQuery)
+					m.searchQuery = string(runes[:len(runes)-1])
+					m.recomputeSearch()
+				}
+			default:
+				var ch string
+				if s == "space" {
+					ch = " "
+				} else if runes := []rune(s); len(runes) == 1 && runes[0] >= 32 {
+					ch = s
+				}
+				if ch != "" {
+					m.searchQuery += ch
+					m.recomputeSearch()
+				}
+			}
+			return m, tea.Batch(cmds...)
+		}
 
 		// Copy mode consumes most keys. First press 'c' to enter,
 		// navigate with ↑/↓, press 'c' again to set the selection anchor, then
@@ -281,6 +333,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.dbg("docker: launching lazydocker")
 			return m, tea.ExecProcess(exec.Command("lazydocker"), nil)
 
+		case key.Matches(msg, m.keys.Search):
+			m.searchMode = true
+			m.searchQuery = ""
+			m.searchMatches = nil
+			m.searchCursor = 0
+			m.viewport.StyleLineFunc = nil
+
+		case key.Matches(msg, m.keys.SearchNext):
+			if len(m.searchMatches) > 0 {
+				m.searchCursor = (m.searchCursor + 1) % len(m.searchMatches)
+				m.applySearchStyle()
+				m.jumpToCurrentMatch()
+			}
+
+		case key.Matches(msg, m.keys.SearchPrev):
+			if len(m.searchMatches) > 0 {
+				m.searchCursor = (m.searchCursor - 1 + len(m.searchMatches)) % len(m.searchMatches)
+				m.applySearchStyle()
+				m.jumpToCurrentMatch()
+			}
+
+		case key.Matches(msg, m.keys.CopyEsc):
+			// Clear active search if any (esc has no other effect in normal mode)
+			if m.searchQuery != "" {
+				m.searchQuery = ""
+				m.searchMatches = nil
+				m.searchCursor = 0
+				m.viewport.StyleLineFunc = nil
+			}
+
 		case key.Matches(msg, m.keys.CopyMode):
 			// Enter copy mode
 			m.copyMode = true
@@ -426,17 +508,23 @@ func (m Model) applySize() Model {
 	return m
 }
 
-// Reloads the viewport with the selected process's output
-// Note that switching processes always exits copy mode
+// Reloads the viewport with the selected process's output.
+// Switching processes always exits copy mode and search typing mode,
+// but preserves the search query so matches are shown in the new process.
 func (m Model) loadActiveProc() Model {
 	if !m.ready {
 		return m
 	}
 	m.copyMode = false
+	m.searchMode = false
 	m.viewport.StyleLineFunc = nil
 	m.viewport.SetContent(m.buildContent())
 	if m.atBottom {
 		m.viewport.GotoBottom()
+	}
+	// Recompute search matches for the newly selected process
+	if m.searchQuery != "" {
+		m.recomputeSearch()
 	}
 	return m
 }
@@ -517,6 +605,75 @@ func (m Model) copySelectedText() string {
 		}
 	}
 	return sb.String()
+}
+
+// Recomputes searchMatches from current process output and refreshes StyleLineFunc.
+// Does not scroll the viewport.
+func (m *Model) recomputeSearch() {
+	if m.searchQuery == "" {
+		m.searchMatches = nil
+		m.searchCursor = 0
+		m.viewport.StyleLineFunc = nil
+		return
+	}
+	p := m.activeProc()
+	if p == nil {
+		m.searchMatches = nil
+		return
+	}
+	query := strings.ToLower(m.searchQuery)
+	lines := p.Lines()
+	m.searchMatches = nil
+	for i, line := range lines {
+		if strings.Contains(strings.ToLower(ansi.Strip(line)), query) {
+			m.searchMatches = append(m.searchMatches, i)
+		}
+	}
+	if m.searchCursor >= len(m.searchMatches) {
+		if len(m.searchMatches) > 0 {
+			m.searchCursor = len(m.searchMatches) - 1
+		} else {
+			m.searchCursor = 0
+		}
+	}
+	m.applySearchStyle()
+}
+
+// Updates the viewport's StyleLineFunc to highlight search matches.
+func (m *Model) applySearchStyle() {
+	if len(m.searchMatches) == 0 {
+		m.viewport.StyleLineFunc = nil
+		return
+	}
+	matchSet := make(map[int]bool, len(m.searchMatches))
+	for _, idx := range m.searchMatches {
+		matchSet[idx] = true
+	}
+	current := m.searchMatches[m.searchCursor]
+	m.viewport.StyleLineFunc = func(idx int) lipgloss.Style {
+		if idx == current {
+			return searchCurrentMatchStyle
+		}
+		if matchSet[idx] {
+			return searchMatchStyle
+		}
+		return lipgloss.NewStyle()
+	}
+}
+
+// Scrolls the viewport so the current search match is centered.
+func (m *Model) jumpToCurrentMatch() {
+	if len(m.searchMatches) == 0 {
+		return
+	}
+	lineIdx := m.searchMatches[m.searchCursor]
+	h := m.viewport.Height()
+	offset := lineIdx - h/2
+	if offset < 0 {
+		offset = 0
+	}
+	m.viewport.SetYOffset(offset)
+	m.atBottom = m.viewport.AtBottom()
 }
 
 func (m Model) renderHeader() string {
@@ -724,6 +881,29 @@ func (m Model) renderFooter() string {
 		}
 		return footerStyle.Width(m.width - 2).Render(
 			lipgloss.NewStyle().Foreground(colorBlue).Render(hint),
+		)
+	}
+	if m.searchMode {
+		var matchInfo string
+		if m.searchQuery == "" {
+			matchInfo = ""
+		} else if len(m.searchMatches) == 0 {
+			matchInfo = "  [no matches]"
+		} else {
+			matchInfo = fmt.Sprintf("  [%d/%d]", m.searchCursor+1, len(m.searchMatches))
+		}
+		prompt := lipgloss.NewStyle().Foreground(colorYellow).Render(fmt.Sprintf("/ %s▌%s", m.searchQuery, matchInfo))
+		return footerStyle.Width(m.width - 2).Render(prompt)
+	}
+	if m.searchQuery != "" {
+		var matchInfo string
+		if len(m.searchMatches) == 0 {
+			matchInfo = fmt.Sprintf("search: %q  [no matches]  esc: clear", m.searchQuery)
+		} else {
+			matchInfo = fmt.Sprintf("search: %q  [%d/%d]  n/N: navigate  esc: clear", m.searchQuery, m.searchCursor+1, len(m.searchMatches))
+		}
+		return footerStyle.Width(m.width - 2).Render(
+			lipgloss.NewStyle().Foreground(colorYellow).Render(matchInfo),
 		)
 	}
 	var content string
