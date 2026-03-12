@@ -271,6 +271,11 @@ class SelectFinder(TraversingVisitor):
         return visitor.found
 
 
+def _internal_user_settings_url(team_id: int) -> str:
+    site_url = settings.SITE_URL.rstrip("/")
+    return f"{site_url}/project/{team_id}/settings/project#internal-user-filtering"
+
+
 def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optional[dict[int, Action]] = None) -> dict:
     filters = filters or {}
     try:
@@ -290,8 +295,7 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
         if "bytecode_error" in filters:
             del filters["bytecode_error"]
     except CohortInlineError as e:
-        site_url = settings.SITE_URL.rstrip("/")
-        settings_url = f"{site_url}/project/{team.id}/settings/project#internal-user-filtering"
+        settings_url = _internal_user_settings_url(team.id)
         details = "; ".join(e.reasons)
         filters["bytecode"] = None
         filters["bytecode_error"] = (
@@ -308,8 +312,7 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
         # property filters referencing a cohort) still hit the bytecode compiler's
         # generic "Can't use cohorts in real-time filters" error.
         if "Can't use cohorts in real-time filters" in error_msg:
-            site_url = settings.SITE_URL.rstrip("/")
-            settings_url = f"{site_url}/project/{team.id}/settings/project#internal-user-filtering"
+            settings_url = _internal_user_settings_url(team.id)
             error_msg = (
                 f"Cohort membership can't be evaluated in real-time filters. "
                 f"Replace cohorts with equivalent inline person property filters. "
