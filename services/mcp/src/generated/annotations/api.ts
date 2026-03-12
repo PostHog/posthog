@@ -41,7 +41,7 @@ export const AnnotationsListResponse = zod.object({
     previous: zod.string().url().nullish(),
     results: zod.array(
         zod.object({
-            id: zod.number(),
+            id: zod.number().optional(),
             content: zod
                 .string()
                 .max(annotationsListResponseResultsItemContentMax)
@@ -61,42 +61,47 @@ export const AnnotationsListResponse = zod.object({
                 ),
             dashboard_item: zod.number().nullish(),
             dashboard_id: zod.number().nullish(),
-            dashboard_name: zod.string().nullable(),
-            insight_short_id: zod.string().nullable(),
-            insight_name: zod.string().nullable(),
-            insight_derived_name: zod.string().nullable(),
-            created_by: zod.object({
-                id: zod.number(),
-                uuid: zod.string(),
-                distinct_id: zod.string().max(annotationsListResponseResultsItemCreatedByOneDistinctIdMax).nullish(),
-                first_name: zod.string().max(annotationsListResponseResultsItemCreatedByOneFirstNameMax).optional(),
-                last_name: zod.string().max(annotationsListResponseResultsItemCreatedByOneLastNameMax).optional(),
-                email: zod.string().email().max(annotationsListResponseResultsItemCreatedByOneEmailMax),
-                is_email_verified: zod.boolean().nullish(),
-                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-                role_at_organization: zod
-                    .union([
-                        zod
-                            .enum([
-                                'engineering',
-                                'data',
-                                'product',
-                                'founder',
-                                'leadership',
-                                'marketing',
-                                'sales',
-                                'other',
-                            ])
-                            .describe(
-                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                            ),
-                        zod.enum(['']),
-                        zod.literal(null),
-                    ])
-                    .nullish(),
-            }),
-            created_at: zod.string().datetime({}).nullable(),
-            updated_at: zod.string().datetime({}),
+            dashboard_name: zod.string().nullish(),
+            insight_short_id: zod.string().nullish(),
+            insight_name: zod.string().nullish(),
+            insight_derived_name: zod.string().nullish(),
+            created_by: zod
+                .object({
+                    id: zod.number().optional(),
+                    uuid: zod.string().optional(),
+                    distinct_id: zod
+                        .string()
+                        .max(annotationsListResponseResultsItemCreatedByOneDistinctIdMax)
+                        .nullish(),
+                    first_name: zod.string().max(annotationsListResponseResultsItemCreatedByOneFirstNameMax).optional(),
+                    last_name: zod.string().max(annotationsListResponseResultsItemCreatedByOneLastNameMax).optional(),
+                    email: zod.string().email().max(annotationsListResponseResultsItemCreatedByOneEmailMax),
+                    is_email_verified: zod.boolean().nullish(),
+                    hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                    role_at_organization: zod
+                        .union([
+                            zod
+                                .enum([
+                                    'engineering',
+                                    'data',
+                                    'product',
+                                    'founder',
+                                    'leadership',
+                                    'marketing',
+                                    'sales',
+                                    'other',
+                                ])
+                                .describe(
+                                    '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                                ),
+                            zod.enum(['']),
+                            zod.literal(null),
+                        ])
+                        .nullish(),
+                })
+                .optional(),
+            created_at: zod.string().datetime({}).nullish(),
+            updated_at: zod.string().datetime({}).optional(),
             deleted: zod
                 .boolean()
                 .optional()
@@ -185,7 +190,7 @@ export const annotationsRetrieveResponseCreatedByOneLastNameMax = 150
 export const annotationsRetrieveResponseCreatedByOneEmailMax = 254
 
 export const AnnotationsRetrieveResponse = zod.object({
-    id: zod.number(),
+    id: zod.number().optional(),
     content: zod
         .string()
         .max(annotationsRetrieveResponseContentMax)
@@ -205,33 +210,44 @@ export const AnnotationsRetrieveResponse = zod.object({
         ),
     dashboard_item: zod.number().nullish(),
     dashboard_id: zod.number().nullish(),
-    dashboard_name: zod.string().nullable(),
-    insight_short_id: zod.string().nullable(),
-    insight_name: zod.string().nullable(),
-    insight_derived_name: zod.string().nullable(),
-    created_by: zod.object({
-        id: zod.number(),
-        uuid: zod.string(),
-        distinct_id: zod.string().max(annotationsRetrieveResponseCreatedByOneDistinctIdMax).nullish(),
-        first_name: zod.string().max(annotationsRetrieveResponseCreatedByOneFirstNameMax).optional(),
-        last_name: zod.string().max(annotationsRetrieveResponseCreatedByOneLastNameMax).optional(),
-        email: zod.string().email().max(annotationsRetrieveResponseCreatedByOneEmailMax),
-        is_email_verified: zod.boolean().nullish(),
-        hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-        role_at_organization: zod
-            .union([
-                zod
-                    .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
-                    .describe(
-                        '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                    ),
-                zod.enum(['']),
-                zod.literal(null),
-            ])
-            .nullish(),
-    }),
-    created_at: zod.string().datetime({}).nullable(),
-    updated_at: zod.string().datetime({}),
+    dashboard_name: zod.string().nullish(),
+    insight_short_id: zod.string().nullish(),
+    insight_name: zod.string().nullish(),
+    insight_derived_name: zod.string().nullish(),
+    created_by: zod
+        .object({
+            id: zod.number().optional(),
+            uuid: zod.string().optional(),
+            distinct_id: zod.string().max(annotationsRetrieveResponseCreatedByOneDistinctIdMax).nullish(),
+            first_name: zod.string().max(annotationsRetrieveResponseCreatedByOneFirstNameMax).optional(),
+            last_name: zod.string().max(annotationsRetrieveResponseCreatedByOneLastNameMax).optional(),
+            email: zod.string().email().max(annotationsRetrieveResponseCreatedByOneEmailMax),
+            is_email_verified: zod.boolean().nullish(),
+            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+            role_at_organization: zod
+                .union([
+                    zod
+                        .enum([
+                            'engineering',
+                            'data',
+                            'product',
+                            'founder',
+                            'leadership',
+                            'marketing',
+                            'sales',
+                            'other',
+                        ])
+                        .describe(
+                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                        ),
+                    zod.enum(['']),
+                    zod.literal(null),
+                ])
+                .nullish(),
+        })
+        .optional(),
+    created_at: zod.string().datetime({}).nullish(),
+    updated_at: zod.string().datetime({}).optional(),
     deleted: zod
         .boolean()
         .optional()
@@ -307,7 +323,7 @@ export const annotationsUpdateResponseCreatedByOneLastNameMax = 150
 export const annotationsUpdateResponseCreatedByOneEmailMax = 254
 
 export const AnnotationsUpdateResponse = zod.object({
-    id: zod.number(),
+    id: zod.number().optional(),
     content: zod
         .string()
         .max(annotationsUpdateResponseContentMax)
@@ -327,33 +343,44 @@ export const AnnotationsUpdateResponse = zod.object({
         ),
     dashboard_item: zod.number().nullish(),
     dashboard_id: zod.number().nullish(),
-    dashboard_name: zod.string().nullable(),
-    insight_short_id: zod.string().nullable(),
-    insight_name: zod.string().nullable(),
-    insight_derived_name: zod.string().nullable(),
-    created_by: zod.object({
-        id: zod.number(),
-        uuid: zod.string(),
-        distinct_id: zod.string().max(annotationsUpdateResponseCreatedByOneDistinctIdMax).nullish(),
-        first_name: zod.string().max(annotationsUpdateResponseCreatedByOneFirstNameMax).optional(),
-        last_name: zod.string().max(annotationsUpdateResponseCreatedByOneLastNameMax).optional(),
-        email: zod.string().email().max(annotationsUpdateResponseCreatedByOneEmailMax),
-        is_email_verified: zod.boolean().nullish(),
-        hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-        role_at_organization: zod
-            .union([
-                zod
-                    .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
-                    .describe(
-                        '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                    ),
-                zod.enum(['']),
-                zod.literal(null),
-            ])
-            .nullish(),
-    }),
-    created_at: zod.string().datetime({}).nullable(),
-    updated_at: zod.string().datetime({}),
+    dashboard_name: zod.string().nullish(),
+    insight_short_id: zod.string().nullish(),
+    insight_name: zod.string().nullish(),
+    insight_derived_name: zod.string().nullish(),
+    created_by: zod
+        .object({
+            id: zod.number().optional(),
+            uuid: zod.string().optional(),
+            distinct_id: zod.string().max(annotationsUpdateResponseCreatedByOneDistinctIdMax).nullish(),
+            first_name: zod.string().max(annotationsUpdateResponseCreatedByOneFirstNameMax).optional(),
+            last_name: zod.string().max(annotationsUpdateResponseCreatedByOneLastNameMax).optional(),
+            email: zod.string().email().max(annotationsUpdateResponseCreatedByOneEmailMax),
+            is_email_verified: zod.boolean().nullish(),
+            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+            role_at_organization: zod
+                .union([
+                    zod
+                        .enum([
+                            'engineering',
+                            'data',
+                            'product',
+                            'founder',
+                            'leadership',
+                            'marketing',
+                            'sales',
+                            'other',
+                        ])
+                        .describe(
+                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                        ),
+                    zod.enum(['']),
+                    zod.literal(null),
+                ])
+                .nullish(),
+        })
+        .optional(),
+    created_at: zod.string().datetime({}).nullish(),
+    updated_at: zod.string().datetime({}).optional(),
     deleted: zod
         .boolean()
         .optional()
@@ -429,7 +456,7 @@ export const annotationsPartialUpdateResponseCreatedByOneLastNameMax = 150
 export const annotationsPartialUpdateResponseCreatedByOneEmailMax = 254
 
 export const AnnotationsPartialUpdateResponse = zod.object({
-    id: zod.number(),
+    id: zod.number().optional(),
     content: zod
         .string()
         .max(annotationsPartialUpdateResponseContentMax)
@@ -449,33 +476,44 @@ export const AnnotationsPartialUpdateResponse = zod.object({
         ),
     dashboard_item: zod.number().nullish(),
     dashboard_id: zod.number().nullish(),
-    dashboard_name: zod.string().nullable(),
-    insight_short_id: zod.string().nullable(),
-    insight_name: zod.string().nullable(),
-    insight_derived_name: zod.string().nullable(),
-    created_by: zod.object({
-        id: zod.number(),
-        uuid: zod.string(),
-        distinct_id: zod.string().max(annotationsPartialUpdateResponseCreatedByOneDistinctIdMax).nullish(),
-        first_name: zod.string().max(annotationsPartialUpdateResponseCreatedByOneFirstNameMax).optional(),
-        last_name: zod.string().max(annotationsPartialUpdateResponseCreatedByOneLastNameMax).optional(),
-        email: zod.string().email().max(annotationsPartialUpdateResponseCreatedByOneEmailMax),
-        is_email_verified: zod.boolean().nullish(),
-        hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-        role_at_organization: zod
-            .union([
-                zod
-                    .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
-                    .describe(
-                        '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                    ),
-                zod.enum(['']),
-                zod.literal(null),
-            ])
-            .nullish(),
-    }),
-    created_at: zod.string().datetime({}).nullable(),
-    updated_at: zod.string().datetime({}),
+    dashboard_name: zod.string().nullish(),
+    insight_short_id: zod.string().nullish(),
+    insight_name: zod.string().nullish(),
+    insight_derived_name: zod.string().nullish(),
+    created_by: zod
+        .object({
+            id: zod.number().optional(),
+            uuid: zod.string().optional(),
+            distinct_id: zod.string().max(annotationsPartialUpdateResponseCreatedByOneDistinctIdMax).nullish(),
+            first_name: zod.string().max(annotationsPartialUpdateResponseCreatedByOneFirstNameMax).optional(),
+            last_name: zod.string().max(annotationsPartialUpdateResponseCreatedByOneLastNameMax).optional(),
+            email: zod.string().email().max(annotationsPartialUpdateResponseCreatedByOneEmailMax),
+            is_email_verified: zod.boolean().nullish(),
+            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+            role_at_organization: zod
+                .union([
+                    zod
+                        .enum([
+                            'engineering',
+                            'data',
+                            'product',
+                            'founder',
+                            'leadership',
+                            'marketing',
+                            'sales',
+                            'other',
+                        ])
+                        .describe(
+                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                        ),
+                    zod.enum(['']),
+                    zod.literal(null),
+                ])
+                .nullish(),
+        })
+        .optional(),
+    created_at: zod.string().datetime({}).nullish(),
+    updated_at: zod.string().datetime({}).optional(),
     deleted: zod
         .boolean()
         .optional()
