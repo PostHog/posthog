@@ -53,8 +53,8 @@ var (
 			PaddingLeft(1).
 			Render(
 			lipgloss.NewStyle().Background(colorBlue).Render(" ") +
-				lipgloss.NewStyle().Background(colorYellow).Render(" ") +
 				lipgloss.NewStyle().Background(colorRed).Render(" ") +
+				lipgloss.NewStyle().Background(colorYellow).Render(" ") +
 				lipgloss.NewStyle().Background(colorBlack).Render(" "),
 		)
 

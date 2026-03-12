@@ -54,7 +54,7 @@ func (f ComposeFlags) PsArgs() []string {
 	for _, profile := range f.Profiles {
 		args = append(args, "--profile", profile)
 	}
-	args = append(args, "ps", "--format", "json", "-a")
+	args = append(args, "ps", "--format", "json")
 	return args
 }
 
@@ -273,6 +273,19 @@ func (e *ComposeExpander) ChildrenFor(procName string) []expand.Child {
 	return children
 }
 
+func (e *ComposeExpander) ParentIcon(procName string) string {
+	if !e.procNames[procName] {
+		return ""
+	}
+	e.mu.Lock()
+	hasContainers := len(e.containers) > 0
+	e.mu.Unlock()
+	if hasContainers {
+		return "🐳"
+	}
+	return ""
+}
+
 func (e *ComposeExpander) StopAll() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -427,19 +440,28 @@ func StripComposeLogs(shell string) string {
 	return strings.Join(kept, " && ")
 }
 
-// ContainerIconChar returns the status icon character for a container
+// ContainerIconChar returns the status icon character for a container.
+// Uses box-style glyphs (▣ ▢ ▤) to visually distinguish containers from
+// top-level processes which use circles (● ○).
 func ContainerIconChar(c Container) string {
 	switch c.State {
 	case "running":
-		return "●"
+		switch c.Health {
+		case "unhealthy":
+			return "▣" // filled box = problem
+		case "starting":
+			return "▤" // half-filled = warming up
+		default:
+			return "▣" // filled box = healthy / no healthcheck
+		}
 	case "restarting":
-		return "◌"
+		return "▤"
 	case "exited", "dead", "removing":
-		return "✗"
+		return "▢" // empty box = stopped
 	case "created", "paused":
-		return "○"
+		return "▢"
 	default:
-		return "○"
+		return "▢"
 	}
 }
 

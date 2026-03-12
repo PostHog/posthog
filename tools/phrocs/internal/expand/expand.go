@@ -39,6 +39,9 @@ type Expander interface {
 	HandleMsg(msg tea.Msg) Result
 	// ChildrenFor returns child entries for the named process, or nil
 	ChildrenFor(procName string) []Child
+	// ParentIcon returns an icon override for the parent process row when it
+	// has children (e.g. "🐳" for docker compose). Empty means use the default.
+	ParentIcon(procName string) string
 	// SetSend provides the program's Send function so background goroutines
 	// can push messages into the Bubble Tea event loop
 	SetSend(send func(tea.Msg))

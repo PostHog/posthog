@@ -142,7 +142,7 @@ func TestComposeFlags_PsArgs(t *testing.T) {
 		Profiles: []string{"temporal"},
 	}
 	args := flags.PsArgs()
-	want := []string{"compose", "-f", "docker-compose.dev.yml", "-f", "docker-compose.profiles.yml", "--profile", "temporal", "ps", "--format", "json", "-a"}
+	want := []string{"compose", "-f", "docker-compose.dev.yml", "-f", "docker-compose.profiles.yml", "--profile", "temporal", "ps", "--format", "json"}
 	if len(args) != len(want) {
 		t.Fatalf("PsArgs: got %d args, want %d", len(args), len(want))
 	}
@@ -172,19 +172,23 @@ func TestComposeFlags_LogArgs(t *testing.T) {
 
 func TestContainerIconChar(t *testing.T) {
 	tests := []struct {
-		state string
-		want  string
+		state  string
+		health string
+		want   string
 	}{
-		{"running", "●"},
-		{"restarting", "◌"},
-		{"exited", "✗"},
-		{"created", "○"},
-		{"unknown", "○"},
+		{"running", "", "▣"},
+		{"running", "healthy", "▣"},
+		{"running", "unhealthy", "▣"},
+		{"running", "starting", "▤"},
+		{"restarting", "", "▤"},
+		{"exited", "", "▢"},
+		{"created", "", "▢"},
+		{"unknown", "", "▢"},
 	}
 	for _, tt := range tests {
-		got := ContainerIconChar(Container{State: tt.state})
+		got := ContainerIconChar(Container{State: tt.state, Health: tt.health})
 		if got != tt.want {
-			t.Errorf("ContainerIconChar(state=%s): got %q, want %q", tt.state, got, tt.want)
+			t.Errorf("ContainerIconChar(state=%s, health=%s): got %q, want %q", tt.state, tt.health, got, tt.want)
 		}
 	}
 }

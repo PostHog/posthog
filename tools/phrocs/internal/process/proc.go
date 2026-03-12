@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -74,6 +75,9 @@ type Process struct {
 	ptmx         *os.File // pty master; nil when using pipes
 	readyPattern *regexp.Regexp
 	ready        bool // whether we've seen the ready pattern (or no pattern is set)
+	startedAt    time.Time
+	duration     time.Duration
+	exitCode     int // -1 = not exited yet
 }
 
 func NewProcess(name string, cfg config.ProcConfig, scrollback int) *Process {
@@ -89,6 +93,7 @@ func NewProcess(name string, cfg config.ProcConfig, scrollback int) *Process {
 		vtermW:   80,
 		vtermH:   24,
 		ready:    cfg.ReadyPattern == "",
+		exitCode: -1,
 	}
 	if cfg.ReadyPattern != "" {
 		if re, err := regexp.Compile(cfg.ReadyPattern); err == nil {
@@ -102,6 +107,27 @@ func (p *Process) Status() Status {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.status
+}
+
+// Duration returns the wall-clock time the process ran. For running
+// processes it returns the elapsed time since start.
+func (p *Process) Duration() time.Duration {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.startedAt.IsZero() {
+		return 0
+	}
+	if p.duration > 0 {
+		return p.duration
+	}
+	return time.Since(p.startedAt)
+}
+
+// ExitCode returns the process exit code, or -1 if it hasn't exited.
+func (p *Process) ExitCode() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.exitCode
 }
 
 // Returns output lines extracted from the virtual terminal emulator.
@@ -172,6 +198,9 @@ func (p *Process) Start(send func(tea.Msg)) error {
 	p.vterm = vt.NewEmulator(p.vtermW, p.vtermH)
 	p.vterm.SetScrollbackSize(p.maxLines)
 	p.ready = p.readyPattern == nil
+	p.startedAt = time.Now()
+	p.duration = 0
+	p.exitCode = -1
 	p.mu.Unlock()
 
 	env := os.Environ()
@@ -231,8 +260,7 @@ func (p *Process) Start(send func(tea.Msg)) error {
 			st = StatusCrashed
 		}
 		p.mu.Lock()
-		// Don't update status if this cmd is no longer the active one
-		// (process was restarted) or if an explicit Stop() was called
+		p.recordFinish(exitErr)
 		if p.cmd == cmd && p.status != StatusStopped {
 			p.status = st
 		}
@@ -286,7 +314,6 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 
 	go func() {
 		exitErr := cmd.Wait()
-		// Close the write end so readLoop sees EOF
 		_ = pw.Close()
 
 		<-readDone
@@ -297,8 +324,7 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 			st = StatusCrashed
 		}
 		p.mu.Lock()
-		// Don't update status if this cmd is no longer the active one
-		// (process was restarted) or if an explicit Stop() was called
+		p.recordFinish(exitErr)
 		if p.cmd == cmd && p.status != StatusStopped {
 			p.status = st
 		}
@@ -349,6 +375,26 @@ func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
 			break
 		}
 	}
+}
+
+// extractExitCode returns the exit code from a cmd.Wait() error.
+func extractExitCode(err error) int {
+	if err == nil {
+		return 0
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		return exitErr.ExitCode()
+	}
+	return 1
+}
+
+// recordFinish stores the duration and exit code under the mutex.
+// Must be called with p.mu held.
+func (p *Process) recordFinish(exitErr error) {
+	if !p.startedAt.IsZero() {
+		p.duration = time.Since(p.startedAt)
+	}
+	p.exitCode = extractExitCode(exitErr)
 }
 
 // Sends SIGTERM to the process and marks it as stopped

@@ -6,6 +6,7 @@ import (
 	"log"
 	"os/exec"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
@@ -21,8 +22,9 @@ import (
 // A single row in the sidebar — either a top-level process or an indented
 // child contributed by an expander (e.g. a docker compose container)
 type sidebarRow struct {
-	proc  *process.Process // always set; for children this is the parent process
-	child *expand.Child    // non-nil for child sub-rows
+	proc      *process.Process // always set; for children this is the parent process
+	child     *expand.Child    // non-nil for child sub-rows
+	iconOverride string        // replaces the default status icon when set (e.g. "🐳")
 }
 
 // outputLines returns the lines to display for this row. Child rows with
@@ -142,6 +144,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if result.RebuildRows {
 			m.rebuildRows()
 			m.ensureSidebarCursorVisible()
+			m.syncKeyBindings()
 		}
 		if result.RefreshOutput && m.ready {
 			row := m.activeRow()
@@ -322,10 +325,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.atBottom = true
 
 		case key.Matches(msg, m.keys.Restart):
-			if p := m.activeProc(); p != nil {
-				m.dbg("restart: proc=%s", p.Name)
+			row := m.activeRow()
+			if row != nil && row.child == nil {
+				m.dbg("restart: proc=%s", row.proc.Name)
 				send := m.mgr.Send()
-				go p.Restart(send)
+				go row.proc.Restart(send)
 			}
 
 		case key.Matches(msg, m.keys.Docker):
@@ -436,8 +440,14 @@ func (m Model) activeProc() *process.Process {
 func (m *Model) rebuildRows() {
 	var rows []sidebarRow
 	for _, p := range m.procs {
-		rows = append(rows, sidebarRow{proc: p})
-		// Ask each expander for children under this process
+		parentRow := sidebarRow{proc: p}
+		// Ask each expander for an icon override and children
+		for _, exp := range m.expanders {
+			if icon := exp.ParentIcon(p.Name); icon != "" {
+				parentRow.iconOverride = icon
+			}
+		}
+		rows = append(rows, parentRow)
 		for _, exp := range m.expanders {
 			for _, ch := range exp.ChildrenFor(p.Name) {
 				ch := ch // capture
@@ -490,11 +500,60 @@ func (m Model) applySize() Model {
 	return m
 }
 
+// procSuffix returns a short annotation for the sidebar, e.g. " (2.3s)"
+// for finished processes, " exit:1" for crashes, or " (manual)" for
+// non-autostart processes that haven't been started yet.
+func procSuffix(p *process.Process) string {
+	st := p.Status()
+	switch st {
+	case process.StatusDone:
+		return " " + formatDuration(p.Duration())
+	case process.StatusCrashed:
+		code := p.ExitCode()
+		d := formatDuration(p.Duration())
+		if code > 0 {
+			return fmt.Sprintf(" %s exit:%d", d, code)
+		}
+		return " " + d
+	case process.StatusStopped:
+		if !p.Cfg.ShouldAutostart() && p.Duration() == 0 {
+			return " (manual)"
+		}
+	}
+	return ""
+}
+
+func formatDuration(d time.Duration) string {
+	switch {
+	case d < time.Second:
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	case d < time.Minute:
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	case d < time.Hour:
+		m := int(d.Minutes())
+		s := int(d.Seconds()) % 60
+		return fmt.Sprintf("%dm%ds", m, s)
+	default:
+		h := int(d.Hours())
+		m := int(d.Minutes()) % 60
+		return fmt.Sprintf("%dh%dm", h, m)
+	}
+}
+
+// Syncs key binding enabled state to the active row. Actions like restart
+// don't apply to expander children (individual docker containers).
+func (m *Model) syncKeyBindings() {
+	row := m.activeRow()
+	onChild := row != nil && row.child != nil
+	m.keys.Restart.SetEnabled(!onChild)
+}
+
 // Reloads the viewport with the selected row's output
 func (m Model) loadActiveProc() Model {
 	if !m.ready {
 		return m
 	}
+	m.syncKeyBindings()
 	m.copyMode = false
 	m.viewport.StyleLineFunc = nil
 	m.viewport.SetContent(m.buildContent())
@@ -652,12 +711,17 @@ func (m Model) renderSidebar() string {
 		} else {
 			// Regular process row
 			p := row.proc
-			iconChar = statusIconChar(p.Status())
-			if p.Status() == process.StatusPending {
-				iconChar = ansi.Strip(m.spinner.View())
+			st := p.Status()
+			if row.iconOverride != "" {
+				iconChar = row.iconOverride
+			} else {
+				iconChar = statusIconChar(st)
+				if st == process.StatusPending {
+					iconChar = ansi.Strip(m.spinner.View())
+				}
 			}
-			iconColor = statusIconColor(p.Status())
-			name = p.Name
+			iconColor = statusIconColor(st)
+			name = p.Name + procSuffix(p)
 		}
 
 		// Reserve visible chars: left-padding (1) + indent + icon (1) + space (1)

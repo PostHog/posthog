@@ -54,15 +54,26 @@ func Load(path string) (*Config, error) {
 // OrderedNames returns process names in a stable, predictable order.
 // "info" is always first (if present), then remaining names sorted alphabetically.
 func (c *Config) OrderedNames() []string {
+	// Pinned names appear first in this order, then the rest alphabetically
+	pinned := []string{"info", "docker-compose"}
+
 	names := make([]string, 0, len(c.Procs))
+	pinnedSet := make(map[string]bool, len(pinned))
+	for _, p := range pinned {
+		pinnedSet[p] = true
+	}
 	for name := range c.Procs {
-		if name != "info" {
+		if !pinnedSet[name] {
 			names = append(names, name)
 		}
 	}
 	sort.Strings(names)
-	if _, ok := c.Procs["info"]; ok {
-		names = append([]string{"info"}, names...)
+
+	var result []string
+	for _, p := range pinned {
+		if _, ok := c.Procs[p]; ok {
+			result = append(result, p)
+		}
 	}
-	return names
+	return append(result, names...)
 }
