@@ -81,6 +81,7 @@ export enum NodeKind {
     GroupNode = 'GroupNode',
     ActionsNode = 'ActionsNode',
     DataWarehouseNode = 'DataWarehouseNode',
+    FunnelsDataWarehouseNode = 'FunnelsDataWarehouseNode',
     LifecycleDataWarehouseNode = 'LifecycleDataWarehouseNode',
     EventsQuery = 'EventsQuery',
     SessionsQuery = 'SessionsQuery',
@@ -247,6 +248,7 @@ export type QuerySchema =
     | ActionsNode // old actions API endpoint
     | PersonsNode // old persons API endpoint
     | DataWarehouseNode
+    | FunnelsDataWarehouseNode
     | LifecycleDataWarehouseNode
     | EventsQuery
     | SessionsQuery
@@ -763,6 +765,16 @@ export interface DataWarehouseNode extends EntityNode {
     dw_source_type?: string
 }
 
+export interface FunnelsDataWarehouseNode extends EntityNode {
+    id: string
+    kind: NodeKind.FunnelsDataWarehouseNode
+    id_field: string
+    table_name: string
+    timestamp_field: string
+    distinct_id_field: string
+    dw_source_type?: string
+}
+
 export interface LifecycleDataWarehouseNode extends EntityNode {
     id: string
     kind: NodeKind.LifecycleDataWarehouseNode
@@ -779,7 +791,7 @@ export interface ActionsNode extends EntityNode {
 
 export type AnyEntityNode<WarehouseNode = DataWarehouseNode> = EventsNode | ActionsNode | WarehouseNode
 
-export type AnyDataWarehouseNode = DataWarehouseNode | LifecycleDataWarehouseNode
+export type AnyDataWarehouseNode = DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode
 
 export interface GroupNode<WarehouseNode = DataWarehouseNode> extends EntityNode {
     kind: NodeKind.GroupNode
@@ -1526,7 +1538,10 @@ export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (AnyEntityNode | GroupNode)[]
+    series: (
+        | AnyEntityNode<DataWarehouseNode | FunnelsDataWarehouseNode>
+        | GroupNode<DataWarehouseNode | FunnelsDataWarehouseNode>
+    )[]
     /** Properties specific to the funnels insight */
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */

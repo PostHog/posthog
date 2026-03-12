@@ -9,6 +9,7 @@ from posthog.schema import (
     FunnelConversionWindowTimeUnit,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
+    FunnelsDataWarehouseNode,
 )
 
 from posthog.hogql import ast
@@ -16,6 +17,8 @@ from posthog.hogql.parser import parse_expr
 
 from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
 from posthog.types import EntityNode, ExclusionEntityNode
+
+type FunnelDataWarehouseEntity = DataWarehouseNode | FunnelsDataWarehouseNode
 
 
 def funnel_window_interval_unit_to_sql(
@@ -88,11 +91,11 @@ def is_events_entity(entity: EntityNode | ExclusionEntityNode) -> TypeGuard[Even
     )
 
 
-def is_data_warehouse_entity(entity: EntityNode | ExclusionEntityNode) -> TypeGuard[DataWarehouseNode]:
-    return isinstance(entity, DataWarehouseNode)
+def is_data_warehouse_entity(entity: EntityNode | ExclusionEntityNode | None) -> TypeGuard[FunnelDataWarehouseEntity]:
+    return isinstance(entity, DataWarehouseNode) or isinstance(entity, FunnelsDataWarehouseNode)
 
 
-def data_warehouse_config_key(node: DataWarehouseNode) -> tuple[str, str, str, str]:
+def data_warehouse_config_key(node: FunnelDataWarehouseEntity) -> tuple[str, str, str, str]:
     return (
         node.table_name,
         node.id_field,
@@ -102,13 +105,13 @@ def data_warehouse_config_key(node: DataWarehouseNode) -> tuple[str, str, str, s
 
 
 def entity_config_mismatch(step_entity: EntityNode, table_entity: EntityNode | None) -> bool:
-    if isinstance(step_entity, DataWarehouseNode) != isinstance(table_entity, DataWarehouseNode):
+    if is_data_warehouse_entity(step_entity) != is_data_warehouse_entity(table_entity):
         return True
 
-    if not isinstance(step_entity, DataWarehouseNode):
+    if not is_data_warehouse_entity(step_entity):
         return False
 
-    assert isinstance(table_entity, DataWarehouseNode)
+    assert table_entity is not None and is_data_warehouse_entity(table_entity)
     return data_warehouse_config_key(step_entity) != data_warehouse_config_key(table_entity)
 
 

@@ -29,7 +29,7 @@ import { urls } from 'scenes/urls'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery, Node, QueryStatus } from '~/queries/schema/schema-general'
+import { FunnelsQuery, Node, NodeKind, QueryStatus } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -596,7 +596,12 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
     const filters = series ? seriesToActionsAndEvents(series) : {}
     const setFilters = (payload: Partial<FilterType>): void => {
         updateQuerySource({
-            series: actionsAndEventsToSeries(payload as any, true, MathAvailability.None),
+            series: actionsAndEventsToSeries(
+                payload as any,
+                true,
+                MathAvailability.None,
+                NodeKind.FunnelsDataWarehouseNode
+            ),
         } as Partial<FunnelsQuery>)
     }
 

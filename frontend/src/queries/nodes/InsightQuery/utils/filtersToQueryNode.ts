@@ -24,6 +24,7 @@ import {
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
     FunnelPathsFilter,
+    FunnelsDataWarehouseNode,
     FunnelsFilter,
     FunnelsQuery,
     GroupNode,
@@ -107,7 +108,10 @@ export type FilterTypeActionsAndEvents = {
     groups?: ActionFilter[]
 }
 
-type DataWarehouseNodeKind = NodeKind.DataWarehouseNode | NodeKind.LifecycleDataWarehouseNode
+type DataWarehouseNodeKind =
+    | NodeKind.DataWarehouseNode
+    | NodeKind.FunnelsDataWarehouseNode
+    | NodeKind.LifecycleDataWarehouseNode
 type LifecycleDataWarehouseFilter = DataWarehouseFilter &
     Pick<LifecycleDataWarehouseNode, 'aggregation_target_field' | 'created_at_field'>
 
@@ -116,8 +120,10 @@ export const legacyEntityToNode = (
     includeProperties: boolean,
     mathAvailability: MathAvailability,
     dataWarehouseNodeKind: DataWarehouseNodeKind = NodeKind.DataWarehouseNode
-): AnyEntityNode | GroupNode => {
-    let shared: Partial<EventsNode | ActionsNode | DataWarehouseNode | LifecycleDataWarehouseNode | GroupNode> = {
+): AnyEntityNode<AnyDataWarehouseNode> | GroupNode<AnyDataWarehouseNode> => {
+    let shared: Partial<
+        EventsNode | ActionsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | GroupNode
+    > = {
         name: entity.name || undefined,
         custom_name: entity.custom_name || undefined,
     }
@@ -136,7 +142,7 @@ export const legacyEntityToNode = (
                       id_field: (entity as TrendsDataWarehouseFilter).id_field || undefined,
                       distinct_id_field: (entity as TrendsDataWarehouseFilter).distinct_id_field || undefined,
                   }),
-        } as DataWarehouseNode | LifecycleDataWarehouseNode
+        } as DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode
     }
 
     if (isGroupFilter(entity)) {
@@ -251,8 +257,14 @@ export function actionsAndEventsToSeries(
     filters: FilterTypeActionsAndEventsWithGroups,
     includeProperties: boolean,
     includeMath: MathAvailability,
-    dataWarehouseNodeKind?: NodeKind.DataWarehouseNode
+    dataWarehouseNodeKind?: NodeKind.DataWarehouseNode | NodeKind.FunnelsDataWarehouseNode
 ): (AnyEntityNode | GroupNode)[]
+export function actionsAndEventsToSeries(
+    filters: FilterTypeActionsAndEventsWithoutGroups,
+    includeProperties: boolean,
+    includeMath: MathAvailability,
+    dataWarehouseNodeKind: NodeKind.FunnelsDataWarehouseNode
+): AnyEntityNode<FunnelsDataWarehouseNode>[]
 export function actionsAndEventsToSeries(
     filters: FilterTypeActionsAndEventsWithoutGroups,
     includeProperties: boolean,
@@ -263,7 +275,7 @@ export function actionsAndEventsToSeries(
     filters: FilterTypeActionsAndEventsWithoutGroups,
     includeProperties: boolean,
     includeMath: MathAvailability,
-    dataWarehouseNodeKind?: NodeKind.DataWarehouseNode
+    dataWarehouseNodeKind?: NodeKind.DataWarehouseNode | NodeKind.FunnelsDataWarehouseNode
 ): AnyEntityNode[]
 export function actionsAndEventsToSeries(
     { actions, events, data_warehouse, new_entity, groups }: FilterTypeActionsAndEvents,
@@ -401,6 +413,13 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
                 includeProperties,
                 includeMath,
                 NodeKind.LifecycleDataWarehouseNode
+            )
+        } else if (isFunnelsQuery(query)) {
+            query.series = actionsAndEventsToSeries(
+                { actions, events, data_warehouse, groups } as any,
+                includeProperties,
+                includeMath,
+                NodeKind.FunnelsDataWarehouseNode
             )
         } else {
             query.series = actionsAndEventsToSeries(
