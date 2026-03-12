@@ -226,8 +226,9 @@ function getModeOptions({
 }
 
 export function ModeSelector(): JSX.Element | null {
-    const { agentMode, contextDisabledReason, conversation, threadMessageCount } = useValues(maxThreadLogic)
-    const { setAgentMode } = useActions(maxThreadLogic)
+    const { agentMode, isSandboxMode, contextDisabledReason, conversation, threadMessageCount } =
+        useValues(maxThreadLogic)
+    const { setAgentMode, setIsSandboxMode } = useActions(maxThreadLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const researchEnabled = useFeatureFlag('MAX_DEEP_RESEARCH')
     const planModeEnabled = useFeatureFlag('PHAI_PLAN_MODE')
@@ -249,19 +250,25 @@ export function ModeSelector(): JSX.Element | null {
     const handleChange = useCallback(
         (value: ModeValue): void => {
             posthog.capture('phai mode switched', {
-                previous_mode: agentMode,
+                previous_mode: isSandboxMode ? 'sandbox' : agentMode,
                 new_mode: value,
             })
-            setAgentMode(value as AgentMode | null)
+            if (value === 'sandbox') {
+                setIsSandboxMode(true)
+                setAgentMode(null)
+            } else {
+                setIsSandboxMode(false)
+                setAgentMode(value as AgentMode | null)
+            }
         },
-        [agentMode, setAgentMode]
+        [agentMode, isSandboxMode, setAgentMode, setIsSandboxMode]
     )
 
     const isDeepResearch = conversation?.type === ConversationType.DeepResearch
 
     return (
         <LemonSelect
-            value={isDeepResearch ? 'research' : agentMode}
+            value={isDeepResearch ? 'research' : isSandboxMode ? 'sandbox' : agentMode}
             onChange={handleChange}
             options={modeOptions}
             size="xxsmall"

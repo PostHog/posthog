@@ -174,6 +174,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         streamConversation: (
             streamData: {
                 agent_mode: AgentMode | null
+                is_sandbox?: boolean
                 content: string | null
                 conversation?: string
                 contextual_tools?: Record<string, any>
@@ -205,6 +206,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         selectCommand: (command: SlashCommand) => ({ command }),
         activateCommand: (command: SlashCommand) => ({ command }),
         setAgentMode: (agentMode: AgentMode | null) => ({ agentMode }),
+        setIsSandboxMode: (isSandboxMode: boolean) => ({ isSandboxMode }),
         syncAgentModeFromConversation: (agentMode: AgentMode | null) => ({
             agentMode,
         }),
@@ -330,6 +332,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             {
                 setAgentMode: () => true,
                 askMax: () => false,
+            },
+        ],
+
+        isSandboxMode: [
+            false,
+            {
+                setIsSandboxMode: (_, { isSandboxMode }) => isSandboxMode,
             },
         ],
 
@@ -579,7 +588,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
     listeners((logic) => ({
         streamConversation: async (
-            { streamData: { agent_mode: agentMode, ...streamData }, generationAttempt, addToThread = true },
+            {
+                streamData: { agent_mode: agentMode, is_sandbox: isSandbox, ...streamData },
+                generationAttempt,
+                addToThread = true,
+            },
             breakpoint
         ) => {
             const { actions, values, cache, mount, props } = logic as BuiltLogic<maxThreadLogicType>
@@ -615,6 +628,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                 if (agentMode) {
                     apiData.agent_mode = agentMode
+                }
+
+                if (isSandbox) {
+                    apiData.is_sandbox = true
                 }
 
                 const response = await api.conversations.stream(apiData, {
@@ -777,6 +794,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // Sync agentMode from conversation only if user hasn't manually selected a mode after submission
             if (!values.agentModeLockedByUser && conversation?.agent_mode) {
                 actions.syncAgentModeFromConversation(conversation.agent_mode as AgentMode)
+            }
+            if (conversation?.is_sandbox) {
+                actions.setIsSandboxMode(true)
             }
             if (
                 values.queueingEnabled &&
@@ -1004,7 +1024,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
             actions.streamConversation(
                 {
-                    agent_mode: agentMode,
+                    agent_mode: values.isSandboxMode ? null : agentMode,
+                    is_sandbox: values.isSandboxMode || undefined,
                     content: prompt,
                     contextual_tools: contextualTools,
                     ui_context: mergedUiContext,
@@ -1051,7 +1072,15 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             if (values.multiQuestionFormPending) {
                 return
             }
-            actions.streamConversation({ conversation: id, content: null, agent_mode: values.agentMode }, 0)
+            actions.streamConversation(
+                {
+                    conversation: id,
+                    content: null,
+                    agent_mode: values.isSandboxMode ? null : values.agentMode,
+                    is_sandbox: values.isSandboxMode || undefined,
+                },
+                0
+            )
         },
 
         retryLastMessage: () => {
@@ -1169,7 +1198,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         continueAfterForm: ({ formAnswers }) => {
             actions.streamConversation(
                 {
-                    agent_mode: values.agentMode,
+                    agent_mode: values.isSandboxMode ? null : values.agentMode,
+                    is_sandbox: values.isSandboxMode || undefined,
                     content: null,
                     conversation: values.conversationId,
                     resume_payload: { action: 'form', form_answers: formAnswers },
@@ -1188,7 +1218,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // Resume the conversation with the approval payload
             actions.streamConversation(
                 {
-                    agent_mode: values.agentMode,
+                    agent_mode: values.isSandboxMode ? null : values.agentMode,
+                    is_sandbox: values.isSandboxMode || undefined,
                     content: null,
                     conversation: values.conversationId,
                     contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context])),
@@ -1208,7 +1239,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // Resume the conversation with the rejection payload
             actions.streamConversation(
                 {
-                    agent_mode: values.agentMode,
+                    agent_mode: values.isSandboxMode ? null : values.agentMode,
+                    is_sandbox: values.isSandboxMode || undefined,
                     content: null,
                     conversation: values.conversationId,
                     contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context])),
@@ -1641,7 +1673,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 } else if (modeValue === 'plan') {
                     parsedMode = values.featureFlags[FEATURE_FLAGS.PHAI_PLAN_MODE] ? AgentMode.Plan : null
                 } else if (modeValue === 'sandbox') {
-                    parsedMode = values.featureFlags[FEATURE_FLAGS.PHAI_SANDBOX_MODE] ? AgentMode.Sandbox : null
+                    if (values.featureFlags[FEATURE_FLAGS.PHAI_SANDBOX_MODE]) {
+                        actions.setIsSandboxMode(true)
+                    }
+                    parsedMode = null
                 } else if ((Object.values(AgentMode) as string[]).includes(modeValue)) {
                     const modeDef = MODE_DEFINITIONS[modeValue as keyof typeof MODE_DEFINITIONS]
                     if (modeDef?.flag && !values.featureFlags[FEATURE_FLAGS[modeDef.flag]]) {
