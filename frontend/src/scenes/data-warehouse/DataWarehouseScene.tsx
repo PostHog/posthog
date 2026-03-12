@@ -14,6 +14,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { DashboardTab } from './scene/DashboardTab'
 import { DataModelingTab } from './scene/DataModelingTab'
 import { OverviewTab } from './scene/OverviewTab'
 
@@ -50,6 +51,15 @@ export function DataWarehouseScene(): JSX.Element {
                         label: 'Overview',
                         content: <OverviewTab />,
                         link: urls.dataOps(),
+                    },
+                    {
+                        key: DataWarehouseTab.DASHBOARD,
+                        label: 'Dashboard',
+                        content: <DashboardTab />,
+                        link: combineUrl(urls.dataOps(), {
+                            ...searchParams,
+                            tab: DataWarehouseTab.DASHBOARD,
+                        }).url,
                     },
                     ...(featureFlags[FEATURE_FLAGS.DATA_MODELING_TAB]
                         ? [

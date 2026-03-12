@@ -24,6 +24,7 @@ import { dataWarehouseViewsLogic } from './saved_queries/dataWarehouseViewsLogic
 
 export enum DataWarehouseTab {
     OVERVIEW = 'overview',
+    DASHBOARD = 'dashboard',
     MODELING = 'modeling',
 }
 
@@ -88,6 +89,15 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             {
                 loadJobStats: async ({ days }: DataWarehouseJobStatsRequestPayload) => {
                     return await api.dataWarehouse.jobStats({ days })
+                },
+            },
+        ],
+        dataOpsDashboardId: [
+            null as number | null,
+            {
+                loadDataOpsDashboardId: async () => {
+                    const response = await api.dataWarehouse.dataOpsDashboard()
+                    return response.dashboard_id
                 },
             },
         ],
@@ -287,6 +297,11 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 actions.loadCompletedActivityResponseSuccess(newResponse)
             } catch (error) {
                 posthog.captureException(error)
+            }
+        },
+        setActiveTab: ({ tab }) => {
+            if (tab === DataWarehouseTab.DASHBOARD && values.dataOpsDashboardId === null) {
+                actions.loadDataOpsDashboardId()
             }
         },
     })),

@@ -879,6 +879,21 @@ def create_group_type_mapping_detail_dashboard(group_type_mapping, user) -> Dash
     return dashboard
 
 
+def create_data_ops_dashboard(team, user) -> Dashboard:
+    """
+    Creates the default data ops overview dashboard for a team.
+    Starts empty — tiles can be added by the user or seeded by future code.
+    """
+    dashboard = Dashboard.objects.create(
+        name="Data ops overview",
+        description="Your data ops overview. Add insights to track sync health, row counts, and anything else you care about.",
+        team=team,
+        created_by=user,
+        creation_mode="template",
+    )
+    return dashboard
+
+
 def _get_feature_flag_total_volume_insight_description(feature_flag_key: str) -> str:
     return f"Shows the number of total calls made on feature flag with key: {feature_flag_key}"
 

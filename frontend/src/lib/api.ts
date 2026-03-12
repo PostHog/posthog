@@ -4800,6 +4800,10 @@ const api = {
                 .withQueryString({ days: options?.days })
                 .get(options)
         },
+
+        async dataOpsDashboard(options?: ApiMethodOptions): Promise<{ dashboard_id: number }> {
+            return await new ApiRequest().dataWarehouse().withAction('data_ops_dashboard').get(options)
+        },
     },
 
     externalDataSchemas: {

@@ -19,12 +19,15 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.batch_exports.models import BatchExportRun
 from posthog.cloud_utils import get_cached_instance_license
+from posthog.helpers.dashboard_templates import create_data_ops_dashboard
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState, HogFunctionType
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.utils import convert_property_value, flatten
 
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_warehouse.backend.models.team_data_warehouse_config import TeamDataWarehouseConfig
 from products.data_warehouse.backend.models.util import get_view_or_table_by_name
 
 from ee.billing.billing_manager import BillingManager
@@ -747,3 +750,17 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 {"error": "An error occurred retrieving data health issues"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+    @action(methods=["GET"], detail=False)
+    def data_ops_dashboard(self, request: Request, **kwargs) -> Response:
+        """
+        Returns the data ops overview dashboard ID for this team, creating it if it doesn't exist yet.
+        """
+        config = get_or_create_team_extension(self.team, TeamDataWarehouseConfig)
+
+        if config.overview_dashboard_id is None:
+            dashboard = create_data_ops_dashboard(self.team, request.user)
+            config.overview_dashboard = dashboard
+            config.save(update_fields=["overview_dashboard"])
+
+        return Response({"dashboard_id": config.overview_dashboard_id})
