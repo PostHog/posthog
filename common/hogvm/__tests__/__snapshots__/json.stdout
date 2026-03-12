@@ -32,3 +32,9 @@ false
 false
 true
 false
+-- JSONExtract --
+John
+30
+null
+nested
+value
