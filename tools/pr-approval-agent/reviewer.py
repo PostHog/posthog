@@ -208,7 +208,7 @@ class Reviewer:
         options = ClaudeAgentOptions(
             system_prompt=REVIEWER_SYSTEM,
             allowed_tools=["Read", "Grep", "Glob"],
-            disallowed_tools=["Write", "Edit", "NotebookEdit", "Bash"],
+            disallowed_tools=["Write", "Edit", "NotebookEdit", "Bash", "Agent", "WebFetch", "WebSearch"],
             cwd=str(self.repo_root),
             max_turns=20,
             model=MODEL,
@@ -315,6 +315,9 @@ class Reviewer:
             Gate verdict: {gate_verdict}
             {constraint}
 
+            The full diff is at: {diff_path}
+            Read this file to review the changes, then submit your verdict.
+
             --- BEGIN UNTRUSTED CONTENT ---
             PR #{pr.number}: {safe_title}
             Author: {safe_author}
@@ -324,12 +327,7 @@ class Reviewer:
 
             Review comments:
             {review_comments}
-
-            The full diff is at: {diff_path}
-            Read this file to review the changes.
             --- END UNTRUSTED CONTENT ---
-
-            Now analyze the diff and submit your verdict.
         """)
 
     def _format_ownership(self, cl: dict) -> str:
