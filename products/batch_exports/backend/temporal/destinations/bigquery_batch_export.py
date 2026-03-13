@@ -5,7 +5,6 @@ import time
 import typing
 import asyncio
 import datetime as dt
-import functools
 import contextlib
 import dataclasses
 import collections.abc
@@ -315,16 +314,6 @@ class BigQueryTable(Table[BigQueryField]):
         return self.parents[1]
 
 
-def _make_get_config(_get_config, **kwargs):
-    """Override credentials provider get config to inject values."""
-
-    @functools.wraps(_get_config)
-    def override(key: str):
-        return kwargs.get(key, _get_config(key))
-
-    return override
-
-
 class Aioboto3CredentialsSupplier(google.auth.aws.AwsSecurityCredentialsSupplier):
     """Implementation of credential supplier for `google.auth` using `aioboto3`.
 
@@ -336,16 +325,8 @@ class Aioboto3CredentialsSupplier(google.auth.aws.AwsSecurityCredentialsSupplier
     async calls in the event loop via `asyncio.run_corountine_threadsafe`.
     """
 
-    def __init__(self, role_session_name: str) -> None:
+    def __init__(self) -> None:
         self.session = aioboto3.session.Session()
-        _get_config = (
-            self.session._session.get_component("credential_provider")
-            .get_provider("assume-role-with-web-identity")
-            ._get_config
-        )
-        self.session._session.get_component("credential_provider").get_provider(
-            "assume-role-with-web-identity"
-        )._get_config = _make_get_config(_get_config, role_session_name=role_session_name)
 
     def get_aws_security_credentials(self, context, request) -> google.auth.aws.AwsSecurityCredentials:
         return asyncio.run_coroutine_threadsafe(self._get_credentials(), asyncio.get_event_loop()).result()
@@ -363,11 +344,14 @@ class Aioboto3CredentialsSupplier(google.auth.aws.AwsSecurityCredentialsSupplier
         raise ValueError("No AWS region found")
 
     async def _get_credentials(self) -> google.auth.aws.AwsSecurityCredentials:
-        credentials = await self.session.get_credentials().get_frozen_credentials()
+        session_credentials = self.session.get_credentials()
+        assert session_credentials
+
+        credentials = await session_credentials.get_frozen_credentials()
         return google.auth.aws.AwsSecurityCredentials(
-            credentials.get("AccessKeyId"),
-            credentials.get("SecretAccessKey"),
-            credentials.get("SessionToken"),
+            credentials.access_key,
+            credentials.secret_key,
+            credentials.token,
         )
 
 
@@ -399,7 +383,7 @@ class BigQueryClient:
                     audience=settings.BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD,
                     subject_token_type="urn:ietf:params:aws:token-type:aws4_request",  # Only possible value
                     token_url="https://sts.googleapis.com/v1/token",  # Default
-                    aws_security_credentials_supplier=Aioboto3CredentialsSupplier(role_session_name=""),
+                    aws_security_credentials_supplier=Aioboto3CredentialsSupplier(),
                     scopes=["https://www.googleapis.com/auth/cloud-platform"],
                 ),
                 target_principal=settings.BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT,
