@@ -35,11 +35,17 @@ export class DashboardPage {
         await this.dismissQuickStartIfVisible()
 
         if (dashboardName) {
-            const textarea = this.page.locator('.scene-title-section textarea')
-            // Click the title to enter edit mode (textarea is not auto-shown)
-            await this.page.locator('[data-attr="scene-name"]').click()
-            await expect(textarea).toBeVisible()
+            const nameButton = this.page.locator('[data-attr="scene-name"] button').first()
+            const textarea = this.page.locator('[data-attr="scene-title-textarea"]')
+            // Click the title button to enter edit mode, retrying if loading resets the state
+            await expect(async () => {
+                if (!(await textarea.isVisible().catch(() => false))) {
+                    await nameButton.click()
+                }
+                await expect(textarea).toBeVisible({ timeout: 3000 })
+            }).toPass({ timeout: 30000 })
             await textarea.fill(dashboardName)
+            await textarea.blur()
         }
 
         return this
