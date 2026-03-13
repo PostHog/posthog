@@ -25,7 +25,7 @@ def compute_etag(content: str) -> str:
     return f'"{hashlib.sha256(content.encode()).hexdigest()[:16]}"'
 
 
-def add_cache_headers(response, token: str, content: str, snippet_version: str = DEFAULT_SNIPPET_VERSION):
+def add_cache_headers(response, token: str, etag: str, snippet_version: str = DEFAULT_SNIPPET_VERSION):
     """Add caching headers for CDN-served array.js responses.
 
     ETag: content hash for conditional requests. Clients send If-None-Match
@@ -45,7 +45,7 @@ def add_cache_headers(response, token: str, content: str, snippet_version: str =
     - token:{token}: purge all responses for a specific project (e.g.
       when a team changes their snippet version).
     """
-    response["ETag"] = compute_etag(content)
+    response["ETag"] = etag
     response["Cache-Control"] = "public, max-age=3600, stale-while-revalidate=86400"
     response["Cache-Tag"] = f"posthog-js-{snippet_version}, token:{token}"
     return response
@@ -107,5 +107,5 @@ class RemoteConfigArrayJSAPIView(BaseRemoteConfigAPIView):
 
         requested_version = RemoteConfig.get_requested_snippet_version(token)
         response = HttpResponse(script_content, content_type="application/javascript")
-        add_cache_headers(response, token, script_content, snippet_version=requested_version)
+        add_cache_headers(response, token, etag, snippet_version=requested_version)
         return add_vary_headers(response)
