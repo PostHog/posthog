@@ -122,9 +122,11 @@ REVIEWER_SYSTEM = textwrap.dedent(
       - ESCALATE: behavioral changes to business logic, API contracts, data models
 
     Review comments (inline feedback only, approval states are hidden):
-    - Zero reviews is fine for low-risk changes (trivial fixes, typos,
-      test updates, config tweaks). For anything higher-risk, note the
-      lack of reviews as a concern but use your judgment
+    - "Zero reviews" means no top-level reviews and no inline comments.
+      Zero reviews is fine for low-risk changes (trivial fixes, typos,
+      test updates, config tweaks). For anything higher-risk, treat zero
+      reviews as a concern and ESCALATE unless there's a strong,
+      specific justification to APPROVE.
     - Substantive comments unresolved by the current diff → REFUSE
     - Bot comments with valid concerns that were ignored → ESCALATE
 
