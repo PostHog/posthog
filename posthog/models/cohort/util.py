@@ -642,12 +642,35 @@ def _recalculate_cohortpeople_for_team(cohort: Cohort, pending_version: int, tea
         raise
 
 
+def _strip_trailing_settings_clause(sql: str) -> str:
+    """Remove a top-level trailing SETTINGS clause so the SQL can be used inside a subquery.
+
+    ClickHouse rejects SETTINGS inside subqueries. We match only a SETTINGS keyword
+    preceded by a newline (as emitted by the HogQL printer) to avoid corrupting user SQL
+    that contains the literal string "SETTINGS" in a value or alias.
+    """
+    import re
+
+    matches = list(re.finditer(r"\sSETTINGS\s", sql))
+    return sql[: matches[-1].start()] if matches else sql
+
+
 def _recalculate_cohortpeople_for_team_hogql(
     cohort: Cohort, pending_version: int, team: Team, history: CohortCalculationHistory
 ) -> int:
     cohort_params: dict[str, Any]
     if cohort.is_static:
         cohort_query, cohort_params = format_static_cohort_query(cohort, 0, prepend="")
+    elif cohort.query:
+        # Dynamic query-based cohort: use the HogQL query to generate the cohort filter
+        hogql_context = HogQLContext(team_id=team.id, enable_select_queries=True)
+        inner_query = print_cohort_hogql_query(cohort, hogql_context, team=team)
+        cohort_params = hogql_context.values
+
+        inner_query = _strip_trailing_settings_clause(inner_query)
+
+        # print_cohort_hogql_query selects `actor_id`, but RECALCULATE_COHORT_BY_ID expects `id`
+        cohort_query = f"SELECT actor_id AS id FROM ({inner_query})"
     elif not cohort.properties.values:
         history.finished_at = timezone.now()
         history.count = 0
@@ -663,9 +686,7 @@ def _recalculate_cohortpeople_for_team_hogql(
         )
         cohort_params = hogql_context.values
 
-        # Hacky: Clickhouse doesn't like there being a top level "SETTINGS" clause in a SelectSet statement when that SelectSet
-        # statement is used in a subquery. We remove it here.
-        cohort_query = cohort_query[: cohort_query.rfind("SETTINGS")]
+        cohort_query = _strip_trailing_settings_clause(cohort_query)
 
     recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
 

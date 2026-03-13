@@ -1,6 +1,7 @@
 import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
+import { useState } from 'react'
 
 import { IconClock, IconCopy, IconRefresh, IconTrash, IconUpload, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonDialog, LemonDivider, LemonFileInput, Link, Tooltip } from '@posthog/lemon-ui'
@@ -17,6 +18,7 @@ import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
@@ -37,6 +39,7 @@ import {
 } from '~/layout/scenes/SceneLayout'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { Query } from '~/queries/Query/Query'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { CohortType, SidePanelTab } from '~/types'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
@@ -47,6 +50,68 @@ import { PersonSelectList } from './PersonSelectList'
 import { PersonDisplayNameType, RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
 
 const RESOURCE_TYPE = 'cohort'
+
+function CohortHogQLEditor({ value, onChange }: { value: string; onChange: (sql: string) => void }): JSX.Element {
+    const [localValue, setLocalValue] = useState(value)
+
+    return (
+        <div className="flex flex-col gap-2">
+            <div className="border rounded min-h-[200px] overflow-hidden">
+                <CodeEditor
+                    language="hogQL"
+                    value={localValue}
+                    onChange={(v) => setLocalValue(v ?? '')}
+                    height={200}
+                    options={{
+                        minimap: { enabled: false },
+                        scrollBeyondLastLine: false,
+                        wordWrap: 'on',
+                        lineNumbers: 'on',
+                        folding: false,
+                    }}
+                    onPressCmdEnter={(v) => onChange(v)}
+                />
+            </div>
+            <div className="text-xs text-muted">
+                Write a HogQL query that returns person IDs. Use <code>person.id AS person_id</code> when querying from
+                events. Supported ID columns: <code>person_id</code>, <code>actor_id</code>, <code>id</code>, or{' '}
+                <code>distinct_id</code>. Press <strong>Cmd+Enter</strong> or click Update to apply.
+            </div>
+            <LemonButton
+                type="secondary"
+                size="small"
+                className="self-start"
+                onClick={() => onChange(localValue)}
+                disabledReason={localValue === value ? 'No changes to apply' : undefined}
+            >
+                Update query
+            </LemonButton>
+        </div>
+    )
+}
+
+/** Build a preview DataTableNode that shows persons matching a HogQL query — same layout as "Persons in this cohort". */
+function buildHogQLPreviewQuery(sql: string): DataTableNode | null {
+    const cleanedSql = sql.replace(/;\s*$/, '').trim()
+    if (!cleanedSql) {
+        return null
+    }
+    return {
+        kind: NodeKind.DataTableNode,
+        source: {
+            kind: NodeKind.ActorsQuery,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: cleanedSql,
+            },
+            select: ['person_display_name -- Person', 'id', 'created_at'],
+            limit: 100,
+        },
+        full: true,
+        showPropertyFilter: false,
+        showEventFilter: false,
+    }
+}
 
 export interface CohortEditProps {
     id?: CohortType['id']
@@ -281,22 +346,44 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                             <div className="flex gap-4 flex-wrap">
                                 <div className={cn('flex-1 flex flex-col gap-y-4')}>
                                     <LemonField name="is_static" label={null}>
-                                        {({ value, onChange }) => (
-                                            <LemonSelect
-                                                disabledReason={
-                                                    isNewCohort
-                                                        ? null
-                                                        : 'Create a new cohort to use a different type of cohort.'
-                                                }
-                                                options={COHORT_TYPE_OPTIONS}
-                                                value={value ? CohortTypeEnum.Static : CohortTypeEnum.Dynamic}
-                                                onChange={(cohortType) => {
-                                                    onChange(cohortType === CohortTypeEnum.Static)
-                                                }}
-                                                fullWidth
-                                                data-attr="cohort-type"
-                                            />
-                                        )}
+                                        {({ value, onChange }) => {
+                                            const currentType = value
+                                                ? CohortTypeEnum.Static
+                                                : cohort.query
+                                                  ? CohortTypeEnum.DynamicHogQL
+                                                  : CohortTypeEnum.Dynamic
+                                            return (
+                                                <LemonSelect
+                                                    disabledReason={
+                                                        isNewCohort
+                                                            ? null
+                                                            : 'Create a new cohort to use a different type of cohort.'
+                                                    }
+                                                    options={
+                                                        featureFlags[FEATURE_FLAGS.COHORT_ALLOW_CUSTOM_HOGQL]
+                                                            ? COHORT_TYPE_OPTIONS
+                                                            : COHORT_TYPE_OPTIONS.filter(
+                                                                  (o) => o.value !== CohortTypeEnum.DynamicHogQL
+                                                              )
+                                                    }
+                                                    value={currentType}
+                                                    onChange={(cohortType) => {
+                                                        if (cohortType === CohortTypeEnum.DynamicHogQL) {
+                                                            onChange(false)
+                                                            setCohortValue('query', {
+                                                                kind: 'HogQLQuery',
+                                                                query: "SELECT person.id AS person_id FROM events WHERE event = '$pageview' GROUP BY person.id",
+                                                            })
+                                                        } else {
+                                                            onChange(cohortType === CohortTypeEnum.Static)
+                                                            setCohortValue('query', null)
+                                                        }
+                                                    }}
+                                                    fullWidth
+                                                    data-attr="cohort-type"
+                                                />
+                                            )
+                                        }}
                                     </LemonField>
 
                                     {!isNewCohort && !cohort?.is_static && (
@@ -352,7 +439,30 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                 </div>
                             </div>
                         </SceneSection>
-                        {cohort.is_static ? (
+                        {cohort.query && !cohort.is_static && featureFlags[FEATURE_FLAGS.COHORT_ALLOW_CUSTOM_HOGQL] ? (
+                            <>
+                                <SceneDivider />
+                                <SceneSection
+                                    title="SQL definition"
+                                    description="Define cohort membership using a HogQL query. The query must return person IDs (via a person_id, actor_id, or distinct_id column)."
+                                    className="max-w-200"
+                                >
+                                    <CohortHogQLEditor
+                                        value={
+                                            typeof cohort.query === 'object' && cohort.query?.query
+                                                ? String(cohort.query.query)
+                                                : ''
+                                        }
+                                        onChange={(sql) =>
+                                            setCohortValue('query', {
+                                                kind: 'HogQLQuery',
+                                                query: sql,
+                                            })
+                                        }
+                                    />
+                                </SceneSection>
+                            </>
+                        ) : cohort.is_static ? (
                             <>
                                 <SceneDivider />
                                 <SceneSection
@@ -503,65 +613,112 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                             </>
                         )}
 
-                        {/* The typeof here is needed to pass the cohort id to the query below. Using `isNewCohort` won't work */}
-                        {typeof cohort.id === 'number' && (
-                            <>
-                                <SceneDivider />
-                                <SceneSection
-                                    title={
-                                        <>
-                                            Persons in this cohort
-                                            <span className="text-secondary ml-2">
-                                                {!isCalculatingOrPending &&
-                                                    cohort.count != undefined &&
-                                                    `(${cohort.count})`}
-                                            </span>
-                                            {shouldShowCountWarning && (
-                                                <Tooltip title="The displayed number of persons is less than the cohort count due to deleted persons. This is expected behavior for dynamic cohorts where persons may be deleted after being counted.">
-                                                    <IconWarning className="text-warning ml-2" />
-                                                </Tooltip>
-                                            )}
-                                        </>
-                                    }
-                                    description="Persons who match the following criteria will be part of the cohort."
-                                    hideTitleAndDescription
-                                >
-                                    <div className="relative min-h-[400px]">
-                                        {isCalculatingOrPending && !cohort.last_calculation ? (
-                                            <div className="absolute inset-0 flex flex-col items-center justify-center bg-bg-light">
-                                                <Spinner size="large" />
-                                                <p className="text-muted mt-4">
-                                                    {isPendingCalculation && !cohort.is_calculating
-                                                        ? "We're queuing the calculation. It should be ready in a few minutes."
-                                                        : "We're calculating the cohort. It should be ready in a few minutes."}
-                                                </p>
+                        {/* Live preview for HogQL cohorts — shows matching persons using ActorsQuery */}
+                        {featureFlags[FEATURE_FLAGS.COHORT_ALLOW_CUSTOM_HOGQL] &&
+                            cohort.query &&
+                            !cohort.is_static &&
+                            typeof cohort.query === 'object' &&
+                            cohort.query?.query &&
+                            (() => {
+                                const previewQuery = buildHogQLPreviewQuery(String(cohort.query!.query))
+                                if (!previewQuery) {
+                                    return null
+                                }
+                                return (
+                                    <>
+                                        <SceneDivider />
+                                        <SceneSection
+                                            title={
+                                                <>
+                                                    Persons in this cohort
+                                                    {typeof cohort.id === 'number' &&
+                                                        !isCalculatingOrPending &&
+                                                        cohort.count != null && (
+                                                            <span className="text-secondary ml-2">
+                                                                ({cohort.count})
+                                                            </span>
+                                                        )}
+                                                </>
+                                            }
+                                            description="Persons who match the following criteria will be part of the cohort."
+                                        >
+                                            <div className="relative min-h-[400px]">
+                                                <Query
+                                                    query={previewQuery}
+                                                    readOnly
+                                                    context={{
+                                                        emptyStateHeading:
+                                                            'There are no matching persons for this cohort',
+                                                        emptyStateDetail: 'Check your SQL query and try again.',
+                                                    }}
+                                                />
                                             </div>
-                                        ) : (
-                                            <Query
-                                                query={query}
-                                                setQuery={setQuery}
-                                                context={{
-                                                    refresh: 'force_blocking',
-                                                    fileNameForExport: cohort.name,
-                                                    cohortId: cohortId,
-                                                    dataNodeLogicKey: dataNodeLogicKey,
-                                                    columns: canRemovePersonFromCohort
-                                                        ? {
-                                                              'person.$delete': {
-                                                                  render: renderRemovePersonFromCohortButton,
-                                                              },
-                                                          }
-                                                        : undefined,
-                                                    emptyStateHeading: 'There are no matching persons for this cohort',
-                                                    emptyStateDetail:
-                                                        'Try adjusting your matching criteria or search to see more results.',
-                                                }}
-                                            />
-                                        )}
-                                    </div>
-                                </SceneSection>
-                            </>
-                        )}
+                                        </SceneSection>
+                                    </>
+                                )
+                            })()}
+
+                        {/* Persons table for saved cohorts (hidden for HogQL cohorts when the preview is active) */}
+                        {typeof cohort.id === 'number' &&
+                            (!cohort.query || !featureFlags[FEATURE_FLAGS.COHORT_ALLOW_CUSTOM_HOGQL]) && (
+                                <>
+                                    <SceneDivider />
+                                    <SceneSection
+                                        title={
+                                            <>
+                                                Persons in this cohort
+                                                <span className="text-secondary ml-2">
+                                                    {!isCalculatingOrPending &&
+                                                        cohort.count != undefined &&
+                                                        `(${cohort.count})`}
+                                                </span>
+                                                {shouldShowCountWarning && (
+                                                    <Tooltip title="The displayed number of persons is less than the cohort count due to deleted persons. This is expected behavior for dynamic cohorts where persons may be deleted after being counted.">
+                                                        <IconWarning className="text-warning ml-2" />
+                                                    </Tooltip>
+                                                )}
+                                            </>
+                                        }
+                                        description="Persons who match the following criteria will be part of the cohort."
+                                        hideTitleAndDescription
+                                    >
+                                        <div className="relative min-h-[400px]">
+                                            {isCalculatingOrPending && !cohort.last_calculation ? (
+                                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-bg-light">
+                                                    <Spinner size="large" />
+                                                    <p className="text-muted mt-4">
+                                                        {isPendingCalculation && !cohort.is_calculating
+                                                            ? "We're queuing the calculation. It should be ready in a few minutes."
+                                                            : "We're calculating the cohort. It should be ready in a few minutes."}
+                                                    </p>
+                                                </div>
+                                            ) : (
+                                                <Query
+                                                    query={query}
+                                                    setQuery={setQuery}
+                                                    context={{
+                                                        refresh: 'force_blocking',
+                                                        fileNameForExport: cohort.name,
+                                                        cohortId: cohortId,
+                                                        dataNodeLogicKey: dataNodeLogicKey,
+                                                        columns: canRemovePersonFromCohort
+                                                            ? {
+                                                                  'person.$delete': {
+                                                                      render: renderRemovePersonFromCohortButton,
+                                                                  },
+                                                              }
+                                                            : undefined,
+                                                        emptyStateHeading:
+                                                            'There are no matching persons for this cohort',
+                                                        emptyStateDetail:
+                                                            'Try adjusting your matching criteria or search to see more results.',
+                                                    }}
+                                                />
+                                            )}
+                                        </div>
+                                    </SceneSection>
+                                </>
+                            )}
                     </SceneContent>
                 </Form>
             </div>

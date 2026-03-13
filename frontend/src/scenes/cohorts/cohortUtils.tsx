@@ -94,13 +94,21 @@ export function isValidCohortGroup(criteria: AnyCohortGroupType): boolean {
 }
 
 export function createCohortFormData(cohort: CohortType): FormData {
-    const rawCohort = {
+    const isQueryBased = !!cohort.query && !cohort.is_static
+
+    const rawCohort: Record<string, string | Blob> = {
         ...(cohort.name ? { name: cohort.name } : {}),
         description: cohort.description ?? '',
         ...(cohort.csv ? { csv: cohort.csv } : {}),
-        ...(cohort.is_static ? { is_static: cohort.is_static } : {}),
+        ...(cohort.is_static ? { is_static: String(cohort.is_static) } : {}),
         ...(typeof cohort._create_in_folder === 'string' ? { _create_in_folder: cohort._create_in_folder } : {}),
-        filters: JSON.stringify(
+    }
+
+    if (isQueryBased) {
+        // Query-based dynamic cohorts only need the query, no filters
+        rawCohort.query = JSON.stringify(cohort.query)
+    } else {
+        rawCohort.filters = JSON.stringify(
             cohort.is_static
                 ? {
                       properties: {},
@@ -130,7 +138,7 @@ export function createCohortFormData(cohort: CohortType): FormData {
                           id: undefined,
                       },
                   }
-        ),
+        )
     }
 
     // Must use FormData to encode file binary in request

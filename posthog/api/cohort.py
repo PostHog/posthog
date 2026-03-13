@@ -12,6 +12,7 @@ from django.db import DatabaseError
 from django.db.models import OuterRef, Prefetch, QuerySet, Subquery, prefetch_related_objects
 
 import structlog
+import posthoganalytics
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
@@ -535,6 +536,25 @@ class CohortSerializer(serializers.ModelSerializer):
         if validated_data.get("query") and validated_data.get("filters"):
             raise ValidationError("Cannot set both query and filters at the same time.")
 
+        # Query-based (HogQL) cohorts require the feature flag
+        if validated_data.get("query") and not validated_data.get("is_static"):
+            team = self.context["get_team"]()
+            if not posthoganalytics.feature_enabled(
+                "cohorts-allow-custom-hogql",
+                str(team.uuid),
+                groups={"organization": str(team.organization.id)},
+                group_properties={
+                    "organization": {
+                        "id": str(team.organization.id),
+                        "created_at": team.organization.created_at,
+                    }
+                },
+                send_feature_flag_events=False,
+            ):
+                raise ValidationError("HogQL-based cohorts are not enabled for this organization.")
+            validated_data["cohort_type"] = CohortType.ANALYTICAL
+            validated_data.pop("filters", None)
+
         # Process bytecode for filters if present
         if validated_data.get("filters"):
             team = Team.objects.get(id=self.context["team_id"])
@@ -559,8 +579,6 @@ class CohortSerializer(serializers.ModelSerializer):
             self._handle_static(cohort, self.context, validated_data, person_ids)
             # Refresh from DB to get updated count field set by _insert_users_list_with_batching
             cohort.refresh_from_db()
-        elif cohort.query is not None:
-            raise ValidationError("Cannot create a dynamic cohort with a query. Set is_static to true.")
         else:
             cohort.enqueue_calculation(initiating_user=request.user)
 
@@ -845,12 +863,21 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.groups = validated_data.get("groups", cohort.groups)
         cohort.is_static = validated_data.get("is_static", cohort.is_static)
         cohort.cohort_type = validated_data.get("cohort_type", cohort.cohort_type)
-        cohort.query = validated_data.get("query", cohort.query)
+
+        # query and filters are mutually exclusive — setting one clears the other
+        if "query" in validated_data:
+            cohort.query = validated_data["query"]
+            if cohort.query:
+                cohort.filters = None
+                cohort.cohort_type = CohortType.ANALYTICAL
+            elif not validated_data.get("filters"):
+                raise ValidationError("Clearing query requires providing filters.")
 
         # Process bytecode for filters if they're being updated
         if "filters" in validated_data:
             filters = validated_data["filters"]
             if filters:
+                cohort.query = None  # clear query when filters are set
                 clean_filters, computed_cohort_type, _ = validate_filters_and_compute_realtime_support(
                     filters, cohort.team, current_cohort_type=cohort.cohort_type, cohort_count=cohort.count
                 )

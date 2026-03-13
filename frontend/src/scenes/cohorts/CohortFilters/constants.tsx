@@ -1,6 +1,6 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { CohortTypeEnum, PROPERTY_MATCH_TYPE } from 'lib/constants'
-import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
+import { LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect'
 import {
     CohortEventFiltersField,
     CohortNumberField,
@@ -1035,9 +1035,10 @@ export const CRITERIA_VALIDATIONS: Record<
     [FilterType.Behavioral]: () => CohortClientErrors.EmptyBehavioral,
 }
 
-export const COHORT_TYPE_OPTIONS: LemonSelectOptions<CohortTypeEnum> = [
+export const COHORT_TYPE_OPTIONS: LemonSelectOptionLeaf<CohortTypeEnum>[] = [
     { value: CohortTypeEnum.Static, label: 'Static · Updated manually' },
     { value: CohortTypeEnum.Dynamic, label: 'Dynamic · Updates automatically' },
+    { value: CohortTypeEnum.DynamicHogQL, label: 'Dynamic (SQL) · Define with HogQL' },
 ]
 
 export const NEW_CRITERIA = {
