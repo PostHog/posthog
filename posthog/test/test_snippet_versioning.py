@@ -223,6 +223,22 @@ class TestResolveVersion(SimpleTestCase):
     def test_returns_none_when_versioning_disabled(self):
         assert resolve_version(None) is None
 
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    def test_yanked_exact_version_falls_back_to_minor_pointer(self):
+        # 1.358.0 is not in manifest.versions (simulating a yank),
+        # but the minor pointer 1.358 -> 1.358.3 still exists
+        assert resolve_version("1.358.0") == "1.358.3"
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    def test_missing_minor_pointer_falls_back_to_major(self):
+        # 1.500.0 is unknown and there's no 1.500 pointer, but 1 -> 1.359.0
+        assert resolve_version("1.500.0") == "1.359.0"
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    def test_missing_minor_series_falls_back_to_major(self):
+        # 1.500 has no pointer, but 1 -> 1.359.0
+        assert resolve_version("1.500") == "1.359.0"
+
 
 class TestSyncTask(SimpleTestCase):
     def setUp(self):

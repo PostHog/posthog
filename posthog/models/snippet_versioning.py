@@ -324,4 +324,15 @@ def resolve_version(requested_version: Optional[str]) -> Optional[str]:
     if requested_version in manifest.versions:
         return requested_version
 
+    # Fallback: walk up from exact -> minor -> major pointer.
+    # Handles cases like a yanked exact version or removed minor series.
+    parts = requested_version.split(".")
+    while parts:
+        parts.pop()
+        fallback = ".".join(parts)
+        if fallback:
+            resolved = manifest.pointers.get(fallback)
+            if resolved:
+                return resolved
+
     return None
