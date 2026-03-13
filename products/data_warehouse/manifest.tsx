@@ -55,7 +55,8 @@ export const manifest: ProductManifest = {
             sceneKeys: ['SQLEditor'],
         },
         {
-            path: 'Data ops',
+            path: 'Data warehouse',
+            displayLabel: 'Data ops',
             intents: [ProductKey.DATA_WAREHOUSE, ProductKey.DATA_WAREHOUSE_SAVED_QUERY],
             category: 'Unreleased',
             href: urls.dataOps(),

@@ -1205,17 +1205,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['Dashboard', 'Dashboards'],
     },
     {
-        path: 'Data ops',
-        intents: [ProductKey.DATA_WAREHOUSE, ProductKey.DATA_WAREHOUSE_SAVED_QUERY],
-        category: 'Unreleased',
-        href: urls.dataOps(),
-        flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
-        iconType: 'data_warehouse',
-        iconColor: ['var(--color-product-data-warehouse-light)'],
-        sceneKey: 'DataOps',
-        sceneKeys: ['DataOps', 'Models', 'SQLEditor'],
-    },
-    {
         path: `Data pipelines`,
         intents: [
             ProductKey.PIPELINE_BATCH_EXPORTS,
@@ -1229,6 +1218,18 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-data-pipeline-light)'],
         flag: FEATURE_FLAGS.SHOW_DATA_PIPELINES_NAV_ITEM,
         sceneKeys: ['Transformations'],
+    },
+    {
+        path: 'Data warehouse',
+        displayLabel: 'Data ops',
+        intents: [ProductKey.DATA_WAREHOUSE, ProductKey.DATA_WAREHOUSE_SAVED_QUERY],
+        category: 'Unreleased',
+        href: urls.dataOps(),
+        flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
+        iconType: 'data_warehouse',
+        iconColor: ['var(--color-product-data-warehouse-light)'],
+        sceneKey: 'DataOps',
+        sceneKeys: ['DataOps', 'Models', 'SQLEditor'],
     },
     {
         path: 'Datasets',
