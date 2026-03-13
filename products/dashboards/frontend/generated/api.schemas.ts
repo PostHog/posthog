@@ -372,6 +372,50 @@ export interface ReorderTilesRequestApi {
     tile_order: number[]
 }
 
+/**
+ * * `add` - add
+ * `remove` - remove
+ * `set` - set
+ */
+export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+
+export const ActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Set: 'set',
+} as const
+
+export interface BulkUpdateTagsRequestApi {
+    /**
+     * List of object IDs to update tags on.
+     * @maxItems 500
+     */
+    ids: string[]
+    /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+
+* `add` - add
+* `remove` - remove
+* `set` - set */
+    action: ActionEnumApi
+    /** Tag names to add, remove, or set. */
+    tags: string[]
+}
+
+export interface BulkUpdateTagsItemApi {
+    id: number
+    tags: string[]
+}
+
+export interface BulkUpdateTagsErrorApi {
+    id: number
+    reason: string
+}
+
+export interface BulkUpdateTagsResponseApi {
+    updated: BulkUpdateTagsItemApi[]
+    errors: BulkUpdateTagsErrorApi[]
+}
+
 export interface DataColorThemeApi {
     readonly id: number
     /** @maxLength 100 */
@@ -534,6 +578,18 @@ export type DashboardsStreamTilesRetrieveFormat =
     (typeof DashboardsStreamTilesRetrieveFormat)[keyof typeof DashboardsStreamTilesRetrieveFormat]
 
 export const DashboardsStreamTilesRetrieveFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsBulkUpdateTagsCreateParams = {
+    format?: DashboardsBulkUpdateTagsCreateFormat
+}
+
+export type DashboardsBulkUpdateTagsCreateFormat =
+    (typeof DashboardsBulkUpdateTagsCreateFormat)[keyof typeof DashboardsBulkUpdateTagsCreateFormat]
+
+export const DashboardsBulkUpdateTagsCreateFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const

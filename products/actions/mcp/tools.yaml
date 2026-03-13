@@ -106,3 +106,6 @@ tools:
             Delete an action by ID (soft delete - marks as deleted). The action will no longer appear in lists but
             historical data is preserved.
         soft_delete: true
+    actions-bulk-update-tags-create:
+        operation: actions_bulk_update_tags_create
+        enabled: false

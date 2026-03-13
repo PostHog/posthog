@@ -144,3 +144,6 @@ tools:
     feature-flags-copy-flags-create:
         operation: feature_flags_copy_flags_create
         enabled: false
+    feature-flags-bulk-update-tags-create:
+        operation: feature_flags_bulk_update_tags_create
+        enabled: false
