@@ -3,7 +3,7 @@ import './InsightCard.scss'
 import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
-import React, { useState } from 'react'
+import React, { lazy, useState } from 'react'
 import { LayoutItem } from 'react-grid-layout'
 import { useInView } from 'react-intersection-observer'
 
@@ -27,7 +27,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { extractValidationError } from '~/queries/nodes/InsightViz/utils'
-import { Query } from '~/queries/Query/Query'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
@@ -44,6 +43,8 @@ import {
 import { DashboardResizeHandles } from '../handles'
 import { EditModeEdgeOverlay } from './EditModeEdgeOverlay'
 import { InsightMeta } from './InsightMeta'
+
+const Query = lazy(() => import('~/queries/Query/Query').then((module) => ({ default: module.Query })))
 
 const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
 
@@ -107,6 +108,8 @@ export interface InsightCardProps extends Resizeable {
     onEnterEditModeFromEdge?: () => void
     /** Called when the user mousedowns on the card (drag handle) in view mode to enter edit mode. */
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
+    /** When true, visually hide the insight viz and show a skeleton instead (used for zoomed layout editing). */
+    skeletonizeContent?: boolean
 }
 
 function InsightCardInternal(
@@ -148,6 +151,7 @@ function InsightCardInternal(
         canEnterEditModeFromEdge,
         onEnterEditModeFromEdge,
         onDragHandleMouseDown,
+        skeletonizeContent,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>

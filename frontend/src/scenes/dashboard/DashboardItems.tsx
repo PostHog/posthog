@@ -113,6 +113,7 @@ export function DashboardItems(): JSX.Element {
     const rowHeight = BASE_ROW_HEIGHT * effectiveZoom
     const spacingFactor = effectiveZoom < 1 ? 0.9 : 1
     const margin = BASE_MARGIN.map((m) => m * spacingFactor) as [number, number]
+    const skeletonizeContent = dashboardMode === DashboardMode.Edit && showLayoutZoom && layoutZoom < 1
 
     return (
         <div className="dashboard-items-wrapper" ref={gridWrapperRef}>
@@ -327,6 +328,7 @@ export function DashboardItems(): JSX.Element {
                                         breakdownColorOverride={temporaryBreakdownColors}
                                         dataColorThemeId={dataColorThemeId}
                                         surveyOpportunity={tile.id === bestSurveyOpportunityFunnel?.id}
+                                        skeletonizeContent={skeletonizeContent}
                                         {...commonTileProps}
                                     />
                                 )
