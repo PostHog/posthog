@@ -1,12 +1,3 @@
-"""Run a custom prompt through a sandbox agent and poll for completion.
-
-This module provides the low-level machinery to:
-1. Create a Task + TaskRun from a prompt
-2. Trigger the task processing Temporal workflow
-3. Poll S3 logs until the agent finishes
-4. Extract the final agent message from the log stream
-"""
-
 import json
 import asyncio
 import logging

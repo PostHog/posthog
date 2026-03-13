@@ -1,8 +1,3 @@
-"""High-level executor: run a prompt in a sandbox and get validated structured output.
-
-Wraps custom_prompt_runner with JSON extraction and Pydantic validation.
-"""
-
 import re
 import json
 import logging
