@@ -3,21 +3,17 @@ import { useValues } from 'kea'
 import { IconExternal } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { ApiRequest } from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { urls } from 'scenes/urls'
 
 import { RuleModal } from '../rules/RuleModal'
-import { ErrorTrackingGroupingRule, ErrorTrackingRuleType } from '../rules/types'
+import { ErrorTrackingGroupingRule } from '../rules/types'
 import { groupingRuleModalLogic } from './groupingRuleModalLogic'
 
 export function GroupingRuleModal(): JSX.Element {
     const { rule } = useValues(groupingRuleModalLogic)
     const groupingRule = rule as ErrorTrackingGroupingRule
-
-    const issueUrl = new ApiRequest()
-        .errorTrackingRule(ErrorTrackingRuleType.Grouping, groupingRule.id)
-        .addPathComponent('issue')
-        .assembleFullUrl(true)
+    const issueUrl = groupingRule.issue ? urls.errorTrackingIssue(groupingRule.issue.id) : null
 
     return (
         <RuleModal
@@ -32,7 +28,7 @@ export function GroupingRuleModal(): JSX.Element {
                 </>
             )}
             footerExtra={
-                groupingRule.id !== 'new' && groupingRule.issue ? (
+                groupingRule.id !== 'new' && issueUrl ? (
                     <LemonButton
                         type="secondary"
                         size="small"
