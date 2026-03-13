@@ -183,13 +183,18 @@ def generate_uuid_ranges(min_uuid: str, max_uuid: str, num_ranges: int) -> list[
     # Calculate range size
     range_size = (max_int - min_int) // num_ranges
     if range_size == 0:
-        # Very small range, just use the full range for all workers
-        return [(min_uuid, max_uuid) for _ in range(num_ranges)]
+        # Very small range, reduce parallelism and use a single full range
+        return [(min_uuid, max_uuid)]
 
     ranges = []
     for i in range(num_ranges):
         start_int = min_int + i * range_size
-        end_int = min_int + (i + 1) * range_size if i < num_ranges - 1 else max_int
+        if i < num_ranges - 1:
+            # Make ranges non-overlapping: end just before the next range's start
+            end_int = min_int + (i + 1) * range_size - 1
+        else:
+            # Last range includes the max_int boundary
+            end_int = max_int
 
         # Convert back to UUID format
         start_hex = f"{start_int:032x}"
