@@ -122,9 +122,9 @@ REVIEWER_SYSTEM = textwrap.dedent(
       - ESCALATE: behavioral changes to business logic, API contracts, data models
 
     Review comments (inline feedback only, approval states are hidden):
-    - If there are ZERO review comments, ESCALATE — the author should
-      request reviews (Codex, Claude, Copilot, Greptile, or a human)
-      before requesting stamphog approval
+    - If there are ZERO reviews (no inline comments AND no top-level
+      reviews), ESCALATE — the author should request reviews (Codex,
+      Claude, Copilot, Greptile, or a human) before requesting stamphog
     - Substantive comments unresolved by the current diff → REFUSE
     - Bot comments with valid concerns that were ignored → ESCALATE
 
@@ -242,6 +242,16 @@ class Reviewer:
         safe_title = _sanitize_untrusted(pr.title, max_len=200)
         safe_author = _sanitize_untrusted(pr.author, max_len=50)
 
+        reviews_text = ""
+        if pr.reviews:
+            lines = []
+            for r in pr.reviews:
+                safe_user = _sanitize_untrusted(r["user"], max_len=50)
+                safe_body = _sanitize_untrusted(r.get("body", ""), max_len=500)
+                body_part = f": {safe_body}" if safe_body else ""
+                lines.append(f"  - @{safe_user} [{r['state']}]{body_part}")
+            reviews_text = "\n".join(lines)
+
         review_comments = ""
         if pr.review_comments:
             lines = []
@@ -279,6 +289,7 @@ class Reviewer:
             Size: {pr.lines_total} lines ({pr.lines_added}+/{pr.lines_deleted}-), {len(pr.files)} files
             Scope: {cl["breadth"]}
             Commit type: {cl.get("commit_type") or "unknown"}
+            Reviews: {len(pr.reviews)} top-level, {len(pr.review_comments)} inline
 
             {ownership}
 
@@ -297,7 +308,10 @@ class Reviewer:
             Changed files:
             {file_list}
 
-            Review comments:
+            Reviews:
+            {reviews_text}
+
+            Inline comments:
             {review_comments}
             --- END UNTRUSTED CONTENT ---
         """)
