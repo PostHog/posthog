@@ -1,4 +1,7 @@
-from typing import Optional, cast
+from typing import TYPE_CHECKING, Optional, cast
+
+if TYPE_CHECKING:
+    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -7,10 +10,11 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource, WebhookSource
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import SlackSourceConfig
 from posthog.temporal.data_imports.sources.slack.settings import ENDPOINTS, messages_endpoint_config
 from posthog.temporal.data_imports.sources.slack.slack import (
@@ -23,10 +27,19 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class SlackSource(SimpleSource[SlackSourceConfig], OAuthMixin):
+class SlackSource(SimpleSource[SlackSourceConfig], WebhookSource[SlackSourceConfig], OAuthMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SLACK
+
+    @property
+    def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:
+        from posthog.temporal.data_imports.sources.slack.webhook_template import template
+
+        return template
+
+    def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
+        return WebhookSourceManager(inputs, inputs.logger)
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -125,6 +138,8 @@ class SlackSource(SimpleSource[SlackSourceConfig], OAuthMixin):
         # For channel schemas, the schema name is the channel ID itself
         channel_id = inputs.schema_name if inputs.schema_name not in ENDPOINTS else None
 
+        webhook_source_manager = self.get_webhook_source_manager(inputs)
+
         return slack_source(
             access_token=access_token,
             endpoint=inputs.schema_name,
@@ -136,4 +151,5 @@ class SlackSource(SimpleSource[SlackSourceConfig], OAuthMixin):
             else None,
             incremental_field=inputs.incremental_field,
             channel_id=channel_id,
+            webhook_source_manager=webhook_source_manager,
         )

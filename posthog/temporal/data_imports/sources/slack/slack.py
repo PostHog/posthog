@@ -1,17 +1,22 @@
 import datetime
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import AsyncIterable, Callable, Iterable, Iterator
 from typing import Any, Optional
 
+import orjson
+import pyarrow as pa
 import requests
 import structlog
+from asgiref.sync import async_to_sync
 from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.auth import BearerTokenAuth
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SortMode, SourceResponse
+from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from posthog.temporal.data_imports.sources.slack.settings import ENDPOINTS, messages_endpoint_config
 
 logger = structlog.get_logger(__name__)
@@ -245,21 +250,37 @@ def _channel_messages_generator(
                 yield _add_timestamp(reply)
 
 
+def _webhook_table_transformer(table: pa.Table) -> pa.Table:
+    event_col = table.column("event").to_pylist()
+    rows = []
+    for event_data in event_col:
+        if event_data is None:
+            continue
+        event = orjson.loads(event_data) if isinstance(event_data, (str, bytes)) else event_data
+        event["channel_id"] = event.get("channel", "")
+        ts = event.get("ts")
+        if ts:
+            event["timestamp"] = datetime.datetime.fromtimestamp(float(ts), tz=datetime.UTC).isoformat()
+        rows.append(event)
+    return table_from_py_list(rows)
+
+
 def slack_source(
     access_token: str,
     endpoint: str,
     team_id: int,
     job_id: str,
+    webhook_source_manager: WebhookSourceManager,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
     channel_id: str | None = None,
 ) -> SourceResponse:
-    items: Callable[[], Iterable[Any]]
+    items: Callable[[], Iterable[Any] | AsyncIterable[Any]]
     sort_mode: SortMode = "asc"
 
     if endpoint in ENDPOINTS:
-        # Metadata endpoints ($channels, $users) — served via REST
+        # Metadata endpoints ($channels, $users) — served via REST, no webhook support
         endpoint_config = ENDPOINTS[endpoint]
         config: RESTAPIConfig = {
             "client": {
@@ -286,17 +307,23 @@ def slack_source(
         if channel_id is None:
             raise Exception(f"channel_not_found: {endpoint}")
 
-        oldest_ts: str | None = None
-        if should_use_incremental_field and db_incremental_field_last_value is not None:
-            # Known limitation: incremental polling only fetches thread replies for parent messages
-            # returned by conversations.history in this window. Replies added to older parent threads
-            # (parent ts < oldest_ts) are intentionally not captured here and are expected to be
-            # addressed by webhook sources.
-            oldest_ts = str(db_incremental_field_last_value.timestamp())
+        webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)()
 
-        resolved_id = channel_id
-        resolved_oldest_ts = oldest_ts
-        items = lambda: _channel_messages_generator(access_token, resolved_id, oldest_ts=resolved_oldest_ts)
+        def channel_items() -> Iterable[Any] | AsyncIterable[Any]:
+            if webhook_enabled:
+                return webhook_source_manager.get_items(table_transformer=_webhook_table_transformer)
+
+            oldest_ts: str | None = None
+            if should_use_incremental_field and db_incremental_field_last_value is not None:
+                # Known limitation: incremental polling only fetches thread replies for parent messages
+                # returned by conversations.history in this window. Replies added to older parent threads
+                # (parent ts < oldest_ts) are intentionally not captured here and are expected to be
+                # addressed by webhook sources.
+                oldest_ts = str(db_incremental_field_last_value.timestamp())
+
+            return _channel_messages_generator(access_token, channel_id, oldest_ts=oldest_ts)
+
+        items = channel_items
 
     return SourceResponse(
         name=endpoint,
