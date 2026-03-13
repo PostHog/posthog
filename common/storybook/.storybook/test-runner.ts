@@ -95,6 +95,7 @@ console.log('[test-runner] Storybook snapshots will be saved to', customSnapshot
 
 const JEST_TIMEOUT_MS = 25000 // Increased for stories with iframes (e.g. SidePanelDocs)
 const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
+const VIEWPORT_SETTLE_TIMEOUT_MS = 3000
 
 const ATTEMPT_COUNT_PER_ID: Record<string, number> = {}
 
@@ -111,7 +112,7 @@ module.exports = {
         const effectiveViewport = viewportWidths?.length
             ? VIEWPORT_WIDTHS[viewportWidths[0]]
             : viewport || DEFAULT_VIEWPORT
-        await page.setViewportSize(effectiveViewport)
+        await resizeViewportAndWait(page, effectiveViewport)
     },
 
     async postVisit(page, context) {
@@ -131,8 +132,8 @@ module.exports = {
         if (ATTEMPT_COUNT_PER_ID[context.id] > 1) {
             // When retrying, resize the viewport and then resize again to default,
             // just in case the retry is due to a useResizeObserver fail
-            await page.setViewportSize({ width: 1920, height: 1080 })
-            await page.setViewportSize(effectiveViewport)
+            await resizeViewportAndWait(page, { width: 1920, height: 1080 })
+            await resizeViewportAndWait(page, effectiveViewport)
         }
 
         const browserContext = page.context()
@@ -146,12 +147,7 @@ module.exports = {
         if (snapshotBrowsers.includes(currentBrowser)) {
             if (viewportWidths?.length) {
                 for (const widthName of viewportWidths) {
-                    await page.setViewportSize(VIEWPORT_WIDTHS[widthName])
-                    await page.evaluate(() => {
-                        void document.body.offsetHeight
-                        window.dispatchEvent(new Event('resize'))
-                    })
-                    await page.waitForTimeout(300)
+                    await resizeViewportAndWait(page, VIEWPORT_WIDTHS[widthName])
 
                     const contextForWidth = { ...context, id: `${context.id}--${widthName}` }
                     await expectStoryToMatchSnapshot(page, contextForWidth, storyContext, currentBrowser)
@@ -516,4 +512,65 @@ async function waitForPageReady(page: Page, skipNetworkIdle = false): Promise<vo
     }
 
     await page.evaluate(() => document.fonts.ready)
+}
+
+async function resizeViewportAndWait(page: Page, viewport: { width: number; height: number }): Promise<void> {
+    const currentViewport = page.viewportSize()
+    if (currentViewport?.width === viewport.width && currentViewport.height === viewport.height) {
+        // Force an actual geometry change so ResizeObserver subscribers always re-run.
+        const nudgedWidth = viewport.width > 320 ? viewport.width - 1 : viewport.width + 1
+        await page.setViewportSize({ width: nudgedWidth, height: viewport.height })
+    }
+
+    await page.setViewportSize(viewport)
+    await page.waitForFunction(
+        ([expectedWidth, expectedHeight]) => {
+            return window.innerWidth === expectedWidth && window.innerHeight === expectedHeight
+        },
+        [viewport.width, viewport.height],
+        { timeout: VIEWPORT_SETTLE_TIMEOUT_MS }
+    )
+
+    await page.evaluate(async () => {
+        void document.body.offsetHeight
+        window.dispatchEvent(new Event('resize'))
+        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+    })
+
+    await page
+        .waitForFunction(
+            () => {
+                return new Promise<boolean>((resolve) => {
+                    let lastSignature = ''
+                    let stableCount = 0
+                    const checkStability = (): void => {
+                        const signature = [
+                            document.documentElement.clientWidth,
+                            document.documentElement.clientHeight,
+                            document.body.scrollWidth,
+                            document.body.scrollHeight,
+                        ].join(':')
+
+                        if (signature === lastSignature) {
+                            stableCount++
+                            if (stableCount >= 3) {
+                                resolve(true)
+                                return
+                            }
+                        } else {
+                            stableCount = 0
+                            lastSignature = signature
+                        }
+
+                        setTimeout(checkStability, 50)
+                    }
+
+                    checkStability()
+                })
+            },
+            { timeout: VIEWPORT_SETTLE_TIMEOUT_MS }
+        )
+        .catch(() => {
+            // Some stories keep changing dimensions forever (charts/animations). Keep going.
+        })
 }
