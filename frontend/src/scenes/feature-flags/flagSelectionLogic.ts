@@ -1,8 +1,9 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
 
 import api from 'lib/api'
+import { listSelectionLogic } from 'lib/logic/listSelectionLogic'
 import { toParams } from 'lib/utils'
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -25,6 +26,8 @@ export interface BulkDeleteResult {
     errors: Array<{ id: number; key?: string; reason: string }>
 }
 
+const selectionLogic = listSelectionLogic({ resource: 'feature_flags' })
+
 export const flagSelectionLogic = kea<flagSelectionLogicType>([
     path(['scenes', 'feature-flags', 'flagSelectionLogic']),
 
@@ -34,44 +37,30 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             ['currentProjectId'],
             featureFlagsLogic({}),
             ['featureFlags', 'count', 'paramsFromFilters', 'displayedFlags'],
+            selectionLogic,
+            ['selectedIds as selectedFlagIds', 'selectedCount'],
         ],
-        actions: [featureFlagsLogic({}), ['loadFeatureFlags']],
+        actions: [
+            featureFlagsLogic({}),
+            ['loadFeatureFlags'],
+            selectionLogic,
+            [
+                'setSelectedIds as setSelectedFlagIds',
+                'toggleSelection as toggleFlagSelection',
+                'selectAllOnPage',
+                'clearSelection',
+            ],
+        ],
     })),
 
     actions({
-        setSelectedFlagIds: (ids: number[]) => ({ ids }),
-        toggleFlagSelection: (id: number, index: number, pageFlags: FeatureFlagType[]) => ({ id, index, pageFlags }),
-        selectAllOnPage: (flags: FeatureFlagType[]) => ({ flags }),
         selectAllMatching: true,
-        clearSelection: true,
-        setShiftKeyHeld: (shiftKeyHeld: boolean) => ({ shiftKeyHeld }),
-        setPreviouslyCheckedIndex: (index: number | null) => ({ index }),
         showResultsModal: (result: BulkDeleteResult) => ({ result }),
         hideResultsModal: true,
         setAllMatchingSelected: (allMatchingSelected: boolean) => ({ allMatchingSelected }),
     }),
 
     reducers({
-        selectedFlagIds: [
-            [] as number[],
-            {
-                setSelectedFlagIds: (_, { ids }) => ids,
-                clearSelection: () => [],
-            },
-        ],
-        shiftKeyHeld: [
-            false as boolean,
-            {
-                setShiftKeyHeld: (_, { shiftKeyHeld }) => shiftKeyHeld,
-            },
-        ],
-        previouslyCheckedIndex: [
-            null as number | null,
-            {
-                setPreviouslyCheckedIndex: (_, { index }) => index,
-                clearSelection: () => null,
-            },
-        ],
         bulkDeleteResult: [
             null as BulkDeleteResult | null,
             {
@@ -79,13 +68,11 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
                 hideResultsModal: () => null,
             },
         ],
-        // Tracks whether "select all matching" mode is active
         allMatchingSelected: [
             false as boolean,
             {
                 setAllMatchingSelected: (_, { allMatchingSelected }) => allMatchingSelected,
                 clearSelection: () => false,
-                // When manually toggling selection, exit "all matching" mode
                 toggleFlagSelection: () => false,
                 selectAllOnPage: () => false,
             },
@@ -97,7 +84,6 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             null as { ids: number[]; total: number } | null,
             {
                 loadMatchingFlagIds: async () => {
-                    // Build query params matching the current filters (without pagination)
                     const { limit, offset, ...filters } = values.paramsFromFilters
                     const response = await api.get(
                         `api/projects/${values.currentProjectId}/feature_flags/matching_ids/?${toParams(filters)}`
@@ -113,7 +99,6 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
                     const { allMatchingSelected, selectedFlagIds, paramsFromFilters, currentProjectId } = values
 
                     if (allMatchingSelected) {
-                        // Use filter-based deletion - backend handles all matching flags
                         const { limit, offset, ...filters } = paramsFromFilters
                         const response = await api.create(
                             `api/projects/${currentProjectId}/feature_flags/bulk_delete/`,
@@ -122,7 +107,6 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
                         return response as BulkDeleteResult
                     }
 
-                    // Use ID-based deletion (explicit selection)
                     const response = await api.create(`api/projects/${currentProjectId}/feature_flags/bulk_delete/`, {
                         ids: selectedFlagIds,
                     })
@@ -133,9 +117,7 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
     })),
 
     selectors({
-        // The actual paginated flags on the current page (from API response)
         currentPageFlags: [(s) => [s.featureFlags], (featureFlags): FeatureFlagType[] => featureFlags?.results || []],
-        selectedCount: [(s) => [s.selectedFlagIds], (ids: number[]) => ids.length],
         isAllSelected: [
             (s) => [s.selectedFlagIds, s.currentPageFlags],
             (selectedIds: number[], flags: FeatureFlagType[]) => {
@@ -163,79 +145,20 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             },
         ],
         resultsModalVisible: [(s) => [s.bulkDeleteResult], (result: BulkDeleteResult | null) => result !== null],
-        // Show the "select all matching" banner when at least one page worth of flags is selected
-        // and there are more total matching flags than currently selected
         showSelectAllMatchingBanner: [
             (s) => [s.selectedCount, s.count, s.allMatchingSelected],
             (selectedCount: number, totalCount: number, allMatchingSelected: boolean) => {
                 if (allMatchingSelected) {
-                    return false // Already selected all matching
+                    return false
                 }
-                // Show banner if at least 100 flags are selected and there are more total flags
                 return selectedCount >= FLAGS_PER_PAGE && totalCount > selectedCount
             },
         ],
-        // Total matching count for the banner
         totalMatchingCount: [(s) => [s.count], (count: number) => count],
     }),
 
-    listeners(({ values, actions }) => ({
-        toggleFlagSelection: ({ id, index, pageFlags }) => {
-            const { selectedFlagIds, shiftKeyHeld, previouslyCheckedIndex } = values
-
-            if (shiftKeyHeld && previouslyCheckedIndex !== null) {
-                // Shift-click: select range, following the anchor's direction
-                const start = Math.min(previouslyCheckedIndex, index)
-                const end = Math.max(previouslyCheckedIndex, index)
-                const flagIdsInRange = pageFlags
-                    .slice(start, end + 1)
-                    .filter((f: FeatureFlagType) => f.can_edit)
-                    .map((f: FeatureFlagType) => f.id)
-                    .filter((fid: number | null): fid is number => fid !== null)
-
-                // Determine direction from anchor: if the clicked flag was already selected,
-                // we're deselecting the range; otherwise we're selecting it
-                const isDeselecting = selectedFlagIds.includes(id)
-                if (isDeselecting) {
-                    const rangeSet = new Set(flagIdsInRange)
-                    actions.setSelectedFlagIds(selectedFlagIds.filter((fid: number) => !rangeSet.has(fid)))
-                } else {
-                    actions.setSelectedFlagIds([...new Set([...selectedFlagIds, ...flagIdsInRange])])
-                }
-            } else {
-                // Normal click: toggle single flag
-                const isSelected = selectedFlagIds.includes(id)
-                if (isSelected) {
-                    actions.setSelectedFlagIds(selectedFlagIds.filter((fid: number) => fid !== id))
-                } else {
-                    actions.setSelectedFlagIds([...selectedFlagIds, id])
-                }
-            }
-
-            actions.setPreviouslyCheckedIndex(index)
-        },
-        selectAllOnPage: ({ flags }) => {
-            const { selectedFlagIds } = values
-            // flags is passed directly from the UI - exactly what's visible on the page
-            const pageIds = flags
-                .filter((f: FeatureFlagType) => f.can_edit)
-                .map((f: FeatureFlagType) => f.id)
-                .filter((id: number | null): id is number => id !== null)
-
-            const selectedIdSet = new Set(selectedFlagIds)
-            const allPageFlagsSelected = pageIds.length > 0 && pageIds.every((id) => selectedIdSet.has(id))
-
-            if (allPageFlagsSelected) {
-                // All page flags are selected, so deselect them (toggle off)
-                const pageIdSet = new Set(pageIds)
-                actions.setSelectedFlagIds(selectedFlagIds.filter((id: number) => !pageIdSet.has(id)))
-            } else {
-                // Add all page flags to the existing selection
-                actions.setSelectedFlagIds([...new Set([...selectedFlagIds, ...pageIds])])
-            }
-        },
+    listeners(({ actions }) => ({
         selectAllMatching: () => {
-            // Fetch all matching IDs from the backend
             actions.loadMatchingFlagIds()
         },
         loadMatchingFlagIdsSuccess: ({ matchingFlagIds }) => {
@@ -245,11 +168,8 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             }
         },
         loadMatchingFlagIdsFailure: () => {
-            // Reset to page-only selection on failure
             actions.setAllMatchingSelected(false)
         },
-        // Note: Selection is intentionally preserved across filter/pagination changes
-        // to allow users to select flags across multiple pages. Use clearSelection to reset.
         bulkDeleteFlagsSuccess: ({ bulkDeleteResponse }) => {
             if (bulkDeleteResponse) {
                 actions.showResultsModal(bulkDeleteResponse)
@@ -259,23 +179,8 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
         },
     })),
 
-    // Warn user if they try to leave during bulk deletion
     beforeUnload(({ values }) => ({
         enabled: () => values.bulkDeleteResponseLoading,
         message: 'Bulk delete is in progress. Leaving may result in incomplete deletion.',
     })),
-
-    afterMount(({ actions, cache }) => {
-        cache.disposables.add(() => {
-            const onKeyChange = (event: KeyboardEvent): void => {
-                actions.setShiftKeyHeld(event.shiftKey)
-            }
-            window.addEventListener('keydown', onKeyChange)
-            window.addEventListener('keyup', onKeyChange)
-            return () => {
-                window.removeEventListener('keydown', onKeyChange)
-                window.removeEventListener('keyup', onKeyChange)
-            }
-        }, 'shiftKeyListener')
-    }),
 ])
