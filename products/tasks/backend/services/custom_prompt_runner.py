@@ -151,7 +151,7 @@ async def _poll_until_done(
         consecutive_storage_errors = 0
 
         printed_lines = _stream_new_lines(full_log, printed_lines, verbose=verbose, output_fn=output_fn)
-        if finished:
+        if finished and last_message:
             return "completed", last_message, full_log
         refreshed = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
         if refreshed.status in {
