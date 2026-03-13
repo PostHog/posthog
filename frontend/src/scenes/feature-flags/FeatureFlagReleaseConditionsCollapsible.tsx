@@ -20,6 +20,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { humanFriendlyNumber } from 'lib/utils'
@@ -586,21 +587,23 @@ export function FeatureFlagReleaseConditionsCollapsible({
 
                                             <div>
                                                 <LemonLabel className="mb-1">Rollout percentage</LemonLabel>
-                                                <div className="flex items-center gap-2">
-                                                    {[10, 25, 50, 75, 100].map((pct) => (
-                                                        <LemonButton
-                                                            key={pct}
-                                                            size="small"
-                                                            type={
-                                                                (group.rollout_percentage ?? 100) === pct
-                                                                    ? 'primary'
-                                                                    : 'secondary'
-                                                            }
-                                                            onClick={() => updateConditionSet(index, pct)}
-                                                        >
-                                                            {pct}%
-                                                        </LemonButton>
-                                                    ))}
+                                                <div className="flex items-start gap-6">
+                                                    <LemonSlider
+                                                        value={group.rollout_percentage ?? 100}
+                                                        onChange={(value) => updateConditionSet(index, value)}
+                                                        min={0}
+                                                        max={100}
+                                                        step={1}
+                                                        className="w-80"
+                                                        ticks={[
+                                                            { value: 0, label: '0%' },
+                                                            { value: 10, label: '10%' },
+                                                            { value: 25, label: '25%' },
+                                                            { value: 50, label: '50%' },
+                                                            { value: 75, label: '75%' },
+                                                            { value: 100, label: '100%' },
+                                                        ]}
+                                                    />
                                                     <LemonInput
                                                         type="number"
                                                         min={0}
