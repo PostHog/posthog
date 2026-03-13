@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconPencil, IconPlusSmall, IconShare } from '@posthog/icons'
+import { IconGridMasonry, IconPlusSmall, IconShare } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -151,7 +151,7 @@ export function ViewModeActions(): JSX.Element {
                         data-attr="dashboard-edit-mode-button"
                         onClick={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)}
                         size="small"
-                        icon={<IconPencil fontSize="16" />}
+                        icon={<IconGridMasonry fontSize="16" />}
                         tooltip="Edit layout"
                         tooltipPlacement="top"
                     >
