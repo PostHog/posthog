@@ -16,9 +16,9 @@ if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
 
 import modal
+import requests
 
 from posthog.exceptions_capture import capture_exception
-from posthog.security.outbound_proxy import external_requests
 
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.temporal.exceptions import (
@@ -50,7 +50,7 @@ def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
     """
     image_repo = image.replace("ghcr.io/", "")
     try:
-        token_resp = external_requests.get(
+        token_resp = requests.get(
             f"https://ghcr.io/token?service=ghcr.io&scope=repository:{image_repo}:pull",
             timeout=10,
         )
@@ -63,7 +63,7 @@ def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
             logger.warning("GHCR token response missing token field")
             return f"{image}:master"
 
-        manifest_resp = external_requests.get(
+        manifest_resp = requests.get(
             f"https://ghcr.io/v2/{image_repo}/manifests/master",
             headers={
                 "Accept": "application/vnd.oci.image.index.v1+json",
