@@ -1,7 +1,7 @@
 -- temporary sql to initialise metrics tables for local development
 -- will be removed once we have migrations set up
 -- modelled after clickhouse-logs.sql following the same patterns
-CREATE OR REPLACE TABLE metrics31
+CREATE OR REPLACE TABLE metrics1
 (
     `time_bucket` DateTime MATERIALIZED toStartOfDay(timestamp) CODEC(DoubleDelta, ZSTD(1)),
     `uuid` String CODEC(ZSTD(1)),
@@ -67,7 +67,7 @@ SETTINGS
     index_granularity = 8192,
     ttl_only_drop_parts = 1;
 
-create or replace TABLE metrics AS metrics31 ENGINE = Distributed('posthog', 'default', 'metrics31');
+create or replace TABLE metrics AS metrics1 ENGINE = Distributed('posthog', 'default', 'metrics1');
 
 -- Attribute discovery table (reuses logs pattern)
 create or replace table default.metric_attributes
@@ -122,7 +122,7 @@ FROM
         attribute.1 AS attribute_key,
         attribute.2 AS attribute_value,
         sumSimpleState(1) AS attribute_count
-    FROM metrics31
+    FROM metrics1
     GROUP BY
         team_id,
         time_bucket,
@@ -164,7 +164,7 @@ FROM
         attribute.1 AS attribute_key,
         attribute.2 AS attribute_value,
         sumSimpleState(1) AS attribute_count
-    FROM metrics31
+    FROM metrics1
     GROUP BY
         team_id,
         time_bucket,
@@ -206,10 +206,10 @@ SETTINGS
     kafka_poll_max_batch_size=10,
     kafka_max_block_size=10;
 
--- MV: kafka_metrics_avro -> metrics31
+-- MV: kafka_metrics_avro -> metrics1
 drop table if exists kafka_metrics_avro_mv;
 
-CREATE MATERIALIZED VIEW kafka_metrics_avro_mv TO metrics31
+CREATE MATERIALIZED VIEW kafka_metrics_avro_mv TO metrics1
 AS SELECT
     uuid,
     trace_id,

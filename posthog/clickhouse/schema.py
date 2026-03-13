@@ -20,7 +20,7 @@ from posthog.clickhouse.metrics import (
     METRIC_ATTRIBUTES_MV,
     METRIC_ATTRIBUTES_TABLE_SQL,
     METRIC_RESOURCE_ATTRIBUTES_MV,
-    METRICS31_TABLE_SQL,
+    METRICS1_TABLE_SQL,
     METRICS_DISTRIBUTED_TABLE_SQL,
 )
 from posthog.clickhouse.plugin_log_entries import (
@@ -257,7 +257,7 @@ CREATE_MERGETREE_TABLE_QUERIES = (
     *[table.sharded_table_sql for table in EMBEDDING_TABLES],
     LOGS32_TABLE_SQL,
     LOG_ATTRIBUTES_TABLE_SQL,
-    METRICS31_TABLE_SQL,
+    METRICS1_TABLE_SQL,
     METRIC_ATTRIBUTES_TABLE_SQL,
     TOPHOG_DATA_TABLE_SQL,
 )

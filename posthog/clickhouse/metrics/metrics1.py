@@ -4,10 +4,10 @@ from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, Repli
 
 from .metric_attributes import TABLE_NAME as METRIC_ATTRIBUTES_TABLE_NAME
 
-TABLE_NAME = "metrics31"
+TABLE_NAME = "metrics1"
 
 
-def METRICS31_TABLE_SQL():
+def METRICS1_TABLE_SQL():
     return f"""
 CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}
 (

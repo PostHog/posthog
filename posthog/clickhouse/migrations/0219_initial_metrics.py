@@ -4,13 +4,13 @@ from posthog.clickhouse.metrics import (
     METRIC_ATTRIBUTES_MV,
     METRIC_ATTRIBUTES_TABLE_SQL,
     METRIC_RESOURCE_ATTRIBUTES_MV,
-    METRICS31_TABLE_SQL,
+    METRICS1_TABLE_SQL,
     METRICS_DISTRIBUTED_TABLE_SQL,
 )
 
 operations = [
     run_sql_with_exceptions(
-        METRICS31_TABLE_SQL(),
+        METRICS1_TABLE_SQL(),
         node_roles=[NodeRole.LOGS],
     ),
     run_sql_with_exceptions(

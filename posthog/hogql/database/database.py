@@ -359,7 +359,13 @@ class Database(BaseModel):
     # These are the tables exposed via SQL editor autocomplete and data management
     def get_posthog_table_names(self, include_hidden: bool = False) -> list[str]:
         if include_hidden:
-            return sorted(ROOT_TABLES__DO_NOT_ADD_ANY_MORE.keys())
+            root_keys = set(ROOT_TABLES__DO_NOT_ADD_ANY_MORE.keys())
+            posthog_node = self.tables.children.get("posthog")
+            if posthog_node and posthog_node.children:
+                posthog_only_keys = {f"posthog.{k}" for k in posthog_node.children.keys() if k not in root_keys}
+            else:
+                posthog_only_keys = set()
+            return sorted(root_keys | posthog_only_keys)
 
         return [
             "events",
@@ -367,7 +373,7 @@ class Database(BaseModel):
             "persons",
             "sessions",
             "logs",
-            "metrics",
+            "posthog.metrics",
             *self.get_system_table_names(),
         ]
 
