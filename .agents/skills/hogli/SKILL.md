@@ -14,12 +14,6 @@ Run `hogli --help` to get the full, current command list. Run `hogli <command> -
 
 ## Process observability (for agents/debugging)
 
-No setup flag needed — observability is always on when `./bin/start` is running.
-
-Each process writes one file:
-
-- `/tmp/posthog-<process>.json` — structured status (pid, status, ready flag, exit code, timestamps, CPU/mem metrics)
-
 The `status` field transitions `starting` → `running` → `stopped` or `crashed`.
 A separate `ready` boolean flips to `true` once `ready_pattern` matches.
 
@@ -35,14 +29,6 @@ When Claude Code loads the project, two tools are available automatically:
   pass no argument for a dashboard of all running processes
 - **`get_process_logs`** — returns recent log lines for a named process;
   accepts `lines` (default 100, max 500) and `grep` (regex filter) arguments
-
-### Direct status access (fallback)
-
-If the MCP server is not configured, read the status file directly:
-
-```bash
-cat /tmp/posthog-backend.json   # status snapshot
-```
 
 ## Key references
 

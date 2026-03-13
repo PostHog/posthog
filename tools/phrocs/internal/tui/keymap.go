@@ -34,23 +34,23 @@ func defaultKeyMap() keyMap {
 		),
 		ScrollUp: key.NewBinding(
 			key.WithKeys("pgup"),
-			key.WithHelp("pgup:", "scroll up"),
+			key.WithHelp("pgup:", "↥"),
 		),
 		ScrollDown: key.NewBinding(
 			key.WithKeys("pgdn"),
-			key.WithHelp("pgdn:", "scroll down"),
+			key.WithHelp("pgdn:", "↧"),
 		),
 		GotoTop: key.NewBinding(
 			key.WithKeys("home"),
-			key.WithHelp("home:", "top"),
+			key.WithHelp("home:", "⤒"),
 		),
 		GotoBottom: key.NewBinding(
 			key.WithKeys("end"),
-			key.WithHelp("end:", "bottom"),
+			key.WithHelp("end:", "⤓"),
 		),
 		SwapFocus: key.NewBinding(
 			key.WithKeys("tab"),
-			key.WithHelp("tab:", "swap pane"),
+			key.WithHelp("↹:", "swap pane"),
 		),
 		Restart: key.NewBinding(
 			key.WithKeys("r"),
@@ -67,7 +67,7 @@ func defaultKeyMap() keyMap {
 		),
 		CopyMode: key.NewBinding(
 			key.WithKeys("c"),
-			key.WithHelp("c:", "copy mode"),
+			key.WithHelp("c:", "copy"),
 		),
 		CopyEsc: key.NewBinding(
 			key.WithKeys("esc"),
@@ -78,12 +78,12 @@ func defaultKeyMap() keyMap {
 			key.WithHelp("/:", "search"),
 		),
 		SearchNext: key.NewBinding(
-			key.WithKeys("n"),
-			key.WithHelp("n:", "next match"),
+			key.WithKeys("enter"),
+			key.WithHelp("↵:", "next match"),
 		),
 		SearchPrev: key.NewBinding(
-			key.WithKeys("N"),
-			key.WithHelp("N:", "prev match"),
+			key.WithKeys("shift+enter"),
+			key.WithHelp("⇧↵:", "prev match"),
 		),
 		Quit: key.NewBinding(
 			key.WithKeys("q", "ctrl+c"),

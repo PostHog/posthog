@@ -40,9 +40,9 @@ You typically run phrocs via `hogli dev` rather than directly.
 | `end`  | Jump to bottom of output                        |
 | `r`    | Restart selected process                        |
 | `s`    | Stop selected process                           |
-| `c`    | Enter copy mode (output pane)                   |
+| `c`    | Enter copy mode                                 |
 | `/`    | Enter search mode                               |
-| `esc`  | Exit copy mode or clear search                  |
+| `esc`  | Exit copy and search modes                      |
 | `d`    | Open lazydocker (only if installed)             |
 | `?`    | Toggle full help                                |
 | `q`    | Quit                                            |

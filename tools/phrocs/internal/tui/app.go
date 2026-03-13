@@ -148,7 +148,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dbg("key: %q", msg.String())
 
 		// Search mode: '/' to enter, type to filter, enter to confirm,
-		// esc to clear, n/N to navigate matches.
+		// esc to leave, enter/shift+enter to navigate matches.
 		if m.searchMode {
 			s := msg.String()
 			switch {
@@ -377,11 +377,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.dbg("copy mode: enter at line %d", m.copyCursor)
 
 		default:
-			// Forward remaining key events to the viewport for scrolling
-			var vpCmd tea.Cmd
-			m.viewport, vpCmd = m.viewport.Update(msg)
-			cmds = append(cmds, vpCmd)
-			m.atBottom = m.viewport.AtBottom()
+			// Forward remaining key events to the viewport when focused
+			if m.focusedPane == focusOutput {
+				var vpCmd tea.Cmd
+				m.viewport, vpCmd = m.viewport.Update(msg)
+				cmds = append(cmds, vpCmd)
+				m.atBottom = m.viewport.AtBottom()
+			}
 		}
 
 	case tea.MouseClickMsg:
@@ -922,9 +924,9 @@ func (m Model) renderFooter() string {
 	if m.searchQuery != "" {
 		var matchInfo string
 		if len(m.searchMatches) == 0 {
-			matchInfo = fmt.Sprintf("search: %q  [no matches]  esc: clear", m.searchQuery)
+			matchInfo = fmt.Sprintf("search: %q  [no matches]  esc: leave", m.searchQuery)
 		} else {
-			matchInfo = fmt.Sprintf("search: %q  [%d/%d]  n/N: navigate  esc: clear", m.searchQuery, m.searchCursor+1, len(m.searchMatches))
+			matchInfo = fmt.Sprintf("search: %q  [%d/%d]  ↵/⇧↵: navigate  esc: leave", m.searchQuery, m.searchCursor+1, len(m.searchMatches))
 		}
 		return footerStyle.Width(m.width - 2).Render(
 			lipgloss.NewStyle().Foreground(colorYellow).Render(matchInfo),

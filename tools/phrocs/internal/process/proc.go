@@ -148,7 +148,7 @@ func (p *Process) Lines() []string {
 	return cp
 }
 
-// AppendLine directly appends a line to the output buffer, honoring the
+// Directly appends a line to the output buffer, honoring the
 // scrollback limit. Mirrors the append step in readLoop; intended for tests
 // that inject output without running a real subprocess.
 func (p *Process) AppendLine(line string) {
@@ -160,7 +160,7 @@ func (p *Process) AppendLine(line string) {
 	p.lines = append(p.lines, line)
 }
 
-// Snapshot returns a consistent point-in-time view of the process.
+// Returns a consistent point-in-time view of the process
 func (p *Process) Snapshot() Snapshot {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -404,14 +404,13 @@ func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
 	}
 }
 
-// startMetricsSampler runs in a goroutine, sampling CPU/mem/threads every
-// metricsSampleInterval for the process tree rooted at pid.
+// Sampling CPU/mem/threads every metricsSampleInterval for the process tree
 func (p *Process) startMetricsSampler(pid int) {
 	ps, err := gops.NewProcess(int32(pid))
 	if err != nil {
 		return
 	}
-	// First CPUPercent call initialises the measurement baseline; always 0.
+	// First CPUPercent call initialises the measurement baseline; always 0
 	_, _ = ps.CPUPercent()
 
 	ticker := time.NewTicker(metricsSampleInterval)
