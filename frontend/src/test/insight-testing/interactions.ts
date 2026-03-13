@@ -75,9 +75,17 @@ export const interval = {
 
 export const display = {
     async set(optionText: string): Promise<void> {
+        const before = getQuerySource().trendsFilter?.display
         await clickSelect('chart-filter', optionText)
 
-        await waitFor(() => expect(getQuerySource().trendsFilter?.display).toBeTruthy(), { timeout: DEBOUNCE_TIMEOUT })
+        await waitFor(
+            () => {
+                const after = getQuerySource().trendsFilter?.display
+                expect(after).toBeTruthy()
+                expect(after).not.toBe(before)
+            },
+            { timeout: DEBOUNCE_TIMEOUT }
+        )
     },
 }
 

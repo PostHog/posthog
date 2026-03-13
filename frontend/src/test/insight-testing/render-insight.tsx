@@ -7,7 +7,7 @@ import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-g
 
 import { initKeaTests } from '../init'
 import { resetCapturedCharts } from './chartjs-mock'
-import { setupInsightMocks, type MockResponse, type SetupMocksOptions } from './mocks'
+import { setupInsightMocks, type SetupMocksOptions } from './mocks'
 
 export const INSIGHT_TEST_KEY = 'test-harness'
 export const INSIGHT_TEST_ID = `new-AdHoc.InsightViz.${INSIGHT_TEST_KEY}`
@@ -21,25 +21,24 @@ export function buildTrendsQuery(overrides?: Partial<TrendsQuery>): TrendsQuery 
 }
 
 /** Sets up Kea context, mounts common logics, and configures insight API mocks. */
-function setupTestEnvironment(mocks?: SetupMocksOptions, mockResponses?: MockResponse[]): void {
+function setupTestEnvironment(mocks?: SetupMocksOptions): void {
     resetCapturedCharts()
 
     initKeaTests()
     actionsModel.mount()
     groupsModel.mount()
 
-    setupInsightMocks({ ...mocks, mockResponses })
+    setupInsightMocks(mocks)
 }
 
 export interface RenderWithInsightsProps {
     component: React.ReactElement
     mocks?: SetupMocksOptions
-    mockResponses?: MockResponse[]
 }
 
 /** Render any component with insight mocks and Kea logics ready. */
 export function renderWithInsights(props: RenderWithInsightsProps): ReturnType<typeof render> {
-    setupTestEnvironment(props.mocks, props.mockResponses)
+    setupTestEnvironment(props.mocks)
     return render(props.component)
 }
 
@@ -47,7 +46,6 @@ export interface RenderInsightPageProps {
     query?: TrendsQuery
     showFilters?: boolean
     mocks?: SetupMocksOptions
-    mockResponses?: MockResponse[]
 }
 
 function InsightWrapper({ query, showFilters = false }: { query: TrendsQuery; showFilters: boolean }): JSX.Element {
@@ -59,6 +57,8 @@ function InsightWrapper({ query, showFilters = false }: { query: TrendsQuery; sh
         full: showFilters,
     })
 
+    // Dynamic require to break a circular-dependency cycle that causes Jest to fail
+    // with static imports. Node's module cache means this is only resolved once.
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { InsightViz } = require('~/queries/nodes/InsightViz/InsightViz')
 
@@ -66,7 +66,7 @@ function InsightWrapper({ query, showFilters = false }: { query: TrendsQuery; sh
 }
 
 export function renderInsightPage(props: RenderInsightPageProps = {}): ReturnType<typeof render> {
-    setupTestEnvironment(props.mocks, props.mockResponses)
+    setupTestEnvironment(props.mocks)
 
     return render(<InsightWrapper query={props.query ?? buildTrendsQuery()} showFilters={props.showFilters ?? true} />)
 }
