@@ -185,6 +185,19 @@ impl AppliedRestrictions {
     pub fn redirect_to_topic(&self) -> Option<&str> {
         self.redirect_to_topic.as_deref()
     }
+
+    /// OR two sets of non-drop restrictions together. Used for all-or-nothing batch
+    /// processing where any span triggering a flag applies it to the whole batch.
+    /// Callers must handle `should_drop()` before calling this.
+    pub fn merge(self, other: AppliedRestrictions) -> Self {
+        Self {
+            should_drop: false,
+            force_overflow: self.force_overflow || other.force_overflow,
+            skip_person_processing: self.skip_person_processing || other.skip_person_processing,
+            redirect_to_dlq: self.redirect_to_dlq || other.redirect_to_dlq,
+            redirect_to_topic: self.redirect_to_topic.or(other.redirect_to_topic),
+        }
+    }
 }
 
 /// Filters for a restriction. AND logic between types, OR logic within each type.
