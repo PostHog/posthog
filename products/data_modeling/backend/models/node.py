@@ -38,6 +38,7 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
             self.name = self.saved_query.name
         elif not self.name:
             raise ValueError("Node without a saved_query must have a name")
+        # keep text fields in sync until constraints are migrated to use dag_fk
         self.dag_id = self.dag_id_text
         super().save(*args, **kwargs)
 

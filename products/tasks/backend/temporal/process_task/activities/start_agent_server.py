@@ -6,7 +6,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import Task
 from products.tasks.backend.services.sandbox import Sandbox
 from products.tasks.backend.temporal.exceptions import OAuthTokenError, SandboxExecutionError
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
@@ -22,6 +22,8 @@ logger = get_logger(__name__)
 class StartAgentServerInput:
     context: TaskProcessingContext
     sandbox_id: str
+    sandbox_url: str
+    sandbox_connect_token: str | None = None
     posthog_mcp_scopes: PosthogMcpScopes = "read_only"
 
 
@@ -36,8 +38,8 @@ class StartAgentServerOutput:
 def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
     """Start the agent-server HTTP server in the sandbox.
 
-    Credentials (sandbox_url, connect_token) must already be stored in TaskRun state
-    by get_sandbox_for_repository before calling this activity.
+    Sandbox credentials (sandbox_url, connect_token) are passed directly via input
+    from get_sandbox_for_repository output.
     """
     ctx = input.context
 
@@ -46,22 +48,8 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         sandbox_id=input.sandbox_id,
         **ctx.to_log_context(),
     ):
-        task_run = TaskRun.objects.get(id=ctx.run_id)
-        state = task_run.state or {}
-
-        sandbox_url = state.get("sandbox_url")
-        connect_token = state.get("sandbox_connect_token")
-
-        if not sandbox_url:
-            raise SandboxExecutionError(
-                "Sandbox URL not found in TaskRun state - get_sandbox_for_repository must be called first",
-                {
-                    "task_id": ctx.task_id,
-                    "sandbox_id": input.sandbox_id,
-                    "run_id": ctx.run_id,
-                },
-                cause=RuntimeError("Sandbox URL not found in TaskRun state"),
-            )
+        sandbox_url = input.sandbox_url
+        connect_token = input.sandbox_connect_token
 
         emit_agent_log(ctx.run_id, "info", "Starting agent server in development environment")
 
