@@ -1,7 +1,7 @@
 import type { ToolBase, ZodObjectAny } from '@/tools/types'
 
-// AUTO-GENERATED — do not edit
 import { GENERATED_TOOLS as actions } from './actions'
+// AUTO-GENERATED — do not edit
 import { GENERATED_TOOLS as activity_logs } from './activity_logs'
 import { GENERATED_TOOLS as cdp_function_templates } from './cdp_function_templates'
 import { GENERATED_TOOLS as cdp_functions } from './cdp_functions'
