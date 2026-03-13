@@ -1,6 +1,8 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isValidRelativeOrAbsoluteDate, updateDatesWithInterval, uuid } from 'lib/utils'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
@@ -176,6 +178,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             ['sources_map', 'conversion_goals'],
             dataWarehouseSettingsLogic,
             ['dataWarehouseTables', 'dataWarehouseSourcesLoading', 'dataWarehouseSources'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             dataWarehouseSettingsLogic,
@@ -369,7 +373,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         : state,
             },
         ],
-        drillDownLevel: [
+        _drillDownLevel: [
             MarketingAnalyticsDrillDownLevel.Campaign as MarketingAnalyticsDrillDownLevel,
             persistConfig,
             {
@@ -380,6 +384,13 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         ],
     }),
     selectors({
+        drillDownLevel: [
+            (s) => [s._drillDownLevel, s.featureFlags],
+            (level: MarketingAnalyticsDrillDownLevel, featureFlags: Record<string, boolean | string>) =>
+                featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_DRILL_DOWN]
+                    ? level
+                    : MarketingAnalyticsDrillDownLevel.Campaign,
+        ],
         validSourcesMap: [
             (s) => [s.sources_map],
             (sources_map) => {

@@ -1,7 +1,7 @@
 import './MarketingAnalyticsTableStyleOverride.scss'
 
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconGear, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
@@ -48,13 +48,6 @@ export const MarketingAnalyticsTable = ({
     const { drillDownLevel } = useValues(marketingAnalyticsLogic)
     const hasDrillDown = useFeatureFlag('MARKETING_ANALYTICS_DRILL_DOWN')
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
-
-    // Reset drill-down level to Campaign when feature flag is off (persisted state may be stale)
-    useEffect(() => {
-        if (!hasDrillDown && drillDownLevel !== MarketingAnalyticsDrillDownLevel.Campaign) {
-            setDrillDownLevel(MarketingAnalyticsDrillDownLevel.Campaign)
-        }
-    }, [hasDrillDown])
 
     const [searchTerm, setSearchTerm] = useState('')
 

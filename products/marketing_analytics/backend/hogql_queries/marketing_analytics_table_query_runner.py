@@ -360,16 +360,6 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             select_from=from_clause,
         )
 
-    def _references_cte(self, expr: ast.Expr, cte_name: str) -> bool:
-        """Check if an expression references a specific CTE by name"""
-        if isinstance(expr, ast.Field) and expr.chain and expr.chain[0] == cte_name:
-            return True
-        if isinstance(expr, ast.Call):
-            return any(self._references_cte(arg, cte_name) for arg in expr.args)
-        if isinstance(expr, ast.ArithmeticOperation):
-            return self._references_cte(expr.left, cte_name) or self._references_cte(expr.right, cte_name)
-        return False
-
     def _append_joins(self, initial_join: ast.JoinExpr, joins: list[ast.JoinExpr]) -> ast.JoinExpr:
         """Recursively append joins to the initial join by using the next_join field"""
         base_join = initial_join
