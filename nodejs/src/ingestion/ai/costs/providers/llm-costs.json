@@ -2952,8 +2952,8 @@
                 "cache_read_token": 6e-8
             },
             "nextbit-fp8": {
-                "prompt_token": 3.5e-7,
-                "completion_token": 0.0000014
+                "prompt_token": 4.5e-7,
+                "completion_token": 0.0000016
             },
             "novita-fp8": {
                 "prompt_token": 3e-7,
@@ -2975,7 +2975,8 @@
             },
             "together": {
                 "prompt_token": 3e-7,
-                "completion_token": 0.0000012
+                "completion_token": 0.0000012,
+                "cache_read_token": 6e-8
             },
             "venice": {
                 "prompt_token": 4e-7,
@@ -3516,10 +3517,6 @@
                 "prompt_token": 6e-7,
                 "completion_token": 0.000003,
                 "cache_read_token": 1e-7
-            },
-            "nebius-int4": {
-                "prompt_token": 5e-7,
-                "completion_token": 0.0000025
             },
             "nextbit-fp4": {
                 "prompt_token": 0.0000013,
@@ -6806,10 +6803,6 @@
             "siliconflow-fp8": {
                 "prompt_token": 3.9e-7,
                 "completion_token": 0.0000019
-            },
-            "together": {
-                "prompt_token": 6e-7,
-                "completion_token": 0.0000022
             },
             "z-ai": {
                 "prompt_token": 6e-7,

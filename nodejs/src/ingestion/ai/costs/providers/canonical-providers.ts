@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-03-12 20:07:23 UTC
+// Generated at: 2026-03-13 10:09:27 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -84,7 +84,6 @@ export type CanonicalProvider =
     | 'nebius-fast'
     | 'nebius-fp4'
     | 'nebius-fp8'
-    | 'nebius-int4'
     | 'nextbit-bf16'
     | 'nextbit-fp4'
     | 'nextbit-fp8'
