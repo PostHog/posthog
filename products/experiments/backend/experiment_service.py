@@ -17,7 +17,6 @@ from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.event_usage import EventSource, report_user_action
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
-from posthog.models import Survey
 from posthog.models.cohort import Cohort
 from posthog.models.evaluation_context import FeatureFlagEvaluationContext
 from posthog.models.experiment import (
@@ -31,8 +30,6 @@ from posthog.models.experiment import (
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team.team import Team
-
-from products.product_tours.backend.models import ProductTour
 
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
@@ -868,6 +865,7 @@ class ExperimentService:
         *,
         limit: int = 20,
         offset: int = 0,
+        excluded_flag_ids: list[int] | set[int] | None = None,
         search: str | None = None,
         active: str | bool | None = None,
         created_by_id: str | int | None = None,
@@ -877,6 +875,7 @@ class ExperimentService:
     ) -> dict[str, Any]:
         """Get feature flags eligible for use in experiments."""
         queryset = self._get_eligible_feature_flags_queryset(
+            excluded_flag_ids=excluded_flag_ids,
             search=search,
             active=active,
             created_by_id=created_by_id,
@@ -893,6 +892,7 @@ class ExperimentService:
     def _get_eligible_feature_flags_queryset(
         self,
         *,
+        excluded_flag_ids: list[int] | set[int] | None,
         search: str | None,
         active: str | bool | None,
         created_by_id: str | int | None,
@@ -912,12 +912,8 @@ class ExperimentService:
             ]
         )
 
-        survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.team.project_id)
-        product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
-            team__project_id=self.team.project_id, internal_targeting_flag__isnull=False
-        ).values_list("internal_targeting_flag_id", flat=True)
-        excluded_flag_ids = survey_flag_ids | set(product_tour_internal_targeting_flags)
-        queryset = queryset.exclude(id__in=excluded_flag_ids)
+        if excluded_flag_ids:
+            queryset = queryset.exclude(id__in=excluded_flag_ids)
 
         if search:
             queryset = queryset.filter(Q(key__icontains=search) | Q(name__icontains=search))

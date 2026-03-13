@@ -19,6 +19,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
+from posthog.models import Survey
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.evaluation_context import FeatureFlagEvaluationContext
 from posthog.models.experiment import Experiment, ExperimentHoldout
@@ -30,6 +31,7 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import str_to_bool
 
 from products.experiments.backend.experiment_service import ExperimentService
+from products.product_tours.backend.models import ProductTour
 
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
@@ -441,10 +443,17 @@ class EnterpriseExperimentsViewSet(
         except ValueError:
             return Response({"error": "Invalid limit or offset"}, status=400)
 
+        survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
+        product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
+            team__project_id=self.project_id, internal_targeting_flag__isnull=False
+        ).values_list("internal_targeting_flag_id", flat=True)
+        excluded_flag_ids = survey_flag_ids | set(product_tour_internal_targeting_flags)
+
         service = ExperimentService(team=self.team, user=request.user)
         eligible_feature_flags = service.get_eligible_feature_flags(
             limit=limit,
             offset=offset,
+            excluded_flag_ids=excluded_flag_ids,
             search=request.query_params.get("search"),
             active=request.query_params.get("active"),
             created_by_id=request.query_params.get("created_by_id"),
