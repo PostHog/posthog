@@ -266,15 +266,16 @@ export const OAuthAuthorize = (): JSX.Element => {
                                                     }}
                                                 />
                                             </div>
-                                            {canCreateOrg && (
-                                                <LemonButton
-                                                    className="shrink-0"
-                                                    type="secondary"
-                                                    size="small"
-                                                    icon={<IconPlus />}
-                                                    onClick={handleShowCreateOrganization}
-                                                />
-                                            )}
+                                            <LemonButton
+                                                className="shrink-0"
+                                                type="secondary"
+                                                size="small"
+                                                icon={<IconPlus />}
+                                                disabledReason={
+                                                    !canCreateOrg ? 'Organization creation is disabled' : undefined
+                                                }
+                                                onClick={handleShowCreateOrganization}
+                                            />
                                         </div>
                                     )}
                                 </div>
