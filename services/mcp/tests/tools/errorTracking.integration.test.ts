@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 
-import { OrderByErrors, OrderDirectionErrors, StatusErrors } from '@/schema/errors'
+import { IssueStatus, OrderByErrors, OrderDirectionErrors, StatusErrors } from '@/schema/errors'
 import {
     type CreatedResources,
     TEST_ORG_ID,
@@ -14,6 +14,7 @@ import {
 } from '@/shared/test-utils'
 import errorDetailsTool from '@/tools/errorTracking/errorDetails'
 import listErrorsTool from '@/tools/errorTracking/listErrors'
+import updateIssueStatusTool from '@/tools/errorTracking/updateIssueStatus'
 import type { Context } from '@/tools/types'
 
 describe('Error Tracking', { concurrent: false }, () => {
@@ -24,6 +25,7 @@ describe('Error Tracking', { concurrent: false }, () => {
         dashboards: [],
         surveys: [],
         actions: [],
+        cohorts: [],
     }
 
     beforeAll(async () => {
@@ -44,7 +46,7 @@ describe('Error Tracking', { concurrent: false }, () => {
             const result = await listTool.handler(context, {})
             const errorData = parseToolResponse(result)
 
-            expect(Array.isArray(errorData)).toBe(true)
+            expect(Array.isArray(errorData.results)).toBe(true)
         })
 
         it('should list errors with custom date range', async () => {
@@ -59,7 +61,7 @@ describe('Error Tracking', { concurrent: false }, () => {
             })
             const errorData = parseToolResponse(result)
 
-            expect(Array.isArray(errorData)).toBe(true)
+            expect(Array.isArray(errorData.results)).toBe(true)
         })
 
         it('should filter by status', async () => {
@@ -68,7 +70,7 @@ describe('Error Tracking', { concurrent: false }, () => {
             })
             const errorData = parseToolResponse(result)
 
-            expect(Array.isArray(errorData)).toBe(true)
+            expect(Array.isArray(errorData.results)).toBe(true)
         })
 
         it('should handle empty results', async () => {
@@ -78,7 +80,7 @@ describe('Error Tracking', { concurrent: false }, () => {
             })
             const errorData = parseToolResponse(result)
 
-            expect(Array.isArray(errorData)).toBe(true)
+            expect(Array.isArray(errorData.results)).toBe(true)
         })
     })
 
@@ -93,7 +95,7 @@ describe('Error Tracking', { concurrent: false }, () => {
             })
             const errorDetails = parseToolResponse(result)
 
-            expect(Array.isArray(errorDetails)).toBe(true)
+            expect(Array.isArray(errorDetails.results)).toBe(true)
         })
 
         it('should get error details with custom date range', async () => {
@@ -108,7 +110,48 @@ describe('Error Tracking', { concurrent: false }, () => {
             })
             const errorDetails = parseToolResponse(result)
 
-            expect(Array.isArray(errorDetails)).toBe(true)
+            expect(Array.isArray(errorDetails.results)).toBe(true)
+        })
+    })
+
+    describe('update-issue-status tool', () => {
+        const updateTool = updateIssueStatusTool()
+        const listTool = listErrorsTool()
+
+        async function getFirstIssueId(): Promise<string | undefined> {
+            const result = await listTool.handler(context, { status: StatusErrors.All })
+            const errors = parseToolResponse(result)
+            return Array.isArray(errors) && errors.length > 0 ? errors[0].id : undefined
+        }
+
+        it('should update issue status to resolved', async () => {
+            const issueId = await getFirstIssueId()
+            if (!issueId) {
+                return
+            }
+
+            const result = (await updateTool.handler(context, {
+                issueId,
+                status: IssueStatus.Resolved,
+            })) as { status: string }
+
+            expect(result).toBeTruthy()
+            expect(result.status).toBe(IssueStatus.Resolved)
+        })
+
+        it('should update issue status back to active', async () => {
+            const issueId = await getFirstIssueId()
+            if (!issueId) {
+                return
+            }
+
+            const result = (await updateTool.handler(context, {
+                issueId,
+                status: IssueStatus.Active,
+            })) as { status: string }
+
+            expect(result).toBeTruthy()
+            expect(result.status).toBe(IssueStatus.Active)
         })
     })
 
@@ -120,7 +163,7 @@ describe('Error Tracking', { concurrent: false }, () => {
             const listResult = await listTool.handler(context, {})
             const errorList = parseToolResponse(listResult)
 
-            expect(Array.isArray(errorList)).toBe(true)
+            expect(Array.isArray(errorList.results)).toBe(true)
 
             if (errorList.length > 0 && errorList[0].issueId) {
                 const firstError = errorList[0]
@@ -129,7 +172,7 @@ describe('Error Tracking', { concurrent: false }, () => {
                 })
                 const errorDetails = parseToolResponse(detailsResult)
 
-                expect(Array.isArray(errorDetails)).toBe(true)
+                expect(Array.isArray(errorDetails.results)).toBe(true)
             } else {
                 const testIssueId = '00000000-0000-0000-0000-000000000000'
                 const detailsResult = await detailsTool.handler(context, {
@@ -137,8 +180,36 @@ describe('Error Tracking', { concurrent: false }, () => {
                 })
                 const errorDetails = parseToolResponse(detailsResult)
 
-                expect(Array.isArray(errorDetails)).toBe(true)
+                expect(Array.isArray(errorDetails.results)).toBe(true)
             }
+        })
+
+        it('should support full error tracking workflow: list, get details, and update status', async () => {
+            const listTool = listErrorsTool()
+            const detailsTool = errorDetailsTool()
+            const updateTool = updateIssueStatusTool()
+
+            const listResult = await listTool.handler(context, { status: StatusErrors.All })
+            const errorList = parseToolResponse(listResult)
+
+            expect(Array.isArray(errorList.results)).toBe(true)
+
+            if (errorList.results.length === 0 || !errorList.results[0].id) {
+                return
+            }
+
+            const issueId = errorList.results[0].id
+
+            const detailsResult = await detailsTool.handler(context, { issueId })
+            const errorDetails = parseToolResponse(detailsResult)
+            expect(Array.isArray(errorDetails.results)).toBe(true)
+
+            const updateResult = (await updateTool.handler(context, {
+                issueId,
+                status: IssueStatus.Resolved,
+            })) as { status: string }
+            expect(updateResult).toBeTruthy()
+            expect(updateResult.status).toBe(IssueStatus.Resolved)
         })
     })
 })

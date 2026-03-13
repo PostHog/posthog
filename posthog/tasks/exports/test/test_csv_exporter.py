@@ -301,7 +301,7 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("posthog.models.exported_asset.UUIDT")
     @patch("posthog.models.exported_asset.object_storage.write")
-    @patch("requests.request")
+    @patch("posthog.tasks.exports.csv_exporter.requests.request")
     def test_csv_exporter_limits_breakdown_insights_correctly(
         self, mocked_request, mocked_object_storage_write, mocked_uuidt
     ) -> None:

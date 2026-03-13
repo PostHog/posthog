@@ -7,6 +7,12 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month).
+ * @nullable
+ */
+export type EndpointRequestApiBucketOverrides = { [key: string]: string } | null | null
+
 export interface DateRangeApi {
     /** @nullable */
     date_from?: string | null
@@ -222,7 +228,14 @@ export const GroupPropertyFilterApiType = {
     Group: 'group',
 } as const
 
+/**
+ * @nullable
+ */
+export type GroupPropertyFilterApiGroupKeyNames = { [key: string]: string } | null | null
+
 export interface GroupPropertyFilterApi {
+    /** @nullable */
+    group_key_names?: GroupPropertyFilterApiGroupKeyNames
     /** @nullable */
     group_type_index?: number | null
     key: string
@@ -495,6 +508,14 @@ export const InCohortViaApi = {
     LeftjoinConjoined: 'leftjoin_conjoined',
 } as const
 
+export type InlineCohortCalculationApi = (typeof InlineCohortCalculationApi)[keyof typeof InlineCohortCalculationApi]
+
+export const InlineCohortCalculationApi = {
+    Off: 'off',
+    Auto: 'auto',
+    Always: 'always',
+} as const
+
 export type MaterializationModeApi = (typeof MaterializationModeApi)[keyof typeof MaterializationModeApi]
 
 export const MaterializationModeApi = {
@@ -580,6 +601,7 @@ export interface HogQLQueryModifiersApi {
     /** @nullable */
     formatCsvAllowDoubleQuotes?: boolean | null
     inCohortVia?: InCohortViaApi | null
+    inlineCohortCalculation?: InlineCohortCalculationApi | null
     materializationMode?: MaterializationModeApi | null
     materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
     /** @nullable */
@@ -806,6 +828,11 @@ export type HogQLQueryApiValues = { [key: string]: unknown } | null | null
 export type HogQLQueryApiVariables = { [key: string]: HogQLVariableApi } | null | null
 
 export interface HogQLQueryApi {
+    /**
+     * Optional direct external data source id for running against a specific source
+     * @nullable
+     */
+    connectionId?: string | null
     /** @nullable */
     explain?: boolean | null
     filters?: HogQLFiltersApi | null
@@ -966,9 +993,29 @@ export interface PropertyGroupFilterApi {
     values: PropertyGroupFilterValueApi[]
 }
 
+export interface BoxPlotDatumApi {
+    day: string
+    label: string
+    max: number
+    mean: number
+    median: number
+    min: number
+    p25: number
+    p75: number
+    /** @nullable */
+    series_index?: number | null
+    /** @nullable */
+    series_label?: string | null
+}
+
 export type TrendsQueryResponseApiResultsItem = { [key: string]: unknown }
 
 export interface TrendsQueryResponseApi {
+    /**
+     * Box plot data when display type is BoxPlot
+     * @nullable
+     */
+    boxplot_data?: BoxPlotDatumApi[] | null
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -1683,6 +1730,7 @@ export const AggregationAxisFormatApi = {
     Percentage: 'percentage',
     PercentageScaled: 'percentage_scaled',
     Currency: 'currency',
+    Short: 'short',
 } as const
 
 export type DetailedResultsAggregationTypeApi =
@@ -1711,6 +1759,7 @@ export const ChartDisplayTypeApi = {
     WorldMap: 'WorldMap',
     CalendarHeatmap: 'CalendarHeatmap',
     TwoDimensionalHeatmap: 'TwoDimensionalHeatmap',
+    BoxPlot: 'BoxPlot',
 } as const
 
 export interface TrendsFormulaNodeApi {
@@ -1842,6 +1891,8 @@ export interface TrendsFilterApi {
     goalLines?: GoalLineApi[] | null
     /** @nullable */
     hiddenLegendIndexes?: number[] | null
+    /** @nullable */
+    hideWeekends?: boolean | null
     /** @nullable */
     minDecimalPlaces?: number | null
     /** @nullable */
@@ -2422,6 +2473,13 @@ export interface RetentionQueryResponseApi {
     timings?: QueryTimingApi[] | null
 }
 
+export type AggregationPropertyTypeApi = (typeof AggregationPropertyTypeApi)[keyof typeof AggregationPropertyTypeApi]
+
+export const AggregationPropertyTypeApi = {
+    Event: 'event',
+    Person: 'person',
+} as const
+
 export type AggregationTypeApi = (typeof AggregationTypeApi)[keyof typeof AggregationTypeApi]
 
 export const AggregationTypeApi = {
@@ -2541,6 +2599,8 @@ export interface RetentionFilterApi {
      * @nullable
      */
     aggregationProperty?: string | null
+    /** The type of property to aggregate on (event or person). Defaults to event. */
+    aggregationPropertyType?: AggregationPropertyTypeApi | null
     /** The aggregation type to use for retention */
     aggregationType?: AggregationTypeApi | null
     /** @nullable */
@@ -3098,6 +3158,7 @@ export const WebStatsBreakdownApi = {
     ScreenName: 'ScreenName',
     InitialChannelType: 'InitialChannelType',
     InitialReferringDomain: 'InitialReferringDomain',
+    InitialReferringURL: 'InitialReferringURL',
     InitialUTMSource: 'InitialUTMSource',
     InitialUTMCampaign: 'InitialUTMCampaign',
     InitialUTMMedium: 'InitialUTMMedium',
@@ -3396,6 +3457,11 @@ export const DataWarehouseSyncIntervalApi = {
 } as const
 
 export interface EndpointRequestApi {
+    /**
+     * Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month).
+     * @nullable
+     */
+    bucket_overrides?: EndpointRequestApiBucketOverrides
     /** @nullable */
     cache_age_seconds?: number | null
     /** @nullable */

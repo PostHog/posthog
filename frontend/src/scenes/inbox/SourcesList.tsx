@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useState } from 'react'
 
-import { IconGithub, IconLinear } from '@posthog/icons'
-import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { IconArrowRight, IconBell, IconGithub, IconLinear } from '@posthog/icons'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { RecordingsUniversalFiltersDisplay } from 'lib/components/Cards/InsightCard/RecordingsUniversalFiltersDisplay'
 import { IconSlack } from 'lib/lemon-ui/icons'
@@ -12,7 +12,8 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import iconZendesk from 'public/services/zendesk.svg'
 
-import { inboxSceneLogic } from './inboxSceneLogic'
+import { signalSourcesLogic } from './signalSourcesLogic'
+import { SignalSourceConfigStatus } from './types'
 
 type SourceProps =
     | {
@@ -27,11 +28,17 @@ type SourceProps =
           description: string
           variant: 'available'
           checked: boolean
+          loading?: boolean
+          /** Whether enabling requires going through a setup flow (shows an arrow icon on the enable button) */
+          requiresSetup?: boolean
           onToggle: () => void
-          configSection: React.ReactNode
-          configButtonLabel: string
-          onConfigClick: () => void
+          config?: {
+              display: React.ReactNode
+              buttonLabel: string
+              onClick: () => void
+          }
           onClearClick?: () => void
+          statusSection?: React.ReactNode
       }
 
 function NotifyMeButton({ source }: { source: string }): JSX.Element {
@@ -46,6 +53,7 @@ function NotifyMeButton({ source }: { source: string }): JSX.Element {
                 posthog.capture('signals source interest', { source })
                 setNotified(true)
             }}
+            icon={<IconBell />}
             className="-my-4" // Prevent the button's height from affecting the row's height
         >
             {notified ? "We'll notify you!" : 'Notify me when available'}
@@ -64,28 +72,50 @@ function Source(props: SourceProps): JSX.Element {
                     <div className="font-medium text-sm">{props.title}</div>
                     {isComingSoon ? (
                         <NotifyMeButton source={props.title} />
+                    ) : props.checked ? (
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            loading={props.loading}
+                            onClick={props.onToggle}
+                            className="-my-4"
+                        >
+                            Disable
+                        </LemonButton>
                     ) : (
-                        <LemonSwitch checked={props.checked} onChange={props.onToggle} />
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            loading={props.loading}
+                            icon={props.requiresSetup ? <IconArrowRight /> : undefined}
+                            onClick={props.onToggle}
+                            className="-my-4"
+                        >
+                            Enable
+                        </LemonButton>
                     )}
                 </div>
                 <p className="text-xs text-secondary mt-0.25 mb-0">{props.description}</p>
-                {!isComingSoon && props.checked && (
-                    <div className="mt-2 border rounded">
-                        <div className="flex items-center justify-between px-2 pt-2">
-                            <span className="text-xs font-semibold text-secondary">Filters</span>
-                            <div className="flex items-center gap-1">
-                                {props.onClearClick && (
-                                    <LemonButton type="tertiary" size="xsmall" onClick={props.onClearClick}>
-                                        Clear
+                {!isComingSoon && props.checked && props.config !== undefined && (
+                    <>
+                        <div className="mt-2 border rounded">
+                            <div className="flex items-center justify-between px-2 pt-2">
+                                <span className="text-xs font-semibold text-secondary">Filters</span>
+                                <div className="flex items-center gap-1">
+                                    {props.onClearClick && (
+                                        <LemonButton type="tertiary" size="xsmall" onClick={props.onClearClick}>
+                                            Clear
+                                        </LemonButton>
+                                    )}
+                                    <LemonButton type="secondary" size="xsmall" onClick={props.config.onClick}>
+                                        {props.config.buttonLabel}
                                     </LemonButton>
-                                )}
-                                <LemonButton type="secondary" size="xsmall" onClick={props.onConfigClick}>
-                                    {props.configButtonLabel}
-                                </LemonButton>
+                                </div>
                             </div>
+                            {props.config.display}
                         </div>
-                        {props.configSection}
-                    </div>
+                        {props.statusSection}
+                    </>
                 )}
             </div>
         </div>
@@ -96,9 +126,35 @@ function isNonEmptyFilters(obj: unknown): boolean {
     return obj != null && typeof obj === 'object' && Object.keys(obj as Record<string, unknown>).length > 0
 }
 
+function ClusteringStatusIndicator({ status }: { status: SignalSourceConfigStatus | null }): JSX.Element | null {
+    if (status === SignalSourceConfigStatus.RUNNING) {
+        return (
+            <div className="mt-2 flex items-center gap-2 rounded bg-accent-light text-xs text-accent">
+                <Spinner className="size-3.5" />
+                <span>Session analysis run in progress now… (est. 30 min)</span>
+            </div>
+        )
+    }
+    return null
+}
+
 export function SourcesList(): JSX.Element {
-    const { sessionAnalysisConfig } = useValues(inboxSceneLogic)
-    const { toggleSessionAnalysis, openSessionAnalysisSetup, clearSessionAnalysisFilters } = useActions(inboxSceneLogic)
+    const {
+        sessionAnalysisConfig,
+        githubIssuesConfig,
+        linearIssuesConfig,
+        zendeskTicketsConfig,
+        isSessionAnalysisToggling,
+        isGithubIssuesToggling,
+        isLinearIssuesToggling,
+        isZendeskTicketsToggling,
+    } = useValues(signalSourcesLogic)
+    const {
+        toggleSessionAnalysis,
+        openSessionAnalysisSetup,
+        clearSessionAnalysisFilters,
+        initiateDataWarehouseSourceToggle,
+    } = useActions(signalSourcesLogic)
 
     const recordingFilters = sessionAnalysisConfig?.config?.recording_filters
     const hasNonEmptyFilters = isNonEmptyFilters(recordingFilters)
@@ -115,40 +171,54 @@ export function SourcesList(): JSX.Element {
                 description="Session recordings + event data → Signals"
                 variant="available"
                 checked={!!sessionAnalysisConfig?.enabled}
+                loading={isSessionAnalysisToggling}
                 onToggle={() => toggleSessionAnalysis()}
-                configButtonLabel={recordingFilters ? 'Edit' : 'Configure'}
-                onConfigClick={openSessionAnalysisSetup}
-                onClearClick={hasNonEmptyFilters ? clearSessionAnalysisFilters : undefined}
-                configSection={
-                    recordingFilters ? (
+                config={{
+                    buttonLabel: recordingFilters ? 'Edit' : 'Configure',
+                    onClick: openSessionAnalysisSetup,
+                    display: recordingFilters ? (
                         <RecordingsUniversalFiltersDisplay filters={recordingFilters} />
                     ) : (
                         <div className="px-2 pb-2">
                             <span className="text-xs text-secondary">All sessions</span>
                         </div>
-                    )
-                }
+                    ),
+                }}
+                onClearClick={hasNonEmptyFilters ? clearSessionAnalysisFilters : undefined}
+                statusSection={<ClusteringStatusIndicator status={sessionAnalysisConfig?.status ?? null} />}
             />
 
             <Source
                 icon={<img className="size-5" src={iconZendesk} />}
                 title="Zendesk"
                 description="Incoming support tickets → Signals"
-                variant="coming-soon"
+                variant="available"
+                checked={!!zendeskTicketsConfig?.enabled}
+                loading={isZendeskTicketsToggling}
+                requiresSetup
+                onToggle={() => initiateDataWarehouseSourceToggle('Zendesk')}
             />
 
             <Source
                 icon={<IconLinear className="size-5" />}
                 title="Linear"
                 description="New issues and updates → Signals"
-                variant="coming-soon"
+                variant="available"
+                checked={!!linearIssuesConfig?.enabled}
+                loading={isLinearIssuesToggling}
+                requiresSetup
+                onToggle={() => initiateDataWarehouseSourceToggle('Linear')}
             />
 
             <Source
                 icon={<IconGithub className="size-5" />}
                 title="GitHub Issues"
                 description="New issues and updates → Signals"
-                variant="coming-soon"
+                variant="available"
+                checked={!!githubIssuesConfig?.enabled}
+                loading={isGithubIssuesToggling}
+                requiresSetup
+                onToggle={() => initiateDataWarehouseSourceToggle('Github')}
             />
 
             <Source

@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
-import { LemonInput, Popover } from '@posthog/lemon-ui'
+import { IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { MemberSelect } from 'lib/components/MemberSelect'
+import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -18,12 +17,14 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { DashboardsFilters, DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
+import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { dashboardsModel, nameCompareFunction } from '~/models/dashboardsModel'
 import {
     AccessControlLevel,
@@ -34,17 +35,29 @@ import {
 } from '~/types'
 
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from '../DashboardHeader'
+import { DashboardsFiltersBar } from './DashboardsFiltersBar'
+
+export function getDashboardFolderLabelFromItems(
+    itemsByRef: Record<string, { path?: string }>,
+    id: DashboardType['id']
+): string {
+    const entry = itemsByRef[`dashboard::${id}`]
+    const folderParts = splitPath(entry?.path).slice(0, -1)
+    if (folderParts.length === 0) {
+        return '—'
+    }
+    return folderParts.join(' / ')
+}
 
 export function DashboardsTableContainer(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { dashboards, filters } = useValues(dashboardsLogic)
+    const { dashboards } = useValues(dashboardsLogic)
 
-    return <DashboardsTable dashboards={dashboards} dashboardsLoading={dashboardsLoading} filters={filters} />
+    return <DashboardsTable dashboards={dashboards} dashboardsLoading={dashboardsLoading} />
 }
 
 interface DashboardsTableProps {
     dashboards: DashboardBasicType[]
-    filters: DashboardsFilters
     dashboardsLoading: boolean
     extraActions?: JSX.Element | JSX.Element[]
     hideActions?: boolean
@@ -53,26 +66,17 @@ interface DashboardsTableProps {
 export function DashboardsTable({
     dashboards,
     dashboardsLoading,
-    filters,
     extraActions,
     hideActions,
 }: DashboardsTableProps): JSX.Element {
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
-    const { setFilters, tableSortingChanged, setTagSearch, setShowTagPopover } = useActions(dashboardsLogic)
-    const { tableSorting, currentTab, filteredTags, tagSearch, showTagPopover } = useValues(dashboardsLogic)
+    const { tableSortingChanged } = useActions(dashboardsLogic)
+    const { tableSorting } = useValues(dashboardsLogic)
     const { currentTeam } = useValues(teamLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
-
-    const handleTagToggle = (tag: string): void => {
-        const selected = new Set(filters.tags || [])
-        if (selected.has(tag)) {
-            selected.delete(tag)
-        } else {
-            selected.add(tag)
-        }
-        setFilters({ tags: Array.from(selected) })
-    }
+    const { openMoveToModal } = useActions(moveToLogic)
+    const { itemsByRef } = useValues(projectTreeDataLogic)
 
     const columns: LemonTableColumns<DashboardType> = [
         {
@@ -142,6 +146,13 @@ export function DashboardsTable({
                 return tags ? <ObjectTags tags={[...tags].sort()} staticOnly /> : null
             },
         } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
+        {
+            title: 'Folder',
+            key: 'folder',
+            render: function RenderFolder(_, { id }: DashboardType) {
+                return getDashboardFolderLabelFromItems(itemsByRef, id)
+            },
+        },
         createdByColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         createdAtColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         atColumn<DashboardType>('last_accessed_at', 'Last accessed at') as LemonTableColumn<
@@ -200,9 +211,32 @@ export function DashboardsTable({
                                           Duplicate
                                       </LemonButton>
 
+                                      {itemsByRef[`dashboard::${id}`] && (
+                                          <AccessControlAction
+                                              resourceType={AccessControlResourceType.Dashboard}
+                                              minAccessLevel={AccessControlLevel.Editor}
+                                              userAccessLevel={user_access_level}
+                                          >
+                                              <LemonButton
+                                                  onClick={() => {
+                                                      const entry = itemsByRef[`dashboard::${id}`]
+                                                      openMoveToModal([entry as any])
+                                                  }}
+                                                  fullWidth
+                                                  data-attr="dashboard-move-to-folder"
+                                              >
+                                                  Move to another folder
+                                              </LemonButton>
+                                          </AccessControlAction>
+                                      )}
+
                                       <LemonDivider />
 
-                                      <LemonRow icon={<IconHome className="text-warning" />} fullWidth status="warning">
+                                      <LemonRow
+                                          icon={<IconHome className="size-4 text-warning" />}
+                                          fullWidth
+                                          status="warning"
+                                      >
                                           <span className="text-secondary">
                                               Change the default dashboard
                                               <br />
@@ -235,129 +269,7 @@ export function DashboardsTable({
 
     return (
         <>
-            <div className="flex justify-between gap-2 flex-wrap mb-4">
-                <LemonInput
-                    type="search"
-                    placeholder="Search for dashboards"
-                    onChange={(x) => setFilters({ search: x })}
-                    value={filters.search}
-                />
-                <div className="flex items-center gap-2 flex-wrap">
-                    <div className="flex items-center gap-2">
-                        <span>Filter to:</span>
-                        {currentTab !== DashboardsTab.Pinned && (
-                            <div className="flex items-center gap-2">
-                                <LemonButton
-                                    active={filters.pinned}
-                                    type="secondary"
-                                    size="small"
-                                    onClick={() => setFilters({ pinned: !filters.pinned })}
-                                    icon={<IconPin />}
-                                >
-                                    Pinned
-                                </LemonButton>
-                            </div>
-                        )}
-                        <Popover
-                            visible={showTagPopover}
-                            onClickOutside={() => setShowTagPopover(false)}
-                            overlay={
-                                <div className="max-w-100 deprecated-space-y-2">
-                                    <LemonInput
-                                        type="search"
-                                        placeholder="Search tags"
-                                        autoFocus
-                                        value={tagSearch}
-                                        onChange={setTagSearch}
-                                        fullWidth
-                                        className="max-w-full"
-                                    />
-                                    <ul className="deprecated-space-y-px">
-                                        {filteredTags.map((tag: string) => (
-                                            <li key={tag}>
-                                                <LemonButton
-                                                    fullWidth
-                                                    role="menuitem"
-                                                    size="small"
-                                                    onClick={() => handleTagToggle(tag)}
-                                                >
-                                                    <span className="flex items-center justify-between gap-2 flex-1">
-                                                        <span className="flex items-center gap-2 max-w-full">
-                                                            <input
-                                                                type="checkbox"
-                                                                className="cursor-pointer"
-                                                                checked={filters.tags?.includes(tag) || false}
-                                                                readOnly
-                                                            />
-                                                            <span>{tag}</span>
-                                                        </span>
-                                                    </span>
-                                                </LemonButton>
-                                            </li>
-                                        ))}
-                                        {filteredTags.length === 0 ? (
-                                            <div className="p-2 text-secondary italic truncate border-t">
-                                                {tagSearch ? <span>No matching tags</span> : <span>No tags</span>}
-                                            </div>
-                                        ) : null}
-                                        {(filters.tags?.length || 0) > 0 && (
-                                            <>
-                                                <div className="my-1 border-t" />
-                                                <li>
-                                                    <LemonButton
-                                                        fullWidth
-                                                        role="menuitem"
-                                                        size="small"
-                                                        onClick={() => setFilters({ tags: [] })}
-                                                        type="tertiary"
-                                                    >
-                                                        Clear selection
-                                                    </LemonButton>
-                                                </li>
-                                            </>
-                                        )}
-                                    </ul>
-                                </div>
-                            }
-                        >
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconChevronDown />}
-                                sideIcon={null}
-                                active={(filters.tags?.length || 0) > 0}
-                                onClick={() => setShowTagPopover(!showTagPopover)}
-                            >
-                                Tags
-                                {(filters.tags?.length || 0) > 0 && (
-                                    <span className="ml-1 text-xs">({filters.tags?.length})</span>
-                                )}
-                            </LemonButton>
-                        </Popover>
-                        <div className="flex items-center gap-2">
-                            <LemonButton
-                                active={filters.shared}
-                                type="secondary"
-                                size="small"
-                                onClick={() => setFilters({ shared: !filters.shared })}
-                                icon={<IconShare />}
-                            >
-                                Shared
-                            </LemonButton>
-                        </div>
-                    </div>
-                    {currentTab !== DashboardsTab.Yours && (
-                        <div className="flex items-center gap-2">
-                            <span>Created by:</span>
-                            <MemberSelect
-                                value={filters.createdBy === 'All users' ? null : filters.createdBy}
-                                onChange={(user) => setFilters({ createdBy: user?.uuid || 'All users' })}
-                            />
-                        </div>
-                    )}
-                    {extraActions}
-                </div>
-            </div>
+            <DashboardsFiltersBar extraActions={extraActions} />
             <LemonTable
                 data-attr="dashboards-table"
                 pagination={{ pageSize: 100 }}

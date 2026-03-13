@@ -6,12 +6,12 @@ import { CustomGroupingRules } from '@posthog/products-error-tracking/frontend/s
 import { SpikeDetectionSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/spike_detection/SpikeDetectionSettings'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
 import { LLMProviderKeysSettings } from '@posthog/products-llm-analytics/frontend/settings/LLMProviderKeysSettings'
+import { McpStoreSettings } from '@posthog/products-mcp-store/frontend/McpStoreSettings'
 import { EventConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/EventConfiguration'
 import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/ExternalDataSourceConfiguration'
 import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/FilterTestAccountsConfiguration'
 import { GoalsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/GoalsConfiguration'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -40,7 +40,6 @@ import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import {
     ExceptionAutocaptureToggle,
-    ExceptionIngestionControls,
     ExceptionSuppressionRules,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 
@@ -62,6 +61,7 @@ import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegratio
 import { ExperimentRecalculationTime } from './environment/ExperimentRecalculationTime'
 import {
     DefaultEvaluationContexts,
+    DefaultReleaseConditions,
     FlagChangeConfirmationSettings,
     FlagPersistenceSettings,
     FlagsSecureApiKeys,
@@ -105,6 +105,7 @@ import {
     WebSnippetV2,
 } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
+import { TwigSlackIntegration } from './environment/TwigSlackIntegration'
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
 import { WebhookIntegration } from './environment/WebhookIntegration'
@@ -112,7 +113,7 @@ import { ApprovalPolicies } from './organization/Approvals/ApprovalPolicies'
 import { ChangeRequestsList } from './organization/Approvals/ChangeRequestsList'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
-import { MembersPlatformAddonAd } from './organization/MembersPlatformAddonAd'
+import { OAuthApps } from './organization/OAuthApps'
 import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationIntegrations } from './organization/OrganizationIntegrations'
@@ -316,6 +317,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
             },
             {
+                // FIXME: changelog should probably not be here since it updates user's settings. Maybe belongs under account settings?
                 id: 'changelog',
                 title: 'Changelog',
                 description:
@@ -327,18 +329,47 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
-        id: 'mcp-server',
-        title: 'MCP server',
+        id: 'environment-twig',
+        title: 'Twig',
+        flag: 'TASKS',
+        settings: [
+            {
+                id: 'integration-twig-slack',
+                title: 'Slack integration',
+                component: <TwigSlackIntegration />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'posthog-mcp',
+        title: 'PostHog MCP',
         group: 'AI',
         settings: [
             {
-                id: 'mcp-server-configure',
+                id: 'posthog-mcp-configure',
                 title: 'Model Context Protocol (MCP) server',
                 description:
                     'Connect PostHog to AI tools like Claude, Cursor, and Copilot via the MCP protocol for data-driven AI assistance.',
                 docsUrl: 'https://posthog.com/docs/model-context-protocol',
                 component: <MCPServerSettings />,
                 keywords: ['ai', 'llm', 'claude', 'cursor', 'copilot'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'mcp-servers',
+        title: 'MCP servers',
+        group: 'AI',
+        flag: 'MCP_SERVERS',
+        settings: [
+            {
+                id: 'mcp-servers-manage',
+                title: 'MCP servers',
+                description: 'Install and manage MCP servers for your AI agents.',
+                component: <McpStoreSettings />,
+                keywords: ['mcp', 'server', 'install', 'oauth', 'ai', 'agent'],
             },
         ],
     },
@@ -527,21 +558,16 @@ export const SETTINGS_MAP: SettingSection[] = [
         },
         settings: [
             {
+                // FIXME: remove from "Revenue definitions" page
                 id: 'revenue-base-currency',
                 title: 'Base currency',
                 description: 'Set the base currency for revenue analytics calculations.',
-                component: (
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.RevenueAnalytics}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <BaseCurrency hideTitle />
-                    </AccessControlAction>
-                ),
+                component: <BaseCurrency hideTitle />,
                 hideWhenNoSection: true,
                 keywords: ['money', 'currency', 'usd', 'eur'],
             },
             {
+                // FIXME: remove from "Revenue definitions" page
                 id: 'revenue-analytics-filter-test-accounts',
                 title: 'Filter out internal and test users from revenue analytics',
                 description: 'Exclude test accounts from revenue calculations and reports.',
@@ -549,6 +575,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['test account', 'internal', 'exclude', 'filter', 'revenue'],
             },
             {
+                // FIXME: should not be in settings
                 id: 'revenue-analytics-goals',
                 title: 'Revenue goals',
                 description: 'Set revenue targets to track performance against your business objectives.',
@@ -556,6 +583,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['target', 'mrr', 'arr', 'goal'],
             },
             {
+                // FIXME: should not be in settings
                 id: 'revenue-analytics-events',
                 title: 'Revenue events',
                 description: 'Configure which events represent revenue-generating actions.',
@@ -564,6 +592,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['purchase', 'payment', 'subscription', 'charge'],
             },
             {
+                // FIXME: should not be in settings
                 id: 'revenue-analytics-external-data-sources',
                 title: 'External data sources',
                 description: 'Connect external data sources like Stripe for revenue tracking.',
@@ -638,7 +667,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Cookieless server hash mode',
                 description:
                     'Enable cookieless tracking using a privacy-preserving hash to count unique users without cookies. You must enable this here before enabling cookieless in posthog-js.',
-                docsUrl: 'https://posthog.com/docs/web-analytics/cookieless-tracking',
+                docsUrl: 'https://posthog.com/tutorials/cookieless-tracking',
                 component: <CookielessServerHashModeSetting />,
                 keywords: ['cookie', 'privacy', 'gdpr', 'tracking', 'consent'],
             },
@@ -647,7 +676,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Bounce rate duration',
                 description:
                     'Set how long a user can stay on a page (in seconds) before the session is not counted as a bounce. Default is 10 seconds.',
-                docsUrl: 'https://posthog.com/docs/web-analytics/bounce-rate',
+                docsUrl: 'https://posthog.com/tutorials/bounce-rate',
                 component: <BounceRateDurationSetting />,
                 keywords: ['bounce', 'session', 'duration', 'seconds'],
             },
@@ -768,15 +797,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 platformSupport: FEATURE_SUPPORT.sessionReplayCaptureHeadersAndPayloads,
                 component: <ReplayNetworkHeadersPayloads />,
                 keywords: ['headers', 'payload', 'body', 'request', 'response'],
-            },
-            {
-                id: 'web-vitals-autocapture',
-                title: 'Web vitals',
-                description: 'Capture web vitals metrics alongside session recordings for performance analysis.',
-                docsUrl: 'https://posthog.com/docs/web-analytics/web-vitals',
-                platformSupport: FEATURE_SUPPORT.webVitals,
-                component: <WebVitalsAutocaptureSettings />,
-                keywords: ['lcp', 'cls', 'fcp', 'inp', 'performance'],
             },
             {
                 id: 'replay-authorized-domains',
@@ -902,11 +922,19 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'feature-flag-default-evaluation-contexts',
                 title: 'Default evaluation contexts',
                 description:
-                    'Automatically apply default evaluation context tags to newly created feature flags. Users can still modify them during flag creation.',
+                    'Automatically apply default evaluation contexts to newly created feature flags. Users can still modify them during flag creation.',
                 docsUrl: 'https://posthog.com/docs/feature-flags/evaluation-contexts',
                 flag: 'DEFAULT_EVALUATION_ENVIRONMENTS',
                 component: <DefaultEvaluationContexts />,
-                keywords: ['evaluation', 'default', 'context', 'tag'],
+                keywords: ['evaluation', 'default', 'context'],
+            },
+            {
+                id: 'feature-flag-default-release-conditions',
+                title: 'Default release conditions',
+                description:
+                    'Automatically apply default release conditions to newly created feature flags. Users can still modify them during flag creation.',
+                component: <DefaultReleaseConditions />,
+                keywords: ['release', 'conditions', 'default', 'rollout', 'groups'],
             },
             {
                 id: 'feature-flag-secure-api-key',
@@ -978,15 +1006,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['filter', 'ignore', 'suppress', 'exception', 'type', 'message'],
             },
             {
-                id: 'error-tracking-ingestion-controls',
-                title: 'Autocapture controls',
-                description: 'Selectively enable exception autocapture based on the user or scenario.',
-                platformSupport: FEATURE_SUPPORT.errorTrackingSuppressionRules,
-                component: <ExceptionIngestionControls />,
-                flag: 'ERROR_TRACKING_INGESTION_CONTROLS',
-                keywords: ['ingestion', 'control', 'selective', 'autocapture'],
-            },
-            {
                 id: 'error-tracking-alerting',
                 title: 'Alerting',
                 description: 'Configure alerts to get notified when new errors occur or error rates spike.',
@@ -1016,9 +1035,9 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'error-tracking-integrations',
                 title: 'Integrations',
-                description: 'Connect error tracking with external services like Sentry or PagerDuty.',
+                description: 'Connect error tracking with external services like GitHub or Linear.',
                 component: <ErrorTrackingIntegrations />,
-                keywords: ['sentry', 'pagerduty', 'integration', 'connect'],
+                keywords: ['github', 'linear', 'gitlab', 'jira', 'integration', 'connect', 'issue'],
             },
             {
                 id: 'error-tracking-symbol-sets',
@@ -1116,6 +1135,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Get notified about activity log events via configured destinations.',
                 component: <ActivityLogNotifications />,
                 flag: 'CDP_ACTIVITY_LOG_NOTIFICATIONS',
+                allowForTeam: (t) => (t?.effective_membership_level ?? 0) >= OrganizationMembershipLevel.Admin,
                 keywords: ['notification', 'alert', 'activity', 'webhook'],
             },
         ],
@@ -1154,6 +1174,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Integrations',
                 description: 'Configure how discussion mentions are delivered via integrations.',
                 component: <DiscussionMentionNotifications />,
+                allowForTeam: (t) => (t?.effective_membership_level ?? 0) >= OrganizationMembershipLevel.Admin,
                 keywords: ['mention', 'notification', 'comment', 'discussion'],
             },
         ],
@@ -1326,11 +1347,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Members',
         settings: [
             {
-                id: 'banner',
-                title: null,
-                component: <MembersPlatformAddonAd />,
-            },
-            {
                 id: 'invites',
                 title: 'Pending invites',
                 description: 'Manage pending invitations to join your organization.',
@@ -1410,6 +1426,20 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Manage integrations connected at the organization level.',
                 component: <OrganizationIntegrations />,
                 keywords: ['integration', 'connect', 'third-party', 'oauth'],
+            },
+        ],
+    },
+    {
+        level: 'organization',
+        id: 'organization-oauth-apps',
+        title: 'OAuth applications',
+        settings: [
+            {
+                id: 'organization-oauth-apps-list',
+                title: 'OAuth applications',
+                description: 'View applications that have been authorized to connect to your organization.',
+                component: <OAuthApps />,
+                keywords: ['oauth', 'app', 'client', 'integration', 'api', 'authentication', 'third-party'],
             },
         ],
     },

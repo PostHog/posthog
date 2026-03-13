@@ -1,53 +1,71 @@
-import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { CountedPaginatedResponse } from 'lib/api'
+import { SignalNode } from 'scenes/debug/signals/types'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, RecordingUniversalFilters } from '~/types'
+import { Breadcrumb } from '~/types'
 
 import type { inboxSceneLogicType } from './inboxSceneLogicType'
-import {
-    SignalReport,
-    SignalReportArtefact,
-    SignalReportArtefactResponse,
-    SignalSourceConfig,
-    SignalSourceProduct,
-    SignalSourceType,
-} from './types'
+import { signalSourcesLogic } from './signalSourcesLogic'
+import { SignalReport, SignalReportArtefact, SignalReportArtefactResponse, SignalReportStatus } from './types'
+
+const REPORTS_PAGE_SIZE = 200
+
+export type DetailTab = 'overview' | 'signals'
+
+const CLUSTERING_POLL_INTERVAL_MS = 5000
 
 export const inboxSceneLogic = kea<inboxSceneLogicType>([
     path(['scenes', 'inbox', 'inboxSceneLogic']),
 
+    connect({
+        values: [signalSourcesLogic, ['hasNoSources', 'isClusteringRunning']],
+        actions: [signalSourcesLogic, ['loadSourceConfigs']],
+    }),
+
     actions({
         setSelectedReportId: (id: string | null) => ({ id }),
         setSearchQuery: (query: string) => ({ query }),
+        setStatusFilters: (statuses: SignalReportStatus[]) => ({ statuses }),
+        setActiveDetailTab: (tab: DetailTab) => ({ tab }),
+        deleteReport: (reportId: string) => ({ reportId }),
+        reingestReport: (reportId: string) => ({ reportId }),
         runSessionAnalysis: true,
         runSessionAnalysisSuccess: true,
         runSessionAnalysisFailure: (error: string) => ({ error }),
-        openSourcesModal: true,
-        closeSourcesModal: true,
-        openSessionAnalysisSetup: true,
-        closeSessionAnalysisSetup: true,
-        toggleSessionAnalysis: true,
-        saveSessionAnalysisFilters: (filters: RecordingUniversalFilters) => ({
-            filters,
-        }),
-        clearSessionAnalysisFilters: true,
     }),
 
     loaders(({ values }) => ({
-        reports: [
-            [] as SignalReport[],
+        reportsResponse: [
+            null as CountedPaginatedResponse<SignalReport> | null,
             {
                 loadReports: async () => {
-                    const response = await api.signalReports.list()
-                    return response.results
+                    return await api.signalReports.list({
+                        limit: REPORTS_PAGE_SIZE,
+                        offset: 0,
+                        status: values.statusFilters.length > 0 ? values.statusFilters.join(',') : undefined,
+                        search: values.searchQuery.trim() || undefined,
+                    })
+                },
+                loadMoreReports: async () => {
+                    const currentResults = values.reportsResponse?.results ?? []
+                    const response = await api.signalReports.list({
+                        limit: REPORTS_PAGE_SIZE,
+                        offset: currentResults.length,
+                        status: values.statusFilters.length > 0 ? values.statusFilters.join(',') : undefined,
+                        search: values.searchQuery.trim() || undefined,
+                    })
+                    return {
+                        ...response,
+                        results: [...currentResults, ...response.results],
+                    }
                 },
             },
         ],
@@ -60,18 +78,24 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 },
             },
         ],
-        sourceConfigs: [
-            null as SignalSourceConfig[] | null,
+        reportSignals: [
+            {} as Record<string, SignalNode[]>,
             {
-                loadSourceConfigs: async () => {
-                    const response = await api.signalSourceConfigs.list()
-                    return response.results
+                loadReportSignals: async ({ reportId }: { reportId: string }) => {
+                    const response = await api.signalReports.getReportSignals(reportId)
+                    return { ...values.reportSignals, [reportId]: response.signals }
                 },
             },
         ],
     })),
 
     reducers({
+        reportsResponse: {
+            deleteReport: (state: CountedPaginatedResponse<SignalReport> | null, { reportId }: { reportId: string }) =>
+                state
+                    ? { ...state, results: state.results.filter((r) => r.id !== reportId), count: state.count - 1 }
+                    : state,
+        },
         selectedReportId: [
             null as string | null,
             {
@@ -84,6 +108,19 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 setSearchQuery: (_, { query }) => query,
             },
         ],
+        statusFilters: [
+            [SignalReportStatus.READY] as SignalReportStatus[],
+            {
+                setStatusFilters: (_, { statuses }) => statuses,
+            },
+        ],
+        activeDetailTab: [
+            'overview' as DetailTab,
+            {
+                setActiveDetailTab: (_, { tab }) => tab,
+                setSelectedReportId: () => 'overview' as DetailTab,
+            },
+        ],
         isRunningSessionAnalysis: [
             false,
             {
@@ -92,53 +129,6 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 runSessionAnalysisFailure: () => false,
             },
         ],
-        sourcesModalOpen: [
-            false,
-            {
-                openSourcesModal: () => true,
-                closeSourcesModal: () => false,
-            },
-        ],
-        sessionAnalysisSetupOpen: [
-            false,
-            {
-                openSourcesModal: () => false, // This reset is on open, and not on close, to avoid flash on modal close
-                openSessionAnalysisSetup: () => true,
-                closeSessionAnalysisSetup: () => false,
-            },
-        ],
-        sourceConfigs: {
-            toggleSessionAnalysis: (state: SignalSourceConfig[] | null) => {
-                if (!state) {
-                    return state
-                }
-                const existing = state.find(
-                    (c) =>
-                        c.source_product === SignalSourceProduct.SESSION_REPLAY &&
-                        c.source_type === SignalSourceType.SESSION_ANALYSIS_CLUSTER
-                )
-                if (existing) {
-                    return state.map((c) =>
-                        c.source_product === SignalSourceProduct.SESSION_REPLAY &&
-                        c.source_type === SignalSourceType.SESSION_ANALYSIS_CLUSTER
-                            ? { ...c, enabled: !c.enabled }
-                            : c
-                    )
-                }
-                return [
-                    ...state,
-                    {
-                        id: `new_${SignalSourceProduct.SESSION_REPLAY}_${SignalSourceType.SESSION_ANALYSIS_CLUSTER}`,
-                        source_product: SignalSourceProduct.SESSION_REPLAY,
-                        source_type: SignalSourceType.SESSION_ANALYSIS_CLUSTER,
-                        enabled: true,
-                        config: {},
-                        created_at: new Date().toISOString(),
-                        updated_at: new Date().toISOString(),
-                    },
-                ]
-            },
-        },
     }),
 
     selectors({
@@ -152,50 +142,99 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 },
             ],
         ],
-        filteredReports: [
-            (s) => [s.reports, s.searchQuery],
-            (reports: SignalReport[], searchQuery: string): SignalReport[] => {
-                if (!searchQuery.trim()) {
-                    return reports
-                }
-                const q = searchQuery.toLowerCase()
-                return reports.filter((r) => r.title?.toLowerCase().includes(q) || r.summary?.toLowerCase().includes(q))
-            },
+        reports: [
+            (s) => [s.reportsResponse],
+            (reportsResponse: CountedPaginatedResponse<SignalReport> | null): SignalReport[] =>
+                reportsResponse?.results ?? [],
         ],
+        reportsLoading: [
+            (s) => [s.reportsResponseLoading],
+            (reportsResponseLoading: boolean): boolean => reportsResponseLoading,
+        ],
+        reportsTotal: [
+            (s) => [s.reportsResponse],
+            (reportsResponse: CountedPaginatedResponse<SignalReport> | null): number => reportsResponse?.count ?? 0,
+        ],
+        reportsHasMore: [
+            (s) => [s.reportsResponse],
+            (reportsResponse: CountedPaginatedResponse<SignalReport> | null): boolean =>
+                reportsResponse?.next !== null && reportsResponse?.next !== undefined,
+        ],
+        filteredReports: [(s) => [s.reports], (reports: SignalReport[]): SignalReport[] => reports],
         selectedReport: [
             (s) => [s.reports, s.selectedReportId],
             (reports: SignalReport[], selectedReportId: string | null): SignalReport | null =>
                 reports.find((r) => r.id === selectedReportId) ?? null,
         ],
-        sessionAnalysisConfig: [
-            (s) => [s.sourceConfigs],
-            (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
-                sourceConfigs?.find(
-                    (c) =>
-                        c.source_product === SignalSourceProduct.SESSION_REPLAY &&
-                        c.source_type === SignalSourceType.SESSION_ANALYSIS_CLUSTER
-                ) ?? null,
-        ],
-        hasNoSources: [
-            (s) => [s.sourceConfigs, s.enabledSourcesCount],
-            (sourceConfigs: SignalSourceConfig[] | null, enabledSourcesCount: number): boolean =>
-                sourceConfigs !== null && enabledSourcesCount === 0,
-        ],
         shouldShowEnablingCtaOnMobile: [
             (s) => [s.hasNoSources, s.filteredReports, s.reportsLoading],
-            (hasNoSources, filteredReports, reportsLoading): boolean =>
+            (hasNoSources: boolean, filteredReports: SignalReport[], reportsLoading: boolean): boolean =>
                 hasNoSources && !reportsLoading && filteredReports.length === 0,
         ],
-        enabledSourcesCount: [
-            (s) => [s.sourceConfigs],
-            (sourceConfigs: SignalSourceConfig[] | null): number => sourceConfigs?.filter((c) => c.enabled).length ?? 0,
+        selectedReportSignals: [
+            (s) => [s.reportSignals, s.selectedReportId],
+            (reportSignals: Record<string, SignalNode[]>, selectedReportId: string | null): SignalNode[] | null =>
+                selectedReportId ? (reportSignals[selectedReportId] ?? null) : null,
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
+        setSearchQuery: async (_, breakpoint) => {
+            await breakpoint(300)
+            actions.loadReports()
+        },
+        setStatusFilters: () => {
+            actions.loadReports()
+        },
         setSelectedReportId: ({ id }) => {
-            if (id && !values.artefacts[id]) {
-                actions.loadArtefacts({ reportId: id })
+            if (id) {
+                if (!values.artefacts[id]) {
+                    actions.loadArtefacts({ reportId: id })
+                }
+                if (!values.reportSignals[id]) {
+                    actions.loadReportSignals({ reportId: id })
+                }
+            }
+        },
+        setActiveDetailTab: ({ tab }) => {
+            if (tab === 'signals' && values.selectedReportId && !values.reportSignals[values.selectedReportId]) {
+                actions.loadReportSignals({ reportId: values.selectedReportId })
+            }
+        },
+        deleteReport: async ({ reportId }) => {
+            // Reducer handles optimistic removal from list
+            if (values.selectedReportId === reportId) {
+                actions.setSelectedReportId(null)
+            }
+            try {
+                await api.signalReports.delete(reportId)
+                lemonToast.success('Report deleted')
+            } catch (error: any) {
+                const errorMessage = error?.detail || error?.message || 'Failed to delete report'
+                lemonToast.error(errorMessage)
+                actions.loadReports()
+            }
+        },
+        reingestReport: async ({ reportId }) => {
+            try {
+                await api.signalReports.reingest(reportId)
+                lemonToast.success('Reingestion started — signals will be re-grouped')
+                if (values.selectedReportId === reportId) {
+                    actions.setSelectedReportId(null)
+                }
+                actions.loadReports()
+            } catch (error: any) {
+                const errorMessage = error?.detail || error?.message || 'Failed to start reingestion'
+                lemonToast.error(errorMessage)
+            }
+        },
+        loadSourceConfigsSuccess: () => {
+            clearInterval(cache.clusteringPollInterval)
+            if (values.isClusteringRunning) {
+                cache.clusteringPollInterval = setInterval(() => {
+                    actions.loadSourceConfigs()
+                    actions.loadReports()
+                }, CLUSTERING_POLL_INTERVAL_MS)
             }
         },
         runSessionAnalysis: async () => {
@@ -212,86 +251,14 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         runSessionAnalysisSuccess: () => {
             actions.loadReports()
         },
-        toggleSessionAnalysis: async (_, breakpoint) => {
-            // Reducer already applied optimistic update, so read the NEW desired state
-            const config = values.sessionAnalysisConfig
-            const desiredEnabled = config?.enabled ?? true
-            try {
-                if (
-                    config &&
-                    config.id !==
-                        `new_${SignalSourceProduct.SESSION_REPLAY}_${SignalSourceType.SESSION_ANALYSIS_CLUSTER}`
-                ) {
-                    await api.signalSourceConfigs.update(config.id, {
-                        enabled: desiredEnabled,
-                    })
-                } else {
-                    await api.signalSourceConfigs.create({
-                        source_product: SignalSourceProduct.SESSION_REPLAY,
-                        source_type: SignalSourceType.SESSION_ANALYSIS_CLUSTER,
-                        config: {},
-                        enabled: true,
-                    })
-                }
-                breakpoint()
-                actions.loadSourceConfigs()
-            } catch (error: any) {
-                breakpoint()
-                actions.loadSourceConfigs()
-                const errorMessage = error?.detail || error?.message || 'Failed to toggle session analysis'
-                lemonToast.error(errorMessage)
-            }
-        },
-        saveSessionAnalysisFilters: async ({ filters }) => {
-            try {
-                const existing = values.sessionAnalysisConfig
-                if (existing) {
-                    await api.signalSourceConfigs.update(existing.id, {
-                        config: { recording_filters: filters },
-                        enabled: true,
-                    })
-                } else {
-                    await api.signalSourceConfigs.create({
-                        source_product: SignalSourceProduct.SESSION_REPLAY,
-                        source_type: SignalSourceType.SESSION_ANALYSIS_CLUSTER,
-                        config: { recording_filters: filters },
-                        enabled: true,
-                    })
-                }
-                lemonToast.success('Session analysis filters saved')
-                actions.loadSourceConfigs()
-                actions.closeSessionAnalysisSetup()
-            } catch (error: any) {
-                const errorMessage = error?.detail || error?.message || 'Failed to save filters'
-                lemonToast.error(errorMessage)
-            }
-        },
-        clearSessionAnalysisFilters: async () => {
-            try {
-                const existing = values.sessionAnalysisConfig
-                if (
-                    existing &&
-                    existing.id !==
-                        `new_${SignalSourceProduct.SESSION_REPLAY}_${SignalSourceType.SESSION_ANALYSIS_CLUSTER}`
-                ) {
-                    await api.signalSourceConfigs.update(existing.id, {
-                        config: {},
-                        enabled: true,
-                    })
-                    lemonToast.success('Session analysis filters cleared')
-                }
-                actions.loadSourceConfigs()
-            } catch (error: any) {
-                const errorMessage = error?.detail || error?.message || 'Failed to clear filters'
-                lemonToast.error(errorMessage)
-            }
-        },
     })),
 
-    events(({ actions }) => ({
+    events(({ actions, cache }) => ({
         afterMount: () => {
             actions.loadReports()
-            actions.loadSourceConfigs()
+        },
+        beforeUnmount: () => {
+            clearInterval(cache.clusteringPollInterval)
         },
     })),
 

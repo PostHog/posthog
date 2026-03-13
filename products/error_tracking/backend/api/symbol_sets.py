@@ -262,7 +262,9 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 detail="Object storage must be available to allow source map uploads.",
             )
 
-        chunk_id_url_map = bulk_create_symbol_sets(symbol_sets, self.team)
+        chunk_id_url_map = bulk_create_symbol_sets(
+            symbol_sets, self.team, distinct_id=str(request.user.pk) if request.user.pk else None
+        )
         return Response({"id_map": chunk_id_url_map}, status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
@@ -393,7 +395,18 @@ def create_symbol_set(
 def bulk_create_symbol_sets(
     new_symbol_sets: list[SymbolSetUpload],
     team: Team,
+    distinct_id: str | None = None,
 ) -> dict[str, dict[str, str]]:
+    accelerate = bool(
+        distinct_id
+        and posthoganalytics.feature_enabled(
+            "error-tracking-s3-accelerate",
+            distinct_id,
+            groups={"organization": str(team.organization.id)},
+            send_feature_flag_events=False,
+        )
+    )
+
     chunk_ids = [x.chunk_id for x in new_symbol_sets]
 
     # Check for dupes
@@ -425,7 +438,7 @@ def bulk_create_symbol_sets(
         symbol_sets_to_be_created = []
         for chunk_id in missing_sets:
             storage_ptr = generate_symbol_set_file_key()
-            presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr)
+            presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr, accelerate=accelerate)
             id_url_map[chunk_id] = {"presigned_url": presigned_url}
             # Note that on creation, we /do not set/ the content hash. We use content hashes included in
             # the create request only to see if we can skip updated - we set the content hash when we
@@ -477,7 +490,7 @@ def bulk_create_symbol_sets(
                 # If the existing set doesn't have a content hash, we can set it up for an upload, and return it
                 # so the CLI will send the data to s3
                 storage_ptr = generate_symbol_set_file_key()
-                presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr)
+                presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr, accelerate=accelerate)
                 id_url_map[existing.ref] = {
                     "presigned_url": presigned_url,
                     "symbol_set_id": str(existing.id),
@@ -543,7 +556,13 @@ def generate_symbol_set_file_key():
     return f"{settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER}/{str(uuid7())}"
 
 
-def generate_symbol_set_upload_presigned_url(file_key: str):
+def generate_symbol_set_upload_presigned_url(file_key: str, *, accelerate: bool = False):
+    if accelerate:
+        return object_storage.get_accelerated_presigned_post(
+            file_key=file_key,
+            conditions=[["content-length-range", 0, ONE_HUNDRED_MEGABYTES]],
+            expiration=PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT,
+        )
     return object_storage.get_presigned_post(
         file_key=file_key,
         conditions=[["content-length-range", 0, ONE_HUNDRED_MEGABYTES]],

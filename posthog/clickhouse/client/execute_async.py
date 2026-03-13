@@ -296,16 +296,24 @@ def enqueue_process_query_task(
             existing_query_id = manager.get_running_query_by_cache_key(cache_key)
             if existing_query_id:
                 query_status = get_query_status(team.id, existing_query_id)
-                posthoganalytics.capture(
-                    "query duplicate found",
-                    distinct_id=user_id,
-                    properties={
-                        "cache_key": cache_key,
-                        "query_id": existing_query_id,
-                        "query_json": query_json,
-                    },
-                )
-                return query_status
+                if not query_status.complete:
+                    # Only deduplicate against a query that is still in progress
+                    posthoganalytics.capture(
+                        "query duplicate found",
+                        distinct_id=user_id,
+                        properties={
+                            "cache_key": cache_key,
+                            "query_id": existing_query_id,
+                            "query_json": query_json,
+                        },
+                    )
+                    return query_status
+                # The previous task finished (or failed) — clean up the stale mapping and enqueue a new one
+                manager.unregister_cache_key_mapping(cache_key)
+    except QueryNotFoundError:
+        # The status for the mapped query_id expired before we could check it — clean up and re-enqueue
+        if cache_key:
+            manager.unregister_cache_key_mapping(cache_key)
     except Exception as e:
         capture_exception(e, {"cache_key": cache_key})
 

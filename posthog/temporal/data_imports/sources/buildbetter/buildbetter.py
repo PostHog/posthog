@@ -1,7 +1,6 @@
 from typing import Any
 
 import requests
-from requests import Session
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
@@ -31,7 +30,7 @@ def _make_paginated_request(
 
     graphql_query_name = endpoint_config.graphql_query_name or endpoint_name
 
-    sess = Session()
+    sess = requests.Session()
     sess.headers.update(
         {
             "X-Buildbetter-API-Key": api_key,

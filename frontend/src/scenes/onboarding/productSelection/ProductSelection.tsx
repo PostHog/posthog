@@ -1,37 +1,26 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import * as Icons from '@posthog/icons'
-import { IconArrowRight, IconChevronDown, IconSparkles } from '@posthog/icons'
+import { IconArrowRight, IconChevronDown, IconCursor, IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonLabel, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand/Logomark'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { UseCaseDefinition } from '../productRecommendations'
-import { availableOnboardingProducts } from '../utils'
+import { availableOnboardingProducts, getProductIcon } from '../utils'
 import { productSelectionLogic } from './productSelectionLogic'
+import { SimplifiedProductSelection } from './SimplifiedProductSelection'
 
-const isValidIconKey = (key: string): key is keyof typeof Icons => key in Icons
 type AvailableOnboardingProductKey = keyof typeof availableOnboardingProducts
 
 const isAvailableOnboardingProductKey = (key: string | ProductKey): key is AvailableOnboardingProductKey =>
     key in availableOnboardingProducts
-
-export function getProductIcon(
-    iconKey?: string | null,
-    { iconColor, className }: { iconColor?: string; className?: string } = {}
-): JSX.Element {
-    if (iconKey && isValidIconKey(iconKey)) {
-        const IconComponent = Icons[iconKey]
-        return <IconComponent className={className} color={iconColor} />
-    }
-
-    return <Icons.IconLogomark className={className} />
-}
 
 function BrowsingHistoryBanner(): JSX.Element | null {
     const { hasBrowsingHistory, browsingHistoryLabels } = useValues(productSelectionLogic)
@@ -61,18 +50,22 @@ function ChoosePathStep(): JSX.Element {
         useActions(productSelectionLogic)
 
     const aiRecommendationsEnabled = useFeatureFlag('ONBOARDING_AI_PRODUCT_RECOMMENDATIONS', 'test')
+    const headingCopy = getFeatureFlagPayload('onboarding-product-selection-heading') as
+        | { heading?: string; subheading?: string }
+        | undefined
+    const heading = headingCopy?.heading ?? 'What do you want to do with PostHog?'
+    const defaultSubheading = aiRecommendationsEnabled
+        ? "Describe your goals and we'll recommend the right products for you"
+        : 'Pick a goal to get started with the right products'
+    const subheading = headingCopy?.subheading ?? defaultSubheading
 
     return (
         <div className="max-w-6xl w-full">
             <div className="flex justify-center mb-4">
                 <Logomark />
             </div>
-            <h1 className="text-4xl font-bold text-center mb-2">What do you want to do with PostHog?</h1>
-            <p className="text-center text-muted mb-8">
-                {aiRecommendationsEnabled
-                    ? "Describe your goals and we'll recommend the right products for you"
-                    : 'Pick a goal to get started with the right products'}
-            </p>
+            <h1 className="text-4xl font-bold text-center mb-2">{heading}</h1>
+            <p className="text-center text-muted mb-8">{subheading}</p>
 
             {/* AI Input - Full width and prominent (behind feature flag) */}
             {aiRecommendationsEnabled && (
@@ -170,7 +163,7 @@ function ChoosePathStep(): JSX.Element {
                 >
                     <div className="flex flex-col items-center text-center gap-3">
                         <div className="text-3xl">
-                            <Icons.IconCursor className="text-3xl" color="rgb(100, 116, 139)" />
+                            <IconCursor className="text-3xl" color="rgb(100, 116, 139)" />
                         </div>
                         <div>
                             <div className="font-semibold mb-1">I'll pick myself</div>
@@ -197,7 +190,7 @@ function ProductCard({
     return (
         <LemonCard
             data-attr={`${productKey}-onboarding-card`}
-            className="cursor-pointer hover:transform-none p-4"
+            className="relative cursor-pointer hover:transform-none p-4"
             onClick={onToggle}
             focused={selected}
             hoverEffect
@@ -351,7 +344,14 @@ function ProductSelectionStep(): JSX.Element {
 }
 
 export function ProductSelection(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { currentStep } = useValues(productSelectionLogic)
+
+    const isSimplifiedOnboarding = featureFlags[FEATURE_FLAGS.ONBOARDING_SIMPLIFIED_PRODUCT_SELECTION]
+
+    if (isSimplifiedOnboarding === 'test') {
+        return <SimplifiedProductSelection />
+    }
 
     return (
         <div className="flex flex-col flex-1 w-full min-h-full p-4 items-center justify-center bg-primary overflow-x-hidden">

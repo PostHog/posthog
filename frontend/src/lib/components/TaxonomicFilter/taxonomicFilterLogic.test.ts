@@ -2,9 +2,13 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
-import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import {
+    isSkeletonItem,
+    redistributeTopMatches,
+    SKELETON_ROWS_PER_GROUP,
+    taxonomicFilterLogic,
+} from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -217,8 +221,6 @@ describe('taxonomicFilterLogic', () => {
         ]
 
         beforeEach(() => {
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TAXONOMIC_QUICK_FILTERS]: 'test' })
-
             useMocks({
                 get: {
                     '/api/projects/:team/event_definitions': (res) => {
@@ -280,7 +282,7 @@ describe('taxonomicFilterLogic', () => {
                 })
         })
 
-        it('promotes up to 3 top matches from other groups', async () => {
+        it('collects top matches and redistributes via redistributedTopMatchItems', async () => {
             await expectLogic(quickLogic, () => {
                 quickLogic.actions.setSearchQuery('event')
             })
@@ -289,6 +291,11 @@ describe('taxonomicFilterLogic', () => {
                 .toMatchValues({
                     activeTab: TaxonomicFilterGroupType.SuggestedFilters,
                     topMatchItems: [
+                        expect.objectContaining({ name: 'event1', group: TaxonomicFilterGroupType.Events }),
+                        expect.objectContaining({ name: 'test event', group: TaxonomicFilterGroupType.Events }),
+                        expect.objectContaining({ name: 'other event', group: TaxonomicFilterGroupType.Events }),
+                    ],
+                    redistributedTopMatchItems: [
                         expect.objectContaining({ name: 'event1', group: TaxonomicFilterGroupType.Events }),
                         expect.objectContaining({ name: 'test event', group: TaxonomicFilterGroupType.Events }),
                         expect.objectContaining({ name: 'other event', group: TaxonomicFilterGroupType.Events }),
@@ -380,39 +387,70 @@ describe('taxonomicFilterLogic', () => {
                     payload.group.type === TaxonomicFilterGroupType.Events,
             ])
         })
+
+        it.each([
+            {
+                description: 'inserts skeleton placeholders for loading groups during search',
+                query: 'zzz-will-not-match',
+            },
+            {
+                description: 'inserts skeleton placeholders that are replaced by real results',
+                query: 'event',
+            },
+        ])('$description (query=$query)', async ({ query }) => {
+            const eventsListLogic = infiniteListLogic({
+                ...quickLogic.props,
+                listGroupType: TaxonomicFilterGroupType.Events,
+            })
+
+            await expectLogic(eventsListLogic).toDispatchActions(['loadRemoteItemsSuccess'])
+            await expectLogic(quickLogic).delay(1)
+
+            await expectLogic(quickLogic, () => {
+                quickLogic.actions.setSearchQuery(query)
+            }).toDispatchActions(['setSearchQuery'])
+
+            const duringLoading = quickLogic.values.topMatchItemsWithSkeletons
+            const skeletons = duringLoading.filter(isSkeletonItem)
+            expect(skeletons).toHaveLength(SKELETON_ROWS_PER_GROUP)
+            expect(skeletons.every((s) => s.group === TaxonomicFilterGroupType.Events)).toBe(true)
+            expect(skeletons[0].groupName).toBe('Events')
+
+            await expectLogic(eventsListLogic).toDispatchActions(['loadRemoteItemsSuccess'])
+            await expectLogic(quickLogic).delay(1)
+
+            const afterLoading = quickLogic.values.topMatchItemsWithSkeletons
+            expect(afterLoading.filter(isSkeletonItem)).toHaveLength(0)
+        })
+
+        it('does not insert skeletons when search query is empty', async () => {
+            const eventsListLogic = infiniteListLogic({
+                ...quickLogic.props,
+                listGroupType: TaxonomicFilterGroupType.Events,
+            })
+            await expectLogic(eventsListLogic).toDispatchActions(['loadRemoteItemsSuccess'])
+            await expectLogic(quickLogic).delay(1)
+
+            expect(quickLogic.values.searchQuery).toBe('')
+            expect(quickLogic.values.topMatchItemsWithSkeletons).toEqual([])
+        })
     })
 
-    describe('QuickFilters opt-in', () => {
+    describe('SuggestedFilters presence', () => {
         it.each([
             {
                 groupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
-                flagValue: 'test',
                 expectQuickFilters: true,
-                description: 'includes QuickFilters when listed and flag enabled',
-            },
-            {
-                groupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
-                flagValue: 'control',
-                expectQuickFilters: false,
-                description: 'excludes QuickFilters when listed but flag disabled',
+                description: 'includes SuggestedFilters when listed in groupTypes',
             },
             {
                 groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
-                flagValue: 'test',
                 expectQuickFilters: false,
-                description: 'excludes QuickFilters when not listed even with flag enabled',
+                description: 'excludes SuggestedFilters when not listed in groupTypes',
             },
-            {
-                groupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties],
-                flagValue: 'control',
-                expectQuickFilters: false,
-                description: 'breakdown-like contexts without QuickFilters stay without it',
-            },
-        ])('$description', ({ groupTypes, flagValue, expectQuickFilters }) => {
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TAXONOMIC_QUICK_FILTERS]: flagValue })
-
+        ])('$description', ({ groupTypes, expectQuickFilters }) => {
             const testLogicProps: TaxonomicFilterLogicProps = {
-                taxonomicFilterLogicKey: `testOptIn-${flagValue}-${groupTypes.join('-')}`,
+                taxonomicFilterLogicKey: `testOptIn-${groupTypes.join('-')}`,
                 taxonomicGroupTypes: groupTypes,
             }
             const testLogic = taxonomicFilterLogic(testLogicProps)
@@ -466,5 +504,138 @@ describe('taxonomicFilterLogic', () => {
                 { id: 'context3', name: 'Another Context', value: 'context3', icon: expect.anything() },
             ])
         })
+    })
+})
+
+describe('redistributeTopMatches', () => {
+    const makeItem = (name: string, group: TaxonomicFilterGroupType): any => ({ name, group })
+
+    it.each([
+        {
+            description: 'returns empty output for empty input',
+            items: [],
+            activeGroupCount: 3,
+            expected: [],
+        },
+        {
+            description: 'no redistribution needed when all groups are within default slots',
+            items: [
+                ...Array.from({ length: 4 }, (_, i) => makeItem(`e${i + 1}`, TaxonomicFilterGroupType.Events)),
+                makeItem('a1', TaxonomicFilterGroupType.Actions),
+            ],
+            activeGroupCount: 3,
+            expected: [
+                ...['e1', 'e2', 'e3', 'e4'].map((n) => expect.objectContaining({ name: n })),
+                expect.objectContaining({ name: 'a1' }),
+            ],
+        },
+        {
+            description: 'empty groups give surplus slots to groups with extra items',
+            items: Array.from({ length: 8 }, (_, i) => makeItem(`e${i + 1}`, TaxonomicFilterGroupType.Events)),
+            activeGroupCount: 3,
+            expected: Array.from({ length: 8 }, (_, i) => expect.objectContaining({ name: `e${i + 1}` })),
+        },
+        {
+            description: '3+ groups with results caps each at DEFAULT_SLOTS_PER_GROUP without redistribution',
+            items: [
+                ...Array.from({ length: 8 }, (_, i) => makeItem(`ce${i + 1}`, TaxonomicFilterGroupType.CustomEvents)),
+                ...Array.from({ length: 8 }, (_, i) => makeItem(`pu${i + 1}`, TaxonomicFilterGroupType.PageviewUrls)),
+                ...Array.from({ length: 8 }, (_, i) => makeItem(`sc${i + 1}`, TaxonomicFilterGroupType.Screens)),
+            ],
+            activeGroupCount: 4,
+            expected: [
+                ...Array.from({ length: 5 }, (_, i) => expect.objectContaining({ name: `ce${i + 1}` })),
+                ...Array.from({ length: 5 }, (_, i) => expect.objectContaining({ name: `pu${i + 1}` })),
+                ...Array.from({ length: 5 }, (_, i) => expect.objectContaining({ name: `sc${i + 1}` })),
+            ],
+        },
+        {
+            description: 'fewer than 3 groups redistributes surplus with priority ordering',
+            items: [
+                ...Array.from({ length: 8 }, (_, i) => makeItem(`ce${i + 1}`, TaxonomicFilterGroupType.CustomEvents)),
+                ...Array.from({ length: 8 }, (_, i) => makeItem(`pu${i + 1}`, TaxonomicFilterGroupType.PageviewUrls)),
+            ],
+            activeGroupCount: 4,
+            expected: [
+                ...Array.from({ length: 8 }, (_, i) => expect.objectContaining({ name: `ce${i + 1}` })),
+                ...Array.from({ length: 8 }, (_, i) => expect.objectContaining({ name: `pu${i + 1}` })),
+            ],
+        },
+        {
+            description: 'surplus capped by available items in priority groups',
+            items: [
+                makeItem('ce1', TaxonomicFilterGroupType.CustomEvents),
+                ...Array.from({ length: 8 }, (_, i) => makeItem(`e${i + 1}`, TaxonomicFilterGroupType.Events)),
+            ],
+            activeGroupCount: 5,
+            expected: [
+                expect.objectContaining({ name: 'ce1' }),
+                ...Array.from({ length: 8 }, (_, i) => expect.objectContaining({ name: `e${i + 1}` })),
+            ],
+        },
+        {
+            description: 'without groupTypeOrder, preserves arrival order',
+            items: [makeItem('a1', TaxonomicFilterGroupType.Actions), makeItem('e1', TaxonomicFilterGroupType.Events)],
+            activeGroupCount: 2,
+            expected: [
+                expect.objectContaining({ name: 'a1', group: TaxonomicFilterGroupType.Actions }),
+                expect.objectContaining({ name: 'e1', group: TaxonomicFilterGroupType.Events }),
+            ],
+        },
+        {
+            description: 'with groupTypeOrder, sorts groups by category order regardless of arrival order',
+            items: [
+                makeItem('a1', TaxonomicFilterGroupType.Actions),
+                makeItem('dw1', TaxonomicFilterGroupType.DataWarehouse),
+                makeItem('e1', TaxonomicFilterGroupType.Events),
+            ],
+            activeGroupCount: 3,
+            groupTypeOrder: [
+                TaxonomicFilterGroupType.Events,
+                TaxonomicFilterGroupType.Actions,
+                TaxonomicFilterGroupType.DataWarehouse,
+            ],
+            expected: [
+                expect.objectContaining({ name: 'e1', group: TaxonomicFilterGroupType.Events }),
+                expect.objectContaining({ name: 'a1', group: TaxonomicFilterGroupType.Actions }),
+                expect.objectContaining({ name: 'dw1', group: TaxonomicFilterGroupType.DataWarehouse }),
+            ],
+        },
+        {
+            description: 'groupTypeOrder omits groups with no results',
+            items: [makeItem('e1', TaxonomicFilterGroupType.Events)],
+            activeGroupCount: 3,
+            groupTypeOrder: [TaxonomicFilterGroupType.Actions, TaxonomicFilterGroupType.Events],
+            expected: [expect.objectContaining({ name: 'e1', group: TaxonomicFilterGroupType.Events })],
+        },
+    ])('$description', ({ items, activeGroupCount, expected, groupTypeOrder }) => {
+        expect(redistributeTopMatches(items, activeGroupCount, groupTypeOrder)).toEqual(expected)
+    })
+})
+
+describe('isSkeletonItem', () => {
+    it.each([
+        {
+            description: 'returns true for skeleton items',
+            item: { _skeleton: true, group: TaxonomicFilterGroupType.Events, groupName: 'Events' },
+            expected: true,
+        },
+        {
+            description: 'returns false for regular items',
+            item: { name: 'event1', group: TaxonomicFilterGroupType.Events },
+            expected: false,
+        },
+        {
+            description: 'returns false for null',
+            item: null,
+            expected: false,
+        },
+        {
+            description: 'returns false for undefined',
+            item: undefined,
+            expected: false,
+        },
+    ])('$description', ({ item, expected }) => {
+        expect(isSkeletonItem(item)).toBe(expected)
     })
 })

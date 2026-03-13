@@ -329,26 +329,41 @@ export const searchLogic = kea<searchLogicType>([
                         iconColor: product.iconColor,
                     },
                 }))
-
-                // Add Activity manually
-                const activityHref = urls.activity(ActivityTab.ExploreEvents)
-                items.push({
-                    id: 'app-activity',
-                    name: 'Activity',
-                    displayName: 'Activity',
-                    category: 'apps',
-                    productCategory: null,
-                    href: activityHref,
-                    icon: <IconClock />,
-                    itemType: null,
-                    tags: undefined,
-                    lastViewedAt: sceneLogViewsByRef['Activity'] ?? null,
-                    record: {
-                        type: 'activity',
-                        iconType: undefined,
-                        iconColor: undefined,
+                items.push(
+                    {
+                        id: 'app-activity',
+                        name: 'Activity',
+                        displayName: 'Activity',
+                        category: 'apps',
+                        productCategory: null,
+                        href: urls.activity(ActivityTab.ExploreEvents),
+                        icon: <IconClock />,
+                        itemType: null,
+                        tags: undefined,
+                        lastViewedAt: sceneLogViewsByRef['Activity'] ?? null,
+                        record: {
+                            type: 'activity',
+                            iconType: undefined,
+                            iconColor: undefined,
+                        },
                     },
-                })
+                    {
+                        id: 'app-cohorts',
+                        name: 'Cohorts',
+                        displayName: 'Cohorts',
+                        category: 'apps',
+                        productCategory: null,
+                        href: urls.cohorts(),
+                        itemType: 'cohort',
+                        tags: undefined,
+                        lastViewedAt: sceneLogViewsByRef['Cohorts'] ?? null,
+                        record: {
+                            type: 'cohort',
+                            iconType: 'cohort',
+                            iconColor: undefined,
+                        },
+                    }
+                )
 
                 // Sort by lastViewedAt (most recent first), items without lastViewedAt go to the end
                 return items.sort((a, b) => {

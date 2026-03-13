@@ -7,13 +7,14 @@ Non-obvious behavior documented here:
 - OAuth state is both signed and one-time-use (cache-backed) to prevent replay.
 """
 
+import re
 import base64
 import hashlib
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode, urlparse, urlunparse
 
 from django.conf import settings
 from django.core import signing
@@ -117,9 +118,21 @@ def normalize_and_validate_app_url(team: Team, app_url: str) -> str:
         raise ToolbarOAuthError("invalid_app_url", "app_url must use https for non-loopback hosts", 400)
 
     if not team or not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
-        raise ToolbarOAuthError("forbidden_app_url", "Can only redirect to a permitted domain.", 403)
+        raise ToolbarOAuthError(
+            "forbidden_app_url",
+            f"Can only redirect to a permitted domain. The hostname '{parsed.hostname}' is not in this project's authorized URLs.",
+            403,
+        )
 
-    # preserve path/query/fragment
+    # Strip __posthog and __posthog_toolbar hash params — posthog-js toolbar
+    # launch params must not survive the OAuth round-trip or they cause a
+    # re-initialization loop, and leftover __posthog_toolbar params cause
+    # duplicate params on re-authentication.
+    if parsed.fragment and "__posthog" in parsed.fragment:
+        clean_fragment = re.sub(r"&?__posthog_toolbar=[^&]*", "", parsed.fragment)
+        clean_fragment = re.sub(r"&?__posthog=[^&]*", "", clean_fragment).strip("&")
+        return urlunparse(parsed._replace(fragment=clean_fragment))
+
     return app_url
 
 

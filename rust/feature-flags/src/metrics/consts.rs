@@ -5,6 +5,7 @@ pub const FLAG_HASH_KEY_RETRIES_COUNTER: &str = "flags_hash_key_retries_total";
 pub const TEAM_CACHE_HIT_COUNTER: &str = "flags_team_cache_hit_total";
 pub const DB_TEAM_READS_COUNTER: &str = "flags_db_team_reads_total";
 pub const TOKEN_VALIDATION_ERRORS_COUNTER: &str = "flags_token_validation_errors_total";
+pub const TEAM_NEGATIVE_CACHE_HIT_COUNTER: &str = "flags_team_negative_cache_hit_total";
 pub const DB_COHORT_READS_COUNTER: &str = "flags_db_cohort_reads_total";
 pub const DB_COHORT_ERRORS_COUNTER: &str = "flags_db_cohort_errors_total";
 pub const COHORT_CACHE_HIT_COUNTER: &str = "flags_cohort_cache_hit_total";
@@ -23,6 +24,7 @@ pub const FLAG_REQUEST_FAULTS_COUNTER: &str = "flags_request_faults_total";
 pub const DB_CONNECTION_POOL_ACTIVE_COUNTER: &str = "flags_db_connection_pool_active_total";
 pub const DB_CONNECTION_POOL_IDLE_COUNTER: &str = "flags_db_connection_pool_idle_total";
 pub const DB_CONNECTION_POOL_MAX_COUNTER: &str = "flags_db_connection_pool_max_total";
+pub const DB_CONNECTION_POOL_SIZE_GAUGE: &str = "flags_db_connection_pool_size";
 
 // Flag evaluation timing
 pub const FLAG_EVALUATION_TIME: &str = "flags_evaluation_time";
@@ -65,6 +67,27 @@ pub const FLAG_HASH_KEY_QUERY_RESULT: &str = "flags_hash_key_query_result_total"
 // Flag definitions rate limiting
 pub const FLAG_DEFINITIONS_RATE_LIMITED_COUNTER: &str = "flags_flag_definitions_rate_limited_total";
 pub const FLAG_DEFINITIONS_REQUESTS_COUNTER: &str = "flags_flag_definitions_requests_total";
+
+// Flag definitions cache metrics
+// Labels: source (redis, s3, fallback)
+pub const FLAG_DEFINITIONS_CACHE_HIT_COUNTER: &str = "flags_flag_definitions_cache_hit_total";
+// Labels: reason (cache_miss, s3_error, redis_error, json_parse_error, timeout)
+pub const FLAG_DEFINITIONS_CACHE_MISS_COUNTER: &str = "flags_flag_definitions_cache_miss_total";
+
+// Flag definitions ETag metrics
+// Labels: result (hit = 304, miss = 200 with stale etag, none = 200 without etag, redis_error = etag read failed)
+pub const FLAG_DEFINITIONS_ETAG_COUNTER: &str = "flags_flag_definitions_etag_total";
+
+// Flag definitions auth method
+// Labels: method (secret_api_key, personal_api_key) — Rust only supports these two; Python also tracks oauth, jwt, session, other
+pub const FLAG_DEFINITIONS_AUTH_COUNTER: &str = "flags_flag_definitions_auth_total";
+
+// Personal API key hash mode used for successful authentication
+// Labels: hash_mode (sha256, pbkdf2)
+pub const PERSONAL_API_KEY_HASH_MODE_COUNTER: &str = "personal_api_key_hash_mode_total";
+
+// Request-level timeout (tower TimeoutLayer killed the request before completion)
+pub const FLAG_REQUEST_TIMEOUT_COUNTER: &str = "flags_request_timeout_total";
 
 // Timeout tracking and classification
 pub const FLAG_ACQUIRE_TIMEOUT_COUNTER: &str = "flags_acquire_timeout_total";
@@ -110,6 +133,12 @@ pub const RAYON_DISPATCHER_TOTAL_ACQUIRES: &str = "flags_rayon_dispatcher_acquir
 // With N semaphore permits, this should stay in [0, N]. Consistently at N
 // means the pool is saturated and the semaphore is the bottleneck.
 pub const RAYON_DISPATCHER_INFLIGHT_TASKS: &str = "flags_rayon_dispatcher_inflight_tasks";
+
+// Counter of semaphore acquisitions that timed out (request failed fast with 504).
+// Non-zero means the configured timeout is being hit and requests are being
+// redistributed to other pods via ingress retry.
+pub const RAYON_DISPATCHER_SEMAPHORE_TIMEOUTS: &str =
+    "flags_rayon_dispatcher_semaphore_timeouts_total";
 
 // Flag batch evaluation metrics
 // These track the performance difference between sequential and parallel evaluation strategies.

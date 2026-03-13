@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 from posthog.schema import (
     BaseMathType,
     ConversionGoalFilter1,
+    ConversionGoalFilter3,
     DateRange,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsTableQueryResponse,
@@ -14,6 +15,7 @@ from posthog.hogql import ast
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
+from products.data_warehouse.backend.models import DataWarehouseTable
 from products.marketing_analytics.backend.hogql_queries.adapters.base import MarketingSourceAdapter
 from products.marketing_analytics.backend.hogql_queries.constants import DEFAULT_LIMIT
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
@@ -42,7 +44,9 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
             properties=[],
         )
 
-    def _create_query_runner(self, query: MarketingAnalyticsTableQuery = None) -> MarketingAnalyticsTableQueryRunner:
+    def _create_query_runner(
+        self, query: MarketingAnalyticsTableQuery | None = None
+    ) -> MarketingAnalyticsTableQueryRunner:
         """Create a query runner with standard configuration"""
         if query is None:
             query = self.default_query
@@ -186,9 +190,10 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         all_goals = runner._get_team_conversion_goals()
         assert len(all_goals) == 3  # 1 valid + 2 invalid
 
-        valid_goals = runner._filter_invalid_conversion_goals(all_goals)
+        valid_goals, warnings = runner._filter_invalid_conversion_goals(all_goals)
         assert len(valid_goals) == 1  # Only the valid goal remains
         assert valid_goals[0].conversion_goal_name == "Valid Purchase Goal"
+        assert len(warnings) == 2
 
         with patch.object(MarketingAnalyticsTableQueryRunner, "_get_marketing_source_adapters") as mock_get_adapters:
             mock_get_adapters.return_value = []
@@ -221,3 +226,127 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         assert result.types is not None
         assert result.hogql is not None
         assert result.modifiers is not None
+
+    def test_dw_goal_with_missing_table_filtered_out(self):
+        """DataWarehouseNode goals referencing non-existent tables are filtered out with a warning"""
+        dw_goal = ConversionGoalFilter3(
+            kind="DataWarehouseNode",
+            table_name="nonexistent_table",
+            id="nonexistent_table",
+            id_field="id",
+            distinct_id_field="distinct_id",
+            timestamp_field="timestamp",
+            conversion_goal_id="dw_goal",
+            conversion_goal_name="DW Goal",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "campaign_col", "utm_source_name": "source_col"},
+        )
+
+        runner = self._create_query_runner()
+        valid_goals, warnings = runner._filter_invalid_conversion_goals([dw_goal])
+
+        assert len(valid_goals) == 0
+        assert len(warnings) == 1
+        assert "nonexistent_table" in warnings[0]
+        assert "not found" in warnings[0]
+
+    def test_dw_goal_with_missing_columns_filtered_out(self):
+        """DataWarehouseNode goals referencing missing columns are filtered out with a warning"""
+        DataWarehouseTable.raw_objects.create(
+            name="my_dw_table",
+            team=self.team,
+            columns={
+                "id": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+                "timestamp": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime", "valid": True},
+            },
+            format="Parquet",
+            url_pattern="https://example.com/data",
+        )
+
+        dw_goal = ConversionGoalFilter3(
+            kind="DataWarehouseNode",
+            table_name="my_dw_table",
+            id="my_dw_table",
+            id_field="id",
+            distinct_id_field="distinct_id",
+            timestamp_field="timestamp",
+            conversion_goal_id="dw_goal",
+            conversion_goal_name="DW Goal Missing Cols",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        runner = self._create_query_runner()
+        valid_goals, warnings = runner._filter_invalid_conversion_goals([dw_goal])
+
+        assert len(valid_goals) == 0
+        assert len(warnings) == 1
+        assert "utm_campaign" in warnings[0]
+        assert "utm_source" in warnings[0]
+
+    def test_dw_goal_with_valid_columns_passes(self):
+        """DataWarehouseNode goals with valid column mappings pass validation"""
+        DataWarehouseTable.raw_objects.create(
+            name="valid_dw_table",
+            team=self.team,
+            columns={
+                "id": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+                "timestamp": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime", "valid": True},
+                "campaign_name": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+                "source_name": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+            },
+            format="Parquet",
+            url_pattern="https://example.com/data",
+        )
+
+        dw_goal = ConversionGoalFilter3(
+            kind="DataWarehouseNode",
+            table_name="valid_dw_table",
+            id="valid_dw_table",
+            id_field="id",
+            distinct_id_field="distinct_id",
+            timestamp_field="timestamp",
+            conversion_goal_id="dw_goal",
+            conversion_goal_name="Valid DW Goal",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "campaign_name", "utm_source_name": "source_name"},
+        )
+
+        runner = self._create_query_runner()
+        valid_goals, warnings = runner._filter_invalid_conversion_goals([dw_goal])
+
+        assert len(valid_goals) == 1
+        assert len(warnings) == 0
+        assert valid_goals[0].conversion_goal_name == "Valid DW Goal"
+
+    def test_mixed_valid_and_invalid_goals(self):
+        """Valid event goals survive alongside filtered DW goals with missing columns"""
+        DataWarehouseTable.raw_objects.create(
+            name="bad_table",
+            team=self.team,
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}},
+            format="Parquet",
+            url_pattern="https://example.com/data",
+        )
+
+        event_goal = self._create_test_conversion_goal("event_goal")
+        dw_goal = ConversionGoalFilter3(
+            kind="DataWarehouseNode",
+            table_name="bad_table",
+            id="bad_table",
+            id_field="id",
+            distinct_id_field="distinct_id",
+            timestamp_field="timestamp",
+            conversion_goal_id="dw_goal",
+            conversion_goal_name="Bad DW Goal",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        runner = self._create_query_runner()
+        valid_goals, warnings = runner._filter_invalid_conversion_goals([event_goal, dw_goal])
+
+        assert len(valid_goals) == 1
+        assert valid_goals[0].conversion_goal_name == "Test Goal"
+        assert len(warnings) == 1
+        assert "Bad DW Goal" in warnings[0]

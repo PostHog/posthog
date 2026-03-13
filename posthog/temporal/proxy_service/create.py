@@ -13,6 +13,7 @@ from django.conf import settings
 import grpc.aio
 import requests
 import dns.resolver
+import dns.asyncresolver
 import temporalio.common
 from structlog import get_logger
 from temporalio import activity, workflow
@@ -33,13 +34,14 @@ from posthog.temporal.proxy_service.cloudflare import (
     CloudflareAPIError,
     CustomHostnameSSLStatus,
     create_custom_hostname,
-    create_worker_route,
     get_custom_hostname_by_domain,
 )
 from posthog.temporal.proxy_service.common import (
     NonRetriableException,
     RecordDeletedException,
+    SendProxyCreatedEmailInputs,
     UpdateProxyRecordInputs,
+    activity_send_proxy_created_email,
     activity_update_proxy_record,
     get_grpc_client,
     record_exists,
@@ -120,7 +122,7 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
         raise RecordDeletedException("proxy record was deleted while waiting for DNS records")
 
     try:
-        cnames = dns.resolver.query(inputs.domain, "CNAME")
+        cnames = await dns.asyncresolver.resolve(inputs.domain, "CNAME")
         value = cnames[0].target.canonicalize().to_text()
 
         if cnames[0].target == dns.name.from_text(inputs.target_cname):
@@ -138,7 +140,7 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
         # It means there is a record set, but it's not a CNAME record
         # A likely reason for this is that they have set Cloudflare proxying on.
         # Check for this explicitly to create a nice message for the user.
-        arecords = dns.resolver.query(inputs.domain, "A")
+        arecords = await dns.asyncresolver.resolve(inputs.domain, "A")
         if len(arecords) == 0:
             raise
         ip = arecords[0].to_text()
@@ -147,7 +149,30 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
         cloudflare_ips = requests.get("https://www.cloudflare.com/ips-v4").text.split("\n")
         is_cloudflare = any(ipaddress.ip_address(ip) in ipaddress.ip_network(cidr) for cidr in cloudflare_ips)
         if is_cloudflare:
-            # the customer has set cloudflare proxying on
+            # Before blaming the customer, check if the IPs match our target
+            # CNAME. Cloudflare CNAME flattening (for domains using Cloudflare
+            # nameservers) replaces the CNAME with A records even when proxy is
+            # off (grey cloud). If the IPs match our target, the setup is
+            # correct — the CNAME is just being flattened.
+            try:
+                target_arecords = await dns.asyncresolver.resolve(inputs.target_cname, "A")
+                target_ips = {r.to_text() for r in target_arecords}
+                customer_ips = {r.to_text() for r in arecords}
+                if customer_ips == target_ips:
+                    logger.info(
+                        "DNS for %s returned flattened A records matching target %s - treating as valid",
+                        inputs.domain,
+                        inputs.target_cname,
+                    )
+                    return
+            except Exception as exc:
+                logger.warning(
+                    "Failed to resolve A records for target CNAME %s: %s",
+                    inputs.target_cname,
+                    exc,
+                )
+            # IPs don't match our target — customer likely has Cloudflare
+            # proxying enabled on their own zone
             await update_record(
                 proxy_record_id=inputs.proxy_record_id,
                 message="The DNS record appears to have Cloudflare proxying enabled - please disable this. For more information see [the docs](https://posthog.com/docs/advanced/proxy/managed-reverse-proxy)",
@@ -279,33 +304,9 @@ async def create_cloudflare_custom_hostname(inputs: CreateCloudflareProxyInputs)
             # Custom hostname already exists
             logger.info("Cloudflare Custom Hostname already exists for domain %s", inputs.domain)
             return
-        raise NonRetriableException(f"Cloudflare API error: {e}") from e
-
-
-@activity.defn
-async def create_cloudflare_worker_route(inputs: CreateCloudflareProxyInputs):
-    """Activity that creates a Worker Route in Cloudflare for the domain."""
-    logger = LOGGER.bind(organization_id=inputs.organization_id)
-    logger.info(
-        "Creating Cloudflare Worker Route for domain %s",
-        inputs.domain,
-    )
-
-    if not await record_exists(inputs.proxy_record_id):
-        raise RecordDeletedException("proxy record was deleted while creating Cloudflare Worker Route")
-
-    try:
-        result = await asyncio.to_thread(create_worker_route, inputs.domain)
-        logger.info(
-            "Created Cloudflare Worker Route %s with pattern %s",
-            result.id,
-            result.pattern,
-        )
-    except CloudflareAPIError as e:
-        if any(err.get("code") == 10020 for err in e.errors):
-            # Route already exists
-            logger.info("Cloudflare Worker Route already exists for domain %s", inputs.domain)
-            return
+        if e.is_rate_limited():
+            # Rate limited by Cloudflare — re-raise to let Temporal retry with backoff
+            raise
         raise NonRetriableException(f"Cloudflare API error: {e}") from e
 
 
@@ -341,8 +342,13 @@ async def wait_for_cloudflare_certificate(inputs: CreateCloudflareProxyInputs):
         raise ApplicationError(f"Certificate not yet ready, status: {hostname_info.ssl.status.value}")
 
     except CloudflareAPIError as e:
+        if e.is_rate_limited():
+            # Rate limited by Cloudflare — re-raise to let Temporal retry with backoff
+            raise
         raise NonRetriableException(f"Cloudflare API error: {e}") from e
     except ApplicationError:
+        raise
+    except (ConnectionError, TimeoutError, OSError):
         raise
     except Exception as e:
         raise NonRetriableException(f"Unknown exception in wait_for_cloudflare_certificate: {e}") from e
@@ -513,24 +519,11 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                     ),
                 )
 
-                # Create Worker Route in Cloudflare
-                await temporalio.workflow.execute_activity(
-                    create_cloudflare_worker_route,
-                    cloudflare_inputs,
-                    schedule_to_close_timeout=dt.timedelta(minutes=5),
-                    start_to_close_timeout=dt.timedelta(minutes=1),
-                    retry_policy=temporalio.common.RetryPolicy(
-                        initial_interval=dt.timedelta(seconds=10),
-                        maximum_attempts=5,
-                        non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
-                    ),
-                )
-
                 # Wait for Cloudflare certificate to be active
                 await temporalio.workflow.execute_activity(
                     wait_for_cloudflare_certificate,
                     cloudflare_inputs,
-                    schedule_to_close_timeout=dt.timedelta(minutes=15),
+                    schedule_to_close_timeout=dt.timedelta(minutes=60),
                     start_to_close_timeout=dt.timedelta(seconds=10),
                     retry_policy=temporalio.common.RetryPolicy(
                         backoff_coefficient=1.1,
@@ -574,13 +567,15 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                     ),
                 )
 
-            # Everything's created and ready to go, update to VALID
+            # Everything's created and ready to go, update to VALID and clear
+            # any messages from earlier retries (e.g. Cloudflare proxying warning)
             await temporalio.workflow.execute_activity(
                 activity_update_proxy_record,
                 UpdateProxyRecordInputs(
                     organization_id=inputs.organization_id,
                     proxy_record_id=inputs.proxy_record_id,
                     status=ProxyRecord.Status.VALID.value,
+                    message="",
                 ),
                 start_to_close_timeout=dt.timedelta(seconds=10),
                 retry_policy=temporalio.common.RetryPolicy(
@@ -588,6 +583,27 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                     non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
                 ),
             )
+
+            # Send email notification — failure should not block the workflow
+            try:
+                await temporalio.workflow.execute_activity(
+                    activity_send_proxy_created_email,
+                    SendProxyCreatedEmailInputs(
+                        organization_id=inputs.organization_id,
+                        proxy_record_id=inputs.proxy_record_id,
+                        domain=inputs.domain,
+                    ),
+                    start_to_close_timeout=dt.timedelta(seconds=30),
+                    retry_policy=temporalio.common.RetryPolicy(
+                        maximum_attempts=2,
+                        non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
+                    ),
+                )
+            except ActivityError:
+                logger.warning(
+                    "Failed to send proxy provisioned email for domain %s, continuing",
+                    inputs.domain,
+                )
 
             schedule_inputs = ScheduleMonitorJobInputs(
                 organization_id=inputs.organization_id,
@@ -611,6 +627,19 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                 and hasattr(e.cause, "type")
                 and e.cause.type != "RecordDeletedException"
             ):
+                await temporalio.workflow.execute_activity(
+                    activity_update_proxy_record,
+                    UpdateProxyRecordInputs(
+                        organization_id=inputs.organization_id,
+                        proxy_record_id=inputs.proxy_record_id,
+                        status=ProxyRecord.Status.ERRORING.value,
+                    ),
+                    start_to_close_timeout=dt.timedelta(seconds=60),
+                    retry_policy=temporalio.common.RetryPolicy(
+                        maximum_attempts=10,
+                        non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
+                    ),
+                )
                 raise
 
             logger.info(

@@ -589,7 +589,7 @@ class BillingManager:
             timeout=30,
         )
 
-        handle_billing_service_error(res)
+        handle_billing_service_error(res, valid_codes=(200,))
 
         return res.json()
 

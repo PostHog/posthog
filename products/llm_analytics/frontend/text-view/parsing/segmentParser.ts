@@ -2,6 +2,7 @@
  * Segment parsing utilities for text view display
  * Handles parsing of TRUNCATED, GEN_EXPANDABLE, and TOOLS_EXPANDABLE markers
  */
+// eslint-disable-next-line import/no-cycle
 import { decodeBase64Utf8 } from './textHelpers'
 import { SegmentMatch, TextSegment } from './types'
 

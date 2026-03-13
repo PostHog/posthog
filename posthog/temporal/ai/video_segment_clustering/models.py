@@ -1,6 +1,6 @@
 """Data models for video segment clustering."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from pydantic import BaseModel, Field
 
@@ -16,20 +16,6 @@ class ClusteringWorkflowInputs:
 
 
 @dataclass
-class VideoSegmentMetadata:
-    document_id: str  # Format: "{session_id}:{start_time}:{end_time}"
-    session_id: str
-    start_time: str
-    end_time: str
-    session_start_time: str
-    session_end_time: str
-    session_duration: int
-    session_active_seconds: int
-    distinct_id: str
-    content: str
-
-
-@dataclass
 class VideoSegment:
     document_id: str  # Format: "{session_id}:{start_time}:{end_time}"
     session_id: str
@@ -41,7 +27,7 @@ class VideoSegment:
     session_active_seconds: int
     distinct_id: str
     content: str
-    embedding: list[float]
+    embedding: list[float] = field(default_factory=list)
 
 
 @dataclass

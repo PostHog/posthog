@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 from django.db import connection
 
 from disposable_email_domains import blocklist as disposable_email_domains_list
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.instance_setting import set_instance_setting
@@ -352,6 +353,37 @@ class TestOauthIntegrationModel(BaseTest):
         assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
 
         mock_reload.assert_called_once_with(self.team.id, [integration.id])
+
+    @parameterized.expand(
+        [
+            (
+                "rotated",
+                {
+                    "access_token": "REFRESHED_ACCESS_TOKEN",
+                    "refresh_token": "ROTATED_REFRESH_TOKEN",
+                    "expires_in": 1000,
+                },
+                "ROTATED_REFRESH_TOKEN",
+            ),
+            ("not_rotated", {"access_token": "REFRESHED_ACCESS_TOKEN", "expires_in": 1000}, "REFRESH"),
+        ]
+    )
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_refresh_access_token_refresh_token_handling(
+        self, _name, token_response, expected_refresh_token, mock_post, mock_reload
+    ):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = token_response
+
+        integration = self.create_integration(kind="hubspot", config={"expires_in": 1000})
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            with self.settings(**self.mock_settings):
+                OauthIntegration(integration).refresh_access_token()
+
+        assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
+        assert integration.sensitive_config["refresh_token"] == expected_refresh_token
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")
@@ -701,6 +733,60 @@ class TestGitHubIntegrationModel(BaseTest):
 
         integration.refresh_from_db()
         assert integration.errors == ""
+
+    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
+    def test_list_repositories_retries_transient_non_json_response(self, _mock_expired, mock_get):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+
+        transient = MagicMock()
+        transient.status_code = 502
+        transient.json.side_effect = ValueError("not json")
+
+        success = MagicMock()
+        success.status_code = 200
+        success.json.return_value = {
+            "repositories": [
+                {"id": 1, "name": "posthog", "full_name": "PostHog/posthog"},
+                {"id": 2, "name": "posthog-js", "full_name": "PostHog/posthog-js"},
+            ]
+        }
+
+        mock_get.side_effect = [transient, success]
+
+        repos = GitHubIntegration(integration).list_repositories()
+
+        assert repos == [
+            {"id": 1, "name": "posthog", "full_name": "PostHog/posthog"},
+            {"id": 2, "name": "posthog-js", "full_name": "PostHog/posthog-js"},
+        ]
+        assert mock_get.call_count == 2
+
+    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
+    def test_list_repositories_returns_empty_after_repeated_transient_non_json(self, _mock_expired, mock_get):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+
+        transient_1 = MagicMock()
+        transient_1.status_code = 502
+        transient_1.json.side_effect = ValueError("not json")
+
+        transient_2 = MagicMock()
+        transient_2.status_code = 502
+        transient_2.json.side_effect = ValueError("not json")
+
+        mock_get.side_effect = [transient_1, transient_2]
+
+        repos = GitHubIntegration(integration).list_repositories()
+
+        assert repos == []
+        assert mock_get.call_count == 2
 
 
 class TestDatabricksIntegrationModel(BaseTest):

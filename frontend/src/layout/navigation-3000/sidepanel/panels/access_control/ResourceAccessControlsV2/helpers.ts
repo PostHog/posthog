@@ -73,52 +73,48 @@ export function getInheritedReasonTooltip(reason: InheritedReason): string | und
     }
 }
 
-export function getMinLevelDisabledReason(
-    inheritedLevel: AccessControlLevel | null,
-    inheritedReason: InheritedReason,
-    minimum: AccessControlLevel | null,
-    resourceLabel: string
-): string | undefined {
-    if (inheritedReason === 'organization_admin') {
-        return 'User is an organization admin'
-    }
-    if (inheritedLevel) {
-        switch (inheritedReason) {
-            case 'project_default':
-                return `Project default is ${toSentenceCase(inheritedLevel)}`
-            case 'role_override':
-                return `User has a role with ${toSentenceCase(inheritedLevel)} access`
-        }
-    }
-    if (minimum) {
-        return `Minimum level for ${resourceLabel} is ${toSentenceCase(minimum)}`
-    }
-    return undefined
-}
-
 export function getLevelOptionsForResource(
     availableLevels: AccessControlLevel[],
     options?: {
-        minimum?: AccessControlLevel | null
-        maximum?: AccessControlLevel | null
-        disabledReason?: string
+        minimum: AccessControlLevel | null
+        maximum: AccessControlLevel | null
+        inheritedLevel: AccessControlLevel | null
+        inheritedReason: InheritedReason
+        resourceLabel: string
     }
 ): { value: AccessControlLevel; label: string; disabledReason?: string }[] {
-    const minimum = options?.minimum
-    const maximum = options?.maximum
-    const customDisabledReason = options?.disabledReason
+    const { minimum, maximum, inheritedLevel, inheritedReason, resourceLabel } = options ?? {}
+    const effectiveMinimum = inheritedLevel ?? minimum
 
-    const minIndex = minimum ? availableLevels.indexOf(minimum) : -1
+    const minIndex = effectiveMinimum ? availableLevels.indexOf(effectiveMinimum) : -1
     const maxIndex = maximum ? availableLevels.indexOf(maximum) : availableLevels.length
 
     return availableLevels.map((level) => {
         const currentIndex = availableLevels.indexOf(level)
-        const isDisabled = (minIndex >= 0 && currentIndex < minIndex) || (maxIndex >= 0 && currentIndex > maxIndex)
+        const isBelowMin = minIndex >= 0 && currentIndex < minIndex
+        const isAboveMax = maxIndex >= 0 && currentIndex > maxIndex
+
+        let disabledReason: string | undefined
+        if (isBelowMin) {
+            if (inheritedReason === 'organization_admin') {
+                disabledReason = 'User is an organization admin'
+            } else if (inheritedReason === 'project_default' && inheritedLevel) {
+                disabledReason = `Project default is ${toSentenceCase(inheritedLevel)}`
+            } else if (inheritedReason === 'role_override' && inheritedLevel) {
+                disabledReason = `User has a role with ${toSentenceCase(inheritedLevel)} access`
+            } else if (minimum) {
+                disabledReason = `Minimum level for ${resourceLabel} is ${toSentenceCase(minimum)}`
+            }
+        } else if (isAboveMax && maximum) {
+            disabledReason = `Maximum level for ${resourceLabel} is ${toSentenceCase(maximum)}`
+        } else {
+            disabledReason = undefined // not disabled
+        }
 
         return {
             value: level,
             label: level === AccessControlLevel.None ? 'None' : toSentenceCase(level),
-            disabledReason: isDisabled ? (customDisabledReason ?? 'Not available for this feature') : undefined,
+            disabledReason,
         }
     })
 }

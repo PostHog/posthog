@@ -3,6 +3,7 @@ import { PluginsServerConfig, ValueMatcher, stringToPluginServerMode } from '../
 import { isDevEnv, isProdEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import {
     KAFKA_APP_METRICS_2,
+    KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
     KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
     KAFKA_EVENTS_JSON,
     KAFKA_EVENTS_PLUGIN_INGESTION,
@@ -67,6 +68,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
+        INGESTION_AI_EVENT_SPLITTING_ENABLED: false,
+        INGESTION_AI_EVENT_SPLITTING_TEAMS: '*',
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         EVENT_SCHEMA_ENFORCEMENT_ENABLED: true,
         CONSUMER_BATCH_SIZE: 500,
@@ -126,6 +129,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         TEMPORAL_CLIENT_CERT: undefined,
         TEMPORAL_CLIENT_KEY: undefined,
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
+        CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
@@ -228,6 +232,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
         CDP_HOG_WATCHER_SAMPLE_RATE: 0, // default is off
         CDP_BATCH_WORKFLOW_PRODUCER_BATCH_SIZE: 1, // set to 1 intentionally, batch requests fanout into many workflow invocations
+        CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: 5000,
 
         CDP_FETCH_RETRIES: 3,
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
@@ -252,16 +257,19 @@ export function getDefaultConfig(): PluginsServerConfig {
             : 'postgres://posthog:posthog@localhost:5432/cyclotron',
 
         CYCLOTRON_SHARD_DEPTH_LIMIT: 1000000,
-        CYCLOTRON_SHADOW_DATABASE_URL: isTestEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_shadow'
-            : 'postgres://posthog:posthog@localhost:5432/cyclotron_shadow',
-        CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: false,
-        CDP_CYCLOTRON_TEST_SEEK_LATENCY: false,
-        CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: 50_000_000,
-        CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT: 500,
-        CDP_CYCLOTRON_TEST_FETCH_BATCH_COUNT: 10,
-        CDP_CYCLOTRON_TEST_FETCH_BATCH_SIZE: 50,
-        CDP_CYCLOTRON_WARPSTREAM_HTTP_URL: '',
+        CYCLOTRON_NODE_DATABASE_URL: isTestEnv()
+            ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
+            : isDevEnv()
+              ? 'postgres://posthog:posthog@localhost:5432/cyclotron_node'
+              : undefined,
+        // Cyclotron Node
+        CYCLOTRON_NODE_MAX_CONNECTIONS: 10,
+        CYCLOTRON_NODE_IDLE_TIMEOUT_MS: 30000,
+        CYCLOTRON_NODE_JANITOR_CLEANUP_BATCH_SIZE: 10000,
+        CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS: 10000,
+        CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: 30000,
+        CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT: 3,
+        CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS: 10000,
 
         // New IngestionConsumer config
         INGESTION_CONSUMER_GROUP_ID: 'events-ingestion-consumer',
@@ -300,8 +308,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_SESSION_FILTER_ENABLED: true, // When false, skip all Redis calls for session filtering
         SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS: 5 * 60 * 1000, // 5 minutes
         SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS: 5 * 60 * 1000, // 5 minutes
-        SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE: 0.01, // 1% of encrypted blocks
-
+        SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE: 0,
         // Session replay ingestion consumer config
         INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
         INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID: SESSION_RECORDING_DEFAULT_GROUP_ID,

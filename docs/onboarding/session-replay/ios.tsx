@@ -117,6 +117,15 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                             // The screenshot may contain sensitive information, so use with caution
                                             config.sessionReplayConfig.screenshotMode = true
 
+                                            // Sample rate for session recordings. A value between 0.0 and 1.0.
+                                            // 1.0 means 100% of sessions will be recorded. 0.5 means 50%, and so on.
+                                            // Default is nil (all sessions are recorded).
+                                            // 
+                                            // Support for remote configuration
+                                            // in the [session replay triggers](https://us.posthog.com/settings/project-replay#replay-triggers)
+                                            // requires SDK version 3.42.0 or higher.
+                                            config.sessionReplayConfig.sampleRate = nil
+
                                             PostHogSDK.shared.setup(config)
 
                                             return true

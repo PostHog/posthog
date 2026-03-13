@@ -56,7 +56,11 @@ PRODUCTS_APPS = [
     "products.workflows.backend.apps.WorkflowsConfig",
     "products.posthog_ai.backend.apps.PosthogAiConfig",
     "products.signals.backend.apps.SignalsConfig",
+    "products.visual_review.backend.apps.VisualReviewConfig",
+    "products.mcp_store.backend.apps.McpStoreConfig",
     "products.event_definitions.backend.apps.EventDefinitionsConfig",
+    "products.logs.backend.apps.LogsConfig",
+    "products.tracing.backend.apps.TracingConfig",
 ]
 
 INSTALLED_APPS = [
@@ -197,7 +201,7 @@ LOGIN_URL = "/login"
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
-CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/api/(?!early_access_features|surveys|web_experiments).*$)"
+CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/oauth/token/|/toolbar_oauth/check|/api/(?!early_access_features|surveys|web_experiments).*$)"
 CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
@@ -257,8 +261,7 @@ IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY = get_from_env(
     "IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY", "impersonation_last_activity"
 )
 # Disallow impersonating other staff
-CAN_LOGIN_AS = (
-    lambda request, target_user:
+CAN_LOGIN_AS = lambda request, target_user: (
     # user performing action must be a staff member
     request.user.is_staff
     # cannot impersonate other staff
@@ -361,6 +364,7 @@ SPECTACULAR_SETTINGS = {
     ],
     "ENUM_NAME_OVERRIDES": {
         "DashboardRestrictionLevel": "posthog.models.dashboard.Dashboard.RestrictionLevel",
+        "PropertyGroupOperator": ["AND", "OR"],
         "OrganizationMembershipLevel": "posthog.models.organization.OrganizationMembership.Level",
         "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",
         "SurveyType": "posthog.models.surveys.survey.Survey.SurveyType",
@@ -520,9 +524,9 @@ POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")
 # Comma-separated list of team IDs that should receive the digest
 HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS = get_list(get_from_env("HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS", ""))
 
-# Comma-separated list of team ids allowed to receive the Error Tracking weekly digest
+# Comma-separated list of org ids allowed to receive the Error Tracking weekly digest
 # "*" for all, empty to disable feature
-ERROR_TRACKING_WEEKLY_DIGEST_TEAM_IDS = get_list(get_from_env("ERROR_TRACKING_WEEKLY_DIGEST_TEAM_IDS", ""))
+ERROR_TRACKING_WEEKLY_DIGEST_ORG_IDS = get_list(get_from_env("ERROR_TRACKING_WEEKLY_DIGEST_ORG_IDS", ""))
 
 # Comma-separated list of email addresses allowed to receive the Error Tracking weekly digest
 # "*" for all
@@ -586,22 +590,20 @@ TOOLBAR_OAUTH_APPLICATION_NAME = "PostHog Toolbar"
 TOOLBAR_OAUTH_SCOPES = [
     "openid",
     "user:read",
-    "user:write",
     "action:read",
     "action:write",
     "feature_flag:read",
-    "feature_flag:write",
     "experiment:read",
     "experiment:write",
     "query:read",
     "product_tour:read",
     "product_tour:write",
     "heatmap:read",
-    "heatmap:write",
     "element:read",
-    "uploaded_media:read",
     "uploaded_media:write",
 ]
+
+ELEMENT_STATS_DEFAULT_LIMIT = get_from_env("ELEMENT_STATS_DEFAULT_LIMIT", 50_000, type_cast=int)
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes

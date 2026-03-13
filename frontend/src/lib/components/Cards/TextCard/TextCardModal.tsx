@@ -4,7 +4,7 @@ import { Field, Form } from 'kea-forms'
 import { textCardModalLogic } from 'lib/components/Cards/TextCard/textCardModalLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea'
+import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown'
 
 import { DashboardType, QueryBasedInsightModel } from '~/types'
 
@@ -34,6 +34,7 @@ export function TextCardModal({
             isOpen={isOpen}
             title=""
             onClose={handleClose}
+            className="min-w-full lg:min-w-2xl"
             footer={
                 <>
                     <LemonButton
@@ -62,11 +63,10 @@ export function TextCardModal({
                 props={{ dashboard, textTileId }}
                 formKey="textTile"
                 id="text-tile-form"
-                className=""
                 enableFormOnSubmit
             >
                 <Field name="body" label="">
-                    <LemonTextAreaMarkdown maxLength={4000} data-attr="text-card-edit-area" />
+                    <LemonTextAreaMarkdown maxLength={4000} minRows={8} maxRows={20} data-attr="text-card-edit-area" />
                 </Field>
             </Form>
         </LemonModal>

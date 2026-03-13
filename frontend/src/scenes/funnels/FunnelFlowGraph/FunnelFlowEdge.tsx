@@ -9,7 +9,29 @@ import { formatConvertedCount, formatConvertedPercentage } from '../funnelUtils'
 import { ValueInspectorButton } from '../ValueInspectorButton'
 import { FunnelFlowEdgeData } from './funnelFlowGraphLogic'
 
-export function FunnelFlowEdge({
+export function ProfileFlowEdge({
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourcePosition,
+    targetPosition,
+    markerEnd,
+    style,
+}: EdgeProps<Edge<FunnelFlowEdgeData>>): JSX.Element {
+    const [edgePath] = getSmoothStepPath({
+        sourceX,
+        sourceY,
+        targetX,
+        targetY,
+        sourcePosition,
+        targetPosition,
+    })
+
+    return <BaseEdge path={edgePath} markerEnd={markerEnd} style={style} />
+}
+
+export function JourneyFlowEdge({
     sourceX,
     sourceY,
     targetX,
@@ -42,7 +64,7 @@ export function FunnelFlowEdge({
             <BaseEdge path={edgePath} markerEnd={markerEnd} style={style} />
             <EdgeLabelRenderer>
                 <div
-                    className="flex items-center gap-1 rounded bg-bg-light border border-border px-2 py-0.5 text-xs shadow-sm pointer-events-auto nopan"
+                    className="flex items-center gap-1 rounded bg-bg-light border border-primary text-xs shadow-sm pointer-events-auto nopan px-2 py-0.5"
                     style={{
                         position: 'absolute',
                         transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,

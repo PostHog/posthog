@@ -3,7 +3,7 @@ from collections.abc import Iterable
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
-import requests as http_requests
+import requests
 import structlog
 from dateutil import parser
 from dlt.sources.helpers.requests import Request, Response
@@ -32,7 +32,7 @@ def fetch_account_currency(ad_account_id: str, access_token: str) -> str | None:
     so we fetch it from the ad account endpoint once per sync.
     """
     try:
-        response = http_requests.get(
+        response = requests.get(
             f"{BASE_URL}/adaccounts/{ad_account_id}",
             headers={"Authorization": f"Bearer {access_token}"},
             timeout=30,

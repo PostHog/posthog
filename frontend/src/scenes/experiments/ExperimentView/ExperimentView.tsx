@@ -1,19 +1,16 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconSparkles } from '@posthog/icons'
 import { LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS } from 'scenes/experiments/constants'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
-import { ExperimentForm } from '~/scenes/experiments/ExperimentForm'
-import { createExperimentLogic } from '~/scenes/experiments/ExperimentForm/createExperimentLogic'
-import { ExperimentWizard } from '~/scenes/experiments/ExperimentWizard/ExperimentWizard'
-import { experimentWizardLogic } from '~/scenes/experiments/ExperimentWizard/experimentWizardLogic'
 import { LegacyExperimentInfo } from '~/scenes/experiments/legacy/LegacyExperimentInfo'
 import { ActivityScope } from '~/types'
 
@@ -26,11 +23,11 @@ import {
 } from '../components/ResultsBreakdown'
 import { SummarizeExperimentButton } from '../components/SummarizeExperimentButton'
 import { SummarizeSessionReplaysButton } from '../components/SummarizeSessionReplaysButton'
+import { EmptyMetricsPanel } from '../ExperimentForm/MetricsPanel/EmptyMetricsPanel'
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
 import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
-import { isExperimentCreationIncomplete } from '../experimentsLogic'
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
 import { experimentMetricModalLogic } from '../Metrics/experimentMetricModalLogic'
 import { LegacyMetricModal } from '../Metrics/LegacyMetricModal'
@@ -61,6 +58,7 @@ import { Info } from './Info'
 import { LegacyExperimentHeader } from './LegacyExperimentHeader'
 import { Overview } from './Overview'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
+import { SettingsTab } from './SettingsTab'
 import { SummaryTable } from './SummaryTable'
 
 const AiAnalysisTab = (): JSX.Element => {
@@ -88,6 +86,9 @@ const MetricsTab = (): JSX.Element => {
         primaryMetricsLengthWithSharedMetrics,
         hasMinimumExposureForResults,
         usesNewQueryRunner,
+        orderedPrimaryMetricsWithResults,
+        orderedSecondaryMetricsWithResults,
+        isExperimentLaunched,
     } = useValues(experimentLogic)
     /**
      * we still use the legacy metric results here. Results on the new format are loaded
@@ -212,6 +213,8 @@ const MetricsTab = (): JSX.Element => {
                     )}
                     <MetricsViewLegacy isSecondary={true} />
                 </>
+            ) : orderedPrimaryMetricsWithResults.length === 0 && orderedSecondaryMetricsWithResults.length === 0 ? (
+                <EmptyMetricsPanel isLaunched={isExperimentLaunched} />
             ) : (
                 <>
                     <Metrics isSecondary={false} />
@@ -267,25 +270,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
 
-    const showWizard = useFeatureFlag('EXPERIMENTS_WIZARD_CREATION_FORM', 'test')
     const isAiAnalysisTabEnabled = useFeatureFlag('EXPERIMENT_AI_ANALYSIS_TAB')
-
-    /**
-     * We show the create form if the experiment is draft + has no primary metrics. Otherwise,
-     * we show the experiment view.
-     */
-    if (!experimentLoading && isExperimentCreationIncomplete(experiment)) {
-        if (showWizard) {
-            return (
-                <BindLogic logic={createExperimentLogic} props={{ experiment, tabId }}>
-                    <BindLogic logic={experimentWizardLogic} props={{ experiment, tabId }}>
-                        <ExperimentWizard />
-                    </BindLogic>
-                </BindLogic>
-            )
-        }
-        return <ExperimentForm draftExperiment={experiment} tabId={tabId} />
-    }
 
     return (
         <SceneContent>
@@ -295,6 +280,13 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
             ) : (
                 <>
                     <ExperimentWarningBanner />
+                    {experiment.feature_flag?.id && (
+                        <PendingChangeRequestBanner
+                            resourceType="feature_flag"
+                            resourceId={experiment.feature_flag.id}
+                            context="experiment"
+                        />
+                    )}
                     {usesNewQueryRunner ? <Info tabId={tabId} /> : <LegacyExperimentInfo />}
                     {usesNewQueryRunner ? <ExperimentHeader /> : <LegacyExperimentHeader />}
                     <LemonTabs
@@ -302,6 +294,15 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                         onChange={(key) => setActiveTabKey(key)}
                         sceneInset
                         tabs={[
+                            ...(usesNewQueryRunner
+                                ? [
+                                      {
+                                          key: 'settings',
+                                          label: 'Settings',
+                                          content: <SettingsTab />,
+                                      },
+                                  ]
+                                : []),
                             {
                                 key: 'metrics',
                                 label: 'Metrics',

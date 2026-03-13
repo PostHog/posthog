@@ -6,8 +6,10 @@ import { LemonBadgeProps, Tooltip } from '@posthog/lemon-ui'
 
 import { IconWithBadge } from 'lib/lemon-ui/icons'
 
+import { INCIDENT_IO_STATUS_PAGE_BASE } from '~/layout/navigation-3000/incident/incidentStatus'
+
 import { sidePanelLogic } from '../sidePanelLogic'
-import { INCIDENT_IO_STATUS_PAGE_BASE, sidePanelStatusIncidentIoLogic } from './sidePanelStatusIncidentIoLogic'
+import { sidePanelStatusIncidentIoLogic } from './sidePanelStatusIncidentIoLogic'
 
 export const SidePanelStatusIcon = (props: { className?: string; size?: LemonBadgeProps['size'] }): JSX.Element => {
     const { status, statusDescription } = useValues(sidePanelStatusIncidentIoLogic)

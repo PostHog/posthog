@@ -56,7 +56,8 @@ def doit_list_reports(config: DoItSourceConfig, logger: Optional[FilteringBoundL
         logger = structlog.get_logger(__name__)
 
     res = requests.get(
-        "https://api.doit.com/analytics/v1/reports", headers={"Authorization": f"Bearer {config.api_key}"}
+        "https://api.doit.com/analytics/v1/reports",
+        headers={"Authorization": f"Bearer {config.api_key}"},
     )
 
     reports = res.json()["reports"]

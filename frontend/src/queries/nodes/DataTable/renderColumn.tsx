@@ -7,6 +7,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -412,8 +413,24 @@ export function renderColumn(
             </CopyToClipboardInline>
         )
     } else if (key === 'group_name' && isGroupsQuery(query.source)) {
-        const key = (record as any[])[1] // 'key' is the second column in the groups query
-        return <Link to={urls.group(query.source.group_type_index, key, true)}>{value}</Link>
+        if (typeof value === 'object' && 'display_name' in value && 'key' in value) {
+            return (
+                <div className="flex flex-col min-w-40">
+                    <LemonTableLink
+                        to={urls.group(query.source.group_type_index, value.key)}
+                        title={value.display_name as string}
+                    />
+                    <CopyToClipboardInline
+                        explicitValue={value.key}
+                        iconStyle={{ color: 'var(--color-accent)' }}
+                        description="group id"
+                    >
+                        {value.key}
+                    </CopyToClipboardInline>
+                </div>
+            )
+        }
+        return String(value)
     } else if (trimQuotes(key).endsWith('$virt_mrr') || trimQuotes(key).endsWith('$virt_revenue')) {
         if (value === null || value === undefined) {
             return '—'

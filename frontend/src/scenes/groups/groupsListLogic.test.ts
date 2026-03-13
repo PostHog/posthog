@@ -26,7 +26,12 @@ describe('groupsListLogic', () => {
             logic.mount()
 
             const mockFilters = [
-                { key: 'name', value: 'test', operator: 'exact', type: PropertyFilterType.Group },
+                {
+                    key: 'name',
+                    value: 'test',
+                    operator: 'exact',
+                    type: PropertyFilterType.Group,
+                },
             ] as GroupPropertyFilter[]
 
             await expectLogic(logic, () => {
@@ -40,10 +45,19 @@ describe('groupsListLogic', () => {
         })
 
         it('should restore filters from group-specific URL parameter', async () => {
-            const mockFilters = [{ key: 'name', value: 'test', operator: 'exact', type: PropertyFilterType.Group }]
+            const mockFilters = [
+                {
+                    key: 'name',
+                    value: 'test',
+                    operator: 'exact',
+                    type: PropertyFilterType.Group,
+                },
+            ]
 
             // Simulate navigating to URL with filters
-            router.actions.push('/groups/1', { properties_1: JSON.stringify(mockFilters) })
+            router.actions.push('/groups/1', {
+                properties_1: JSON.stringify(mockFilters),
+            })
 
             logic = groupsListLogic({ groupTypeIndex: 1 })
             logic.mount()
@@ -52,10 +66,19 @@ describe('groupsListLogic', () => {
         })
 
         it('should not apply filters from different group types', async () => {
-            const group0Filters = [{ key: 'name', value: 'group0', operator: 'exact', type: PropertyFilterType.Group }]
+            const group0Filters = [
+                {
+                    key: 'name',
+                    value: 'group0',
+                    operator: 'exact',
+                    type: PropertyFilterType.Group,
+                },
+            ]
 
             // Set URL with group 0 filters
-            router.actions.push('/groups/1', { properties_0: JSON.stringify(group0Filters) })
+            router.actions.push('/groups/1', {
+                properties_0: JSON.stringify(group0Filters),
+            })
 
             logic = groupsListLogic({ groupTypeIndex: 1 })
             logic.mount()
@@ -69,10 +92,20 @@ describe('groupsListLogic', () => {
             logic.mount()
 
             // Set some filters first
-            const mockFilters = [{ key: 'name', value: 'test', operator: 'exact', type: PropertyFilterType.Group }]
+            const mockFilters = [
+                {
+                    key: 'name',
+                    value: 'test',
+                    operator: 'exact',
+                    type: PropertyFilterType.Group,
+                },
+            ]
             logic.actions.setQuery({
                 ...logic.values.query,
-                source: { ...logic.values.query.source, properties: mockFilters } as GroupsQuery,
+                source: {
+                    ...logic.values.query.source,
+                    properties: mockFilters,
+                } as GroupsQuery,
             })
 
             // Navigate to clean URL (no properties parameter)
@@ -86,7 +119,12 @@ describe('groupsListLogic', () => {
             logic.mount()
 
             const mockFilters = [
-                { key: 'name', value: 'test', operator: 'exact', type: PropertyFilterType.Group },
+                {
+                    key: 'name',
+                    value: 'test',
+                    operator: 'exact',
+                    type: PropertyFilterType.Group,
+                },
             ] as GroupPropertyFilter[]
 
             await expectLogic(logic, () => {
@@ -103,10 +141,20 @@ describe('groupsListLogic', () => {
             logic = groupsListLogic({ groupTypeIndex: 0 })
             logic.mount()
 
-            const mockFilters = [{ key: 'name', value: 'test', operator: 'exact', type: PropertyFilterType.Group }]
+            const mockFilters = [
+                {
+                    key: 'name',
+                    value: 'test',
+                    operator: 'exact',
+                    type: PropertyFilterType.Group,
+                },
+            ]
             logic.actions.setQuery({
                 ...logic.values.query,
-                source: { ...logic.values.query.source, properties: mockFilters } as GroupsQuery,
+                source: {
+                    ...logic.values.query.source,
+                    properties: mockFilters,
+                } as GroupsQuery,
             })
 
             expect(logic.values.groupFilters).toEqual(mockFilters)
@@ -124,7 +172,14 @@ describe('groupsListLogic', () => {
             logic.mount()
 
             // Set filters
-            const mockFilters = [{ key: 'name', value: 'test', operator: 'exact', type: PropertyFilterType.Group }]
+            const mockFilters = [
+                {
+                    key: 'name',
+                    value: 'test',
+                    operator: 'exact',
+                    type: PropertyFilterType.Group,
+                },
+            ]
             logic.actions.setGroupFilters(mockFilters as GroupPropertyFilter[])
 
             expect(router.values.searchParams.properties_0).toBeTruthy()
@@ -143,18 +198,38 @@ describe('groupsListLogic', () => {
             logic0.mount()
             logic1.mount()
 
-            const filters0 = [{ key: 'name', value: 'group0', operator: 'exact', type: PropertyFilterType.Group }]
-            const filters1 = [{ key: 'name', value: 'group1', operator: 'exact', type: PropertyFilterType.Group }]
+            const filters0 = [
+                {
+                    key: 'name',
+                    value: 'group0',
+                    operator: 'exact',
+                    type: PropertyFilterType.Group,
+                },
+            ]
+            const filters1 = [
+                {
+                    key: 'name',
+                    value: 'group1',
+                    operator: 'exact',
+                    type: PropertyFilterType.Group,
+                },
+            ]
 
             // Set different filters for each group
             logic0.actions.setQuery({
                 ...logic0.values.query,
-                source: { ...logic0.values.query.source, properties: filters0 } as GroupsQuery,
+                source: {
+                    ...logic0.values.query.source,
+                    properties: filters0,
+                } as GroupsQuery,
             })
 
             logic1.actions.setQuery({
                 ...logic1.values.query,
-                source: { ...logic1.values.query.source, properties: filters1 } as GroupsQuery,
+                source: {
+                    ...logic1.values.query.source,
+                    properties: filters1,
+                } as GroupsQuery,
             })
 
             // Verify isolation
@@ -201,7 +276,14 @@ describe('groupsListLogic', () => {
             logic = groupsListLogic({ groupTypeIndex: 0 })
             logic.mount()
 
-            const mockFilters = [{ key: 'name', value: 'test', operator: 'exact', type: PropertyFilterType.Group }]
+            const mockFilters = [
+                {
+                    key: 'name',
+                    value: 'test',
+                    operator: 'exact',
+                    type: PropertyFilterType.Group,
+                },
+            ]
 
             // Reset the flag first
             logic.actions.setQueryWasModified(false)
@@ -210,7 +292,10 @@ describe('groupsListLogic', () => {
             // Set query should trigger the flag
             logic.actions.setQuery({
                 ...logic.values.query,
-                source: { ...logic.values.query.source, properties: mockFilters } as GroupsQuery,
+                source: {
+                    ...logic.values.query.source,
+                    properties: mockFilters,
+                } as GroupsQuery,
             })
 
             expect(logic.values.queryWasModified).toBe(true)
@@ -220,7 +305,14 @@ describe('groupsListLogic', () => {
             logic = groupsListLogic({ groupTypeIndex: 0 })
             logic.mount()
 
-            const mockFilters = [{ key: 'name', value: 'test', operator: 'exact', type: PropertyFilterType.Group }]
+            const mockFilters = [
+                {
+                    key: 'name',
+                    value: 'test',
+                    operator: 'exact',
+                    type: PropertyFilterType.Group,
+                },
+            ]
 
             logic.actions.setGroupFilters(mockFilters as GroupPropertyFilter[])
 
@@ -330,10 +422,17 @@ describe('groupsListLogic', () => {
     })
 
     describe('URL parameter restoration', () => {
-        const baseSelect = ['group_name', 'key', 'created_at']
+        const baseSelect = ['group_name', 'created_at']
 
         it('should restore properties, columns, and sorting from URL parameters', async () => {
-            const mockProperties = [{ key: 'name', value: 'test', operator: 'exact', type: PropertyFilterType.Group }]
+            const mockProperties = [
+                {
+                    key: 'name',
+                    value: 'test',
+                    operator: 'exact',
+                    type: PropertyFilterType.Group,
+                },
+            ]
             const mockSelect = ['mrr', 'arr']
             const mockOrderBy = ['mrr DESC']
 
@@ -354,10 +453,20 @@ describe('groupsListLogic', () => {
 
         it('should only restore parameters for the matching group type', async () => {
             const group0Properties = [
-                { key: 'name', value: 'group0', operator: 'exact', type: PropertyFilterType.Group },
+                {
+                    key: 'name',
+                    value: 'group0',
+                    operator: 'exact',
+                    type: PropertyFilterType.Group,
+                },
             ]
             const group1Properties = [
-                { key: 'name', value: 'group1', operator: 'exact', type: PropertyFilterType.Group },
+                {
+                    key: 'name',
+                    value: 'group1',
+                    operator: 'exact',
+                    type: PropertyFilterType.Group,
+                },
             ]
 
             router.actions.push('/groups/0', {
@@ -376,7 +485,14 @@ describe('groupsListLogic', () => {
         })
 
         it('should handle partial URL parameters gracefully', async () => {
-            const mockProperties = [{ key: 'name', value: 'test', operator: 'exact', type: PropertyFilterType.Group }]
+            const mockProperties = [
+                {
+                    key: 'name',
+                    value: 'test',
+                    operator: 'exact',
+                    type: PropertyFilterType.Group,
+                },
+            ]
 
             router.actions.push('/groups/0', {
                 properties_0: JSON.stringify(mockProperties),

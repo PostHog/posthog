@@ -109,7 +109,7 @@ impl FromStr for TeamIdCollection {
 }
 
 /// Flag definitions rate limits configuration
-/// Parses JSON from FLAG_DEFINITIONS_RATE_LIMITS environment variable
+/// Parses JSON from LOCAL_EVAL_RATE_LIMITS environment variable
 /// Format: {"team_id": "rate_string", ...}
 /// Example: {"123": "1200/minute", "456": "2400/hour"}
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -128,7 +128,7 @@ impl FromStr for FlagDefinitionsRateLimits {
 
         // Parse JSON into HashMap<String, String>
         let parsed: HashMap<String, String> = serde_json::from_str(s)
-            .map_err(|e| format!("Failed to parse FLAG_DEFINITIONS_RATE_LIMITS as JSON: {e}"))?;
+            .map_err(|e| format!("Failed to parse rate limits as JSON: {e}"))?;
 
         // Convert string keys to TeamId
         let mut rate_limits = HashMap::new();
@@ -140,6 +140,41 @@ impl FromStr for FlagDefinitionsRateLimits {
         }
 
         Ok(FlagDefinitionsRateLimits(rate_limits))
+    }
+}
+
+/// Per-token rate limit overrides for the /flags endpoint.
+/// Parses JSON from FLAGS_TOKEN_RATE_LIMIT_OVERRIDES environment variable.
+/// Format: {"token_string": "rate_string", ...}
+/// Example: {"phc_abc123": "1200/minute", "phc_xyz789": "2400/hour"}
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct FlagsTokenRateLimitOverrides(pub HashMap<String, String>);
+
+/// Maximum number of per-token rate limit overrides allowed.
+pub const MAX_FLAGS_RATE_LIMIT_OVERRIDES: usize = 100;
+
+impl FromStr for FlagsTokenRateLimitOverrides {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+
+        if s.is_empty() {
+            return Ok(FlagsTokenRateLimitOverrides::default());
+        }
+
+        let parsed: HashMap<String, String> = serde_json::from_str(s).map_err(|e| {
+            format!("Failed to parse FLAGS_TOKEN_RATE_LIMIT_OVERRIDES as JSON: {e}")
+        })?;
+
+        if parsed.len() > MAX_FLAGS_RATE_LIMIT_OVERRIDES {
+            return Err(format!(
+                "Too many FLAGS_TOKEN_RATE_LIMIT_OVERRIDES entries: {} (max {MAX_FLAGS_RATE_LIMIT_OVERRIDES})",
+                parsed.len()
+            ));
+        }
+
+        Ok(FlagsTokenRateLimitOverrides(parsed))
     }
 }
 
@@ -162,6 +197,20 @@ pub struct Config {
 
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog_persons")]
     pub persons_read_database_url: String,
+
+    // Optional connection to the behavioral_cohorts database for realtime cohort membership.
+    // When empty, realtime cohort evaluation is disabled (graceful degradation).
+    #[envconfig(default = "")]
+    pub behavioral_cohorts_read_database_url: String,
+
+    // Cache TTL for realtime cohort membership lookups (seconds).
+    #[envconfig(from = "COHORT_MEMBERSHIP_CACHE_TTL_SECONDS", default = "60")]
+    pub cohort_membership_cache_ttl_seconds: u64,
+
+    // Max entries in the cohort membership cache.
+    // Each entry represents one (team_id, person_uuid) pair with a map of cohort memberships.
+    #[envconfig(from = "COHORT_MEMBERSHIP_CACHE_MAX_ENTRIES", default = "500000")]
+    pub cohort_membership_cache_max_entries: u64,
 
     #[envconfig(default = "1000")]
     pub max_concurrency: usize,
@@ -228,10 +277,16 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub redis_connection_timeout_ms: u64,
 
-    // How long to wait for a connection from the pool before timing out
-    // - Increase if seeing "pool timed out" errors under load (e.g., 5-10s)
-    // - Decrease for faster failure detection (minimum 1s)
-    #[envconfig(default = "5")]
+    // Maximum time for a /flags request before the server aborts it (milliseconds).
+    // Must be below Envoy's route timeout (5s) so the server cleans up resources
+    // (connections, queries) before Envoy kills the downstream connection.
+    #[envconfig(default = "4500")]
+    pub request_timeout_ms: u64,
+
+    // How long to wait for a connection from the pool before timing out.
+    // Must be well under request_timeout_ms so there's still time for query + response.
+    // With Envoy at 5s and request_timeout at 4.5s, 2s leaves room for a query + serialization.
+    #[envconfig(default = "2")]
     pub acquire_timeout_secs: u64,
 
     // Close connections that have been idle for this many seconds
@@ -377,14 +432,14 @@ pub struct Config {
 
     // Flag definitions rate limiting
     // Default rate limit for all teams (requests per minute)
-    // Can be overridden per-team using FLAG_DEFINITIONS_RATE_LIMITS
+    // Can be overridden per-team using LOCAL_EVAL_RATE_LIMITS
     #[envconfig(from = "FLAG_DEFINITIONS_DEFAULT_RATE_PER_MINUTE", default = "600")]
     pub flag_definitions_default_rate_per_minute: u32,
 
-    // Per-team rate limit overrides for flag definitions endpoint
+    // Per-team rate limit overrides for flag definitions endpoint (shared with Django)
     // JSON format: {"team_id": "rate_string", ...}
     // Example: {"123": "1200/minute", "456": "2400/hour"}
-    #[envconfig(from = "FLAG_DEFINITIONS_RATE_LIMITS", default = "")]
+    #[envconfig(from = "LOCAL_EVAL_RATE_LIMITS", default = "")]
     pub flag_definitions_rate_limits: FlagDefinitionsRateLimits,
 
     // OpenTelemetry configuration
@@ -405,9 +460,10 @@ pub struct Config {
     #[envconfig(from = "FLAGS_RATE_LIMIT_ENABLED", default = "false")]
     pub flags_rate_limit_enabled: FlexBool,
 
-    // Token bucket capacity (maximum burst size)
-    // Matches Python's DecideRateThrottle default of 500
-    #[envconfig(from = "FLAGS_BUCKET_CAPACITY", default = "500")]
+    // Token bucket capacity (maximum burst size / enforce threshold).
+    // Set to 625 so the warn tier (80%) lands at 500, matching the legacy
+    // log-only threshold that operators' dashboards already track.
+    #[envconfig(from = "FLAGS_BUCKET_CAPACITY", default = "625")]
     pub flags_bucket_capacity: u32,
 
     // Token bucket replenish rate (tokens per second)
@@ -421,8 +477,10 @@ pub struct Config {
     #[envconfig(from = "FLAGS_IP_RATE_LIMIT_ENABLED", default = "false")]
     pub flags_ip_rate_limit_enabled: FlexBool,
 
-    // IP rate limit burst size (maximum requests per IP in a burst)
-    #[envconfig(from = "FLAGS_IP_BURST_SIZE", default = "1000")]
+    // IP rate limit burst size (maximum requests per IP / enforce threshold).
+    // Set to 1250 so the warn tier (80%) lands at 1000, matching the legacy
+    // log-only threshold.
+    #[envconfig(from = "FLAGS_IP_BURST_SIZE", default = "1250")]
     pub flags_ip_burst_size: u32,
 
     // IP rate limit replenish rate (requests per second per IP)
@@ -430,15 +488,29 @@ pub struct Config {
     #[envconfig(from = "FLAGS_IP_REPLENISH_RATE", default = "50.0")]
     pub flags_ip_replenish_rate: f64,
 
+    // Warn-tier ratio: the warn threshold is derived as this fraction of the enforce
+    // capacity for both token and IP limiters. E.g., 0.8 means warn at 80% of enforce.
+    // Set to 0.0 to disable the warn tier entirely.
+    #[envconfig(from = "FLAGS_WARN_CAPACITY_RATIO", default = "0.8")]
+    pub flags_warn_capacity_ratio: f64,
+
     // Log-only mode for rate limiting (defaults to true for safe rollout)
     // When true, rate limits are checked and violations logged, but requests are not blocked
     // This allows gathering metrics to tune limits before enforcing them
+    // DEPRECATED: set FLAGS_RATE_LIMIT_LOG_ONLY=false and use FLAGS_WARN_CAPACITY_RATIO instead
     #[envconfig(from = "FLAGS_RATE_LIMIT_LOG_ONLY", default = "true")]
     pub flags_rate_limit_log_only: FlexBool,
 
     // Log-only mode for IP-based rate limiting (defaults to true for safe rollout)
+    // DEPRECATED: set FLAGS_IP_RATE_LIMIT_LOG_ONLY=false and use FLAGS_WARN_CAPACITY_RATIO instead
     #[envconfig(from = "FLAGS_IP_RATE_LIMIT_LOG_ONLY", default = "true")]
     pub flags_ip_rate_limit_log_only: FlexBool,
+
+    // Per-token rate limit overrides for the /flags endpoint
+    // JSON format: {"token_string": "rate_string", ...}
+    // Example: {"phc_abc123": "1200/minute", "phc_xyz789": "2400/hour"}
+    #[envconfig(from = "FLAGS_TOKEN_RATE_LIMIT_OVERRIDES", default = "")]
+    pub flags_token_rate_limit_overrides: FlagsTokenRateLimitOverrides,
 
     // How often to clean up stale rate limiter entries (seconds)
     // The governor crate's keyed rate limiters accumulate entries for every unique key.
@@ -480,11 +552,32 @@ pub struct Config {
     #[envconfig(from = "MAX_CONCURRENT_BATCH_EVALS", default = "0")]
     pub max_concurrent_batch_evals: usize,
 
+    // Maximum time (ms) to wait for a Rayon semaphore permit before failing fast.
+    // When the wait exceeds this threshold, the request returns 504 so that
+    // ingress can retry it on a less-loaded pod.
+    // 0 = no timeout (await indefinitely, backwards-compatible).
+    #[envconfig(from = "RAYON_SEMAPHORE_TIMEOUT_MS", default = "0")]
+    pub rayon_semaphore_timeout_ms: u64,
+
     // When true, skip all writes to PostgreSQL and Redis.
     // Used to safely deploy and test the personhog migration path
     // without risking any data mutations.
     #[envconfig(from = "SKIP_WRITES", default = "false")]
     pub skip_writes: FlexBool,
+
+    // Explicit core count for thread pool sizing. Overrides available_parallelism()
+    // which reads the CFS quota (K8s CPU limit), not the CPU request.
+    // 0 = auto (use available_parallelism).
+    #[envconfig(from = "THREAD_POOL_CORES", default = "0")]
+    pub thread_pool_cores: usize,
+
+    // In-memory negative cache for invalid API tokens. Prevents repeated
+    // Redis/S3/PG lookups for tokens that don't correspond to any team.
+    #[envconfig(from = "TEAM_NEGATIVE_CACHE_CAPACITY", default = "10000")]
+    pub team_negative_cache_capacity: u64,
+
+    #[envconfig(from = "TEAM_NEGATIVE_CACHE_TTL_SECONDS", default = "300")]
+    pub team_negative_cache_ttl_seconds: u64,
 }
 
 /// Thread counts for Tokio (async I/O) and Rayon (CPU-bound parallel evaluation).
@@ -510,10 +603,24 @@ pub struct ThreadCounts {
 }
 
 impl ThreadCounts {
-    pub fn from_available_parallelism() -> Self {
-        let cores = std::thread::available_parallelism()
+    /// Build thread counts from an explicit core count, falling back to
+    /// `available_parallelism()` when `override_cores` is 0.
+    pub fn new(override_cores: usize) -> Self {
+        let detected = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1);
+
+        let cores = if override_cores > 0 {
+            override_cores
+        } else {
+            detected
+        };
+
+        eprintln!(
+            "thread pool core count resolved: override_cores={}, detected_cores={}, effective_cores={}",
+            override_cores, detected, cores,
+        );
+
         Self::from_cores(cores)
     }
 
@@ -603,13 +710,17 @@ impl Config {
                 .to_string(),
             persons_read_database_url: "postgres://posthog:posthog@localhost:5432/posthog_persons"
                 .to_string(),
+            behavioral_cohorts_read_database_url: "".to_string(),
+            cohort_membership_cache_ttl_seconds: 60,
+            cohort_membership_cache_max_entries: 50_000,
             max_concurrency: 1000,
             max_pg_connections: 10,
             min_non_persons_reader_connections: 0,
             min_non_persons_writer_connections: 0,
             min_persons_reader_connections: 0,
             min_persons_writer_connections: 0,
-            acquire_timeout_secs: 3,
+            request_timeout_ms: 30_000,
+            acquire_timeout_secs: 5,
             idle_timeout_secs: 300,
             test_before_acquire: FlexBool(true),
             non_persons_reader_statement_timeout_ms: 2000,
@@ -647,20 +758,26 @@ impl Config {
             object_storage_region: "us-east-1".to_string(),
             object_storage_endpoint: "".to_string(),
             flags_rate_limit_enabled: FlexBool(false),
-            flags_bucket_capacity: 500,
+            flags_bucket_capacity: 625,
             flags_bucket_replenish_rate: 10.0,
             flags_ip_rate_limit_enabled: FlexBool(false),
-            flags_ip_burst_size: 500,
+            flags_ip_burst_size: 1250,
             flags_ip_replenish_rate: 100.0,
+            flags_warn_capacity_ratio: 0.8,
             flags_rate_limit_log_only: FlexBool(true),
             flags_ip_rate_limit_log_only: FlexBool(true),
+            flags_token_rate_limit_overrides: FlagsTokenRateLimitOverrides::default(),
             rate_limiter_cleanup_interval_secs: 60,
             redis_compression_enabled: FlexBool(true),
             redis_client_retry_count: 3,
             optimize_experience_continuity_lookups: FlexBool(true),
             parallel_eval_threshold: 100,
             max_concurrent_batch_evals: 0,
+            rayon_semaphore_timeout_ms: 0,
             skip_writes: FlexBool(false),
+            thread_pool_cores: 0,
+            team_negative_cache_capacity: 10_000,
+            team_negative_cache_ttl_seconds: 300,
         }
     }
 
@@ -739,6 +856,10 @@ impl Config {
     /// Check if persons database routing is enabled
     pub fn is_persons_db_routing_enabled(&self) -> bool {
         !self.persons_read_database_url.is_empty() && !self.persons_write_database_url.is_empty()
+    }
+
+    pub fn is_behavioral_cohorts_db_configured(&self) -> bool {
+        !self.behavioral_cohorts_read_database_url.is_empty()
     }
 
     /// Get the database URL for persons reads, falling back to the default read URL
@@ -942,9 +1063,7 @@ mod tests {
     fn test_flag_definitions_rate_limits_invalid_json() {
         let result: Result<FlagDefinitionsRateLimits, _> = "not json".parse();
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("Failed to parse FLAG_DEFINITIONS_RATE_LIMITS"));
+        assert!(result.unwrap_err().contains("Failed to parse rate limits"));
     }
 
     #[test]
@@ -1129,6 +1248,21 @@ mod thread_counts_tests {
                 "tokio should get half the cores for {cores} cores"
             );
         }
+    }
+
+    #[test]
+    fn test_new_with_override_uses_override() {
+        let counts = ThreadCounts::new(8);
+        assert_eq!(counts.rayon_threads, 8);
+        assert_eq!(counts.tokio_workers, 4);
+    }
+
+    #[test]
+    fn test_new_with_zero_falls_back_to_detected() {
+        let counts = ThreadCounts::new(0);
+        // Should fall back to available_parallelism, which is always >= 1
+        assert!(counts.rayon_threads >= 1);
+        assert!(counts.tokio_workers >= 1);
     }
 }
 

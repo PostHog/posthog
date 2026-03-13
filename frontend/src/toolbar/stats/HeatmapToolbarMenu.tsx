@@ -228,7 +228,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                 <div className="flex items-center gap-1">
                                     <LemonLabel
                                         info="Sampling computes the result on a proportion of data of the users in the dataset, making click maps load significantly faster."
-                                        infoLink="https://posthog.com/docs/product-analytics/sampling"
+                                        infoLink="https://posthog.com/docs/toolbar/heatmaps"
                                     >
                                         Sampling
                                     </LemonLabel>

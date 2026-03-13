@@ -7,6 +7,141 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export type PropertyGroupOperatorApi = (typeof PropertyGroupOperatorApi)[keyof typeof PropertyGroupOperatorApi]
+
+export const PropertyGroupOperatorApi = {
+    And: 'AND',
+    Or: 'OR',
+} as const
+
+export type BehavioralFilterApiType = (typeof BehavioralFilterApiType)[keyof typeof BehavioralFilterApiType]
+
+export const BehavioralFilterApiType = {
+    Behavioral: 'behavioral',
+} as const
+
+export type EventPropFilterTypeEnumApi = (typeof EventPropFilterTypeEnumApi)[keyof typeof EventPropFilterTypeEnumApi]
+
+export const EventPropFilterTypeEnumApi = {
+    Event: 'event',
+    Element: 'element',
+} as const
+
+export interface EventPropFilterApi {
+    type: EventPropFilterTypeEnumApi
+    key: string
+    value: unknown
+    /** @nullable */
+    operator?: string | null
+}
+
+export type HogQLFilterApiType = (typeof HogQLFilterApiType)[keyof typeof HogQLFilterApiType]
+
+export const HogQLFilterApiType = {
+    Hogql: 'hogql',
+} as const
+
+export interface HogQLFilterApi {
+    type: HogQLFilterApiType
+    key: string
+    value?: unknown | null
+}
+
+export interface BehavioralFilterApi {
+    /** @nullable */
+    bytecode?: unknown[] | null
+    /** @nullable */
+    bytecode_error?: string | null
+    /** @nullable */
+    conditionHash?: string | null
+    type: BehavioralFilterApiType
+    key: string | number
+    value: string
+    event_type: string
+    /** @nullable */
+    time_value?: number | null
+    /** @nullable */
+    time_interval?: string | null
+    negation?: boolean
+    /** @nullable */
+    operator?: string | null
+    /** @nullable */
+    operator_value?: number | null
+    /** @nullable */
+    seq_time_interval?: string | null
+    /** @nullable */
+    seq_time_value?: number | null
+    seq_event?: string | number | null
+    /** @nullable */
+    seq_event_type?: string | null
+    /** @nullable */
+    total_periods?: number | null
+    /** @nullable */
+    min_periods?: number | null
+    /** @nullable */
+    event_filters?: (EventPropFilterApi | HogQLFilterApi)[] | null
+    /** @nullable */
+    explicit_datetime?: string | null
+}
+
+export type CohortFilterApiType = (typeof CohortFilterApiType)[keyof typeof CohortFilterApiType]
+
+export const CohortFilterApiType = {
+    Cohort: 'cohort',
+} as const
+
+export type CohortFilterApiKey = (typeof CohortFilterApiKey)[keyof typeof CohortFilterApiKey]
+
+export const CohortFilterApiKey = {
+    Id: 'id',
+} as const
+
+export interface CohortFilterApi {
+    /** @nullable */
+    bytecode?: unknown[] | null
+    /** @nullable */
+    bytecode_error?: string | null
+    /** @nullable */
+    conditionHash?: string | null
+    type: CohortFilterApiType
+    key: CohortFilterApiKey
+    value: number
+    negation?: boolean
+}
+
+export type PersonFilterApiType = (typeof PersonFilterApiType)[keyof typeof PersonFilterApiType]
+
+export const PersonFilterApiType = {
+    Person: 'person',
+} as const
+
+export interface PersonFilterApi {
+    /** @nullable */
+    bytecode?: unknown[] | null
+    /** @nullable */
+    bytecode_error?: string | null
+    /** @nullable */
+    conditionHash?: string | null
+    type: PersonFilterApiType
+    key: string
+    /** @nullable */
+    operator?: string | null
+    value?: unknown | null
+    negation?: boolean
+}
+
+/**
+ * AND/OR group containing cohort filters. Named to avoid collision with analytics Group model.
+ */
+export interface CohortFilterGroupApi {
+    type: PropertyGroupOperatorApi
+    values: (BehavioralFilterApi | CohortFilterApi | PersonFilterApi | CohortFilterGroupApi)[]
+}
+
+export interface CohortFiltersApi {
+    properties: CohortFilterGroupApi
+}
+
 /**
  * * `engineering` - Engineering
  * `data` - Data
@@ -94,60 +229,7 @@ export interface CohortApi {
     description?: string
     groups?: unknown
     deleted?: boolean
-    /** Filters for the cohort. Examples:
-
-        # Behavioral filter (performed event)
-        {
-            "properties": {
-                "type": "OR",
-                "values": [{
-                    "type": "OR",
-                    "values": [{
-                        "key": "address page viewed",
-                        "type": "behavioral",
-                        "value": "performed_event",
-                        "negation": false,
-                        "event_type": "events",
-                        "time_value": "30",
-                        "time_interval": "day"
-                    }]
-                }]
-            }
-        }
-
-        # Person property filter
-        {
-            "properties": {
-                "type": "OR",
-                "values": [{
-                    "type": "AND",
-                    "values": [{
-                        "key": "promoCodes",
-                        "type": "person",
-                        "value": ["1234567890"],
-                        "negation": false,
-                        "operator": "exact"
-                    }]
-                }]
-            }
-        }
-
-        # Cohort filter
-        {
-            "properties": {
-                "type": "OR",
-                "values": [{
-                    "type": "AND",
-                    "values": [{
-                        "key": "id",
-                        "type": "cohort",
-                        "value": 8814,
-                        "negation": false
-                    }]
-                }]
-            }
-        } */
-    filters?: unknown | null
+    filters?: CohortFiltersApi | null
     query?: unknown | null
     /** @nullable */
     readonly version: number | null
@@ -198,60 +280,7 @@ export interface PatchedCohortApi {
     description?: string
     groups?: unknown
     deleted?: boolean
-    /** Filters for the cohort. Examples:
-
-        # Behavioral filter (performed event)
-        {
-            "properties": {
-                "type": "OR",
-                "values": [{
-                    "type": "OR",
-                    "values": [{
-                        "key": "address page viewed",
-                        "type": "behavioral",
-                        "value": "performed_event",
-                        "negation": false,
-                        "event_type": "events",
-                        "time_value": "30",
-                        "time_interval": "day"
-                    }]
-                }]
-            }
-        }
-
-        # Person property filter
-        {
-            "properties": {
-                "type": "OR",
-                "values": [{
-                    "type": "AND",
-                    "values": [{
-                        "key": "promoCodes",
-                        "type": "person",
-                        "value": ["1234567890"],
-                        "negation": false,
-                        "operator": "exact"
-                    }]
-                }]
-            }
-        }
-
-        # Cohort filter
-        {
-            "properties": {
-                "type": "OR",
-                "values": [{
-                    "type": "AND",
-                    "values": [{
-                        "key": "id",
-                        "type": "cohort",
-                        "value": 8814,
-                        "negation": false
-                    }]
-                }]
-            }
-        } */
-    filters?: unknown | null
+    filters?: CohortFiltersApi | null
     query?: unknown | null
     /** @nullable */
     readonly version?: number | null

@@ -22,7 +22,14 @@ import { pluralize } from 'lib/utils'
 import { LogEntryLevel } from '~/types'
 
 import { LogLevelsPicker } from './LogLevelsPicker'
-import { GroupedLogEntry, LOG_VIEWER_LIMIT, LogEntry, LogsViewerLogicProps, logsViewerLogic } from './logsViewerLogic'
+import {
+    GroupedLogEntry,
+    LOG_GROUP_LIMIT,
+    LOG_VIEWER_LIMIT,
+    LogEntry,
+    LogsViewerLogicProps,
+    logsViewerLogic,
+} from './logsViewerLogic'
 
 export const tagTypeForLevel = (level: LogEntryLevel): LemonTagProps['type'] => {
     switch (level.toLowerCase()) {
@@ -61,7 +68,7 @@ export type LogsViewerProps = LogsViewerLogicProps & {
 }
 
 /**
- * NOTE: There is a loose attempt to keeep this generic so we can use it as an abstract log component in the future.
+ * NOTE: There is a loose attempt to keep this generic so we can use it as an abstract log component in the future.
  */
 
 export function LogsViewer({
@@ -172,7 +179,9 @@ export function LogsViewer({
             center
             disabledReason={!isThereMoreToLoad ? "There's nothing more to load" : undefined}
         >
-            {isThereMoreToLoad ? `Load up to ${LOG_VIEWER_LIMIT} older entries` : 'No older entries'}
+            {isThereMoreToLoad
+                ? `Load up to ${isGrouped ? LOG_GROUP_LIMIT : LOG_VIEWER_LIMIT} older ${isGrouped ? 'groups' : 'entries'}`
+                : 'No older entries'}
         </LemonButton>
     )
 

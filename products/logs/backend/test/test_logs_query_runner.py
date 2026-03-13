@@ -79,7 +79,7 @@ class TestAttributeFilters(APIBaseTest):
         self.assertIn("http.method", query_str)
         # Log attributes DO NOT use resource_fingerprint filtering for optimization
         # this optimization was premature and needs more thought, and probably has very little benefit anyway
-        self.assertNotIn("(in(resource_fingerprint", query_str)
+        self.assertNotIn("in(resource_fingerprint", query_str)
 
     def test_resource_attribute_filters(self):
         """Test that resource attribute filters are properly handled"""
@@ -131,7 +131,7 @@ class TestAttributeFilters(APIBaseTest):
         # Verify resource attribute filtering logic is applied
         self.assertIn("k8s.container.name", query_str)
         self.assertIn("k8s.pod.name", query_str)
-        self.assertIn("(in(resource_fingerprint", query_str)
+        self.assertIn("in(resource_fingerprint", query_str)
 
     def test_negative_resource_attribute_filters(self):
         """Test that negative resource attribute filters work correctly"""
@@ -178,7 +178,7 @@ class TestAttributeFilters(APIBaseTest):
         # Verify negative filtering uses NOT IN subquery pattern
         self.assertIn("k8s.container.name", query_str)
         self.assertIn("notIn(resource_fingerprint", query_str)
-        self.assertNotIn("(In(resource_fingerprint", query_str)
+        self.assertNotIn("in(resource_fingerprint", query_str)
 
     def test_mixed_attribute_filters(self):
         """Test combinations of log attributes and resource attributes"""
@@ -242,7 +242,7 @@ class TestAttributeFilters(APIBaseTest):
         self.assertIn("message", query_str)
         self.assertNotIn("service.name__str", query_str)
         self.assertNotIn("message__str", query_str)
-        self.assertIn("(in(resource_fingerprint", query_str)
+        self.assertIn("in(resource_fingerprint", query_str)
 
     def test_positive_and_negative_resource_attribute_filters(self):
         """Test combinations of log attributes and resource attributes"""
@@ -297,7 +297,7 @@ class TestAttributeFilters(APIBaseTest):
         self.assertIn("service.name", query_str)
         self.assertIn("service.namespace", query_str)
         self.assertIn("notIn(resource_fingerprint", query_str)
-        self.assertIn("(in(resource_fingerprint", query_str)
+        self.assertIn("in(resource_fingerprint", query_str)
 
     def test_resource_fingerprint_filter(self):
         """Test that resourceFingerprint parameter adds a direct equality filter"""
@@ -657,7 +657,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        self.assertEqual(data[0]["name"], "cdp-legacy-events-consumer")
+        self.assertEqual(data["results"][0]["name"], "cdp-legacy-events-consumer")
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/logs/values",
@@ -721,3 +721,112 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         for result in response_fingerprint["results"]:
             self.assertEqual(result["resource_attributes"]["k8s.container.name"], "argo-rollouts-dashboard")
             self.assertEqual(result["resource_attributes"]["service.name"], "argo-rollouts")
+
+    # ── time_bucket day-boundary tests ──────────────────────────────────
+    # These use the "boundary-test-svc" log lines appended to test_logs.jsonnd
+    # spanning Dec 14-18 with edge cases around midnight.
+
+    def _boundary_bodies(self, query_params):
+        """Helper: run a logs query and return the set of body strings that start with 'boundary-log-'."""
+        response = self._make_logs_api_request(query_params)
+        return {r["body"] for r in response["results"] if r["body"].startswith("boundary-log-")}
+
+    def _boundary_query(self, date_from, date_to=None, limit=100):
+        return {
+            "dateRange": {"date_from": date_from, "date_to": date_to},
+            "limit": limit,
+            "serviceNames": ["boundary-test-svc"],
+            "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+        }
+
+    @freeze_time("2025-12-19T00:00:00Z")
+    def test_time_bucket_single_day_no_boundary(self):
+        """Query entirely within Dec 15 — should only return Dec 15 logs."""
+        bodies = self._boundary_bodies(self._boundary_query("2025-12-15 00:00:00Z", "2025-12-16 00:00:00Z"))
+        self.assertIn("boundary-log-dec15-morning", bodies)
+        self.assertIn("boundary-log-dec15-2359", bodies)
+        self.assertIn("boundary-log-dec15-2359-last-micro", bodies)
+        # Dec 14 and Dec 16 logs must NOT appear
+        self.assertNotIn("boundary-log-dec14-noon", bodies)
+        self.assertNotIn("boundary-log-dec16-midnight-exact", bodies)
+
+    @freeze_time("2025-12-19T00:00:00Z")
+    def test_time_bucket_cross_midnight_dec15_to_dec16(self):
+        """Query spanning 23:59 Dec 15 → 00:01 Dec 16 crosses the day boundary."""
+        bodies = self._boundary_bodies(self._boundary_query("2025-12-15 23:59:00Z", "2025-12-16 00:00:012Z"))
+        # Late Dec 15 logs
+        self.assertIn("boundary-log-dec15-2359", bodies)
+        self.assertIn("boundary-log-dec15-2359-last-micro", bodies)
+        # Early Dec 16 logs right at / after midnight
+        self.assertIn("boundary-log-dec16-midnight-exact", bodies)
+        self.assertIn("boundary-log-dec16-midnight-plus1us", bodies)
+        self.assertIn("boundary-log-dec16-midnight-plus1s", bodies)
+        # Earlier Dec 15 morning should NOT match (outside timestamp range)
+        self.assertNotIn("boundary-log-dec15-morning", bodies)
+
+    @freeze_time("2025-12-19T00:00:00Z")
+    def test_time_bucket_exactly_midnight_from(self):
+        """date_from exactly at midnight — toStartOfDay still equals that day."""
+        bodies = self._boundary_bodies(self._boundary_query("2025-12-16 00:00:00Z", "2025-12-16 00:00:012Z"))
+        self.assertIn("boundary-log-dec16-midnight-exact", bodies)
+        self.assertIn("boundary-log-dec16-midnight-plus1us", bodies)
+        self.assertIn("boundary-log-dec16-midnight-plus1s", bodies)
+        # Dec 15 logs should NOT appear (time_bucket Dec 15 < toStartOfDay(Dec 16))
+        self.assertNotIn("boundary-log-dec15-2359", bodies)
+
+    @freeze_time("2025-12-19T00:00:00Z")
+    def test_time_bucket_exactly_midnight_to(self):
+        """date_to exactly at midnight Dec 17 — toStartOfDay(date_to) = Dec 17, so Dec 17 time_bucket included."""
+        bodies = self._boundary_bodies(self._boundary_query("2025-12-17 00:00:00Z", "2025-12-17 00:00:00.000002Z"))
+        self.assertIn("boundary-log-dec17-midnight-exact", bodies)
+        self.assertIn("boundary-log-dec17-midnight-plus1us", bodies)
+        # Dec 16 logs should NOT appear
+        self.assertNotIn("boundary-log-dec16-midnight-exact", bodies)
+
+    @freeze_time("2025-12-19T00:00:00Z")
+    def test_time_bucket_multi_day_span(self):
+        """Query spanning Dec 14 noon → Dec 18 early should include all boundary logs."""
+        bodies = self._boundary_bodies(self._boundary_query("2025-12-14 00:00:00Z", "2025-12-19 00:00:00Z"))
+        expected = {
+            "boundary-log-dec14-noon",
+            "boundary-log-dec15-morning",
+            "boundary-log-dec15-2359",
+            "boundary-log-dec15-2359-last-micro",
+            "boundary-log-dec16-midnight-exact",
+            "boundary-log-dec16-midnight-plus1us",
+            "boundary-log-dec16-midnight-plus1s",
+            "boundary-log-dec17-midnight-exact",
+            "boundary-log-dec17-midnight-plus1us",
+            "boundary-log-dec17-afternoon",
+            "boundary-log-dec18-early",
+        }
+        self.assertEqual(bodies, expected)
+
+    @freeze_time("2025-12-19T00:00:00Z")
+    def test_time_bucket_narrow_window_around_midnight(self):
+        """Very narrow window: last microsecond of Dec 15 → first microsecond of Dec 16.
+        Both days' time_buckets must be scanned."""
+        bodies = self._boundary_bodies(
+            self._boundary_query("2025-12-15 23:59:59.999999Z", "2025-12-16 00:00:00.000002Z")
+        )
+        self.assertIn("boundary-log-dec15-2359-last-micro", bodies)
+        self.assertIn("boundary-log-dec16-midnight-exact", bodies)
+        self.assertIn("boundary-log-dec16-midnight-plus1us", bodies)
+
+    @freeze_time("2025-12-19T00:00:00Z")
+    def test_time_bucket_excludes_outside_days(self):
+        """Query for Dec 15 only — Dec 14 and Dec 16+ must not appear."""
+        bodies = self._boundary_bodies(self._boundary_query("2025-12-15 00:00:00Z", "2025-12-16 00:00:00Z"))
+        self.assertNotIn("boundary-log-dec14-noon", bodies)
+        self.assertNotIn("boundary-log-dec16-midnight-exact", bodies)
+        self.assertNotIn("boundary-log-dec17-midnight-exact", bodies)
+        self.assertNotIn("boundary-log-dec18-early", bodies)
+
+    @freeze_time("2025-12-19T00:00:00Z")
+    def test_time_bucket_date_to_midday_does_not_leak_next_day(self):
+        """date_to in the middle of Dec 17 — Dec 18 logs must NOT appear."""
+        bodies = self._boundary_bodies(self._boundary_query("2025-12-17 00:00:00Z", "2025-12-17 15:00:00Z"))
+        self.assertIn("boundary-log-dec17-midnight-exact", bodies)
+        self.assertIn("boundary-log-dec17-midnight-plus1us", bodies)
+        self.assertIn("boundary-log-dec17-afternoon", bodies)
+        self.assertNotIn("boundary-log-dec18-early", bodies)

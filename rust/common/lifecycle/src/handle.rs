@@ -50,19 +50,34 @@ pub(crate) struct HandleInner {
     pub(crate) event_tx: Arc<OnceLock<mpsc::Sender<ComponentEvent>>>,
     pub(crate) healthy_until_ms: Arc<AtomicI64>,
     pub(crate) liveness_deadline: Option<Duration>,
+    /// Health flag maintained by the monitor's health poll task. For handles
+    /// with `liveness_deadline`, the poll task sets this to reflect whether
+    /// the most recent heartbeat is within deadline. Initialized to `true`
+    /// (Starting state is considered healthy).
+    pub(crate) health_flag: Arc<AtomicBool>,
     pub(crate) completed: AtomicBool,
     pub(crate) process_scope_signalled: AtomicBool,
 }
 
 impl Handle {
-    /// Future that resolves when global shutdown begins (any trigger: signal, pre-stop,
-    /// [`signal_failure`](Handle::signal_failure), or [`request_shutdown`](Handle::request_shutdown)).
+    /// Future that resolves when shutdown begins for this handle's tier.
+    /// Standard handles: resolves when global shutdown begins.
+    /// Observability handles: resolves after all standard components finish.
     /// Use in `tokio::select!` to break out of work loops.
     pub fn shutdown_recv(&self) -> tokio_util::sync::WaitForCancellationFuture<'_> {
         self.inner.shutdown_token.cancelled()
     }
 
-    /// Returns true if shutdown has been initiated.
+    /// Owned future that resolves when shutdown begins for this handle's tier.
+    /// Same semantics as [`shutdown_recv`](Handle::shutdown_recv) but returns a
+    /// `'static` future suitable for passing to
+    /// `axum::serve(...).with_graceful_shutdown(handle.shutdown_signal())`.
+    pub fn shutdown_signal(&self) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let token = self.inner.shutdown_token.clone();
+        async move { token.cancelled().await }
+    }
+
+    /// Returns true if shutdown has been initiated for this handle's tier.
     pub fn is_shutting_down(&self) -> bool {
         self.inner.shutdown_token.is_cancelled()
     }
@@ -115,6 +130,7 @@ impl Handle {
     /// Liveness heartbeat. Must be called more often than the configured `liveness_deadline`.
     /// If not called in time, the health monitor considers this component stalled. After
     /// `stall_threshold` consecutive stalled checks, the manager triggers global shutdown.
+    /// For advisory handles, missed deadlines update `is_healthy()` but do not trigger shutdown.
     /// (see tests `stall_triggers_shutdown`, `component_b_reports_healthy_from_process`)
     pub fn report_healthy(&self) {
         if let Some(deadline) = self.inner.liveness_deadline {
@@ -127,9 +143,28 @@ impl Handle {
         }
     }
 
+    /// Returns true if this component is considered healthy.
+    ///
+    /// - **With `liveness_deadline`**: reads an `AtomicBool` maintained by the
+    ///   health poll task. Reflects the result of the most recent poll (~1ns).
+    ///   Starts `true` (Starting state is healthy); flips to `false` when the
+    ///   poll detects a stalled or unhealthy heartbeat; flips back to `true`
+    ///   on recovery. Lags behind `report_healthy()` by up to `health_poll_interval`.
+    /// - **Without `liveness_deadline`**: returns `!is_shutting_down()`.
+    ///
+    /// Cost: single `AtomicBool::load(Relaxed)` (~1ns). Safe for hot paths.
+    pub fn is_healthy(&self) -> bool {
+        if self.inner.liveness_deadline.is_some() {
+            self.inner.health_flag.load(Ordering::Relaxed)
+        } else {
+            !self.inner.shutdown_token.is_cancelled()
+        }
+    }
+
     /// Mark this component as explicitly unhealthy. The health monitor treats this the
     /// same as a stalled heartbeat — after `stall_threshold` consecutive checks, the
-    /// manager triggers global shutdown. Call [`report_healthy`](Handle::report_healthy)
+    /// manager triggers global shutdown. For advisory handles, this updates `is_healthy()`
+    /// but does not trigger shutdown. Call [`report_healthy`](Handle::report_healthy)
     /// to recover and reset the stall counter. For immediate shutdown, use
     /// [`signal_failure`](Handle::signal_failure) instead.
     /// (see test `report_unhealthy_triggers_stall`)
@@ -208,5 +243,15 @@ impl Drop for HandleInner {
         if let Some(tx) = self.event_tx.get() {
             drop(tx.try_send(event));
         }
+    }
+}
+
+impl common_liveness::SyncLivenessReporter for Handle {
+    fn report_healthy(&self) {
+        Handle::report_healthy(self);
+    }
+
+    fn report_unhealthy(&self) {
+        Handle::report_unhealthy(self);
     }
 }

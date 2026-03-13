@@ -20,39 +20,39 @@ import { InsightType } from '~/types'
 // Static images shown by default, GIFs play on hover
 const INSIGHT_PREVIEWS: Partial<Record<InsightType, { static: string; animated: string }>> = {
     [InsightType.TRENDS]: {
-        static: 'https://res.cloudinary.com/dmukukwp6/image/upload/w_500,c_limit,q_auto,f_auto/Screenshot_2026_01_26_at_19_04_42_402a468826.png',
+        static: 'https://res.cloudinary.com/dmukukwp6/image/upload/w_500,c_limit,q_auto,f_auto/pasted_image_2026_03_10_T18_10_03_522_Z_ab651a8800.png',
         animated:
-            'https://res.cloudinary.com/dmukukwp6/image/upload/Screen_Recording_2026_01_26_at_19_03_59_32d2baa6cf.gif',
+            'https://res.cloudinary.com/dmukukwp6/image/upload/pasted_image_2026_03_10_T18_10_27_131_Z_0177e963f0.gif',
     },
     [InsightType.FUNNELS]: {
-        static: 'https://res.cloudinary.com/dmukukwp6/image/upload/w_500,c_limit,q_auto,f_auto/Screenshot_2026_01_26_at_19_09_23_a8e1f25253.png',
+        static: 'https://res.cloudinary.com/dmukukwp6/image/upload/w_500,c_limit,q_auto,f_auto/pasted_image_2026_03_10_T18_14_07_880_Z_7ee2fb90ed.png',
         animated:
-            'https://res.cloudinary.com/dmukukwp6/image/upload/Screen_Recording_2026_01_26_at_19_09_11_a786c104da.gif',
+            'https://res.cloudinary.com/dmukukwp6/image/upload/pasted_image_2026_03_10_T18_14_34_264_Z_3f0f703d98.gif',
     },
     [InsightType.RETENTION]: {
-        static: 'https://res.cloudinary.com/dmukukwp6/image/upload/w_500,c_limit,q_auto,f_auto/Screenshot_2026_01_26_at_19_14_43_c69ffdca17.png',
+        static: 'https://res.cloudinary.com/dmukukwp6/image/upload/w_500,c_limit,q_auto,f_auto/pasted_image_2026_03_10_T18_20_00_462_Z_fabdd95b9e.png',
         animated:
-            'https://res.cloudinary.com/dmukukwp6/image/upload/Screen_Recording_2026_01_26_at_19_14_50_72051492d0.gif',
+            'https://res.cloudinary.com/dmukukwp6/image/upload/pasted_image_2026_03_10_T18_20_19_530_Z_c6f565345c.gif',
     },
     [InsightType.PATHS]: {
-        static: 'https://res.cloudinary.com/dmukukwp6/image/upload/w_500,c_limit,q_auto,f_auto/Screenshot_2026_01_26_at_19_22_42_100931dc71.png',
+        static: 'https://res.cloudinary.com/dmukukwp6/image/upload/w_500,c_limit,q_auto,f_auto/pasted_image_2026_03_10_T18_23_20_097_Z_30f1fda15b.png',
         animated:
-            'https://res.cloudinary.com/dmukukwp6/image/upload/Screen_Recording_2026_01_26_at_19_22_31_48a59903f2.gif',
+            'https://res.cloudinary.com/dmukukwp6/image/upload/pasted_image_2026_03_10_T18_23_22_284_Z_752ff95327.gif',
     },
     [InsightType.STICKINESS]: {
-        static: 'https://res.cloudinary.com/dmukukwp6/image/upload/w_500,c_limit,q_auto,f_auto/Screenshot_2026_01_26_at_19_26_36_752bac1184.png',
+        static: 'https://res.cloudinary.com/dmukukwp6/image/upload/w_500,c_limit,q_auto,f_auto/pasted_image_2026_03_10_T18_25_59_328_Z_531c3fd175.png',
         animated:
-            'https://res.cloudinary.com/dmukukwp6/image/upload/Screen_Recording_2026_01_26_at_19_27_30_c45287c3a1.gif',
+            'https://res.cloudinary.com/dmukukwp6/image/upload/pasted_image_2026_03_10_T18_26_03_428_Z_fc19cf49aa.gif',
     },
     [InsightType.LIFECYCLE]: {
-        static: 'https://res.cloudinary.com/dmukukwp6/image/upload/w_500,c_limit,q_auto,f_auto/Screenshot_2026_01_26_at_19_32_25_29e906f87a.png',
+        static: 'https://res.cloudinary.com/dmukukwp6/image/upload/w_500,c_limit,q_auto,f_auto/pasted_image_2026_03_10_T18_27_42_832_Z_c0b26ea9c3.png',
         animated:
-            'https://res.cloudinary.com/dmukukwp6/image/upload/Screen_Recording_2026_01_26_at_19_32_09_d05fabc1ec.gif',
+            'https://res.cloudinary.com/dmukukwp6/image/upload/pasted_image_2026_03_10_T18_27_44_710_Z_57de365180.gif',
     },
     [InsightType.SQL]: {
-        static: 'https://res.cloudinary.com/dmukukwp6/image/upload/w_500,c_limit,q_auto,f_auto/Screenshot_2026_02_03_at_20_37_05_07c110094d.png',
+        static: 'https://res.cloudinary.com/dmukukwp6/image/upload/w_500,c_limit,q_auto,f_auto/pasted_image_2026_03_10_T18_30_00_396_Z_133afc4f54.png',
         animated:
-            'https://res.cloudinary.com/dmukukwp6/image/upload/Screen_Recording_2026_02_03_at_20_37_10_f187209e14.gif',
+            'https://res.cloudinary.com/dmukukwp6/image/upload/pasted_image_2026_03_10_T18_30_06_034_Z_56a680a474.gif',
     },
 }
 
@@ -79,24 +79,24 @@ function InsightOptionCard({ insightType, metadata, index }: InsightOptionCardPr
             style={{ animationDelay: `${index * 0.05}s` }}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
-            data-attr={`insight-option-${insightType.toLowerCase()}`}
         >
             <LemonCard
                 className="cursor-pointer h-full overflow-hidden"
+                data-attr={`insight-option-${insightType.toLowerCase()}`}
                 hoverEffect
                 onClick={() => router.actions.push(url)}
             >
                 <div className="flex flex-col gap-3 h-full">
                     {preview && (
-                        <div className="relative w-full aspect-video rounded overflow-hidden bg-fill-secondary">
+                        <div className="relative w-full aspect-video overflow-hidden bg-fill-secondary">
                             <img
                                 src={isHovered ? preview.animated : preview.static}
                                 alt={`${metadata.name} preview`}
-                                className="w-full h-full object-cover object-top transition-opacity duration-200"
+                                className="w-full h-full object-contain object-top transition-opacity duration-200"
                                 loading="lazy"
                             />
                             <div
-                                className={`absolute bottom-2 right-2 flex items-center gap-1 px-2 py-1 rounded-full bg-black/60 text-[10px] font-medium text-white transition-opacity duration-200 ${isHovered ? 'opacity-0' : 'opacity-100'}`}
+                                className={`absolute top-2 left-2 flex items-center gap-1 px-2 py-1 rounded-full bg-black/60 text-[10px] font-medium text-white transition-opacity duration-200 ${isHovered ? 'opacity-0' : 'opacity-100'}`}
                             >
                                 <IconPlay className="w-3 h-3" />
                                 <span>Hover to play</span>

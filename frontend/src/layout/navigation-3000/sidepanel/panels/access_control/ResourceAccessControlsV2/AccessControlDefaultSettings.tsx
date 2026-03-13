@@ -85,8 +85,11 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                                 const entry = defaults?.resource_access_levels[resource.key]
                                 const value = entry?.access_level ?? null
                                 const options = getLevelOptionsForResource(resourceLevels, {
-                                    minimum: entry?.minimum,
-                                    maximum: entry?.maximum,
+                                    minimum: entry?.minimum ?? null,
+                                    maximum: entry?.maximum ?? null,
+                                    inheritedLevel: null,
+                                    inheritedReason: null,
+                                    resourceLabel: resource.label,
                                 })
 
                                 if (value === null) {

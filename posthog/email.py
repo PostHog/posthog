@@ -115,6 +115,7 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "approval_expired": "59",
     "approval_applied": "61",
     "conversation_restore": "63",
+    "proxy_provisioned": "64",
 }
 
 
