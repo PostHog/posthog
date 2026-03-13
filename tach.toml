@@ -81,6 +81,7 @@ depends_on = [
     "products.slack_app",
     "products.surveys",
     "products.tasks",
+    "products.tracing",
     "products.user_interviews",
     "products.visual_review",
     "products.web_analytics",
