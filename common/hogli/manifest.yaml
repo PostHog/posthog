@@ -649,13 +649,9 @@ tools:
         bin_script: phrocs
         description: Run phrocs directly with a custom mprocs-format YAML config
         hidden: true
-    dev:env:mcp:server:
-        bin_script: dev-env-mcp-server
+    phrocs:mcp:server:
+        bin_script: phrocs-mcp-server.py
         description: MCP server to expose process status and logs
-        hidden: true
-    process:monitor:
-        bin_script: process-monitor
-        description: Monitor and display resource usage for all devenv processes
         hidden: true
 utilities:
     nuke:

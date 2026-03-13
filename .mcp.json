@@ -1,8 +1,8 @@
 {
     "mcpServers": {
-        "posthog-dev-env": {
+        "phrocs": {
             "command": "uv",
-            "args": ["run", "python", "bin/dev-env-mcp-server"]
+            "args": ["run", "python", "bin/phrocs-mcp-server.py"]
         }
     }
 }

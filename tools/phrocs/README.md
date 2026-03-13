@@ -86,6 +86,7 @@ phrocs/
 ├── main.go                   entry point, arg parsing, program wiring
 └── internal/
     ├── config/               YAML config loader
+    ├── ipc/                  Unix domain socket server (/tmp/phrocs.sock)
     ├── process/              process lifecycle (start, stop, restart, pty I/O)
     └── tui/                  Bubble Tea model, key map, styles
 ```
