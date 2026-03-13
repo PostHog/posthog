@@ -38,7 +38,7 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             featureFlagsLogic({}),
             ['featureFlags', 'count', 'paramsFromFilters', 'displayedFlags'],
             selectionLogic,
-            ['selectedIds as selectedFlagIds', 'selectedCount'],
+            ['selectedIds as selectedFlagIds', 'selectedCount', 'bulkTagsPopoverVisible', 'bulkUpdateTagsResponseLoading'],
         ],
         actions: [
             featureFlagsLogic({}),
@@ -49,6 +49,8 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
                 'toggleSelection as toggleFlagSelection',
                 'selectAllOnPage',
                 'clearSelection',
+                'showBulkTagsPopover',
+                'hideBulkTagsPopover',
             ],
         ],
     })),
@@ -176,6 +178,9 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
                 actions.clearSelection()
                 actions.loadFeatureFlags()
             }
+        },
+        [selectionLogic.actionTypes.bulkUpdateTagsSuccess]: () => {
+            actions.loadFeatureFlags()
         },
     })),
 
