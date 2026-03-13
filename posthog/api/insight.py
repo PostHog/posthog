@@ -131,21 +131,6 @@ EXPORT_QUERY_CACHE_MISS = Counter(
 )
 
 
-def _extract_query_source_kind(insight: Insight) -> str | None:
-    """Extract the insight query kind, matching frontend sanitizeQuery logic."""
-    query = insight.query
-    if isinstance(query, dict):
-        source = query.get("source")
-        if isinstance(source, dict) and source.get("kind"):
-            return source["kind"]
-        if query.get("kind"):
-            return query["kind"]
-    filters = insight.filters
-    if isinstance(filters, dict) and filters.get("insight"):
-        return filters["insight"]
-    return None
-
-
 def log_and_report_insight_activity(
     *,
     activity: str,
@@ -179,14 +164,10 @@ def log_and_report_insight_activity(
         organization = Organization.objects.get(id=organization_id)
         team = Team.objects.get(id=team_id)
         if not was_impersonated:
-            query_source_kind = _extract_query_source_kind(insight)
-            properties: dict[str, Any] = {"insight_id": insight_short_id}
-            if query_source_kind:
-                properties["query_source_kind"] = query_source_kind
             report_user_action(
                 user,
                 f"insight {activity}",
-                properties,
+                {"insight_id": insight_short_id},
                 team=team,
                 organization=organization,
                 request=request,

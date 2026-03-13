@@ -238,26 +238,13 @@ class UpsertDashboardTool(MaxTool):
     ) -> None:
         for artifact, insight in zip(artifacts, insights):
             if not isinstance(artifact, ModelArtifactResult):
-                query = insight.query
-                query_source_kind = None
-                if isinstance(query, dict):
-                    source = query.get("source")
-                    if isinstance(source, dict) and source.get("kind"):
-                        query_source_kind = source["kind"]
-                    elif query.get("kind"):
-                        query_source_kind = query["kind"]
-
-                properties: dict[str, Any] = {
-                    "insight_id": insight.short_id,
-                    "source": EventSource.POSTHOG_AI,
-                }
-                if query_source_kind:
-                    properties["query_source_kind"] = query_source_kind
-
                 await database_sync_to_async(report_user_action)(
                     self._user,
                     "insight created",
-                    properties,
+                    {
+                        "insight_id": insight.short_id,
+                        "source": EventSource.POSTHOG_AI,
+                    },
                     team=self._team,
                 )
 
