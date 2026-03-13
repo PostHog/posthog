@@ -14,6 +14,7 @@ from .property_definition import EnterprisePropertyDefinition
 from .rbac.access_control import AccessControl
 from .rbac.role import Role, RoleMembership
 from .scim_provisioned_user import SCIMProvisionedUser
+from .scim_request_log import SCIMRequestLog
 from .session_summaries import SingleSessionSummary
 
 __all__ = [
@@ -32,5 +33,6 @@ __all__ = [
     "Role",
     "RoleMembership",
     "SCIMProvisionedUser",
+    "SCIMRequestLog",
     "SingleSessionSummary",
 ]

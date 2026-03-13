@@ -1,3 +1,4 @@
+import time
 import dataclasses
 from typing import cast
 
@@ -25,9 +26,16 @@ from posthog.models.organization_domain import OrganizationDomain
 from ee.api.scim.auth import SCIMBearerTokenAuthentication
 from ee.api.scim.group import PostHogSCIMGroup
 from ee.api.scim.user import PostHogSCIMUser, SCIMUserConflict
-from ee.api.scim.utils import detect_identity_provider, mask_scim_filter, mask_scim_payload, normalize_scim_operations
+from ee.api.scim.utils import (
+    detect_identity_provider,
+    mask_headers,
+    mask_scim_filter,
+    mask_scim_payload,
+    normalize_scim_operations,
+)
 from ee.models.rbac.role import Role
 from ee.models.scim_provisioned_user import SCIMProvisionedUser
+from ee.models.scim_request_log import SCIMRequestLog
 
 logger = structlog.get_logger(__name__)
 
@@ -125,29 +133,53 @@ class SCIMBaseView(APIView):
     parser_classes = [SCIMJSONParser, JSONParser]
 
     def dispatch(self, request, *args, **kwargs):
+        start = time.monotonic()
         response = super().dispatch(request, *args, **kwargs)
+        duration_ms = int((time.monotonic() - start) * 1000)
 
         drf_request = self.request
+        idp = detect_identity_provider(drf_request).value
+
         log_data: dict = {
             "method": drf_request.method,
-            "path": drf_request.path,
-            "idp": detect_identity_provider(drf_request).value,
+            "path": drf_request.get_full_path(),
+            "idp": idp,
             "response_status": response.status_code,
         }
 
+        organization_domain = None
         if drf_request.auth:
             organization_domain = cast(OrganizationDomain, drf_request.auth)
             log_data["organization_domain"] = organization_domain.domain
 
+        masked_body = None
         if drf_request.method in ("POST", "PUT", "PATCH"):
             payload = drf_request.data
             if payload is not None:
-                log_data["payload"] = mask_scim_payload(payload)
+                masked_body = mask_scim_payload(payload)
+                log_data["payload"] = masked_body
+
         filter_param = drf_request.GET.get("filter")
         if filter_param:
             log_data["filter"] = mask_scim_filter(filter_param)
 
         logger.info("scim_request", **log_data)
+
+        if organization_domain is not None:
+            try:
+                SCIMRequestLog.objects.create(
+                    organization_domain=organization_domain,
+                    request_method=drf_request.method or "",
+                    request_path=drf_request.get_full_path(),
+                    request_headers=mask_headers(dict(drf_request.headers)),
+                    request_body=masked_body,
+                    response_status=response.status_code,
+                    response_body=response.data if hasattr(response, "data") else None,
+                    identity_provider=idp,
+                    duration_ms=duration_ms,
+                )
+            except Exception:
+                logger.exception("scim_request_log_save_failed")
 
         return response
 
