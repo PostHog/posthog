@@ -20,7 +20,8 @@ if sys.platform == "linux" and platform.machine() == "x86_64":
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
-from sklearn.cluster import HDBSCAN, KMeans
+from hdbscan_rs import HDBSCAN
+from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.metrics import silhouette_score
