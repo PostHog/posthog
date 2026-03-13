@@ -38,6 +38,16 @@ function getDuration(timings, relativePath, browser) {
     return entry[browser] ?? entry.chromium ?? Object.values(entry)[0] ?? null
 }
 
+function hashString(input) {
+    // FNV-1a 32-bit hash for deterministic unknown-test sharding.
+    let hash = 0x811c9dc5
+    for (let i = 0; i < input.length; i++) {
+        hash ^= input.charCodeAt(i)
+        hash = Math.imul(hash, 0x01000193)
+    }
+    return hash >>> 0
+}
+
 // Greedy bin-packing: assign each test (longest first) to the lightest shard.
 // Tests without timing data go into a separate pool and are spread evenly
 // after the known tests are placed.
@@ -73,18 +83,15 @@ function binPackShard(tests, shardCount, shardIndex, timings, browser) {
         shardTotals[lightest] += duration
     }
 
-    // Spread unknown tests round-robin across shards (lightest first each time)
+    // Assign unknown tests deterministically by file path hash.
+    // This avoids verify/update runs placing a new story in different shards.
     for (const test of unknown) {
-        let lightest = 0
-        for (let i = 1; i < shardCount; i++) {
-            if (shardTotals[i] < shardTotals[lightest]) {
-                lightest = i
-            }
-        }
-        shardTests[lightest].push(test)
-        // Use median duration as estimate for unknown tests
+        const relativePath = getRelativePath(test)
+        const targetShard = hashString(relativePath) % shardCount
+        shardTests[targetShard].push(test)
+        // Keep an estimated total so known/unknown load stats stay meaningful.
         const median = known.length > 0 ? known[Math.floor(known.length / 2)].duration : 10
-        shardTotals[lightest] += median
+        shardTotals[targetShard] += median
     }
 
     // shardIndex is 1-based
