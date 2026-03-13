@@ -17,6 +17,7 @@ from posthog.temporal.oauth import PosthogMcpScopes
 from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
 
 from .activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
+from .activities.create_resume_snapshot import CreateResumeSnapshotInput, create_resume_snapshot
 from .activities.execute_task_in_sandbox import ExecuteTaskOutput
 from .activities.forward_pending_message import forward_pending_user_message
 from .activities.get_sandbox_for_repository import (
@@ -31,6 +32,8 @@ from .activities.get_task_processing_context import (
 )
 from .activities.post_slack_update import PostSlackUpdateInput, post_slack_update
 from .activities.read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
+from .activities.relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events
+from .activities.send_followup_to_sandbox import SendFollowupToSandboxInput, send_followup_to_sandbox
 from .activities.start_agent_server import StartAgentServerInput, StartAgentServerOutput, start_agent_server
 from .activities.track_workflow_event import TrackWorkflowEventInput, track_workflow_event
 from .activities.update_task_run_status import UpdateTaskRunStatusInput, update_task_run_status
@@ -66,6 +69,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._completion_status: str = "completed"
         self._completion_error: Optional[str] = None
         self._heartbeat_received: bool = False
+        self._pending_followup: Optional[str] = None
 
     @property
     def context(self) -> TaskProcessingContext:
@@ -117,8 +121,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
             await self._post_slack_update()
 
-            # Start agent-server for direct connection from Twig
-            agent_server_output = await self._start_agent_server(sandbox_id)
+            # Start agent-server for direct connection from PostHog Code
+            agent_server_output = await self._start_agent_server(sandbox_output)
 
             await self._track_workflow_event(
                 "process_task_agent_server_started",
@@ -130,14 +134,21 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 },
             )
 
-            try:
-                await self._forward_pending_user_message()
-            except Exception as e:
-                workflow.logger.warning(
-                    "forward_pending_user_message_failed_non_fatal",
-                    run_id=self.context.run_id,
-                    error=str(e),
-                )
+            if self._context and self._context.mode == "interactive":
+                relay_task = asyncio.ensure_future(self._relay_sandbox_events(agent_server_output))
+            else:
+                relay_task = asyncio.ensure_future(asyncio.sleep(0))  # no-op future
+
+            is_resume = bool((self.context.state or {}).get("resume_from_run_id"))
+            if not is_resume:
+                try:
+                    await self._forward_pending_user_message()
+                except Exception as e:
+                    workflow.logger.warning(
+                        "forward_pending_user_message_failed_non_fatal",
+                        run_id=self.context.run_id,
+                        error=str(e),
+                    )
 
             # Wait for completion signal or inactivity timeout.
             # Heartbeat signals reset the inactivity timer, keeping the workflow alive
@@ -145,16 +156,25 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             while not self._task_completed:
                 try:
                     await workflow.wait_condition(
-                        lambda: self._task_completed or self._heartbeat_received,
+                        lambda: self._task_completed or self._heartbeat_received or self._pending_followup is not None,
                         timeout=timedelta(minutes=INACTIVITY_TIMEOUT_MINUTES),
                     )
                 except TimeoutError:
                     timed_out = True
                     break
 
+                if self._pending_followup is not None:
+                    message = self._pending_followup
+                    self._pending_followup = None
+                    await self._send_followup_to_sandbox(message)
+                    continue
+
                 if self._heartbeat_received and not self._task_completed:
                     self._heartbeat_received = False
                     continue
+
+            # Stop the relay now that the main loop is done
+            await self._cancel_relay(relay_task)
 
             if self._task_completed:
                 await self._update_task_run_status(self._completion_status, error_message=self._completion_error)
@@ -202,6 +222,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
         finally:
             if sandbox_id:
+                # Create a resume snapshot for interactive sandboxes before cleanup
+                if self._context and self._context.mode == "interactive":
+                    await self._create_resume_snapshot(sandbox_id)
+
                 await self._read_sandbox_logs(sandbox_id)
                 await self._cleanup_sandbox(sandbox_id)
                 sandbox_cleaned = True
@@ -247,12 +271,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         except Exception as e:
             workflow.logger.warning(f"Failed to read sandbox logs: {e}")
 
-    async def _start_agent_server(self, sandbox_id: str) -> StartAgentServerOutput:
+    async def _start_agent_server(self, sandbox_output: GetSandboxForRepositoryOutput) -> StartAgentServerOutput:
         return await workflow.execute_activity(
             start_agent_server,
             StartAgentServerInput(
                 context=self.context,
-                sandbox_id=sandbox_id,
+                sandbox_id=sandbox_output.sandbox_id,
+                sandbox_url=sandbox_output.sandbox_url,
+                sandbox_connect_token=sandbox_output.connect_token,
                 posthog_mcp_scopes=self._posthog_mcp_scopes,
             ),
             start_to_close_timeout=timedelta(minutes=5),
@@ -291,6 +317,61 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+
+    async def _relay_sandbox_events(self, agent_server_output: StartAgentServerOutput) -> None:
+        """Start the SSE relay activity as a concurrent task (best-effort)."""
+        try:
+            relay_input = RelaySandboxEventsInput(
+                run_id=self.context.run_id,
+                task_id=self.context.task_id,
+                sandbox_url=agent_server_output.sandbox_url,
+                sandbox_connect_token=agent_server_output.connect_token,
+                team_id=self.context.team_id,
+                distinct_id=self.context.distinct_id,
+            )
+            await workflow.execute_activity(
+                relay_sandbox_events,
+                relay_input,
+                start_to_close_timeout=timedelta(minutes=65),
+                heartbeat_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+                cancellation_type=workflow.ActivityCancellationType.TRY_CANCEL,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            workflow.logger.warning(
+                "relay_sandbox_events_failed_non_fatal",
+                run_id=self.context.run_id,
+                error=str(e),
+            )
+
+    @staticmethod
+    async def _cancel_relay(relay_task: "asyncio.Task[None]") -> None:
+        """Cancel the relay task if still running."""
+        if relay_task.done():
+            return
+        relay_task.cancel()
+        try:
+            await relay_task
+        except (asyncio.CancelledError, Exception):
+            pass
+
+    async def _create_resume_snapshot(self, sandbox_id: str) -> None:
+        """Create a filesystem snapshot for interactive sandbox resume."""
+        try:
+            result = await workflow.execute_activity(
+                create_resume_snapshot,
+                CreateResumeSnapshotInput(sandbox_id=sandbox_id, run_id=self.context.run_id),
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+            if result.external_id:
+                workflow.logger.info(f"Resume snapshot created: {result.external_id} for sandbox {sandbox_id}")
+            elif result.error:
+                workflow.logger.warning(f"Resume snapshot skipped: {result.error}")
+        except Exception as e:
+            workflow.logger.warning(f"Resume snapshot failed (non-fatal): {e}")
 
     async def _trigger_snapshot_workflow(self) -> None:
         workflow_id = (
@@ -334,3 +415,22 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     @temporalio.workflow.signal
     async def heartbeat(self) -> None:
         self._heartbeat_received = True
+
+    @temporalio.workflow.signal
+    async def send_followup_message(self, message: str) -> None:
+        self._pending_followup = message
+
+    async def _send_followup_to_sandbox(self, message: str) -> None:
+        try:
+            await workflow.execute_activity(
+                send_followup_to_sandbox,
+                SendFollowupToSandboxInput(run_id=self.context.run_id, message=message),
+                start_to_close_timeout=timedelta(minutes=35),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except Exception as e:
+            workflow.logger.warning(
+                "send_followup_to_sandbox_failed",
+                run_id=self.context.run_id,
+                error=str(e),
+            )

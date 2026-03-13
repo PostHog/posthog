@@ -222,6 +222,11 @@ rows = execute_clickhouse_health_team_query(
 
 Default ClickHouse settings: `max_execution_time=30`, `max_threads=2`.
 
+## ClickHouse kill switch
+
+Health checks are automatically skipped when the ClickHouse kill switch is active (LIGHT or FULL).
+The `get_team_id_batches` activity returns an empty list, and the workflow completes with `total_teams: 0`.
+
 ## Admin UI
 
 Health checks can be triggered manually from the Django admin at `/admin/health_checks/`. Staff access is required. The trigger form allows overriding:

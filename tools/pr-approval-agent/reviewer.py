@@ -122,6 +122,11 @@ REVIEWER_SYSTEM = textwrap.dedent(
       - ESCALATE: behavioral changes to business logic, API contracts, data models
 
     Review comments (inline feedback only, approval states are hidden):
+    - "Zero reviews" means no top-level reviews and no inline comments.
+      Zero reviews is fine for low-risk changes (trivial fixes, typos,
+      test updates, config tweaks). For anything higher-risk, treat zero
+      reviews as a concern and ESCALATE unless there's a strong,
+      specific justification to APPROVE.
     - Substantive comments unresolved by the current diff → REFUSE
     - Bot comments with valid concerns that were ignored → ESCALATE
 
@@ -138,11 +143,24 @@ REVIEWER_SYSTEM = textwrap.dedent(
     - ESCALATE: not confident, or needs domain expertise
     When in doubt, ESCALATE rather than APPROVE.
 
-    IMPORTANT: The "reasoning" field is 1 sentence — your judgment call, not a
-    code review. Do NOT describe what the code does. Examples:
+    IMPORTANT: The "reasoning" field is 1-2 sentences — your judgment call, not a
+    code review. Do NOT describe what the code does. Do NOT mention internal
+    gate codes (T0, T1, T2, etc.). When gates denied the PR, explain the
+    reason in plain language so the author understands without checking logs.
+    Examples:
     - "No showstoppers, low-risk frontend fix."
     - "Missing tests for new error handling path."
     - "Touches shared query builder — needs team review."
+    - "Gates denied: touches CI workflows and migration files."
+
+    When you REFUSE or ESCALATE, tell the author what to do next so they
+    can address the concern and re-request. Be specific and practical.
+    Examples:
+    - "Get a review from a team member on [team] before re-requesting."
+    - "Address the unresolved comment on line X of file Y."
+    - "This PR touches billing code — request a human review instead."
+    - "Request a review from Codex, Claude, or a teammate first."
+    Do NOT suggest splitting PRs or restructuring to avoid gates.
 
     Your output is constrained to a JSON schema with verdict, reasoning,
     risk, and issues fields. Fill them according to the rules above.
@@ -165,15 +183,21 @@ class Reviewer:
         diff_path = self._write_diff_file(pr)
         prompt = self._build_review_prompt(pr, classification, gate_context, diff_path)
 
+        # Gate denials and trivial PRs don't need deep exploration —
+        # just read the diff and produce a verdict.
+        quick = gate_context["gate_verdict"] == "DENIED" or classification.get("t1_subclass") == "T1a-trivial"
+
         options = ClaudeAgentOptions(
             system_prompt=REVIEWER_SYSTEM,
             allowed_tools=["Read", "Grep", "Glob"],
             disallowed_tools=["Write", "Edit", "NotebookEdit", "Bash", "Agent", "WebFetch", "WebSearch"],
             cwd=str(self.repo_root),
-            max_turns=20,
+            max_turns=3 if quick else 20,
             model=MODEL,
             permission_mode="dontAsk",
             output_format=VERDICT_SCHEMA,
+            effort="low" if quick else "high",
+            extra_args={"no-session-persistence": None},
         )
 
         structured_output = None
@@ -229,6 +253,16 @@ class Reviewer:
         safe_title = _sanitize_untrusted(pr.title, max_len=200)
         safe_author = _sanitize_untrusted(pr.author, max_len=50)
 
+        reviews_text = ""
+        if pr.reviews:
+            lines = []
+            for r in pr.reviews:
+                safe_user = _sanitize_untrusted(r["user"], max_len=50)
+                safe_body = _sanitize_untrusted(r.get("body", ""), max_len=500)
+                body_part = f": {safe_body}" if safe_body else ""
+                lines.append(f"  - @{safe_user} [{r['state']}]{body_part}")
+            reviews_text = "\n".join(lines)
+
         review_comments = ""
         if pr.review_comments:
             lines = []
@@ -266,6 +300,7 @@ class Reviewer:
             Size: {pr.lines_total} lines ({pr.lines_added}+/{pr.lines_deleted}-), {len(pr.files)} files
             Scope: {cl["breadth"]}
             Commit type: {cl.get("commit_type") or "unknown"}
+            Reviews: {len(pr.reviews)} top-level, {len(pr.review_comments)} inline
 
             {ownership}
 
@@ -284,7 +319,10 @@ class Reviewer:
             Changed files:
             {file_list}
 
-            Review comments:
+            Reviews:
+            {reviews_text}
+
+            Inline comments:
             {review_comments}
             --- END UNTRUSTED CONTENT ---
         """)

@@ -7,7 +7,6 @@ import requests
 
 from posthog.models import FeatureFlag, Project, User
 from posthog.ph_client import PH_US_API_KEY
-from posthog.security.outbound_proxy import external_requests
 
 
 def sync_feature_flags_from_api(
@@ -32,7 +31,7 @@ def sync_feature_flags_from_api(
         }
 
     output_fn(f"Fetching feature flags for {distinct_id}...")
-    response = external_requests.post(
+    response = requests.post(
         "https://us.i.posthog.com/flags?v=2",
         headers={"Content-Type": "application/json"},
         data=json.dumps({"api_key": PH_US_API_KEY, "distinct_id": distinct_id, "groups": groups}),

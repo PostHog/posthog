@@ -86,10 +86,23 @@ export interface LemonTableProps<T extends Record<string, any>> {
     pinnedColumns?: string[]
     // Max width for the column headers
     maxHeaderWidth?: string
-    /** Whether to hide the scrollbar. */
+    /**
+     * Controls horizontal scrollbar visibility when content overflows.
+     * - `hidden` hides the scrollbar entirely
+     * - `on-hover` shows a styled scrollbar on hover
+     * - `always` keeps the styled scrollbar visible
+     *
+     * Defaults to `on-hover`.
+     */
+    scrollbarVisibility?: 'hidden' | 'on-hover' | 'always'
+    /** @deprecated Use `scrollbarVisibility="hidden"` instead. */
     hideScrollbar?: boolean
-    /** Whether to always show styled scrollbars when content overflows. */
+    /** @deprecated Use `scrollbarVisibility="always"` instead. */
     showScrollbar?: boolean
+    /**
+     * Whether the table content is allowed to scroll inside its container.
+     */
+    allowContentScroll?: boolean
     /** Row actions to display in a "More" menu at the end of each row. Return null to hide actions for specific rows. */
     rowActions?: (record: T, recordIndex: number) => React.ReactNode | null
     /** Whether to hide the sorting indicator when no sort is active. Defaults to false. */
@@ -130,11 +143,18 @@ export function LemonTable<T extends Record<string, any>>({
     firstColumnSticky,
     pinnedColumns,
     maxHeaderWidth,
+    scrollbarVisibility,
     hideScrollbar,
     showScrollbar,
+    allowContentScroll = false,
     rowActions,
     hideSortingIndicatorWhenInactive = false,
 }: LemonTableProps<T>): JSX.Element {
+    const effectiveScrollbarVisibility =
+        scrollbarVisibility ?? (hideScrollbar ? 'hidden' : showScrollbar ? 'always' : 'on-hover')
+    const isScrollbarHidden = effectiveScrollbarVisibility === 'hidden'
+    const isScrollbarAlwaysVisible = effectiveScrollbarVisibility === 'always'
+
     /** Search param that will be used for storing and syncing sorting */
     const currentSortingParam = id ? `${id}_order` : 'order'
 
@@ -165,16 +185,18 @@ export function LemonTable<T extends Record<string, any>>({
         [location, searchParams, hashParams, push, useURLForSorting, onSort, currentSortingParam]
     )
 
-    const columnGroups = (
-        rawColumns.length > 0 && 'children' in rawColumns[0]
-            ? rawColumns
-            : [
-                  {
-                      children: rawColumns,
-                  },
-              ]
-    ) as LemonTableColumnGroup<T>[]
-    const columns = columnGroups.flatMap((group) => group.children)
+    const columnGroups = useMemo(
+        () =>
+            (rawColumns.length > 0 && 'children' in rawColumns[0]
+                ? rawColumns
+                : [
+                      {
+                          children: rawColumns,
+                      },
+                  ]) as LemonTableColumnGroup<T>[],
+        [rawColumns]
+    )
+    const columns = useMemo(() => columnGroups.flatMap((group) => group.children), [columnGroups])
 
     const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -261,7 +283,7 @@ export function LemonTable<T extends Record<string, any>>({
                 rowRibbonColor !== undefined && `LemonTable--with-ribbon`,
                 stealth && 'LemonTable--stealth',
                 !uppercaseHeader && 'LemonTable--lowercase-header',
-                showScrollbar && 'LemonTable--show-scrollbar',
+                isScrollbarAlwaysVisible && 'LemonTable--show-scrollbar',
                 className
             )}
             // eslint-disable-next-line react/forbid-dom-props
@@ -269,10 +291,11 @@ export function LemonTable<T extends Record<string, any>>({
             data-attr={dataAttr}
         >
             <ScrollableShadows
-                innerClassName={hideScrollbar ? 'hide-scrollbar' : undefined}
+                innerClassName={clsx('LemonTable__scroll-viewport', isScrollbarHidden && 'hide-scrollbar')}
                 direction="horizontal"
+                constrainToDirection={!allowContentScroll}
                 scrollRef={scrollRef}
-                styledScrollbars={showScrollbar}
+                styledScrollbars={!isScrollbarHidden}
             >
                 <div className="LemonTable__content">
                     <table ref={tableRef}>
