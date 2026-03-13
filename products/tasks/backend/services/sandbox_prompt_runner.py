@@ -26,7 +26,7 @@ MAX_POLL_SECONDS = 30 * 60  # 30 minutes (matches sandbox TTL)
 
 
 @dataclass(frozen=True)
-class SandboxContext:
+class CustomPromptSandboxContext:
     """Everything needed to spawn a sandbox agent for a given team/repo."""
 
     team_id: int
@@ -34,8 +34,8 @@ class SandboxContext:
     repository: str
 
 
-def resolve_sandbox_context_for_local_dev(repository: str) -> SandboxContext:
-    """Build a SandboxContext from the first team/user in the local database.
+def resolve_sandbox_context_for_local_dev(repository: str) -> CustomPromptSandboxContext:
+    """Build a CustomPromptSandboxContext from the first team/user in the local database.
 
     Requires a GitHub integration to exist for the team (Task.create_and_run
     resolves it automatically).
@@ -61,7 +61,7 @@ def resolve_sandbox_context_for_local_dev(repository: str) -> SandboxContext:
             "go to /settings/integrations in your local PostHog."
         )
 
-    return SandboxContext(
+    return CustomPromptSandboxContext(
         team_id=team.id,  # type: ignore
         user_id=user.id,  # type: ignore
         repository=repository,
@@ -70,7 +70,7 @@ def resolve_sandbox_context_for_local_dev(repository: str) -> SandboxContext:
 
 async def run_prompt(
     prompt: str,
-    context: SandboxContext,
+    context: CustomPromptSandboxContext,
     *,
     branch: str = "master",
     step_name: str = "",
@@ -89,7 +89,7 @@ async def run_prompt(
 
 async def _create_task_and_trigger(
     description: str,
-    context: SandboxContext,
+    context: CustomPromptSandboxContext,
     branch: str = "master",
     step_name: str = "",
 ):

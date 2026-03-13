@@ -10,14 +10,14 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from products.tasks.backend.services.sandbox_prompt_runner import OutputFn, SandboxContext, run_prompt
+from products.tasks.backend.services.sandbox_prompt_runner import CustomPromptSandboxContext, OutputFn, run_prompt
 
 logger = logging.getLogger(__name__)
 
 
 async def run_sandbox_agent_get_structured_output(
     prompt: str,
-    context: SandboxContext,
+    context: CustomPromptSandboxContext,
     model_to_validate: type[BaseModel],
     *,
     branch: str = "master",
