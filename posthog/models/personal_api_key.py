@@ -23,7 +23,7 @@ PERSONAL_API_KEY_MODES_TO_TRY: tuple[tuple[ModeType, Optional[int]], ...] = (
 LEGACY_PERSONAL_API_KEY_SALT = "posthog_personal_api_key"
 
 PERSONAL_API_KEY_AUTH_COUNTER = Counter(
-    "posthog_personal_api_key_auth_total",
+    "personal_api_key_hash_mode_total",
     "Successful personal API key authentications by hash mode",
     labelnames=["hash_mode"],
 )

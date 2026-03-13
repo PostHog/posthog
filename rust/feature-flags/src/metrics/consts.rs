@@ -84,7 +84,7 @@ pub const FLAG_DEFINITIONS_AUTH_COUNTER: &str = "flags_flag_definitions_auth_tot
 
 // Personal API key hash mode used for successful authentication
 // Labels: hash_mode (sha256, pbkdf2)
-pub const PERSONAL_API_KEY_HASH_MODE_COUNTER: &str = "flags_personal_api_key_hash_mode_total";
+pub const PERSONAL_API_KEY_HASH_MODE_COUNTER: &str = "personal_api_key_hash_mode_total";
 
 // Request-level timeout (tower TimeoutLayer killed the request before completion)
 pub const FLAG_REQUEST_TIMEOUT_COUNTER: &str = "flags_request_timeout_total";
