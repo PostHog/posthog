@@ -5401,6 +5401,21 @@ export namespace Schemas {
       false_label?: string;
     }
 
+    export interface BoxPlotColumns {
+      /** @nullable */
+      min?: string | null;
+      /** @nullable */
+      p25?: string | null;
+      /** @nullable */
+      median?: string | null;
+      /** @nullable */
+      p75?: string | null;
+      /** @nullable */
+      max?: string | null;
+      /** @nullable */
+      mean?: string | null;
+    }
+
     export interface BreakdownItem {
       label: string;
       value: string | number;
@@ -5934,6 +5949,7 @@ export namespace Schemas {
     }
 
     export interface ChartSettings {
+      boxPlotColumns?: BoxPlotColumns | null;
       /** @nullable */
       goalLines?: GoalLine[] | null;
       heatmap?: HeatmapSettings | null;
