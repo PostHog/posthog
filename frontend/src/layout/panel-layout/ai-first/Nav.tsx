@@ -303,7 +303,13 @@ export function Nav(): JSX.Element {
                             </div>
                         }
                     >
-                        <NavTabChat inPanel onItemClick={() => handlePanelTriggerClick('Chat')} />
+                        <NavTabChat
+                            inPanel
+                            onItemClick={() => {
+                                clearActivePanelIdentifier()
+                                showLayoutPanel(false)
+                            }}
+                        />
                     </Suspense>
                 </div>
             )}
