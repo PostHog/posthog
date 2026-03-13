@@ -238,7 +238,7 @@ describe('TaxonomicFilter', () => {
             })
 
             const eventsTab = screen.getByTestId('taxonomic-tab-events')
-            expect(eventsTab.closest('[class*="LemonTag--primary"]') || eventsTab.className).toBeTruthy()
+            expect(eventsTab.closest('[class*="LemonTag--primary"]')).toBeInTheDocument()
         })
     })
 
