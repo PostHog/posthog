@@ -441,8 +441,19 @@ class Database(BaseModel):
             return
 
         allowed_table_names = set(self.tables.resolve_all_table_names())
-        allowed_table_names.difference_update(self._direct_access_warehouse_table_names)
+        built_in_global_table_names = set(self.get_posthog_table_names(include_hidden=True))
+        built_in_global_table_names.update(self.get_system_table_names())
+        built_in_global_table_names.add("numbers")
+
+        # Direct connections stay hidden from the default scope, but they must not evict
+        # built-in PostHog tables when a direct source reuses names like `events` or `persons`.
+        hidden_direct_name_collisions = self._direct_access_warehouse_table_names & built_in_global_table_names
+        direct_table_names_to_hide = self._direct_access_warehouse_table_names - built_in_global_table_names
+        allowed_table_names.difference_update(direct_table_names_to_hide)
         self.prune_to_table_names(allowed_table_names)
+        self._warehouse_table_names = [
+            name for name in self._warehouse_table_names if name not in hidden_direct_name_collisions
+        ]
 
     def _filter_system_tables_for_user(self, user: "User", team: "Team") -> None:
         """Remove system tables user doesn't have resource access to."""

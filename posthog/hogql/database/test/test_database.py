@@ -11,6 +11,7 @@ from parameterized import parameterized
 
 from posthog.schema import (
     DatabaseSchemaDataWarehouseTable,
+    DatabaseSchemaPostHogTable,
     DataWarehouseEventsModifier,
     HogQLQueryModifiers,
     PersonsOnEventsMode,
@@ -1564,6 +1565,46 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert database.has_table("persons")
         assert set(serialized["events"].fields.keys()) == {"id"}
         assert set(serialized["persons"].fields.keys()) == {"email"}
+
+    def test_direct_postgres_reserved_table_names_do_not_hide_posthog_tables_without_connection(self) -> None:
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+        )
+        DataWarehouseTable.objects.create(
+            name="events",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        DataWarehouseTable.objects.create(
+            name="persons",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"email": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+
+        database = Database.create_for(team=self.team)
+        serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
+
+        assert database.has_table("events")
+        assert database.has_table("persons")
+        assert isinstance(serialized["events"], DatabaseSchemaPostHogTable)
+        assert isinstance(serialized["persons"], DatabaseSchemaPostHogTable)
 
     def test_serialize_direct_postgres_direct_mode_skips_disabled_tables_without_errors(self) -> None:
         credentials = DataWarehouseCredential.objects.create(
