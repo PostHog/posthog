@@ -154,7 +154,7 @@ export const SESSION_ENDING_STRATEGY_OPTIONS: SessionEndingStrategyOption[] = [
     {
         value: 'time',
         label: 'Time window',
-        description: 'Session ended within X seconds after the exception',
+        description: 'There might have been other events up to X seconds after last exception',
     },
     {
         value: 'event',
