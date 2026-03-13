@@ -963,3 +963,29 @@ SETTINGS
     optimize_aggregation_in_order=1,
     log_comment={log_comment}
 """)
+
+
+EVENT_COUNT_BY_INTERVAL = """
+SELECT
+    toStartOfInterval(_inserted_at, INTERVAL {interval}) AS interval_start,
+    interval_start + INTERVAL {interval} AS interval_end,
+    COUNT(*) as total_count
+FROM (
+    SELECT DISTINCT ON (team_id, event, cityHash64(events_recent.distinct_id), cityHash64(events_recent.uuid))
+        inserted_at AS _inserted_at
+    FROM
+        events_recent
+    PREWHERE
+        events_recent.inserted_at >= {overall_interval_start}::DateTime64
+        AND events_recent.inserted_at < {overall_interval_end}::DateTime64
+    WHERE
+        team_id = {team_id}::Int64
+        AND (length({include_events}::Array(String)) = 0 OR event IN {include_events}::Array(String))
+        AND (length({exclude_events}::Array(String)) = 0 OR event NOT IN {exclude_events}::Array(String))
+)
+GROUP BY interval_start
+ORDER BY interval_start ASC
+SETTINGS
+    max_replica_delay_for_distributed_queries=1,
+    optimize_aggregation_in_order=1
+"""

@@ -34,7 +34,7 @@ async def create_health_check_schedules(client: Client) -> None:
                 "health-check-workflow",
                 dataclasses.asdict(workflow_inputs),
                 id=f"health-check-{config.name}",
-                task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                task_queue=settings.HEALTH_CHECK_TASK_QUEUE,
             ),
             spec=ScheduleSpec(cron_expressions=[config.schedule]),
         )

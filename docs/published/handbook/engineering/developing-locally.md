@@ -330,7 +330,7 @@ With PyCharm's built in support for Django, it's fairly easy to setup debugging 
    - If using Flox: `path_to_repo/posthog/.flox/cache/venv/bin/python`.
 3. Setup Django support (Settings… > Languages & Frameworks > Django):
    - Django project root: `path_to_repo`
-   - Settings: `posthog/settings/__init__py`
+   - Settings: `posthog/settings/__init__.py`
 4. To run tests correctly in PyCharm, disable the Django test runner:
    - Go to Settings… > Languages & Frameworks > Django
    - Check "Do not use Django test runner"

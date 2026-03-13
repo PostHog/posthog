@@ -52,7 +52,7 @@ async def test_delete_recordings_parses_response(response_json, expected_deleted
 
     with (
         patch("posthog.temporal.delete_recordings.activities.settings") as mock_settings,
-        patch("posthog.temporal.delete_recordings.activities.httpx.AsyncClient") as mock_client_cls,
+        patch("posthog.temporal.delete_recordings.activities.internal_httpx_async_client") as mock_client_cls,
     ):
         mock_settings.RECORDING_API_URL = "http://recording-api:8000"
         mock_settings.INTERNAL_API_SECRET = "test-secret"
@@ -81,7 +81,7 @@ async def test_delete_recordings_url_construction():
 
     with (
         patch("posthog.temporal.delete_recordings.activities.settings") as mock_settings,
-        patch("posthog.temporal.delete_recordings.activities.httpx.AsyncClient") as mock_client_cls,
+        patch("posthog.temporal.delete_recordings.activities.internal_httpx_async_client") as mock_client_cls,
     ):
         mock_settings.RECORDING_API_URL = "http://recording-api:8000"
         mock_settings.INTERNAL_API_SECRET = "test-secret"
@@ -110,7 +110,7 @@ async def test_delete_recordings_sends_auth_header():
 
     with (
         patch("posthog.temporal.delete_recordings.activities.settings") as mock_settings,
-        patch("posthog.temporal.delete_recordings.activities.httpx.AsyncClient") as mock_client_cls,
+        patch("posthog.temporal.delete_recordings.activities.internal_httpx_async_client") as mock_client_cls,
     ):
         mock_settings.RECORDING_API_URL = "http://recording-api:8000"
         mock_settings.INTERNAL_API_SECRET = "my-secret-key"
@@ -139,7 +139,7 @@ async def test_delete_recordings_no_auth_header_when_secret_empty():
 
     with (
         patch("posthog.temporal.delete_recordings.activities.settings") as mock_settings,
-        patch("posthog.temporal.delete_recordings.activities.httpx.AsyncClient") as mock_client_cls,
+        patch("posthog.temporal.delete_recordings.activities.internal_httpx_async_client") as mock_client_cls,
     ):
         mock_settings.RECORDING_API_URL = "http://recording-api:8000"
         mock_settings.INTERNAL_API_SECRET = ""
@@ -170,7 +170,7 @@ async def test_delete_recordings_raises_on_http_error():
 
     with (
         patch("posthog.temporal.delete_recordings.activities.settings") as mock_settings,
-        patch("posthog.temporal.delete_recordings.activities.httpx.AsyncClient") as mock_client_cls,
+        patch("posthog.temporal.delete_recordings.activities.internal_httpx_async_client") as mock_client_cls,
     ):
         mock_settings.RECORDING_API_URL = "http://recording-api:8000"
         mock_settings.INTERNAL_API_SECRET = ""

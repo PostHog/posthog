@@ -10,6 +10,7 @@ import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.workflow import ParentClosePolicy, start_child_workflow
 
 # TODO: remove dependency
@@ -304,21 +305,27 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
                 is_resumable_source = isinstance(source, ResumableSource)
 
-            timeout_params = (
-                {
+            if is_resumable_source:
+                timeout_params = {
+                    "start_to_close_timeout": dt.timedelta(weeks=1),
+                    "retry_policy": RetryPolicy(
+                        maximum_attempts=15, non_retryable_error_types=["NonRetryableException"]
+                    ),
+                }
+            elif incremental_or_append:
+                timeout_params = {
                     "start_to_close_timeout": dt.timedelta(weeks=1),
                     "retry_policy": RetryPolicy(
                         maximum_attempts=9, non_retryable_error_types=["NonRetryableException"]
                     ),
                 }
-                if incremental_or_append or is_resumable_source
-                else {
+            else:
+                timeout_params = {
                     "start_to_close_timeout": dt.timedelta(hours=24),
                     "retry_policy": RetryPolicy(
                         maximum_attempts=3, non_retryable_error_types=["NonRetryableException"]
                     ),
                 }
-            )
 
             pipeline_result = await workflow.execute_activity(
                 import_data_activity_sync,
@@ -387,17 +394,23 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )
 
             # Start DuckLake copy workflow as a child (fire-and-forget)
-            await workflow.start_child_workflow(
-                DuckLakeCopyDataImportsWorkflow.run,
-                DataImportsDuckLakeCopyInputs(
-                    team_id=inputs.team_id,
-                    job_id=job_id,
-                    schema_ids=[inputs.external_data_schema_id],
-                ),
-                id=f"ducklake-copy-data-imports-{job_id}",
-                task_queue=settings.DUCKLAKE_TASK_QUEUE,
-                parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-            )
+            try:
+                await workflow.start_child_workflow(
+                    DuckLakeCopyDataImportsWorkflow.run,
+                    DataImportsDuckLakeCopyInputs(
+                        team_id=inputs.team_id,
+                        job_id=job_id,
+                        schema_ids=[inputs.external_data_schema_id],
+                    ),
+                    id=f"ducklake-copy-data-imports-{inputs.team_id}-{inputs.external_data_schema_id}",
+                    task_queue=settings.DUCKLAKE_TASK_QUEUE,
+                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                )
+            except WorkflowAlreadyStartedError:
+                workflow.logger.warning(
+                    "DuckLake copy already running, skipping",
+                    schema_id=str(inputs.external_data_schema_id),
+                )
 
         except exceptions.ActivityError as e:
             if isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == "WorkerShuttingDownError":

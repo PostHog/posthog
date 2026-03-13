@@ -5,8 +5,7 @@ import pytest
 
 import aiohttp
 
-from posthog.batch_exports.service import BatchExportInsertInputs, BatchExportModel, BatchExportSchema
-
+from products.batch_exports.backend.service import BatchExportInsertInputs, BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.destinations.workflows_batch_export import (
     BadRequest,
     NotFound,

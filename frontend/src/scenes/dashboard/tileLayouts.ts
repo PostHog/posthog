@@ -19,7 +19,7 @@ export interface DuplicateLayoutResult {
 }
 
 export function calculateDuplicateLayout(
-    currentLayouts: Partial<Record<DashboardLayoutSize, Layout[]>> | null,
+    currentLayouts: Partial<Record<DashboardLayoutSize, Layout>> | null,
     tileId: number
 ): DuplicateLayoutResult {
     const result: DuplicateLayoutResult = { duplicateLayouts: {}, tilesToUpdate: [] }
@@ -66,7 +66,7 @@ export function calculateDuplicateLayout(
 }
 
 function canPlaceToRight(
-    layouts: Layout[],
+    layouts: Layout,
     excludeTileId: number,
     x: number,
     y: number,
@@ -109,8 +109,8 @@ export const sortTilesByLayout = (
 }
 export const calculateLayouts = (
     tiles: DashboardTile<QueryBasedInsightModel>[]
-): Partial<Record<DashboardLayoutSize, Layout[]>> => {
-    const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout[]>> = {}
+): Partial<Record<DashboardLayoutSize, Layout>> => {
+    const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout>> = {}
 
     // Always calculate sm layout first to establish reference order
     let referenceOrder: number[] | undefined = undefined

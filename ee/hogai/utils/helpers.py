@@ -36,6 +36,7 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.event_usage import EventSource
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
@@ -158,7 +159,8 @@ def _process_events_data(
     """Common logic for processing events and building event data."""
     query = TeamTaxonomyQuery(limit=limit, offset=offset)
     response = TeamTaxonomyQueryRunner(query, team).run(
-        ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+        ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+        analytics_props={"source": EventSource.POSTHOG_AI},
     )
 
     if not isinstance(response, CachedTeamTaxonomyQueryResponse):
