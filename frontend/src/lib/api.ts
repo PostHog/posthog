@@ -751,6 +751,11 @@ export class ApiRequest {
         return this.logs(projectId).addPathComponent('export')
     }
 
+    // # Tracing
+    public tracingSpans(): ApiRequest {
+        return this.projectsDetail().addPathComponent('tracing').addPathComponent('spans')
+    }
+
     // # Data management
     public eventDefinitions(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('event_definitions')
@@ -2534,6 +2539,18 @@ const api = {
             columns?: string[]
         }): Promise<{ id: number; export_format: string; has_content: boolean; filename: string }> {
             return new ApiRequest().logsExport().create({ data: { query, columns } })
+        },
+    },
+
+    tracing: {
+        async listSpans(): Promise<{ results: Record<string, any>[] }> {
+            return new ApiRequest().tracingSpans().get()
+        },
+        async getTrace(traceId: string): Promise<{ results: Record<string, any>[] }> {
+            return new ApiRequest().tracingSpans().withAction(`trace/${traceId}`).get()
+        },
+        async sparkline(): Promise<{ results: Record<string, any>[] }> {
+            return new ApiRequest().tracingSpans().withAction('sparkline').get()
         },
     },
 
@@ -4799,6 +4816,10 @@ const api = {
                 .withAction('job_stats')
                 .withQueryString({ days: options?.days })
                 .get(options)
+        },
+
+        async dataOpsDashboard(options?: ApiMethodOptions): Promise<{ dashboard_id: number }> {
+            return await new ApiRequest().dataWarehouse().withAction('data_ops_dashboard').get(options)
         },
     },
 

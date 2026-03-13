@@ -16,10 +16,13 @@ from django.conf import settings
 from django.test import override_settings
 
 import s3fs
+import orjson
 import psycopg
+import pyarrow as pa
 import aioboto3
 import deltalake
 import pytest_asyncio
+import pyarrow.parquet as pq
 import posthoganalytics
 from asgiref.sync import sync_to_async
 from deltalake import DeltaTable
@@ -59,6 +62,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.pipeline import Pipelin
 from posthog.temporal.data_imports.row_tracking import get_rows
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
@@ -334,6 +338,7 @@ async def _run(
         await sync_to_async(schema.refresh_from_db)()
 
         assert schema.last_synced_at == run.created_at
+        assert schema.initial_sync_complete is True
 
         res = await sync_to_async(execute_hogql_query)(f"SELECT * FROM {table_name}", team)
         assert len(res.results) == 1
@@ -2731,7 +2736,7 @@ async def test_billing_limits_too_many_rows(team, postgres_config, postgres_conn
     await postgres_connection.commit()
 
     with (
-        mock.patch("ee.api.billing.external_requests.get") as mock_billing_request,
+        mock.patch("ee.api.billing.requests.get") as mock_billing_request,
         mock.patch("posthog.cloud_utils.is_instance_licensed_cached", None),
     ):
         await sync_to_async(License.objects.create)(
@@ -2801,7 +2806,7 @@ async def test_billing_limits_too_many_rows_previously(team, postgres_config, po
     await postgres_connection.commit()
 
     with (
-        mock.patch("ee.api.billing.external_requests.get") as mock_billing_request,
+        mock.patch("ee.api.billing.requests.get") as mock_billing_request,
         mock.patch("posthog.cloud_utils.is_instance_licensed_cached", None),
     ):
         with freeze_time("2023-01-01"):
@@ -3186,8 +3191,8 @@ async def test_non_retryable_error_short_circuiting(team, stripe_customer, mock_
                 ignore_assertions=True,
             )
 
-    # Incremental and resumable source syncs retry up to 9 times
-    assert mock_get_rows.call_count == 9
+    # Resumable source syncs retry up to 15 times
+    assert mock_get_rows.call_count == 15
 
     source_cls = SourceRegistry.get_source(ExternalDataSourceType.STRIPE)
     non_retryable_errors = source_cls.get_non_retryable_errors()
@@ -3329,3 +3334,169 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
         "team_id": team.id,
         "properties": expected_properties,
     }
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_stripe_webhook_s3_charges(team, stripe_charge, mock_stripe_client, minio_client):
+    # Initial sync to create delta table and mark initial_sync_complete
+    _, inputs = await _run(
+        team=team,
+        schema_name=STRIPE_CHARGE_RESOURCE_NAME,
+        table_name="stripe_charge",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_charge["data"],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+    )
+
+    res = await sync_to_async(execute_hogql_query)("SELECT * FROM stripe_charge", team)
+    assert len(res.results) == 1
+
+    # Create a webhook HogFunction linked to this schema via inputs
+    schema = await sync_to_async(ExternalDataSchema.objects.get)(id=inputs.external_data_schema_id)
+    schema_id_str = str(schema.id)
+    await sync_to_async(HogFunction.objects.create)(
+        team=team,
+        enabled=True,
+        deleted=False,
+        type="warehouse_source_webhook",
+        inputs_schema=[{"key": "schema_mapping", "type": "json"}, {"key": "schema_ids", "type": "json"}],
+        inputs={
+            "schema_mapping": {"value": {"charge": schema_id_str}},
+            "schema_ids": {"value": [schema_id_str]},
+        },
+    )
+
+    assert schema.initial_sync_complete is True
+
+    # Upload a webhook parquet file to MinIO in the expected location
+    webhook_event = {
+        "id": "evt_abc123",
+        "type": "charge.refunded",
+        "data": {
+            "object": {
+                "id": "ch_abc123",
+                "amount": 5000,
+                "amount_refunded": 5000,
+                "refunded": True,
+                "object": "charge",
+                "amount_captured": 1099,
+                "application": None,
+                "application_fee": None,
+                "application_fee_amount": None,
+                "balance_transaction": "txn_3MmlLrLkdIwHu7ix0uke3Ezy",
+                "billing_details": {
+                    "address": {
+                        "city": None,
+                        "country": None,
+                        "line1": None,
+                        "line2": None,
+                        "postal_code": None,
+                        "state": None,
+                    },
+                    "email": None,
+                    "name": None,
+                    "phone": None,
+                },
+                "calculated_statement_descriptor": "Stripe",
+                "captured": True,
+                "created": 1679090539,
+                "currency": "usd",
+                "customer": None,
+                "description": None,
+                "disputed": False,
+                "failure_balance_transaction": None,
+                "failure_code": None,
+                "failure_message": None,
+                "fraud_details": {},
+                "invoice": None,
+                "livemode": False,
+                "metadata": {},
+                "on_behalf_of": None,
+                "outcome": {
+                    "network_status": "approved_by_network",
+                    "reason": None,
+                    "risk_level": "normal",
+                    "risk_score": 32,
+                    "seller_message": "Payment complete.",
+                    "type": "authorized",
+                },
+                "paid": True,
+                "payment_intent": None,
+                "payment_method": "card_1MmlLrLkdIwHu7ixIJwEWSNR",
+                "payment_method_details": {
+                    "card": {
+                        "brand": "visa",
+                        "checks": {"address_line1_check": None, "address_postal_code_check": None, "cvc_check": None},
+                        "country": "US",
+                        "exp_month": 3,
+                        "exp_year": 2024,
+                        "fingerprint": "mToisGZ01V71BCos",
+                        "funding": "credit",
+                        "installments": None,
+                        "last4": "4242",
+                        "mandate": None,
+                        "network": "visa",
+                        "three_d_secure": None,
+                        "wallet": None,
+                    },
+                    "type": "card",
+                },
+                "receipt_email": None,
+                "receipt_number": None,
+                "receipt_url": "https://pay.stripe.com/receipts/payment/CAcaFwoVYWNjdF8xTTJKVGtMa2RJd0h1N2l4KOvG06AGMgZfBXyr1aw6LBa9vaaSRWU96d8qBwz9z2J_CObiV_H2-e8RezSK_sw0KISesp4czsOUlVKY",
+                "review": None,
+                "shipping": None,
+                "source_transfer": None,
+                "statement_descriptor": None,
+                "statement_descriptor_suffix": None,
+                "status": "succeeded",
+                "transfer_data": None,
+                "transfer_group": None,
+            }
+        },
+    }
+    webhook_table = pa.table(
+        {
+            "team_id": [team.id],
+            "schema_id": [str(schema.id)],
+            "payload_json": [orjson.dumps(webhook_event).decode("utf-8")],
+        }
+    )
+    webhook_prefix = f"source_webhook_producer/{team.id}/{schema.id}"
+    webhook_file_key = f"{webhook_prefix}/webhook_0.parquet"
+
+    buf = pa.BufferOutputStream()
+    pq.write_table(webhook_table, buf)
+    await minio_client.put_object(
+        Bucket=BUCKET_NAME,
+        Key=webhook_file_key,
+        Body=buf.getvalue().to_pybytes(),
+    )
+
+    files = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=webhook_prefix)
+    assert len(files.get("Contents", [])) == 1
+
+    # Run the pipeline again with webhook feature flag enabled
+    with (
+        mock.patch.object(WebhookSourceManager, "_is_webhook_feature_flag_enabled", new=AsyncMock(return_value=True)),
+        mock.patch.object(DeltaTableHelper, "compact_table"),
+    ):
+        workflow_id = str(uuid.uuid4())
+        await _execute_run(workflow_id, inputs, stripe_charge["data"])
+
+        await _replay_v3_consumer(team_id=team.pk, schema_id=schema.id)
+
+    # Verify job completed
+    run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=inputs.external_data_source_id)
+    assert run is not None
+    assert run.status == ExternalDataJob.Status.COMPLETED
+
+    # Verify webhook data was ingested alongside the original charge
+    res = await sync_to_async(execute_hogql_query)("SELECT * FROM stripe_charge", team)
+    assert len(res.results) == 2
+
+    # Verify webhook parquet file was deleted from S3 after consumption
+    files = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=webhook_prefix)
+    assert files.get("Contents") is None or len(files.get("Contents", [])) == 0

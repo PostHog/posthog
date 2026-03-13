@@ -80,6 +80,12 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         context_id: 'insight-alerts',
         filters: { events: [{ id: '$insight_alert_firing', type: 'events' }] },
     },
+    'experiment-significant': {
+        sub_template_id: 'experiment-significant',
+        type: 'internal_destination',
+        context_id: 'experiment-alerts',
+        filters: { events: [{ id: '$experiment_metric_significant', type: 'events' }] },
+    },
 }
 
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
@@ -604,6 +610,57 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
     ],
+    'experiment-significant': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['experiment-significant'],
+            template_id: 'template-webhook',
+            name: 'HTTP Webhook on experiment significance',
+            description: 'Send a webhook when an experiment metric reaches significance',
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['experiment-significant'],
+            template_id: 'template-slack',
+            name: 'Post to Slack on experiment significance',
+            description: 'Post to a Slack channel when an experiment metric reaches significance',
+            inputs: {
+                blocks: {
+                    value: [
+                        {
+                            type: 'header',
+                            text: {
+                                type: 'plain_text',
+                                text: "\ud83e\uddea Experiment '{event.properties.experiment_name}' has reached significance",
+                            },
+                        },
+                        {
+                            type: 'section',
+                            text: {
+                                type: 'mrkdwn',
+                                text: '*{event.properties.variant_key}* variant is winning on *{event.properties.metric_name}* {event.properties.relative_change}\nChance to win: *{event.properties.chance_to_win}* \u00b7 Goal: *{event.properties.goal_direction}*',
+                            },
+                        },
+                        {
+                            type: 'actions',
+                            elements: [
+                                {
+                                    url: '{project.url}{event.properties.experiment_url}',
+                                    text: { text: 'View experiment', type: 'plain_text' },
+                                    type: 'button',
+                                },
+                            ],
+                        },
+                        {
+                            type: 'context',
+                            elements: [{ type: 'mrkdwn', text: '{project.name}' }],
+                        },
+                    ],
+                },
+                text: {
+                    value: "Experiment '{event.properties.experiment_name}' has reached significance",
+                },
+            },
+        },
+    ],
     [INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID]: [
         {
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES[INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID],
@@ -678,6 +735,8 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
             return 'error-tracking'
         case '$insight_alert_firing':
             return 'insight-alerts'
+        case '$experiment_metric_significant':
+            return 'experiment-alerts'
         case '$activity_log_entry_created':
             return 'activity-log'
         case '$discussion_mention_created':

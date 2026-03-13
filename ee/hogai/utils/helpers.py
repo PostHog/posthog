@@ -36,6 +36,7 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.event_usage import EventSource
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
@@ -149,14 +150,23 @@ def convert_tool_messages_to_dict(messages: Sequence[AssistantMessageUnion]) -> 
     return {message.tool_call_id: message for message in messages if isinstance(message, AssistantToolCallMessage)}
 
 
-def _process_events_data(events_in_context: list[MaxEventContext], team: Team) -> tuple[list[dict], dict[str, str]]:
+def _process_events_data(
+    events_in_context: list[MaxEventContext],
+    team: Team,
+    limit: int | None = None,
+    offset: int | None = None,
+) -> tuple[list[dict], dict[str, str], bool]:
     """Common logic for processing events and building event data."""
-    response = TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), team).run(
-        ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+    query = TeamTaxonomyQuery(limit=limit, offset=offset)
+    response = TeamTaxonomyQueryRunner(query, team).run(
+        ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+        analytics_props={"source": EventSource.POSTHOG_AI},
     )
 
     if not isinstance(response, CachedTeamTaxonomyQueryResponse):
         raise ValueError("Failed to generate events prompt.")
+
+    has_more = bool(response.hasMore)
 
     events: list[str] = [
         # Add "All events" to the mapping
@@ -167,7 +177,7 @@ def _process_events_data(events_in_context: list[MaxEventContext], team: Team) -
             continue
         if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(item.event):
             if event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant"):
-                continue  # Skip system or ignored events
+                continue  # Skip system or ignored events (safety net, already filtered in SQL)
         events.append(item.event)
 
     event_to_description: dict[str, str] = {}
@@ -201,11 +211,11 @@ def _process_events_data(events_in_context: list[MaxEventContext], team: Team) -
 
         processed_events.append(event_data)
 
-    return processed_events, event_to_description
+    return processed_events, event_to_description, has_more
 
 
 def format_events_xml(events_in_context: list[MaxEventContext], team: Team) -> str:
-    processed_events, _ = _process_events_data(events_in_context, team)
+    processed_events, _, _ = _process_events_data(events_in_context, team)
 
     root = ET.Element("defined_events")
     for event_data in processed_events:
@@ -219,14 +229,23 @@ def format_events_xml(events_in_context: list[MaxEventContext], team: Team) -> s
     return ET.tostring(root, encoding="unicode")
 
 
-def format_events_yaml(events_in_context: list[MaxEventContext], team: Team) -> str:
-    processed_events, _ = _process_events_data(events_in_context, team)
+def format_events_yaml(
+    events_in_context: list[MaxEventContext],
+    team: Team,
+    limit: int | None = None,
+    offset: int | None = None,
+) -> str:
+    processed_events, _, has_more = _process_events_data(events_in_context, team, limit=limit, offset=offset)
 
     formatted_events = ["events:"]
     for event_data in processed_events:
         name = event_data["name"]
         description = event_data.get("description", "")
         formatted_events.append(f"- `{name}` - {description}" if description else f"- `{name}`")
+
+    if has_more:
+        next_offset = (offset or 0) + (limit or 500)
+        formatted_events.append(f"\n# More events available. To fetch the next page, use offset={next_offset}")
 
     return "\n".join(formatted_events)
 

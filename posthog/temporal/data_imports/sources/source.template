@@ -73,7 +73,7 @@ class TemplateSource(SimpleSource[Config]):  # rename this class and replace `Co
         )  # implement logic to validate the credentials of your source, e.g. check the validity of API keys. return a tuple of whether the credentials are valid, and if not, return an error message to return to the user
 
     def get_schemas(
-        self, config: Config, team_id: int, with_counts: bool = False
+        self, config: Config, team_id: int, with_counts: bool = False, names: list[str] | None = None
     ) -> list[SourceSchema]:  # replace `Config` with the generated class
         return []  # implement your source logic
 

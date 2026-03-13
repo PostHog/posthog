@@ -27,6 +27,8 @@ from posthog.schema import (
 )
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.event_usage import EventSource
 from posthog.hogql_queries.experiments.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
@@ -207,12 +209,18 @@ class ExperimentSummaryDataService:
                     experiment_id=experiment_id,
                     metric=metric_obj,
                 )
-                query_runner = ExperimentQueryRunner(
-                    query=experiment_query,
-                    team=experiment.team,
-                    workload=Workload.ONLINE,
-                )
-                result = query_runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
+                with tags_context(
+                    product=Product.MAX_AI, team_id=experiment.team.pk, org_id=experiment.team.organization_id
+                ):
+                    query_runner = ExperimentQueryRunner(
+                        query=experiment_query,
+                        team=experiment.team,
+                        workload=Workload.ONLINE,
+                    )
+                    result = query_runner.run(
+                        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                        analytics_props={"source": EventSource.POSTHOG_AI},
+                    )
                 refresh_time = getattr(result, "last_refresh", None)
 
                 if is_incomplete_response(result):
@@ -253,13 +261,17 @@ class ExperimentSummaryDataService:
                         exposure_criteria=experiment.exposure_criteria,
                         holdout=experiment.holdout,
                     )
-                    exposure_runner = ExperimentExposuresQueryRunner(
-                        query=exposure_query,
-                        team=experiment.team,
-                    )
-                    exposure_result = exposure_runner.run(
-                        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
-                    )
+                    with tags_context(
+                        product=Product.MAX_AI, team_id=experiment.team.pk, org_id=experiment.team.organization_id
+                    ):
+                        exposure_runner = ExperimentExposuresQueryRunner(
+                            query=exposure_query,
+                            team=experiment.team,
+                        )
+                        exposure_result = exposure_runner.run(
+                            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                            analytics_props={"source": EventSource.POSTHOG_AI},
+                        )
 
                     if is_incomplete_response(exposure_result):
                         return ExposureQueryResult(exposures=None, refresh_time=None, pending=True)

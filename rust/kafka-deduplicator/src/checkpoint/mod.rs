@@ -27,4 +27,6 @@ pub use s3_uploader::S3Uploader;
 pub use uploader::CheckpointUploader;
 pub use worker::CheckpointWorker;
 
-pub use error::{DownloadCancelledError, ImportTimeoutError, UploadCancelledError};
+pub use error::{
+    DownloadCancelledError, ImportTimeoutError, PlanningCancelledError, UploadCancelledError,
+};

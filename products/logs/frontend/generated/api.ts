@@ -57,32 +57,6 @@ export const logsExplainLogWithAICreate = async (
     })
 }
 
-export const getHogFlowTemplatesLogsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_flow_templates/${id}/logs/`
-}
-
-export const hogFlowTemplatesLogsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getHogFlowTemplatesLogsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getHogFlowsLogsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_flows/${id}/logs/`
-}
-
-export const hogFlowsLogsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getHogFlowsLogsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getHogFunctionsLogsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_functions/${id}/logs/`
 }

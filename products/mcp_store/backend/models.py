@@ -20,8 +20,8 @@ class SensitiveConfig(TypedDict, total=False):
     needs_reauth: bool
 
 
-InstallSource = Literal["posthog", "twig"]
-INSTALL_SOURCE_CHOICES = [("posthog", "posthog"), ("twig", "twig")]
+InstallSource = Literal["posthog", "twig", "posthog-code"]
+INSTALL_SOURCE_CHOICES = [("posthog", "posthog"), ("twig", "twig"), ("posthog-code", "posthog-code")]
 
 
 # TRICKY: this is not a 1:1 mapping to MCPServer objects.
@@ -101,7 +101,7 @@ class MCPOAuthState(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     server = models.ForeignKey(MCPServer, on_delete=models.CASCADE, related_name="oauth_states")
     install_source = models.CharField(max_length=20, choices=INSTALL_SOURCE_CHOICES, default="posthog")
-    twig_callback_url = models.TextField(blank=True, default="")
+    posthog_code_callback_url = models.TextField(blank=True, default="", db_column="twig_callback_url")
     pkce_verifier = models.CharField(max_length=255, blank=True, default="")
     expires_at = models.DateTimeField()
     consumed_at = models.DateTimeField(null=True, blank=True)

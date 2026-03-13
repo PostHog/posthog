@@ -24,7 +24,8 @@ impl PersonLookup for PostgresStorage {
             SELECT id, uuid, team_id::bigint as "team_id!", properties,
                    properties_last_updated_at, properties_last_operation,
                    created_at, version, is_identified,
-                   CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id
+                   CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
+                   last_seen_at
             FROM posthog_person
             WHERE team_id = $1 AND id = $2
             "#,
@@ -47,7 +48,8 @@ impl PersonLookup for PostgresStorage {
             SELECT id, uuid, team_id::bigint as "team_id!", properties,
                    properties_last_updated_at, properties_last_operation,
                    created_at, version, is_identified,
-                   CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id
+                   CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
+                   last_seen_at
             FROM posthog_person
             WHERE team_id = $1 AND uuid = $2
             "#,
@@ -78,7 +80,8 @@ impl PersonLookup for PostgresStorage {
             SELECT id, uuid, team_id::bigint as "team_id!", properties,
                    properties_last_updated_at, properties_last_operation,
                    created_at, version, is_identified,
-                   CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id
+                   CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
+                   last_seen_at
             FROM posthog_person
             WHERE team_id = $1 AND id = ANY($2)
             "#,
@@ -109,7 +112,8 @@ impl PersonLookup for PostgresStorage {
             SELECT id, uuid, team_id::bigint as "team_id!", properties,
                    properties_last_updated_at, properties_last_operation,
                    created_at, version, is_identified,
-                   CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id
+                   CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
+                   last_seen_at
             FROM posthog_person
             WHERE team_id = $1 AND uuid = ANY($2)
             "#,
@@ -139,7 +143,8 @@ impl PersonLookup for PostgresStorage {
             SELECT p.id, p.uuid, p.team_id::bigint as "team_id!", p.properties,
                    p.properties_last_updated_at, p.properties_last_operation,
                    p.created_at, p.version, p.is_identified,
-                   CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id
+                   CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
+                   p.last_seen_at
             FROM posthog_person p
             INNER JOIN posthog_persondistinctid d ON p.id = d.person_id AND p.team_id = d.team_id
             WHERE p.team_id = $1 AND d.distinct_id = $2
@@ -177,6 +182,7 @@ impl PersonLookup for PostgresStorage {
                    p.properties_last_updated_at, p.properties_last_operation,
                    p.created_at as "created_at!", p.version, p.is_identified as "is_identified!",
                    CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
+                   p.last_seen_at,
                    d.distinct_id as "distinct_id!"
             FROM posthog_person p
             INNER JOIN posthog_persondistinctid d ON p.id = d.person_id AND p.team_id = d.team_id
@@ -202,6 +208,7 @@ impl PersonLookup for PostgresStorage {
                     version: row.version,
                     is_identified: row.is_identified,
                     is_user_id: row.is_user_id,
+                    last_seen_at: row.last_seen_at,
                 };
                 (row.distinct_id, person)
             })
@@ -238,6 +245,7 @@ impl PersonLookup for PostgresStorage {
                    p.properties_last_updated_at, p.properties_last_operation,
                    p.created_at as "created_at!", p.version, p.is_identified as "is_identified!",
                    CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
+                   p.last_seen_at,
                    d.distinct_id as "distinct_id!"
             FROM posthog_person p
             INNER JOIN posthog_persondistinctid d ON d.person_id = p.id AND d.team_id = p.team_id
@@ -265,6 +273,7 @@ impl PersonLookup for PostgresStorage {
                     version: row.version,
                     is_identified: row.is_identified,
                     is_user_id: row.is_user_id,
+                    last_seen_at: row.last_seen_at,
                 };
                 (key, person)
             })

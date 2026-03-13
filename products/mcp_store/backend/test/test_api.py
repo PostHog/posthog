@@ -4,12 +4,32 @@ from urllib.parse import parse_qs, urlparse
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import patch
 
+from django.test import TestCase
+
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from products.mcp_store.backend.api import _is_valid_posthog_code_callback_url
 from products.mcp_store.backend.models import RECOMMENDED_SERVERS, MCPOAuthState, MCPServer, MCPServerInstallation
 
 ALLOW_URL = patch("products.mcp_store.backend.api.is_url_allowed", return_value=(True, None))
+
+
+class TestIsValidPosthogCodeCallbackUrl(TestCase):
+    @parameterized.expand(
+        [
+            ("array_scheme", "array://callback", True),
+            ("twig_scheme", "twig://oauth/callback", False),
+            ("posthog_code_scheme", "posthog-code://oauth/callback", True),
+            ("https_rejected", "https://evil.com/redirect", False),
+            ("http_rejected", "http://example.com/callback", False),
+            ("javascript_rejected", "javascript:alert(1)", False),
+            ("empty_string", "", False),
+        ]
+    )
+    def test_callback_url_validation(self, _name, url, expected):
+        assert _is_valid_posthog_code_callback_url(url) == expected
 
 
 class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -287,6 +307,49 @@ class TestInstallCustomAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json()["display_name"] == "Custom Name"
         assert response.json()["name"] == "Custom Name"
 
+    @ALLOW_URL
+    def test_install_custom_accepts_posthog_code_install_source(self, _mock):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={
+                "name": "Code Server",
+                "url": "https://mcp.code.com",
+                "auth_type": "api_key",
+                "install_source": "posthog-code",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+    def test_install_custom_rejects_invalid_posthog_code_callback_url(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={
+                "name": "Evil",
+                "url": "https://mcp.example.com",
+                "auth_type": "api_key",
+                "install_source": "posthog-code",
+                "posthog_code_callback_url": "https://evil.com/steal",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @ALLOW_URL
+    def test_install_custom_accepts_posthog_code_callback_url(self, _mock):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={
+                "name": "Code Server",
+                "url": "https://mcp.code2.com",
+                "auth_type": "api_key",
+                "install_source": "posthog-code",
+                "posthog_code_callback_url": "posthog-code://oauth/callback",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
 
 class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def _create_server(self, **kwargs) -> MCPServer:
@@ -305,7 +368,15 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         defaults.update(kwargs)
         return MCPServer.objects.create(**defaults)
 
-    def _create_oauth_state(self, installation, server, state_token, pkce_verifier=""):
+    def _create_oauth_state(
+        self,
+        installation,
+        server,
+        state_token,
+        pkce_verifier="",
+        install_source="posthog",
+        posthog_code_callback_url="",
+    ):
         from datetime import timedelta
 
         from django.utils import timezone
@@ -317,6 +388,8 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             team=self.team,
             server=server,
             pkce_verifier=pkce_verifier,
+            install_source=install_source,
+            posthog_code_callback_url=posthog_code_callback_url,
             expires_at=timezone.now() + timedelta(seconds=600),
         )
 
@@ -390,6 +463,75 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         mock_post.assert_called_once()
         assert mock_post.call_args[0][0] == "https://api.linear.app/oauth/token"
         assert "code_verifier" not in mock_post.call_args[1].get("data", {})
+
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_oauth_redirect_uses_posthog_code_callback_url(self, mock_post, _allow):
+        server = self._create_server()
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            server=server,
+            url="https://mcp.example.com",
+            display_name="Test",
+            auth_type="oauth",
+        )
+
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "tok", "token_type": "bearer"}
+
+        callback_url = "posthog-code://oauth/callback"
+        state_token = "test-posthog-code-state"
+        self._create_oauth_state(
+            installation,
+            server,
+            state_token,
+            pkce_verifier="test-verifier",
+            install_source="posthog-code",
+            posthog_code_callback_url=callback_url,
+        )
+
+        client = APIClient()
+        response = client.get(
+            "/api/mcp_store/oauth_redirect/",
+            {"state": state_token, "code": "auth-code"},
+        )
+
+        assert response.status_code == 302
+        location = response["Location"]
+        assert location.startswith("posthog-code://oauth/callback?")
+        assert "status=success" in location
+
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_oauth_redirect_posthog_code_error_includes_error_param(self, mock_post, _allow):
+        server = self._create_server()
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            server=server,
+            url="https://mcp.example.com",
+            display_name="Test",
+            auth_type="oauth",
+        )
+
+        callback_url = "posthog-code://oauth/callback"
+        state_token = "test-posthog-code-error"
+        self._create_oauth_state(
+            installation, server, state_token, install_source="posthog-code", posthog_code_callback_url=callback_url
+        )
+
+        client = APIClient()
+        response = client.get(
+            "/api/mcp_store/oauth_redirect/",
+            {"state": state_token, "error": "access_denied"},
+        )
+
+        assert response.status_code == 302
+        location = response["Location"]
+        assert location.startswith("posthog-code://oauth/callback?")
+        assert "status=error" in location
+        assert "error=cancelled" in location
 
 
 class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
