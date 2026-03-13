@@ -131,10 +131,14 @@ class Command(BaseCommand):
 
         self.stdout.write("")
         self.stdout.write(self.style.SUCCESS("=== Research Result ==="))
-        self.stdout.write(f"Actionability: {result.summary.actionability}")
-        self.stdout.write(f"Priority: {result.summary.priority}")
-        self.stdout.write(f"Already addressed: {result.summary.already_addressed}")
-        self.stdout.write(f"Explanation: {result.summary.explanation}")
+        self.stdout.write(f"Actionability: {result.actionability.actionability}")
+        self.stdout.write(f"Already addressed: {result.actionability.already_addressed}")
+        self.stdout.write(f"Actionability explanation: {result.actionability.explanation}")
+        if result.priority:
+            self.stdout.write(f"Priority: {result.priority.priority}")
+            self.stdout.write(f"Priority explanation: {result.priority.explanation}")
+        else:
+            self.stdout.write("Priority: N/A (not actionable)")
         self.stdout.write("")
         for finding in result.findings:
             self.stdout.write(self.style.WARNING(f"--- Signal: {finding.signal_id} ---"))

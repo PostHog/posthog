@@ -40,22 +40,18 @@ class SignalFinding(BaseModel):
     )
 
 
-class ReportSummary(BaseModel):
-    actionability: ActionabilityChoice = Field(description="Overall actionability assessment")
-    priority: Priority | None = Field(
-        default=None,
-        description="Priority (P0-P4), required when actionability is not 'not_actionable'",
+class ActionabilityAssessment(BaseModel):
+    explanation: str = Field(
+        description=(
+            "2-3 sentence evidence-grounded explanation of your actionability assessment. "
+            "Reference specific code paths and data points from your research."
+        ),
     )
+    actionability: ActionabilityChoice = Field(description="Overall actionability assessment")
     already_addressed: bool = Field(
         description=(
             "Whether the core issue described by this report appears to have been "
             "already fixed or addressed in recent code changes."
-        ),
-    )
-    explanation: str = Field(
-        description=(
-            "3-6 sentence evidence-grounded explanation of your actionability and priority assessment. "
-            "Reference specific code paths and data points from your research."
         ),
     )
 
@@ -66,14 +62,21 @@ class ReportSummary(BaseModel):
             raise ValueError("Explanation must not be empty")
         return v
 
-    @field_validator("priority")
+
+class PriorityAssessment(BaseModel):
+    explanation: str = Field(
+        description=(
+            "2-3 sentence justification for the priority level. "
+            "Reference quantified user impact, error frequency, or scope of affected code paths."
+        ),
+    )
+    priority: Priority = Field(description="Priority (P0-P4)")
+
+    @field_validator("explanation")
     @classmethod
-    def priority_required_when_actionable(cls, v: Priority | None, info) -> Priority | None:
-        choice = info.data.get("actionability")
-        if choice == ActionabilityChoice.NOT_ACTIONABLE:
-            return None
-        if v is None:
-            raise ValueError("Priority is required when actionability != not_actionable")
+    def explanation_must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Explanation must not be empty")
         return v
 
 
@@ -81,7 +84,10 @@ class ReportResearchOutput(BaseModel):
     findings: list[SignalFinding] = Field(
         description="One finding per signal in the report, in the same order as the input signals.",
     )
-    summary: ReportSummary = Field(description="Overall report-level assessment.")
+    actionability: ActionabilityAssessment = Field(description="Actionability assessment.")
+    priority: PriorityAssessment | None = Field(
+        default=None, description="Priority assessment. None when not actionable."
+    )
 
 
 def _render_signal_for_research(signal: SignalData, index: int, total: int) -> str:
@@ -135,17 +141,7 @@ _ACTIONABILITY_CRITERIA = """## Actionability criteria
 3. **not_actionable** — No useful code action can be derived (too vague, insufficient evidence, expected behavior).
 
 When in doubt between "immediately_actionable" and "requires_human_input", choose "immediately_actionable".
-When in doubt between "requires_human_input" and "not_actionable", choose "not_actionable".
-
-## Priority criteria (only when not "not_actionable")
-
-- **P0** — Critical. Production errors, core flow broken, data loss, security vulnerability.
-- **P1** — High. Significant user-facing impact, statistically significant regression, notable error rate increase.
-- **P2** — Medium. Clear improvement opportunity, contained issue with workarounds.
-- **P3** — Low. Minor improvement, low-impact issue, marginal experiment results.
-- **P4** — Minimal. Cosmetic, negligible performance, optional investigation.
-
-Base your priority on **evidence from your research** — quantified user impact, error frequency, or scope of affected code paths — not just the signal descriptions."""
+When in doubt between "requires_human_input" and "not_actionable", choose "not_actionable"."""
 
 
 def build_initial_research_prompt(title: str, summary: str, first_signal: SignalData, total_signals: int) -> str:
@@ -208,18 +204,45 @@ Investigate this signal using the same protocol, then respond with a JSON object
 </jsonschema>"""
 
 
-def build_report_summary_prompt(total_signals: int) -> str:
-    """Build the final prompt asking for an overall report assessment."""
-    summary_schema = json.dumps(ReportSummary.model_json_schema(), indent=2)
+def build_actionability_prompt(total_signals: int) -> str:
+    """Build the prompt asking for an actionability assessment after all signals are investigated."""
+    schema = json.dumps(ActionabilityAssessment.model_json_schema(), indent=2)
 
-    return f"""You have investigated all {total_signals} signal(s). Now provide an overall assessment of the report as a whole.
+    return f"""You have investigated all {total_signals} signal(s). Now assess: **is this report actionable?**
 
-Consider all findings together — are they actionable? What priority? Has the issue been addressed?
+{_ACTIONABILITY_CRITERIA}
+
+Consider all your findings together. Write your explanation first, grounding it in the evidence you gathered, then give your verdict.
 
 Respond with a JSON object matching this schema:
 
 <jsonschema>
-{summary_schema}
+{schema}
+</jsonschema>"""
+
+
+def build_priority_prompt(total_signals: int) -> str:
+    """Build the prompt asking for a priority assessment (only sent when actionable)."""
+    schema = json.dumps(PriorityAssessment.model_json_schema(), indent=2)
+
+    return f"""Now assess the **priority** of this report based on your research across all {total_signals} signal(s).
+
+## Priority criteria
+
+- **P0** — Critical. Production errors, core flow broken, data loss, security vulnerability.
+- **P1** — High. Significant user-facing impact, statistically significant regression, notable error rate increase.
+- **P2** — Medium. Clear improvement opportunity, contained issue with workarounds.
+- **P3** — Low. Minor improvement, low-impact issue, marginal experiment results.
+- **P4** — Minimal. Cosmetic, negligible performance, optional investigation.
+
+Base your priority on **evidence from your research** — quantified user impact, error frequency, or scope of affected code paths — not just the signal descriptions.
+
+Write your explanation first, then give your priority level.
+
+Respond with a JSON object matching this schema:
+
+<jsonschema>
+{schema}
 </jsonschema>"""
 
 
@@ -277,18 +300,39 @@ async def run_multi_turn_research(
         if output_fn:
             output_fn(f"Signal {i}/{total} done: {finding.signal_id}")
 
-    # Final turn: summary
+    # Actionability assessment
     if output_fn:
-        output_fn("Requesting overall report summary...")
-    summary_prompt = build_report_summary_prompt(total)
-    report_summary = await send_followup(
+        output_fn("Assessing actionability...")
+    actionability_prompt = build_actionability_prompt(total)
+    actionability_result = await send_followup(
         session,
-        summary_prompt,
-        ReportSummary,
-        label="report_summary",
+        actionability_prompt,
+        ActionabilityAssessment,
+        label="actionability",
     )
+    if output_fn:
+        output_fn(f"Actionability: {actionability_result.actionability.value}")
+
+    # Priority assessment (only when actionable)
+    priority_result: PriorityAssessment | None = None
+    if actionability_result.actionability != ActionabilityChoice.NOT_ACTIONABLE:
+        if output_fn:
+            output_fn("Assessing priority...")
+        priority_prompt = build_priority_prompt(total)
+        priority_result = await send_followup(
+            session,
+            priority_prompt,
+            PriorityAssessment,
+            label="priority",
+        )
+        if output_fn:
+            output_fn(f"Priority: {priority_result.priority.value}")
 
     await end_session(session)
 
     logger.info("multi_turn_research: completed with %d findings", len(findings))
-    return ReportResearchOutput(findings=findings, summary=report_summary)
+    return ReportResearchOutput(
+        findings=findings,
+        actionability=actionability_result,
+        priority=priority_result,
+    )
