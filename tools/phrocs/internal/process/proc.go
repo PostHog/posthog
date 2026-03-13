@@ -412,6 +412,7 @@ func (p *Process) startMetricsSampler(pid int) {
 	}
 	// First CPUPercent call initialises the measurement baseline; always 0
 	_, _ = ps.CPUPercent()
+	origPID := pid
 
 	ticker := time.NewTicker(metricsSampleInterval)
 	defer ticker.Stop()
@@ -419,8 +420,17 @@ func (p *Process) startMetricsSampler(pid int) {
 	for range ticker.C {
 		p.mu.Lock()
 		st := p.status
+		currentPID := 0
+		if p.cmd != nil && p.cmd.Process != nil {
+			currentPID = p.cmd.Process.Pid
+		}
+
 		p.mu.Unlock()
 		if st != StatusRunning && st != StatusPending {
+			return
+		}
+		if currentPID != 0 && currentPID != origPID {
+			// Process has been restarted with a new PID
 			return
 		}
 

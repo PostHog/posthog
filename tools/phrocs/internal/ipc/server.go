@@ -23,9 +23,11 @@ package ipc
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"regexp"
+	"syscall"
 
 	"github.com/posthog/posthog/phrocs/internal/process"
 )
@@ -44,9 +46,29 @@ type request struct {
 // using mgr. It removes any stale socket file before binding. Blocks until
 // the listener is closed; intended to be run in a goroutine.
 func Serve(path string, mgr *process.Manager) error {
-	_ = os.Remove(path)
+	// Only remove an existing socket file if it is a Unix socket owned by the
+	// current user. This avoids clobbering arbitrary files in /tmp.
+	if fi, err := os.Lstat(path); err == nil {
+		if fi.Mode()&os.ModeSocket == 0 {
+			return fmt.Errorf("ipc: existing path is not a socket: %s", path)
+		}
+		if stat, ok := fi.Sys().(*syscall.Stat_t); ok {
+			if stat.Uid != uint32(os.Getuid()) {
+				return fmt.Errorf("ipc: existing socket not owned by current user: %s", path)
+			}
+		}
+		if err := os.Remove(path); err != nil {
+			return err
+		}
+	}
+
 	ln, err := net.Listen("unix", path)
 	if err != nil {
+		return err
+	}
+	// Restrict socket permissions so only the owner can connect, independent of umask
+	if err := os.Chmod(path, 0o600); err != nil {
+		_ = ln.Close()
 		return err
 	}
 	defer func() { _ = ln.Close() }()

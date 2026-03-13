@@ -14,7 +14,7 @@ Run `hogli --help` to get the full, current command list. Run `hogli <command> -
 
 ## Process observability (for agents/debugging)
 
-The `status` field transitions `starting` → `running` → `stopped` or `crashed`.
+The `status` field transitions `pending` → `running` → `stopped`/`done`/`crashed`.
 A separate `ready` boolean flips to `true` once `ready_pattern` matches.
 
 Log output lives in phrocs' in-memory scrollback buffer (10,000 lines per process)

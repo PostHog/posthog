@@ -160,7 +160,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.viewport.StyleLineFunc = nil
 			case s == "enter":
 				m.searchMode = false
-				// Keep matches visible; n/N can now navigate them.
+				// Keep matches visible
 				if len(m.searchMatches) > 0 {
 					m.searchCursor = 0
 					m.applySearchStyle()
@@ -173,7 +173,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.recomputeSearch()
 				}
 			case key.Matches(msg, m.keys.Search):
-				// Ignore repeated '/' while already searching.
+				// Ignore repeated '/' while already searching
 			default:
 				var ch string
 				if s == "space" {
@@ -482,7 +482,7 @@ func (m Model) applySize() Model {
 	if ptyW < 1 {
 		ptyW = 1
 	}
-	// Reduce the viewport widthto account for borders
+	// Reduce the viewport width to account for borders
 	vpW := ptyW - horizontalBorderCount
 	if m.copyMode {
 		vpW = m.width - horizontalBorderCount
