@@ -17,11 +17,8 @@ common-continuous-profiling = { path = "../common/continuous_profiling" }
 limiters = { path = "../common/limiters" }
 capture = { path = "../capture" }
 opentelemetry-proto = { workspace = true }
-tonic = { workspace = true }
 serde = { workspace = true }
-serde_derive = { workspace = true }
 anyhow = { workspace = true }
-thiserror = { workspace = true }
 serde_json = { workspace = true }
 metrics = { workspace = true }
 base64 = { workspace = true }
