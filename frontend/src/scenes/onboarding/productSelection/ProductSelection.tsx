@@ -255,7 +255,7 @@ function ProductSelectionStep(): JSX.Element {
             {recommendationSource === 'browsing_history' && <BrowsingHistoryBanner />}
 
             {/* Products list */}
-            <div className="flex flex-wrap justify-center gap-3 w-full">
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,190px))] gap-3 justify-center w-full">
                 {/* Recommended products first */}
                 {availableRecommendedProducts.map((productKey) => (
                     <ProductCard
