@@ -299,6 +299,12 @@ describe('TaxonomicFilter', () => {
             await waitFor(() => {
                 expect(onChangeMock).toHaveBeenCalledTimes(1)
             })
+
+            await userEvent.click(screen.getByTestId('prop-filter-events-1'))
+
+            await waitFor(() => {
+                expect(onChangeMock).toHaveBeenCalledTimes(2)
+            })
         })
     })
 
