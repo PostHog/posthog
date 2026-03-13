@@ -8,38 +8,38 @@ from google.genai import types
 from posthoganalytics.ai.gemini import AsyncClient as AsyncGeminiClient
 from posthoganalytics.ai.openai import AsyncOpenAI
 
-from posthog.temporal.data_imports.signals.github_issues import GITHUB_ACTIONABILITY_PROMPT, github_issue_emitter
+from posthog.temporal.data_imports.signals.zendesk_tickets import ZENDESK_ACTIONABILITY_PROMPT, zendesk_ticket_emitter
 from posthog.temporal.data_imports.workflow_activities.emit_signals import (
     GEMINI_MODEL,
     LLM_THINKING_BUDGET_TOKENS,
     _extract_thoughts,
 )
 
-from products.signals.eval.framework import EvalCase, EvalMetric, run_eval
+from products.signals.eval.offline.framework import EvalCase, EvalMetric, run_eval
 
 JUDGE_MODEL = "gpt-5.2-2025-12-11"
 
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
+FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
 
 
-def load_github_cases(expected_labels: dict[str, str]) -> list[EvalCase]:
-    with open(FIXTURES_DIR / "github_issues.json") as f:
-        issues = json.load(f)
+def load_zendesk_cases(expected_labels: dict[str, str] | None = None) -> list[EvalCase]:
+    with open(FIXTURES_DIR / "zendesk_tickets.json") as f:
+        tickets = json.load(f)
 
     cases = []
-    for issue in issues:
-        output = github_issue_emitter(team_id=0, record=issue)
+    for ticket in tickets:
+        output = zendesk_ticket_emitter(team_id=0, record=ticket)
         if output is None:
             continue
-        expected = expected_labels.get(issue["id"])
+        expected = expected_labels.get(ticket["id"]) if expected_labels else None
         if expected is None:
             continue
         cases.append(
             EvalCase(
-                name=f"issue_{issue['number']}",
+                name=f"ticket_{ticket['id']}",
                 input={
                     "description": output.description,
-                    "prompt": GITHUB_ACTIONABILITY_PROMPT.format(description=output.description),
+                    "prompt": ZENDESK_ACTIONABILITY_PROMPT.format(description=output.description),
                 },
                 expected=expected,
             )
@@ -47,33 +47,29 @@ def load_github_cases(expected_labels: dict[str, str]) -> list[EvalCase]:
     return cases
 
 
-class TestGitHubActionability:
-    NOT_ACTIONABLE_ISSUES: set[str] = {"3916615872", "9000000001", "9000000002", "9000000003"}
+class TestZendeskActionability:
+    NOT_ACTIONABLE_TICKETS = {"00005", "00006", "00009", "00010", "00018", "00019", "00021", "00022"}
 
-    JUDGE_PROMPT = """You are an eval judge for a GitHub issue actionability classifier.
+    JUDGE_PROMPT = """You are an eval judge for a support ticket actionability classifier.
 
 <rubric>
 ACTIONABLE (classifier should output ACTIONABLE):
-- A bug report: describes something broken, an error, or unexpected behavior
-- A feature request or suggestion for improvement
-- A usability issue or confusion about the product
-- A performance problem or regression
-- A self-hosted deployment or configuration problem
-- A question about how to use the product
-- A documentation gap or error that caused confusion
-- Internal engineering issues that describe a real technical problem or improvement, even if filed by team members
+- A bug report: user describes something broken, an error, or unexpected behavior in the product
+- A feature request: user asks for new functionality or an improvement
+- A usability issue: user is confused by the product or finds something hard to use
+- A performance problem: user reports slowness, timeouts, or high resource usage
+- A product question: user asks how to accomplish something with the product or its integrations
 
-Example: "PostHog AI generates a JavaScript error when asked a question while the user is actively using the SQL Editor."
+Example: "I'm getting a 500 error when I try to export my dashboard as PDF. It worked last week."
 
 NOT_ACTIONABLE (classifier should output NOT_ACTIONABLE):
-- A bot-generated issue (dependency bumps, stale-bot closures, CI notifications, release automation)
 - Spam, abuse, or profanity with no real feedback
-- A meta/tracking issue with no substantive feedback (release checklists, sprint trackers, one-liner reminders with just a link)
-- A duplicate that only says "same as #X" with no new information
+- Routine billing/account admin: refund requests, payment method updates, invoice questions, plan changes (unless they indicate a product bug)
+- A generic thank-you or confirmation that an issue was resolved
+- Auto-generated or bot messages with no user content
+- Internal test messages
 
-Example: "experiment with adding an automated SDK maintenance workflow using agents" with body containing only a URL
-
-GitHub issues are filed intentionally, so when in doubt the classifier should lean ACTIONABLE.
+Example: "Hi, can you process a refund for our last invoice? We downgraded last month. Thanks!"
 </rubric>
 
 <classifier_output>
@@ -86,12 +82,12 @@ GitHub issues are filed intentionally, so when in doubt the classifier should le
 
 {thoughts_section}
 
-<issue>
+<ticket>
 {description}
-</issue>
+</ticket>
 
 <instructions>
-First analyze the issue content against the rubric. If the classifier's reasoning is provided, consider whether its logic is sound. Then determine whether the classifier's output matches the expected classification.
+First analyze the ticket content against the rubric. If the classifier's reasoning is provided, consider whether its logic is sound. Then determine whether the classifier's output matches the expected classification.
 
 Respond with JSON: {{"reasoning": "...", "correct": true/false}}
 </instructions>"""
@@ -104,6 +100,7 @@ Respond with JSON: {{"reasoning": "...", "correct": true/false}}
 
     @staticmethod
     async def task_fn(client: AsyncOpenAI, case: EvalCase) -> dict[str, Any]:
+        """Mirrors production: call Gemini with thinking enabled."""
         gemini = AsyncGeminiClient(posthog_client=client._ph_client)
         response = await gemini.models.generate_content(
             model=GEMINI_MODEL,
@@ -157,20 +154,20 @@ Respond with JSON: {{"reasoning": "...", "correct": true/false}}
 
     @pytest.mark.django_db
     async def test_actionability(self):
-        all_issues = json.loads((FIXTURES_DIR / "github_issues.json").read_text())
-        all_ids = {i["id"] for i in all_issues if github_issue_emitter(team_id=0, record=i) is not None}
+        all_tickets = json.loads((FIXTURES_DIR / "zendesk_tickets.json").read_text())
+        all_ids = {t["id"] for t in all_tickets if zendesk_ticket_emitter(team_id=0, record=t) is not None}
         if self.case_ids is not None:
             all_ids = all_ids & self.case_ids
         expected_labels = {
-            iid: ("NOT_ACTIONABLE" if iid in self.NOT_ACTIONABLE_ISSUES else "ACTIONABLE") for iid in all_ids
+            tid: ("NOT_ACTIONABLE" if tid in self.NOT_ACTIONABLE_TICKETS else "ACTIONABLE") for tid in all_ids
         }
-        cases = load_github_cases(expected_labels)
-        assert len(cases) > 0, "No GitHub issue fixtures found"
+        cases = load_zendesk_cases(expected_labels)
+        assert len(cases) > 0, "No zendesk ticket fixtures found"
 
         results = await run_eval(
             client=self.posthog_client,
             openai_client=self.openai_client,
-            experiment_name="github-actionability-check",
+            experiment_name="zendesk-actionability-check",
             cases=cases,
             task_fn=self.task_fn,
             judge_fn=self.judge_fn,

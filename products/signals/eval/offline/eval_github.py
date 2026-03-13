@@ -8,27 +8,27 @@ from google.genai import types
 from posthoganalytics.ai.gemini import AsyncClient as AsyncGeminiClient
 from posthoganalytics.ai.openai import AsyncOpenAI
 
-from posthog.temporal.data_imports.signals.linear_issues import LINEAR_ACTIONABILITY_PROMPT, linear_issue_emitter
+from posthog.temporal.data_imports.signals.github_issues import GITHUB_ACTIONABILITY_PROMPT, github_issue_emitter
 from posthog.temporal.data_imports.workflow_activities.emit_signals import (
     GEMINI_MODEL,
     LLM_THINKING_BUDGET_TOKENS,
     _extract_thoughts,
 )
 
-from products.signals.eval.framework import EvalCase, EvalMetric, run_eval
+from products.signals.eval.offline.framework import EvalCase, EvalMetric, run_eval
 
 JUDGE_MODEL = "gpt-5.2-2025-12-11"
 
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
+FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
 
 
-def load_linear_cases(expected_labels: dict[str, str]) -> list[EvalCase]:
-    with open(FIXTURES_DIR / "linear_issues.json") as f:
+def load_github_cases(expected_labels: dict[str, str]) -> list[EvalCase]:
+    with open(FIXTURES_DIR / "github_issues.json") as f:
         issues = json.load(f)
 
     cases = []
     for issue in issues:
-        output = linear_issue_emitter(team_id=0, record=issue)
+        output = github_issue_emitter(team_id=0, record=issue)
         if output is None:
             continue
         expected = expected_labels.get(issue["id"])
@@ -36,10 +36,10 @@ def load_linear_cases(expected_labels: dict[str, str]) -> list[EvalCase]:
             continue
         cases.append(
             EvalCase(
-                name=f"issue_{issue['identifier']}",
+                name=f"issue_{issue['number']}",
                 input={
                     "description": output.description,
-                    "prompt": LINEAR_ACTIONABILITY_PROMPT.format(description=output.description),
+                    "prompt": GITHUB_ACTIONABILITY_PROMPT.format(description=output.description),
                 },
                 expected=expected,
             )
@@ -47,18 +47,10 @@ def load_linear_cases(expected_labels: dict[str, str]) -> list[EvalCase]:
     return cases
 
 
-class TestLinearActionability:
-    NOT_ACTIONABLE_ISSUES: set[str] = {
-        "b8aca684-3670-4f39-93f2-e7b6e4791d87",
-        "30b6c390-3102-42ae-826c-08e0a6106b18",
-        "a1c2d3e4-f5a6-4b7c-8d9e-0f1a2b3c4d5e",
-        "b2d3e4f5-a6b7-4c8d-9e0f-1a2b3c4d5e6f",
-        "d4f5a6b7-c8d9-4e0f-1a2b-3c4d5e6f7a8b",
-        "e5a6b7c8-d9e0-4f1a-2b3c-4d5e6f7a8b9c",
-        "f6b7c8d9-e0f1-4a2b-3c4d-5e6f7a8b9c0d",
-    }
+class TestGitHubActionability:
+    NOT_ACTIONABLE_ISSUES: set[str] = {"3916615872", "9000000001", "9000000002", "9000000003"}
 
-    JUDGE_PROMPT = """You are an eval judge for a Linear issue actionability classifier.
+    JUDGE_PROMPT = """You are an eval judge for a GitHub issue actionability classifier.
 
 <rubric>
 ACTIONABLE (classifier should output ACTIONABLE):
@@ -66,21 +58,22 @@ ACTIONABLE (classifier should output ACTIONABLE):
 - A feature request or suggestion for improvement
 - A usability issue or confusion about the product
 - A performance problem or regression
+- A self-hosted deployment or configuration problem
 - A question about how to use the product
 - A documentation gap or error that caused confusion
-- Internal engineering issues that describe a real technical problem or improvement
+- Internal engineering issues that describe a real technical problem or improvement, even if filed by team members
 
-Example: "Insight loading spinner never disappears when query times out — the frontend never shows an error state after the backend 504s."
+Example: "PostHog AI generates a JavaScript error when asked a question while the user is actively using the SQL Editor."
 
 NOT_ACTIONABLE (classifier should output NOT_ACTIONABLE):
-- A meta/tracking issue with no substantive feedback (release checklists, sprint trackers, one-liner reminders with just a link)
-- A duplicate that only says "same as X" with no new information
-- An internal housekeeping task (dependency bumps, CI config, infra maintenance)
+- A bot-generated issue (dependency bumps, stale-bot closures, CI notifications, release automation)
 - Spam, abuse, or profanity with no real feedback
+- A meta/tracking issue with no substantive feedback (release checklists, sprint trackers, one-liner reminders with just a link)
+- A duplicate that only says "same as #X" with no new information
 
-Example: "Q1 release checklist" with a body that is just a task list of release steps
+Example: "experiment with adding an automated SDK maintenance workflow using agents" with body containing only a URL
 
-Linear issues are filed intentionally, so when in doubt the classifier should lean ACTIONABLE.
+GitHub issues are filed intentionally, so when in doubt the classifier should lean ACTIONABLE.
 </rubric>
 
 <classifier_output>
@@ -164,20 +157,20 @@ Respond with JSON: {{"reasoning": "...", "correct": true/false}}
 
     @pytest.mark.django_db
     async def test_actionability(self):
-        all_issues = json.loads((FIXTURES_DIR / "linear_issues.json").read_text())
-        all_ids = {i["id"] for i in all_issues if linear_issue_emitter(team_id=0, record=i) is not None}
+        all_issues = json.loads((FIXTURES_DIR / "github_issues.json").read_text())
+        all_ids = {i["id"] for i in all_issues if github_issue_emitter(team_id=0, record=i) is not None}
         if self.case_ids is not None:
             all_ids = all_ids & self.case_ids
         expected_labels = {
             iid: ("NOT_ACTIONABLE" if iid in self.NOT_ACTIONABLE_ISSUES else "ACTIONABLE") for iid in all_ids
         }
-        cases = load_linear_cases(expected_labels)
-        assert len(cases) > 0, "No Linear issue fixtures found"
+        cases = load_github_cases(expected_labels)
+        assert len(cases) > 0, "No GitHub issue fixtures found"
 
         results = await run_eval(
             client=self.posthog_client,
             openai_client=self.openai_client,
-            experiment_name="linear-actionability-check",
+            experiment_name="github-actionability-check",
             cases=cases,
             task_fn=self.task_fn,
             judge_fn=self.judge_fn,

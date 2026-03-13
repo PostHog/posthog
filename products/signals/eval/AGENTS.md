@@ -1,48 +1,66 @@
-# LLMA Eval Framework
+# Signals eval
 
-## Structure
+End-to-end evaluation for the signal grouping pipeline.
 
-- `products/signals/eval/framework.py` — core: `EvalCase`, `EvalMetric`, `run_eval()`
-- `products/signals/eval/conftest.py` — pytest fixtures: `posthog_client`, `openai_client`
-- `products/signals/eval/test_joke_eval.py` — reference example with two evals
+## Purpose
 
-## How it works
+Measures how well the grouping pipeline clusters related signals into reports.
+Synthetic signals with known ground-truth groupings are fed through the **real** pipeline
+(real Anthropic LLM calls for matching/specificity, real OpenAI embeddings)
+while only infrastructure is mocked (ClickHouse, Temporal, embedding worker).
+Results are emitted as `$ai_evaluation` events viewable in LLM analytics offline evals.
 
-Each eval has three parts:
-
-1. **Task function** — runs the LLM call being evaluated
-2. **Judge function** — scores the output using a stronger LLM, returns JSON with score + reasoning
-3. **Cases** — list of `EvalCase(name, input, expected)` defining test inputs
-
-`run_eval()` is async and runs all cases concurrently (bounded by `max_concurrency`, default 10) using `asyncio.gather`. Errors are caught — pytest always passes.
-By default (`verbose=True`), each case logs the task output, thoughts (if present), and judge reasoning alongside the score.
-
-## Rules
-
-- All task and judge functions must be `async`
-- Use `@pytest.mark.django_db` on test functions
-- Pass `posthog_distinct_id="llma_eval"` to all LLM calls
-- Use a production model for the task, a strong reasoning model for the judge
-- `experiment_name` and `EvalCase.name` must be unique
-- Judge LLM must return JSON — parse with `json.loads()`
-- `openai_client` fixture is `AsyncOpenAI`; for Gemini use `AsyncGeminiClient(posthog_client=client._ph_client)`
-- Judge JSON must put `"reasoning"` before the score field (e.g. `{"reasoning": "...", "correct": true}`) — this forces the model to analyze before committing to a score
-- Judge prompt must include a rubric with explicit per-level definitions and one anchor example per level (e.g. an example ACTIONABLE ticket and an example NOT_ACTIONABLE ticket) — this is the single highest-impact lever for judge consistency
-- If the production flow uses a reasoning model or has thinking/chain-of-thought enabled, the task function should return thoughts alongside the answer (e.g. `{"answer": "...", "thoughts": "..."}`) and the judge prompt should include them — this lets the judge catch cases where the model got the right answer for the wrong reason
-
-## Running
+## Usage
 
 ```bash
-# Run all cases
-pytest products/signals/eval/eval_<name>.py -s -v --log-cli-level=WARNING
-
-# Run specific cases only
-pytest products/signals/eval/eval_<name>.py --case-ids=00005,00010 -s -v --log-cli-level=WARNING
+pytest products/signals/eval/eval_grouping_e2e.py -x -s --log-cli-level=WARNING
 ```
 
-Requires `POSTHOG_PROJECT_API_KEY` (`phc_` prefix) and relevant AI provider keys in `.env`.
-Events go to `POSTHOG_HOST` (default `http://localhost:8010`).
+Requires `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and `POSTHOG_PROJECT_API_KEY` in the environment (or `.env`).
 
-## Maintaining this document
+| Flag           | Description                                         |
+| -------------- | --------------------------------------------------- |
+| `--limit N`    | Process only the first N signals (faster iteration) |
+| `--no-capture` | Skip emitting eval results to PostHog               |
 
-If you change the eval framework (fixtures, `run_eval` signature, `EvalMetric` fields, conventions), update this file to match.
+## Synthetic dataset
+
+Defined in `fixtures/grouping_data.py` as a list of `GroupSpec` objects.
+Each group represents a distinct scenario (bug, feature request, etc.) with multiple signals
+written in different styles and from different sources.
+
+| Group | Scenario                                           | Signals | Sources                 |
+| ----- | -------------------------------------------------- | ------- | ----------------------- |
+| 0     | Date picker timezone bug                           | 3       | Zendesk, GitHub         |
+| 1     | Funnel conversion calculation bug                  | 4       | Zendesk, GitHub, Linear |
+| 2     | Feature flag evaluation slow for large orgs        | 2       | Zendesk                 |
+| 3     | Session replay click detection issues              | 3       | GitHub, Zendesk, Linear |
+| 4     | HogQL missing arrayDistinct (singleton)            | 1       | GitHub                  |
+| 5     | Export to CSV/PDF broken                           | 3       | Zendesk                 |
+| 6     | Webhook delivery unreliable (singleton)            | 1       | Zendesk                 |
+| 7     | Cohort calculation stuck/stale                     | 3       | Zendesk, GitHub         |
+| 8     | Group analytics property filter broken (singleton) | 1       | Linear                  |
+| 9     | Data warehouse Stripe sync failures                | 2       | Zendesk, GitHub         |
+
+**10 groups, 23 signals total.**
+Signals are interleaved randomly (seeded) across groups during the eval to simulate realistic arrival order.
+
+Signals vary by:
+
+- **Source** — Zendesk tickets, GitHub issues, Linear issues
+- **Style** — bug reports, support tickets, feature requests
+- **Specificity** — some are vague end-user reports, others are detailed engineering investigations
+
+Three groups are singletons (1 signal each) to test that the pipeline creates new reports rather than incorrectly merging unrelated signals.
+
+## Key files
+
+| File                        | Description                                                                  |
+| --------------------------- | ---------------------------------------------------------------------------- |
+| `eval_grouping_e2e.py`      | Main eval test — emits signals, computes metrics, captures results           |
+| `mock.py`                   | Mock infrastructure — in-memory ClickHouse, Temporal bypass, embedding cache |
+| `capture.py`                | `EvalMetric` and `capture_evaluation` for emitting `$ai_evaluation` events   |
+| `data_spec.py`              | `SignalSpec`, `GroupSpec`, `SourceProducts`, `SourceTypes`                   |
+| `fixtures/grouping_data.py` | The synthetic dataset                                                        |
+| `conftest.py`               | Pytest config, env loading, API key setup                                    |
+| `cache/embeddings.json`     | Disk-backed embedding cache (avoids redundant OpenAI calls)                  |
