@@ -124,21 +124,72 @@ const cleanSeriesMath = (
     return series.map((entity) => cleanSeriesEntityMath(entity, mathAvailability))
 }
 
-const getCommonVisualizationProperties = (
+type TrendsCommonVisualizationProperties = Pick<TrendsFilter, 'showValuesOnSeries' | 'showPercentStackView' | 'display'>
+type StickinessCommonVisualizationProperties = Pick<StickinessFilter, 'showValuesOnSeries' | 'display'>
+type FunnelsCommonVisualizationProperties = Pick<FunnelsFilter, 'showValuesOnSeries'>
+type LifecycleCommonVisualizationProperties = Pick<LifecycleFilter, 'showValuesOnSeries'>
+type EmptyCommonVisualizationProperties = Record<never, never>
+
+function getCommonVisualizationProperties(
+    query: TrendsQuery,
+    commonFilter: CommonInsightFilter
+): Partial<TrendsCommonVisualizationProperties>
+function getCommonVisualizationProperties(
+    query: StickinessQuery,
+    commonFilter: CommonInsightFilter
+): Partial<StickinessCommonVisualizationProperties>
+function getCommonVisualizationProperties(
+    query: FunnelsQuery,
+    commonFilter: CommonInsightFilter
+): Partial<FunnelsCommonVisualizationProperties>
+function getCommonVisualizationProperties(
+    query: LifecycleQuery,
+    commonFilter: CommonInsightFilter
+): Partial<LifecycleCommonVisualizationProperties>
+function getCommonVisualizationProperties(
+    query: RetentionQuery,
+    commonFilter: CommonInsightFilter
+): Partial<EmptyCommonVisualizationProperties>
+function getCommonVisualizationProperties(
+    query: PathsQuery,
+    commonFilter: CommonInsightFilter
+): Partial<EmptyCommonVisualizationProperties>
+function getCommonVisualizationProperties(
     query: InsightQueryNode,
     commonFilter: CommonInsightFilter
-): Partial<CommonInsightFilter> => ({
-    ...((isLifecycleQuery(query) || isStickinessQuery(query) || isTrendsQuery(query) || isFunnelsQuery(query)) &&
-    commonFilter.showValuesOnSeries
-        ? { showValuesOnSeries: commonFilter.showValuesOnSeries }
-        : {}),
-    ...(isTrendsQuery(query) && commonFilter.showPercentStackView
-        ? { showPercentStackView: commonFilter.showPercentStackView }
-        : {}),
-    ...((isTrendsQuery(query) || isStickinessQuery(query)) && commonFilter.display
-        ? { display: commonFilter.display }
-        : {}),
-})
+):
+    | Partial<TrendsCommonVisualizationProperties>
+    | Partial<StickinessCommonVisualizationProperties>
+    | Partial<FunnelsCommonVisualizationProperties>
+    | Partial<LifecycleCommonVisualizationProperties>
+    | Partial<EmptyCommonVisualizationProperties> {
+    const sharedProperties = {
+        ...((isLifecycleQuery(query) || isStickinessQuery(query) || isTrendsQuery(query) || isFunnelsQuery(query)) &&
+        commonFilter.showValuesOnSeries
+            ? { showValuesOnSeries: commonFilter.showValuesOnSeries }
+            : {}),
+        ...(isTrendsQuery(query) && commonFilter.showPercentStackView
+            ? { showPercentStackView: commonFilter.showPercentStackView }
+            : {}),
+        ...((isTrendsQuery(query) || isStickinessQuery(query)) && commonFilter.display
+            ? { display: commonFilter.display }
+            : {}),
+    }
+
+    if (isTrendsQuery(query)) {
+        return sharedProperties as Partial<TrendsCommonVisualizationProperties>
+    }
+    if (isStickinessQuery(query)) {
+        return sharedProperties as Partial<StickinessCommonVisualizationProperties>
+    }
+    if (isFunnelsQuery(query)) {
+        return sharedProperties as Partial<FunnelsCommonVisualizationProperties>
+    }
+    if (isLifecycleQuery(query)) {
+        return sharedProperties as Partial<LifecycleCommonVisualizationProperties>
+    }
+    return {} as Partial<EmptyCommonVisualizationProperties>
+}
 
 export const insightNavLogic = kea<insightNavLogicType>([
     props({} as InsightLogicProps),
