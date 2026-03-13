@@ -177,3 +177,6 @@ tools:
     dashboards-create-unlisted-dashboard-create:
         operation: dashboards_create_unlisted_dashboard_create
         enabled: false
+    dashboards-bulk-update-tags-create:
+        operation: dashboards_bulk_update_tags_create
+        enabled: false

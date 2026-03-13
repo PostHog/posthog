@@ -586,6 +586,20 @@ export namespace Schemas {
       actionId: number;
     }
 
+    /**
+     * * `add` - add
+    * `remove` - remove
+    * `set` - set
+     */
+    export type ActionEnum = typeof ActionEnum[keyof typeof ActionEnum];
+
+
+    export const ActionEnum = {
+      Add: 'add',
+      Remove: 'remove',
+      Set: 'set',
+    } as const;
+
     export type ActionsNodeKind = typeof ActionsNodeKind[keyof typeof ActionsNodeKind];
 
 
@@ -5461,6 +5475,37 @@ export namespace Schemas {
       DistinctId: 'distinct_id',
       DeviceId: 'device_id',
     } as const;
+
+    export interface BulkUpdateTagsError {
+      id: number;
+      reason: string;
+    }
+
+    export interface BulkUpdateTagsItem {
+      id: number;
+      tags: string[];
+    }
+
+    export interface BulkUpdateTagsRequest {
+      /**
+       * List of object IDs to update tags on.
+       * @maxItems 500
+       */
+      ids: string[];
+      /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+
+    * `add` - add
+    * `remove` - remove
+    * `set` - set */
+      action: ActionEnum;
+      /** Tag names to add, remove, or set. */
+      tags: string[];
+    }
+
+    export interface BulkUpdateTagsResponse {
+      updated: BulkUpdateTagsItem[];
+      errors: BulkUpdateTagsError[];
+    }
 
     /**
      * * `b2b` - B2B
@@ -27179,6 +27224,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type EnvironmentsDashboardsBulkUpdateTagsCreateParams = {
+    format?: EnvironmentsDashboardsBulkUpdateTagsCreateFormat;
+    };
+
+    export type EnvironmentsDashboardsBulkUpdateTagsCreateFormat = typeof EnvironmentsDashboardsBulkUpdateTagsCreateFormat[keyof typeof EnvironmentsDashboardsBulkUpdateTagsCreateFormat];
+
+
+    export const EnvironmentsDashboardsBulkUpdateTagsCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type EnvironmentsDashboardsCreateFromTemplateJsonCreateParams = {
     format?: EnvironmentsDashboardsCreateFromTemplateJsonCreateFormat;
     };
@@ -27772,6 +27829,18 @@ export namespace Schemas {
 
 
     export const EnvironmentsInsightsActivityRetrieveFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type EnvironmentsInsightsBulkUpdateTagsCreateParams = {
+    format?: EnvironmentsInsightsBulkUpdateTagsCreateFormat;
+    };
+
+    export type EnvironmentsInsightsBulkUpdateTagsCreateFormat = typeof EnvironmentsInsightsBulkUpdateTagsCreateFormat[keyof typeof EnvironmentsInsightsBulkUpdateTagsCreateFormat];
+
+
+    export const EnvironmentsInsightsBulkUpdateTagsCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
@@ -29104,6 +29173,18 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
+    export type ActionsBulkUpdateTagsCreateParams = {
+    format?: ActionsBulkUpdateTagsCreateFormat;
+    };
+
+    export type ActionsBulkUpdateTagsCreateFormat = typeof ActionsBulkUpdateTagsCreateFormat[keyof typeof ActionsBulkUpdateTagsCreateFormat];
+
+
+    export const ActionsBulkUpdateTagsCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
     export type AlertsListParams = {
     /**
      * Number of results to return per page.
@@ -29351,6 +29432,18 @@ export namespace Schemas {
 
 
     export const DashboardsStreamTilesRetrieveFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsBulkUpdateTagsCreateParams = {
+    format?: DashboardsBulkUpdateTagsCreateFormat;
+    };
+
+    export type DashboardsBulkUpdateTagsCreateFormat = typeof DashboardsBulkUpdateTagsCreateFormat[keyof typeof DashboardsBulkUpdateTagsCreateFormat];
+
+
+    export const DashboardsBulkUpdateTagsCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -30241,6 +30334,18 @@ export namespace Schemas {
 
 
     export const InsightsActivityRetrieveFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type InsightsBulkUpdateTagsCreateParams = {
+    format?: InsightsBulkUpdateTagsCreateFormat;
+    };
+
+    export type InsightsBulkUpdateTagsCreateFormat = typeof InsightsBulkUpdateTagsCreateFormat[keyof typeof InsightsBulkUpdateTagsCreateFormat];
+
+
+    export const InsightsBulkUpdateTagsCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;

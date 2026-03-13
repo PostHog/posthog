@@ -10,12 +10,15 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     ActionApi,
+    ActionsBulkUpdateTagsCreateParams,
     ActionsCreateParams,
     ActionsDestroyParams,
     ActionsListParams,
     ActionsPartialUpdateParams,
     ActionsRetrieveParams,
     ActionsUpdateParams,
+    BulkUpdateTagsRequestApi,
+    BulkUpdateTagsResponseApi,
     PaginatedActionListApi,
     PatchedActionApi,
 } from './api.schemas'
@@ -212,5 +215,46 @@ export const actionsDestroy = async (
     return apiMutator<unknown>(getActionsDestroyUrl(projectId, id, params), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+/**
+ * Bulk update tags on multiple objects.
+
+Accepts:
+- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+
+Actions:
+- "add": Add tags to existing tags on each object
+- "remove": Remove specific tags from each object
+- "set": Replace all tags on each object with the provided list
+ */
+export const getActionsBulkUpdateTagsCreateUrl = (projectId: string, params?: ActionsBulkUpdateTagsCreateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/actions/bulk_update_tags/?${stringifiedParams}`
+        : `/api/projects/${projectId}/actions/bulk_update_tags/`
+}
+
+export const actionsBulkUpdateTagsCreate = async (
+    projectId: string,
+    bulkUpdateTagsRequestApi: BulkUpdateTagsRequestApi,
+    params?: ActionsBulkUpdateTagsCreateParams,
+    options?: RequestInit
+): Promise<BulkUpdateTagsResponseApi> => {
+    return apiMutator<BulkUpdateTagsResponseApi>(getActionsBulkUpdateTagsCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkUpdateTagsRequestApi),
     })
 }
