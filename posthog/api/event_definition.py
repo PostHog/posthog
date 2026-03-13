@@ -138,7 +138,7 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
                     'Setting schema enforcement mode to "reject" requires an authenticated request'
                 )
             user = request.user
-            org = getattr(user, "organization", None)
+            org = self.context["get_organization"]()
             org_id = str(org.id) if org else ""
             flag_enabled = posthoganalytics.feature_enabled(
                 "schema-enforcement-reject",

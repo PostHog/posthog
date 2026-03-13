@@ -158,7 +158,7 @@ export function EventDefinitionSchema({ definition }: { definition: EventDefinit
             description="Define which property groups this event should have. Property groups establish a schema that helps document expected properties."
             actions={
                 <>
-                    {hasSchemaEnforcementReject && (
+                    {(hasSchemaEnforcementReject || isEnforcementEnabled) && (
                         <LemonCheckbox
                             label={
                                 <span className="flex items-center gap-1">
