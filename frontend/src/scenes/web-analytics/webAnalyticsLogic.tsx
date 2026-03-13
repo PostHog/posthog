@@ -1445,6 +1445,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         },
                         activeTabId: sourceTab,
                         setTabId: actions.setSourceTab,
+                        splitIndices: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REFERRER_URL_DRILLDOWN]
+                            ? [1, 3] // [Channel] [Referring Domain ▼ Referring URL] [UTM Source ▼ ...]
+                            : [2], // [Channel] [Referring Domain] [UTM Source ▼ ...]
                         tabs: [
                             createTableTab(
                                 TileId.SOURCES,
@@ -1512,22 +1515,26 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     },
                                 }
                             ),
-                            createTableTab(
-                                TileId.SOURCES,
-                                SourceTab.REFERRING_URL,
-                                'Referrer URLs',
-                                'Referring URL',
-                                WebStatsBreakdown.InitialReferringURL,
-                                {},
-                                {
-                                    docs: {
-                                        url: 'https://posthog.com/docs/web-analytics/dashboard#channels-referrers-utms',
-                                        title: 'Referrer URLs',
-                                        description:
-                                            'Full referring URLs (without query parameters) showing where your users came from',
-                                    },
-                                }
-                            ),
+                            ...(featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REFERRER_URL_DRILLDOWN]
+                                ? [
+                                      createTableTab(
+                                          TileId.SOURCES,
+                                          SourceTab.REFERRING_URL,
+                                          'Referrer URLs',
+                                          'Referring URL',
+                                          WebStatsBreakdown.InitialReferringURL,
+                                          {},
+                                          {
+                                              docs: {
+                                                  url: 'https://posthog.com/docs/web-analytics/dashboard#channels-referrers-utms',
+                                                  title: 'Referrer URLs',
+                                                  description:
+                                                      'Full referring URLs (without query parameters) showing where your users came from',
+                                              },
+                                          }
+                                      ),
+                                  ]
+                                : []),
                             createTableTab(
                                 TileId.SOURCES,
                                 SourceTab.UTM_SOURCE,

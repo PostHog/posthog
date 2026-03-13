@@ -30,6 +30,7 @@ from posthog.schema import (
     MarketingIntegrationConfig8,
     MetaAdsConversionFallbackActionTypes,
     MetaAdsConversionOmniActionTypes,
+    MetaAdsConversionSpecificActionTypes,
     MetaAdsDefaultSources,
     MetaAdsTableExclusions,
     MetaAdsTableKeywords,
@@ -378,6 +379,7 @@ SNAPCHAT_CONVERSION_VALUE_FIELDS = [e.value for e in SnapchatAdsConversionValueF
 META_CONVERSION_ACTION_TYPES = {
     "omni": [e.value for e in MetaAdsConversionOmniActionTypes],
     "fallback": [e.value for e in MetaAdsConversionFallbackActionTypes],
+    "specific": [e.value for e in MetaAdsConversionSpecificActionTypes],
 }
 
 # Column kind mapping for WebAnalyticsItemBase

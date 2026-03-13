@@ -362,7 +362,7 @@ class Database(BaseModel):
         return self._view_table_names
 
     def _add_warehouse_tables(self, node: TableNode):
-        self.tables.merge_with(node)
+        self.tables.merge_with(node, table_conflict_mode="override" if self._is_direct_query() else "ignore")
         for name in sorted(node.resolve_all_table_names()):
             self._warehouse_table_names.append(name)
 
@@ -1035,11 +1035,21 @@ class Database(BaseModel):
                         ):
                             table_for_key = s3_table if index == 0 else s3_table.model_copy(deep=True)
                             table_chain = table_key.split(".")
+                            table_conflict_mode: Literal["override", "ignore"] = (
+                                "override"
+                                if database._is_direct_query()
+                                and table.external_data_source
+                                and table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT
+                                else "ignore"
+                            )
 
                             # For a chain of type a.b.c, we want to create a nested table node
                             # where a is the parent, b is the child of a, and c is the child of b
                             # where a.b.c will contain the table
-                            warehouse_tables.add_child(TableNode.create_nested_for_chain(table_chain, table_for_key))
+                            warehouse_tables.add_child(
+                                TableNode.create_nested_for_chain(table_chain, table_for_key),
+                                table_conflict_mode=table_conflict_mode,
+                            )
 
                             joined_table_chain = ".".join(table_chain)
                             table_for_key.name = joined_table_chain

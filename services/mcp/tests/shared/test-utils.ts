@@ -68,7 +68,11 @@ export async function cleanupResources(
 ): Promise<void> {
     for (const flagId of resources.featureFlags) {
         try {
-            await client.featureFlags({ projectId }).delete({ flagId })
+            await client.request({
+                method: 'PATCH',
+                path: `/api/projects/${projectId}/feature_flags/${flagId}/`,
+                body: { deleted: true },
+            })
         } catch (error) {
             console.warn(`Failed to cleanup feature flag ${flagId}:`, error)
         }
