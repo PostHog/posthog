@@ -52,7 +52,7 @@ declare module '@storybook/types' {
              * @default ['chromium']
              */
             snapshotBrowsers?: SupportedBrowserName[]
-            /** Narrow the snapshot to a specific element by specifying a CSS selector. Works for both component and scene (fullscreen) snapshots. */
+            /** If taking a component snapshot, you can narrow it down by specifying the selector. */
             snapshotTargetSelector?: string
             /** specify an alternative viewport size */
             viewport?: { width: number; height: number }
@@ -64,10 +64,6 @@ declare module '@storybook/types' {
              * @default false
              */
             skipIframeWait?: boolean
-            /**
-             * Skip taking a dark mode snapshot. Useful for stories that don't support dark mode or have known issues in dark mode that would cause snapshot failures.
-             */
-            skipDarkMode?: boolean
         }
         msw?: {
             mocks?: Mocks
@@ -88,6 +84,7 @@ const LOADER_SELECTORS = [
     '.Toastify__toast',
     '[aria-busy="true"]',
     '.SessionRecordingPlayer--buffering',
+    '.PlayerSeekbar__segments__item--buffer-loading',
     '.Lettermark--unknown',
     '[data-attr="loading-bar"]',
 ]
@@ -98,7 +95,6 @@ console.log('[test-runner] Storybook snapshots will be saved to', customSnapshot
 
 const JEST_TIMEOUT_MS = 25000 // Increased for stories with iframes (e.g. SidePanelDocs)
 const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
-const VIEWPORT_SETTLE_TIMEOUT_MS = 3000
 
 const ATTEMPT_COUNT_PER_ID: Record<string, number> = {}
 
@@ -115,7 +111,7 @@ module.exports = {
         const effectiveViewport = viewportWidths?.length
             ? VIEWPORT_WIDTHS[viewportWidths[0]]
             : viewport || DEFAULT_VIEWPORT
-        await resizeViewportAndWait(page, effectiveViewport)
+        await page.setViewportSize(effectiveViewport)
     },
 
     async postVisit(page, context) {
@@ -135,8 +131,8 @@ module.exports = {
         if (ATTEMPT_COUNT_PER_ID[context.id] > 1) {
             // When retrying, resize the viewport and then resize again to default,
             // just in case the retry is due to a useResizeObserver fail
-            await resizeViewportAndWait(page, { width: 1920, height: 1080 })
-            await resizeViewportAndWait(page, effectiveViewport)
+            await page.setViewportSize({ width: 1920, height: 1080 })
+            await page.setViewportSize(effectiveViewport)
         }
 
         const browserContext = page.context()
@@ -150,7 +146,12 @@ module.exports = {
         if (snapshotBrowsers.includes(currentBrowser)) {
             if (viewportWidths?.length) {
                 for (const widthName of viewportWidths) {
-                    await resizeViewportAndWait(page, VIEWPORT_WIDTHS[widthName])
+                    await page.setViewportSize(VIEWPORT_WIDTHS[widthName])
+                    await page.evaluate(() => {
+                        void document.body.offsetHeight
+                        window.dispatchEvent(new Event('resize'))
+                    })
+                    await page.waitForTimeout(300)
 
                     const contextForWidth = { ...context, id: `${context.id}--${widthName}` }
                     await expectStoryToMatchSnapshot(page, contextForWidth, storyContext, currentBrowser)
@@ -171,7 +172,7 @@ async function expectStoryToMatchSnapshot(
     storyContext: StoryContext,
     browser: SupportedBrowserName
 ): Promise<void> {
-    const { skipIframeWait = false, skipDarkMode = false } = storyContext.parameters?.testOptions ?? {}
+    const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
     await waitForPageReady(page, skipIframeWait)
 
     // set up iframe load tracking early, before they start loading
@@ -262,9 +263,7 @@ async function expectStoryToMatchSnapshot(
 
     // Snapshot both light and dark themes
     await takeSnapshotWithTheme(page, context, browser, 'light', storyContext)
-    if (!skipDarkMode) {
-        await takeSnapshotWithTheme(page, context, browser, 'dark', storyContext)
-    }
+    await takeSnapshotWithTheme(page, context, browser, 'dark', storyContext)
 }
 
 async function takeSnapshotWithTheme(
@@ -428,17 +427,12 @@ async function expectStoryToMatchSceneSnapshot(
     page: Page,
     context: TestContext,
     browser: SupportedBrowserName,
-    theme: SnapshotTheme,
-    targetSelector?: string
+    theme: SnapshotTheme
 ): Promise<void> {
-    if (targetSelector) {
-        await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme)
-    } else {
-        // If the `main` element isn't present, let's use `body` - this is needed in logged-out screens.
-        // We use .last(), because the order of selector matches is based on the order of elements in the DOM,
-        // and not the order of the selectors in the query.
-        await expectLocatorToMatchStorySnapshot(page.locator('body, main').last(), context, browser, theme)
-    }
+    // If the `main` element isn't present, let's use `body` - this is needed in logged-out screens.
+    // We use .last(), because the order of selector matches is based on the order of elements in the DOM,
+    // and not the order of the selectors in the query.
+    await expectLocatorToMatchStorySnapshot(page.locator('body, main').last(), context, browser, theme)
 }
 
 async function expectStoryToMatchComponentSnapshot(
@@ -515,72 +509,8 @@ async function waitForPageReady(page: Page, skipNetworkIdle = false): Promise<vo
 
     if (process.env.CI && !skipNetworkIdle) {
         // networkidle can be flaky in CI due to background requests - don't fail on timeout
-        await page.waitForLoadState('networkidle').catch(() => {
-            // eslint-disable-next-line no-console
-            console.warn('[test-runner] networkidle timeout - proceeding anyway')
-        })
+        await page.waitForLoadState('networkidle').catch(() => undefined)
     }
 
     await page.evaluate(() => document.fonts.ready)
-}
-
-async function resizeViewportAndWait(page: Page, viewport: { width: number; height: number }): Promise<void> {
-    const currentViewport = page.viewportSize()
-    if (currentViewport?.width === viewport.width && currentViewport.height === viewport.height) {
-        // Force an actual geometry change so ResizeObserver subscribers always re-run.
-        const nudgedWidth = viewport.width > 320 ? viewport.width - 1 : viewport.width + 1
-        await page.setViewportSize({ width: nudgedWidth, height: viewport.height })
-    }
-
-    await page.setViewportSize(viewport)
-    await page.waitForFunction(
-        ([expectedWidth, expectedHeight]) => {
-            return window.innerWidth === expectedWidth && window.innerHeight === expectedHeight
-        },
-        [viewport.width, viewport.height],
-        { timeout: VIEWPORT_SETTLE_TIMEOUT_MS }
-    )
-
-    await page.evaluate(async () => {
-        void document.body.offsetHeight
-        window.dispatchEvent(new Event('resize'))
-        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
-    })
-
-    await page
-        .waitForFunction(
-            () => {
-                return new Promise<boolean>((resolve) => {
-                    let lastSignature = ''
-                    let stableCount = 0
-                    const checkStability = (): void => {
-                        const signature = [
-                            document.documentElement.clientWidth,
-                            document.documentElement.clientHeight,
-                            document.body.scrollWidth,
-                            document.body.scrollHeight,
-                        ].join(':')
-
-                        if (signature === lastSignature) {
-                            stableCount++
-                            if (stableCount >= 3) {
-                                resolve(true)
-                                return
-                            }
-                        } else {
-                            stableCount = 0
-                            lastSignature = signature
-                        }
-
-                        setTimeout(checkStability, 50)
-                    }
-
-                    checkStability()
-                })
-            },
-            { timeout: VIEWPORT_SETTLE_TIMEOUT_MS }
-        )
-        .catch(() => {
-            // Some stories keep changing dimensions forever (charts/animations). Keep going.
-        })
 }
