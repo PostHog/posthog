@@ -105,7 +105,7 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
     )
 
     return (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2" data-attr="workflow-metrics">
             <div className="flex flex-row gap-2 flex-wrap justify-between">
                 <div>
                     <LemonSelect
