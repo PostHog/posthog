@@ -250,6 +250,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
         return getattr(obj, "activity_score", None)
 
     def get_has_summary(self, obj: SessionRecording) -> bool:
+        # Skip loading in list views to prevent N+1 queries
         view = self.context.get("view")
         if view and getattr(view, "action", None) == "list":
             return False
@@ -262,6 +263,8 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
         return SingleSessionSummary.objects.filter(
             team_id=obj.team_id,
             session_id=str(obj.session_id),
+            # Keep this aligned with summarize() default behavior (no extra context).
+            extra_summary_context__isnull=True,
         ).exists()
 
     def get_external_references(self, obj: SessionRecording) -> list[dict]:
