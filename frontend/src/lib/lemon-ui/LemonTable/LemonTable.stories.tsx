@@ -455,6 +455,97 @@ export const WithCellActions = (): JSX.Element => {
     )
 }
 
+const MANY_PEOPLE: MockPerson[] = [
+    { name: 'Werner C.', occupation: 'Engineer' },
+    { name: 'Ursula Z.', occupation: 'Retired' },
+    { name: 'Ludwig A.', occupation: 'Painter' },
+    { name: 'Arnold S.', occupation: 'Body-builder' },
+    { name: 'Franz B.', occupation: 'Teacher' },
+    { name: 'Marie K.', occupation: 'Scientist' },
+    { name: 'Hans G.', occupation: 'Architect' },
+    { name: 'Greta T.', occupation: 'Activist' },
+    { name: 'Otto V.', occupation: 'Musician' },
+    { name: 'Helga P.', occupation: 'Doctor' },
+    { name: 'Klaus M.', occupation: 'Chef' },
+    { name: 'Ingrid S.', occupation: 'Writer' },
+]
+
+const WIDE_COLUMNS = [
+    {
+        title: 'Name',
+        dataIndex: 'name' as const,
+        sorter: (a: MockPerson, b: MockPerson) => a.name.split(' ')[1].localeCompare(b.name.split(' ')[1]),
+    },
+    {
+        title: 'Occupation',
+        dataIndex: 'occupation' as const,
+        tooltip: 'What they are primarily working on.',
+        sorter: (a: MockPerson, b: MockPerson) => a.occupation.localeCompare(b.occupation),
+    },
+    {
+        title: 'Age',
+        key: 'age',
+        render: (_: any, person: MockPerson) => `${person.name.length * 12} years`,
+    },
+    {
+        title: 'Zodiac sign',
+        key: 'zodiac',
+        render: () => 'Gemini',
+    },
+    {
+        title: 'Favorite color',
+        key: 'color',
+        render: (_: any, person: MockPerson) => (person.occupation === 'Engineer' ? 'Blue' : 'Red'),
+    },
+    {
+        title: 'Hometown',
+        key: 'hometown',
+        render: (_: any, person: MockPerson) => (person.occupation === 'Engineer' ? 'Berlin' : 'Munich'),
+    },
+    {
+        title: 'Years of experience',
+        key: 'experience',
+        render: (_: any, person: MockPerson) => `${person.name.length + 5} years`,
+    },
+]
+
+export const WithHorizontalOverflow = (): JSX.Element => {
+    return (
+        <div className="max-w-120">
+            <LemonTable columns={WIDE_COLUMNS} dataSource={MANY_PEOPLE.slice(0, 5)} />
+        </div>
+    )
+}
+
+export const WithVerticalOverflow = (): JSX.Element => {
+    return (
+        <div className="max-h-60 flex flex-col overflow-auto">
+            <LemonTable
+                columns={[
+                    {
+                        title: 'Name',
+                        dataIndex: 'name',
+                        sorter: (a, b) => a.name.split(' ')[1].localeCompare(b.name.split(' ')[1]),
+                    },
+                    {
+                        title: 'Occupation',
+                        dataIndex: 'occupation',
+                    },
+                ]}
+                dataSource={MANY_PEOPLE}
+            />
+        </div>
+    )
+}
+
+export const WithHorizontalAndVerticalOverflow = (): JSX.Element => {
+    return (
+        <div className="max-w-120 max-h-60 flex flex-col overflow-auto">
+            <LemonTable columns={WIDE_COLUMNS} dataSource={MANY_PEOPLE} />
+        </div>
+    )
+}
+
 export const WithRowActions = (): JSX.Element => {
     return (
         <LemonTable
