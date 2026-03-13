@@ -11,8 +11,6 @@ export class StateManager {
     private _cache: ScopedCache<State>
     private _api: ApiClient
     private _user?: ApiUser
-    private _aiConsentFetchedAt?: number
-
     constructor(cache: ScopedCache<State>, api: ApiClient) {
         this._cache = cache
         this._api = api
@@ -168,11 +166,12 @@ export class StateManager {
 
     async invalidateAiConsent(): Promise<void> {
         await this._cache.delete('aiConsentGiven')
-        this._aiConsentFetchedAt = 0
+        await this._cache.delete('aiConsentFetchedAt')
     }
 
     async getAiConsentGiven(): Promise<boolean | undefined> {
-        const isExpired = !this._aiConsentFetchedAt || Date.now() - this._aiConsentFetchedAt > AI_CONSENT_TTL_MS
+        const fetchedAt = await this._cache.get('aiConsentFetchedAt')
+        const isExpired = !fetchedAt || Date.now() - fetchedAt > AI_CONSENT_TTL_MS
         if (!isExpired) {
             const cached = await this._cache.get('aiConsentGiven')
             if (cached !== undefined) {
@@ -189,9 +188,9 @@ export class StateManager {
             const orgResult = await this._api.organizations().get({ orgId })
             if (orgResult.success) {
                 const org = orgResult.data as { is_ai_data_processing_approved?: boolean | null }
-                const consent = org.is_ai_data_processing_approved !== false
+                const consent = !!org.is_ai_data_processing_approved
                 await this._cache.set('aiConsentGiven', consent)
-                this._aiConsentFetchedAt = Date.now()
+                await this._cache.set('aiConsentFetchedAt', Date.now())
                 return consent
             }
         } catch {

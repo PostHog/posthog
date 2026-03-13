@@ -97,8 +97,8 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
         entries = entries.filter(([_, definition]) => definition.annotations.readOnlyHint === true)
     }
 
-    // When AI consent is not given, exclude tools that require it
-    if (aiConsentGiven === false) {
+    // When AI consent is not given or not yet fetched, exclude tools that require it
+    if (!aiConsentGiven) {
         entries = entries.filter(([_, definition]) => !definition.requires_ai_consent)
     }
 

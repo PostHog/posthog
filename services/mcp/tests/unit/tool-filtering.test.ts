@@ -290,9 +290,9 @@ describe('Tool Filtering - AI Consent', () => {
         expect(tools).toContain('query-generate-hogql-from-question')
     })
 
-    it('should include tools requiring AI consent when aiConsentGiven is undefined', () => {
+    it('should exclude tools requiring AI consent when aiConsentGiven is undefined', () => {
         const tools = getToolsForFeatures({ aiConsentGiven: undefined })
-        expect(tools).toContain('query-generate-hogql-from-question')
+        expect(tools).not.toContain('query-generate-hogql-from-question')
     })
 
     it('should not exclude tools that do not require AI consent when aiConsentGiven is false', () => {
