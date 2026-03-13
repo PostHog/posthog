@@ -11,6 +11,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import (
     Action,
+    Annotation,
     Cohort,
     Dashboard,
     Experiment,
@@ -26,6 +27,7 @@ from posthog.models import (
 )
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.hog_flow.hog_flow import HogFlow
+from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.project import Project
 
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
@@ -85,6 +87,10 @@ def _create_cohort(team: Team, label: str) -> Cohort:
     return Cohort.objects.create(team=team, name=f"cohort_{label}")
 
 
+def _create_annotation(team: Team, label: str) -> Annotation:
+    return Annotation.objects.create(team=team, content=f"annotation_{label}")
+
+
 def _create_cohort_calculation_history(team: Team, label: str) -> CohortCalculationHistory:
     cohort = Cohort.objects.create(team=team, name=f"cohort_for_calc_{label}")
     return CohortCalculationHistory.objects.create(team=team, cohort=cohort, filters={})
@@ -114,8 +120,32 @@ def _create_error_tracking_issue(team: Team, label: str) -> ErrorTrackingIssue:
     return ErrorTrackingIssue.objects.create(team=team, name=f"issue_{label}", status="active")
 
 
+def _create_error_tracking_issue_assignment(team: Team, label: str):
+    from products.error_tracking.backend.models import ErrorTrackingIssueAssignment
+
+    issue = ErrorTrackingIssue.objects.create(team=team, name=f"assigned_issue_{label}", status="active")
+    return ErrorTrackingIssueAssignment.objects.create(team=team, issue=issue)
+
+
+def _create_error_tracking_issue_fingerprint(team: Team, label: str):
+    from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
+
+    issue = ErrorTrackingIssue.objects.create(team=team, name=f"fp_issue_{label}", status="active")
+    return ErrorTrackingIssueFingerprintV2.objects.create(team=team, issue=issue, fingerprint=f"fp_{label}")
+
+
 def _create_hog_flow(team: Team, label: str) -> HogFlow:
     return HogFlow.objects.create(team=team, name=f"flow_{label}")
+
+
+def _create_hog_function(team: Team, label: str) -> HogFunction:
+    return HogFunction.objects.create(
+        team=team,
+        name=f"function_{label}",
+        type="destination",
+        hog="return true",
+        enabled=True,
+    )
 
 
 def _create_experiment(team: Team, label: str) -> Experiment:
@@ -163,11 +193,14 @@ def _create_team(team: Team, label: str) -> Team:
 
 SYSTEM_TABLE_FACTORIES = [
     ("actions", _create_action),
+    ("annotations", _create_annotation),
     ("cohorts", _create_cohort),
     ("cohort_calculation_history", _create_cohort_calculation_history),
     ("dashboards", _create_dashboard),
     ("data_warehouse_sources", _create_data_warehouse_source),
     ("data_warehouse_tables", _create_data_warehouse_table),
+    ("error_tracking_issue_assignments", _create_error_tracking_issue_assignment),
+    ("error_tracking_issue_fingerprints", _create_error_tracking_issue_fingerprint),
     ("error_tracking_issues", _create_error_tracking_issue),
     ("experiments", _create_experiment),
     ("exports", _create_export),
@@ -175,6 +208,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("groups", _create_group),
     ("group_type_mappings", _create_group_type_mapping),
     ("hog_flows", _create_hog_flow),
+    ("hog_functions", _create_hog_function),
     ("insights", _create_insight),
     ("insight_variables", _create_insight_variable),
     ("notebooks", _create_notebook),

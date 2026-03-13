@@ -1,0 +1,44 @@
+import importlib
+import threading
+from typing import TYPE_CHECKING
+
+from posthog.temporal.health_checks.models import BatchDetectFn
+
+if TYPE_CHECKING:
+    from posthog.temporal.health_checks.framework import HealthCheckRegistration
+
+HEALTH_CHECKS: dict[str, "HealthCheckRegistration"] = {}
+_DETECT_FNS: dict[str, BatchDetectFn] = {}
+
+# Add product health check modules here to register them.
+HEALTH_CHECK_MODULES = [
+    "products.web_analytics.backend.temporal.health_checks.no_live_events",
+    "products.web_analytics.backend.temporal.health_checks.no_pageleave_events",
+]
+
+_registry_loaded = False
+_registry_lock = threading.Lock()
+
+
+def get_detect_fn(kind: str) -> BatchDetectFn:
+    fn = _DETECT_FNS.get(kind)
+    if fn is None:
+        raise KeyError(f"No detect function registered for kind '{kind}'")
+    return fn
+
+
+def ensure_registry_loaded() -> None:
+    global _registry_loaded
+    with _registry_lock:
+        if _registry_loaded:
+            return
+        for module_path in HEALTH_CHECK_MODULES:
+            importlib.import_module(module_path)
+        _registry_loaded = True
+
+
+def _reset_registry() -> None:
+    global _registry_loaded
+    HEALTH_CHECKS.clear()
+    _DETECT_FNS.clear()
+    _registry_loaded = False

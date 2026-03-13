@@ -88,6 +88,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         // Signal emission
         setSignalEmission: (enabled: boolean) => ({ enabled }),
 
+        // Tab navigation
+        setActiveTab: (tab: string) => ({ tab }),
+
         // Evaluation management actions
         saveEvaluation: true,
         saveEvaluationSuccess: (evaluation: EvaluationConfig) => ({ evaluation }),
@@ -257,6 +260,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             '' as string,
             {
                 selectModelFromPicker: (_, { modelId }) => modelId,
+                setModelConfiguration: (_, { modelConfiguration }) => modelConfiguration?.model || '',
                 loadEvaluationSuccess: (_, { evaluation }) => evaluation?.model_configuration?.model || '',
             },
         ],
@@ -264,6 +268,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             null as string | null,
             {
                 selectModelFromPicker: (_, { providerKeyId }) => providerKeyId,
+                setModelConfiguration: (_, { modelConfiguration }) => modelConfiguration?.provider_key_id || null,
                 loadEvaluationSuccess: (_, { evaluation }) => evaluation?.model_configuration?.provider_key_id || null,
             },
         ],
@@ -338,6 +343,14 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             {
                 toggleSummaryExpanded: (state) => !state,
                 generateEvaluationSummarySuccess: () => true,
+            },
+        ],
+        activeTab: [
+            'configuration' as string,
+            {
+                setActiveTab: (_, { tab }) => tab,
+                // Show runs tab for existing evaluations, configuration for new
+                loadEvaluationSuccess: (_, { evaluation }) => (evaluation?.id ? 'runs' : 'configuration'),
             },
         ],
     }),

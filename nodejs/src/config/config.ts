@@ -143,8 +143,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: 3000, // 3 seconds
         EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: 10000, // 10 seconds
         EXTERNAL_REQUEST_CONNECTIONS: 500, // 500 connections
-        OUTBOUND_PROXY_URL: '',
-        OUTBOUND_PROXY_ENABLED: false,
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
         SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: '',
         RELOAD_PLUGIN_JITTER_MAX_MS: 60000,
@@ -259,16 +257,19 @@ export function getDefaultConfig(): PluginsServerConfig {
             : 'postgres://posthog:posthog@localhost:5432/cyclotron',
 
         CYCLOTRON_SHARD_DEPTH_LIMIT: 1000000,
-        CYCLOTRON_SHADOW_DATABASE_URL: isTestEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_shadow'
-            : 'postgres://posthog:posthog@localhost:5432/cyclotron_shadow',
-        CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: false,
-        CDP_CYCLOTRON_TEST_SEEK_LATENCY: false,
-        CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: 50_000_000,
-        CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT: 500,
-        CDP_CYCLOTRON_TEST_FETCH_BATCH_COUNT: 10,
-        CDP_CYCLOTRON_TEST_FETCH_BATCH_SIZE: 50,
-        CDP_CYCLOTRON_WARPSTREAM_HTTP_URL: '',
+        CYCLOTRON_NODE_DATABASE_URL: isTestEnv()
+            ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
+            : isDevEnv()
+              ? 'postgres://posthog:posthog@localhost:5432/cyclotron_node'
+              : undefined,
+        // Cyclotron Node
+        CYCLOTRON_NODE_MAX_CONNECTIONS: 10,
+        CYCLOTRON_NODE_IDLE_TIMEOUT_MS: 30000,
+        CYCLOTRON_NODE_JANITOR_CLEANUP_BATCH_SIZE: 10000,
+        CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS: 10000,
+        CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: 30000,
+        CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT: 3,
+        CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS: 10000,
 
         // New IngestionConsumer config
         INGESTION_CONSUMER_GROUP_ID: 'events-ingestion-consumer',
@@ -307,6 +308,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_SESSION_FILTER_ENABLED: true, // When false, skip all Redis calls for session filtering
         SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS: 5 * 60 * 1000, // 5 minutes
         SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS: 5 * 60 * 1000, // 5 minutes
+        SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE: 0,
         // Session replay ingestion consumer config
         INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
         INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID: SESSION_RECORDING_DEFAULT_GROUP_ID,

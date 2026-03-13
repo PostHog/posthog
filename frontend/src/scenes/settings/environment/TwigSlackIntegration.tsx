@@ -1,12 +1,18 @@
 import { useValues } from 'kea'
 
-import { Link } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 
 export function TwigSlackIntegration(): JSX.Element {
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
     const { twigSlackIntegrations, twigSlackAvailable } = useValues(integrationsLogic)
 
     return (
@@ -20,7 +26,12 @@ export function TwigSlackIntegration(): JSX.Element {
 
                 <div>
                     {twigSlackAvailable ? (
-                        <Link to={api.integrations.authorizeUrl({ kind: 'slack-twig' })} disableClientSideRouting>
+                        <LemonButton
+                            disableClientSideRouting
+                            to={api.integrations.authorizeUrl({ kind: 'slack-twig' })}
+                            disabledReason={restrictedReason}
+                            className="p-0"
+                        >
                             <img
                                 alt="Add to Slack"
                                 height="40"
@@ -28,7 +39,7 @@ export function TwigSlackIntegration(): JSX.Element {
                                 src="https://platform.slack-edge.com/img/add_to_slack.png"
                                 srcSet="https://platform.slack-edge.com/img/add_to_slack.png 1x, https://platform.slack-edge.com/img/add_to_slack@2x.png 2x"
                             />
-                        </Link>
+                        </LemonButton>
                     ) : (
                         <p className="text-secondary">
                             The Twig Slack integration is not configured for this instance.

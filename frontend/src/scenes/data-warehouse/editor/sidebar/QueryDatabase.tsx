@@ -22,6 +22,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
+import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/ConnectionSelector'
 import { buildQueryForColumnClick } from 'scenes/data-warehouse/editor/sql-utils'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
@@ -37,15 +38,8 @@ import { renderTableCount } from '../editorSceneLogic'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
 
 export const QueryDatabase = (): JSX.Element => {
-    const {
-        treeData,
-        searchTreeData,
-        expandedFolders,
-        expandedSearchFolders,
-        searchTerm,
-        joinsByFieldName,
-        editingDraftId,
-    } = useValues(queryDatabaseLogic)
+    const { searchTerm, joinsByFieldName, editingDraftId, displayedTreeData, expandedItemIds, connectionId } =
+        useValues(queryDatabaseLogic)
     const {
         setExpandedFolders,
         toggleFolderOpen,
@@ -162,7 +156,6 @@ export const QueryDatabase = (): JSX.Element => {
                     case 'batch_export':
                         return 'batch export'
                     case 'data_warehouse':
-                        // Return "" to not clutter the interface
                         return ''
                     case 'posthog':
                         // Return "" to not clutter the interface
@@ -187,9 +180,8 @@ export const QueryDatabase = (): JSX.Element => {
     return (
         <LemonTree
             ref={treeRef}
-            // TODO: Can move this to treedata selector but selectors are maxed out on dependencies
-            data={searchTerm ? searchTreeData : treeData}
-            expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
+            data={displayedTreeData}
+            expandedItemIds={expandedItemIds}
             onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
             onFolderClick={(folder, isExpanded) => {
                 if (folder) {
@@ -352,7 +344,15 @@ export const QueryDatabase = (): JSX.Element => {
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    sceneLogic.actions.newTab(urls.sqlEditor({ query: `SELECT * FROM ${item.name}` }))
+                                    sceneLogic.actions.newTab(
+                                        urls.sqlEditor({
+                                            query: `SELECT * FROM ${item.name}`,
+                                            connectionId:
+                                                connectionId && connectionId !== POSTHOG_WAREHOUSE
+                                                    ? connectionId
+                                                    : undefined,
+                                        })
+                                    )
                                 }}
                             >
                                 <ButtonPrimitive menuItem>Query</ButtonPrimitive>
@@ -398,7 +398,13 @@ export const QueryDatabase = (): JSX.Element => {
                                 onClick={(e) => {
                                     e.stopPropagation()
                                     sceneLogic.actions.newTab(
-                                        urls.sqlEditor({ query: `SELECT * FROM \`${tableName}\`` })
+                                        urls.sqlEditor({
+                                            query: `SELECT * FROM \`${tableName}\``,
+                                            connectionId:
+                                                connectionId && connectionId !== POSTHOG_WAREHOUSE
+                                                    ? connectionId
+                                                    : undefined,
+                                        })
                                     )
                                 }}
                             >
@@ -602,12 +608,7 @@ export const QueryDatabase = (): JSX.Element => {
                 if (item.record?.type === 'column') {
                     return getFieldTypeIcon(item.record.field?.type)
                 }
-                return (
-                    <TreeNodeDisplayIcon
-                        item={item}
-                        expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
-                    />
-                )
+                return <TreeNodeDisplayIcon item={item} expandedItemIds={expandedItemIds} />
             }}
         />
     )

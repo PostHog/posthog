@@ -42,6 +42,15 @@ class TestInsightVariable(APIBaseTest):
         # Verify the variable was deleted
         assert not InsightVariable.objects.filter(id=variable.id).exists()
 
+    def test_create_list_variable_coerces_null_values_to_empty_list(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/insight_variables/",
+            data={"name": "List Var", "type": "List"},
+        )
+
+        assert response.status_code == 201
+        assert response.json()["values"] == []
+
     def test_insight_variable_limit(self):
         # default list call should return up to 500 variables
         response = self.client.get(f"/api/environments/{self.team.pk}/insight_variables/")

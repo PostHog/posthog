@@ -23,7 +23,7 @@ export function NavLink({ to, label, icon, isCollapsed }: NavLinkProps): JSX.Ele
 
     const isHomePage = to === urls.projectRoot()
     const currentPath = removeProjectIdIfPresent(pathname)
-    const isActive = currentPath === to
+    const isActive = currentPath === to || (isHomePage && currentPath === urls.projectHomepage())
 
     return (
         <ButtonGroupPrimitive
@@ -36,7 +36,7 @@ export function NavLink({ to, label, icon, isCollapsed }: NavLinkProps): JSX.Ele
                     iconOnly: isCollapsed,
                     className: 'group',
                     active: isActive,
-                    hasSideActionRight: isHomePage,
+                    hasSideActionRight: isHomePage && !isCollapsed,
                 }}
                 to={to}
                 tooltip={isCollapsed ? label : undefined}
@@ -47,7 +47,7 @@ export function NavLink({ to, label, icon, isCollapsed }: NavLinkProps): JSX.Ele
                 </span>
                 {!isCollapsed && <span className="flex-1 text-left">{label}</span>}
             </Link>
-            {isHomePage && (
+            {isHomePage && !isCollapsed && (
                 <ButtonPrimitive
                     className="opacity-0 group-hover/wrapper:opacity-50 hover:!opacity-100 transition-all duration-50"
                     iconOnly

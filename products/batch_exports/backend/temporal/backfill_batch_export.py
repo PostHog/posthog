@@ -19,13 +19,6 @@ from asgiref.sync import sync_to_async
 from structlog.contextvars import bind_contextvars
 
 from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportRun
-from posthog.batch_exports.service import (
-    BackfillBatchExportInputs,
-    BackfillDetails,
-    acreate_batch_export_backfill,
-    unpause_batch_export,
-    update_batch_export_backfill,
-)
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
@@ -33,6 +26,14 @@ from posthog.temporal.common.client import connect
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.service import (
+    BackfillBatchExportInputs,
+    BackfillDetails,
+    acreate_batch_export_backfill,
+    unpause_batch_export,
+    update_batch_export_backfill,
+)
+from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import compose_filters_clause
 
 LOGGER = get_write_only_logger(__name__)
@@ -456,12 +457,34 @@ async def _get_backfill_info_for_persons(
     return earliest_start, record_count
 
 
+async def _get_backfill_info_for_sessions(
+    batch_export: BatchExport,
+    start_at: dt.datetime | None,
+    end_at: dt.datetime | None,
+) -> tuple[dt.datetime | None, int | None]:
+    """Get adjusted start time and estimated record count for sessions model.
+
+    Queries the sessions table via HogQL, filtering by $end_timestamp
+    (this logic is the same as the actual export query, which aliases `$end_timestamp` as `_inserted_at`).
+
+    Returns:
+        A tuple of (adjusted_start_at, estimated_records_count).
+        If no data exists, returns (None, 0).
+    """
+
+    model = SessionsRecordBatchModel(team_id=batch_export.team_id, batch_export_id=str(batch_export.id))
+    min_timestamp, record_count = await model.get_backfill_info(start_at, end_at)
+
+    if min_timestamp is None:
+        return None, 0
+
+    earliest_start = _align_timestamp_to_interval(min_timestamp, batch_export)
+    return earliest_start, record_count
+
+
 @temporalio.activity.defn
 async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOutputs:
     """Validate backfill parameters and estimate record count.
-
-    For events model: runs combined query for earliest date + count.
-    For persons/sessions: runs earliest date only (count returns None for now).
 
     If no data exists or range contains no data, returns estimated_records_count=0
     (workflow should complete early rather than raising an error).
@@ -515,8 +538,13 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
             start_at=start_at,
             end_at=end_at,
         )
+    elif model == "sessions":
+        adjusted_start_at, record_count = await _get_backfill_info_for_sessions(
+            batch_export=batch_export,
+            start_at=start_at,
+            end_at=end_at,
+        )
     else:
-        # For sessions and other models, proceed without estimation
         logger.info(
             "Backfill info not yet implemented for model, skipping estimation",
             model=model,

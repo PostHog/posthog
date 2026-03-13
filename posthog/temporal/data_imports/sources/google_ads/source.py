@@ -55,6 +55,7 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
         config: GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig,
         team_id: int,
         with_counts: bool = False,
+        names: list[str] | None = None,
     ) -> list[SourceSchema]:
         google_ads_schemas = get_google_ads_schemas(
             config,
@@ -63,7 +64,7 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
 
         ads_incremental_fields = get_google_ads_incremental_fields()
 
-        return [
+        schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=ads_incremental_fields.get(endpoint, None) is not None,
@@ -75,6 +76,12 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
             )
             for endpoint in google_ads_schemas.keys()
         ]
+
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+
+        return schemas
 
     def source_for_pipeline(
         self, config: GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig, inputs: SourceInputs

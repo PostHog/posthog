@@ -31,6 +31,31 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 LOGGER = get_logger(__name__)
 
 
+def merge_columns(
+    db_columns: dict[str, str],
+    table_schema_dict: dict[str, str],
+    existing_columns: dict[str, dict[str, str]],
+) -> dict[str, dict[str, str]]:
+    """Build column metadata, preserving StringJSONDatabaseField from prior runs"""
+    columns: dict[str, dict[str, str]] = {}
+    for column_name, db_column_type in db_columns.items():
+        hogql_type = table_schema_dict.get(column_name)
+
+        if hogql_type is None:
+            capture_exception(Exception(f"HogQL type not found for column: {column_name}"))
+            continue
+
+        existing_hogql_type = existing_columns.get(column_name, {}).get("hogql")
+        if existing_hogql_type == "StringJSONDatabaseField" and hogql_type == "StringDatabaseField":
+            hogql_type = "StringJSONDatabaseField"
+
+        columns[column_name] = {
+            "clickhouse": db_column_type,
+            "hogql": hogql_type,
+        }
+    return columns
+
+
 def _from_arrow_scalar(arrow_value: pyarrow.Scalar) -> Any:
     """Converts arrow scalar into Python type. Currently adds "UTC" to naive date times and converts all others to UTC"""
     row_value = arrow_value.as_py()
@@ -63,6 +88,17 @@ async def update_last_synced_at(job_id: str, schema_id: str, team_id: int) -> No
         schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema_id, team_id=team_id)
         schema.last_synced_at = job.created_at
         schema.save()
+
+    await _update()
+
+
+async def set_initial_sync_complete(schema_id: str, team_id: int) -> None:
+    @database_sync_to_async_pool
+    def _update():
+        schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema_id, team_id=team_id)
+        if not schema.initial_sync_complete:
+            schema.initial_sync_complete = True
+            schema.save(update_fields=["initial_sync_complete"])
 
     await _update()
 
@@ -165,18 +201,8 @@ async def validate_schema_and_update_table(
                 raw_db_columns: dict[str, dict[str, str]] = table_created.get_columns()
                 db_columns = {key: column.get("clickhouse", "") for key, column in raw_db_columns.items()}
 
-                columns = {}
-                for column_name, db_column_type in db_columns.items():
-                    hogql_type = table_schema_dict.get(column_name)
-
-                    if hogql_type is None:
-                        capture_exception(Exception(f"HogQL type not found for column: {column_name}"))
-                        continue
-
-                    columns[column_name] = {
-                        "clickhouse": db_column_type,
-                        "hogql": hogql_type,
-                    }
+                existing_columns: dict[str, dict[str, str]] = table_created.columns or {}
+                columns = merge_columns(db_columns, table_schema_dict or {}, existing_columns)
                 table_created.columns = columns
                 table_created.save()
 

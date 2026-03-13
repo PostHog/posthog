@@ -108,32 +108,43 @@ export function InsightDisplayConfig(): JSX.Element {
         trendsDataLogic(insightProps)
     )
 
+    const isBoxPlot = display === ChartDisplayType.BoxPlot
     const advancedOptions: LemonMenuItems = [
-        ...((isTrends && display !== ChartDisplayType.CalendarHeatmap && display !== ChartDisplayType.BoxPlot) ||
+        ...((isTrends && display !== ChartDisplayType.CalendarHeatmap) ||
         isRetention ||
         isTrendsFunnel ||
         isStickiness ||
         isLifecycle
             ? [
                   {
-                      title: 'Display',
-                      items: [
-                          ...(isLifecycle ? [{ label: () => <LifecycleStackingFilter /> }] : []),
-                          ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
-                          ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
-                          ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
-                          ...(display === ChartDisplayType.ActionsPie ? [{ label: () => <ShowPieTotalFilter /> }] : []),
-                          ...(showAlertThresholdLinesConfig
-                              ? [{ label: () => <ShowAlertThresholdLinesFilter /> }]
-                              : []),
-                          ...(showMultipleYAxesConfig ? [{ label: () => <ShowMultipleYAxesFilter /> }] : []),
-                          ...((isTrends || isRetention || isTrendsFunnel) && !isNonTimeSeriesDisplay
-                              ? [{ label: () => <ShowTrendLinesFilter /> }]
-                              : []),
-                          ...(isTrends && !isNonTimeSeriesDisplay && hideWeekendsEnabled
-                              ? [{ label: () => <HideWeekendsFilter /> }]
-                              : []),
-                      ],
+                      title: (
+                          <h5 className="mx-2 my-1" data-attr="options-display-section">
+                              Display
+                          </h5>
+                      ),
+                      items: isBoxPlot
+                          ? hasLegend
+                              ? [{ label: () => <ShowLegendFilter /> }]
+                              : []
+                          : [
+                                ...(isLifecycle ? [{ label: () => <LifecycleStackingFilter /> }] : []),
+                                ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
+                                ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
+                                ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
+                                ...(display === ChartDisplayType.ActionsPie
+                                    ? [{ label: () => <ShowPieTotalFilter /> }]
+                                    : []),
+                                ...(showAlertThresholdLinesConfig
+                                    ? [{ label: () => <ShowAlertThresholdLinesFilter /> }]
+                                    : []),
+                                ...(showMultipleYAxesConfig ? [{ label: () => <ShowMultipleYAxesFilter /> }] : []),
+                                ...((isTrends || isRetention || isTrendsFunnel) && !isNonTimeSeriesDisplay
+                                    ? [{ label: () => <ShowTrendLinesFilter /> }]
+                                    : []),
+                                ...(isTrends && !isNonTimeSeriesDisplay && hideWeekendsEnabled
+                                    ? [{ label: () => <HideWeekendsFilter /> }]
+                                    : []),
+                            ],
                   },
               ]
             : []),

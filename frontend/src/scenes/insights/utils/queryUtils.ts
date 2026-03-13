@@ -120,7 +120,7 @@ export const validateQuery = (q: DataNode): boolean => {
         return q.series.length >= 2
     }
     if (isTrendsQuery(q) && q.trendsFilter?.display === ChartDisplayType.BoxPlot) {
-        return !!q.series?.[0]?.math_property
+        return q.series?.length > 0 && q.series.every((s) => !!s?.math_property)
     }
     if (hasInvalidRegexFilter(q)) {
         return false
@@ -128,15 +128,17 @@ export const validateQuery = (q: DataNode): boolean => {
     return true
 }
 
+// keep in sync with posthog/schema_helpers.py `grouped_chart_display_types` method
 const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
-    [ChartDisplayType.Auto]: ChartDisplayType.ActionsLineGraph,
+    [ChartDisplayType.Auto]: ChartDisplayType.Auto,
 
     // time series
     [ChartDisplayType.ActionsLineGraph]: ChartDisplayType.ActionsLineGraph,
+    [ChartDisplayType.ActionsAreaGraph]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.ActionsBar]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.ActionsUnstackedBar]: ChartDisplayType.ActionsLineGraph,
-    [ChartDisplayType.ActionsAreaGraph]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.ActionsStackedBar]: ChartDisplayType.ActionsLineGraph,
+    [ChartDisplayType.TwoDimensionalHeatmap]: ChartDisplayType.ActionsLineGraph,
 
     // cumulative time series
     [ChartDisplayType.ActionsLineGraphCumulative]: ChartDisplayType.ActionsLineGraphCumulative,
@@ -146,10 +148,14 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
     [ChartDisplayType.ActionsBarValue]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.ActionsPie]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.ActionsTable]: ChartDisplayType.ActionsBarValue,
-    [ChartDisplayType.WorldMap]: ChartDisplayType.ActionsBarValue,
-    [ChartDisplayType.CalendarHeatmap]: ChartDisplayType.ActionsBarValue,
 
-    [ChartDisplayType.TwoDimensionalHeatmap]: ChartDisplayType.TwoDimensionalHeatmap,
+    // separate: different breakdown limit (250)
+    [ChartDisplayType.WorldMap]: ChartDisplayType.WorldMap,
+
+    // separate runner
+    [ChartDisplayType.CalendarHeatmap]: ChartDisplayType.CalendarHeatmap,
+
+    // separate runner
     [ChartDisplayType.BoxPlot]: ChartDisplayType.BoxPlot,
 }
 

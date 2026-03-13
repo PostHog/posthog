@@ -12,7 +12,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, splitKebabCase } from 'lib/utils'
 
-import { IntegrationKind, SessionRecordingSidebarStacking, SessionRecordingSidebarTab } from '~/types'
+import { SessionRecordingSidebarStacking, SessionRecordingSidebarTab } from '~/types'
 
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
@@ -56,12 +56,7 @@ export function PlayerSidebar(): JSX.Element {
     }
 
     // Show linked issues tab if there are integrations or existing references
-    // Jira is gated behind the REPLAY_JIRA_INTEGRATION flag
-    const jiraIntegrationEnabled = featureFlags[FEATURE_FLAGS.REPLAY_JIRA_INTEGRATION]
-    const integrationKinds: IntegrationKind[] = jiraIntegrationEnabled
-        ? ['linear', 'github', 'gitlab', 'jira']
-        : ['linear', 'github', 'gitlab']
-    const sessionReplayIntegrations = getIntegrationsByKind(integrationKinds)
+    const sessionReplayIntegrations = getIntegrationsByKind(['linear', 'github', 'gitlab', 'jira'])
     const externalReferences = sessionPlayerMetaData?.external_references ?? []
 
     if (sessionReplayIntegrations.length > 0 || externalReferences.length > 0) {

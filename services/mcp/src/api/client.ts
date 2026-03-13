@@ -10,12 +10,6 @@ import type {
     ApiRedactedPersonalApiKey,
     ApiUser,
 } from '@/schema/api'
-import {
-    type CreateDashboardInput,
-    CreateDashboardInputSchema,
-    type ListDashboardsData,
-    ListDashboardsSchema,
-} from '@/schema/dashboards'
 import type {
     Experiment,
     ExperimentExposureQuery,
@@ -27,17 +21,10 @@ import {
     ExperimentExposureQuerySchema,
     ExperimentUpdateApiPayloadSchema,
 } from '@/schema/experiments'
-import {
-    type CreateFeatureFlagInput,
-    CreateFeatureFlagInputSchema,
-    type UpdateFeatureFlagInput,
-    UpdateFeatureFlagInputSchema,
-} from '@/schema/flags'
 import { type CreateInsightInput, CreateInsightInputSchema, type ListInsightsData } from '@/schema/insights'
 import type { ExperimentCreateSchema } from '@/schema/tool-inputs'
 import { isShortId } from '@/tools/insights/utils'
 
-import type { CreateActionInput, ListActionsInput, UpdateActionInput } from '../schema/actions.js'
 import type {
     LogAttribute,
     LogAttributeValue,
@@ -61,8 +48,7 @@ import {
     ListSurveysInputSchema,
     UpdateSurveyInputSchema,
 } from '../schema/surveys.js'
-import { buildApiFetcher } from './fetcher.js'
-import { type Schemas, createApiClient } from './generated.js'
+import type { Schemas } from './generated.js'
 import { globalRateLimiter } from './rate-limiter.js'
 
 // Global search types
@@ -100,6 +86,7 @@ export interface ApiConfig {
     mcpClientName?: string | undefined
     mcpClientVersion?: string | undefined
     mcpProtocolVersion?: string | undefined
+    oauthClientName?: string | undefined
 }
 
 type Endpoint = Record<string, any>
@@ -107,14 +94,10 @@ type Endpoint = Record<string, any>
 export class ApiClient {
     public config: ApiConfig
     public baseUrl: string
-    // NOTE: The OpenAPI schema for the generated client is not always accurate
-    public generated: ReturnType<typeof createApiClient>
 
     constructor(config: ApiConfig) {
         this.config = config
         this.baseUrl = config.baseUrl
-
-        this.generated = createApiClient(buildApiFetcher(this.config), this.baseUrl)
     }
 
     getProjectBaseUrl(projectId: string): string {
@@ -144,6 +127,7 @@ export class ApiClient {
             ...(this.config.mcpProtocolVersion
                 ? { 'x-posthog-mcp-protocol-version': this.config.mcpProtocolVersion }
                 : {}),
+            ...(this.config.oauthClientName ? { 'x-posthog-mcp-oauth-client-name': this.config.oauthClientName } : {}),
         }
         if (options?.body) {
             defaultHeaders['Content-Type'] = 'application/json'
@@ -165,13 +149,13 @@ export class ApiClient {
         method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
         path: string
         body?: Record<string, unknown>
-        query?: Record<string, string | number | undefined>
+        query?: Record<string, string | number | boolean | string[] | undefined>
     }): Promise<T> {
         const searchParams = new URLSearchParams()
         if (opts.query) {
             for (const [k, v] of Object.entries(opts.query)) {
                 if (v !== undefined) {
-                    searchParams.append(k, String(v))
+                    searchParams.append(k, Array.isArray(v) ? v.join(',') : String(v))
                 }
             }
         }
@@ -241,9 +225,11 @@ export class ApiClient {
                         errorData = { detail: errorText }
                     }
 
-                    if (errorData.type === 'validation_error' && errorData.code) {
-                        console.error(`[API] Validation error on ${method} ${url}: ${errorData.code}`)
-                        throw new Error(`Validation error: ${errorData.code}`)
+                    if (errorData.type === 'validation_error') {
+                        const detail = errorData.detail || errorData.code || 'unknown'
+                        const attr = errorData.attr ? ` (field: ${errorData.attr})` : ''
+                        console.error(`[API] Validation error on ${method} ${url}: ${detail}${attr}`)
+                        throw new Error(`Validation error: ${detail}${attr}`)
                     }
 
                     console.error(`[API] Request failed on ${method} ${url}: ${response.status} ${response.statusText}`)
@@ -482,13 +468,14 @@ export class ApiClient {
                 try {
                     const limit = params?.limit ?? 50
                     const offset = params?.offset ?? 0
-
-                    const response = await this.generated.get('/api/projects/{project_id}/experiments/', {
-                        path: { project_id: projectId },
-                        query: { limit, offset },
-                    })
-
-                    return { success: true, data: response.results as Experiment[] }
+                    const qs = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+                    const result = await this.fetchJson<{ results: Experiment[] }>(
+                        `${this.baseUrl}/api/projects/${projectId}/experiments/?${qs}`
+                    )
+                    if (!result.success) {
+                        throw result.error
+                    }
+                    return { success: true, data: result.data.results }
                 } catch (error) {
                     return { success: false, error: error as Error }
                 }
@@ -779,163 +766,28 @@ export class ApiClient {
         }
     }
 
-    featureFlags({ projectId }: { projectId: string }): Endpoint {
-        return {
-            list: async ({ params }: { params?: { limit?: number; offset?: number } } = {}): Promise<
-                Result<Array<Pick<Schemas.FeatureFlag, 'id' | 'key' | 'name' | 'active' | 'updated_at'>>>
-            > => {
-                try {
-                    const limit = params?.limit ?? 50
-                    const offset = params?.offset ?? 0
-
-                    const response = await this.generated.get('/api/projects/{project_id}/feature_flags/', {
-                        path: { project_id: projectId },
-                        query: { limit, offset },
-                    })
-
-                    return {
-                        success: true,
-                        data: response.results.map((f) => ({
-                            id: f.id,
-                            key: f.key,
-                            name: f.name ?? '',
-                            active: f.active ?? false,
-                            updated_at: f.updated_at ?? null,
-                        })),
-                    }
-                } catch (error) {
-                    return { success: false, error: error as Error }
-                }
-            },
-
-            get: async ({ flagId }: { flagId: string | number }): Promise<Result<Schemas.FeatureFlag>> => {
-                return this.fetchJson<Schemas.FeatureFlag>(
-                    `${this.baseUrl}/api/projects/${projectId}/feature_flags/${flagId}/`
-                )
-            },
-
-            findByKey: async ({ key }: { key: string }): Promise<Result<Schemas.FeatureFlag | undefined>> => {
-                const listResult = await this.featureFlags({ projectId }).list()
-
-                if (!listResult.success) {
-                    return { success: false, error: listResult.error }
-                }
-
-                const found = listResult.data.find((f: { key: string }) => f.key === key)
-
-                if (!found) {
-                    return { success: true, data: undefined }
-                }
-
-                const flagResult = await this.featureFlags({ projectId }).get({ flagId: found.id })
-
-                if (!flagResult.success) {
-                    return { success: false, error: flagResult.error }
-                }
-
-                return { success: true, data: flagResult.data }
-            },
-
-            create: async ({ data }: { data: CreateFeatureFlagInput }): Promise<Result<Schemas.FeatureFlag>> => {
-                const validatedInput = CreateFeatureFlagInputSchema.parse(data)
-
-                const body = {
-                    key: validatedInput.key,
-                    name: validatedInput.name,
-                    description: validatedInput.description,
-                    active: validatedInput.active,
-                    filters: validatedInput.filters,
-                }
-
-                return this.fetchJson<Schemas.FeatureFlag>(`${this.baseUrl}/api/projects/${projectId}/feature_flags/`, {
-                    method: 'POST',
-                    body: JSON.stringify(body),
-                })
-            },
-
-            update: async ({
-                key,
-                data,
-            }: {
-                key: string
-                data: UpdateFeatureFlagInput
-            }): Promise<Result<Schemas.FeatureFlag>> => {
-                const validatedInput = UpdateFeatureFlagInputSchema.parse(data)
-                const findResult = await this.featureFlags({ projectId }).findByKey({ key })
-
-                if (!findResult.success) {
-                    return findResult
-                }
-
-                if (!findResult.data) {
-                    return {
-                        success: false,
-                        error: new Error(`Feature flag not found: ${key}`),
-                    }
-                }
-
-                const body = {
-                    key: key,
-                    name: validatedInput.name,
-                    description: validatedInput.description,
-                    active: validatedInput.active,
-                    filters: validatedInput.filters,
-                }
-
-                return this.fetchJson<Schemas.FeatureFlag>(
-                    `${this.baseUrl}/api/projects/${projectId}/feature_flags/${findResult.data.id}/`,
-                    {
-                        method: 'PATCH',
-                        body: JSON.stringify(body),
-                    }
-                )
-            },
-
-            delete: async ({ flagId }: { flagId: number }): Promise<Result<{ success: boolean; message: string }>> => {
-                try {
-                    const response = await this.fetch(
-                        `${this.baseUrl}/api/projects/${projectId}/feature_flags/${flagId}/`,
-                        {
-                            method: 'PATCH',
-                            body: JSON.stringify({ deleted: true }),
-                        }
-                    )
-
-                    if (!response.ok) {
-                        throw new Error(`Failed to delete feature flag: ${response.statusText}`)
-                    }
-
-                    return {
-                        success: true,
-                        data: {
-                            success: true,
-                            message: 'Feature flag deleted successfully',
-                        },
-                    }
-                } catch (error) {
-                    return { success: false, error: error as Error }
-                }
-            },
-        }
-    }
-
     insights({ projectId }: { projectId: string }): Endpoint {
         return {
             list: async ({ params }: { params?: ListInsightsData } = {}): Promise<Result<Array<Schemas.Insight>>> => {
                 try {
-                    const response = await this.generated.get('/api/projects/{project_id}/insights/', {
-                        path: { project_id: projectId },
-                        query: params
-                            ? {
-                                  limit: params.limit,
-                                  offset: params.offset,
-                                  //@ts-expect-error search is not implemented as a query parameter
-                                  search: params.search,
-                              }
-                            : {},
-                    })
-
-                    return { success: true, data: response.results }
+                    const qs = new URLSearchParams()
+                    if (params?.limit !== undefined) {
+                        qs.set('limit', String(params.limit))
+                    }
+                    if (params?.offset !== undefined) {
+                        qs.set('offset', String(params.offset))
+                    }
+                    if (params?.search) {
+                        qs.set('search', params.search)
+                    }
+                    const qStr = qs.toString()
+                    const result = await this.fetchJson<{ results: Schemas.Insight[] }>(
+                        `${this.baseUrl}/api/projects/${projectId}/insights/${qStr ? `?${qStr}` : ''}`
+                    )
+                    if (!result.success) {
+                        throw result.error
+                    }
+                    return { success: true, data: result.data.results }
                 } catch (error) {
                     return { success: false, error: error as Error }
                 }
@@ -976,7 +828,9 @@ export class ApiClient {
                     return { success: true, data: insight }
                 }
 
-                return this.fetchJson<Schemas.Insight>(`${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`)
+                return this.fetchJson<Schemas.Insight>(
+                    `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`
+                )
             },
 
             update: async ({ insightId, data }: { insightId: number; data: any }): Promise<Result<Schemas.Insight>> => {
@@ -1059,175 +913,6 @@ export class ApiClient {
         }
     }
 
-    dashboards({ projectId }: { projectId: string }): Endpoint {
-        return {
-            list: async ({ params }: { params?: ListDashboardsData } = {}): Promise<
-                Result<Schemas.Dashboard[]>
-            > => {
-                const validatedParams = params ? ListDashboardsSchema.parse(params) : undefined
-                const searchParams = new URLSearchParams()
-
-                if (validatedParams?.limit) {
-                    searchParams.append('limit', String(validatedParams.limit))
-                }
-                if (validatedParams?.offset) {
-                    searchParams.append('offset', String(validatedParams.offset))
-                }
-                if (validatedParams?.search) {
-                    searchParams.append('search', validatedParams.search)
-                }
-
-                const url = `${this.baseUrl}/api/projects/${projectId}/dashboards/${searchParams.toString() ? `?${searchParams}` : ''}`
-
-                const result = await this.fetchJson<{
-                    results: Schemas.Dashboard[]
-                }>(url)
-
-                if (result.success) {
-                    return { success: true, data: result.data.results }
-                }
-
-                return result
-            },
-
-            get: async ({ dashboardId }: { dashboardId: number }): Promise<Result<Schemas.Dashboard>> => {
-                return this.fetchJson<Schemas.Dashboard>(
-                    `${this.baseUrl}/api/projects/${projectId}/dashboards/${dashboardId}/`
-                )
-            },
-
-            create: async ({ data }: { data: CreateDashboardInput }): Promise<Result<Schemas.Dashboard>> => {
-                const validatedInput = CreateDashboardInputSchema.parse(data)
-
-                return this.fetchJson<Schemas.Dashboard>(
-                    `${this.baseUrl}/api/projects/${projectId}/dashboards/`,
-                    {
-                        method: 'POST',
-                        body: JSON.stringify(validatedInput),
-                    }
-                )
-            },
-
-            update: async ({
-                dashboardId,
-                data,
-            }: {
-                dashboardId: number
-                data: any
-            }): Promise<Result<Schemas.Dashboard>> => {
-                return this.fetchJson<Schemas.Dashboard>(
-                    `${this.baseUrl}/api/projects/${projectId}/dashboards/${dashboardId}/`,
-                    {
-                        method: 'PATCH',
-                        body: JSON.stringify(data),
-                    }
-                )
-            },
-
-            delete: async ({
-                dashboardId,
-            }: {
-                dashboardId: number
-            }): Promise<Result<{ success: boolean; message: string }>> => {
-                try {
-                    const response = await this.fetch(
-                        `${this.baseUrl}/api/projects/${projectId}/dashboards/${dashboardId}/`,
-                        {
-                            method: 'PATCH',
-                            body: JSON.stringify({ deleted: true }),
-                        }
-                    )
-
-                    if (!response.ok) {
-                        throw new Error(`Failed to delete dashboard: ${response.statusText}`)
-                    }
-
-                    return {
-                        success: true,
-                        data: {
-                            success: true,
-                            message: 'Dashboard deleted successfully',
-                        },
-                    }
-                } catch (error) {
-                    return { success: false, error: error as Error }
-                }
-            },
-
-            addInsight: async ({
-                data,
-            }: {
-                data: { insightId: number; dashboardId: number }
-            }): Promise<Result<any>> => {
-                return this.fetchJson<unknown>(
-                    `${this.baseUrl}/api/projects/${projectId}/insights/${data.insightId}/`,
-                    {
-                        method: 'PATCH',
-                        body: JSON.stringify({ dashboards: [data.dashboardId] }),
-                    }
-                )
-            },
-
-            reorderTiles: async ({
-                dashboardId,
-                tileOrder,
-            }: {
-                dashboardId: number
-                tileOrder: number[]
-            }): Promise<Result<{ success: boolean; message: string; tiles: Array<{ id: number; order: number }> }>> => {
-                // Calculate new layout positions based on the specified order
-                // Use 2-column grid for larger layouts (sm and above), single column for xs
-                const tileWidth = 6 // Half of 12-column grid
-                const tileHeight = 5
-
-                const tiles = tileOrder.map((tileId, index) => {
-                    const row = Math.floor(index / 2)
-                    const col = index % 2
-
-                    return {
-                        id: tileId,
-                        layouts: {
-                            // 2-column layout for sm and larger screens
-                            sm: { x: col * tileWidth, y: row * tileHeight, w: tileWidth, h: tileHeight },
-                            // Single column for xs (mobile)
-                            xs: { x: 0, y: index * tileHeight, w: 6, h: tileHeight },
-                        },
-                    }
-                })
-
-                const result = await this.fetchJson<{
-                    id: number
-                    tiles: Array<{ id: number; layouts?: Record<string, unknown> | null }>
-                }>(`${this.baseUrl}/api/projects/${projectId}/dashboards/${dashboardId}/`, {
-                    method: 'PATCH',
-                    body: JSON.stringify({ tiles }),
-                })
-
-                if (!result.success) {
-                    return result
-                }
-
-                // Return a summary of the updated order
-                const updatedTiles = result.data.tiles
-                    .filter((tile) => tileOrder.includes(tile.id))
-                    .map((tile) => ({
-                        id: tile.id,
-                        order: tileOrder.indexOf(tile.id),
-                    }))
-                    .sort((a, b) => a.order - b.order)
-
-                return {
-                    success: true,
-                    data: {
-                        success: true,
-                        message: `Successfully reordered ${updatedTiles.length} tiles on dashboard ${dashboardId}`,
-                        tiles: updatedTiles,
-                    },
-                }
-            },
-        }
-    }
-
     query({ projectId }: { projectId: string }): Endpoint {
         return {
             execute: async ({ queryBody }: { queryBody: any }): Promise<Result<{ results: any[] }>> => {
@@ -1258,9 +943,7 @@ export class ApiClient {
 
     surveys({ projectId }: { projectId: string }): Endpoint {
         return {
-            list: async ({ params }: { params?: ListSurveysInput } = {}): Promise<
-                Result<Array<Schemas.Survey>>
-            > => {
+            list: async ({ params }: { params?: ListSurveysInput } = {}): Promise<Result<Array<Schemas.Survey>>> => {
                 const validatedParams = params ? ListSurveysInputSchema.parse(params) : undefined
                 const searchParams = new URLSearchParams()
 
@@ -1307,10 +990,13 @@ export class ApiClient {
             }): Promise<Result<Schemas.Survey>> => {
                 const validatedInput = UpdateSurveyInputSchema.parse(data)
 
-                return this.fetchJson<Schemas.Survey>(`${this.baseUrl}/api/projects/${projectId}/surveys/${surveyId}/`, {
-                    method: 'PATCH',
-                    body: JSON.stringify(validatedInput),
-                })
+                return this.fetchJson<Schemas.Survey>(
+                    `${this.baseUrl}/api/projects/${projectId}/surveys/${surveyId}/`,
+                    {
+                        method: 'PATCH',
+                        body: JSON.stringify(validatedInput),
+                    }
+                )
             },
 
             delete: async ({
@@ -1385,11 +1071,15 @@ export class ApiClient {
                         },
                         severityLevels: params.severityLevels ?? [],
                         serviceNames: params.serviceNames ?? [],
-                        searchTerm: params.searchTerm ?? null,
                         orderBy: params.orderBy ?? 'latest',
                         limit: params.limit ?? 100,
                         after: params.after ?? null,
-                        filterGroup: { type: 'AND', values: [] },
+                        filterGroup: params.filters?.length
+                            ? {
+                                  type: 'AND' as const,
+                                  values: [{ type: 'AND' as const, values: params.filters }],
+                              }
+                            : { type: 'AND' as const, values: [] },
                     },
                 }
 
@@ -1434,126 +1124,6 @@ export class ApiClient {
                     return result
                 }
                 return { success: true, data: result.data.results }
-            },
-        }
-    }
-
-    actions({ projectId }: { projectId: string }): Endpoint {
-        return {
-            /**
-             * List all actions in the project
-             */
-            list: async ({ params }: { params?: ListActionsInput } = {}): Promise<Result<Array<Schemas.Action>>> => {
-                const searchParams = new URLSearchParams()
-
-                if (params?.limit) {
-                    searchParams.append('limit', String(params.limit))
-                }
-                if (params?.offset) {
-                    searchParams.append('offset', String(params.offset))
-                }
-
-                const url = `${this.baseUrl}/api/projects/${projectId}/actions/${searchParams.toString() ? `?${searchParams}` : ''}`
-
-                const result = await this.fetchJson<{ results: Schemas.Action[] }>(url)
-
-                if (result.success) {
-                    return { success: true, data: result.data.results }
-                }
-
-                return result
-            },
-
-            /**
-             * Get a single action by ID
-             */
-            get: async ({ actionId }: { actionId: number }): Promise<Result<Schemas.Action>> => {
-                return this.fetchJson<Schemas.Action>(`${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`)
-            },
-
-            /**
-             * Create a new action
-             */
-            create: async ({ data }: { data: CreateActionInput }): Promise<Result<Schemas.Action>> => {
-                const body = {
-                    name: data.name,
-                    description: data.description,
-                    steps: data.steps,
-                    tags: data.tags,
-                    post_to_slack: data.post_to_slack ?? false,
-                    slack_message_format: data.slack_message_format,
-                }
-
-                return this.fetchJson<Schemas.Action>(`${this.baseUrl}/api/projects/${projectId}/actions/`, {
-                    method: 'POST',
-                    body: JSON.stringify(body),
-                })
-            },
-
-            /**
-             * Update an existing action
-             */
-            update: async ({
-                actionId,
-                data,
-            }: {
-                actionId: number
-                data: UpdateActionInput
-            }): Promise<Result<Schemas.Action>> => {
-                return this.fetchJson<Schemas.Action>(
-                    `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
-                    {
-                        method: 'PATCH',
-                        body: JSON.stringify(data),
-                    }
-                )
-            },
-
-            /**
-             * Soft delete an action (sets deleted=true)
-             */
-            delete: async ({
-                actionId,
-            }: {
-                actionId: number
-            }): Promise<Result<{ success: boolean; message: string }>> => {
-                try {
-                    // First fetch the action to get its name (required by backend validation)
-                    const getResponse = await this.fetch(
-                        `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
-                        {
-                            method: 'GET',
-                        }
-                    )
-
-                    if (!getResponse.ok) {
-                        throw new Error(`Failed to fetch action: ${getResponse.statusText}`)
-                    }
-
-                    const action = (await getResponse.json()) as { name: string }
-
-                    const response = await this.fetch(
-                        `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
-                        {
-                            method: 'PATCH',
-                            body: JSON.stringify({ name: action.name, deleted: true }),
-                        }
-                    )
-
-                    if (!response.ok) {
-                        throw new Error(`Failed to delete action: ${response.statusText}`)
-                    }
-
-                    return {
-                        success: true,
-                        data: {
-                            success: true,
-                            message: 'Action deleted successfully',
-                        },
-                    }
-                } catch (error) {
-                    return { success: false, error: error as Error }
-                }
             },
         }
     }

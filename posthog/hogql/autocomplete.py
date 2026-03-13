@@ -664,8 +664,10 @@ def get_hogql_autocomplete(
             elif isinstance(node, ast.Field) and isinstance(parent_node, ast.JoinExpr):
                 # Handle table names
                 with timings.measure("table_name"):
-                    table_names = database.get_all_table_names()
-                    posthog_table_names = database.get_posthog_table_names()
+                    table_names = [name for name in database.get_all_table_names() if database.has_table(name)]
+                    posthog_table_names = [
+                        name for name in database.get_posthog_table_names() if database.has_table(name)
+                    ]
 
                     if len(node.chain) == 1:
                         extend_responses(
