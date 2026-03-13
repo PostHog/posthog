@@ -115,24 +115,14 @@ You have two investigation tools:
 
 _RESEARCH_PROTOCOL = """## Research protocol
 
-For each signal:
+For each signal, find **code evidence** and **data evidence**:
 
-### Step 1: Code investigation
-- Search the codebase for files related to the feature/component the signal describes.
-- Look for the specific issue or behavior described — can you see it in the code?
-- Check `git log` on relevant files for recent changes that may have already addressed the issue.
-- Search for `posthog.capture` calls and feature flag checks (`posthog.isFeatureEnabled`, `posthog.getFeatureFlag`, `posthog-js`, `useFeatureFlag`) in the same area — these tell you what the team considers important enough to track or gate.
+- **Code:** Trace the code path behind the signal's claim — find the relevant files, read the implementation, and understand how the logic actually works. Even if the signal doesn't mention specific files, search for the feature/component and dig in. Also look for `posthog.capture` calls or feature flag checks nearby — these show what the team tracks and gates, which helps gauge importance.
+- **Data:** Use PostHog MCP tools (`execute-sql`, `query-run`, `read-data-schema`, etc.) to check real impact — error rates, user counts, conversion metrics. If the signal references a specific insight, experiment, or feature flag, look it up directly.
 
-### Step 2: Data investigation (via PostHog MCP)
-- Use `read-data-schema` to discover available events and properties relevant to the signal.
-- Run queries via `execute-sql` or `query-run` to check impact — error rates, user counts, conversion metrics, or whatever is relevant.
-- If the signal mentions a specific insight, dashboard, experiment, or feature flag, look it up directly via the appropriate MCP tool.
+Cross-reference code and data — does the data corroborate what the code suggests?
 
-### Step 3: Cross-reference
-- Does the data corroborate the signal's claims?
-- Is the issue transient or persistent?
-
-**Time budget:** Spend roughly equal effort on each signal. If a signal can't be verified after 2-3 minutes of investigation, mark it as unverified and move on."""
+**Budget:** Spend no more than ~8 tool calls per signal. If you can't verify a signal's claim after that, mark it unverified and move on."""
 
 _ACTIONABILITY_CRITERIA = """## Actionability criteria
 
@@ -164,10 +154,6 @@ You will investigate **{total_signals} signal(s)** one at a time. I will send ea
 ---
 
 {_RESEARCH_PROTOCOL}
-
----
-
-{_ACTIONABILITY_CRITERIA}
 
 ---
 
@@ -212,7 +198,7 @@ def build_actionability_prompt(total_signals: int) -> str:
 
 {_ACTIONABILITY_CRITERIA}
 
-Consider all your findings together. Write your explanation first, grounding it in the evidence you gathered, then give your verdict.
+Consider all your findings together.
 
 Respond with a JSON object matching this schema:
 
@@ -236,8 +222,6 @@ def build_priority_prompt(total_signals: int) -> str:
 - **P4** — Minimal. Cosmetic, negligible performance, optional investigation.
 
 Base your priority on **evidence from your research** — quantified user impact, error frequency, or scope of affected code paths — not just the signal descriptions.
-
-Write your explanation first, then give your priority level.
 
 Respond with a JSON object matching this schema:
 
