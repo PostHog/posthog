@@ -14,7 +14,7 @@ if str(COMMON_DIR) not in sys.path:
     sys.path.insert(0, str(COMMON_DIR))
 
 try:
-    from hogli.core.cli import cli  # noqa: E402  (import after path modification)
+    from hogli.core.cli import main  # noqa: E402  (import after path modification)
 except ModuleNotFoundError as exc:  # pragma: no cover - depends on environment state
     missing = exc.name
     if missing == "click":
@@ -25,4 +25,4 @@ except ModuleNotFoundError as exc:  # pragma: no cover - depends on environment 
     raise
 
 if __name__ == "__main__":
-    cli()
+    main()

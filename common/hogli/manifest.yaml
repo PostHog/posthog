@@ -701,3 +701,6 @@ environment:
     setup:python:
         cmd: uv sync --active
         description: Install Python dependencies to active virtual environment
+    telemetry:on:
+    telemetry:off:
+    telemetry:status:

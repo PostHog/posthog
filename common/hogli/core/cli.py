@@ -7,11 +7,15 @@ Help output is dynamically generated from the manifest with category grouping.
 from __future__ import annotations
 
 import os
+import time as _time
+import platform
 from collections import defaultdict
+from typing import Any
 
 import click
+from hogli import telemetry
 from hogli.core.command_types import BinScriptCommand, CompositeCommand, DirectCommand, HogliCommand
-from hogli.core.manifest import REPO_ROOT, load_manifest
+from hogli.core.manifest import REPO_ROOT, get_category_for_command, load_manifest
 
 BIN_DIR = REPO_ROOT / "bin"
 
@@ -95,6 +99,9 @@ def _auto_update_manifest() -> None:
         )
 
 
+_telemetry_command: str | None = None
+
+
 @click.group(
     cls=CategorizedGroup,
     help="Unified developer experience for the PostHog monorepo.",
@@ -103,11 +110,15 @@ def _auto_update_manifest() -> None:
 @click.pass_context
 def cli(ctx: click.Context) -> None:
     """hogli - Developer CLI for PostHog."""
+    global _telemetry_command
+    _telemetry_command = ctx.invoked_subcommand
+
     # Auto-update manifest on every invocation (but skip for meta:check and git hooks)
     # Skip during git hooks to prevent manifest modifications during lint-staged execution
     in_git_hook = os.environ.get("GIT_DIR") is not None or os.environ.get("HUSKY") is not None
     if ctx.invoked_subcommand not in {"meta:check", "help"} and not in_git_hook:
         _auto_update_manifest()
+        telemetry.show_first_run_notice_if_needed()
 
 
 @cli.command(name="quickstart", help="Show getting started with PostHog development")
@@ -271,9 +282,42 @@ except ImportError:
     pass  # No developer commands yet
 
 
+def _fire_telemetry(duration_s: float, exit_code: int) -> None:
+    """Send a command_executed telemetry event. Never raises."""
+    try:
+        props: dict[str, Any] = {
+            "command": _telemetry_command,
+            "command_category": get_category_for_command(_telemetry_command) if _telemetry_command else None,
+            "duration_s": round(duration_s, 3),
+            "exit_code": exit_code,
+            "os": platform.system(),
+            "arch": platform.machine(),
+            "python_version": platform.python_version(),
+            "hogli_version": "0.1.0",
+            "is_ci": any(
+                os.environ.get(v) for v in ("CI", "GITHUB_ACTIONS", "JENKINS_URL", "GITLAB_CI", "CIRCLECI", "BUILDKITE")
+            ),
+            "has_devenv_config": (REPO_ROOT / ".posthog" / ".generated" / "mprocs.yaml").exists(),
+            "in_flox": os.environ.get("FLOX_ENV") is not None,
+            "is_worktree": (REPO_ROOT / ".git").is_file(),
+        }
+        telemetry.track("command_executed", props)
+    except Exception:
+        pass
+
+
 def main() -> None:
-    """Main entry point."""
-    cli()
+    """Main entry point with telemetry wrapper."""
+    start = _time.monotonic()
+    exit_code = 0
+    try:
+        cli()
+    except SystemExit as e:
+        exit_code = e.code if isinstance(e.code, int) else (1 if e.code else 0)
+    finally:
+        _fire_telemetry(_time.monotonic() - start, exit_code)
+    if exit_code != 0:
+        raise SystemExit(exit_code)
 
 
 if __name__ == "__main__":

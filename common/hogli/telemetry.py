@@ -1,0 +1,162 @@
+"""Anonymous opt-out telemetry for hogli CLI.
+
+Sends a single `command_executed` event per invocation via a direct HTTP POST
+to PostHog's /capture endpoint.  No SDK is used because the `posthog` package
+name collides with the repo module.
+
+Opt-out precedence:
+    POSTHOG_TELEMETRY_OPT_OUT=1 → DO_NOT_TRACK=1 → config enabled: false
+
+Config file: $XDG_CONFIG_HOME/posthog/hogli_telemetry.json
+             (default ~/.config/posthog/hogli_telemetry.json)
+"""
+
+from __future__ import annotations
+
+import os
+import json
+import uuid
+import threading
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+import click
+
+_API_KEY = "phc_REPLACE_ME"
+_HOST = "https://us.i.posthog.com"
+
+
+# ---------------------------------------------------------------------------
+# Config helpers
+# ---------------------------------------------------------------------------
+
+
+def _get_config_path() -> Path:
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    base = Path(xdg) if xdg else Path.home() / ".config"
+    return base / "posthog" / "hogli_telemetry.json"
+
+
+def _load_config() -> dict[str, Any]:
+    try:
+        return json.loads(_get_config_path().read_text())
+    except Exception:
+        return {}
+
+
+def _save_config(config: dict[str, Any]) -> None:
+    try:
+        path = _get_config_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(config, indent=2) + "\n")
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+
+def is_enabled() -> bool:
+    """Return whether telemetry is enabled.
+
+    Checks, in order: POSTHOG_TELEMETRY_OPT_OUT, DO_NOT_TRACK, config file.
+    """
+    if os.environ.get("POSTHOG_TELEMETRY_OPT_OUT") == "1":
+        return False
+    if os.environ.get("DO_NOT_TRACK") == "1":
+        return False
+    config = _load_config()
+    return config.get("enabled", True)
+
+
+def get_anonymous_id() -> str:
+    """Return the persistent anonymous UUID, creating one if needed."""
+    config = _load_config()
+    anon_id = config.get("anonymous_id")
+    if anon_id:
+        return anon_id
+    anon_id = str(uuid.uuid4())
+    config["anonymous_id"] = anon_id
+    _save_config(config)
+    return anon_id
+
+
+def set_enabled(enabled: bool) -> None:
+    """Persist the enabled flag in the config file."""
+    config = _load_config()
+    config["enabled"] = enabled
+    _save_config(config)
+
+
+def show_first_run_notice_if_needed() -> None:
+    """Print a one-time notice to stderr on first invocation, then create config."""
+    if _get_config_path().exists():
+        return
+
+    click.echo(
+        "\n"
+        "hogli collects anonymous usage data to help improve the developer experience.\n"
+        "No personal information is collected — only command names and timing.\n"
+        "\n"
+        "You can opt out at any time:\n"
+        "  hogli telemetry:off          (persistent)\n"
+        "  POSTHOG_TELEMETRY_OPT_OUT=1  (per-session / CI)\n"
+        "\n"
+        "Run `hogli telemetry:status` for details.\n",
+        err=True,
+    )
+
+    _save_config(
+        {
+            "enabled": True,
+            "anonymous_id": str(uuid.uuid4()),
+            "first_run_notice_shown": True,
+        }
+    )
+
+
+def track(event: str, properties: dict[str, Any] | None = None) -> None:
+    """Fire a single event to PostHog in a background daemon thread.
+
+    Silently no-ops if telemetry is disabled or on any error.
+    """
+    if not is_enabled():
+        return
+
+    host = os.environ.get("POSTHOG_TELEMETRY_HOST", _HOST)
+    api_key = os.environ.get("POSTHOG_TELEMETRY_API_KEY", _API_KEY)
+
+    props: dict[str, Any] = {
+        "$process_person_profile": False,
+        "$groups": {"project": "hogli"},
+    }
+    if properties:
+        props.update(properties)
+
+    payload = {
+        "api_key": api_key,
+        "distinct_id": get_anonymous_id(),
+        "event": event,
+        "properties": props,
+        "timestamp": datetime.now(UTC).isoformat(),
+    }
+
+    thread = threading.Thread(target=_post_event, args=(host, payload), daemon=True)
+    thread.start()
+
+
+def _post_event(host: str, payload: dict[str, Any]) -> None:
+    """POST the event payload to the capture endpoint."""
+    try:
+        import requests  # lazy: avoid import cost when telemetry is disabled
+
+        requests.post(
+            f"{host}/capture/",
+            json=payload,
+            timeout=2,
+        )
+    except Exception:
+        pass
