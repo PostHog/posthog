@@ -341,7 +341,7 @@ export function ProjectTree({
                     }
                 }
 
-                if (item?.id.startsWith('shortcuts://') || item?.id.startsWith('shortcuts/')) {
+                if (item?.id.startsWith('shortcuts')) {
                     eventUsageLogic.actions.reportNavbarStarredItemClicked(
                         item?.record?.type || 'unknown',
                         item?.name || 'unknown',
