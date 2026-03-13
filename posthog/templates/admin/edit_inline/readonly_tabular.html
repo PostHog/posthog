@@ -1,0 +1,50 @@
+{% load i18n admin_urls static admin_modify %}
+<div class="inline-group" id="{{ inline_admin_formset.formset.prefix }}-group">
+  <div class="tabular inline-related {% if forloop.last %}last-related{% endif %}">
+{{ inline_admin_formset.formset.management_form }}
+<fieldset class="module {{ inline_admin_formset.classes }}">
+   {% if inline_admin_formset.formset.max_num == 1 %}
+     <h2>{{ inline_admin_formset.opts.verbose_name|capfirst }}</h2>
+   {% else %}
+     <h2>{{ inline_admin_formset.opts.verbose_name_plural|capfirst }}</h2>
+   {% endif %}
+   {{ inline_admin_formset.formset.non_form_errors }}
+   <table>
+     <thead><tr>
+     {% for field in inline_admin_formset.fields %}
+       {% if not field.widget.is_hidden %}
+       <th class="column-{{ field.name }}">{{ field.label|capfirst }}
+       {% if field.help_text %}<img src="{% static "admin/img/icon-unknown.svg" %}" class="help help-tooltip" width="10" height="10" alt="({{ field.help_text|striptags }})" title="{{ field.help_text|striptags }}">{% endif %}
+       </th>
+       {% endif %}
+     {% endfor %}
+     </tr></thead>
+
+     <tbody>
+     {% for inline_admin_form in inline_admin_formset %}
+        {% if inline_admin_form.form.non_field_errors %}
+        <tr class="row-form-errors"><td colspan="{{ inline_admin_form|cell_count }}">{{ inline_admin_form.form.non_field_errors }}</td></tr>
+        {% endif %}
+        <tr class="form-row" id="{{ inline_admin_formset.formset.prefix }}-{{ forloop.counter0 }}">
+        {% for fieldset in inline_admin_form %}
+          {% for line in fieldset %}
+            {% for field in line %}
+              {% if not field.field.is_hidden %}
+              <td class="{% if field.field.name %}field-{{ field.field.name }}{% endif %}">
+              {% if field.is_readonly %}
+                  <p>{{ field.contents }}</p>
+              {% else %}
+                  {{ field.field }}
+              {% endif %}
+              </td>
+              {% endif %}
+            {% endfor %}
+          {% endfor %}
+        {% endfor %}
+        </tr>
+     {% endfor %}
+     </tbody>
+   </table>
+</fieldset>
+  </div>
+</div>

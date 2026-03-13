@@ -7,7 +7,12 @@ import s3fs
 import pyarrow as pa
 import pyarrow.parquet as pq
 from structlog.types import FilteringBoundLogger
+from temporalio import activity
 
+from posthog.temporal.data_imports.pipelines.pipeline_v3.metrics import (
+    get_s3_write_duration_metric,
+    get_s3_write_errors_metric,
+)
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3.common import (
     BatchWriteResult,
     cleanup_folder,
@@ -69,9 +74,19 @@ class S3BatchWriter:
             row_count=pa_table.num_rows,
         )
 
-        s3_path_without_protocol = strip_s3_protocol(s3_path)
-        with self._s3.open(s3_path_without_protocol, "wb") as f:
-            pq.write_table(pa_table, f, compression=self._compression)
+        write_start = time.perf_counter()
+        try:
+            s3_path_without_protocol = strip_s3_protocol(s3_path)
+            with self._s3.open(s3_path_without_protocol, "wb") as f:
+                pq.write_table(pa_table, f, compression=self._compression)
+        except Exception as e:
+            if activity.in_activity():
+                get_s3_write_errors_metric(type(e).__name__).add(1)
+            raise
+
+        write_duration = time.perf_counter() - write_start
+        if activity.in_activity():
+            get_s3_write_duration_metric().record(write_duration)
 
         file_info = self._s3.info(s3_path_without_protocol)
         byte_size = file_info.get("Size", 0) if isinstance(file_info, dict) else 0

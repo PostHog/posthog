@@ -47,6 +47,7 @@ export function PathNodeLabel({ insightProps, node }: PathNodeLabelProps): JSX.E
     return (
         <div
             className="absolute"
+            data-attr="path-node-card-button"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: NODE_LABEL_WIDTH,
@@ -57,7 +58,10 @@ export function PathNodeLabel({ insightProps, node }: PathNodeLabelProps): JSX.E
         >
             <div className="flex items-center">
                 <Tooltip title={pageUrl(node)} placement="right">
-                    <div className="font-semibold overflow-hidden max-h-16 text-xs break-words">
+                    <div
+                        className="font-semibold overflow-hidden max-h-16 text-xs break-words"
+                        data-attr="path-node-name"
+                    >
                         {pageUrl(node, isPath)}
                     </div>
                 </Tooltip>
@@ -89,7 +93,9 @@ export function PathNodeLabel({ insightProps, node }: PathNodeLabelProps): JSX.E
             </div>
 
             <LemonButton size="xsmall" onClick={openModal} noPadding>
-                <span className="font-normal">{node.value}</span>
+                <span className="font-normal" data-attr="path-node-count">
+                    {node.value}
+                </span>
             </LemonButton>
         </div>
     )

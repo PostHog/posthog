@@ -18,7 +18,8 @@ import nh3
 import structlog
 import posthoganalytics
 from axes.decorators import axes_dispatch
-from drf_spectacular.utils import extend_schema
+from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from loginas.utils import is_impersonated_session
 from nanoid import generate
 from posthoganalytics import capture_exception
@@ -30,6 +31,7 @@ from rest_framework.response import Response
 from posthog.schema import ProductKey
 
 from posthog.api.action import ActionSerializer, ActionStepJSONSerializer
+from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
 from posthog.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
     FeatureFlagSerializer,
@@ -898,21 +900,24 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 user,
                 "survey launched",
                 properties,
-                team,
+                team=team,
+                request=self.context["request"],
             )
         elif before_update.end_date is None and instance.end_date is not None:
             report_user_action(
                 user,
                 "survey stopped",
                 properties,
-                team,
+                team=team,
+                request=self.context["request"],
             )
         elif before_update.start_date is not None and before_update.end_date is not None and instance.end_date is None:
             report_user_action(
                 user,
                 "survey resumed",
                 properties,
-                team,
+                team=team,
+                request=self.context["request"],
             )
 
         should_flag_be_active = self._should_survey_flags_be_active(instance)
@@ -1098,13 +1103,22 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 return feature_flag_serializer.save()
 
 
+class SurveySerializerCreateUpdateOnlySchema(SurveySerializerCreateUpdateOnly):
+    targeting_flag_filters = FeatureFlagFiltersSchemaSerializer(required=False, write_only=True, allow_null=True)  # type: ignore[assignment]
+
+
 @extend_schema(tags=[ProductKey.SURVEYS])
+@extend_schema_view(
+    create=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
+    partial_update=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
+)
 class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "survey"
     queryset = Survey.objects.select_related(
         "linked_flag", "linked_insight", "targeting_flag", "internal_targeting_flag"
     ).all()
-    filter_backends = [filters.SearchFilter]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    filterset_fields = ["archived"]
     search_fields = ["name", "description"]
 
     def get_serializer_class(self) -> type[serializers.Serializer]:

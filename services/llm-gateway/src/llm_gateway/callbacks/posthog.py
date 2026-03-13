@@ -1,10 +1,12 @@
 import ast
+import asyncio
 import json
+from functools import partial
 from typing import Any
 from uuid import uuid4
 
-import posthoganalytics
 import structlog
+from posthoganalytics import Posthog
 
 from llm_gateway.callbacks.base import InstrumentedCallback
 from llm_gateway.request_context import (
@@ -45,7 +47,7 @@ def _replace_binary_content(data: Any) -> Any:
             return data
 
 
-_MAX_CAPTURE_SIZE = 800 * 1024
+_MAX_CAPTURE_SIZE = 15 * 1024 * 1024
 _MIN_FIELD_SIZE_TO_TRUNCATE = 10 * 1024
 _TRUNCATION_MARKER = "[truncated: content too large for capture]"
 _TRUNCATABLE_FIELDS = ("$ai_output_choices", "$ai_input")
@@ -78,8 +80,6 @@ class PostHogCallback(InstrumentedCallback):
         super().__init__()
         self._api_key = api_key
         self._host = host
-        posthoganalytics.api_key = api_key
-        posthoganalytics.host = host
 
     async def _on_success(
         self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float, end_user_id: str | None
@@ -165,7 +165,7 @@ class PostHogCallback(InstrumentedCallback):
             properties=properties,
             groups=capture_kwargs.get("groups"),
         )
-        posthoganalytics.capture(**capture_kwargs)
+        self._capture_fire_and_forget(**capture_kwargs)
 
     async def _on_failure(
         self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float, end_user_id: str | None
@@ -229,7 +229,30 @@ class PostHogCallback(InstrumentedCallback):
             properties=properties,
             groups=capture_kwargs.get("groups"),
         )
-        posthoganalytics.capture(**capture_kwargs)
+        self._capture_fire_and_forget(**capture_kwargs)
+
+    def _capture_fire_and_forget(self, **capture_kwargs: Any) -> None:
+        """
+        Initializes a separate client for the capture operation to avoid payload bloat.
+        Fires in background thread to avoid blocking the main thread.
+        """
+        loop = asyncio.get_running_loop()
+        loop.run_in_executor(None, partial(self._capture_sync, **capture_kwargs))
+
+    def _capture_sync(self, **capture_kwargs: Any) -> None:
+        client = Posthog(
+            self._api_key,
+            host=self._host,
+            sync_mode=True,
+            enable_local_evaluation=False,
+        )
+        try:
+            client.capture(**capture_kwargs)
+        except Exception as e:
+            client.capture_exception(e, **capture_kwargs)
+            logger.exception("posthog_capture_failed", error=str(e))
+        finally:
+            client.shutdown()
 
     def _extract_metadata(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         litellm_params = kwargs.get("litellm_params", {}) or {}

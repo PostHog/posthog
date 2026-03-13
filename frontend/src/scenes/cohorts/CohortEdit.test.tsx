@@ -1,11 +1,13 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { NEW_COHORT } from 'scenes/cohorts/CohortFilters/constants'
 
+import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
@@ -18,15 +20,15 @@ describe('cohortEditLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team/cohorts': [mockCohort],
-                '/api/projects/:team/cohorts/:id': mockCohort,
+                '/api/projects/:team_id/cohorts/': toPaginatedResponse([mockCohort]),
+                '/api/projects/:team_id/cohorts/:id/': mockCohort,
             },
             post: {
-                '/api/projects/:team/cohorts/': mockCohort,
-                '/api/projects/:team/cohorts/:id': mockCohort,
+                '/api/projects/:team_id/cohorts/': mockCohort,
+                '/api/projects/:team_id/cohorts/:id/': mockCohort,
             },
             patch: {
-                '/api/projects/:team/cohorts/:id': mockCohort,
+                '/api/projects/:team_id/cohorts/:id/': mockCohort,
             },
         })
         initKeaTests()
@@ -194,7 +196,7 @@ describe('cohortEditLogic', () => {
 
             useMocks({
                 get: {
-                    [`/api/projects/:team/cohorts/${cohortId}`]: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
                         id: cohortId,
                         name: 'Test Cohort',
                         is_static: false,
@@ -222,7 +224,7 @@ describe('cohortEditLogic', () => {
 
             useMocks({
                 get: {
-                    [`/api/projects/:team/cohorts/${cohortId}`]: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
                         id: cohortId,
                         name: 'Test Cohort',
                         is_static: false,
@@ -250,7 +252,7 @@ describe('cohortEditLogic', () => {
 
             useMocks({
                 get: {
-                    [`/api/projects/:team/cohorts/${cohortId}`]: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
                         id: cohortId,
                         name: 'Test Cohort',
                         is_static: false,
@@ -277,7 +279,7 @@ describe('cohortEditLogic', () => {
 
             useMocks({
                 get: {
-                    [`/api/projects/:team/cohorts/${cohortId}`]: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
                         id: cohortId,
                         name: 'Test Cohort',
                         is_static: false,
@@ -295,6 +297,64 @@ describe('cohortEditLogic', () => {
             // Wait a bit for component to render then verify no loading states
             await new Promise((resolve) => setTimeout(resolve, 100))
             expect(screen.queryAllByText('In progress...')).toHaveLength(0)
+        })
+
+        it('shows retry button and contact support link when calculation fails', async () => {
+            const cohortId = 2
+            const tabId = 'test-tab-error'
+
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                        id: cohortId,
+                        name: 'Test Cohort',
+                        is_static: false,
+                        filters: { properties: { type: 'AND', values: [] } },
+                        version: 1,
+                        pending_version: 1,
+                        is_calculating: false,
+                        errors_calculating: 1,
+                        last_calculation: '2024-01-01T00:00:00Z',
+                        last_error_message: 'Query execution timed out',
+                    },
+                },
+                patch: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                        id: cohortId,
+                        name: 'Test Cohort',
+                        is_static: false,
+                        filters: { properties: { type: 'AND', values: [] } },
+                        version: 1,
+                        pending_version: 2,
+                        is_calculating: true,
+                        errors_calculating: 0,
+                        last_calculation: '2024-01-01T00:00:00Z',
+                    },
+                },
+            })
+
+            render(<CohortEdit id={cohortId} tabId={tabId} />)
+
+            // Verify error message is shown
+            await screen.findByText(/Calculation failed:/)
+            expect(screen.getByText(/Query execution timed out/)).toBeInTheDocument()
+
+            // Verify Retry button is shown as the primary action in the error banner
+            // LemonBanner renders action buttons - find the one with "Retry" text
+            const retryButtons = screen.getAllByRole('button', { name: 'Retry' })
+            expect(retryButtons.length).toBeGreaterThan(0)
+            const retryButton = retryButtons[0]
+
+            // Verify contact support link is shown as secondary option
+            expect(screen.getByText('contact support')).toBeInTheDocument()
+
+            // Get the logic instance and verify clicking retry triggers submitCohort
+            logic = cohortEditLogic({ id: cohortId, tabId })
+            logic.mount()
+
+            await expectLogic(logic, async () => {
+                await userEvent.click(retryButton)
+            }).toDispatchActions(['submitCohort'])
         })
     })
 })

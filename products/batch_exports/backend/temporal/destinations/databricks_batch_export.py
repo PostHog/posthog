@@ -29,18 +29,18 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import (
+from posthog.models.integration import DatabricksIntegration, Integration
+from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
+
+from products.batch_exports.backend.service import (
     BatchExportField,
     BatchExportInsertInputs,
     BatchExportModel,
     BatchExportSchema,
     DatabricksBatchExportInputs,
 )
-from posthog.models.integration import DatabricksIntegration, Integration
-from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_logger, get_write_only_logger
-
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
     events_model_default_fields,
@@ -936,7 +936,7 @@ def _is_warehouse_stopped_error(err: ServerOperationError) -> bool:
     """Check if the error is a warehouse stopped error."""
     if err.message is None:
         return False
-    return "warehouse" in err.message and "is stopped" in err.message
+    return "warehouse" in err.message and "stopped" in err.message
 
 
 def _get_long_running_query_timeout(data_interval_start: dt.datetime | None, data_interval_end: dt.datetime) -> float:

@@ -28,6 +28,7 @@ export enum Scene {
     CustomCss = 'CustomCss',
     CustomerAnalytics = 'CustomerAnalytics',
     CustomerAnalyticsConfiguration = 'CustomerAnalyticsConfiguration',
+    CustomerJourneyBuilder = 'CustomerJourneyBuilder',
     Dashboard = 'Dashboard',
     Dashboards = 'Dashboards',
     DataManagement = 'DataManagement',
@@ -140,12 +141,13 @@ export enum Scene {
     Sources = 'Sources',
     StartupProgram = 'StartupProgram',
     Survey = 'Survey',
-    SurveyTemplates = 'SurveyTemplates',
     SurveyWizard = 'SurveyWizard',
     SurveyFormBuilder = 'SurveyFormBuilder',
     Surveys = 'Surveys',
     SystemStatus = 'SystemStatus',
     ToolbarLaunch = 'ToolbarLaunch',
+    Tracing = 'Tracing',
+    Metrics = 'Metrics',
     Transformations = 'Transformations',
     Unsubscribe = 'Unsubscribe',
     UserInterview = 'UserInterview',
@@ -326,7 +328,6 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,
     [Scene.Surveys]: AccessControlResourceType.Survey,
-    [Scene.SurveyTemplates]: AccessControlResourceType.Survey,
 
     // Product Tours
     [Scene.ProductTour]: AccessControlResourceType.ProductTour,

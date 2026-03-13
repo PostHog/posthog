@@ -4,31 +4,22 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconCode, IconFlag, IconGlobe, IconLaptop, IconList, IconMessage, IconServer } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonCollapse,
-    LemonDialog,
-    LemonDivider,
-    LemonSelect,
-    LemonSwitch,
-    LemonTag,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonDialog, LemonDivider, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { tagsModel } from '~/models/tagsModel'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { FeatureFlagEvaluationRuntime, FeatureFlagType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, FeatureFlagEvaluationRuntime, FeatureFlagType } from '~/types'
 
 import { EditableOverviewSection } from './EditableOverviewSection'
-import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
+import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { FeatureFlagInstructions } from './FeatureFlagInstructions'
 import { featureFlagLogic } from './featureFlagLogic'
-import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
 import {
     FeatureFlagReleaseConditionsReadonly,
     FeatureFlagSuperConditionsReadonly,
@@ -44,17 +35,22 @@ interface FeatureFlagOverviewV2Props {
 
 interface TagsDisplayProps {
     tags: string[]
-    evaluationTags: string[]
+    evaluationContexts: string[]
     flagId: number | null
-    hasEvaluationTags: boolean
+    hasEvaluationContexts: boolean
 }
 
-function TagsDisplay({ tags, evaluationTags, flagId, hasEvaluationTags }: TagsDisplayProps): JSX.Element {
-    const hasTags = tags.length > 0 || evaluationTags.length > 0
+function TagsDisplay({ tags, evaluationContexts, flagId, hasEvaluationContexts }: TagsDisplayProps): JSX.Element {
+    const hasTags = tags.length > 0 || evaluationContexts.length > 0
 
-    if (hasEvaluationTags && hasTags) {
+    if (hasEvaluationContexts && hasTags) {
         return (
-            <FeatureFlagEvaluationTags tags={tags} evaluationTags={evaluationTags} flagId={flagId} context="static" />
+            <FeatureFlagEvaluationContexts
+                tags={tags}
+                evaluationContexts={evaluationContexts}
+                flagId={flagId}
+                context="static"
+            />
         )
     }
 
@@ -74,10 +70,9 @@ function TagsDisplay({ tags, evaluationTags, flagId, hasEvaluationTags }: TagsDi
  */
 export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFlagOverviewV2Props): JSX.Element {
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const { recordingFilterForFlag, sectionDraft } = useValues(featureFlagLogic)
-    const { toggleFeatureFlagActive, updateSectionDraft } = useActions(featureFlagLogic)
+    const { recordingFilterForFlag, featureFlagActiveUpdateLoading } = useValues(featureFlagLogic)
+    const { toggleFeatureFlagActive } = useActions(featureFlagLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
-    const { tags: availableTags } = useValues(tagsModel)
 
     const hasEvaluationTags = !!featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS]
     const hasEvaluationRuntimes = !!featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES]
@@ -158,6 +153,19 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
 
     const evaluationRuntimeDisplay = getEvaluationRuntimeDisplay()
 
+    const flagTypeCard = (
+        <div className="flex flex-col gap-2">
+            <label className="text-sm font-semibold">Flag type</label>
+            <div className="flex items-center gap-3 p-3 rounded border bg-surface-secondary">
+                {flagTypeDisplay.icon}
+                <div className="flex flex-col">
+                    <span className="font-medium">{flagTypeDisplay.label}</span>
+                    <span className="text-xs text-muted">{flagTypeDisplay.description}</span>
+                </div>
+            </div>
+        </div>
+    )
+
     return (
         <div className="flex flex-col gap-6">
             <div className="flex gap-4 flex-wrap items-start">
@@ -171,153 +179,84 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                                 </LemonTag>
                             </div>
                         ) : (
-                            <LemonSwitch
-                                checked={featureFlag.active}
-                                onChange={handleToggleClick}
-                                label="Enable feature flag"
-                                bordered
-                                fullWidth
-                            />
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.FeatureFlag}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={featureFlag.user_access_level}
+                            >
+                                <LemonSwitch
+                                    checked={featureFlag.active}
+                                    onChange={handleToggleClick}
+                                    loading={featureFlagActiveUpdateLoading}
+                                    disabledReason={
+                                        !featureFlag.can_edit
+                                            ? "You only have view access to this feature flag. To make changes, contact the flag's creator."
+                                            : null
+                                    }
+                                    label="Enable feature flag"
+                                    bordered
+                                    fullWidth
+                                />
+                            </AccessControlAction>
                         )}
                     </div>
 
-                    <EditableOverviewSection section="advanced_options">
-                        {({ isEditing }) => (
-                            <div className="flex flex-col gap-4">
-                                <div className="font-semibold">Advanced options</div>
+                    <EditableOverviewSection editOptions={{ expandAdvanced: true }}>
+                        <div className="flex flex-col gap-4">
+                            <div className="font-semibold">Advanced options</div>
 
-                                <div className="flex flex-col gap-2">
-                                    <label className="text-sm font-medium">
-                                        {hasEvaluationTags ? 'Tags & evaluation contexts' : 'Tags'}
-                                    </label>
-                                    {isEditing ? (
-                                        hasEvaluationTags ? (
-                                            <FeatureFlagEvaluationTags
-                                                tags={sectionDraft?.tags ?? featureFlag.tags ?? []}
-                                                evaluationTags={
-                                                    sectionDraft?.evaluation_tags ?? featureFlag.evaluation_tags ?? []
-                                                }
-                                                context="form"
-                                                onChange={(tags, evaluationTags) =>
-                                                    updateSectionDraft({ tags, evaluation_tags: evaluationTags })
-                                                }
-                                                tagsAvailable={availableTags.filter(
-                                                    (tag: string) =>
-                                                        !(sectionDraft?.tags ?? featureFlag.tags ?? []).includes(tag)
-                                                )}
-                                            />
-                                        ) : (
-                                            <ObjectTags
-                                                tags={sectionDraft?.tags ?? featureFlag.tags ?? []}
-                                                onChange={(tags) => updateSectionDraft({ tags })}
-                                                saving={false}
-                                                tagsAvailable={availableTags.filter(
-                                                    (tag: string) =>
-                                                        !(sectionDraft?.tags ?? featureFlag.tags ?? []).includes(tag)
-                                                )}
-                                            />
-                                        )
-                                    ) : (
-                                        <TagsDisplay
-                                            tags={featureFlag.tags || []}
-                                            evaluationTags={featureFlag.evaluation_tags || []}
-                                            flagId={featureFlag.id}
-                                            hasEvaluationTags={hasEvaluationTags}
-                                        />
-                                    )}
-                                </div>
-
-                                {hasEvaluationRuntimes && (
-                                    <>
-                                        <LemonDivider className="my-1" />
-
-                                        <div className="flex flex-col gap-2">
-                                            <label className="text-sm font-medium">Evaluation runtime</label>
-                                            {isEditing ? (
-                                                <LemonSelect
-                                                    fullWidth
-                                                    value={
-                                                        sectionDraft?.evaluation_runtime ??
-                                                        featureFlag.evaluation_runtime
-                                                    }
-                                                    onChange={(value) =>
-                                                        updateSectionDraft({ evaluation_runtime: value })
-                                                    }
-                                                    options={[
-                                                        {
-                                                            label: 'Both client and server',
-                                                            value: FeatureFlagEvaluationRuntime.ALL,
-                                                            icon: <IconGlobe />,
-                                                        },
-                                                        {
-                                                            label: 'Client-side only',
-                                                            value: FeatureFlagEvaluationRuntime.CLIENT,
-                                                            icon: <IconLaptop />,
-                                                        },
-                                                        {
-                                                            label: 'Server-side only',
-                                                            value: FeatureFlagEvaluationRuntime.SERVER,
-                                                            icon: <IconServer />,
-                                                        },
-                                                    ]}
-                                                />
-                                            ) : (
-                                                <div className="flex items-center gap-2">
-                                                    {evaluationRuntimeDisplay.icon}
-                                                    <span className="font-medium text-sm">
-                                                        {evaluationRuntimeDisplay.label}
-                                                    </span>
-                                                    <LemonTag type="muted" size="small">
-                                                        {evaluationRuntimeDisplay.tag}
-                                                    </LemonTag>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </>
-                                )}
-
-                                {!featureFlag.is_remote_configuration && (
-                                    <>
-                                        <LemonDivider className="my-1" />
-
-                                        <div className="flex flex-col gap-2">
-                                            <label className="text-sm font-medium">Persistence</label>
-                                            {isEditing ? (
-                                                <LemonSwitch
-                                                    checked={
-                                                        sectionDraft?.ensure_experience_continuity ??
-                                                        featureFlag.ensure_experience_continuity ??
-                                                        false
-                                                    }
-                                                    onChange={(checked) =>
-                                                        updateSectionDraft({
-                                                            ensure_experience_continuity: checked,
-                                                        })
-                                                    }
-                                                    bordered
-                                                    fullWidth
-                                                    label="Persist flag across authentication steps"
-                                                />
-                                            ) : (
-                                                <span className="text-sm text-muted">
-                                                    {featureFlag.ensure_experience_continuity ? (
-                                                        <>
-                                                            This flag <b className="text-default">persists</b> across
-                                                            authentication steps
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            This flag <b className="text-default">does not persist</b>{' '}
-                                                            across authentication steps
-                                                        </>
-                                                    )}
-                                                </span>
-                                            )}
-                                        </div>
-                                    </>
-                                )}
+                            <div className="flex flex-col gap-2">
+                                {!hasEvaluationTags && <label className="text-sm font-medium">Tags</label>}
+                                <TagsDisplay
+                                    tags={featureFlag.tags || []}
+                                    evaluationContexts={featureFlag.evaluation_contexts || []}
+                                    flagId={featureFlag.id}
+                                    hasEvaluationContexts={hasEvaluationTags}
+                                />
                             </div>
-                        )}
+
+                            {hasEvaluationRuntimes && (
+                                <>
+                                    <LemonDivider className="my-1" />
+
+                                    <div className="flex flex-col gap-2">
+                                        <label className="text-sm font-medium">Evaluation runtime</label>
+                                        <div className="flex items-center gap-2">
+                                            {evaluationRuntimeDisplay.icon}
+                                            <span className="font-medium text-sm">
+                                                {evaluationRuntimeDisplay.label}
+                                            </span>
+                                            <LemonTag type="muted" size="small">
+                                                {evaluationRuntimeDisplay.tag}
+                                            </LemonTag>
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+
+                            {!featureFlag.is_remote_configuration && (
+                                <>
+                                    <LemonDivider className="my-1" />
+
+                                    <div className="flex flex-col gap-2">
+                                        <label className="text-sm font-medium">Persistence</label>
+                                        <span className="text-sm text-muted">
+                                            {featureFlag.ensure_experience_continuity ? (
+                                                <>
+                                                    This flag <b className="text-default">persists</b> across
+                                                    authentication steps
+                                                </>
+                                            ) : (
+                                                <>
+                                                    This flag <b className="text-default">does not persist</b> across
+                                                    authentication steps
+                                                </>
+                                            )}
+                                        </span>
+                                    </div>
+                                </>
+                            )}
+                        </div>
                     </EditableOverviewSection>
 
                     {!featureFlag.is_remote_configuration && (
@@ -326,11 +265,12 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                             <RecentFeatureFlagInsights />
 
                             <div className="flex flex-col gap-3 mt-2 pt-3 border-t border-border-light">
-                                <div className="flex items-center justify-between">
-                                    <span className="text-sm text-muted">
+                                <div className="flex items-start gap-2">
+                                    <span className="text-sm text-muted flex-1">
                                         Watch recordings of users exposed to this flag
                                     </span>
                                     <ViewRecordingsPlaylistButton
+                                        className="shrink-0"
                                         filters={recordingFilterForFlag}
                                         type="secondary"
                                         size="small"
@@ -346,11 +286,12 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                                     />
                                 </div>
                                 {onGetFeedback && (
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-sm text-muted">
-                                            Gather feedback from users who see this flag
+                                    <div className="flex items-start gap-2">
+                                        <span className="text-sm text-muted flex-1">
+                                            Get feedback from users who see this flag
                                         </span>
                                         <LemonButton
+                                            className="shrink-0"
                                             onClick={() => onGetFeedback()}
                                             type="secondary"
                                             size="small"
@@ -366,65 +307,26 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                 </div>
 
                 <div className="flex-[2] min-w-80 flex flex-col gap-4">
-                    <div className="rounded border p-4 bg-bg-light flex flex-col gap-2">
-                        <label className="text-sm font-semibold">Flag type</label>
-                        <div className="flex items-center gap-3 p-3 rounded border bg-surface-secondary">
-                            {flagTypeDisplay.icon}
-                            <div className="flex flex-col">
-                                <span className="font-medium">{flagTypeDisplay.label}</span>
-                                <span className="text-xs text-muted">{flagTypeDisplay.description}</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    {multivariateEnabled && variants.length > 0 && (
+                    {multivariateEnabled && variants.length > 0 ? (
                         <EditableOverviewSection
-                            section="variants"
                             disabledReason={
                                 featureFlag.experiment_set && featureFlag.experiment_set.length > 0
                                     ? 'Variants are managed by the linked experiment'
                                     : undefined
                             }
                         >
-                            {({ isEditing }) => (
-                                <FeatureFlagVariantsSection
-                                    featureFlag={featureFlag}
-                                    variants={variants}
-                                    isEditing={isEditing}
-                                    sectionDraft={sectionDraft}
-                                />
-                            )}
+                            <div className="flex flex-col gap-4">
+                                {flagTypeCard}
+                                <FeatureFlagVariantsSection featureFlag={featureFlag} variants={variants} />
+                            </div>
                         </EditableOverviewSection>
-                    )}
-
-                    {!multivariateEnabled && (
-                        <EditableOverviewSection section="payload">
-                            {({ isEditing }) => (
+                    ) : (
+                        <EditableOverviewSection>
+                            <div className="flex flex-col gap-4">
+                                {flagTypeCard}
                                 <div className="flex flex-col gap-2">
                                     <label className="text-sm font-semibold">Payload</label>
-                                    {isEditing ? (
-                                        <JSONEditorInput
-                                            placeholder='Examples: "string value", true, {"key": "value"}'
-                                            value={
-                                                sectionDraft?.filters?.payloads?.['true'] ??
-                                                featureFlag.filters?.payloads?.['true'] ??
-                                                ''
-                                            }
-                                            onChange={(val) =>
-                                                updateSectionDraft({
-                                                    filters: {
-                                                        ...featureFlag.filters,
-                                                        ...sectionDraft?.filters,
-                                                        payloads: {
-                                                            ...featureFlag.filters?.payloads,
-                                                            ...sectionDraft?.filters?.payloads,
-                                                            true: val ?? '',
-                                                        },
-                                                    },
-                                                })
-                                            }
-                                        />
-                                    ) : hasPayload && featureFlag.filters?.payloads?.['true'] ? (
+                                    {hasPayload && featureFlag.filters?.payloads?.['true'] ? (
                                         <JSONEditorInput readOnly value={featureFlag.filters.payloads['true']} />
                                     ) : (
                                         <div className="text-sm text-muted p-3 rounded border border-dashed bg-surface-secondary">
@@ -432,7 +334,7 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                                         </div>
                                     )}
                                 </div>
-                            )}
+                            </div>
                         </EditableOverviewSection>
                     )}
 
@@ -454,33 +356,18 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                                 </div>
                             )}
                             <EditableOverviewSection
-                                section="release_conditions"
                                 disabledReason={
                                     featureFlag.experiment_set && featureFlag.experiment_set.length > 0
                                         ? 'Release conditions are managed by the linked experiment'
                                         : undefined
                                 }
                             >
-                                {({ isEditing }) =>
-                                    isEditing ? (
-                                        <FeatureFlagReleaseConditionsCollapsible
-                                            id={String(featureFlag.id)}
-                                            filters={sectionDraft?.filters ?? featureFlag.filters}
-                                            onChange={(filters) => updateSectionDraft({ filters })}
-                                            nonEmptyFeatureFlagVariants={
-                                                featureFlag.filters?.multivariate?.variants?.filter((v) => !!v.key) ??
-                                                []
-                                            }
-                                            isDisabled={!featureFlag.active}
-                                        />
-                                    ) : (
-                                        <FeatureFlagReleaseConditionsReadonly
-                                            id={String(featureFlag.id)}
-                                            filters={featureFlag.filters}
-                                            isDisabled={!featureFlag.active}
-                                        />
-                                    )
-                                }
+                                <FeatureFlagReleaseConditionsReadonly
+                                    id={String(featureFlag.id)}
+                                    filters={featureFlag.filters}
+                                    isDisabled={!featureFlag.active}
+                                    evaluationRuntime={featureFlag.evaluation_runtime}
+                                />
                             </EditableOverviewSection>
                         </>
                     )}

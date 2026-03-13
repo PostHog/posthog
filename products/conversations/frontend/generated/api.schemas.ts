@@ -131,6 +131,7 @@ export interface ConversationApi {
     readonly has_unsupported_content: boolean
     /** @nullable */
     readonly agent_mode: string | null
+    readonly is_sandbox: boolean
     /** Return pending approval cards as structured data.
 
 Combines metadata from conversation.approval_decisions with payload from checkpoint
@@ -161,6 +162,7 @@ export type MessageApiContextualTools = { [key: string]: unknown }
  * `research` - research
  * `flags` - flags
  * `llm_analytics` - llm_analytics
+ * `sandbox` - sandbox
  */
 export type AgentModeEnumApi = (typeof AgentModeEnumApi)[keyof typeof AgentModeEnumApi]
 
@@ -176,6 +178,7 @@ export const AgentModeEnumApi = {
     Research: 'research',
     Flags: 'flags',
     LlmAnalytics: 'llm_analytics',
+    Sandbox: 'sandbox',
 } as const
 
 /**
@@ -194,6 +197,7 @@ export interface MessageApi {
     trace_id: string
     session_id?: string
     agent_mode?: AgentModeEnumApi
+    is_sandbox?: boolean
     resume_payload?: unknown | null
 }
 
@@ -242,6 +246,7 @@ export interface PatchedConversationApi {
     readonly has_unsupported_content?: boolean
     /** @nullable */
     readonly agent_mode?: string | null
+    readonly is_sandbox?: boolean
     /** Return pending approval cards as structured data.
 
 Combines metadata from conversation.approval_decisions with payload from checkpoint
@@ -298,6 +303,8 @@ export const PriorityEnumApi = {
 export interface TicketAssignmentApi {
     readonly id: string
     readonly type: string
+    readonly user: string
+    readonly role: string
 }
 
 export type TicketPersonApiProperties = { [key: string]: unknown }
@@ -314,6 +321,9 @@ export interface TicketPersonApi {
     readonly is_identified: boolean
 }
 
+/**
+ * Serializer mixin that handles tags for objects.
+ */
 export interface TicketApi {
     readonly id: string
     readonly ticket_number: number
@@ -339,12 +349,15 @@ export interface TicketApi {
     readonly session_id: string | null
     readonly session_context: unknown
     /** @nullable */
+    sla_due_at?: string | null
+    /** @nullable */
     readonly slack_channel_id: string | null
     /** @nullable */
     readonly slack_thread_ts: string | null
     /** @nullable */
     readonly slack_team_id: string | null
     readonly person: TicketPersonApi | null
+    tags?: unknown[]
 }
 
 export interface PaginatedTicketListApi {
@@ -356,6 +369,9 @@ export interface PaginatedTicketListApi {
     results: TicketApi[]
 }
 
+/**
+ * Serializer mixin that handles tags for objects.
+ */
 export interface PatchedTicketApi {
     readonly id?: string
     readonly ticket_number?: number
@@ -381,12 +397,24 @@ export interface PatchedTicketApi {
     readonly session_id?: string | null
     readonly session_context?: unknown
     /** @nullable */
+    sla_due_at?: string | null
+    /** @nullable */
     readonly slack_channel_id?: string | null
     /** @nullable */
     readonly slack_thread_ts?: string | null
     /** @nullable */
     readonly slack_team_id?: string | null
     readonly person?: TicketPersonApi | null
+    tags?: unknown[]
+}
+
+export interface SuggestReplyResponseApi {
+    suggestion: string
+}
+
+export interface SuggestReplyErrorApi {
+    detail: string
+    error_type?: string
 }
 
 export type ConversationsListParams = {

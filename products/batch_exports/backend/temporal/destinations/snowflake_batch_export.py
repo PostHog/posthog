@@ -24,17 +24,17 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import (
+from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
+
+from products.batch_exports.backend.service import (
     BatchExportField,
     BatchExportInsertInputs,
     BatchExportModel,
     BatchExportSchema,
     SnowflakeBatchExportInputs,
 )
-from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_logger, get_write_only_logger
-
 from products.batch_exports.backend.temporal.batch_exports import (
     OverBillingLimitError,
     StartBatchExportRunInputs,
@@ -808,15 +808,25 @@ class SnowflakeClient:
                 raise
 
         if table.is_mutable():
-            missing_primary_key_fields = set(table.primary_key) - {
-                field_metadata.name.lower() for field_metadata in metadata
-            }
+            existing = {field_metadata.name.lower() for field_metadata in metadata}
+            missing_primary_key_fields = set(table.primary_key) - existing
             if missing_primary_key_fields:
                 raise SnowflakeIncompatibleSchemaError(
                     "Missing one or more fields from the table's primary key, "
                     f"which are required for mutable models: {', '.join(f"'{name}'" for name in missing_primary_key_fields)}. "
-                    "Please review your table's schema and model configuration. "
-                    "Has the model been updated without updating the target table?"
+                    "Please review your batch export configuration: "
+                    "\n\t- Has the model been updated without updating the target table?"
+                    "\n\t- Have you configured the correct table for this model?"
+                )
+
+            missing_version_key_fields = set(table.version_key) - existing
+            if missing_version_key_fields:
+                raise SnowflakeIncompatibleSchemaError(
+                    "Missing one or more fields from the table's version key, "
+                    f"which are required for mutable models: {', '.join(f"'{name}'" for name in missing_version_key_fields)}. "
+                    "Please review your batch export configuration: "
+                    "\n\t- Has the model been updated without updating the target table?"
+                    "\n\t- Have you configured the correct table for this model?"
                 )
 
         record_batch_field_names = {field.name.lower() for field in table.fields}

@@ -6,9 +6,12 @@ import packageJson from '../../package.json'
 
 export const USER_AGENT = `posthog/mcp-server; version: ${packageJson.version}`
 
-export function getUserAgent(clientIdentifier?: string): string {
-    if (clientIdentifier) {
-        return `${USER_AGENT}; for ${clientIdentifier}`
+export function getUserAgent(clientUserAgent?: string): string {
+    if (clientUserAgent) {
+        const match = clientUserAgent.match(/posthog\/([\w.-]+)/)
+        if (match) {
+            return `${USER_AGENT}; for ${match[0]}`
+        }
     }
     return USER_AGENT
 }
@@ -66,6 +69,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'profile',
     'email',
     'introspection',
+    'annotation:read',
+    'annotation:write',
     'action:read',
     'action:write',
     'cohort:read',
@@ -76,12 +81,19 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'error_tracking:write',
     'event_definition:read',
     'event_definition:write',
+    'evaluation:read',
+    'evaluation:write',
     'experiment:read',
     'experiment:write',
     'feature_flag:read',
     'feature_flag:write',
+    'hog_flow:read',
+    'hog_function:read',
+    'hog_function:write',
     'insight:read',
     'insight:write',
+    'llm_prompt:read',
+    'llm_prompt:write',
     'logs:read',
     'organization:read',
     'project:read',

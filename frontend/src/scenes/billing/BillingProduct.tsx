@@ -7,14 +7,14 @@ import { IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
-import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { FeatureFlagKey, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, humanFriendlyCurrency } from 'lib/utils'
-import { getProductIcon } from 'scenes/onboarding/productSelection/ProductSelection'
+import { getProductIcon } from 'scenes/onboarding/utils'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { BillingProductV2AddonType, BillingProductV2Type, BillingTierType } from '~/types'
@@ -109,7 +109,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     // If the feature flag `billing_hide_product_{product.type}` is true,
     // don't show the product in the billing page.
     const hideProductFlag = `billing_hide_product_${product.type}`
-    if (featureFlags[hideProductFlag] === true) {
+    if (featureFlags[hideProductFlag as FeatureFlagKey] === true) {
         return null
     }
 

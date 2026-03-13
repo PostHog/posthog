@@ -233,6 +233,7 @@ where
                 metrics::counter!(
                     PARTITION_STORE_SETUP_SKIPPED,
                     "reason" => if cancel_token.is_cancelled() { "cancelled" } else { "not_owned" },
+                    "assignment_mode" => "consumer_group",
                 )
                 .increment(1);
                 fallback_reasons.insert(partition.clone(), "import_cancelled");
@@ -248,6 +249,7 @@ where
                     REBALANCE_CHECKPOINT_IMPORT_COUNTER,
                     "result" => "skipped",
                     "reason" => "store_exists",
+                    "assignment_mode" => "consumer_group",
                 )
                 .increment(1);
                 return;
@@ -280,6 +282,7 @@ where
                             metrics::counter!(
                                 PARTITION_STORE_SETUP_SKIPPED,
                                 "reason" => reason,
+                                "assignment_mode" => "consumer_group",
                             )
                             .increment(1);
                             fallback_reasons.insert(partition.clone(), "import_cancelled");
@@ -293,6 +296,7 @@ where
                                         metrics::counter!(
                                             CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER,
                                             "result" => "success",
+                                            "assignment_mode" => "consumer_group",
                                         )
                                         .increment(1);
                                         info!(
@@ -307,6 +311,7 @@ where
                                         metrics::counter!(
                                             CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER,
                                             "result" => "failed",
+                                            "assignment_mode" => "consumer_group",
                                         )
                                         .increment(1);
                                         warn!(
@@ -343,6 +348,7 @@ where
                                 metrics::counter!(
                                     REBALANCE_CHECKPOINT_IMPORT_COUNTER,
                                     "result" => "success",
+                                    "assignment_mode" => "consumer_group",
                                 )
                                 .increment(1);
                                 info!(
@@ -357,6 +363,7 @@ where
                                     REBALANCE_CHECKPOINT_IMPORT_COUNTER,
                                     "result" => "failed",
                                     "reason" => "restore",
+                                    "assignment_mode" => "consumer_group",
                                 )
                                 .increment(1);
                                 error!(
@@ -376,6 +383,7 @@ where
                                 REBALANCE_CHECKPOINT_IMPORT_COUNTER,
                                 "result" => "failed",
                                 "reason" => "import",
+                                "assignment_mode" => "consumer_group",
                             )
                             .increment(1);
                             warn!(
@@ -395,6 +403,7 @@ where
                     REBALANCE_CHECKPOINT_IMPORT_COUNTER,
                     "result" => "skipped",
                     "reason" => "disabled",
+                    "assignment_mode" => "consumer_group",
                 )
                 .increment(1);
                 fallback_reasons.insert(partition.clone(), "no_importer");
@@ -462,7 +471,7 @@ where
                     .await
                 {
                     Ok(_) => {
-                        metrics::counter!(PARTITION_STORE_FALLBACK_EMPTY, "reason" => reason)
+                        metrics::counter!(PARTITION_STORE_FALLBACK_EMPTY, "reason" => reason, "assignment_mode" => "consumer_group")
                             .increment(1);
                         warn!(
                             topic = partition.topic(),
@@ -549,6 +558,7 @@ where
                 "topic" => partition.topic().to_string(),
                 "partition" => partition.partition_number().to_string(),
                 "op" => "assign",
+                "assignment_mode" => "consumer_group",
             )
             .increment(1);
         }
@@ -597,6 +607,7 @@ where
                 "topic" => partition.topic().to_string(),
                 "partition" => partition.partition_number().to_string(),
                 "op" => "revoke",
+                "assignment_mode" => "consumer_group",
             )
             .increment(1);
         }
@@ -780,6 +791,7 @@ mod tests {
     use crate::kafka::batch_message::KafkaMessage;
     use crate::kafka::offset_tracker::OffsetTracker;
     use crate::kafka::partition_router::PartitionRouterConfig;
+    use crate::rocksdb::store::RocksDbConfig;
     use crate::store::DeduplicationStoreConfig;
     use crate::test_utils::create_test_tracker;
     use rdkafka::Offset;
@@ -800,6 +812,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
@@ -840,6 +853,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
@@ -902,6 +916,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
@@ -971,6 +986,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator));
@@ -1007,6 +1023,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
@@ -1072,6 +1089,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator));
@@ -1109,6 +1127,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
@@ -1155,6 +1174,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
@@ -1217,6 +1237,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
@@ -1306,6 +1327,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
@@ -1420,6 +1442,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
@@ -1466,6 +1489,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
@@ -1508,6 +1532,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
@@ -1585,6 +1610,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
@@ -1695,6 +1721,7 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
         let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));

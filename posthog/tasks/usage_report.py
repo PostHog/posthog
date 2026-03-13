@@ -13,6 +13,7 @@ from django.conf import settings
 from django.db import connection
 from django.db.models import Count, F, Q, Sum
 
+import requests
 import structlog
 from cachetools import cached
 from celery import shared_task
@@ -43,7 +44,6 @@ from posthog.models.surveys.survey import Survey
 from posthog.models.surveys.util import get_unique_survey_event_uuids_sql_subquery
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
-from posthog.security.outbound_proxy import external_requests
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
@@ -399,7 +399,7 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
         if token:
             headers["Authorization"] = f"Bearer {token}"
 
-        response = external_requests.post(f"{BILLING_SERVICE_URL}/api/usage", json=report, headers=headers, timeout=30)
+        response = requests.post(f"{BILLING_SERVICE_URL}/api/usage", json=report, headers=headers, timeout=30)
         if response.status_code != 200:
             raise Exception(
                 f"Failed to send usage report to billing service code:{response.status_code} response:{response.text}"
@@ -1293,7 +1293,12 @@ def get_teams_with_rows_exported_in_period(begin: datetime, end: datetime) -> li
             status=BatchExportRun.Status.COMPLETED,
             batch_export__deleted=False,
         )
-        .exclude(batch_export__destination__type=BatchExportDestination.Destination.HTTP)
+        .exclude(
+            batch_export__destination__type__in=[
+                BatchExportDestination.Destination.HTTP,
+                BatchExportDestination.Destination.WORKFLOWS,
+            ]
+        )
         .values(team_id=F("batch_export__team_id"))
         .annotate(total=Sum("records_completed"))
     )
@@ -1876,13 +1881,10 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             .order_by("team_id")
         ),
         "teams_with_ff_count": list(
-            FeatureFlag.objects.filter(deleted=False).values("team_id").annotate(total=Count("id")).order_by("team_id")
+            FeatureFlag.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
         ),
         "teams_with_ff_active_count": list(
-            FeatureFlag.objects.filter(active=True, deleted=False)
-            .values("team_id")
-            .annotate(total=Count("id"))
-            .order_by("team_id")
+            FeatureFlag.objects.filter(active=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
         ),
         "teams_with_issues_created_total": list(
             ErrorTrackingIssue.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")

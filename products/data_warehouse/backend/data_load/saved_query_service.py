@@ -1,3 +1,5 @@
+import uuid
+import random
 from dataclasses import asdict
 from datetime import timedelta
 from typing import TYPE_CHECKING
@@ -14,7 +16,7 @@ from temporalio.client import (
     ScheduleSpec,
     ScheduleState,
 )
-from temporalio.common import RetryPolicy
+from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttributes
 
 from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import (
@@ -27,6 +29,7 @@ from posthog.temporal.common.schedule import (
     unpause_schedule,
     update_schedule,
 )
+from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY, POSTHOG_ORG_ID_KEY, POSTHOG_TEAM_ID_KEY
 
 if TYPE_CHECKING:
     from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -43,6 +46,13 @@ def get_sync_frequency(saved_query: "DataWarehouseSavedQuery") -> tuple[timedelt
     return (interval, timedelta(hours=1))
 
 
+def _get_midnight_offset(saved_query_id: uuid.UUID) -> timedelta:
+    """Deterministic offset of 0h, +1h, or -1h (as 23h) to spread 24h schedules around midnight UTC."""
+    rng = random.Random(str(saved_query_id))
+    offset_seconds = rng.choice([-3600, 0, 3600])
+    return timedelta(seconds=offset_seconds) % timedelta(hours=24)
+
+
 def get_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> Schedule:
     from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
 
@@ -52,6 +62,7 @@ def get_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> Schedule
     )
 
     sync_frequency, jitter = get_sync_frequency(saved_query)
+    offset = _get_midnight_offset(saved_query.id) if sync_frequency >= timedelta(hours=24) else timedelta()
 
     return Schedule(
         action=ScheduleActionStartWorkflow(
@@ -67,11 +78,21 @@ def get_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> Schedule
             ),
         ),
         spec=ScheduleSpec(
-            intervals=[ScheduleIntervalSpec(every=sync_frequency)],
+            intervals=[ScheduleIntervalSpec(every=sync_frequency, offset=offset)],
             jitter=jitter,
         ),
         state=ScheduleState(note=f"Schedule for saved query: {saved_query.pk}"),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+
+def get_saved_query_search_attributes(saved_query: "DataWarehouseSavedQuery") -> TypedSearchAttributes:
+    return TypedSearchAttributes(
+        search_attributes=[
+            SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=saved_query.team_id),
+            SearchAttributePair(key=POSTHOG_ORG_ID_KEY, value=str(saved_query.team.organization_id)),
+            SearchAttributePair(key=POSTHOG_DAG_ID_KEY, value=f"posthog_{saved_query.team_id}"),
+        ]
     )
 
 
@@ -80,11 +101,18 @@ def sync_saved_query_workflow(
 ) -> "DataWarehouseSavedQuery":
     temporal = sync_connect()
     schedule = get_saved_query_schedule(saved_query)
+    search_attributes = get_saved_query_search_attributes(saved_query)
 
     if create:
-        create_schedule(temporal, id=str(saved_query.id), schedule=schedule, trigger_immediately=True)
+        create_schedule(
+            temporal,
+            id=str(saved_query.id),
+            schedule=schedule,
+            trigger_immediately=True,
+            search_attributes=search_attributes,
+        )
     else:
-        update_schedule(temporal, id=str(saved_query.id), schedule=schedule)
+        update_schedule(temporal, id=str(saved_query.id), schedule=schedule, search_attributes=search_attributes)
 
     return saved_query
 

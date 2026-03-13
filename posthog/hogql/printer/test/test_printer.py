@@ -185,6 +185,11 @@ class TestPrinter(BaseTest):
             f"SELECT\n    1 AS id\nLIMIT 50000\nINTERSECT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+    def test_intersect_all_raises_in_clickhouse(self):
+        with self.assertRaises(ImpossibleASTError) as context:
+            self._select("select 1 as id intersect all select 2 as id")
+        self.assertIn("INTERSECT ALL is not supported", str(context.exception))
+
     def test_intersect_distinct(self):
         expr = parse_select("""select 1 as id intersect distinct select 2 as id""")
         response = to_printed_hogql(expr, self.team)
@@ -199,6 +204,29 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             response,
             f"SELECT\n    1 AS id\nLIMIT 50000\nEXCEPT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_except_all_raises_in_clickhouse(self):
+        with self.assertRaises(ImpossibleASTError) as context:
+            self._select("select 1 as id except all select 2 as id")
+        self.assertIn("EXCEPT ALL is not supported", str(context.exception))
+
+    def test_union_by_name(self):
+        expr = parse_select("""select 1 as a, 2 as b union by name select 3 as b, 4 as a""")
+        response = to_printed_hogql(expr, self.team)
+        self.assertEqual(
+            response,
+            (
+                "SELECT\n"
+                "    1 AS a,\n"
+                "    2 AS b\n"
+                "LIMIT 50000\n"
+                "UNION DISTINCT BY NAME\n"
+                "SELECT\n"
+                "    3 AS b,\n"
+                "    4 AS a\n"
+                f"LIMIT {MAX_SELECT_RETURNED_ROWS}"
+            ),
         )
 
     # these share the same priority, should stay in order
@@ -2275,7 +2303,7 @@ class TestPrinter(BaseTest):
         printed = self._print("SELECT 1 FROM events", settings=HogQLGlobalSettings(max_execution_time=10))
         self.assertEqual(
             printed,
-            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
     def test_print_query_level_settings(self):
@@ -2304,7 +2332,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             printed,
-            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS optimize_aggregation_in_order=1, readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS optimize_aggregation_in_order=1, readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
     def test_table_top_level_settings_added_to_query(self):
@@ -2386,6 +2414,27 @@ class TestPrinter(BaseTest):
     def test_subquery_table_settings_bubble_up(self):
         printed = self._print("SELECT job_id FROM (SELECT job_id FROM preaggregation_results)")
         assert "load_balancing='in_order'" in printed
+
+    def test_warehouse_csv_table_with_double_quotes_setting(self):
+        from posthog.hogql.database.models import TableNode
+        from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+
+        csv_table = HogQLDataWarehouseTable(
+            name="csv_table",
+            url="https://example.com/test.csv",
+            format="CSVWithNames",
+            fields={"col1": StringDatabaseField(name="col1")},
+            structure="`col1` String",
+            top_level_settings=HogQLQuerySettings(format_csv_allow_double_quotes=True),
+        )
+        db = Database()
+        root = TableNode()
+        root.add_child(TableNode(name="csv_table", table=csv_table))
+        db._add_warehouse_tables(root)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+        query = parse_select("SELECT col1 FROM csv_table")
+        printed, _ = prepare_and_print_ast(query, context, "clickhouse")
+        assert "format_csv_allow_double_quotes=1" in printed
 
     def test_pretty_print(self):
         printed = self._pretty("SELECT 1, event FROM events")
@@ -2484,7 +2533,7 @@ class TestPrinter(BaseTest):
             printed,
             f"SELECT timestamp AS timestamp FROM (SELECT toTimeZone(events.timestamp, %(hogql_val_0)s), "
             f"toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp FROM events WHERE equals(events.team_id, {self.team.pk})) "
-            f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+            f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
     def test_print_hidden_aliases_column_override(self):
@@ -2496,7 +2545,7 @@ class TestPrinter(BaseTest):
             printed,
             f"SELECT event AS event FROM (SELECT toTimeZone(events.timestamp, %(hogql_val_0)s) AS event, "
             f"event FROM events WHERE equals(events.team_id, {self.team.pk})) "
-            f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+            f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
     def test_print_hidden_aliases_properties(self):
@@ -2516,7 +2565,7 @@ class TestPrinter(BaseTest):
             printed,
             f"SELECT `$browser` AS `$browser` FROM (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` "
             f"FROM events WHERE equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS} "
-            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
     def test_print_hidden_aliases_double_property(self):
@@ -2537,7 +2586,7 @@ class TestPrinter(BaseTest):
             f"SELECT `$browser` AS `$browser` FROM (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null'), "
             f"nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` "  # only the second one gets the alias
             f"FROM events WHERE equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS} "
-            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
     def test_lookup_domain_type(self):
@@ -2552,7 +2601,7 @@ class TestPrinter(BaseTest):
             "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) AS domain "
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
             "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
-            "format_csv_allow_double_quotes=0, max_ast_elements=4000000, "
+            "max_ast_elements=4000000, "
             "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
         ) == printed
 
@@ -2568,7 +2617,7 @@ class TestPrinter(BaseTest):
             "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) AS source "
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
             "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
-            "format_csv_allow_double_quotes=0, max_ast_elements=4000000, "
+            "max_ast_elements=4000000, "
             "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
         ) == printed
 
@@ -2581,7 +2630,7 @@ class TestPrinter(BaseTest):
             "SELECT dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', "
             "(coalesce(%(hogql_val_0)s, ''), 'medium')) AS medium "
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
         ) == printed
 
     def test_lookup_organic_source_type(self):
@@ -2596,7 +2645,7 @@ class TestPrinter(BaseTest):
             "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) AS source "
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
             "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
-            "format_csv_allow_double_quotes=0, max_ast_elements=4000000, "
+            "max_ast_elements=4000000, "
             "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
         ) == printed
 
@@ -2609,7 +2658,7 @@ class TestPrinter(BaseTest):
             "SELECT dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', "
             "(coalesce(%(hogql_val_0)s, ''), 'medium')) AS medium "
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
         ) == printed
 
     def test_currency_conversion(self):
@@ -2620,7 +2669,7 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             (
                 f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))))) AS currency "
-                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
         )
@@ -2633,7 +2682,7 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             (
                 f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10))))) AS currency "
-                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
         )
@@ -2656,7 +2705,7 @@ class TestPrinter(BaseTest):
                 f"arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_1)s), '(\\d+(\\.\\d+)+)'))) AS semver2, "
                 f"arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_2)s), '(\\d+(\\.\\d+)+)'))) AS semver3, "
                 f"arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_3)s), '(\\d+(\\.\\d+)+)'))) AS semver4 "
-                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
         )
@@ -2784,7 +2833,7 @@ class TestPrinter(BaseTest):
         )
         assert printed == (
             f"SELECT trim(LEADING %(hogql_val_1)s FROM %(hogql_val_0)s) AS a, trim(TRAILING %(hogql_val_3)s FROM %(hogql_val_2)s) AS b, trim(BOTH %(hogql_val_5)s FROM %(hogql_val_4)s) AS c LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
         )
         printed2 = self._print(
             "select trimLeft('media', 'xy') as a, trimRight('media', 'xy') as b, trim('media', 'xy') as c",
@@ -3442,6 +3491,19 @@ class TestPrinter(BaseTest):
                 "WITH x USING KEY (a) AS (SELECT 1 AS a, 2 AS b) SELECT * FROM x",
             )
         self.assertIn("not supported", str(ctx.exception))
+
+    def test_projection_pushdown_cte_with_lazy_table_join(self):
+        modifiers = HogQLQueryModifiers(optimizeProjections=True)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+        # Pruning the CTE should not leave stale LazyTableType references
+        # in SelectQueryType.columns that cause KeyError during lazy table resolution
+        self._select(
+            """
+            WITH combined AS (SELECT * FROM persons LIMIT 10)
+            SELECT 1 FROM events AS e LEFT JOIN combined AS c ON e.distinct_id = c.id
+            """,
+            context=context,
+        )
 
 
 @snapshot_clickhouse_queries
@@ -4282,10 +4344,96 @@ class TestPostgresPrinter(BaseTest):
     def test_simple_identifiers_render_without_quotes(self):
         self.assertEqual(self._expr("count(id)"), "count(id)")
 
+    @parameterized.expand(
+        [
+            ("toStartOfSecond(timestamp)", "date_trunc('second', events.timestamp)"),
+            ("toStartOfMinute(timestamp)", "date_trunc('minute', events.timestamp)"),
+            ("toStartOfHour(timestamp)", "date_trunc('hour', events.timestamp)"),
+            ("toStartOfDay(timestamp)", "date_trunc('day', events.timestamp)"),
+            ("toStartOfMonth(timestamp)", "date_trunc('month', events.timestamp)"),
+            ("toStartOfQuarter(timestamp)", "date_trunc('quarter', events.timestamp)"),
+            ("toStartOfYear(timestamp)", "date_trunc('year', events.timestamp)"),
+            (
+                "toStartOfISOYear(timestamp)",
+                "date_trunc('week', make_date(extract(isoyear from events.timestamp)::int, 1, 4)::timestamp)",
+            ),
+        ]
+    )
+    def test_to_start_of_functions_render_as_date_trunc(self, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    def test_to_start_of_week_defaults_to_sunday_in_postgres(self):
+        self.assertEqual(
+            self._expr("toStartOfWeek(timestamp)"),
+            "(date_trunc('week', (events.timestamp + interval '1 day')) - interval '1 day')",
+        )
+
+    def test_to_start_of_week_uses_project_week_start_day_in_postgres(self):
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=Database(week_start_day=WeekStartDay.MONDAY),
+        )
+
+        self.assertEqual(self._expr("toStartOfWeek(timestamp)", context), "date_trunc('week', events.timestamp)")
+
+    @parameterized.expand(
+        [
+            (
+                "toStartOfWeek(timestamp, 0)",
+                "(date_trunc('week', (events.timestamp + interval '1 day')) - interval '1 day')",
+            ),
+            ("toStartOfWeek(timestamp, 3)", "date_trunc('week', events.timestamp)"),
+        ]
+    )
+    def test_to_start_of_week_preserves_supported_modes_in_postgres(self, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    def test_to_start_of_week_rejects_unsupported_mode_in_postgres(self):
+        with self.assertRaises(QueryError) as error:
+            self._expr("toStartOfWeek(timestamp, 2)")
+
+        self.assertIn("Unsupported toStartOfWeek mode", str(error.exception))
+
+    def test_to_start_of_day_rejects_timezone_override_in_postgres(self):
+        with self.assertRaises(QueryError) as error:
+            self._expr("toStartOfDay(timestamp, 'UTC')")
+
+        self.assertIn("timezone override", str(error.exception))
+
+    @parameterized.expand(
+        [
+            (
+                "toStartOfFiveMinutes(timestamp)",
+                "date_trunc('hour', events.timestamp) + "
+                "(floor(extract(minute from events.timestamp) / 5)::int * 5 * interval '1 minute')",
+            ),
+            (
+                "toStartOfTenMinutes(timestamp)",
+                "date_trunc('hour', events.timestamp) + "
+                "(floor(extract(minute from events.timestamp) / 10)::int * 10 * interval '1 minute')",
+            ),
+            (
+                "toStartOfFifteenMinutes(timestamp)",
+                "date_trunc('hour', events.timestamp) + "
+                "(floor(extract(minute from events.timestamp) / 15)::int * 15 * interval '1 minute')",
+            ),
+        ]
+    )
+    def test_to_start_of_minute_bucket_functions_render_in_postgres(self, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
     def test_reserved_identifiers_are_quoted(self):
         printed = self._select("SELECT events.event AS select FROM events")
 
         self.assertIn('AS "select"', printed)
+
+    def test_long_generated_identifier_is_truncated_for_postgres(self):
+        long_alias = "posthog_user__posthog_organizationmemberships__organization___id"
+        printed = self._select(f"SELECT event AS {long_alias} FROM events")
+
+        self.assertIn("AS ", printed)
+        self.assertNotIn(long_alias, printed)
 
     def test_window_functions_keep_postgres_shape(self):
         printed = self._select("SELECT lag(timestamp) OVER (ORDER BY timestamp) FROM events")
@@ -4490,3 +4638,176 @@ class TestPostgresPrinter(BaseTest):
         query = "WITH RECURSIVE x USING KEY (a) AS (SELECT 1 AS a UNION ALL SELECT a + 1 FROM x WHERE a < 5) SELECT * FROM x"
         result = self._select(query)
         self.assertIn("USING KEY (a) AS", result)
+
+    def test_intersect_all(self):
+        result = self._select("select 1 as id intersect all select 2 as id")
+        self.assertIn("INTERSECT ALL", result)
+
+    def test_except_all(self):
+        result = self._select("select 1 as id except all select 2 as id")
+        self.assertIn("EXCEPT ALL", result)
+
+    # -- ClickHouse → Postgres function translation tests --
+
+    @parameterized.expand(
+        [
+            # Renames
+            ("ifNull", "ifNull(1, 2)", "COALESCE(1, 2)"),
+            ("replaceAll", "replaceAll('abc', 'a', 'z')", "REPLACE('abc', 'a', 'z')"),
+            ("replaceRegexpAll", "replaceRegexpAll('abc', 'a', 'z')", "REGEXP_REPLACE('abc', 'a', 'z')"),
+            ("toTypeName", "toTypeName(1)", "pg_typeof(1)"),
+            ("now", "now()", "NOW()"),
+            ("any", "any(event)", "MIN(events.event)"),
+            ("startsWith", "startsWith('hello', 'he')", "starts_with('hello', 'he')"),
+            ("rand", "rand()", "random()"),
+            ("generateSeries", "generateSeries(1, 10, 1)", "generate_series(1, 10, 1)"),
+            # Type conversions
+            ("toDate", "toDate('2024-01-01')", "CAST('2024-01-01' AS DATE)"),
+            ("toDateTime", "toDateTime('2024-01-01')", "CAST('2024-01-01' AS TIMESTAMP)"),
+            ("toDateTime_tz", "toDateTime('2024-01-01', 'UTC')", "CAST('2024-01-01' AS TIMESTAMP)"),
+            ("toString", "toString(123)", "CAST(123 AS TEXT)"),
+            ("toInt", "toInt(3.14)", "CAST(3.14 AS BIGINT)"),
+            ("toFloat", "toFloat(1)", "CAST(1 AS DOUBLE PRECISION)"),
+            ("toFloatOrZero", "toFloatOrZero('1.5')", "CAST('1.5' AS DOUBLE PRECISION)"),
+            ("toFloatOrDefault", "toFloatOrDefault('1.5')", "CAST('1.5' AS DOUBLE PRECISION)"),
+            ("toIntOrZero", "toIntOrZero('42')", "CAST('42' AS BIGINT)"),
+            ("toBool", "toBool(1)", "CAST(1 AS BOOLEAN)"),
+            ("toUUID", "toUUID('abc')", "CAST('abc' AS UUID)"),
+            ("toDecimal", "toDecimal(1, 2)", "CAST(1 AS DECIMAL)"),
+            ("toDateTime64", "toDateTime64('2024-01-01', 3)", "CAST('2024-01-01' AS TIMESTAMP)"),
+            # Date extraction
+            ("toYear", "toYear(now())", "EXTRACT(YEAR FROM NOW())"),
+            ("toQuarter", "toQuarter(now())", "EXTRACT(QUARTER FROM NOW())"),
+            ("toMonth", "toMonth(now())", "EXTRACT(MONTH FROM NOW())"),
+            ("toDayOfMonth", "toDayOfMonth(now())", "EXTRACT(DAY FROM NOW())"),
+            ("toDayOfWeek", "toDayOfWeek(now())", "EXTRACT(ISODOW FROM NOW())"),
+            ("toDayOfYear", "toDayOfYear(now())", "EXTRACT(DOY FROM NOW())"),
+            ("toHour", "toHour(now())", "EXTRACT(HOUR FROM NOW())"),
+            ("toMinute", "toMinute(now())", "EXTRACT(MINUTE FROM NOW())"),
+            ("toSecond", "toSecond(now())", "EXTRACT(SECOND FROM NOW())"),
+            ("toISOWeek", "toISOWeek(now())", "EXTRACT(WEEK FROM NOW())"),
+            ("toISOYear", "toISOYear(now())", "EXTRACT(ISOYEAR FROM NOW())"),
+            ("toUnixTimestamp", "toUnixTimestamp(now())", "CAST(EXTRACT(EPOCH FROM NOW()) AS BIGINT)"),
+            ("toYYYYMM", "toYYYYMM(now())", "CAST(TO_CHAR(NOW(), 'YYYYMM') AS INTEGER)"),
+            ("toYYYYMMDD", "toYYYYMMDD(now())", "CAST(TO_CHAR(NOW(), 'YYYYMMDD') AS INTEGER)"),
+            ("toYYYYMMDDhhmmss", "toYYYYMMDDhhmmss(now())", "CAST(TO_CHAR(NOW(), 'YYYYMMDDHH24MISS') AS BIGINT)"),
+            # Date truncation (toStartOf* tested separately in test_to_start_of_*)
+            ("toMonday", "toMonday(now())", "CAST(DATE_TRUNC('week', NOW()) AS DATE)"),
+            (
+                "toLastDayOfMonth",
+                "toLastDayOfMonth(now())",
+                "CAST((DATE_TRUNC('month', NOW()) + INTERVAL '1 month' - INTERVAL '1 day') AS DATE)",
+            ),
+            (
+                "toLastDayOfWeek",
+                "toLastDayOfWeek(now())",
+                "CAST((DATE_TRUNC('week', NOW()) + INTERVAL '6 day') AS DATE)",
+            ),
+            # Date generators
+            ("today", "today()", "CURRENT_DATE"),
+            ("yesterday", "yesterday()", "(CURRENT_DATE - INTERVAL '1 day')"),
+            # Intervals
+            ("toIntervalSecond", "toIntervalSecond(60)", "(60 * INTERVAL '1 second')"),
+            ("toIntervalMinute", "toIntervalMinute(30)", "(30 * INTERVAL '1 minute')"),
+            ("toIntervalHour", "toIntervalHour(3)", "(3 * INTERVAL '1 hour')"),
+            ("toIntervalDay", "toIntervalDay(7)", "(7 * INTERVAL '1 day')"),
+            ("toIntervalWeek", "toIntervalWeek(2)", "(2 * INTERVAL '1 week')"),
+            ("toIntervalMonth", "toIntervalMonth(6)", "(6 * INTERVAL '1 month')"),
+            ("toIntervalQuarter", "toIntervalQuarter(1)", "(1 * INTERVAL '3 month')"),
+            ("toIntervalYear", "toIntervalYear(1)", "(1 * INTERVAL '1 year')"),
+            # Date arithmetic
+            ("addDays", "addDays(now(), 7)", "(NOW() + 7 * INTERVAL '1 day')"),
+            ("addHours", "addHours(now(), 3)", "(NOW() + 3 * INTERVAL '1 hour')"),
+            ("addMonths", "addMonths(now(), 1)", "(NOW() + 1 * INTERVAL '1 month')"),
+            ("addYears", "addYears(now(), 2)", "(NOW() + 2 * INTERVAL '1 year')"),
+            ("subtractDays", "subtractDays(now(), 7)", "(NOW() - 7 * INTERVAL '1 day')"),
+            ("subtractMonths", "subtractMonths(now(), 3)", "(NOW() - 3 * INTERVAL '1 month')"),
+            (
+                "dateDiff",
+                "dateDiff('day', now(), now())",
+                "DATE_PART('day', CAST(NOW() AS TIMESTAMP) - CAST(NOW() AS TIMESTAMP))",
+            ),
+            # Conditional
+            ("if", "if(1, 'yes', 'no')", "CASE WHEN 1 THEN 'yes' ELSE 'no' END"),
+            ("multiIf", "multiIf(1, 'a', 0, 'b', 'c')", "CASE WHEN 1 THEN 'a' WHEN 0 THEN 'b' ELSE 'c' END"),
+            # Null/empty
+            ("empty", "empty('test')", "('test' IS NULL OR 'test' = '')"),
+            ("notEmpty", "notEmpty('test')", "('test' IS NOT NULL AND 'test' != '')"),
+            ("isNull", "isNull(1)", "(1 IS NULL)"),
+            ("isNotNull", "isNotNull(1)", "(1 IS NOT NULL)"),
+            ("assumeNotNull", "assumeNotNull(1)", "1"),
+            ("toNullable", "toNullable(1)", "1"),
+            # JSON
+            ("JSONExtractInt", "JSONExtractInt('{}', 'key')", "CAST(json_extract_path_text('{}', 'key') AS INTEGER)"),
+            (
+                "JSONExtractFloat",
+                "JSONExtractFloat('{}', 'key')",
+                "CAST(json_extract_path_text('{}', 'key') AS DOUBLE PRECISION)",
+            ),
+            ("JSONExtractBool", "JSONExtractBool('{}', 'key')", "CAST(json_extract_path_text('{}', 'key') AS BOOLEAN)"),
+            (
+                "JSONExtractUInt",
+                "JSONExtractUInt('{}', 'key')",
+                "CAST(json_extract_path_text('{}', 'key') AS INTEGER)",
+            ),
+            # String
+            ("match", "match('hello', 'h.*o')", "('hello' ~ 'h.*o')"),
+            ("splitByString", "splitByString(',', 'a,b,c')", "STRING_TO_ARRAY('a,b,c', ',')"),
+            ("splitByChar", "splitByChar(',', 'a,b,c')", "STRING_TO_ARRAY('a,b,c', ',')"),
+            ("endsWith", "endsWith('hello', 'lo')", "(RIGHT('hello', LENGTH('lo')) = 'lo')"),
+            ("replaceOne", "replaceOne('abc', 'a', 'z')", "REGEXP_REPLACE('abc', 'a', 'z')"),
+            ("replaceRegexpOne", "replaceRegexpOne('abc', 'a+', 'z')", "REGEXP_REPLACE('abc', 'a+', 'z')"),
+            # Math
+            ("e", "e()", "exp(1)"),
+            ("log2", "log2(8)", "log(2, 8)"),
+            # Aggregation
+            ("uniq", "uniq(1)", "COUNT(DISTINCT 1)"),
+            ("uniqExact", "uniqExact(1)", "COUNT(DISTINCT 1)"),
+        ]
+    )
+    def test_clickhouse_functions_translate_to_postgres(self, _name: str, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    @parameterized.expand(
+        [
+            ("countIf_1arg", "countIf(1)", "count(*) FILTER (WHERE 1)"),
+            ("countIf_2arg", "countIf(event, 1)", "count(events.event) FILTER (WHERE 1)"),
+            ("sumIf", "sumIf(1, 1)", "sum(1) FILTER (WHERE 1)"),
+            ("avgIf", "avgIf(1, 1)", "avg(1) FILTER (WHERE 1)"),
+            ("minIf", "minIf(1, 1)", "min(1) FILTER (WHERE 1)"),
+            ("maxIf", "maxIf(1, 1)", "max(1) FILTER (WHERE 1)"),
+            ("anyIf", "anyIf(1, 1)", "MIN(1) FILTER (WHERE 1)"),
+            ("uniqIf", "uniqIf(1, 1)", "COUNT(DISTINCT 1) FILTER (WHERE 1)"),
+            ("uniqExactIf", "uniqExactIf(1, 1)", "COUNT(DISTINCT 1) FILTER (WHERE 1)"),
+            ("groupArrayIf", "groupArrayIf(1, 1)", "ARRAY_AGG(1) FILTER (WHERE 1)"),
+        ]
+    )
+    def test_if_combinator_functions(self, _name: str, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    @parameterized.expand(
+        [
+            ("argMax", "argMax(1, 2)"),
+            ("argMin", "argMin(1, 2)"),
+            ("range", "range(1, 10)"),
+        ]
+    )
+    def test_unmapped_clickhouse_functions_raise_error(self, _name: str, expr: str):
+        with self.assertRaises(QueryError) as ctx:
+            self._expr(expr)
+        self.assertIn("not supported in the Postgres dialect", str(ctx.exception))
+
+    @parameterized.expand(
+        [
+            ("count", "count()"),
+            ("sum", "sum(1)"),
+            ("abs", "abs(1)"),
+            ("lower", "lower('x')"),
+            ("coalesce", "coalesce(1, 2)"),
+            ("row_number", "row_number()"),
+            ("greatest", "greatest(1, 2)"),
+        ]
+    )
+    def test_standard_sql_functions_pass_through(self, _name: str, expr: str):
+        result = self._expr(expr)
+        self.assertIsNotNone(result)

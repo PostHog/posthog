@@ -3,7 +3,6 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
@@ -19,10 +18,6 @@ import { experimentsLogic } from './experimentsLogic'
 
 jest.mock('./ExperimentWizard/ExperimentWizard', () => ({
     ExperimentWizard: () => <div data-attr="experiment-wizard" />,
-}))
-
-jest.mock('./ExperimentForm', () => ({
-    ExperimentForm: () => <div data-attr="experiment-classic-form" />,
 }))
 
 jest.mock('lib/hooks/useFileSystemLogView', () => ({
@@ -77,12 +72,9 @@ function mockApiForExperiment(experimentData?: ExperimentType): Record<string, a
         : apiMocks
 }
 
-function mountKeaLogics(flagValue: string | boolean = 'test'): void {
+function mountKeaLogics(): void {
     initKeaTests()
     featureFlagLogic.mount()
-    featureFlagLogic.actions.setFeatureFlags([], {
-        [FEATURE_FLAGS.EXPERIMENTS_WIZARD_CREATION_FORM]: flagValue,
-    })
     featureFlagsLogic.mount()
     experimentsLogic.mount()
 }
@@ -118,30 +110,11 @@ beforeAll(() => {
 })
 
 describe('Experiment component', () => {
-    it.each([
-        {
-            flagValue: 'test' as string | boolean,
-            expectedFormTestId: 'experiment-wizard',
-            description: 'wizard',
-        },
-        {
-            flagValue: false as string | boolean,
-            expectedFormTestId: 'experiment-classic-form',
-            description: 'classic form',
-        },
-    ])('create mode shows $description', async ({ flagValue, expectedFormTestId }) => {
+    it('create mode shows wizard', async () => {
         localStorage.clear()
         sessionStorage.clear()
         useMocks(apiMocks)
-        initKeaTests()
-
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.EXPERIMENTS_WIZARD_CREATION_FORM]: flagValue,
-        })
-
-        featureFlagsLogic.mount()
-        experimentsLogic.mount()
+        mountKeaLogics()
 
         const tabId = 'test-tab-create'
         const createSceneLogic = experimentSceneLogic({ tabId, experimentId: 'new', formMode: FORM_MODES.create })
@@ -151,7 +124,7 @@ describe('Experiment component', () => {
 
         render(<Experiment tabId={tabId} />)
 
-        expect(screen.getByTestId(expectedFormTestId)).toBeInTheDocument()
+        expect(screen.getByTestId('experiment-wizard')).toBeInTheDocument()
         cleanupKea(createSceneLogic)
     })
 
@@ -185,9 +158,8 @@ describe('Experiment component', () => {
             })
             expect(screen.getByText('Add secondary metric')).toBeInTheDocument()
 
-            // No creation form should be shown
+            // No creation form should be shown in view mode
             expect(screen.queryByTestId('experiment-wizard')).not.toBeInTheDocument()
-            expect(screen.queryByTestId('experiment-classic-form')).not.toBeInTheDocument()
 
             if (expectLaunchButton) {
                 const launchButton = document.querySelector('[data-attr="launch-experiment"]')

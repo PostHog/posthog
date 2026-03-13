@@ -73,6 +73,10 @@ from posthog.temporal.exports_video import (
     ACTIVITIES as VIDEO_EXPORT_ACTIVITIES,
     WORKFLOWS as VIDEO_EXPORT_WORKFLOWS,
 )
+from posthog.temporal.health_checks import (
+    ACTIVITIES as HEALTH_CHECK_ACTIVITIES,
+    WORKFLOWS as HEALTH_CHECK_WORKFLOWS,
+)
 from posthog.temporal.import_recording import (
     ACTIVITIES as IMPORT_RECORDING_ACTIVITIES,
     WORKFLOWS as IMPORT_RECORDING_WORKFLOWS,
@@ -196,6 +200,11 @@ _task_queue_specs = [
         + EXPERIMENTS_ACTIVITIES
         + CLEANUP_PROPDEFS_ACTIVITIES
         + INGESTION_ACCEPTANCE_TEST_ACTIVITIES,
+    ),
+    (
+        settings.HEALTH_CHECK_TASK_QUEUE,
+        HEALTH_CHECK_WORKFLOWS,
+        HEALTH_CHECK_ACTIVITIES,
     ),
     (
         settings.DUCKLAKE_TASK_QUEUE,

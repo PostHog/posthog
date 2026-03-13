@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import type { OrganizationBasicType } from '~/types'
@@ -15,6 +16,10 @@ export const userDangerZoneLogic = kea<userDangerZoneLogicType>({
         setDeleteUserModalOpen: (open: boolean) => ({ open }),
         setOrganizationToDelete: (organization: OrganizationBasicType | null) => ({ organization }),
         setIsUserDeletionConfirmed: (confirmed: boolean) => ({ confirmed }),
+        addDeletedOrganizationId: (id: string) => ({ id }),
+    },
+    connect: {
+        actions: [organizationLogic, ['deleteOrganizationSuccess']],
     },
     loaders: {
         _leaveOrganization: [
@@ -47,13 +52,26 @@ export const userDangerZoneLogic = kea<userDangerZoneLogicType>({
                 setIsUserDeletionConfirmed: (_, { confirmed }) => confirmed,
             },
         ],
+        deletedOrganizationIds: [
+            [] as string[],
+            {
+                addDeletedOrganizationId: (state, { id }) => [...state, id],
+                setDeleteUserModalOpen: (state, { open }) => (open ? state : []),
+            },
+        ],
     },
-    listeners: () => ({
+    listeners: ({ actions, values }) => ({
         setDeleteUserModalOpen: ({ open }) => {
             if (open) {
                 router.actions.replace(urls.settings('user-danger-zone'), { deletingUser: true })
             } else {
                 router.actions.replace(urls.settings('user-danger-zone'))
+            }
+        },
+        deleteOrganizationSuccess: () => {
+            if (values.deleteUserModalOpen && values.organizationToDelete) {
+                actions.addDeletedOrganizationId(values.organizationToDelete.id)
+                actions.setOrganizationToDelete(null)
             }
         },
         leaveOrganizationSuccess: () => {
