@@ -174,8 +174,11 @@ export const llmAnalyticsReviewsLogic = kea<llmAnalyticsReviewsLogicType>([
 
     tabAwareActionToUrl(({ values }) => ({
         setFilters: () => {
-            const nextValues = getUrlFilters(values.filters)
-            const urlValues = getUrlFilters(cleanFilters(router.values.searchParams))
+            const nextValues = { ...getUrlFilters(values.filters), human_reviews_tab: 'reviews' }
+            const urlValues = {
+                ...getUrlFilters(cleanFilters(router.values.searchParams)),
+                human_reviews_tab: router.values.searchParams.human_reviews_tab === 'reviews' ? 'reviews' : undefined,
+            }
 
             if (!objectsEqual(nextValues, urlValues)) {
                 return [urls.llmAnalyticsReviews(), nextValues, {}, { replace: true }]

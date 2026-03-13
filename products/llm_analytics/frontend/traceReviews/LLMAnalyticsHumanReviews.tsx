@@ -5,6 +5,7 @@ import { LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { urls } from '~/scenes/urls'
 
+import { LLMAnalyticsReviewQueues } from '../reviewQueues/LLMAnalyticsReviewQueues'
 import { LLMAnalyticsScoreDefinitions } from '../scoreDefinitions/LLMAnalyticsScoreDefinitions'
 import { LLMAnalyticsReviews } from './LLMAnalyticsReviews'
 
@@ -14,16 +15,30 @@ export function LLMAnalyticsHumanReviews({ tabId }: { tabId?: string }): JSX.Ele
     const { searchParams } = useValues(router)
     const { push } = useActions(router)
 
-    const activeHumanReviewsTab = searchParams[HUMAN_REVIEWS_TAB_PARAM] === 'scorers' ? 'scorers' : 'reviews'
+    const activeHumanReviewsTab =
+        searchParams[HUMAN_REVIEWS_TAB_PARAM] === 'reviews'
+            ? 'reviews'
+            : searchParams[HUMAN_REVIEWS_TAB_PARAM] === 'scorers'
+              ? 'scorers'
+              : 'queues'
 
     const tabs: LemonTab<string>[] = [
+        {
+            key: 'queues',
+            label: 'Queues',
+            content: <LLMAnalyticsReviewQueues tabId={tabId} />,
+            link: combineUrl(urls.llmAnalyticsReviews(), {
+                ...searchParams,
+                [HUMAN_REVIEWS_TAB_PARAM]: undefined,
+            }).url,
+        },
         {
             key: 'reviews',
             label: 'Reviews',
             content: <LLMAnalyticsReviews tabId={tabId} />,
             link: combineUrl(urls.llmAnalyticsReviews(), {
                 ...searchParams,
-                [HUMAN_REVIEWS_TAB_PARAM]: undefined,
+                [HUMAN_REVIEWS_TAB_PARAM]: 'reviews',
             }).url,
         },
         {
@@ -45,7 +60,8 @@ export function LLMAnalyticsHumanReviews({ tabId }: { tabId?: string }): JSX.Ele
                 push(
                     combineUrl(urls.llmAnalyticsReviews(), {
                         ...searchParams,
-                        [HUMAN_REVIEWS_TAB_PARAM]: tab === 'scorers' ? 'scorers' : undefined,
+                        [HUMAN_REVIEWS_TAB_PARAM]:
+                            tab === 'reviews' ? 'reviews' : tab === 'scorers' ? 'scorers' : undefined,
                     }).url
                 )
             }
