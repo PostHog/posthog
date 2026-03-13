@@ -142,6 +142,7 @@
             "type": null,
             "intents": ["marketing_analytics"]
         },
+        { "path": "Metrics", "category": "Unreleased", "iconType": "metrics", "type": null, "intents": ["metrics"] },
         {
             "path": "Product analytics",
             "category": "Analytics",

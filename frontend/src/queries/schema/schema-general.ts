@@ -2487,6 +2487,8 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     personId?: string
     groupKey?: string
     groupTypeIndex?: integer
+    /** Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries) */
+    useQueryV2?: boolean
 }
 
 export interface ErrorTrackingSimilarIssuesQuery extends DataNode<ErrorTrackingSimilarIssuesQueryResponse> {
@@ -2922,6 +2924,7 @@ export type FileSystemIconType =
     | 'live_debugger'
     | 'logs'
     | 'tracing'
+    | 'metrics'
     | 'workflows'
     | 'notebook'
     | 'action'
@@ -5483,6 +5486,7 @@ export enum ProductKey {
     TEAMS = 'teams',
     TOOLBAR = 'toolbar',
     TRACING = 'tracing',
+    METRICS = 'metrics',
     USER_INTERVIEWS = 'user_interviews',
     VISUAL_REVIEW = 'visual_review',
     WEB_ANALYTICS = 'web_analytics',

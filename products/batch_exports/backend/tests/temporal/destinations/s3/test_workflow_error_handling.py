@@ -18,9 +18,9 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from types_aiobotocore_s3.client import S3Client
 
-from posthog.batch_exports.service import BatchExportModel
 from posthog.temporal.tests.utils.models import afetch_batch_export_runs
 
+from products.batch_exports.backend.service import BatchExportModel
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
     ConcurrentS3Consumer,
