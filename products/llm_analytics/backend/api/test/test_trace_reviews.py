@@ -4,6 +4,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
+from products.llm_analytics.backend.models.review_queues import ReviewQueue, ReviewQueueItem
 from products.llm_analytics.backend.models.score_definitions import ScoreDefinition, ScoreDefinitionVersion
 from products.llm_analytics.backend.models.trace_reviews import TraceReview, TraceReviewScore
 
@@ -87,6 +88,12 @@ class TestTraceReviewsApi(APIBaseTest):
             reviewed_by=self.user,
         )
 
+    def _create_queue(self, *, name: str = "Support queue") -> ReviewQueue:
+        return ReviewQueue.objects.create(team=self.team, name=name, created_by=self.user)
+
+    def _create_queue_item(self, *, queue: ReviewQueue, trace_id: str = "trace_123") -> ReviewQueueItem:
+        return ReviewQueueItem.objects.create(team=self.team, queue=queue, trace_id=trace_id, created_by=self.user)
+
     def test_returns_403_when_feature_flag_disabled(self):
         self.mock_feature_enabled.return_value = False
 
@@ -103,6 +110,33 @@ class TestTraceReviewsApi(APIBaseTest):
         self.assertEqual(review.reviewed_by, self.user)
         self.assertIsNone(review.comment)
         self.assertEqual(review.scores.count(), 0)
+
+    def test_creating_review_soft_deletes_pending_queue_item(self):
+        queue = self._create_queue()
+        item = self._create_queue_item(queue=queue, trace_id="trace_123")
+
+        response = self.client.post(self._endpoint(), {"trace_id": "trace_123"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        item.refresh_from_db()
+        self.assertTrue(item.deleted)
+        self.assertIsNotNone(item.deleted_at)
+
+    def test_updating_review_soft_deletes_pending_queue_item(self):
+        review = self._create_review(trace_id="trace_123", comment="Before")
+        queue = self._create_queue()
+        item = self._create_queue_item(queue=queue, trace_id="trace_123")
+
+        response = self.client.patch(
+            f"{self._endpoint()}{review.id}/",
+            {"comment": "After"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        item.refresh_from_db()
+        self.assertTrue(item.deleted)
+        self.assertIsNotNone(item.deleted_at)
 
     def test_can_create_review_with_multiple_scores(self):
         themes = self._create_multi_select_definition(minimum_selections=1, maximum_selections=2)

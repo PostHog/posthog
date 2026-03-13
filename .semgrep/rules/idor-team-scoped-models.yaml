@@ -169,6 +169,8 @@ rules:
                               |Text
                               |Threshold
                               |Ticket
+                              |ReviewQueue
+                              |ReviewQueueItem
                               |TraceReview
                               |TraceReviewScore
                               |UploadedMedia
@@ -340,6 +342,8 @@ rules:
                         |Text
                         |Threshold
                         |Ticket
+                        |ReviewQueue
+                        |ReviewQueueItem
                         |TraceReview
                         |TraceReviewScore
                         |UploadedMedia
