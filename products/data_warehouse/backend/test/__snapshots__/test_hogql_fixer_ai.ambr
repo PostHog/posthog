@@ -43,10 +43,6 @@
   - event_issue_id (expression)
   - exception_issue_override (lazy_table)
   - issue_id (expression)
-  - person_field (lazy_table)
-  - group_field (lazy_table)
-  - some_field (lazy_table)
-  - validation (lazy_table)
   '''
 # ---
 # name: test_get_system_prompt
@@ -160,10 +156,6 @@
   - event_issue_id (expression)
   - exception_issue_override (lazy_table)
   - issue_id (expression)
-  - person_field (lazy_table)
-  - group_field (lazy_table)
-  - some_field (lazy_table)
-  - validation (lazy_table)
   
   Below is the current HogQL query and the error message
   
