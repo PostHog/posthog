@@ -32,6 +32,7 @@ class TestReportUserAction(BaseTest):
                     "mcp_client_version": None,
                     "mcp_protocol_version": None,
                     "mcp_oauth_client_name": None,
+                    "$set": {"email": "user1@posthog.com"},
                 },
             ),
             (
@@ -52,6 +53,7 @@ class TestReportUserAction(BaseTest):
                     "mcp_client_version": None,
                     "mcp_protocol_version": None,
                     "mcp_oauth_client_name": None,
+                    "$set": {"email": "user1@posthog.com"},
                 },
             ),
             (
@@ -73,6 +75,7 @@ class TestReportUserAction(BaseTest):
                     "mcp_client_version": "1.2.3",
                     "mcp_protocol_version": "2025-03-26",
                     "mcp_oauth_client_name": "Claude Code (posthog)",
+                    "$set": {"email": "user1@posthog.com"},
                 },
             ),
             (
@@ -90,6 +93,7 @@ class TestReportUserAction(BaseTest):
                     "mcp_protocol_version": None,
                     "mcp_oauth_client_name": None,
                     "key": "val",
+                    "$set": {"email": "user1@posthog.com"},
                 },
             ),
             (
@@ -106,6 +110,7 @@ class TestReportUserAction(BaseTest):
                     "mcp_client_version": None,
                     "mcp_protocol_version": None,
                     "mcp_oauth_client_name": None,
+                    "$set": {"email": "user1@posthog.com"},
                 },
             ),
             (
@@ -123,6 +128,7 @@ class TestReportUserAction(BaseTest):
                     "mcp_protocol_version": None,
                     "mcp_oauth_client_name": None,
                     "key": "val",
+                    "$set": {"email": "user1@posthog.com"},
                 },
             ),
         ]
@@ -141,11 +147,36 @@ class TestReportUserAction(BaseTest):
         assert captured_props == expected_properties
 
     @patch("posthog.event_usage.posthoganalytics.capture")
-    def test_no_request_passes_properties_unchanged(self, mock_capture):
+    def test_no_request_includes_email_via_set(self, mock_capture):
         report_user_action(self.user, "test event", properties={"key": "val"})
 
         mock_capture.assert_called_once()
-        assert mock_capture.call_args[1]["properties"] == {"key": "val"}
+        assert mock_capture.call_args[1]["properties"] == {"key": "val", "$set": {"email": self.user.email}}
+
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_anonymized_user_does_not_include_email(self, mock_capture):
+        self.user.anonymize_data = True
+        self.user.save()
+
+        report_user_action(self.user, "test event")
+
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args[1]["properties"]["$set"]["email"] is None
+
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_caller_set_properties_are_preserved(self, mock_capture):
+        report_user_action(self.user, "test event", properties={"$set": {"name": "Test User"}})
+
+        mock_capture.assert_called_once()
+        set_props = mock_capture.call_args[1]["properties"]["$set"]
+        assert set_props == {"name": "Test User", "email": self.user.email}
+
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_caller_email_in_set_takes_precedence(self, mock_capture):
+        report_user_action(self.user, "test event", properties={"$set": {"email": "override@example.com"}})
+
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args[1]["properties"]["$set"]["email"] == "override@example.com"
 
 
 class TestGetEventSource(BaseTest):

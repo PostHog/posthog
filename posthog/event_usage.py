@@ -346,6 +346,7 @@ def report_user_action(
         properties = {}
     if request is not None:
         properties = {**get_request_analytics_properties(request), **properties}
+    properties.setdefault("$set", {}).setdefault("email", user.email if not user.anonymize_data else None)
     posthoganalytics.capture(
         distinct_id=user.distinct_id,
         event=event,
@@ -382,6 +383,9 @@ def report_user_or_team_action(
 
     org = organization or (real_user.current_organization if real_user else None)
     tm = team or (real_user.current_team if real_user else None)
+
+    if real_user:
+        properties.setdefault("$set", {}).setdefault("email", real_user.email if not real_user.anonymize_data else None)
 
     posthoganalytics.capture(
         distinct_id=distinct_id,
