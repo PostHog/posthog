@@ -465,7 +465,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                               }
                     const response = await api.fileSystemShortcuts.create(shortcutItem)
                     const isAIFirst = !!values.featureFlags[FEATURE_FLAGS.AI_FIRST]
-                    eventUsageLogic.actions.reportNavbarStarredItemAdded(shortcutItem.type, shortcutPath, isAIFirst)
+                    eventUsageLogic.actions.reportNavbarStarredItemAdded(
+                        shortcutItem.type ?? 'unknown',
+                        shortcutPath,
+                        isAIFirst
+                    )
                     lemonToast.success(isAIFirst ? 'Added to starred' : 'Shortcut created successfully', {
                         button: {
                             label: 'View',
