@@ -145,7 +145,7 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
         ],
     }),
 
-    selectors({
+    selectors(({}) => ({
         isProfileMode: [() => [(_, props) => props.mode], (mode): boolean => mode === 'profile'],
         nodeType: [
             () => [(_, props) => props.mode],
@@ -168,7 +168,6 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
             (s) => [s.isProfileMode],
             (isProfileMode) => (isProfileMode ? PROFILE_FIT_VIEW_OPTIONS : FIT_VIEW_OPTIONS),
         ],
-
         funnelNodes: [
             (s) => [
                 s.visibleStepsWithConversionMetrics,
@@ -295,7 +294,7 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
                 return [...visibleFunnelEdges, ...expandedPathElements.edges]
             },
         ],
-    }),
+    })),
 
     subscriptions(({ actions, values }) => ({
         nodes: async () => {

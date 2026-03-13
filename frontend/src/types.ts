@@ -1,7 +1,7 @@
 import { LogicWrapper } from 'kea'
 import type { PostHog, PropertyMatchType, SupportedWebVitalsMetrics } from 'posthog-js'
 import { ReactNode } from 'react'
-import { Layout } from 'react-grid-layout'
+import { LayoutItem } from 'react-grid-layout'
 
 import { LemonTableColumns } from '@posthog/lemon-ui'
 import { LogLevel } from '@posthog/rrweb-plugin-console-record'
@@ -2131,7 +2131,7 @@ export interface Cacheable {
     cache_target_age?: string | null
 }
 
-export interface TileLayout extends Omit<Layout, 'i'> {
+export interface TileLayout extends Omit<LayoutItem, 'i'> {
     i?: string // we use `i` in the front end but not in the API
 }
 
@@ -2291,6 +2291,7 @@ export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     persisted_variables?: Record<string, HogQLVariable> | null
     breakdown_colors?: BreakdownColorConfig[]
     data_color_theme_id?: number | null
+    quick_filter_ids?: string[] | null
 }
 
 export enum TemplateAvailabilityContext {

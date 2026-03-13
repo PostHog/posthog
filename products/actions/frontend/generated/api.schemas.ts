@@ -315,10 +315,9 @@ export interface DatePropertyFilterApi {
  * * `is_set` - is_set
  * `is_not_set` - is_not_set
  */
-export type ExistencePropertyFilterOperatorEnumApi =
-    (typeof ExistencePropertyFilterOperatorEnumApi)[keyof typeof ExistencePropertyFilterOperatorEnumApi]
+export type Operator3e6EnumApi = (typeof Operator3e6EnumApi)[keyof typeof Operator3e6EnumApi]
 
-export const ExistencePropertyFilterOperatorEnumApi = {
+export const Operator3e6EnumApi = {
     IsSet: 'is_set',
     IsNotSet: 'is_not_set',
 } as const
@@ -360,7 +359,7 @@ export interface ExistencePropertyFilterApi {
 
 * `is_set` - is_set
 * `is_not_set` - is_not_set */
-    operator: ExistencePropertyFilterOperatorEnumApi
+    operator: Operator3e6EnumApi
 }
 
 export type ActionStepPropertyFilterApi =
