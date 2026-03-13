@@ -113,7 +113,7 @@ class TestCheckSignificanceTransition(BaseTest):
             assert event.properties["variant_key"] == "test"
             assert event.properties["goal_direction"] == "increase"
             assert event.properties["chance_to_win"] == "99%"
-            assert event.properties["relative_change"] == "+78%"
+            assert event.properties["relative_change"] == "(+78%)"
             assert event.properties["experiment_url"] == f"/experiments/{experiment.id}"
         else:
             mock_produce.assert_not_called()

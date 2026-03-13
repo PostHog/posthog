@@ -636,7 +636,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'section',
                             text: {
                                 type: 'mrkdwn',
-                                text: '*{event.properties.variant_key}* variant is winning on *{event.properties.metric_name}* ({event.properties.relative_change})\nChance to win: *{event.properties.chance_to_win}* \u00b7 Goal: *{event.properties.goal_direction}*',
+                                text: '*{event.properties.variant_key}* variant is winning on *{event.properties.metric_name}* {event.properties.relative_change}\nChance to win: *{event.properties.chance_to_win}* \u00b7 Goal: *{event.properties.goal_direction}*',
                             },
                         },
                         {

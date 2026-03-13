@@ -153,7 +153,8 @@ def _check_significance_transition(
             variant_result = _get_variant_result(result_dict, variant_key)
             chance_to_win_raw = variant_result.get("chance_to_win", 0) if variant_result else 0
             chance_to_win = f"{round(chance_to_win_raw * 100)}%"
-            relative_change = _get_relative_change(result_dict, variant_key)
+            raw_change = _get_relative_change(result_dict, variant_key)
+            relative_change = f"({raw_change})" if raw_change else ""
 
             logger.info(
                 "Producing internal event for experiment significance transition",
