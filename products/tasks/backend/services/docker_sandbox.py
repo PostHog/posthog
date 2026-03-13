@@ -566,7 +566,7 @@ class DockerSandbox:
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         return (
             f"cd /scripts && "
-            f"nohup {env_prefix}npx agent-server --port {AGENT_SERVER_PORT} --repositoryPath {shlex.quote(repo_path)} "
+            f"nohup {env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT} --repositoryPath {shlex.quote(repo_path)} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
             f"{branch_flag}{mcp_servers_arg} "
             f"> /tmp/agent-server.log 2>&1 &"
