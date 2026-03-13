@@ -520,7 +520,6 @@ class EventViewSet(
                     search_value=query_params.value,
                     event_names=query_params.event_names or None,
                 ),
-                request=self.request,
             )
             execution_mode = (
                 ExecutionMode.CALCULATE_BLOCKING_ALWAYS

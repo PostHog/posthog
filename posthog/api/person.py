@@ -592,7 +592,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     property_key=key,
                     search_value=value,
                 ),
-                request=request,
             )
             execution_mode = (
                 ExecutionMode.CALCULATE_BLOCKING_ALWAYS
