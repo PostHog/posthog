@@ -1815,8 +1815,8 @@ export const ErrorTrackingSuppressionRulesListResponse = zod.object({
                 .max(errorTrackingSuppressionRulesListResponseResultsItemOrderKeyMax),
             disabled_data: zod.unknown().nullish(),
             sampling_rate: zod.number().optional(),
-            created_at: zod.string().datetime({}),
-            updated_at: zod.string().datetime({}),
+            created_at: zod.string().datetime({}).optional(),
+            updated_at: zod.string().datetime({}).optional(),
         })
     ),
 })
@@ -1863,8 +1863,8 @@ export const ErrorTrackingSuppressionRulesRetrieveResponse = zod.object({
         .max(errorTrackingSuppressionRulesRetrieveResponseOrderKeyMax),
     disabled_data: zod.unknown().nullish(),
     sampling_rate: zod.number().optional(),
-    created_at: zod.string().datetime({}),
-    updated_at: zod.string().datetime({}),
+    created_at: zod.string().datetime({}).optional(),
+    updated_at: zod.string().datetime({}).optional(),
 })
 
 export const ErrorTrackingSuppressionRulesUpdateParams = zod.object({
@@ -1901,8 +1901,8 @@ export const ErrorTrackingSuppressionRulesUpdateResponse = zod.object({
         .max(errorTrackingSuppressionRulesUpdateResponseOrderKeyMax),
     disabled_data: zod.unknown().nullish(),
     sampling_rate: zod.number().optional(),
-    created_at: zod.string().datetime({}),
-    updated_at: zod.string().datetime({}),
+    created_at: zod.string().datetime({}).optional(),
+    updated_at: zod.string().datetime({}).optional(),
 })
 
 export const ErrorTrackingSuppressionRulesPartialUpdateParams = zod.object({
@@ -1940,8 +1940,8 @@ export const ErrorTrackingSuppressionRulesPartialUpdateResponse = zod.object({
         .max(errorTrackingSuppressionRulesPartialUpdateResponseOrderKeyMax),
     disabled_data: zod.unknown().nullish(),
     sampling_rate: zod.number().optional(),
-    created_at: zod.string().datetime({}),
-    updated_at: zod.string().datetime({}),
+    created_at: zod.string().datetime({}).optional(),
+    updated_at: zod.string().datetime({}).optional(),
 })
 
 export const ErrorTrackingSuppressionRulesDestroyParams = zod.object({
