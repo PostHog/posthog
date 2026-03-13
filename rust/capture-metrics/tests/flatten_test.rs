@@ -3,10 +3,10 @@ use chrono::Utc;
 use opentelemetry_proto::tonic::{
     common::v1::{any_value, AnyValue, InstrumentationScope, KeyValue},
     metrics::v1::{
-        exponential_histogram_data_point::Buckets, metric, ExponentialHistogram,
-        ExponentialHistogramDataPoint, Gauge, Histogram, HistogramDataPoint, Metric,
-        NumberDataPoint, Sum, Summary, SummaryDataPoint, number_data_point,
-        summary_data_point::ValueAtQuantile,
+        exponential_histogram_data_point::Buckets, metric, number_data_point,
+        summary_data_point::ValueAtQuantile, ExponentialHistogram, ExponentialHistogramDataPoint,
+        Gauge, Histogram, HistogramDataPoint, Metric, NumberDataPoint, Sum, Summary,
+        SummaryDataPoint,
     },
     resource::v1::Resource,
 };
@@ -20,9 +20,7 @@ fn make_resource(service_name: &str) -> Resource {
         attributes: vec![KeyValue {
             key: "service.name".to_string(),
             value: Some(AnyValue {
-                value: Some(any_value::Value::StringValue(
-                    service_name.to_string(),
-                )),
+                value: Some(any_value::Value::StringValue(service_name.to_string())),
             }),
         }],
         dropped_attributes_count: 0,
@@ -508,7 +506,7 @@ fn test_flatten_metric_zero_timestamp_uses_now() {
 
     assert_eq!(rows.len(), 1);
     assert_eq!(overridden, 0); // zero timestamp uses now(), not overridden
-    // Timestamp should be close to now
+                               // Timestamp should be close to now
     let now = chrono::Utc::now();
     let diff = (now - rows[0].timestamp).num_seconds().abs();
     assert!(diff < 5, "Timestamp should be close to now, diff: {diff}s");

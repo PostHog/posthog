@@ -280,5 +280,9 @@ fn test_avro_round_trip_empty_fields() {
 #[test]
 fn test_avro_schema_is_valid() {
     let schema = Schema::parse_str(AVRO_SCHEMA);
-    assert!(schema.is_ok(), "AVRO schema should parse: {:?}", schema.err());
+    assert!(
+        schema.is_ok(),
+        "AVRO schema should parse: {:?}",
+        schema.err()
+    );
 }
