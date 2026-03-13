@@ -474,6 +474,27 @@ class TestViewLinkValidation(APIBaseTest):
             "SELECT validation.id FROM events LIMIT 10",
         )
 
+    @patch(f"{PATH}.execute_hogql_query", side_effect=_mock_execute_hogql_side_effect)
+    def test_nested_complex_expression(self, _):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_view_links/validate/",
+            {
+                "source_table_name": "events",
+                "source_table_key": "toString(ifNull(distinct_id, ''))",
+                "joining_table_name": "persons",
+                "joining_table_key": "id",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        data = response.json()
+        self.assertTrue(data["is_valid"])
+        self.assertIsNone(data["msg"])
+        self.assertHogQLEqual(
+            data["hogql"],
+            "SELECT validation.id FROM events LIMIT 10",
+        )
+
     def test_nonexistent_field(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_view_links/validate/",
