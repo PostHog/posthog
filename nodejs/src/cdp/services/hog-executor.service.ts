@@ -656,6 +656,10 @@ export class HogExecutorService {
 
         const fetchParams: FetchOptions = { method, headers }
 
+        if (params.timeout_ms) {
+            fetchParams.timeoutMs = params.timeout_ms
+        }
+
         if (!['GET', 'HEAD'].includes(method) && params.body) {
             fetchParams.body = params.body
         }

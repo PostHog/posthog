@@ -29,6 +29,7 @@ def register_supported_function(name: str) -> None:
 
 register_supported_function("postHogGetTicket")
 register_supported_function("postHogUpdateTicket")
+register_supported_function("postHogRunAgent")
 
 
 class InputCollector(TraversingVisitor):
@@ -146,6 +147,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "native_email",
             "posthog_assignee",
             "posthog_ticket_tags",
+            "agent_config",
         ]
     )
     key = serializers.CharField()
@@ -251,6 +253,7 @@ class InputsItemSerializer(serializers.Serializer):
                         "json",
                         "email",
                         "native_email",
+                        "agent_config",
                     ] or (item_type == "boolean" and isinstance(value, str))
                     if value_is_transpiled:
                         if item_type in ("email", "native_email") and isinstance(value, dict):

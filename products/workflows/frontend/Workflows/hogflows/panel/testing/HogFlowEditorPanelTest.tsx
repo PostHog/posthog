@@ -16,6 +16,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -339,6 +340,15 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                                       ? 'Workflow was skipped because the event did not match the filter criteria'
                                       : 'Error: ' + testResult.errors?.join(', ')}
                             </LemonBanner>
+
+                            {testResult.execResult != null && (
+                                <div className="flex flex-col gap-2">
+                                    <LemonLabel>Output</LemonLabel>
+                                    <CodeSnippet language={Language.JSON} wrap compact>
+                                        {JSON.stringify(testResult.execResult, null, 2)}
+                                    </CodeSnippet>
+                                </div>
+                            )}
 
                             <div className="flex flex-col gap-2">
                                 <LemonLabel>Logs</LemonLabel>

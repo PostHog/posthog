@@ -335,6 +335,7 @@ export type HogFunctionInputSchemaType = {
         | 'native_email'
         | 'posthog_assignee'
         | 'posthog_ticket_tags'
+        | 'agent_config'
     key: string
     label?: string
     choices?: { value: string; label: string }[]
