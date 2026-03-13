@@ -11,7 +11,7 @@ export function ReviewQueuePickerModal({
     title = 'Add traces to queue',
     ...props
 }: ReviewQueuePickerModalProps): JSX.Element {
-    const logic = useMountedLogic(reviewQueuePickerModalLogic, props)
+    const logic = useMountedLogic(reviewQueuePickerModalLogic(props))
     const { setSelectedQueueKey, setTraceIdsInput, submit } = useActions(logic)
     const {
         queues,
