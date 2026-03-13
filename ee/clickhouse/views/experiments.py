@@ -23,7 +23,7 @@ from posthog.models import Survey
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.cohort import Cohort
 from posthog.models.evaluation_context import FeatureFlagEvaluationContext
-from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
+from posthog.models.experiment import Experiment, ExperimentHoldout
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import model_activity_signal, mutable_receiver
@@ -147,33 +147,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         return data
 
     def validate_saved_metrics_ids(self, value):
-        if value is None:
-            return value
-
-        # check value is valid json list with id and optionally metadata param
-        if not isinstance(value, list):
-            raise ValidationError("Saved metrics must be a list")
-
-        for saved_metric in value:
-            if not isinstance(saved_metric, dict):
-                raise ValidationError("Saved metric must be an object")
-            if "id" not in saved_metric:
-                raise ValidationError("Saved metric must have an id")
-            if "metadata" in saved_metric and not isinstance(saved_metric["metadata"], dict):
-                raise ValidationError("Metadata must be an object")
-
-            # metadata is optional, but if it exists, should have type key
-            # TODO: extend with other metadata keys when known
-            if "metadata" in saved_metric and "type" not in saved_metric["metadata"]:
-                raise ValidationError("Metadata must have a type key")
-
-        # check if all saved metrics exist and belong to the same team
-        saved_metrics = ExperimentSavedMetric.objects.filter(
-            id__in=[saved_metric["id"] for saved_metric in value], team_id=self.context["team_id"]
-        )
-        if saved_metrics.count() != len(value):
-            raise ValidationError("Saved metric does not exist or does not belong to this project")
-
+        ExperimentService.validate_saved_metrics_ids(value, self.context["team_id"])
         return value
 
     def validate(self, data):
