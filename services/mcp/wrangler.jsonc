@@ -6,10 +6,6 @@
     "$schema": "node_modules/wrangler/config-schema.json",
     "name": "mcp1",
     "main": "src/index.ts",
-    "assets": {
-        "directory": "./ui-apps-dist",
-        "binding": "ASSETS",
-    },
     "build": {
         "command": "npx tsx scripts/copy-instructions.ts",
         "watch_dir": "src",
@@ -56,7 +52,7 @@
         },
         {
             "type": "Text",
-            "globs": ["src/static/**/*.html"],
+            "globs": ["ui-apps-dist/**/*.html", "src/static/**/*.html"],
             "fallthrough": true,
         },
     ],
@@ -89,9 +85,10 @@
      * https://developers.cloudflare.com/workers/configuration/secrets/
      */
     /**
-     * Static Assets (configured above as "assets")
+     * Static Assets
      * https://developers.cloudflare.com/workers/static-assets/binding/
      */
+    // "assets": { "directory": "./public/", "binding": "ASSETS" },
     /**
      * Service Bindings (communicate between multiple Workers)
      * https://developers.cloudflare.com/workers/wrangler/configuration/#service-bindings

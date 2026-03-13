@@ -24,12 +24,6 @@ export type State = {
 
 export type Env = {
     /**
-     * Cloudflare Workers Static Assets binding.
-     * Used to lazily fetch UI app HTML at resource access time instead of bundling
-     * them into the worker script (which would exceed the 1-second CPU startup limit).
-     */
-    ASSETS: Fetcher
-    /**
      * Inkeep API key for the PostHog Agent Toolkit.
      * Setting this enables the 'docs-search' tool.
      */

@@ -28,146 +28,150 @@ import {
     WORKFLOW_RESOURCE_URI,
 } from './ui-apps-constants'
 
-// UI app HTML is served from static assets (Cloudflare Workers Static Assets binding)
-// instead of being bundled into the worker script. This avoids ~12.5MB of HTML strings
-// being parsed at module scope, which would exceed the 1-second CPU startup time limit.
-// HTML is fetched lazily on first resource access via env.ASSETS.fetch().
+// UI app HTML is loaded lazily via dynamic import() instead of static imports
+// at module scope. This avoids ~12.5MB of HTML strings being parsed during
+// Worker startup, which would exceed Cloudflare's 1-second CPU startup limit.
 
-const UI_APPS: Array<{ name: string; uri: string; description: string; assetPath: string }> = [
+const UI_APPS: Array<{
+    name: string
+    uri: string
+    description: string
+    importHtml: () => Promise<{ default: string }>
+}> = [
     // Core
     {
         name: 'MCP Apps Debug',
         uri: DEBUG_RESOURCE_URI,
         description: 'Debug app for testing MCP Apps SDK integration',
-        assetPath: '/src/ui-apps/apps/debug/index.html',
+        importHtml: () => import('../../ui-apps-dist/src/ui-apps/apps/debug/index.html'),
     },
     {
         name: 'Query Results',
         uri: QUERY_RESULTS_RESOURCE_URI,
         description: 'Interactive visualization for PostHog query results',
-        assetPath: '/src/ui-apps/apps/query-results/index.html',
+        importHtml: () => import('../../ui-apps-dist/src/ui-apps/apps/query-results/index.html'),
     },
     // Actions
     {
         name: 'Action',
         uri: ACTION_RESOURCE_URI,
         description: 'Action detail view',
-        assetPath: '/src/ui-apps/apps/action/index.html',
+        importHtml: () => import('../../ui-apps-dist/src/ui-apps/apps/action/index.html'),
     },
     {
         name: 'Action list',
         uri: ACTION_LIST_RESOURCE_URI,
         description: 'Action list view',
-        assetPath: '/src/ui-apps/apps/action-list/index.html',
+        importHtml: () => import('../../ui-apps-dist/src/ui-apps/apps/action-list/index.html'),
     },
     // Cohorts
     {
         name: 'Cohort',
         uri: COHORT_RESOURCE_URI,
         description: 'Cohort detail view',
-        assetPath: '/src/ui-apps/apps/cohort/index.html',
+        importHtml: () => import('../../ui-apps-dist/src/ui-apps/apps/cohort/index.html'),
     },
     {
         name: 'Cohort list',
         uri: COHORT_LIST_RESOURCE_URI,
         description: 'Cohort list view',
-        assetPath: '/src/ui-apps/apps/cohort-list/index.html',
+        importHtml: () => import('../../ui-apps-dist/src/ui-apps/apps/cohort-list/index.html'),
     },
     // Error tracking
     {
         name: 'Error details',
         uri: ERROR_DETAILS_RESOURCE_URI,
         description: 'Error details with stack traces',
-        assetPath: '/src/ui-apps/apps/error-details/index.html',
+        importHtml: () => import('../../ui-apps-dist/src/ui-apps/apps/error-details/index.html'),
     },
     {
         name: 'Error issue',
         uri: ERROR_ISSUE_RESOURCE_URI,
         description: 'Error tracking issue detail view',
-        assetPath: '/src/ui-apps/apps/error-issue/index.html',
+        importHtml: () => import('../../ui-apps-dist/src/ui-apps/apps/error-issue/index.html'),
     },
     {
         name: 'Error issue list',
         uri: ERROR_ISSUE_LIST_RESOURCE_URI,
         description: 'Error tracking issue list view',
-        assetPath: '/src/ui-apps/apps/error-issue-list/index.html',
+        importHtml: () => import('../../ui-apps-dist/src/ui-apps/apps/error-issue-list/index.html'),
     },
     // Experiments
     {
         name: 'Experiment',
         uri: EXPERIMENT_RESOURCE_URI,
         description: 'Experiment detail view',
-        assetPath: '/src/ui-apps/apps/experiment/index.html',
+        importHtml: () => import('../../ui-apps-dist/src/ui-apps/apps/experiment/index.html'),
     },
     {
         name: 'Experiment list',
         uri: EXPERIMENT_LIST_RESOURCE_URI,
         description: 'Experiment list view',
-        assetPath: '/src/ui-apps/apps/experiment-list/index.html',
+        importHtml: () => import('../../ui-apps-dist/src/ui-apps/apps/experiment-list/index.html'),
     },
     {
         name: 'Experiment results',
         uri: EXPERIMENT_RESULTS_RESOURCE_URI,
         description: 'Experiment results visualization',
-        assetPath: '/src/ui-apps/apps/experiment-results/index.html',
+        importHtml: () => import('../../ui-apps-dist/src/ui-apps/apps/experiment-results/index.html'),
     },
     // Feature flags
     {
         name: 'Feature flag',
         uri: FEATURE_FLAG_RESOURCE_URI,
         description: 'Feature flag detail view',
-        assetPath: '/src/ui-apps/apps/feature-flag/index.html',
+        importHtml: () => import('../../ui-apps-dist/src/ui-apps/apps/feature-flag/index.html'),
     },
     {
         name: 'Feature flag list',
         uri: FEATURE_FLAG_LIST_RESOURCE_URI,
         description: 'Feature flag list view',
-        assetPath: '/src/ui-apps/apps/feature-flag-list/index.html',
+        importHtml: () => import('../../ui-apps-dist/src/ui-apps/apps/feature-flag-list/index.html'),
     },
     // LLM analytics
     {
         name: 'LLM costs',
         uri: LLM_COSTS_RESOURCE_URI,
         description: 'LLM costs breakdown by model',
-        assetPath: '/src/ui-apps/apps/llm-costs/index.html',
+        importHtml: () => import('../../ui-apps-dist/src/ui-apps/apps/llm-costs/index.html'),
     },
     // Surveys
     {
         name: 'Survey',
         uri: SURVEY_RESOURCE_URI,
         description: 'Survey detail view',
-        assetPath: '/src/ui-apps/apps/survey/index.html',
+        importHtml: () => import('../../ui-apps-dist/src/ui-apps/apps/survey/index.html'),
     },
     {
         name: 'Survey list',
         uri: SURVEY_LIST_RESOURCE_URI,
         description: 'Survey list view',
-        assetPath: '/src/ui-apps/apps/survey-list/index.html',
+        importHtml: () => import('../../ui-apps-dist/src/ui-apps/apps/survey-list/index.html'),
     },
     {
         name: 'Survey stats',
         uri: SURVEY_STATS_RESOURCE_URI,
         description: 'Survey statistics view',
-        assetPath: '/src/ui-apps/apps/survey-stats/index.html',
+        importHtml: () => import('../../ui-apps-dist/src/ui-apps/apps/survey-stats/index.html'),
     },
     {
         name: 'Survey global stats',
         uri: SURVEY_GLOBAL_STATS_RESOURCE_URI,
         description: 'Survey global statistics view',
-        assetPath: '/src/ui-apps/apps/survey-global-stats/index.html',
+        importHtml: () => import('../../ui-apps-dist/src/ui-apps/apps/survey-global-stats/index.html'),
     },
     // Workflows
     {
         name: 'Workflow',
         uri: WORKFLOW_RESOURCE_URI,
         description: 'Workflow detail view',
-        assetPath: '/src/ui-apps/apps/workflow/index.html',
+        importHtml: () => import('../../ui-apps-dist/src/ui-apps/apps/workflow/index.html'),
     },
     {
         name: 'Workflow list',
         uri: WORKFLOW_LIST_RESOURCE_URI,
         description: 'Workflow list view',
-        assetPath: '/src/ui-apps/apps/workflow-list/index.html',
+        importHtml: () => import('../../ui-apps-dist/src/ui-apps/apps/workflow-list/index.html'),
     },
 ]
 
@@ -188,13 +192,13 @@ interface RegisterAppParams {
     name: string
     uri: string
     description: string
-    assetPath: string
+    importHtml: () => Promise<{ default: string }>
 }
 
 function registerApp(
     server: McpServer,
     context: Context,
-    { name, uri, description, assetPath }: RegisterAppParams
+    { name, uri, description, importHtml }: RegisterAppParams
 ): void {
     const analyticsBaseUrl = context.env.POSTHOG_MCP_APPS_ANALYTICS_BASE_URL
     const uiMetadata: McpUiResourceMeta = {}
@@ -206,10 +210,7 @@ function registerApp(
     }
 
     server.registerResource(name, uri, { mimeType: RESOURCE_MIME_TYPE, description }, async (uri) => {
-        // Lazily fetch HTML from the static assets binding.
-        // The hostname is arbitrary — only the pathname is used to match assets.
-        const response = await context.env.ASSETS.fetch(new Request(`http://assets${assetPath}`))
-        const html = await response.text()
+        const { default: html } = await importHtml()
 
         return {
             contents: [
