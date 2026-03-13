@@ -131,6 +131,8 @@ async def _poll_until_done(
     printed_lines = 0
     elapsed = 0
     consecutive_storage_errors = 0
+    last_seen_message: str | None = None
+    last_seen_log: str | None = None
     while elapsed < MAX_POLL_SECONDS:
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
         elapsed += POLL_INTERVAL_SECONDS
@@ -149,6 +151,11 @@ async def _poll_until_done(
                 raise
             continue
         consecutive_storage_errors = 0
+
+        if last_message:
+            last_seen_message = last_message
+        if full_log:
+            last_seen_log = full_log
 
         printed_lines = _stream_new_lines(full_log, printed_lines, verbose=verbose, output_fn=output_fn)
         if finished and last_message:
@@ -178,7 +185,9 @@ async def _poll_until_done(
                     await asyncio.sleep(POLL_INTERVAL_SECONDS)
             printed_lines = _stream_new_lines(final_full_log, printed_lines, verbose=verbose, output_fn=output_fn)
             return refreshed.status, final_last_message, final_full_log
-    return "timeout", None, None
+
+    logger.warning("custom_prompt: polling timed out run=%s elapsed=%ds", task_run.id, elapsed)
+    return "timeout", last_seen_message, last_seen_log
 
 
 def _stream_new_lines(
