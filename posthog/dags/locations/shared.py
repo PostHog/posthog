@@ -4,7 +4,6 @@ from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.custom_metrics import MetricsClient
 from posthog.dags import slack_alerts
 
-from products.cdp.dags.ingestion_warnings import ingestion_warnings_check
 from products.web_analytics.dags.no_live_events import no_live_events_check
 from products.web_analytics.dags.no_pageleave_events import no_pageleave_events_check
 
@@ -30,10 +29,8 @@ defs = dagster.Definitions(
         # Health Checks
         # Ingestion
         no_live_events_check.job,
-        ingestion_warnings_check.job,
         no_pageleave_events_check.job,
     ],
-    schedules=[s for s in [ingestion_warnings_check.schedule] if s],
     sensors=[
         slack_alerts.notify_slack_on_failure,
         *[
