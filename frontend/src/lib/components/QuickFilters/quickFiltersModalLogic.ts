@@ -39,6 +39,7 @@ export const quickFiltersModalLogic: LogicWrapper<quickFiltersModalLogicType> = 
         confirmDelete: (id: string) => ({ id }),
         handleFormBack: true,
         setSearchQuery: (query: string) => ({ query }),
+        newFilterCreated: (filter: QuickFilter) => ({ filter }),
     }),
 
     reducers({
@@ -140,8 +141,9 @@ export const quickFiltersModalLogic: LogicWrapper<quickFiltersModalLogicType> = 
                 const previousIds: Set<string> = cache.filterIdsOnOpen
                 const newFilters = values.quickFilters.filter((f) => !previousIds.has(f.id))
 
-                if (newFilters.length > 0 && props.onNewFilterCreated) {
-                    props.onNewFilterCreated(newFilters[0])
+                if (newFilters.length > 0) {
+                    actions.newFilterCreated(newFilters[0])
+                    props.onNewFilterCreated?.(newFilters[0])
                 }
 
                 cache.filterIdsOnOpen = new Set(values.quickFilters.map((f) => f.id))
