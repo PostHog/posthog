@@ -724,9 +724,12 @@ export interface DataWarehouseSavedQueryApi {
     readonly id: string
     /** @nullable */
     deleted?: boolean | null
-    /** @maxLength 128 */
+    /**
+     * Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.
+     * @maxLength 128
+     */
     name: string
-    /** HogQL query */
+    /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
     query?: unknown | null
     readonly created_by: UserBasicApi
     readonly created_at: string
@@ -745,10 +748,16 @@ export interface DataWarehouseSavedQueryApi {
     readonly managed_viewset_kind: string
     /** @nullable */
     readonly latest_error: string | null
-    /** @nullable */
+    /**
+     * Activity log ID from the last known edit. Used for conflict detection.
+     * @nullable
+     */
     edited_history_id?: string | null
     readonly latest_history_id: string
-    /** @nullable */
+    /**
+     * If true, skip column inference and validation. For saving drafts.
+     * @nullable
+     */
     soft_update?: boolean | null
     /** @nullable */
     readonly is_materialized: boolean | null
@@ -769,9 +778,12 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly id?: string
     /** @nullable */
     deleted?: boolean | null
-    /** @maxLength 128 */
+    /**
+     * Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.
+     * @maxLength 128
+     */
     name?: string
-    /** HogQL query */
+    /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
     query?: unknown | null
     readonly created_by?: UserBasicApi
     readonly created_at?: string
@@ -790,10 +802,16 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly managed_viewset_kind?: string
     /** @nullable */
     readonly latest_error?: string | null
-    /** @nullable */
+    /**
+     * Activity log ID from the last known edit. Used for conflict detection.
+     * @nullable
+     */
     edited_history_id?: string | null
     readonly latest_history_id?: string
-    /** @nullable */
+    /**
+     * If true, skip column inference and validation. For saving drafts.
+     * @nullable
+     */
     soft_update?: boolean | null
     /** @nullable */
     readonly is_materialized?: boolean | null
