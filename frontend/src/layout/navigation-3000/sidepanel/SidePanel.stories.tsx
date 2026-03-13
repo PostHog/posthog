@@ -86,10 +86,6 @@ export const SidePanelMax: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.Max} />
 }
 
-export const SidePanelSdkDoctor: StoryFn = () => {
-    return <BaseTemplate panel={SidePanelTab.SdkDoctor} />
-}
-
 export const SidePanelActivity: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.Activity} />
 }

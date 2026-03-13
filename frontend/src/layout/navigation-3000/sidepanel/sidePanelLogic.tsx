@@ -9,7 +9,6 @@ import { SidePanelTab } from '~/types'
 
 import { sidePanelContextLogic } from './panels/sidePanelContextLogic'
 import { sidePanelHealthLogic } from './panels/sidePanelHealthLogic'
-import { sidePanelSdkDoctorLogic } from './panels/sidePanelSdkDoctorLogic'
 import { sidePanelStatusIncidentIoLogic } from './panels/sidePanelStatusIncidentIoLogic'
 import type { sidePanelLogicType } from './sidePanelLogicType'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
@@ -18,7 +17,6 @@ const ALWAYS_EXTRA_TABS = [
     SidePanelTab.Settings,
     SidePanelTab.Status,
     SidePanelTab.Exports,
-    SidePanelTab.SdkDoctor,
     SidePanelTab.Health,
     SidePanelTab.Changelog,
 ]
@@ -47,8 +45,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['selectedTab', 'sidePanelOpen'],
             sidePanelStatusIncidentIoLogic,
             ['status'],
-            sidePanelSdkDoctorLogic,
-            ['needsAttention'],
             sidePanelHealthLogic,
             ['hasIssues'],
             sidePanelContextLogic,
@@ -92,9 +88,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
                 tabs.push(SidePanelTab.Exports)
                 tabs.push(SidePanelTab.Settings)
-                if (isCloudOrDev) {
-                    tabs.push(SidePanelTab.SdkDoctor)
-                }
                 tabs.push(SidePanelTab.Health)
                 tabs.push(SidePanelTab.Changelog)
 
@@ -107,18 +100,14 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         ],
 
         visibleTabs: [
-            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.status, s.needsAttention, s.hasIssues],
-            (enabledTabs, selectedTab, sidePanelOpen, status, needsAttention, hasIssues): SidePanelTab[] => {
+            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.status, s.hasIssues],
+            (enabledTabs, selectedTab, sidePanelOpen, status, hasIssues): SidePanelTab[] => {
                 return enabledTabs.filter((tab) => {
                     if (tab === selectedTab && sidePanelOpen) {
                         return true
                     }
 
                     if (tab === SidePanelTab.Status && status !== 'operational') {
-                        return true
-                    }
-
-                    if (tab === SidePanelTab.SdkDoctor && needsAttention) {
                         return true
                     }
 

@@ -8,7 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { SemanticVersion, diffVersions, parseVersion, versionToString } from 'lib/utils/semver'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import type { sidePanelSdkDoctorLogicType } from './sidePanelSdkDoctorLogicType'
+import type { sdkDoctorLogicType } from './sdkDoctorLogicType'
 
 // Supported SDK types for version detection and health monitoring
 export type SdkType =
@@ -113,8 +113,14 @@ const DEVICE_CONTEXT_CONFIG = {
     ageThresholds: { desktop: 16, mobile: 24 },
 } as const
 
-export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
-    path(['scenes', 'navigation', 'sidepanel', 'sidePanelSdkDoctorLogic']),
+// Threshold for considering an outdated version's traffic "significant"
+// Web SDK ships very frequently, so we use a higher threshold (20% vs 10%)
+// to avoid over-alerting when old versions linger in the 7-day event window
+const SIGNIFICANT_TRAFFIC_THRESHOLD_WEB = 0.2
+const SIGNIFICANT_TRAFFIC_THRESHOLD_DEFAULT = 0.1
+
+export const sdkDoctorLogic = kea<sdkDoctorLogicType>([
+    path(['scenes', 'onboarding', 'sdks', 'sdkDoctorLogic']),
 
     connect(() => ({
         values: [preflightLogic, ['isCloudOrDev']],
@@ -163,12 +169,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                 if (!rawData) {
                     return {}
                 }
-
-                // Threshold for considering an outdated version's traffic "significant"
-                // Web SDK ships very frequently, so we use a higher threshold (20% vs 10%)
-                // to avoid over-alerting when old versions linger in the 7-day event window
-                const SIGNIFICANT_TRAFFIC_THRESHOLD_WEB = 0.2
-                const SIGNIFICANT_TRAFFIC_THRESHOLD_DEFAULT = 0.1
 
                 return Object.fromEntries(
                     Object.entries(rawData).map(([sdkType, teamSdkUsage]) => {
