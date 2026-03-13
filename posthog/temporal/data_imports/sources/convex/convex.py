@@ -130,7 +130,6 @@ def convex_source(
         primary_keys=["_id"],
         partition_count=1,
         partition_size=1,
-        partition_mode="datetime",
-        partition_format="day",
-        partition_keys=["_ts"],
+        partition_mode="md5",
+        partition_keys=["_id"],
     )
