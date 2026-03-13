@@ -1284,7 +1284,7 @@ async fn test_ip_rate_limit_warn_then_enforce() -> Result<()> {
 
 #[tokio::test]
 async fn test_rate_limit_backwards_compat_log_only() -> Result<()> {
-    // When log_only=true and no warn capacity configured, all requests should be allowed
+    // When log_only=true, all requests should be allowed regardless of warn/enforce thresholds
     // (matches today's behavior: log but don't block)
     let mut config = Config::default_test_config();
     config.flags_rate_limit_enabled = FlexBool(true);
