@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonBanner, LemonButton, LemonLabel, LemonModal, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -53,6 +53,7 @@ export function SharedMetricModal({
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
 
     const [selectedMetricIds, setSelectedMetricIds] = useState<SharedMetric['id'][]>([])
+    const [searchTerm, setSearchTerm] = useState<string>('')
 
     if (!compatibleSharedMetrics) {
         return null
@@ -66,17 +67,30 @@ export function SharedMetricModal({
 
     const closeModal = (): void => {
         setSelectedMetricIds([])
+        setSearchTerm('')
         closeSharedMetricModal()
     }
 
-    const availableSharedMetrics = compatibleSharedMetrics.filter(
+    const unfilteredAvailableMetrics = compatibleSharedMetrics.filter(
         (metric: SharedMetric) =>
             !experiment.saved_metrics.some((savedMetric) => savedMetric.saved_metric === metric.id)
     )
 
+    const availableSharedMetrics = unfilteredAvailableMetrics.filter((metric: SharedMetric) => {
+        if (!searchTerm) {
+            return true
+        }
+        const searchLower = searchTerm.toLowerCase()
+        return (
+            metric.name.toLowerCase().includes(searchLower) ||
+            metric.description?.toLowerCase().includes(searchLower) ||
+            metric.tags?.some((tag) => tag.toLowerCase().includes(searchLower))
+        )
+    })
+
     const availableTags = Array.from(
         new Set(
-            availableSharedMetrics
+            unfilteredAvailableMetrics
                 .filter((metric: SharedMetric) => metric.tags)
                 .flatMap((metric: SharedMetric) => metric.tags)
                 .filter(Boolean)
@@ -137,7 +151,7 @@ export function SharedMetricModal({
         >
             {isCreateMode && (
                 <div className="deprecated-space-y-2">
-                    {availableSharedMetrics.length > 0 ? (
+                    {unfilteredAvailableMetrics.length > 0 ? (
                         <>
                             {experiment.saved_metrics.length > 0 && (
                                 <LemonBanner type="info">
@@ -146,108 +160,124 @@ export function SharedMetricModal({
                                     } already in use with this experiment.`}
                                 </LemonBanner>
                             )}
-                            <div className="flex flex-wrap gap-2">
-                                <LemonLabel>Quick select:</LemonLabel>
-                                <LemonButton
-                                    size="xsmall"
-                                    type="secondary"
-                                    onClick={() => {
-                                        setSelectedMetricIds(
-                                            availableSharedMetrics.map((metric: SharedMetric) => metric.id)
-                                        )
-                                    }}
-                                >
-                                    All
-                                </LemonButton>
-                                {selectedMetricIds.length > 0 && (
-                                    <LemonButton
-                                        size="xsmall"
-                                        type="secondary"
-                                        onClick={() => {
-                                            setSelectedMetricIds([])
-                                        }}
-                                    >
-                                        Clear
-                                    </LemonButton>
-                                )}
-                                {availableTags.map((tag: string, index: number) => (
-                                    <LemonButton
-                                        key={index}
-                                        size="xsmall"
-                                        type="secondary"
-                                        onClick={() => {
-                                            setSelectedMetricIds(
-                                                availableSharedMetrics
-                                                    .filter((metric: SharedMetric) => metric.tags?.includes(tag))
-                                                    .map((metric: SharedMetric) => metric.id)
-                                            )
-                                        }}
-                                    >
-                                        {tag}
-                                    </LemonButton>
-                                ))}
-                            </div>
-                            <LemonTable
-                                dataSource={availableSharedMetrics}
-                                columns={[
-                                    {
-                                        title: '',
-                                        key: 'checkbox',
-                                        render: (_, metric: SharedMetric) => (
-                                            <input
-                                                type="checkbox"
-                                                checked={selectedMetricIds.includes(metric.id)}
-                                                onChange={(e) => {
-                                                    if (e.target.checked) {
-                                                        setSelectedMetricIds([...selectedMetricIds, metric.id])
-                                                    } else {
-                                                        setSelectedMetricIds(
-                                                            selectedMetricIds.filter((id) => id !== metric.id)
-                                                        )
-                                                    }
-                                                }}
-                                            />
-                                        ),
-                                    },
-                                    {
-                                        title: 'Name',
-                                        dataIndex: 'name',
-                                        key: 'name',
-                                    },
-                                    {
-                                        title: 'Description',
-                                        dataIndex: 'description',
-                                        key: 'description',
-                                    },
-                                    {
-                                        title: 'Tags',
-                                        dataIndex: 'tags' as keyof SharedMetric,
-                                        key: 'tags',
-                                        render: (_: any, metric: SharedMetric) => (
-                                            <ObjectTags tags={metric.tags || []} staticOnly />
-                                        ),
-                                    },
-                                    {
-                                        title: 'Type',
-                                        key: 'type',
-                                        render: (_, metric: SharedMetric) => {
-                                            if (metric.query.kind === NodeKind.ExperimentMetric) {
-                                                return metric.query.metric_type
-                                            }
-                                            return metric.query.kind === NodeKind.ExperimentTrendsQuery
-                                                ? 'Trend'
-                                                : 'Funnel'
-                                        },
-                                    },
-                                ]}
-                                footer={
-                                    <div className="flex items-center justify-center m-2">
-                                        <Link to={`${urls.experiments()}?tab=shared-metrics`} target="_blank">
-                                            See all shared metrics
-                                        </Link>
-                                    </div>
-                                }
+                            <LemonInput
+                                type="search"
+                                placeholder="Search metrics by name, description, or tag..."
+                                value={searchTerm}
+                                onChange={setSearchTerm}
+                                fullWidth
                             />
+                            {availableSharedMetrics.length > 0 ? (
+                                <>
+                                    <div className="flex flex-wrap gap-2">
+                                        <LemonLabel>Quick select:</LemonLabel>
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="secondary"
+                                            onClick={() => {
+                                                setSelectedMetricIds(
+                                                    availableSharedMetrics.map((metric: SharedMetric) => metric.id)
+                                                )
+                                            }}
+                                        >
+                                            All
+                                        </LemonButton>
+                                        {selectedMetricIds.length > 0 && (
+                                            <LemonButton
+                                                size="xsmall"
+                                                type="secondary"
+                                                onClick={() => {
+                                                    setSelectedMetricIds([])
+                                                }}
+                                            >
+                                                Clear
+                                            </LemonButton>
+                                        )}
+                                        {availableTags.map((tag: string, index: number) => (
+                                            <LemonButton
+                                                key={index}
+                                                size="xsmall"
+                                                type="secondary"
+                                                onClick={() => {
+                                                    setSelectedMetricIds(
+                                                        availableSharedMetrics
+                                                            .filter((metric: SharedMetric) =>
+                                                                metric.tags?.includes(tag)
+                                                            )
+                                                            .map((metric: SharedMetric) => metric.id)
+                                                    )
+                                                }}
+                                            >
+                                                {tag}
+                                            </LemonButton>
+                                        ))}
+                                    </div>
+                                    <LemonTable
+                                        dataSource={availableSharedMetrics}
+                                        columns={[
+                                            {
+                                                title: '',
+                                                key: 'checkbox',
+                                                render: (_, metric: SharedMetric) => (
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedMetricIds.includes(metric.id)}
+                                                        onChange={(e) => {
+                                                            if (e.target.checked) {
+                                                                setSelectedMetricIds([...selectedMetricIds, metric.id])
+                                                            } else {
+                                                                setSelectedMetricIds(
+                                                                    selectedMetricIds.filter((id) => id !== metric.id)
+                                                                )
+                                                            }
+                                                        }}
+                                                    />
+                                                ),
+                                            },
+                                            {
+                                                title: 'Name',
+                                                dataIndex: 'name',
+                                                key: 'name',
+                                                sorter: (a, b) => a.name.localeCompare(b.name),
+                                            },
+                                            {
+                                                title: 'Description',
+                                                dataIndex: 'description',
+                                                key: 'description',
+                                            },
+                                            {
+                                                title: 'Tags',
+                                                dataIndex: 'tags' as keyof SharedMetric,
+                                                key: 'tags',
+                                                render: (_: any, metric: SharedMetric) => (
+                                                    <ObjectTags tags={metric.tags || []} staticOnly />
+                                                ),
+                                            },
+                                            {
+                                                title: 'Type',
+                                                key: 'type',
+                                                render: (_, metric: SharedMetric) => {
+                                                    if (metric.query.kind === NodeKind.ExperimentMetric) {
+                                                        return metric.query.metric_type
+                                                    }
+                                                    return metric.query.kind === NodeKind.ExperimentTrendsQuery
+                                                        ? 'Trend'
+                                                        : 'Funnel'
+                                                },
+                                            },
+                                        ]}
+                                        footer={
+                                            <div className="flex items-center justify-center m-2">
+                                                <Link to={`${urls.experiments()}?tab=shared-metrics`} target="_blank">
+                                                    See all shared metrics
+                                                </Link>
+                                            </div>
+                                        }
+                                    />
+                                </>
+                            ) : (
+                                <LemonBanner type="info">No metrics match your search.</LemonBanner>
+                            )}
                         </>
                     ) : (
                         <LemonBanner className="w-full" type="info">
