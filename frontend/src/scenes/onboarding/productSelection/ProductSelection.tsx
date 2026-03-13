@@ -190,7 +190,7 @@ function ProductCard({
     return (
         <LemonCard
             data-attr={`${productKey}-onboarding-card`}
-            className="relative cursor-pointer hover:transform-none p-4"
+            className="relative cursor-pointer hover:transform-none p-4 w-[160px]"
             onClick={onToggle}
             focused={selected}
             hoverEffect
@@ -254,8 +254,8 @@ function ProductSelectionStep(): JSX.Element {
             {/* Browsing history banner */}
             {recommendationSource === 'browsing_history' && <BrowsingHistoryBanner />}
 
-            {/* Products list - single unified grid */}
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 justify-items-center w-full">
+            {/* Products list */}
+            <div className="flex flex-wrap justify-center gap-3 w-full">
                 {/* Recommended products first */}
                 {availableRecommendedProducts.map((productKey) => (
                     <ProductCard
