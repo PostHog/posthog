@@ -115,12 +115,16 @@ export function CardMeta({
         hoverTimerRef.current = setTimeout(() => setPopoverVisible(false), 800)
     }, [])
 
-    const handleClickInfo = useCallback((e: React.MouseEvent) => {
-        e.stopPropagation()
-        clearHoverTimer()
-        setPinned((prev) => !prev)
-        setPopoverVisible((prev) => !prev)
-    }, [])
+    const handleClickInfo = useCallback(
+        (e: React.MouseEvent) => {
+            e.stopPropagation()
+            clearHoverTimer()
+            const newPinned = !pinned
+            setPinned(newPinned)
+            setPopoverVisible(newPinned)
+        },
+        [pinned]
+    )
 
     const handleClickOutside = useCallback(() => {
         clearHoverTimer()
