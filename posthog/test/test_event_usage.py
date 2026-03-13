@@ -150,14 +150,14 @@ class TestReportUserAction(BaseTest):
 
         mock_capture.assert_called_once()
         captured_props = mock_capture.call_args[1]["properties"]
-        assert captured_props == expected_properties
+        assert captured_props == {**expected_properties, "$set_once": {"email": self.user.email}}
 
     @patch("posthog.event_usage.posthoganalytics.capture")
     def test_no_request_passes_properties_unchanged(self, mock_capture):
         report_user_action(self.user, "test event", properties={"key": "val"})
 
         mock_capture.assert_called_once()
-        assert mock_capture.call_args[1]["properties"] == {"key": "val"}
+        assert mock_capture.call_args[1]["properties"] == {"key": "val", "$set_once": {"email": self.user.email}}
 
 
 class TestGetEventSource(BaseTest):

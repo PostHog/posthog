@@ -356,6 +356,8 @@ def report_user_action(
         properties = {}
     if request is not None:
         properties = {**get_request_analytics_properties(request), **properties}
+    if user.email:
+        properties["$set_once"] = {"email": user.email}
     posthoganalytics.capture(
         distinct_id=user.distinct_id,
         event=event,
