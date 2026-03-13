@@ -190,7 +190,7 @@ function ProductCard({
     return (
         <LemonCard
             data-attr={`${productKey}-onboarding-card`}
-            className="relative cursor-pointer hover:transform-none p-4 w-[160px]"
+            className="relative cursor-pointer hover:transform-none p-4"
             onClick={onToggle}
             focused={selected}
             hoverEffect
