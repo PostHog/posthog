@@ -29,7 +29,6 @@ from posthog.models.integration import (
 )
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.security.outbound_proxy import external_requests
 from posthog.temporal.ai.slack_conversation import (
     THINKING_MESSAGES,
     SlackConversationRunnerWorkflow,
@@ -348,7 +347,7 @@ def _proxy_to_secondary(request: HttpRequest) -> requests.Response | None:
     headers = {key: value for key, value in request.headers.items() if key.lower() != "host"}
 
     try:
-        response = external_requests.request(
+        response = requests.request(
             method=request.method or "POST",
             url=target_url,
             headers=headers,

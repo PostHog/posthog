@@ -16,17 +16,17 @@ import pyarrow.fs as fs
 import pyarrow.ipc as ipc
 from rich.console import Console
 
-from posthog.batch_exports.service import (
+from posthog.models import BatchExport, BatchExportDestination, BatchExportRun
+from posthog.models.integration import DatabricksIntegration
+from posthog.temporal.common.clickhouse import ClickHouseClient
+
+from products.batch_exports.backend.service import (
     DESTINATION_WORKFLOWS,
     BaseBatchExportInputs,
     BatchExportModel,
     BigQueryBatchExportInputs,
     DatabricksBatchExportInputs,
 )
-from posthog.models import BatchExport, BatchExportDestination, BatchExportRun
-from posthog.models.integration import DatabricksIntegration
-from posthog.temporal.common.clickhouse import ClickHouseClient
-
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryClient,
     bigquery_default_fields,

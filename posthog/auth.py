@@ -28,7 +28,12 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
-from posthog.models.personal_api_key import PERSONAL_API_KEY_MODES_TO_TRY, PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import (
+    PERSONAL_API_KEY_AUTH_COUNTER,
+    PERSONAL_API_KEY_MODES_TO_TRY,
+    PersonalAPIKey,
+    hash_key_value,
+)
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -224,6 +229,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
                     .get(secure_value=secure_value)
                 )
                 mode_used = mode
+                PERSONAL_API_KEY_AUTH_COUNTER.labels(hash_mode=mode).inc()
                 break
             except PersonalAPIKey.DoesNotExist:
                 pass
