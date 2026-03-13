@@ -66,7 +66,7 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
         return queryset.filter(team_id=self.team.id)
 
     def list(self, request, *args, **kwargs) -> Response:
-        queryset = self.filter_queryset(self.get_queryset())
+        queryset = list(self.filter_queryset(self.get_queryset()))
         rule_ids = [str(r.id) for r in queryset]
         issue_map = _build_issue_map(self.team.id, rule_ids)
         context = {**self.get_serializer_context(), "issue_map": issue_map}
