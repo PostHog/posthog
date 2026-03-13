@@ -1,7 +1,17 @@
 from django.db.models.functions import Lower
 
+import pydantic
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
+from rest_framework.exceptions import ValidationError
+
+from posthog.schema import (
+    ExperimentFunnelMetric,
+    ExperimentMeanMetric,
+    ExperimentMetricType,
+    ExperimentRatioMetric,
+    ExperimentRetentionMetric,
+)
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -60,6 +70,43 @@ class ExperimentSavedMetricSerializer(
             "updated_at",
             "user_access_level",
         ]
+
+    def validate_query(self, value):
+        if not value:
+            raise ValidationError("Query is required to create a saved metric")
+
+        metric_query = value
+
+        if metric_query.get("kind") not in ["ExperimentMetric"]:
+            if metric_query.get("kind") in ["ExperimentTrendsQuery", "ExperimentFunnelsQuery"]:
+                raise ValidationError(
+                    "Legacy metric kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are no longer supported "
+                    "for new saved metrics. Please use ExperimentMetric format. "
+                    "See: https://posthog.com/docs/experiments/new-experimentation-engine"
+                )
+            raise ValidationError("Metric query kind must be 'ExperimentMetric'")
+
+        # pydantic models are used to validate the query
+        try:
+            if metric_query["kind"] == "ExperimentMetric":
+                if "metric_type" not in metric_query:
+                    raise ValidationError("ExperimentMetric requires a metric_type")
+                if metric_query["metric_type"] == ExperimentMetricType.MEAN:
+                    ExperimentMeanMetric(**metric_query)
+                elif metric_query["metric_type"] == ExperimentMetricType.FUNNEL:
+                    ExperimentFunnelMetric(**metric_query)
+                elif metric_query["metric_type"] == ExperimentMetricType.RATIO:
+                    ExperimentRatioMetric(**metric_query)
+                elif metric_query["metric_type"] == ExperimentMetricType.RETENTION:
+                    ExperimentRetentionMetric(**metric_query)
+                else:
+                    raise ValidationError(
+                        "ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', or 'retention'"
+                    )
+        except pydantic.ValidationError as e:
+            raise ValidationError(str(e.errors())) from e
+
+        return value
 
     def create(self, validated_data):
         tags = validated_data.pop("tags", None)

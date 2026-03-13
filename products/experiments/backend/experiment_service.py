@@ -62,8 +62,6 @@ class ExperimentQueryStatus(str, Enum):
 class ExperimentService:
     """Single source of truth for experiment business logic."""
 
-    VALID_METRIC_KINDS = {"ExperimentMetric", "ExperimentTrendsQuery", "ExperimentFunnelsQuery"}
-
     def __init__(self, team: Team, user: Any):
         self.team = team
         self.user = user
@@ -125,7 +123,13 @@ class ExperimentService:
                 raise ValidationError(f"Invalid metric at index {i}: must be a dict")
 
             kind = metric.get("kind")
-            if kind not in cls.VALID_METRIC_KINDS:
+            if kind not in ["ExperimentMetric"]:
+                if kind in {"ExperimentTrendsQuery", "ExperimentFunnelsQuery"}:
+                    raise ValidationError(
+                        f"Invalid metric at index {i}: legacy metric kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) "
+                        "are no longer supported for new experiments. Please use ExperimentMetric format. "
+                        "See: https://posthog.com/docs/experiments/new-experimentation-engine"
+                    )
                 raise ValidationError(f"Invalid metric at index {i}: unknown kind '{kind}'")
 
             if kind == "ExperimentMetric":

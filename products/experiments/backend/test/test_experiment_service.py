@@ -1739,3 +1739,55 @@ class TestExperimentService(APIBaseTest):
         assert result["launched_previous_30d"] == 3
         expected_change = round(((1 - 3) / 3) * 100, 1)
         assert result["percent_change"] == expected_change
+
+    # ------------------------------------------------------------------
+    # Validation - Legacy metrics rejection
+
+    def test_validate_experiment_metrics_rejects_legacy_trends_query(self):
+        """Test that validate_experiment_metrics rejects ExperimentTrendsQuery."""
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics(
+                [
+                    {
+                        "kind": "ExperimentTrendsQuery",
+                        "count_query": {
+                            "kind": "TrendsQuery",
+                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        },
+                    }
+                ]
+            )
+
+        self.assertIn("legacy metric kinds", str(ctx.exception))
+        self.assertIn("no longer supported", str(ctx.exception))
+
+    def test_validate_experiment_metrics_rejects_legacy_funnels_query(self):
+        """Test that validate_experiment_metrics rejects ExperimentFunnelsQuery."""
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics(
+                [
+                    {
+                        "kind": "ExperimentFunnelsQuery",
+                        "funnels_query": {
+                            "kind": "FunnelsQuery",
+                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        },
+                    }
+                ]
+            )
+
+        self.assertIn("legacy metric kinds", str(ctx.exception))
+        self.assertIn("no longer supported", str(ctx.exception))
+
+    def test_validate_experiment_metrics_accepts_modern_metric(self):
+        """Test that validate_experiment_metrics accepts ExperimentMetric format."""
+        # Should not raise
+        ExperimentService.validate_experiment_metrics(
+            [
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                }
+            ]
+        )
