@@ -27,6 +27,7 @@ from posthog.hogql.database.postgres_table import PostgresTable
 
 from posthog.api.services.query import process_query_model
 
+from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
@@ -697,3 +698,43 @@ class TestQueryService(APIBaseTest):
             source_table_name__in={"warehouse_table", "events"},
             joining_table_name__in={"warehouse_table", "events"},
         )
+
+    def test_database_schema_query_without_connection_preserves_posthog_tables_with_direct_name_collisions(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key",
+            access_secret="test_secret",
+            team=self.team,
+        )
+        source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+        )
+        DataWarehouseTable.objects.create(
+            name="events",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        DataWarehouseTable.objects.create(
+            name="persons",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"email": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+
+        response = cast(DatabaseSchemaQueryResponse, process_query_model(self.team, DatabaseSchemaQuery()))
+
+        self.assertIsInstance(response.tables["events"], DatabaseSchemaPostHogTable)
+        self.assertIsInstance(response.tables["persons"], DatabaseSchemaPostHogTable)

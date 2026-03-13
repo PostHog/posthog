@@ -13182,6 +13182,10 @@
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },
+                "useQueryV2": {
+                    "description": "Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries)",
+                    "type": "boolean"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -15908,6 +15912,7 @@
                 "live_debugger",
                 "logs",
                 "tracing",
+                "metrics",
                 "workflows",
                 "notebook",
                 "action",
@@ -23544,6 +23549,7 @@
                 "teams",
                 "toolbar",
                 "tracing",
+                "metrics",
                 "user_interviews",
                 "visual_review",
                 "web_analytics",

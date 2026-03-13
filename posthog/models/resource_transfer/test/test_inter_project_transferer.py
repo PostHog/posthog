@@ -263,6 +263,65 @@ class TestResourceTransferRecordCreation(BaseTest):
         assert transfer.duplicated_resource_id == str(new_resource.pk)
 
 
+class TestNameDeduplication(BaseTest):
+    def _create_destination_team(self) -> Team:
+        project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=self.organization)
+        return Team.objects.create(id=project.id, project=project, organization=self.organization)
+
+    def test_no_conflict_keeps_original_name(self) -> None:
+        dest_team = self._create_destination_team()
+        insight = Insight.objects.create(team=self.team, name="Unique insight")
+
+        results = duplicate_resource_to_new_team(insight, dest_team, created_by=self.user)
+        new_insight = next(r for r in results if isinstance(r, Insight))
+
+        assert new_insight.name == "Unique insight"
+
+    def test_conflict_adds_copy_suffix(self) -> None:
+        dest_team = self._create_destination_team()
+        Insight.objects.create(team=dest_team, name="My insight")
+        insight = Insight.objects.create(team=self.team, name="My insight")
+
+        results = duplicate_resource_to_new_team(insight, dest_team, created_by=self.user)
+        new_insight = next(r for r in results if isinstance(r, Insight) and r.team == dest_team)
+
+        assert new_insight.name == "My insight (Copy)"
+
+    def test_multiple_conflicts_increment_copy_number(self) -> None:
+        dest_team = self._create_destination_team()
+        Insight.objects.create(team=dest_team, name="My insight")
+        Insight.objects.create(team=dest_team, name="My insight (Copy)")
+        insight = Insight.objects.create(team=self.team, name="My insight")
+
+        results = duplicate_resource_to_new_team(insight, dest_team, created_by=self.user)
+        new_insight = next(r for r in results if isinstance(r, Insight) and r.team == dest_team)
+
+        assert new_insight.name == "My insight (Copy 2)"
+
+    def test_conflict_with_dashboard(self) -> None:
+        dest_team = self._create_destination_team()
+        Dashboard.objects.create(team=dest_team, name="Sales")
+        dashboard = Dashboard.objects.create(team=self.team, name="Sales")
+
+        results = duplicate_resource_to_new_team(dashboard, dest_team, created_by=self.user)
+        new_dashboard = next(r for r in results if isinstance(r, Dashboard) and r.team == dest_team)
+
+        assert new_dashboard.name == "Sales (Copy)"
+
+    def test_conflict_skips_taken_copy_numbers(self) -> None:
+        dest_team = self._create_destination_team()
+        Insight.objects.create(team=dest_team, name="X")
+        Insight.objects.create(team=dest_team, name="X (Copy)")
+        Insight.objects.create(team=dest_team, name="X (Copy 2)")
+        Insight.objects.create(team=dest_team, name="X (Copy 3)")
+        insight = Insight.objects.create(team=self.team, name="X")
+
+        results = duplicate_resource_to_new_team(insight, dest_team, created_by=self.user)
+        new_insight = next(r for r in results if isinstance(r, Insight) and r.team == dest_team)
+
+        assert new_insight.name == "X (Copy 4)"
+
+
 class TestSubstitutionTeamValidation(BaseTest):
     def _create_destination_team(self) -> Team:
         project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=self.organization)

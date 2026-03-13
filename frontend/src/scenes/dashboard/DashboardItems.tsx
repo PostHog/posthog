@@ -8,13 +8,9 @@ import { Layout, Responsive as ReactGridLayout } from 'react-grid-layout'
 import { GridBackground } from 'react-grid-layout/extras'
 
 import { InsightCard } from 'lib/components/Cards/InsightCard'
-import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
@@ -26,6 +22,8 @@ import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType } from '~/types'
+
+import { DashboardTextItem } from './items/DashboardTextItem'
 
 const DRAG_AUTO_SCROLL_THRESHOLD = 100
 const DRAG_AUTO_SCROLL_SPEED = 8
@@ -327,88 +325,24 @@ export function DashboardItems(): JSX.Element {
 
                             if (text) {
                                 return (
-                                    <TextCard
+                                    <DashboardTextItem
                                         key={tile.id}
-                                        textTile={tile}
+                                        tile={tile}
                                         placement={placement}
-                                        moreButtonOverlay={
-                                            <>
-                                                <LemonButton
-                                                    fullWidth
-                                                    onClick={() =>
-                                                        dashboard?.id &&
-                                                        push(urls.dashboardTextTile(dashboard?.id, tile.id))
-                                                    }
-                                                    data-attr="edit-text"
-                                                >
-                                                    Edit text
-                                                </LemonButton>
-
-                                                {commonTileProps.moveToDashboard && (
-                                                    <LemonButtonWithDropdown
-                                                        disabledReason={
-                                                            otherDashboards.length > 0
-                                                                ? undefined
-                                                                : 'No other dashboards'
-                                                        }
-                                                        dropdown={{
-                                                            overlay: otherDashboards.map((otherDashboard) => (
-                                                                <LemonButton
-                                                                    key={otherDashboard.id}
-                                                                    onClick={() => {
-                                                                        commonTileProps.moveToDashboard(otherDashboard)
-                                                                    }}
-                                                                    fullWidth
-                                                                >
-                                                                    {otherDashboard.name || <i>Untitled</i>}
-                                                                </LemonButton>
-                                                            )),
-                                                            placement: 'right-start',
-                                                            fallbackPlacements: ['left-start'],
-                                                            actionable: true,
-                                                            closeParentPopoverOnClickInside: true,
-                                                        }}
-                                                        fullWidth
-                                                    >
-                                                        Move to
-                                                    </LemonButtonWithDropdown>
-                                                )}
-                                                <LemonButton
-                                                    onClick={() => duplicateTile(tile)}
-                                                    fullWidth
-                                                    data-attr="duplicate-text-from-dashboard"
-                                                >
-                                                    Duplicate
-                                                </LemonButton>
-                                                <LemonDivider />
-                                                {commonTileProps.removeFromDashboard && (
-                                                    <LemonButton
-                                                        status="danger"
-                                                        onClick={() =>
-                                                            LemonDialog.open({
-                                                                title: 'Remove text from dashboard',
-                                                                description:
-                                                                    'Are you sure you want to remove this text card from the dashboard?',
-                                                                primaryButton: {
-                                                                    children: 'Remove from dashboard',
-                                                                    status: 'danger',
-                                                                    onClick: () =>
-                                                                        commonTileProps.removeFromDashboard?.(),
-                                                                },
-                                                                secondaryButton: {
-                                                                    children: 'Cancel',
-                                                                },
-                                                            })
-                                                        }
-                                                        fullWidth
-                                                        data-attr="remove-text-tile-from-dashboard"
-                                                    >
-                                                        Delete
-                                                    </LemonButton>
-                                                )}
-                                            </>
-                                        }
-                                        {...commonTileProps}
+                                        otherDashboards={otherDashboards}
+                                        isDragging={isDragging.current}
+                                        onEdit={() => {
+                                            if (dashboard?.id) {
+                                                push(urls.dashboardTextTile(dashboard.id, tile.id))
+                                            }
+                                        }}
+                                        onMoveToDashboard={commonTileProps.moveToDashboard}
+                                        onDuplicate={() => duplicateTile(tile)}
+                                        onRemove={commonTileProps.removeFromDashboard}
+                                        showResizeHandles={commonTileProps.showResizeHandles}
+                                        canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
+                                        onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
+                                        onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
                                     />
                                 )
                             }

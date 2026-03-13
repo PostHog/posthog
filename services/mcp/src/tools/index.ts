@@ -1,13 +1,5 @@
 import { hasScopes } from '@/lib/api'
 
-// Dashboards
-import addInsightToDashboard from './dashboards/addInsight'
-import createDashboard from './dashboards/create'
-import deleteDashboard from './dashboards/delete'
-import getDashboard from './dashboards/get'
-import getAllDashboards from './dashboards/getAll'
-import reorderDashboardTiles from './dashboards/reorderTiles'
-import updateDashboard from './dashboards/update'
 // Debug
 import debugMcpUiApps from './debug/debugMcpUiApps'
 // Documentation
@@ -78,7 +70,7 @@ import {
 import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
 
 // Map of tool names to tool factory functions
-const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
+export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Organizations
     'organizations-get': getOrganizations,
     'switch-organization': setActiveOrganization,
@@ -123,15 +115,6 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Queries
     'query-generate-hogql-from-question': generateHogQLFromQuestion,
     'query-run': queryRun,
-
-    // Dashboards
-    'dashboards-get-all': getAllDashboards,
-    'dashboard-get': getDashboard,
-    'dashboard-create': createDashboard,
-    'dashboard-update': updateDashboard,
-    'dashboard-delete': deleteDashboard,
-    'dashboard-reorder-tiles': reorderDashboardTiles,
-    'add-insight-to-dashboard': addInsightToDashboard,
 
     // LLM Analytics
     'get-llm-total-costs-for-project': getLLMCosts,

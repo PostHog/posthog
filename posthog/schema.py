@@ -1815,6 +1815,7 @@ class FileSystemIconType(StrEnum):
     LIVE_DEBUGGER = "live_debugger"
     LOGS = "logs"
     TRACING = "tracing"
+    METRICS = "metrics"
     WORKFLOWS = "workflows"
     NOTEBOOK = "notebook"
     ACTION = "action"
@@ -3297,6 +3298,7 @@ class ProductKey(StrEnum):
     TEAMS = "teams"
     TOOLBAR = "toolbar"
     TRACING = "tracing"
+    METRICS = "metrics"
     USER_INTERVIEWS = "user_interviews"
     VISUAL_REVIEW = "visual_review"
     WEB_ANALYTICS = "web_analytics"
@@ -17132,6 +17134,10 @@ class ErrorTrackingQuery(BaseModel):
     searchQuery: str | None = None
     status: ErrorTrackingIssueStatus | str | None = Field(default=None, title="ErrorTrackingQueryStatus")
     tags: QueryLogTags | None = None
+    useQueryV2: bool | None = Field(
+        default=None,
+        description=("Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries)"),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
     volumeResolution: int
     withAggregations: bool | None = None
