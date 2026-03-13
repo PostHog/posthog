@@ -185,7 +185,9 @@ export function NavTabBrowse(): JSX.Element {
                 >
                     <SectionTrigger icon={<IconApps />} label="Apps" isCollapsed={isLayoutNavCollapsed} />
                     <Collapsible.Panel
+
                         className="-ml-2 pl-3 pr-1 w-[calc(100%+(var(--spacing)*4))]"
+                    >
                         {(expandedNavSections.apps ?? false) && (
                             <ProjectTree
                                 root="products://"
@@ -194,6 +196,7 @@ export function NavTabBrowse(): JSX.Element {
                             />
                         )}
                     </Collapsible.Panel>
+
                 </Collapsible>
             )}
         </ScrollableShadows>
