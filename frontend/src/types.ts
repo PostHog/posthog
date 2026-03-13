@@ -5712,7 +5712,6 @@ export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
     'HTTP',
     'Databricks',
     'AzureBlob',
-    'Workflows',
 ]
 export type BatchExportService =
     | BatchExportServiceS3
