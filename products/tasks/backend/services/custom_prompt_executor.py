@@ -1,6 +1,6 @@
 """High-level executor: run a prompt in a sandbox and get validated structured output.
 
-Wraps sandbox_prompt_runner with JSON extraction and Pydantic validation.
+Wraps custom_prompt_runner with JSON extraction and Pydantic validation.
 """
 
 import re
@@ -10,7 +10,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from products.tasks.backend.services.sandbox_prompt_runner import CustomPromptSandboxContext, OutputFn, run_prompt
+from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext, OutputFn, run_prompt
 
 logger = logging.getLogger(__name__)
 
