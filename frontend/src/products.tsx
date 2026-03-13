@@ -53,7 +53,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/CustomerAnalyticsConfigurationScene'),
     CustomerJourneyBuilder: () =>
         import('../../products/customer_analytics/frontend/scenes/CustomerJourneyBuilderScene/CustomerJourneyBuilderScene'),
-    DataWarehouse: () => import('../../products/data_warehouse/DataWarehouseScene'),
+    DataOps: () => import('../../products/data_warehouse/DataWarehouseScene'),
     Models: () => import('../../frontend/src/scenes/models/ModelsScene'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
@@ -92,6 +92,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Logs: () => import('../../products/logs/frontend/LogsScene'),
     ManagedMigration: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     ManagedMigrationNew: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
+    Metrics: () => import('../../products/metrics/frontend/MetricsScene'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
     SessionGroupSummariesTable: () => import('../../products/session_summaries/frontend/SessionGroupSummariesTable'),
     SessionGroupSummary: () => import('../../products/session_summaries/frontend/SessionGroupSummaryScene'),
@@ -122,7 +123,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/customer_analytics/journeys/new': ['CustomerJourneyBuilder', 'customerJourneyBuilder'],
     '/customer_analytics/journeys': ['CustomerAnalytics', 'customerAnalyticsJourneys'],
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
-    '/data-warehouse': ['DataWarehouse', 'dataWarehouse'],
+    '/data-ops': ['DataOps', 'dataOps'],
     '/models': ['Models', 'models'],
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
@@ -143,6 +144,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/live-debugger': ['LiveDebugger', 'liveDebugger'],
     '/llm-analytics/dashboard': ['LLMAnalytics', 'llmAnalyticsDashboard'],
     '/llm-analytics/generations': ['LLMAnalytics', 'llmAnalyticsGenerations'],
+    '/llm-analytics/reviews': ['LLMAnalytics', 'llmAnalyticsReviews'],
     '/llm-analytics/traces': ['LLMAnalytics', 'llmAnalyticsTraces'],
     '/llm-analytics/traces/:id': ['LLMAnalyticsTrace', 'llmAnalytics'],
     '/llm-analytics/users': ['LLMAnalytics', 'llmAnalyticsUsers'],
@@ -169,6 +171,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/logs': ['Logs', 'logs'],
     '/managed_migrations': ['ManagedMigration', 'managedMigration'],
     '/managed_migrations/new': ['ManagedMigration', 'managedMigration'],
+    '/metrics': ['Metrics', 'metrics'],
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
     '/session-summaries': ['SessionGroupSummariesTable', 'sessionGroupSummariesTable'],
     '/session-summaries/:sessionGroupId': ['SessionGroupSummary', 'sessionGroupSummary'],
@@ -209,6 +212,8 @@ export const productRedirects: Record<
         combineUrl(`/llm-analytics/dashboard`, searchParams, hashParams).url,
     '/llm-observability/generations': (_params, searchParams, hashParams) =>
         combineUrl(`/llm-analytics/generations`, searchParams, hashParams).url,
+    '/llm-observability/reviews': (_params, searchParams, hashParams) =>
+        combineUrl(`/llm-analytics/reviews`, searchParams, hashParams).url,
     '/llm-observability/traces': (_params, searchParams, hashParams) =>
         combineUrl(`/llm-analytics/traces`, searchParams, hashParams).url,
     '/llm-observability/traces/:id': (params, searchParams, hashParams) =>
@@ -271,8 +276,8 @@ export const productConfiguration: Record<string, any> = {
         name: 'Customer analytics configuration',
     },
     CustomerJourneyBuilder: { projectBased: true, name: 'New journey' },
-    DataWarehouse: {
-        name: 'Data warehouse',
+    DataOps: {
+        name: 'Data ops',
         projectBased: true,
         defaultDocsPath: '/docs/data-warehouse',
         activityScope: 'DataWarehouse',
@@ -460,6 +465,15 @@ export const productConfiguration: Record<string, any> = {
     },
     ManagedMigration: { name: 'Managed migrations', projectBased: true },
     ManagedMigrationNew: { name: 'Managed migrations', projectBased: true },
+    Metrics: {
+        name: 'Metrics',
+        projectBased: true,
+        layout: 'app-container',
+        defaultDocsPath: '/docs/metrics',
+        activityScope: 'Metrics',
+        description: 'Monitor and analyze application metrics to understand system performance and health.',
+        iconType: 'metrics',
+    },
     RevenueAnalytics: {
         name: 'Revenue Analytics',
         projectBased: true,
@@ -557,7 +571,7 @@ export const productUrls = {
     dashboardSubscription: (id: string | number, subscriptionId: string): string =>
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
-    dataWarehouse: (): string => '/data-warehouse',
+    dataOps: (): string => '/data-ops',
     models: (): string => '/models',
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
@@ -671,6 +685,7 @@ export const productUrls = {
     liveDebugger: (): string => '/live-debugger',
     llmAnalyticsDashboard: (): string => '/llm-analytics/dashboard',
     llmAnalyticsGenerations: (): string => '/llm-analytics/generations',
+    llmAnalyticsReviews: (): string => '/llm-analytics/reviews',
     llmAnalyticsTraces: (): string => '/llm-analytics/traces',
     llmAnalyticsTrace: (
         id: string,
@@ -724,6 +739,7 @@ export const productUrls = {
     managedMigration: (): string => '/managed_migrations',
     managedMigrationNew: (): string => '/managed_migrations/new',
     marketingAnalyticsApp: (): string => '/marketing',
+    metrics: (): string => '/metrics',
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,
@@ -1217,14 +1233,15 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Data warehouse',
+        displayLabel: 'Data ops',
         intents: [ProductKey.DATA_WAREHOUSE, ProductKey.DATA_WAREHOUSE_SAVED_QUERY],
         category: 'Unreleased',
-        href: urls.dataWarehouse(),
+        href: urls.dataOps(),
         flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
         iconType: 'data_warehouse',
         iconColor: ['var(--color-product-data-warehouse-light)'],
-        sceneKey: 'DataWarehouse',
-        sceneKeys: ['DataWarehouse', 'Models', 'SQLEditor'],
+        sceneKey: 'DataOps',
+        sceneKeys: ['DataOps', 'Models', 'SQLEditor'],
     },
     {
         path: 'Datasets',
@@ -1436,6 +1453,18 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
         sceneKey: 'MarketingAnalytics',
         sceneKeys: ['MarketingAnalytics'],
+    },
+    {
+        path: 'Metrics',
+        intents: [ProductKey.METRICS],
+        category: 'Unreleased',
+        iconType: 'metrics',
+        iconColor: ['var(--color-product-metrics-light)', 'var(--color-product-metrics-dark)'] as FileSystemIconColor,
+        href: urls.metrics(),
+        flag: FEATURE_FLAGS.METRICS,
+        tags: ['alpha'],
+        sceneKey: 'Metrics',
+        sceneKeys: ['Metrics'],
     },
     {
         path: 'Notebooks',
@@ -1755,7 +1784,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         iconType: 'managed_viewsets',
         href: urls.dataWarehouseManagedViewsets(),
         flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
-        sceneKeys: ['DataWarehouse', 'Models', 'SQLEditor'],
+        sceneKeys: ['DataOps', 'Models', 'SQLEditor'],
     },
     {
         path: 'Models',

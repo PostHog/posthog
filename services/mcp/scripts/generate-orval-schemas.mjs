@@ -18,10 +18,9 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
-import { filterSchemaByOperationIds } from '@posthog/openapi-codegen'
+import { applyNestedExclusions, filterSchemaByOperationIds } from '@posthog/openapi-codegen'
 
 import { discoverDefinitions, resolveSchemaPath } from './lib/definitions.mjs'
-import { applyNestedExclusions } from './lib/schema-exclusions.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const mcpRoot = path.resolve(__dirname, '..')
@@ -89,6 +88,39 @@ function stripNullDefaults(obj) {
         result[key] = stripNullDefaults(value)
     }
     return result
+}
+
+/**
+ * Remove readOnly properties from `required` arrays in the schema.
+ *
+ * drf-spectacular includes readOnly fields in `required` because they're
+ * always present in responses. But Orval generates a single Zod schema
+ * used for request validation, where readOnly fields shouldn't be required.
+ * This strips them so MCP tool callers don't need to provide server-computed
+ * fields like `bytecode`, `order`, or `transpiled`.
+ */
+function stripReadOnlyFromRequired(obj) {
+    if (!obj || typeof obj !== 'object') {
+        return
+    }
+    if (Array.isArray(obj)) {
+        for (const item of obj) {
+            stripReadOnlyFromRequired(item)
+        }
+        return
+    }
+    if (obj.properties && Array.isArray(obj.required)) {
+        obj.required = obj.required.filter((fieldName) => {
+            const prop = obj.properties[fieldName]
+            return !prop || !prop.readOnly
+        })
+        if (obj.required.length === 0) {
+            delete obj.required
+        }
+    }
+    for (const value of Object.values(obj)) {
+        stripReadOnlyFromRequired(value)
+    }
 }
 
 /**
@@ -185,6 +217,7 @@ for (const def of definitions) {
 
     filtered = stripNullDefaults(filtered)
     stripUuidFormat(filtered)
+    stripReadOnlyFromRequired(filtered)
     applyNestedExclusions(filtered, schemaExclusions)
     const pathCount = Object.keys(filtered.paths).length
     const schemaCount = Object.keys(filtered.components.schemas).length

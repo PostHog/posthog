@@ -483,7 +483,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     const shortcut = values.shortcutData.find((s) => s.id === id)
                     await api.fileSystemShortcuts.delete(id)
                     const isAIFirst = !!values.featureFlags[FEATURE_FLAGS.AI_FIRST]
-                    eventUsageLogic.actions.reportNavbarStarredItemRemoved(shortcut?.path ?? 'unknown', isAIFirst)
+                    eventUsageLogic.actions.reportNavbarStarredItemRemoved(
+                        shortcut?.type ?? 'unknown',
+                        shortcut?.path ?? 'unknown',
+                        isAIFirst
+                    )
                     if (isAIFirst) {
                         lemonToast.success('Removed from starred')
                     }

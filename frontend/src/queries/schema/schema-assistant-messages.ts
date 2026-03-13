@@ -379,6 +379,7 @@ export enum AssistantEventType {
     Notebook = 'notebook',
     Update = 'update',
     Approval = 'approval',
+    Sandbox = 'sandbox',
 }
 
 export interface AssistantUpdateEvent {
@@ -490,6 +491,7 @@ export enum AgentMode {
     Research = 'research',
     Flags = 'flags',
     LLMAnalytics = 'llm_analytics',
+    Sandbox = 'sandbox',
 }
 
 export enum SlashCommandName {

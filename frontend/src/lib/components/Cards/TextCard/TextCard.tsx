@@ -37,7 +37,7 @@ export function TextContent({ text, closeDetails, className }: TextCardBodyProps
     )
 }
 
-export function TextCardInternal(
+function TextCardInternal(
     {
         textTile,
         showResizeHandles,
@@ -89,4 +89,4 @@ export function TextCardInternal(
     )
 }
 
-export const TextCard = React.forwardRef(TextCardInternal) as typeof TextCardInternal
+export const TextCard = React.forwardRef<HTMLDivElement, TextCardProps>(TextCardInternal)

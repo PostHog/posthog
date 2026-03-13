@@ -285,7 +285,7 @@ export function LineGraph_({
     const { theme, getTrendsColor, getTrendsHidden, hoveredDatasetIndex } = useValues(trendsDataLogic(insightProps))
     const { setHoveredDatasetIndex } = useActions(trendsDataLogic(insightProps))
 
-    const { tooltipId, hideTooltip, getTooltip, positionTooltip } = useInsightTooltip()
+    const { tooltipId, hideTooltip, showTooltip, getTooltip, positionTooltip } = useInsightTooltip()
 
     const colors = getGraphColors()
     const isHorizontal = type === GraphType.HorizontalBar
@@ -722,7 +722,7 @@ export function LineGraph_({
 
                             tooltipEl.classList.remove('above', 'below', 'no-transform', 'opacity-0', 'invisible')
                             tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
-                            tooltipEl.style.opacity = '1'
+                            showTooltip()
 
                             if (tooltip.body) {
                                 const referenceDataPoint = tooltip.dataPoints[0]
@@ -1110,6 +1110,7 @@ export function LineGraph_({
             showTrendLines,
             labels,
             hideTooltip,
+            showTooltip,
             getTooltip,
             hoveredDatasetIndex,
             setHoveredDatasetIndex,

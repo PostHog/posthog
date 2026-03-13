@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import temporalio
 from temporalio import workflow
@@ -81,7 +81,7 @@ class SignalReportDeletionWorkflow:
                 signals=[
                     WaitForClickHouseSignal(
                         signal_id=s.signal_id,
-                        timestamp=datetime.fromisoformat(s.timestamp),
+                        timestamp=s.timestamp,
                     )
                     for s in fetch_result.signals
                 ],

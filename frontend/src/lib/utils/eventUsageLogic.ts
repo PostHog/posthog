@@ -927,7 +927,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             itemName,
             isAIFirst,
         }),
-        reportNavbarStarredItemRemoved: (itemName: string, isAIFirst: boolean) => ({ itemName, isAIFirst }),
+        reportNavbarStarredItemRemoved: (itemType: string, itemName: string, isAIFirst: boolean) => ({
+            itemType,
+            itemName,
+            isAIFirst,
+        }),
         reportNavbarStarredItemClicked: (itemType: string, itemName: string, isAIFirst: boolean) => ({
             itemType,
             itemName,
@@ -2226,8 +2230,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 is_ai_first: isAIFirst,
             })
         },
-        reportNavbarStarredItemRemoved: ({ itemName, isAIFirst }) => {
-            posthog.capture('navbar starred item removed', { item_name: itemName, is_ai_first: isAIFirst })
+        reportNavbarStarredItemRemoved: ({ itemType, itemName, isAIFirst }) => {
+            posthog.capture('navbar starred item removed', {
+                item_type: itemType,
+                item_name: itemName,
+                is_ai_first: isAIFirst,
+            })
         },
         reportNavbarStarredItemClicked: ({ itemType, itemName, isAIFirst }) => {
             posthog.capture('navbar starred item clicked', {

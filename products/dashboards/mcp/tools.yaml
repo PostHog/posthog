@@ -1,0 +1,179 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Dashboards
+feature: dashboards
+url_prefix: /dashboard
+tools:
+    data-color-themes-list:
+        operation: data_color_themes_list
+        enabled: false
+    data-color-themes-create:
+        operation: data_color_themes_create
+        enabled: false
+    data-color-themes-retrieve:
+        operation: data_color_themes_retrieve
+        enabled: false
+    data-color-themes-update:
+        operation: data_color_themes_update
+        enabled: false
+    data-color-themes-partial-update:
+        operation: data_color_themes_partial_update
+        enabled: false
+    data-color-themes-destroy:
+        operation: data_color_themes_destroy
+        enabled: false
+    dashboards-collaborators-list:
+        operation: dashboards_collaborators_list
+        enabled: false
+    dashboards-collaborators-create:
+        operation: dashboards_collaborators_create
+        enabled: false
+    dashboards-collaborators-destroy:
+        operation: dashboards_collaborators_destroy
+        enabled: false
+    dashboards-get-all:
+        operation: dashboards_list
+        enabled: true
+        scopes:
+            - dashboard:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        list: true
+        title: Get all dashboards
+        description: >
+            Get all dashboards in the project with optional filtering by pinned status or search term. Returns name,
+            description, pinned status, tags, and creation metadata.
+    dashboard-create:
+        operation: dashboards_create
+        enabled: true
+        scopes:
+            - dashboard:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Create dashboard
+        description: >
+            Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create
+            from a template or duplicate an existing dashboard.
+        exclude_params:
+            - creation_mode
+            - effective_restriction_level
+            - effective_privilege_level
+            - is_shared
+            - access_control_version
+            - last_refresh
+            - last_accessed_at
+            - deleted
+            - persisted_filters
+            - persisted_variables
+            - _create_in_folder
+    dashboards-sharing-list:
+        operation: dashboards_sharing_list
+        enabled: false
+    dashboards-sharing-passwords-create:
+        operation: dashboards_sharing_passwords_create
+        enabled: false
+    dashboards-sharing-passwords-destroy:
+        operation: dashboards_sharing_passwords_destroy
+        enabled: false
+    dashboards-sharing-refresh-create:
+        operation: dashboards_sharing_refresh_create
+        enabled: false
+    dashboard-get:
+        operation: dashboards_retrieve
+        enabled: true
+        scopes:
+            - dashboard:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get dashboard
+        description: >
+            Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights and
+            layout information.
+    dashboards-update:
+        operation: dashboards_update
+        enabled: false
+    dashboard-update:
+        operation: dashboards_partial_update
+        enabled: true
+        scopes:
+            - dashboard:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Update dashboard
+        description: >
+            Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and
+            restriction level.
+        exclude_params:
+            - creation_mode
+            - effective_restriction_level
+            - effective_privilege_level
+            - is_shared
+            - access_control_version
+            - last_refresh
+            - last_accessed_at
+            - deleted
+            - persisted_filters
+            - persisted_variables
+            - _create_in_folder
+    dashboard-delete:
+        operation: dashboards_destroy
+        enabled: true
+        scopes:
+            - dashboard:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Delete dashboard
+        description: |
+            Delete a dashboard by ID. The dashboard will be soft-deleted and no longer appear in lists.
+        soft_delete: true
+    dashboards-analyze-refresh-result-create:
+        operation: dashboards_analyze_refresh_result_create
+        enabled: false
+    dashboards-move-tile-partial-update:
+        operation: dashboards_move_tile_partial_update
+        enabled: false
+    dashboard-reorder-tiles:
+        operation: dashboards_reorder_tiles_create
+        enabled: true
+        scopes:
+            - dashboard:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Reorder dashboard tiles
+        description: >
+            Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. Computes a
+            2-column grid layout (6 columns wide, 5 rows tall per tile). First, use dashboard-get to see current tile
+            IDs.
+    dashboards-snapshot-create:
+        operation: dashboards_snapshot_create
+        enabled: false
+    dashboards-stream-tiles-retrieve:
+        operation: dashboards_stream_tiles_retrieve
+        enabled: false
+    dashboards-create-from-template-json-create:
+        operation: dashboards_create_from_template_json_create
+        enabled: false
+    dashboards-create-unlisted-dashboard-create:
+        operation: dashboards_create_unlisted_dashboard_create
+        enabled: false

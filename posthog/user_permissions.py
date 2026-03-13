@@ -248,21 +248,30 @@ class UserTeamPermissions:
         if user_has_member_access:
             return OrganizationMembership.Level.MEMBER
 
-        # Check if the team is private
-        team_is_private = any(
-            ac["resource_id"] == str(self.team.id)
-            and ac["organization_member_id"] is None
-            and ac["role_id"] is None
-            and ac["access_level"] == "none"
-            for ac in access_controls
+        # Check for a default access level for this team (applies to all org members)
+        default_access_level = next(
+            (
+                ac["access_level"]
+                for ac in access_controls
+                if ac["resource_id"] == str(self.team.id)
+                and ac["organization_member_id"] is None
+                and ac["role_id"] is None
+            ),
+            None,
         )
 
-        # If team is not private, all organization members have access
-        if not team_is_private:
-            return cast("OrganizationMembership.Level", organization_membership.level)
+        if default_access_level == "none":
+            # Team is private and user has no specific access
+            return None
 
-        # No access found
-        return None
+        if default_access_level == "admin":
+            return OrganizationMembership.Level.ADMIN
+
+        if default_access_level == "member":
+            return OrganizationMembership.Level.MEMBER
+
+        # No default access control set, all organization members have implicit access
+        return cast("OrganizationMembership.Level", organization_membership.level)
 
 
 class UserDashboardPermissions:

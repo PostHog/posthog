@@ -84,13 +84,17 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
             )
             const sortBy = query?.orderBy ?? null
             const sortDirection = query?.orderDirection ?? null
-            posthog.capture('error_tracking_issue_list_loaded', {
+            const isV2 = query?.useQueryV2 ?? false
+            const eventName = isV2 ? 'error_tracking_issue_list_loaded_v2' : 'error_tracking_issue_list_loaded'
+            posthog.capture(eventName, {
                 duration_ms: durationMs,
                 result_count: (results as ErrorTrackingIssue[]).length,
                 is_cached: response?.is_cached ?? null,
                 filter_count: filterCount,
                 sort_by: sortBy,
                 sort_direction: sortDirection,
+                assignee_filter: !!query?.assignee,
+                status_filter: query?.status ?? null,
             })
         },
         // optimistically update local results

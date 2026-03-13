@@ -1,6 +1,10 @@
-use crate::{api::errors::FlagError, router::State as AppState, team::team_models::Team};
+use crate::{
+    api::errors::FlagError, metrics::consts::PERSONAL_API_KEY_HASH_MODE_COUNTER,
+    router::State as AppState, team::team_models::Team,
+};
 use axum::http::HeaderMap;
 use common_database::PostgresReader;
+use common_metrics::inc;
 use tracing::{debug, warn};
 
 /// Token prefix constants
@@ -261,6 +265,12 @@ pub async fn validate_personal_api_key_with_scopes_for_team(
                 scoped_teams = ?scoped_teams,
                 scoped_organizations = ?scoped_organizations,
                 "Personal API key validated successfully"
+            );
+
+            inc(
+                PERSONAL_API_KEY_HASH_MODE_COUNTER,
+                &[("hash_mode".to_string(), mode.to_string())],
+                1,
             );
 
             return Ok(());

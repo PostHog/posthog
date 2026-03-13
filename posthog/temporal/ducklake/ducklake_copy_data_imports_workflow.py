@@ -17,15 +17,21 @@ from temporalio.exceptions import ApplicationError
 from posthog.ducklake.common import (
     attach_catalog,
     get_config,
+    get_duckgres_server_for_team,
     get_ducklake_catalog_for_team,
     is_dev_mode,
     sanitize_ducklake_identifier,
 )
 from posthog.ducklake.storage import (
+    cleanup_staged_files,
+    compute_staging_uri,
     configure_connection,
     configure_cross_account_connection,
+    connect_to_duckgres,
     ensure_ducklake_bucket_exists,
     get_deltalake_storage_options,
+    setup_duckgres_session,
+    stage_delta_table,
 )
 from posthog.ducklake.verification import (
     DuckLakeCopyVerificationParameter,
@@ -92,6 +98,9 @@ class DuckLakeCopyDataImportsMetadata:
 
     # Source metadata (optional, with defaults)
     source_partition_column: str | None = None
+
+    # Staging (duckgres path)
+    staging_uri: str | None = None
 
     # Verification
     verification_queries: list[DuckLakeCopyVerificationQuery] = dataclasses.field(default_factory=list)
@@ -186,6 +195,12 @@ async def prepare_data_imports_ducklake_metadata_activity(
         # Get partition column from Delta metadata (source of truth)
         partition_column = _detect_data_imports_partition_column(source_table_uri)
 
+        staging_uri: str | None = None
+        if not is_dev_mode():
+            catalog = await database_sync_to_async(get_ducklake_catalog_for_team)(inputs.team_id)
+            if catalog:
+                staging_uri = compute_staging_uri(source_table_uri, catalog.bucket)
+
         model_list.append(
             DuckLakeCopyDataImportsMetadata(
                 model_label=f"{source_type}_{normalized_name}",
@@ -202,6 +217,7 @@ async def prepare_data_imports_ducklake_metadata_activity(
                 ),
                 verification_queries=list(get_data_imports_verification_queries(normalized_name)),
                 source_partition_column=partition_column,
+                staging_uri=staging_uri,
             )
         )
 
@@ -216,45 +232,93 @@ def copy_data_imports_to_ducklake_activity(inputs: DuckLakeCopyDataImportsActivi
 
     heartbeater = HeartbeaterSync(details=("ducklake_copy", inputs.model.model_label), logger=logger)
     with heartbeater:
-        alias = "ducklake"
         dev_mode = is_dev_mode()
 
-        with duckdb.connect() as conn:
-            if dev_mode:
+        if dev_mode:
+            alias = "ducklake"
+            with duckdb.connect() as conn:
                 config = get_config()
                 configure_connection(conn)
-            else:
-                catalog = get_ducklake_catalog_for_team(inputs.team_id)
-                if catalog is None:
-                    raise ApplicationError(
-                        f"No DuckLakeCatalog configured for team {inputs.team_id}", non_retryable=True
-                    )
-                config = catalog.to_public_config()
-                config["DUCKLAKE_RDS_PASSWORD"] = catalog.db_password
-                cross_account_dest = catalog.to_cross_account_destination()
+                ensure_ducklake_bucket_exists(config=config, team_id=inputs.team_id)
+                _attach_ducklake_catalog(conn, config, alias=alias)
+
+                qualified_schema = f"{alias}.{inputs.model.ducklake_schema_name}"
+                qualified_table = f"{qualified_schema}.{inputs.model.ducklake_table_name}"
+
                 logger.info(
-                    "Using cross-account S3 access",
-                    role_arn=cross_account_dest.role_arn,
-                    bucket=cross_account_dest.bucket_name,
+                    "Creating DuckLake table from Delta snapshot",
+                    ducklake_table=qualified_table,
+                    source_table=inputs.model.source_table_uri,
                 )
-                configure_cross_account_connection(conn, destinations=[cross_account_dest])
-            ensure_ducklake_bucket_exists(config=config, team_id=inputs.team_id)
-            _attach_ducklake_catalog(conn, config, alias=alias)
+                conn.execute(f"CREATE SCHEMA IF NOT EXISTS {qualified_schema}")
+                conn.execute(
+                    f"CREATE OR REPLACE TABLE {qualified_table} AS SELECT * FROM delta_scan(?)",
+                    [inputs.model.source_table_uri],
+                )
+                logger.info("Successfully materialized DuckLake table", ducklake_table=qualified_table)
+        else:
+            _copy_data_imports_via_duckgres(inputs, logger)
 
-            qualified_schema = f"{alias}.{inputs.model.ducklake_schema_name}"
-            qualified_table = f"{qualified_schema}.{inputs.model.ducklake_table_name}"
 
-            logger.info(
-                "Creating DuckLake table from Delta snapshot",
-                ducklake_table=qualified_table,
-                source_table=inputs.model.source_table_uri,
-            )
-            conn.execute(f"CREATE SCHEMA IF NOT EXISTS {qualified_schema}")
-            conn.execute(
-                f"CREATE OR REPLACE TABLE {qualified_table} AS SELECT * FROM delta_scan(?)",
-                [inputs.model.source_table_uri],
-            )
-            logger.info("Successfully materialized DuckLake table", ducklake_table=qualified_table)
+def _copy_data_imports_via_duckgres(inputs: DuckLakeCopyDataImportsActivityInputs, logger: typing.Any) -> None:
+    """Stage Delta files and create the DuckLake table via duckgres."""
+    catalog = get_ducklake_catalog_for_team(inputs.team_id)
+    server = get_duckgres_server_for_team(inputs.team_id)
+    if catalog is None:
+        raise ApplicationError(f"No DuckLakeCatalog configured for team {inputs.team_id}", non_retryable=True)
+    if server is None:
+        raise ApplicationError(f"No DuckgresServer configured for team {inputs.team_id}", non_retryable=True)
+    if not inputs.model.staging_uri:
+        raise ApplicationError(f"No staging_uri for model {inputs.model.model_label}", non_retryable=True)
+
+    logger.info(
+        "Staging Delta files for duckgres",
+        source_uri=inputs.model.source_table_uri,
+        staging_uri=inputs.model.staging_uri,
+    )
+    stage_delta_table(
+        source_uri=inputs.model.source_table_uri,
+        catalog_bucket=catalog.bucket,
+        role_arn=catalog.cross_account_role_arn,
+        external_id=catalog.cross_account_external_id,
+    )
+
+    schema = inputs.model.ducklake_schema_name
+    table = f"{schema}.{inputs.model.ducklake_table_name}"
+
+    with connect_to_duckgres(server) as conn:
+        setup_duckgres_session(conn)
+        logger.info(
+            "Creating DuckLake table from staged Delta snapshot via duckgres",
+            ducklake_table=table,
+            staging_uri=inputs.model.staging_uri,
+        )
+        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
+        conn.execute(
+            f"CREATE OR REPLACE TABLE {table} AS SELECT * FROM delta_scan(%s)",
+            [inputs.model.staging_uri],
+        )
+        logger.info("Successfully materialized DuckLake table via duckgres", ducklake_table=table)
+
+
+@dataclasses.dataclass
+class DuckLakeDataImportsStagingCleanupInputs:
+    team_id: int
+    staging_uri: str
+
+
+@activity.defn
+def cleanup_data_imports_staging_activity(inputs: DuckLakeDataImportsStagingCleanupInputs) -> None:
+    """Clean up staged Delta files after successful verification."""
+    bind_contextvars(team_id=inputs.team_id)
+    catalog = get_ducklake_catalog_for_team(inputs.team_id)
+    if catalog is None:
+        return
+    cleanup_staged_files(
+        staging_uri=inputs.staging_uri,
+        role_arn=catalog.cross_account_role_arn,
+        external_id=catalog.cross_account_external_id,
+    )
 
 
 def _detect_data_imports_partition_column(table_uri: str) -> str | None:
@@ -305,6 +369,8 @@ def verify_data_imports_ducklake_copy_activity(
         logger.info("No DuckLake verification queries configured - skipping")
         return []
 
+    effective_source_uri = inputs.model.staging_uri or inputs.model.source_table_uri
+
     heartbeater = HeartbeaterSync(details=("ducklake_verify", inputs.model.model_label), logger=logger)
     with heartbeater:
         alias = "ducklake"
@@ -338,7 +404,12 @@ def verify_data_imports_ducklake_copy_activity(
 
             for query in inputs.model.verification_queries:
                 rendered_sql = query.sql.format(**format_values)
-                params = [_resolve_data_imports_verification_parameter(param, inputs) for param in query.parameters]
+                params = [
+                    _resolve_data_imports_verification_parameter(
+                        param, inputs, source_uri_override=effective_source_uri
+                    )
+                    for param in query.parameters
+                ]
 
                 try:
                     row = conn.execute(rendered_sql, params).fetchone()
@@ -422,11 +493,15 @@ def verify_data_imports_ducklake_copy_activity(
                     )
                 )
 
-            schema_result = _run_data_imports_schema_verification(conn, ducklake_table, inputs)
+            schema_result = _run_data_imports_schema_verification(
+                conn, ducklake_table, inputs, source_uri_override=effective_source_uri
+            )
             if schema_result:
                 results.append(schema_result)
 
-            partition_result = _run_data_imports_partition_verification(conn, ducklake_table, inputs)
+            partition_result = _run_data_imports_partition_verification(
+                conn, ducklake_table, inputs, source_uri_override=effective_source_uri
+            )
             if partition_result:
                 results.append(partition_result)
 
@@ -442,7 +517,10 @@ def verify_data_imports_ducklake_copy_activity(
 
 
 def _resolve_data_imports_verification_parameter(
-    parameter: DuckLakeCopyVerificationParameter, inputs: DuckLakeCopyDataImportsActivityInputs
+    parameter: DuckLakeCopyVerificationParameter,
+    inputs: DuckLakeCopyDataImportsActivityInputs,
+    *,
+    source_uri_override: str | None = None,
 ) -> str | int:
     """Resolve a verification parameter to its runtime value."""
     model = inputs.model
@@ -451,7 +529,7 @@ def _resolve_data_imports_verification_parameter(
         DuckLakeCopyVerificationParameter.JOB_ID: inputs.job_id,
         DuckLakeCopyVerificationParameter.MODEL_LABEL: model.model_label,
         DuckLakeCopyVerificationParameter.NORMALIZED_NAME: model.source_normalized_name,
-        DuckLakeCopyVerificationParameter.SOURCE_TABLE_URI: model.source_table_uri,
+        DuckLakeCopyVerificationParameter.SOURCE_TABLE_URI: source_uri_override or model.source_table_uri,
         DuckLakeCopyVerificationParameter.SCHEMA_NAME: model.ducklake_schema_name,
         DuckLakeCopyVerificationParameter.TABLE_NAME: model.ducklake_table_name,
     }
@@ -463,11 +541,16 @@ def _resolve_data_imports_verification_parameter(
 
 
 def _run_data_imports_schema_verification(
-    conn: duckdb.DuckDBPyConnection, ducklake_table: str, inputs: DuckLakeCopyDataImportsActivityInputs
+    conn: duckdb.DuckDBPyConnection,
+    ducklake_table: str,
+    inputs: DuckLakeCopyDataImportsActivityInputs,
+    *,
+    source_uri_override: str | None = None,
 ) -> DuckLakeCopyDataImportsVerificationResult | None:
     """Compare schema between Delta source and DuckLake table."""
+    effective_source_uri = source_uri_override or inputs.model.source_table_uri
     try:
-        source_schema = _fetch_delta_schema(conn, inputs.model.source_table_uri)
+        source_schema = _fetch_delta_schema(conn, effective_source_uri)
         ducklake_schema = _fetch_schema(conn, ducklake_table)
     except Exception as exc:
         return DuckLakeCopyDataImportsVerificationResult(
@@ -501,14 +584,17 @@ def _run_data_imports_partition_verification(
     conn: duckdb.DuckDBPyConnection,
     ducklake_table: str,
     inputs: DuckLakeCopyDataImportsActivityInputs,
+    *,
+    source_uri_override: str | None = None,
 ) -> DuckLakeCopyDataImportsVerificationResult | None:
     """Verify partition counts match between source and DuckLake."""
+    effective_source_uri = source_uri_override or inputs.model.source_table_uri
     partition_column = inputs.model.source_partition_column
     if not partition_column:
         return None
 
     # Get partition column type from Delta schema directly
-    source_schema = _fetch_delta_schema(conn, inputs.model.source_table_uri)
+    source_schema = _fetch_delta_schema(conn, effective_source_uri)
     partition_column_type = _get_column_type_from_schema(source_schema, partition_column)
     if partition_column_type is None:
         # Partition column doesn't exist in Delta schema - skip verification
@@ -541,7 +627,7 @@ def _run_data_imports_partition_verification(
     """
 
     try:
-        mismatches = conn.execute(sql, [inputs.model.source_table_uri]).fetchall()
+        mismatches = conn.execute(sql, [effective_source_uri]).fetchall()
     except Exception as exc:
         return DuckLakeCopyDataImportsVerificationResult(
             name="data_imports.partition_counts",
@@ -697,6 +783,8 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
             logger.info("No DuckLake copy metadata resolved - nothing to do")
             return
 
+        pending_staging_cleanup: list[str] = []
+        failed = False
         try:
             for model in model_list:
                 activity_inputs = DuckLakeCopyDataImportsActivityInputs(
@@ -710,6 +798,9 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
                     heartbeat_timeout=dt.timedelta(minutes=2),
                     retry_policy=RetryPolicy(maximum_attempts=2),
                 )
+
+                if model.staging_uri:
+                    pending_staging_cleanup.append(model.staging_uri)
 
                 verification_results = await workflow.execute_activity(
                     verify_data_imports_ducklake_copy_activity,
@@ -736,8 +827,39 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
                         f"DuckLake copy verification failed: {failure_payload}",
                         non_retryable=True,
                     )
+
+                if model.staging_uri:
+                    await workflow.execute_activity(
+                        cleanup_data_imports_staging_activity,
+                        DuckLakeDataImportsStagingCleanupInputs(
+                            team_id=inputs.team_id,
+                            staging_uri=model.staging_uri,
+                        ),
+                        start_to_close_timeout=dt.timedelta(minutes=5),
+                        retry_policy=RetryPolicy(maximum_attempts=2),
+                    )
+                    pending_staging_cleanup.remove(model.staging_uri)
         except Exception:
+            failed = True
             get_ducklake_copy_data_imports_finished_metric(status="failed").add(1)
             raise
+        finally:
+            for staging_uri in pending_staging_cleanup:
+                try:
+                    await workflow.execute_activity(
+                        cleanup_data_imports_staging_activity,
+                        DuckLakeDataImportsStagingCleanupInputs(
+                            team_id=inputs.team_id,
+                            staging_uri=staging_uri,
+                        ),
+                        start_to_close_timeout=dt.timedelta(minutes=5),
+                        retry_policy=RetryPolicy(maximum_attempts=2),
+                    )
+                except Exception:
+                    workflow.logger.warning(
+                        "Failed to clean up staging files",
+                        staging_uri=staging_uri,
+                    )
 
-        get_ducklake_copy_data_imports_finished_metric(status="completed").add(1)
+        if not failed:
+            get_ducklake_copy_data_imports_finished_metric(status="completed").add(1)

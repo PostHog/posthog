@@ -125,5 +125,6 @@ async def recording_api_client() -> AsyncIterator[RecordingApiClient]:
         logger.warning("recording_api_client.missing_internal_api_secret")
 
     timeout = aiohttp.ClientTimeout(total=30, connect=5)
-    async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+    # nosemgrep: aiohttp-missing-trust-env -- internal service call to recording API
+    async with aiohttp.ClientSession(timeout=timeout, headers=headers, trust_env=False) as session:
         yield RecordingApiClient(session, settings.RECORDING_API_URL)

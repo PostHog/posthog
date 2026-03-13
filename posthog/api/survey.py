@@ -19,7 +19,7 @@ import structlog
 import posthoganalytics
 from axes.decorators import axes_dispatch
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from loginas.utils import is_impersonated_session
 from nanoid import generate
 from posthoganalytics import capture_exception
@@ -31,6 +31,7 @@ from rest_framework.response import Response
 from posthog.schema import ProductKey
 
 from posthog.api.action import ActionSerializer, ActionStepJSONSerializer
+from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
 from posthog.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
     FeatureFlagSerializer,
@@ -369,7 +370,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             raise serializers.ValidationError("whiteLabel must be a boolean")
 
         # Check if the organization has the white labelling feature available
-        use_survey_white_labelling = self.context["request"].user.organization.is_feature_available(
+        use_survey_white_labelling = self.context["get_organization"]().is_feature_available(
             AvailableFeature.WHITE_LABELLING
         )
 
@@ -1102,7 +1103,15 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 return feature_flag_serializer.save()
 
 
+class SurveySerializerCreateUpdateOnlySchema(SurveySerializerCreateUpdateOnly):
+    targeting_flag_filters = FeatureFlagFiltersSchemaSerializer(required=False, write_only=True, allow_null=True)  # type: ignore[assignment]
+
+
 @extend_schema(tags=[ProductKey.SURVEYS])
+@extend_schema_view(
+    create=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
+    partial_update=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
+)
 class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "survey"
     queryset = Survey.objects.select_related(
