@@ -263,7 +263,7 @@ class Database(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     # Users can query from the tables below
-    tables: TableNode = build_database_root_node()
+    tables: TableNode
 
     _warehouse_table_names: list[str] = []
     _warehouse_self_managed_table_names: list[str] = []

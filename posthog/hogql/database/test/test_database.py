@@ -19,7 +19,12 @@ from posthog.schema import (
 
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import ROOT_TABLES__DO_NOT_ADD_ANY_MORE, Database, get_data_warehouse_table_name
+from posthog.hogql.database.database import (
+    ROOT_TABLES__DO_NOT_ADD_ANY_MORE,
+    Database,
+    build_database_root_node,
+    get_data_warehouse_table_name,
+)
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
     ExpressionField,
@@ -230,6 +235,21 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         team_2_database = Database.create_for(team=other_team)
 
         assert "team_1_table" not in team_2_database.get_warehouse_table_names()
+
+    def test_root_tables_do_not_leak_between_database_instances(self):
+        first_root = build_database_root_node()
+        second_root = build_database_root_node()
+
+        assert first_root.children["events"] is not second_root.children["events"]
+
+        first_database = Database()
+        second_database = Database()
+
+        assert first_database.tables.children["events"] is not second_database.tables.children["events"]
+
+        first_database.tables.children["events"].table = None
+
+        assert second_database.tables.children["events"].table is not None
 
     def test_serialize_database_warehouse_with_deleted_joins(self):
         DataWarehouseJoin.objects.create(
