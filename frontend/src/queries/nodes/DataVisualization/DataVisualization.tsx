@@ -31,6 +31,7 @@ import { DateRange } from '../DataNode/DateRange'
 import { ElapsedTime } from '../DataNode/ElapsedTime'
 import { Reload } from '../DataNode/Reload'
 import { QueryFeature } from '../DataTable/queryFeatures'
+import { BoxPlotGraph } from './Components/Charts/BoxPlotGraph'
 import { LineGraph } from './Components/Charts/LineGraph'
 import { TwoDimensionalHeatmap } from './Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from './Components/seriesBreakdownLogic'
@@ -171,6 +172,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         isChartSettingsPanelOpen,
         xData,
         yData,
+        boxPlotData,
         chartSettings,
         dashboardId,
         dataVisualizationProps,
@@ -243,6 +245,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 presetChartHeight={presetChartHeight}
             />
         )
+    } else if (effectiveVisualizationType === ChartDisplayType.BoxPlot) {
+        component = <BoxPlotGraph className="p-3" boxPlotData={boxPlotData} />
     } else if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
         component = <TwoDimensionalHeatmap />
     } else if (effectiveVisualizationType === ChartDisplayType.BoldNumber) {

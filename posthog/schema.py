@@ -5137,10 +5137,23 @@ class ChartAxis(BaseModel):
     settings: Settings | None = None
 
 
+class BoxPlotColumns(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    min: str | None = None
+    p25: str | None = None
+    median: str | None = None
+    p75: str | None = None
+    max: str | None = None
+    mean: str | None = None
+
+
 class ChartSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    boxPlotColumns: BoxPlotColumns | None = None
     goalLines: list[GoalLine] | None = None
     heatmap: HeatmapSettings | None = None
     leftYAxisSettings: YAxisSettings | None = None

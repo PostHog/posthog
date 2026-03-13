@@ -21,10 +21,84 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { ChartDisplayType } from '~/types'
 
-import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
+import { ALL_BOX_PLOT_SLOTS, AxisSeries, BoxPlotSlot, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { HeatmapSeriesTab } from './Heatmap/HeatmapSeriesTab'
 import { AxisBreakdownSeries, seriesBreakdownLogic } from './seriesBreakdownLogic'
 import { YSeriesLogicProps, YSeriesSettingsTab, ySeriesLogic } from './ySeriesLogic'
+
+const BOX_PLOT_SLOT_LABELS: Record<BoxPlotSlot, string> = {
+    min: 'Min',
+    p25: '25th percentile (Q1)',
+    median: 'Median',
+    p75: '75th percentile (Q3)',
+    max: 'Max',
+    mean: 'Mean (optional)',
+}
+
+const BoxPlotSeriesTab = (): JSX.Element => {
+    const { columns, numericalColumns, xData, responseLoading, boxPlotColumns } = useValues(dataVisualizationLogic)
+    const { updateXSeries, updateBoxPlotColumn } = useActions(dataVisualizationLogic)
+
+    const xOptions = columns.map(({ name, type }) => ({
+        value: name,
+        label: (
+            <div className="items-center flex-1">
+                {name}
+                <LemonTag className="ml-2" type="default">
+                    {type.name}
+                </LemonTag>
+            </div>
+        ),
+    }))
+
+    const numericalOptions = numericalColumns.map(({ name, type }) => ({
+        value: name,
+        label: (
+            <div className="items-center flex-1">
+                {name}
+                <LemonTag className="ml-2" type="default">
+                    {type.name}
+                </LemonTag>
+            </div>
+        ),
+    }))
+
+    return (
+        <div className="flex flex-col w-full p-3">
+            <LemonLabel className="mb-1">X-axis (labels)</LemonLabel>
+            <LemonSelect
+                className="w-full"
+                value={xData !== null ? xData.column.name : 'None'}
+                options={xOptions}
+                disabledReason={responseLoading ? 'Query loading...' : undefined}
+                onChange={(value) => {
+                    const column = columns.find((n) => n.name === value)
+                    if (column) {
+                        updateXSeries(column.name)
+                    }
+                }}
+            />
+
+            <LemonLabel className="mt-4 mb-1">Box plot columns</LemonLabel>
+            {ALL_BOX_PLOT_SLOTS.map((slot) => (
+                <div key={slot} className="mb-2">
+                    <LemonLabel className="text-xs mb-0.5">{BOX_PLOT_SLOT_LABELS[slot]}</LemonLabel>
+                    <LemonSelect
+                        className="w-full"
+                        value={boxPlotColumns[slot] ?? null}
+                        options={numericalOptions}
+                        placeholder="Select column..."
+                        allowClear={slot === 'mean'}
+                        disabledReason={responseLoading ? 'Query loading...' : undefined}
+                        onChange={(value) => {
+                            updateBoxPlotColumn(slot, value)
+                        }}
+                    />
+                </div>
+            ))}
+        </div>
+    )
+}
 
 export const SeriesTab = (): JSX.Element => {
     const { effectiveVisualizationType } = useValues(dataVisualizationLogic)
@@ -46,6 +120,10 @@ export const SeriesTab = (): JSX.Element => {
 
     const hideAddYSeries = yData.length >= numericalColumns.length
     const hideAddSeriesBreakdown = !(!showSeriesBreakdown && selectedXAxis && columns.length > yData.length)
+
+    if (effectiveVisualizationType === ChartDisplayType.BoxPlot) {
+        return <BoxPlotSeriesTab />
+    }
 
     if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
         return <HeatmapSeriesTab />

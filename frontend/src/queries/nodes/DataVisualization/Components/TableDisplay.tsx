@@ -100,6 +100,11 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
                     icon: <IconHeatmap />,
                     label: '2d heatmap',
                 },
+                {
+                    value: ChartDisplayType.BoxPlot,
+                    icon: <IconGraph />,
+                    label: 'Box plot',
+                },
             ],
         },
     ]
