@@ -142,8 +142,8 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING("Dry-run mode. Pass --accept to write changes."))
             return
 
-        self._update_redis(after)
         self._write_manifest(entries)
+        self._update_redis(after)
 
         if options.get("purge"):
             self._purge_changed(before["pointers"], after["pointers"])
@@ -173,8 +173,8 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING("Dry-run mode. Pass --accept to write changes."))
             return
 
-        self._update_redis(after)
         self._write_manifest(entries)
+        self._update_redis(after)
 
         if options.get("purge"):
             self._purge_changed(before["pointers"], after["pointers"])
