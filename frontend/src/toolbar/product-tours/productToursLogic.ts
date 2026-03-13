@@ -21,7 +21,7 @@ import { urls } from 'scenes/urls'
 
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
-import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ElementRect } from '~/toolbar/types'
 import { TOOLBAR_ID, elementToActionStep, getRectForElement, joinWithUiHost } from '~/toolbar/utils'
 import { captureAndUploadElementScreenshot } from '~/toolbar/utils/screenshot'
@@ -461,6 +461,7 @@ export const productToursLogic = kea<productToursLogicType>([
             const inferenceData = inferSelector(element)?.selector
             const screenshot = await captureAndUploadElementScreenshot(element).catch((e) => {
                 console.warn('[Product Tours] Failed to capture element screenshot:', e)
+                captureToolbarException(e, 'product_tour_screenshot')
                 return null
             })
 
@@ -623,6 +624,7 @@ export const productToursLogic = kea<productToursLogicType>([
                     actions.selectTour(null)
                 }
             } catch (e: any) {
+                captureToolbarException(e, 'product_tour_save')
                 lemonToast.error(e.detail || 'Failed to save tour')
             }
         },

@@ -14,6 +14,7 @@ import { createRoot } from 'react-dom/client'
 
 import { disposablesPlugin } from '~/kea-disposables'
 import { ToolbarApp } from '~/toolbar/ToolbarApp'
+import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
 import { ToolbarParams } from '~/types'
 
 interface InitKeaProps {
@@ -42,6 +43,10 @@ const initKeaInToolbar = ({ routerHistory, routerLocation, beforePlugins }: Init
         loadersPlugin({
             onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
                 console.error('toolbar fetch failed', error, reducerKey, actionKey)
+                captureToolbarException(error, 'kea_loader', {
+                    reducer_key: reducerKey,
+                    action_key: actionKey,
+                })
             },
         }),
         subscriptionsPlugin,
@@ -84,10 +89,15 @@ win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog?:
                     posthog.featureFlags.overrideFeatureFlags({ flags: data.featureFlags })
                 } else {
                     console.error('[Toolbar Flags] Feature flags not found:', JSON.stringify(data))
+                    captureToolbarException(
+                        new Error(`Toolbar feature flags not found: ${JSON.stringify(data)}`),
+                        'preloaded_flags'
+                    )
                 }
             })
             .catch((error) => {
                 console.error('[Toolbar Flags] Error fetching toolbar feature flags:', error)
+                captureToolbarException(error, 'preloaded_flags_fetch')
             })
     }
 

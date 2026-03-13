@@ -2,6 +2,7 @@ import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 
 import { TAGS_TO_IGNORE } from 'lib/actionUtils'
 
+import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
 import { TOOLBAR_ID, elementIsVisible, getParent } from '~/toolbar/utils'
 
 export interface SelectorGroup {
@@ -295,6 +296,7 @@ export function inferSelector(
         }
     } catch (error) {
         console.error('[ElementInference] Error inferring selector:', error)
+        captureToolbarException(error, 'element_inference')
         return null
     }
 }
