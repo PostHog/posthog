@@ -9,7 +9,6 @@ from dlt.sources.helpers.rest_client.auth import BearerTokenAuth
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.security.outbound_proxy import external_requests
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SortMode, SourceResponse
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
@@ -40,7 +39,7 @@ def _wait_with_retry_after(retry_state: RetryCallState) -> float:
     reraise=True,
 )
 def _slack_get(url: str, **kwargs: Any) -> requests.Response:
-    response = external_requests.get(url, **kwargs)
+    response = requests.get(url, **kwargs)
     if response.status_code == 429:
         retry_after = int(response.headers.get("Retry-After", 1))
         logger.warning("Slack API rate limited", url=url, retry_after=retry_after)
