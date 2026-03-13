@@ -40,7 +40,7 @@ export function defaultDataTableColumns(
 ): HogQLExpression[] {
     return kind === NodeKind.PersonsNode || kind === NodeKind.ActorsQuery
         ? getDefaultDataTablePersonColumns(personLastSeenAtEnabled)
-        : kind === NodeKind.EventsQuery
+        : kind === NodeKind.EventsQuery || kind === NodeKind.AiEventsQuery
           ? defaultDataTableEventColumns
           : kind === NodeKind.SessionsQuery
             ? defaultDataTableSessionColumns

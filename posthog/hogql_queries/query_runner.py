@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
+    AiEventsQuery,
     CacheMissResponse,
     CalendarHeatmapQuery,
     ChartDisplayType,
@@ -197,6 +198,7 @@ RunnableQueryNode = Union[
     LifecycleQuery,
     ActorsQuery,
     EventsQuery,
+    AiEventsQuery,
     SessionBatchEventsQuery,
     HogQLQuery,
     InsightActorsQuery,
@@ -652,6 +654,7 @@ def get_query_runner(
             modifiers=modifiers,
             limit_context=limit_context,
             request=request,
+            user=request.user if request is not None else None,
         )
 
     if kind == "DocumentSimilarityQuery":
@@ -799,6 +802,16 @@ def get_query_runner(
             limit_context=limit_context,
             modifiers=modifiers,
             request=request,
+        )
+    if kind == "AiEventsQuery":
+        from .ai.ai_events_query_runner import AiEventsQueryRunner
+
+        return AiEventsQueryRunner(
+            query=cast(AiEventsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
         )
     if kind == "TracesQuery":
         from .ai.traces_query_runner import TracesQueryRunner
