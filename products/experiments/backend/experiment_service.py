@@ -6,6 +6,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
+from django.db.models import Count, Prefetch, Q, QuerySet
 
 import pydantic
 from rest_framework.exceptions import ValidationError
@@ -16,7 +17,9 @@ from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.event_usage import EventSource, report_user_action
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
+from posthog.models import Survey
 from posthog.models.cohort import Cohort
+from posthog.models.evaluation_context import FeatureFlagEvaluationContext
 from posthog.models.experiment import (
     Experiment,
     ExperimentHoldout,
@@ -28,6 +31,8 @@ from posthog.models.experiment import (
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team.team import Team
+
+from products.product_tours.backend.models import ProductTour
 
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
@@ -853,6 +858,111 @@ class ExperimentService:
         experiment.exposure_cohort = cohort
         experiment.save(update_fields=["exposure_cohort"])
         return cohort
+
+    # ------------------------------------------------------------------
+    # Eligible feature flags
+    # ------------------------------------------------------------------
+
+    def get_eligible_feature_flags(
+        self,
+        *,
+        limit: int = 20,
+        offset: int = 0,
+        search: str | None = None,
+        active: str | bool | None = None,
+        created_by_id: str | int | None = None,
+        order: str | None = None,
+        evaluation_runtime: str | None = None,
+        has_evaluation_tags: str | bool | None = None,
+    ) -> dict[str, Any]:
+        """Get feature flags eligible for use in experiments."""
+        queryset = self._get_eligible_feature_flags_queryset(
+            search=search,
+            active=active,
+            created_by_id=created_by_id,
+            order=order,
+            evaluation_runtime=evaluation_runtime,
+            has_evaluation_tags=has_evaluation_tags,
+        )
+
+        return {
+            "results": queryset[offset : offset + limit],
+            "count": queryset.count(),
+        }
+
+    def _get_eligible_feature_flags_queryset(
+        self,
+        *,
+        search: str | None,
+        active: str | bool | None,
+        created_by_id: str | int | None,
+        order: str | None,
+        evaluation_runtime: str | None,
+        has_evaluation_tags: str | bool | None,
+    ) -> QuerySet[FeatureFlag]:
+        queryset = FeatureFlag.objects.filter(team__project_id=self.team.project_id)
+
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
+        queryset = queryset.extra(
+            where=[
+                """
+                jsonb_array_length(filters->'multivariate'->'variants') >= 2
+                AND filters->'multivariate'->'variants'->0->>'key' = 'control'
+                """
+            ]
+        )
+
+        survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.team.project_id)
+        product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
+            team__project_id=self.team.project_id, internal_targeting_flag__isnull=False
+        ).values_list("internal_targeting_flag_id", flat=True)
+        excluded_flag_ids = survey_flag_ids | set(product_tour_internal_targeting_flags)
+        queryset = queryset.exclude(id__in=excluded_flag_ids)
+
+        if search:
+            queryset = queryset.filter(Q(key__icontains=search) | Q(name__icontains=search))
+
+        if active is not None:
+            active_bool = active if isinstance(active, bool) else str(active).lower() == "true"
+            queryset = queryset.filter(active=active_bool)
+
+        if created_by_id:
+            queryset = queryset.filter(created_by_id=created_by_id)
+
+        if evaluation_runtime:
+            queryset = queryset.filter(evaluation_runtime=evaluation_runtime)
+
+        if has_evaluation_tags is not None:
+            filter_value = (
+                has_evaluation_tags
+                if isinstance(has_evaluation_tags, bool)
+                else str(has_evaluation_tags).lower() in ("true", "1", "yes")
+            )
+            queryset = queryset.annotate(eval_tag_count=Count("flag_evaluation_contexts"))
+            if filter_value:
+                queryset = queryset.filter(eval_tag_count__gt=0)
+            else:
+                queryset = queryset.filter(eval_tag_count=0)
+
+        queryset = queryset.order_by(order or "-created_at")
+
+        return queryset.prefetch_related(
+            Prefetch(
+                "experiment_set", queryset=Experiment.objects.filter(deleted=False), to_attr="_active_experiments"
+            ),
+            "features",
+            "analytics_dashboards",
+            "surveys_linked_flag",
+            Prefetch(
+                "flag_evaluation_contexts",
+                queryset=FeatureFlagEvaluationContext.objects.select_related("evaluation_context"),
+            ),
+            Prefetch(
+                "team__cohort_set",
+                queryset=Cohort.objects.filter(deleted=False).only("id", "name"),
+                to_attr="available_cohorts",
+            ),
+        ).select_related("created_by", "last_modified_by")
 
     # ------------------------------------------------------------------
     # Timeseries
