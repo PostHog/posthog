@@ -56,7 +56,8 @@ def get_property_values_for_key(
 
         if value:
             value_filter = "AND {} ILIKE %(value)s".format(property_field)
-            extra_params["value"] = "%{}%".format(value)
+            escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            extra_params["value"] = "%{}%".format(escaped)
 
             order_by_clause = f"order by length({property_field})"
 
@@ -87,9 +88,10 @@ def get_person_property_values_for_key(key: str, team: Team, value: Optional[str
         property_field, _ = get_property_string_expr("person", key, "%(key)s", "properties")
 
         if value:
+            escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             result = insight_sync_execute(
                 SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER.format(property_field=property_field),
-                {"team_id": team.pk, "key": key, "value": "%{}%".format(value)},
+                {"team_id": team.pk, "key": key, "value": "%{}%".format(escaped)},
                 query_type="get_person_property_values_with_value",
                 team_id=team.pk,
             )

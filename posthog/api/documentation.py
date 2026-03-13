@@ -5,7 +5,7 @@ from typing import Any, get_args
 from django.core.exceptions import ImproperlyConfigured
 
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
-from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.plumbing import build_mock_request
 from drf_spectacular.utils import (
     extend_schema,  # noqa: F401
     extend_schema_field,
@@ -19,7 +19,27 @@ from posthog.models.property import OperatorType, PropertyType
 from posthog.permissions import APIScopePermission
 
 
-@extend_schema_field(OpenApiTypes.STR)
+def build_openapi_mock_request(method, path, view, original_request, **kwargs):
+    request = build_mock_request(method, path, view, original_request, **kwargs)
+
+    if os.getenv("OPENAPI_MOCK_INTERNAL_API_SECRET") == "1":
+        from django.conf import settings
+
+        request.META["HTTP_X_INTERNAL_API_SECRET"] = settings.INTERNAL_API_SECRET
+
+    return request
+
+
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "string"},
+            {"type": "number"},
+            {"type": "boolean"},
+            {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "number"}]}},
+        ]
+    }
+)
 class ValueField(serializers.Field):
     def to_representation(self, value):
         return value
@@ -75,6 +95,103 @@ class PropertyItemSerializer(serializers.Serializer):
         default="event",
         required=False,
         allow_blank=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Narrowed property filter serializers (schema-only, not used at runtime)
+#
+# These produce a oneOf union in the OpenAPI spec so that generated clients
+# (TypeScript, MCP tools) see operator/value combinations that actually make
+# sense, instead of a single permissive type with all 17 operators.
+# ---------------------------------------------------------------------------
+
+_PROPERTY_TYPE_CHOICES = get_args(PropertyType)
+
+
+class _PropertyFilterBase(serializers.Serializer):
+    """Shared fields for all narrowed property filter subtypes."""
+
+    key = serializers.CharField(
+        help_text="Key of the property you're filtering on. For example `email` or `$current_url`.",
+        required=True,
+    )
+    type = serializers.ChoiceField(
+        choices=_PROPERTY_TYPE_CHOICES,
+        default="event",
+        required=False,
+        help_text="Property type (event, person, session, etc.).",
+    )
+
+
+class StringPropertyFilterSerializer(_PropertyFilterBase):
+    """Matches string values with text-oriented operators."""
+
+    value = serializers.CharField(
+        help_text="String value to match against.",
+        required=True,
+    )
+    operator = serializers.ChoiceField(
+        choices=["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
+        default="exact",
+        required=False,
+        help_text="String comparison operator.",
+    )
+
+
+class NumericPropertyFilterSerializer(_PropertyFilterBase):
+    """Matches numeric values with comparison operators."""
+
+    value = serializers.FloatField(
+        help_text="Numeric value to compare against.",
+        required=True,
+    )
+    operator = serializers.ChoiceField(
+        choices=["exact", "is_not", "gt", "lt", "gte", "lte"],
+        default="exact",
+        required=False,
+        help_text="Numeric comparison operator.",
+    )
+
+
+class ArrayPropertyFilterSerializer(_PropertyFilterBase):
+    """Matches against a list of values (OR semantics for exact/is_not, set membership for in/not_in)."""
+
+    value = serializers.ListField(
+        child=serializers.CharField(),
+        help_text='List of values to match. For example `["test@example.com", "ok@example.com"]`.',
+        required=True,
+    )
+    operator = serializers.ChoiceField(
+        choices=["exact", "is_not", "in", "not_in"],
+        default="exact",
+        required=False,
+        help_text="Array comparison operator.",
+    )
+
+
+class DatePropertyFilterSerializer(_PropertyFilterBase):
+    """Matches date/datetime values with date-specific operators."""
+
+    value = serializers.CharField(
+        help_text="Date or datetime string in ISO 8601 format (e.g. '2024-01-15' or '2024-01-15T10:30:00Z').",
+        required=True,
+    )
+    operator = serializers.ChoiceField(
+        choices=["is_date_exact", "is_date_before", "is_date_after"],
+        default="is_date_exact",
+        required=False,
+        help_text="Date comparison operator.",
+    )
+
+
+class ExistencePropertyFilterSerializer(_PropertyFilterBase):
+    """Checks whether a property is set or not, without comparing values."""
+
+    operator = serializers.ChoiceField(
+        choices=["is_set", "is_not_set"],
+        required=True,
+        help_text="Existence check operator.",
     )
 
 

@@ -5,6 +5,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
+assignment-coordination = { path = "../common/assignment-coordination" }
 async-trait = { workspace = true }
 etcd-client = "0.18"
 serde = { workspace = true }

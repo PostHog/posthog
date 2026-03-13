@@ -11,6 +11,7 @@ from posthog.schema import (
     BreakdownType,
     DataWarehouseNode,
     EventsNode,
+    FunnelAggregateByHogQL,
     FunnelTimeToConvertResults,
     FunnelVizType,
     GroupNode,
@@ -102,7 +103,7 @@ class FunnelBase(ABC):
         if has_optional_steps:
             # validate that optional steps are only allowed in Ordered Steps funnels
             allows_optional_steps = (
-                self.context.funnelsFilter.funnelVizType in (FunnelVizType.STEPS, None)
+                self.context.funnelsFilter.funnelVizType in (FunnelVizType.STEPS, FunnelVizType.FLOW, None)
                 and self.context.funnelsFilter.funnelOrderType != StepOrderValue.UNORDERED
             )
             if not allows_optional_steps:
@@ -243,7 +244,7 @@ class FunnelBase(ABC):
             name = step.event
             action_id = step.event
         elif isinstance(step, DataWarehouseNode):
-            name = f"{step.table_name}.{step.distinct_id_field}"
+            name = step.table_name
             action_id = None
         elif isinstance(step, GroupNode):
             action_ids = [int(node.id) for node in step.nodes if isinstance(node, ActionsNode)]
@@ -280,6 +281,9 @@ class FunnelBase(ABC):
     @property
     def extra_event_fields_and_properties(self):
         return self._extra_event_fields + self._extra_event_properties
+
+    def _is_session_aggregation(self) -> bool:
+        return self.context.funnelsFilter.funnelAggregateByHogQL == FunnelAggregateByHogQL.PROPERTIES__SESSION_ID.value
 
     @property
     def _absolute_actors_step(self) -> Optional[int]:

@@ -1,5 +1,6 @@
 import z from 'zod'
 
+import generatedToolDefinitionsJson from '../../schema/generated-tool-definitions.json'
 import toolDefinitionsV2Json from '../../schema/tool-definitions-v2.json'
 import toolDefinitionsJson from '../../schema/tool-definitions.json'
 
@@ -27,21 +28,31 @@ const toolDefinitionsSchema = z.record(z.string(), ToolDefinitionSchema)
 
 let _toolDefinitionsV1: ToolDefinitions | undefined = undefined
 let _toolDefinitionsV2: ToolDefinitions | undefined = undefined
+let _generatedToolDefinitions: ToolDefinitions | undefined = undefined
+
+function getGeneratedToolDefinitions(): ToolDefinitions {
+    if (!_generatedToolDefinitions) {
+        _generatedToolDefinitions = toolDefinitionsSchema.parse(generatedToolDefinitionsJson)
+    }
+    return _generatedToolDefinitions
+}
 
 export function getToolDefinitions(version?: number): ToolDefinitions {
+    const generated = getGeneratedToolDefinitions()
+
     if (version === 2) {
         if (!_toolDefinitionsV2) {
             const base = toolDefinitionsSchema.parse(toolDefinitionsJson)
             const new_tools = toolDefinitionsSchema.parse(toolDefinitionsV2Json)
             _toolDefinitionsV2 = { ...new_tools, ...base }
         }
-        return _toolDefinitionsV2
+        return { ..._toolDefinitionsV2, ...generated }
     }
 
     if (!_toolDefinitionsV1) {
         _toolDefinitionsV1 = toolDefinitionsSchema.parse(toolDefinitionsJson)
     }
-    return _toolDefinitionsV1
+    return { ..._toolDefinitionsV1, ...generated }
 }
 
 export function getToolDefinition(toolName: string, version?: number): ToolDefinition {
@@ -60,10 +71,11 @@ export interface ToolFilterOptions {
     features?: string[] | undefined
     version?: number | undefined
     excludeTools?: string[] | undefined
+    readOnly?: boolean | undefined
 }
 
 export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
-    const { features, version } = options || {}
+    const { features, version, readOnly } = options || {}
     const toolDefinitions = getToolDefinitions(version)
 
     let entries = Object.entries(toolDefinitions)
@@ -76,6 +88,11 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
     // Filter by features if provided
     if (features && features.length > 0) {
         entries = entries.filter(([_, definition]) => definition.feature && features.includes(definition.feature))
+    }
+
+    // In read-only mode, only expose tools annotated as read-only
+    if (readOnly) {
+        entries = entries.filter(([_, definition]) => definition.annotations.readOnlyHint === true)
     }
 
     return entries.map(([toolName, _]) => toolName)

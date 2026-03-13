@@ -8,8 +8,10 @@ import { LemonButton, LemonTag, Spinner, SpinnerOverlay, Tooltip } from '@postho
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -20,8 +22,11 @@ import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBread
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LLMAnalyticsTraceEvents } from './components/LLMAnalyticsTraceEvents'
+import { SentimentBar } from './components/SentimentTag'
 import { TraceSummary, llmAnalyticsSessionDataLogic } from './llmAnalyticsSessionDataLogic'
 import { llmAnalyticsSessionLogic } from './llmAnalyticsSessionLogic'
+import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
+import { SENTIMENT_DATE_WINDOW_DAYS } from './sentimentUtils'
 import { formatLLMCost, getTraceTimestamp, sanitizeTraceUrlSearchParams } from './utils'
 
 const LLMASessionFeedbackDisplay = lazy(() =>
@@ -33,13 +38,49 @@ export const scene: SceneExport = {
     logic: llmAnalyticsSessionLogic,
 }
 
-export function LLMAnalyticsSessionScene(): JSX.Element {
-    const { sessionId, query } = useValues(llmAnalyticsSessionLogic)
+export function LLMAnalyticsSessionScene({ tabId }: { tabId?: string }): JSX.Element {
+    const sessionLogic = llmAnalyticsSessionLogic({ tabId })
+    const { sessionId, query } = useValues(sessionLogic)
+    const sessionDataLogic = llmAnalyticsSessionDataLogic({ sessionId, query, tabId })
+
+    useAttachedLogic(sessionDataLogic, sessionLogic)
 
     return (
-        <BindLogic logic={llmAnalyticsSessionDataLogic} props={{ sessionId, query }}>
-            <SessionSceneWrapper />
+        <BindLogic logic={llmAnalyticsSessionLogic} props={{ tabId }}>
+            <BindLogic logic={llmAnalyticsSessionDataLogic} props={{ sessionId, query, tabId }}>
+                <SessionSceneWrapper />
+            </BindLogic>
         </BindLogic>
+    )
+}
+
+function SessionTraceSentimentBar({ traceId, createdAt }: { traceId: string; createdAt?: string }): JSX.Element | null {
+    const { sentimentByTraceId, isTraceLoading } = useValues(llmSentimentLazyLoaderLogic)
+    const { ensureSentimentLoaded } = useActions(llmSentimentLazyLoaderLogic)
+
+    const cached = sentimentByTraceId[traceId]
+    const loading = isTraceLoading(traceId)
+
+    if (cached === undefined && !loading) {
+        ensureSentimentLoaded(
+            traceId,
+            createdAt
+                ? { dateFrom: createdAt, dateTo: dayjs(createdAt).add(SENTIMENT_DATE_WINDOW_DAYS, 'day').toISOString() }
+                : undefined
+        )
+    }
+
+    if (cached === null) {
+        return null
+    }
+
+    return (
+        <SentimentBar
+            label={cached?.label ?? 'neutral'}
+            score={cached?.score ?? 0}
+            loading={loading || cached === undefined}
+            messages={cached?.messages}
+        />
     )
 }
 
@@ -48,6 +89,7 @@ function SessionSceneWrapper(): JSX.Element {
     const { searchParams } = useValues(router)
     const traceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
     const showFeedback = !!featureFlags[FEATURE_FLAGS.POSTHOG_AI_CONVERSATION_FEEDBACK_LLMA_SESSIONS]
+    const showSentiment = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
 
     const {
         traces,
@@ -59,9 +101,11 @@ function SessionSceneWrapper(): JSX.Element {
         loadingFullTraces,
         traceSummaries,
         summariesLoading,
+        hasMoreData,
+        nextDataLoading,
     } = useValues(llmAnalyticsSessionDataLogic)
     const { sessionId } = useValues(llmAnalyticsSessionLogic)
-    const { toggleTraceExpanded, toggleGenerationExpanded, summarizeAllTraces } =
+    const { toggleTraceExpanded, toggleGenerationExpanded, summarizeAllTraces, loadNextData } =
         useActions(llmAnalyticsSessionDataLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
@@ -98,7 +142,8 @@ function SessionSceneWrapper(): JSX.Element {
                                 <span className="font-mono">{sessionId}</span>
                             </LemonTag>
                             <LemonTag size="medium" className="bg-surface-primary">
-                                {sessionStats.traceCount} {sessionStats.traceCount === 1 ? 'trace' : 'traces'}
+                                {sessionStats.traceCount}
+                                {hasMoreData ? '+' : ''} {sessionStats.traceCount === 1 ? 'trace' : 'traces'}
                             </LemonTag>
                             {sessionStats.totalCost > 0 && (
                                 <LemonTag size="medium" className="bg-surface-primary">
@@ -208,6 +253,12 @@ function SessionSceneWrapper(): JSX.Element {
                                                             {formatLLMCost(trace.totalCost)}
                                                         </LemonTag>
                                                     )}
+                                                    {showSentiment && (
+                                                        <SessionTraceSentimentBar
+                                                            traceId={trace.id}
+                                                            createdAt={trace.createdAt}
+                                                        />
+                                                    )}
                                                     <Link
                                                         to={
                                                             combineUrl(urls.llmAnalyticsTrace(trace.id), {
@@ -264,6 +315,7 @@ function SessionSceneWrapper(): JSX.Element {
                                                         isLoading={loadingFullTraces.has(trace.id)}
                                                         expandedEventIds={expandedGenerationIds}
                                                         onToggleEventExpand={toggleGenerationExpanded}
+                                                        traceId={trace.id}
                                                     />
                                                 </div>
                                             </div>
@@ -271,6 +323,18 @@ function SessionSceneWrapper(): JSX.Element {
                                     </div>
                                 )
                             })}
+                            {hasMoreData && (
+                                <div className="flex justify-center pt-2">
+                                    <LemonButton
+                                        type="secondary"
+                                        loading={nextDataLoading}
+                                        onClick={loadNextData}
+                                        data-attr="llm-session-load-more-traces"
+                                    >
+                                        Load more traces
+                                    </LemonButton>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

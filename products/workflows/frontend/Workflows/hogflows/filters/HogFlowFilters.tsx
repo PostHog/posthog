@@ -3,15 +3,18 @@ import { useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { isOperatorSemver } from 'lib/utils'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { FilterType } from '~/types'
+import { FilterType, PropertyOperator } from '~/types'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowAction } from '../types'
+
+export const WORKFLOW_OPERATOR_ALLOWLIST = Object.values(PropertyOperator).filter((op) => !isOperatorSemver(op))
 
 function useSampleGlobals(): Record<string, any> {
     const { workflow } = useValues(workflowLogic)
@@ -87,6 +90,7 @@ export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }
             buttonCopy={buttonCopy ?? 'Add filter'}
             allowNonCapturedEvents
             hogQLGlobals={sampleGlobals}
+            operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
         />
     )
 }
@@ -114,6 +118,7 @@ export function HogFlowPropertyFilters({ filtersKey, filters, setFilters }: HogF
                 after: '-30d',
             }}
             hogQLGlobals={sampleGlobals}
+            operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
         />
     )
 }

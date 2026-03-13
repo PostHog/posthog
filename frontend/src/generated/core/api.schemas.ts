@@ -233,6 +233,31 @@ export interface PatchedOrganizationMemberApi {
 }
 
 /**
+ * Serializer for organization-scoped OAuth applications (read-only).
+ */
+export interface OrganizationOAuthApplicationApi {
+    readonly id: string
+    /** @maxLength 255 */
+    name?: string
+    /** @maxLength 100 */
+    client_id?: string
+    readonly redirect_uris_list: readonly string[]
+    /** True if this application has been verified by PostHog */
+    is_verified?: boolean
+    readonly created: string
+    readonly updated: string
+}
+
+export interface PaginatedOrganizationOAuthApplicationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: OrganizationOAuthApplicationApi[]
+}
+
+/**
  * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
 passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
 backward compatibility of the REST API.
@@ -552,6 +577,8 @@ export interface ProjectBackwardCompatApi {
     conversations_enabled?: boolean | null
     conversations_settings?: unknown | null
     logs_settings?: unknown | null
+    /** @nullable */
+    proactive_tasks_enabled?: boolean | null
     readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnumApi[]
 }
 
@@ -675,6 +702,8 @@ export interface PatchedProjectBackwardCompatApi {
     conversations_enabled?: boolean | null
     conversations_settings?: unknown | null
     logs_settings?: unknown | null
+    /** @nullable */
+    proactive_tasks_enabled?: boolean | null
     readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnumApi[]
 }
 
@@ -954,106 +983,6 @@ export interface PatchedDashboardTemplateApi {
 }
 
 /**
- * * `allow` - Allow
- * `reject` - Reject
- */
-export type EnforcementModeEnumApi = (typeof EnforcementModeEnumApi)[keyof typeof EnforcementModeEnumApi]
-
-export const EnforcementModeEnumApi = {
-    Allow: 'allow',
-    Reject: 'reject',
-} as const
-
-/**
- * Serializer mixin that handles tags for objects.
- */
-export interface EnterpriseEventDefinitionApi {
-    readonly id: string
-    /** @maxLength 400 */
-    name: string
-    /** @nullable */
-    owner?: number | null
-    /** @nullable */
-    description?: string | null
-    tags?: unknown[]
-    /** @nullable */
-    readonly created_at: string | null
-    readonly updated_at: string
-    readonly updated_by: UserBasicApi
-    /** @nullable */
-    readonly last_seen_at: string | null
-    readonly last_updated_at: string
-    verified?: boolean
-    /** @nullable */
-    readonly verified_at: string | null
-    readonly verified_by: UserBasicApi
-    /** @nullable */
-    hidden?: boolean | null
-    enforcement_mode?: EnforcementModeEnumApi
-    readonly is_action: boolean
-    readonly action_id: number
-    readonly is_calculating: boolean
-    readonly last_calculated_at: string
-    readonly created_by: UserBasicApi
-    post_to_slack?: boolean
-    default_columns?: string[]
-    readonly media_preview_urls: readonly string[]
-}
-
-export interface PaginatedEnterpriseEventDefinitionListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: EnterpriseEventDefinitionApi[]
-}
-
-/**
- * Serializer mixin that handles tags for objects.
- */
-export interface PatchedEnterpriseEventDefinitionApi {
-    readonly id?: string
-    /** @maxLength 400 */
-    name?: string
-    /** @nullable */
-    owner?: number | null
-    /** @nullable */
-    description?: string | null
-    tags?: unknown[]
-    /** @nullable */
-    readonly created_at?: string | null
-    readonly updated_at?: string
-    readonly updated_by?: UserBasicApi
-    /** @nullable */
-    readonly last_seen_at?: string | null
-    readonly last_updated_at?: string
-    verified?: boolean
-    /** @nullable */
-    readonly verified_at?: string | null
-    readonly verified_by?: UserBasicApi
-    /** @nullable */
-    hidden?: boolean | null
-    enforcement_mode?: EnforcementModeEnumApi
-    readonly is_action?: boolean
-    readonly action_id?: number
-    readonly is_calculating?: boolean
-    readonly last_calculated_at?: string
-    readonly created_by?: UserBasicApi
-    post_to_slack?: boolean
-    default_columns?: string[]
-    readonly media_preview_urls?: readonly string[]
-}
-
-export type EventDefinitionApiProperties = { [key: string]: unknown }
-
-export interface EventDefinitionApi {
-    elements: unknown[]
-    event: string
-    properties: EventDefinitionApiProperties
-}
-
-/**
  * * `image/png` - image/png
  * `application/pdf` - application/pdf
  * `text/csv` - text/csv
@@ -1159,6 +1088,15 @@ export interface PatchedFileSystemApi {
     readonly last_viewed_at?: string | null
 }
 
+export interface FlagValueItemApi {
+    name: unknown
+}
+
+export interface FlagValueResponseApi {
+    results: FlagValueItemApi[]
+    refreshing: boolean
+}
+
 export interface SharingConfigurationApi {
     readonly created_at: string
     enabled?: boolean
@@ -1171,6 +1109,7 @@ export interface SharingConfigurationApi {
 
 /**
  * * `slack` - Slack
+ * `slack-twig` - Slack Twig
  * `salesforce` - Salesforce
  * `hubspot` - Hubspot
  * `google-pubsub` - Google Pubsub
@@ -1195,11 +1134,13 @@ export interface SharingConfigurationApi {
  * `azure-blob` - Azure Blob
  * `firebase` - Firebase
  * `jira` - Jira
+ * `pinterest-ads` - Pinterest Ads
  */
-export type KindCf2EnumApi = (typeof KindCf2EnumApi)[keyof typeof KindCf2EnumApi]
+export type Kind439EnumApi = (typeof Kind439EnumApi)[keyof typeof Kind439EnumApi]
 
-export const KindCf2EnumApi = {
+export const Kind439EnumApi = {
     Slack: 'slack',
+    SlackTwig: 'slack-twig',
     Salesforce: 'salesforce',
     Hubspot: 'hubspot',
     GooglePubsub: 'google-pubsub',
@@ -1224,6 +1165,7 @@ export const KindCf2EnumApi = {
     AzureBlob: 'azure-blob',
     Firebase: 'firebase',
     Jira: 'jira',
+    PinterestAds: 'pinterest-ads',
 } as const
 
 /**
@@ -1231,7 +1173,7 @@ export const KindCf2EnumApi = {
  */
 export interface IntegrationApi {
     readonly id: number
-    kind: KindCf2EnumApi
+    kind: Kind439EnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -1253,12 +1195,27 @@ export interface PaginatedIntegrationListApi {
  */
 export interface PatchedIntegrationApi {
     readonly id?: number
-    kind?: KindCf2EnumApi
+    kind?: Kind439EnumApi
     config?: unknown
     readonly created_at?: string
     readonly created_by?: UserBasicApi
     readonly errors?: string
     readonly display_name?: string
+}
+
+export interface GitHubBranchesResponseApi {
+    /** List of branch names */
+    branches: string[]
+}
+
+export interface GitHubRepoApi {
+    id: number
+    name: string
+    full_name: string
+}
+
+export interface GitHubReposResponseApi {
+    repositories: GitHubRepoApi[]
 }
 
 /**
@@ -1476,6 +1433,7 @@ export interface SubscriptionApi {
     dashboard?: number | null
     /** @nullable */
     insight?: number | null
+    dashboard_export_insights?: number[]
     target_type: TargetTypeEnumApi
     target_value: string
     frequency: FrequencyEnumApi
@@ -1513,6 +1471,8 @@ export interface SubscriptionApi {
     /** @nullable */
     readonly next_delivery_date: string | null
     /** @nullable */
+    integration_id?: number | null
+    /** @nullable */
     invite_message?: string | null
 }
 
@@ -1534,6 +1494,7 @@ export interface PatchedSubscriptionApi {
     dashboard?: number | null
     /** @nullable */
     insight?: number | null
+    dashboard_export_insights?: number[]
     target_type?: TargetTypeEnumApi
     target_value?: string
     frequency?: FrequencyEnumApi
@@ -1570,6 +1531,8 @@ export interface PatchedSubscriptionApi {
     readonly summary?: string
     /** @nullable */
     readonly next_delivery_date?: string | null
+    /** @nullable */
+    integration_id?: number | null
     /** @nullable */
     invite_message?: string | null
 }
@@ -1929,6 +1892,17 @@ export type MembersListParams = {
     offset?: number
 }
 
+export type OauthApplicationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type List2Params = {
     /**
      * Number of results to return per page.
@@ -1988,24 +1962,6 @@ export type DashboardTemplatesListParams = {
     offset?: number
 }
 
-export type EventDefinitionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type EventDefinitionsByNameRetrieveParams = {
-    /**
-     * The exact event name to look up
-     */
-    name: string
-}
-
 export type ExportsListParams = {
     /**
      * Number of results to return per page.
@@ -2039,8 +1995,6 @@ export type FlagValueValuesRetrieveParams = {
     key?: string
 }
 
-export type FlagValueValuesRetrieve200Item = { [key: string]: unknown }
-
 /**
  * Unspecified response body
  */
@@ -2060,6 +2014,14 @@ export type IntegrationsList2Params = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type IntegrationsGithubBranchesRetrieveParams = {
+    /**
+     * Repository in owner/repo format
+     * @minLength 1
+     */
+    repo: string
 }
 
 export type PropertyDefinitionsListParams = {

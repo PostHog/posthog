@@ -16,14 +16,14 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { SceneExport } from 'scenes/sceneTypes'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
     ScenePanelActionsSection,
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { isUniversalFilters } from '../utils'
 import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
@@ -98,7 +98,6 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
         type: 'session_recording_playlist',
         ref: playlist?.short_id,
         enabled: Boolean(playlist?.short_id && !playlistLoading && !playlist?.is_synthetic),
-        deps: [playlist?.short_id, playlistLoading, playlist?.is_synthetic],
     })
 
     if (playlistLoading) {

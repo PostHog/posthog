@@ -53,7 +53,7 @@
     "extensions": [
         "ms-python.python",
         "ms-python.vscode-pylance",
-        "esbenp.prettier-vscode",
+        "oxc.oxc-vscode",
         "charliermarsh.ruff",
         "ms-azuretools.vscode-docker",
         "stkb.rewrap",

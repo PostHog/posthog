@@ -860,7 +860,6 @@ class TestEnrichedAnalytics(BaseTest):
     def test_find_flags_with_enriched_analytics(self):
         f1 = FeatureFlag.objects.create(
             team=self.team,
-            rollout_percentage=30,
             name="Beta feature",
             key="test_flag",
             created_by=self.user,
@@ -868,7 +867,6 @@ class TestEnrichedAnalytics(BaseTest):
         )
         f2 = FeatureFlag.objects.create(
             team=self.team,
-            rollout_percentage=30,
             name="Beta feature",
             key="beta-feature",
             created_by=self.user,
@@ -876,14 +874,12 @@ class TestEnrichedAnalytics(BaseTest):
         )
         f3 = FeatureFlag.objects.create(
             team=self.team,
-            rollout_percentage=30,
             name="Beta feature",
             key="beta-feature2",
             created_by=self.user,
         )
         f4 = FeatureFlag.objects.create(
             team=self.team,
-            rollout_percentage=30,
             name="Beta feature",
             key="beta-feature3",
             created_by=self.user,

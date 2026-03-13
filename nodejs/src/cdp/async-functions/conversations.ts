@@ -13,14 +13,14 @@ registerAsyncFunction('postHogGetTicket', {
             throw new Error("[HogFunction] - postHogGetTicket call missing 'ticket_id' property")
         }
 
-        const team = await context.hub.teamManager.getTeam(context.invocation.teamId)
+        const team = await context.teamManager.getTeam(context.invocation.teamId)
         if (!team) {
             throw new Error(`Team ${context.invocation.teamId} not found`)
         }
 
         result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
             type: 'fetch',
-            url: `${context.hub.SITE_URL}/api/conversations/external/ticket/${ticketId}`,
+            url: `${context.siteUrl}/api/conversations/external/ticket/${ticketId}`,
             method: 'GET',
             headers: { Authorization: `Bearer ${team.api_token}` },
         })
@@ -42,15 +42,22 @@ registerAsyncFunction('postHogGetTicket', {
             status: 200,
             body: {
                 id: args[0]?.ticket_id ?? 'mock-ticket-id',
+                ticket_number: 1,
                 status: 'new',
                 priority: null,
-                ticket_number: 1,
                 channel_source: 'widget',
+                distinct_id: 'mock-distinct-id',
+                created_at: DateTime.now().toISO(),
+                updated_at: DateTime.now().toISO(),
                 message_count: 0,
                 last_message_at: null,
                 last_message_text: null,
                 unread_team_count: 0,
                 unread_customer_count: 0,
+                sla_due_at: null,
+                assignee: null,
+                current_url: null,
+                tags: [],
             },
         }
     },
@@ -66,14 +73,14 @@ registerAsyncFunction('postHogUpdateTicket', {
             throw new Error("[HogFunction] - postHogUpdateTicket call missing 'ticket_id' property")
         }
 
-        const updateTeam = await context.hub.teamManager.getTeam(context.invocation.teamId)
+        const updateTeam = await context.teamManager.getTeam(context.invocation.teamId)
         if (!updateTeam) {
             throw new Error(`Team ${context.invocation.teamId} not found`)
         }
 
         result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
             type: 'fetch',
-            url: `${context.hub.SITE_URL}/api/conversations/external/ticket/${ticketId}`,
+            url: `${context.siteUrl}/api/conversations/external/ticket/${ticketId}`,
             method: 'PATCH',
             body: JSON.stringify(updates),
             headers: {

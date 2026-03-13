@@ -40,69 +40,11 @@ export interface PatchedErrorTrackingAssignmentRuleApi {
     disabled_data?: unknown | null
 }
 
-/**
- * * `web` - Web
- */
-export type LibraryEnumApi = (typeof LibraryEnumApi)[keyof typeof LibraryEnumApi]
-
-export const LibraryEnumApi = {
-    Web: 'web',
-} as const
-
-/**
- * * `all` - All
- * `any` - Any
- */
-export type MatchTypeEnumApi = (typeof MatchTypeEnumApi)[keyof typeof MatchTypeEnumApi]
-
-export const MatchTypeEnumApi = {
-    All: 'all',
-    Any: 'any',
-} as const
-
-export interface ErrorTrackingAutoCaptureControlsApi {
-    readonly id: string
-    readonly library: LibraryEnumApi
-    match_type?: MatchTypeEnumApi
-    /** @pattern ^-?\d{0,1}(?:\.\d{0,2})?$ */
-    sample_rate?: string
-    linked_feature_flag?: unknown | null
-    /** @nullable */
-    event_triggers?: (string | null)[] | null
-    /** @nullable */
-    url_triggers?: (unknown | null)[] | null
-    /** @nullable */
-    url_blocklist?: (unknown | null)[] | null
-}
-
-export interface PaginatedErrorTrackingAutoCaptureControlsListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ErrorTrackingAutoCaptureControlsApi[]
-}
-
-export interface PatchedErrorTrackingAutoCaptureControlsApi {
-    readonly id?: string
-    readonly library?: LibraryEnumApi
-    match_type?: MatchTypeEnumApi
-    /** @pattern ^-?\d{0,1}(?:\.\d{0,2})?$ */
-    sample_rate?: string
-    linked_feature_flag?: unknown | null
-    /** @nullable */
-    event_triggers?: (string | null)[] | null
-    /** @nullable */
-    url_triggers?: (unknown | null)[] | null
-    /** @nullable */
-    url_blocklist?: (unknown | null)[] | null
-}
-
 export type IntegrationKindApi = (typeof IntegrationKindApi)[keyof typeof IntegrationKindApi]
 
 export const IntegrationKindApi = {
     Slack: 'slack',
+    SlackTwig: 'slack-twig',
     Salesforce: 'salesforce',
     Hubspot: 'hubspot',
     GooglePubsub: 'google-pubsub',
@@ -127,6 +69,7 @@ export const IntegrationKindApi = {
     AzureBlob: 'azure-blob',
     Firebase: 'firebase',
     Jira: 'jira',
+    PinterestAds: 'pinterest-ads',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
@@ -381,17 +324,6 @@ export interface PatchedErrorTrackingSymbolSetApi {
 }
 
 export type ErrorTrackingAssignmentRulesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type ErrorTrackingAutocaptureControlsListParams = {
     /**
      * Number of results to return per page.
      */

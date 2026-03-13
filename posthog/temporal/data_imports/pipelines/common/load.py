@@ -11,6 +11,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.pipelines.pipeline.utils import normalize_column_name
+from posthog.temporal.data_imports.pipelines.pipeline_sync import set_initial_sync_complete
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
@@ -133,6 +134,7 @@ async def run_post_load_operations(
         update_last_synced_at,
         validate_schema_and_update_table,
     )
+    from posthog.temporal.data_imports.pipelines.pipeline_v3.load.metrics import POST_LOAD_DURATION_SECONDS
 
     if delta_table_helper is None or await delta_table_helper.get_delta_table() is None:
         logger.debug("No deltalake table, not continuing with post-run ops")
@@ -140,7 +142,8 @@ async def run_post_load_operations(
 
     logger.debug("Triggering compaction and vacuuming on delta table")
     try:
-        await delta_table_helper.compact_table()
+        with POST_LOAD_DURATION_SECONDS.labels(operation="compact").time():
+            await delta_table_helper.compact_table()
     except Exception as e:
         capture_exception(e)
         logger.exception(f"Compaction failed: {e}", exc_info=e)
@@ -150,14 +153,15 @@ async def run_post_load_operations(
     )()
 
     logger.debug(f"Preparing S3 files - total parquet files: {len(file_uris)}")
-    queryable_folder = await prepare_s3_files_for_querying(
-        await database_sync_to_async_pool(job.folder_path)(),
-        resource_name,
-        file_uris,
-        delete_existing=True,
-        existing_queryable_folder=existing_queryable_folder,
-        logger=logger,
-    )
+    with POST_LOAD_DURATION_SECONDS.labels(operation="prepare_s3").time():
+        queryable_folder = await prepare_s3_files_for_querying(
+            await database_sync_to_async_pool(job.folder_path)(),
+            resource_name,
+            file_uris,
+            delete_existing=True,
+            existing_queryable_folder=existing_queryable_folder,
+            logger=logger,
+        )
 
     logger.debug("Updating last synced at timestamp on schema")
     await update_last_synced_at(job_id=str(job.id), schema_id=str(schema.id), team_id=job.team_id)
@@ -165,17 +169,22 @@ async def run_post_load_operations(
     logger.debug("Notifying revenue analytics that sync has completed")
     await notify_revenue_analytics_that_sync_has_completed(schema, source, logger)
 
+    if not schema.initial_sync_complete:
+        await logger.adebug("Setting initial_sync_complete on schema")
+        await set_initial_sync_complete(schema_id=schema.id, team_id=job.team_id)
+
     if resource is not None:
         await finalize_desc_sort_incremental_value(resource, schema, last_incremental_field_value, logger)
 
     logger.debug("Validating schema and updating table")
-    await validate_schema_and_update_table(
-        run_id=str(job.id),
-        team_id=job.team_id,
-        schema_id=schema.id,
-        table_schema_dict=table_schema_dict,
-        row_count=row_count,
-        queryable_folder=queryable_folder,
-        table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
-    )
+    with POST_LOAD_DURATION_SECONDS.labels(operation="validate_schema").time():
+        await validate_schema_and_update_table(
+            run_id=str(job.id),
+            team_id=job.team_id,
+            schema_id=schema.id,
+            table_schema_dict=table_schema_dict,
+            row_count=row_count,
+            queryable_folder=queryable_folder,
+            table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+        )
     logger.debug("Finished validating schema and updating table")

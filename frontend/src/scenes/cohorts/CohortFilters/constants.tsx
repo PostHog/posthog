@@ -429,10 +429,6 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
                 type: FilterType.EventFilters,
             },
             {
-                type: FilterType.Text,
-                defaultValue: 'after',
-            },
-            {
                 fieldKey: 'explicit_datetime',
                 type: FilterType.RelativeAndExactTime,
                 defaultValue: '-30d',
@@ -458,10 +454,6 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'event_filters',
                 type: FilterType.EventFilters,
-            },
-            {
-                type: FilterType.Text,
-                defaultValue: 'after',
             },
             {
                 fieldKey: 'explicit_datetime',
@@ -502,7 +494,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             },
             {
                 type: FilterType.Text,
-                defaultValue: 'times after',
+                defaultValue: 'times',
             },
             {
                 fieldKey: 'explicit_datetime',

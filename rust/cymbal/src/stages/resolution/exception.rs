@@ -2,7 +2,7 @@ use crate::{
     error::UnhandledError,
     frames::RawFrame,
     metric_consts::EXCEPTION_RESOLVER_OPERATOR,
-    stages::{pipeline::ExceptionEventHandledError, resolution::ResolutionStage},
+    stages::{pipeline::HandledError, resolution::ResolutionStage},
     types::{
         batch::Batch,
         exception_properties::ExceptionProperties,
@@ -35,7 +35,7 @@ impl ExceptionResolver {
 impl ValueOperator for ExceptionResolver {
     type Context = ResolutionStage;
     type Item = ExceptionProperties;
-    type HandledError = ExceptionEventHandledError;
+    type HandledError = HandledError;
     type UnhandledError = UnhandledError;
 
     fn name(&self) -> &'static str {
@@ -88,8 +88,9 @@ mod test {
         langs::{java::RawJavaFrame, CommonFrameMetadata},
         stages::resolution::symbol::{local::LocalSymbolResolver, SymbolResolver},
         symbol_store::{
-            chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider, proguard::ProguardProvider,
-            saving::SymbolSetRecord, sourcemap::SourcemapProvider, Catalog, MockS3Client,
+            apple::AppleProvider, chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider,
+            proguard::ProguardProvider, saving::SymbolSetRecord, sourcemap::SourcemapProvider,
+            Catalog, MockS3Client,
         },
         types::{Exception, Stacktrace},
     };
@@ -152,7 +153,14 @@ mod test {
             config.object_storage_bucket.clone(),
         );
 
-        let c = Catalog::new(smp, hmp, pgp);
+        let apple = ChunkIdFetcher::new(
+            AppleProvider {},
+            client.clone(),
+            db.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let c = Catalog::new(smp, hmp, pgp, apple);
 
         let frame = RawJavaFrame {
             module: "a1.d".to_string(),

@@ -89,6 +89,7 @@ export interface MinimalFeatureFlagApi {
 * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
     readonly evaluation_tags: readonly string[]
+    readonly evaluation_contexts: readonly string[]
 }
 
 /**
@@ -172,7 +173,7 @@ export interface SurveyApi {
     linked_insight_id?: number | null
     readonly targeting_flag: MinimalFeatureFlagApi
     readonly internal_targeting_flag: MinimalFeatureFlagApi
-    /** 
+    /**
         The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
 
         Basic (open-ended question)
@@ -255,6 +256,32 @@ export interface SurveyApi {
         {
             "type": "specific_question",
             "index": 2
+        }
+        ```
+
+        Translations: Each question can include inline translations.
+        - `translations`: Object mapping language codes to translated fields.
+        - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+        - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
+
+        Example with translations:
+        ```json
+        {
+            "id": "uuid",
+            "type": "rating",
+            "question": "How satisfied are you?",
+            "lowerBoundLabel": "Not satisfied",
+            "upperBoundLabel": "Very satisfied",
+            "translations": {
+                "es": {
+                    "question": "¿Qué tan satisfecho estás?",
+                    "lowerBoundLabel": "No satisfecho",
+                    "upperBoundLabel": "Muy satisfecho"
+                },
+                "fr": {
+                    "question": "Dans quelle mesure êtes-vous satisfait?"
+                }
+            }
         }
         ```
          */
@@ -317,11 +344,13 @@ export interface SurveyApi {
     enable_partial_responses?: boolean | null
     /** @nullable */
     enable_iframe_embedding?: boolean | null
+    translations?: unknown | null
     /**
      * The effective access level the user has for this object
      * @nullable
      */
     readonly user_access_level: string | null
+    form_content?: unknown | null
 }
 
 export interface PaginatedSurveyListApi {
@@ -352,7 +381,7 @@ export interface SurveySerializerCreateUpdateOnlyApi {
     targeting_flag_filters?: unknown | null
     /** @nullable */
     remove_targeting_flag?: boolean | null
-    /** 
+    /**
         The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
 
         Basic (open-ended question)
@@ -435,6 +464,32 @@ export interface SurveySerializerCreateUpdateOnlyApi {
         {
             "type": "specific_question",
             "index": 2
+        }
+        ```
+
+        Translations: Each question can include inline translations.
+        - `translations`: Object mapping language codes to translated fields.
+        - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+        - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
+
+        Example with translations:
+        ```json
+        {
+            "id": "uuid",
+            "type": "rating",
+            "question": "How satisfied are you?",
+            "lowerBoundLabel": "Not satisfied",
+            "upperBoundLabel": "Very satisfied",
+            "translations": {
+                "es": {
+                    "question": "¿Qué tan satisfecho estás?",
+                    "lowerBoundLabel": "No satisfecho",
+                    "upperBoundLabel": "Muy satisfecho"
+                },
+                "fr": {
+                    "question": "Dans quelle mesure êtes-vous satisfait?"
+                }
+            }
         }
         ```
          */
@@ -496,7 +551,9 @@ export interface SurveySerializerCreateUpdateOnlyApi {
     enable_partial_responses?: boolean | null
     /** @nullable */
     enable_iframe_embedding?: boolean | null
+    translations?: unknown | null
     _create_in_folder?: string
+    form_content?: unknown | null
 }
 
 export interface PatchedSurveySerializerCreateUpdateOnlyApi {
@@ -518,7 +575,7 @@ export interface PatchedSurveySerializerCreateUpdateOnlyApi {
     targeting_flag_filters?: unknown | null
     /** @nullable */
     remove_targeting_flag?: boolean | null
-    /** 
+    /**
         The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
 
         Basic (open-ended question)
@@ -603,6 +660,32 @@ export interface PatchedSurveySerializerCreateUpdateOnlyApi {
             "index": 2
         }
         ```
+
+        Translations: Each question can include inline translations.
+        - `translations`: Object mapping language codes to translated fields.
+        - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+        - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
+
+        Example with translations:
+        ```json
+        {
+            "id": "uuid",
+            "type": "rating",
+            "question": "How satisfied are you?",
+            "lowerBoundLabel": "Not satisfied",
+            "upperBoundLabel": "Very satisfied",
+            "translations": {
+                "es": {
+                    "question": "¿Qué tan satisfecho estás?",
+                    "lowerBoundLabel": "No satisfecho",
+                    "upperBoundLabel": "Muy satisfecho"
+                },
+                "fr": {
+                    "question": "Dans quelle mesure êtes-vous satisfait?"
+                }
+            }
+        }
+        ```
          */
     questions?: unknown | null
     conditions?: unknown | null
@@ -662,10 +745,13 @@ export interface PatchedSurveySerializerCreateUpdateOnlyApi {
     enable_partial_responses?: boolean | null
     /** @nullable */
     enable_iframe_embedding?: boolean | null
+    translations?: unknown | null
     _create_in_folder?: string
+    form_content?: unknown | null
 }
 
 export type SurveysListParams = {
+    archived?: boolean
     /**
      * Number of results to return per page.
      */

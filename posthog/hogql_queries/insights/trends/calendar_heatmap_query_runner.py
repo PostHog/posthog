@@ -1,6 +1,9 @@
 from datetime import datetime, timedelta
 from math import ceil
-from typing import Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
+
+if TYPE_CHECKING:
+    from rest_framework.request import Request
 
 from django.db import models
 from django.db.models.functions import Coalesce
@@ -41,7 +44,8 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.property_definition import PropertyDefinition
+
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 SEPARATOR = "','"
 
@@ -126,11 +130,14 @@ class CalendarHeatmapQueryRunner(AnalyticsQueryRunner[CalendarHeatmapResponse]):
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
+        request: Optional["Request"] = None,
     ):
         if isinstance(query, dict):
             query = CalendarHeatmapQuery.model_validate(query)
 
-        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+        super().__init__(
+            query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, request=request
+        )
 
     def _refresh_frequency(self):
         date_to = self.query_date_range.date_to()

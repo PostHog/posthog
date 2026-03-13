@@ -195,6 +195,29 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         self.assertEqual(key.encrypted_config["api_key"], "sk-new-key-12345")
         mock_validate.assert_called_once_with("openai", "sk-new-key-12345")
 
+    @patch("products.llm_analytics.backend.api.provider_keys.validate_provider_key")
+    def test_can_update_fireworks_provider_key_api_key(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="fireworks",
+            name="Fireworks Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "fw-old-key"},
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/",
+            {"api_key": "fw-new-key-12345"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        key.refresh_from_db()
+        self.assertEqual(key.encrypted_config["api_key"], "fw-new-key-12345")
+        mock_validate.assert_called_once_with("fireworks", "fw-new-key-12345")
+
     def test_can_delete_provider_key(self):
         key = LLMProviderKey.objects.create(
             team=self.team,

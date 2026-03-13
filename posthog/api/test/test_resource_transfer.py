@@ -334,8 +334,8 @@ class TestResourceTransferTransfer(APIBaseTest):
         assert log is not None
         assert log.user == self.user
         assert log.detail["name"] == "My insight"
-        assert log.detail["changes"][0]["field"] == "source_team_id"
-        assert log.detail["changes"][0]["after"] == self.team.pk
+        assert log.detail["changes"][0]["type"] == "Insight"
+        assert log.detail["changes"][0]["action"] == "created"
 
     def test_transfer_logs_created_activity_in_destination_for_dashboard_via_signal(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
@@ -377,8 +377,8 @@ class TestResourceTransferTransfer(APIBaseTest):
         assert log.user == self.user
         assert log.item_id == str(insight.pk)
         assert log.detail["name"] == "My insight"
-        assert log.detail["changes"][0]["field"] == "destination_team_id"
-        assert log.detail["changes"][0]["after"] == self.dest_team.pk
+        assert log.detail["changes"][0]["type"] == "Insight"
+        assert log.detail["changes"][0]["action"] == "copied"
 
     def test_transfer_dashboard_logs_activity_for_user_facing_resources_only(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")

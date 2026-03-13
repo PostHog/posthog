@@ -13,9 +13,9 @@ import type { DataHealthIssue } from '~/layout/navigation-3000/sidepanel/panels/
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { pipelineStatusSceneLogic } from './pipelineStatusSceneLogic'
 import { PipelineStatusSummary } from './PipelineStatusSummary'
 import { PipelineStatusToolbar } from './PipelineStatusToolbar'
-import { pipelineStatusSceneLogic } from './pipelineStatusSceneLogic'
 
 export const scene: SceneExport = {
     component: PipelineStatusScene,

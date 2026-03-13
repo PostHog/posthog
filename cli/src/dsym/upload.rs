@@ -36,6 +36,12 @@ pub struct Args {
     /// This is typically $DWARF_DSYM_FILE_NAME in Xcode build phases.
     #[arg(long)]
     pub main_dsym: Option<String>,
+
+    /// Include source code files in the dSYM upload.
+    /// When enabled, source files referenced by DWARF debug info are bundled into the upload,
+    /// allowing PostHog to display source code context around crash locations.
+    #[arg(long, default_value_t = false)]
+    pub include_source: bool,
 }
 
 pub fn upload(args: &Args) -> Result<()> {
@@ -45,6 +51,7 @@ pub fn upload(args: &Args) -> Result<()> {
         version,
         build,
         main_dsym,
+        include_source,
     } = args;
 
     let directory = directory.canonicalize().map_err(|e| {
@@ -174,7 +181,7 @@ pub fn upload(args: &Args) -> Result<()> {
     for dsym_path in dsym_paths {
         info!("Processing dSYM: {}", dsym_path.display());
 
-        match DsymFile::new(&dsym_path) {
+        match DsymFile::new(&dsym_path, *include_source) {
             Ok(mut dsym_file) => {
                 dsym_file.release_id = release_id.clone();
                 info!(

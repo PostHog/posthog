@@ -1,3 +1,4 @@
+import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 /**
  * Auto-generated from the Django backend OpenAPI schema.
  * To modify these types, update the Django serializers or views, then run:
@@ -7,7 +8,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ConversationApi,
     ConversationsListParams,
@@ -18,6 +18,7 @@ import type {
     PaginatedTicketListApi,
     PatchedConversationApi,
     PatchedTicketApi,
+    SuggestReplyResponseApi,
     TicketApi,
 } from './api.schemas'
 
@@ -346,6 +347,21 @@ export const conversationsTicketsDestroy = async (
     return apiMutator<void>(getConversationsTicketsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getConversationsTicketsSuggestReplyCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/suggest_reply/`
+}
+
+export const conversationsTicketsSuggestReplyCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SuggestReplyResponseApi> => {
+    return apiMutator<SuggestReplyResponseApi>(getConversationsTicketsSuggestReplyCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

@@ -5,6 +5,7 @@ pub const FLAG_HASH_KEY_RETRIES_COUNTER: &str = "flags_hash_key_retries_total";
 pub const TEAM_CACHE_HIT_COUNTER: &str = "flags_team_cache_hit_total";
 pub const DB_TEAM_READS_COUNTER: &str = "flags_db_team_reads_total";
 pub const TOKEN_VALIDATION_ERRORS_COUNTER: &str = "flags_token_validation_errors_total";
+pub const TEAM_NEGATIVE_CACHE_HIT_COUNTER: &str = "flags_team_negative_cache_hit_total";
 pub const DB_COHORT_READS_COUNTER: &str = "flags_db_cohort_reads_total";
 pub const DB_COHORT_ERRORS_COUNTER: &str = "flags_db_cohort_errors_total";
 pub const COHORT_CACHE_HIT_COUNTER: &str = "flags_cohort_cache_hit_total";
@@ -23,6 +24,7 @@ pub const FLAG_REQUEST_FAULTS_COUNTER: &str = "flags_request_faults_total";
 pub const DB_CONNECTION_POOL_ACTIVE_COUNTER: &str = "flags_db_connection_pool_active_total";
 pub const DB_CONNECTION_POOL_IDLE_COUNTER: &str = "flags_db_connection_pool_idle_total";
 pub const DB_CONNECTION_POOL_MAX_COUNTER: &str = "flags_db_connection_pool_max_total";
+pub const DB_CONNECTION_POOL_SIZE_GAUGE: &str = "flags_db_connection_pool_size";
 
 // Flag evaluation timing
 pub const FLAG_EVALUATION_TIME: &str = "flags_evaluation_time";
@@ -66,6 +68,23 @@ pub const FLAG_HASH_KEY_QUERY_RESULT: &str = "flags_hash_key_query_result_total"
 pub const FLAG_DEFINITIONS_RATE_LIMITED_COUNTER: &str = "flags_flag_definitions_rate_limited_total";
 pub const FLAG_DEFINITIONS_REQUESTS_COUNTER: &str = "flags_flag_definitions_requests_total";
 
+// Flag definitions cache metrics
+// Labels: source (redis, s3, fallback)
+pub const FLAG_DEFINITIONS_CACHE_HIT_COUNTER: &str = "flags_flag_definitions_cache_hit_total";
+// Labels: reason (cache_miss, s3_error, redis_error, json_parse_error, timeout)
+pub const FLAG_DEFINITIONS_CACHE_MISS_COUNTER: &str = "flags_flag_definitions_cache_miss_total";
+
+// Flag definitions ETag metrics
+// Labels: result (hit = 304, miss = 200 with stale etag, none = 200 without etag, redis_error = etag read failed)
+pub const FLAG_DEFINITIONS_ETAG_COUNTER: &str = "flags_flag_definitions_etag_total";
+
+// Flag definitions auth method
+// Labels: method (secret_api_key, personal_api_key) — Rust only supports these two; Python also tracks oauth, jwt, session, other
+pub const FLAG_DEFINITIONS_AUTH_COUNTER: &str = "flags_flag_definitions_auth_total";
+
+// Request-level timeout (tower TimeoutLayer killed the request before completion)
+pub const FLAG_REQUEST_TIMEOUT_COUNTER: &str = "flags_request_timeout_total";
+
 // Timeout tracking and classification
 pub const FLAG_ACQUIRE_TIMEOUT_COUNTER: &str = "flags_acquire_timeout_total";
 
@@ -82,6 +101,41 @@ pub const TOMBSTONE_COUNTER: &str = "posthog_tombstone_total";
 // Labels: team_id, operation_type (person_query, cohort_query, group_query)
 pub const FLAG_DB_OPERATIONS_PER_REQUEST: &str = "flags_db_operations_per_request";
 
+// Rayon dispatcher metrics
+// These track semaphore backpressure on the parallel evaluation path.
+
+// Time spent waiting for a semaphore permit before entering the Rayon pool (histogram, ms).
+// Near-zero means the pool is not saturated; high values mean batches are queueing.
+pub const RAYON_DISPATCHER_SEMAPHORE_WAIT_TIME: &str = "flags_rayon_dispatcher_semaphore_wait_ms";
+
+// Number of semaphore permits available at dispatch time (gauge).
+// Consistently 0 means the Rayon pool is fully saturated.
+pub const RAYON_DISPATCHER_AVAILABLE_PERMITS: &str = "flags_rayon_dispatcher_available_permits";
+
+// Time spent executing work on the Rayon pool, excluding semaphore wait (histogram, ms).
+// Compare with RAYON_DISPATCHER_SEMAPHORE_WAIT_TIME to understand whether tail latency
+// comes from semaphore contention or actual computation time.
+pub const RAYON_DISPATCHER_EXECUTION_TIME: &str = "flags_rayon_dispatcher_execution_ms";
+
+// Counter of semaphore acquisitions that had to wait (no permits available).
+// The ratio contended/total indicates how often the Rayon pool is at capacity.
+pub const RAYON_DISPATCHER_CONTENDED_ACQUIRES: &str =
+    "flags_rayon_dispatcher_contended_acquires_total";
+
+// Total semaphore acquisitions (counter). Used as denominator for contention ratio.
+pub const RAYON_DISPATCHER_TOTAL_ACQUIRES: &str = "flags_rayon_dispatcher_acquires_total";
+
+// Number of batch tasks currently executing on the Rayon pool (gauge).
+// With N semaphore permits, this should stay in [0, N]. Consistently at N
+// means the pool is saturated and the semaphore is the bottleneck.
+pub const RAYON_DISPATCHER_INFLIGHT_TASKS: &str = "flags_rayon_dispatcher_inflight_tasks";
+
+// Counter of semaphore acquisitions that timed out (request failed fast with 504).
+// Non-zero means the configured timeout is being hit and requests are being
+// redistributed to other pods via ingress retry.
+pub const RAYON_DISPATCHER_SEMAPHORE_TIMEOUTS: &str =
+    "flags_rayon_dispatcher_semaphore_timeouts_total";
+
 // Flag batch evaluation metrics
 // These track the performance difference between sequential and parallel evaluation strategies.
 // Used for A/B testing and tuning the PARALLEL_EVAL_THRESHOLD.
@@ -97,3 +151,61 @@ pub const FLAG_BATCH_EVALUATION_COUNTER: &str = "flags_batch_evaluation_total";
 // Histogram of flag counts per batch evaluation
 // Labels: evaluation_type ("sequential" or "parallel")
 pub const FLAG_BATCH_SIZE: &str = "flags_batch_size";
+
+// Tokio runtime metrics
+// These track worker thread utilization to inform thread pool sizing decisions.
+// Sampled periodically by TokioRuntimeMonitor (default: every 15s).
+
+// Fraction of wall-clock time that workers spent executing tasks (gauge, 0.0–1.0).
+// Computed as: sum(worker_busy_duration_delta) / (elapsed * num_workers).
+// < 0.3 means workers are idle 70%+ of the time — room to reduce worker count.
+// > 0.8 means approaching saturation.
+pub const TOKIO_RUNTIME_BUSY_RATIO: &str = "flags_tokio_busy_ratio";
+
+// Number of tasks currently alive (spawned but not yet completed) on the runtime (gauge).
+pub const TOKIO_RUNTIME_ALIVE_TASKS: &str = "flags_tokio_alive_tasks";
+
+// Tasks pending in the runtime's global injection queue (gauge).
+// Sustained values > 0 indicate workers cannot drain tasks fast enough.
+pub const TOKIO_RUNTIME_GLOBAL_QUEUE_DEPTH: &str = "flags_tokio_global_queue_depth";
+
+// Number of configured Tokio worker threads (gauge, constant after startup).
+pub const TOKIO_RUNTIME_NUM_WORKERS: &str = "flags_tokio_num_workers";
+
+// Per-worker local queue depth (gauge). Labels: worker="0", worker="1", etc.
+// High values indicate a specific worker is overloaded.
+pub const TOKIO_WORKER_LOCAL_QUEUE_DEPTH: &str = "flags_tokio_worker_local_queue_depth";
+
+// Per-worker poll count delta over the sampling interval (gauge). Labels: worker.
+// Shows throughput per worker — large imbalances suggest uneven task distribution.
+pub const TOKIO_WORKER_POLL_DELTA: &str = "flags_tokio_worker_poll_delta";
+
+// Per-worker park count delta over the sampling interval (gauge). Labels: worker.
+// A park event means the worker went idle. High park rates indicate light workloads.
+pub const TOKIO_WORKER_PARK_DELTA: &str = "flags_tokio_worker_park_delta";
+
+// Per-worker busy duration over the sampling interval in seconds (gauge). Labels: worker.
+// Used to detect load imbalance across workers.
+pub const TOKIO_WORKER_BUSY_DURATION_DELTA: &str = "flags_tokio_worker_busy_duration_delta_secs";
+
+// Number of threads in the blocking thread pool (gauge).
+pub const TOKIO_BLOCKING_THREADS: &str = "flags_tokio_blocking_threads";
+
+// Idle threads in the blocking thread pool (gauge).
+pub const TOKIO_IDLE_BLOCKING_THREADS: &str = "flags_tokio_idle_blocking_threads";
+
+// Tasks waiting for a blocking thread (gauge).
+// High values indicate spawn_blocking contention.
+pub const TOKIO_BLOCKING_QUEUE_DEPTH: &str = "flags_tokio_blocking_queue_depth";
+
+// Mean poll duration per worker in microseconds (gauge). Labels: worker.
+// Long poll times can indicate blocking or CPU-heavy futures on the Tokio runtime.
+pub const TOKIO_WORKER_MEAN_POLL_TIME_US: &str = "flags_tokio_worker_mean_poll_time_us";
+
+// Times a worker's local queue overflowed to the global queue (gauge, delta). Labels: worker.
+// Non-zero indicates a worker couldn't keep up and had to shed work.
+pub const TOKIO_WORKER_OVERFLOW_DELTA: &str = "flags_tokio_worker_overflow_delta";
+
+// Number of tasks stolen from other workers (gauge, delta). Labels: worker.
+// Active stealing indicates work imbalance being corrected by the scheduler.
+pub const TOKIO_WORKER_STEAL_DELTA: &str = "flags_tokio_worker_steal_delta";

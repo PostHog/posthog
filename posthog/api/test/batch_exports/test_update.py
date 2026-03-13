@@ -955,7 +955,7 @@ def test_can_patch_redshift_batch_export(client: HttpClient, temporal, organizat
             "user": "user",
             "password": "my-password",
             "database": "my-db",
-            "host": "test",
+            "host": "localhost",
             "schema": "public",
             "table_name": "my_events",
             "mode": "COPY",

@@ -1,5 +1,6 @@
 import time
 import asyncio
+from typing import Any
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
@@ -13,10 +14,7 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.messaging.backfill_precalculated_person_properties_coordinator_workflow import (
     BackfillPrecalculatedPersonPropertiesCoordinatorInputs,
 )
-from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
-    CohortFilters,
-    PersonPropertyFilter,
-)
+from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import PersonPropertyFilter
 
 logger = structlog.get_logger(__name__)
 
@@ -149,10 +147,10 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"Found {len(cohorts)} realtime cohort(s) to process for team {team_id}"))
 
         # Collect and deduplicate filters across all cohorts
-        # Map: condition_hash -> (bytecode, [cohort_ids])
-        condition_map: dict[str, tuple[list, list[int]]] = {}
+        # Map: condition_hash -> (bytecode, {cohort_ids})
+        condition_map: dict[str, tuple[list[Any], set[int]]] = {}
         cohort_ids = []
-
+        total_original_filters = 0
         for cohort in cohorts:
             if cohort.cohort_type != CohortType.REALTIME:
                 self.stdout.write(
@@ -173,60 +171,42 @@ class Command(BaseCommand):
                 continue
 
             cohort_ids.append(cohort.id)
+            total_original_filters += len(filters)
             self.stdout.write(self.style.SUCCESS(f"Cohort {cohort.id}: found {len(filters)} person property filters"))
 
             # Deduplicate by condition_hash
             for f in filters:
                 if f.condition_hash not in condition_map:
-                    condition_map[f.condition_hash] = (f.bytecode, [cohort.id])
+                    condition_map[f.condition_hash] = (f.bytecode, {cohort.id})
                     self.stdout.write(f"  + New condition: {f.condition_hash}")
                 else:
                     # Condition already exists, just add this cohort ID
-                    condition_map[f.condition_hash][1].append(cohort.id)
+                    condition_map[f.condition_hash][1].add(cohort.id)
                     self.stdout.write(f"  = Duplicate condition: {f.condition_hash}")
 
         if not condition_map:
             self.stdout.write(self.style.WARNING("No person property filters found across any cohorts"))
             return
 
-        # Build deduplicated filter list and create cohort filters
-        deduplicated_filters = [
-            PersonPropertyFilter(
-                condition_hash=cond_hash,
-                bytecode=bytecode,
-            )
-            for cond_hash, (bytecode, _cids) in condition_map.items()
-        ]
-
-        # Create a single CohortFilters object with all deduplicated filters
-        # All cohorts will process the same deduplicated filter set
-        cohort_filters_list = [
-            CohortFilters(
-                cohort_id=cohort_id,
-                filters=deduplicated_filters,  # All cohorts get the same deduplicated filters
-            )
-            for cohort_id in cohort_ids
-        ]
-
         self.stdout.write(
             self.style.SUCCESS(
-                f"\nDeduplicated {len(deduplicated_filters)} unique conditions across {len(cohort_ids)} cohorts"
+                f"\nDeduplicated {len(condition_map)} unique conditions across {len(cohort_ids)} cohorts"
             )
         )
         for cond_hash, (_, cids) in condition_map.items():
-            self.stdout.write(f"  - {cond_hash} (used by cohorts: {cids})")
+            self.stdout.write(f"  - {cond_hash} (used by cohorts: {sorted(cids)})")
 
-        # Run single coordinator workflow for all cohorts with deduplicated filters
-        total_original_filters = sum(len(extract_person_property_filters(cohorts[i])) for i in range(len(cohort_ids)))
+        # Run single coordinator workflow with true deduplication
         self.stdout.write(
             self.style.SUCCESS(
-                f"\nProcessing {len(cohort_ids)} cohorts: reduced {total_original_filters} filters to {len(deduplicated_filters)} unique conditions"
+                f"\nProcessing {len(cohort_ids)} cohorts: reduced {total_original_filters} filters to {len(condition_map)} unique conditions"
             )
         )
 
         workflow_id = self.run_temporal_workflow(
             team_id=team_id,
-            cohort_filters=cohort_filters_list,
+            deduplicated_conditions=condition_map,
+            cohort_ids=cohort_ids,
             parallelism=parallelism,
             batch_size=batch_size,
             workflows_per_batch=workflows_per_batch,
@@ -237,8 +217,8 @@ class Command(BaseCommand):
             self.style.SUCCESS(
                 f"\nSuccessfully started single coordinator workflow for team {team_id}\n"
                 f"  Workflow ID: {workflow_id}\n"
-                f"  Cohorts: {[cf.cohort_id for cf in cohort_filters_list]}\n"
-                f"  Unique conditions: {len(deduplicated_filters)}\n"
+                f"  Cohorts: {cohort_ids}\n"
+                f"  Unique conditions: {len(condition_map)}\n"
                 f"  Parallelism: {parallelism} workers"
             )
         )
@@ -249,7 +229,8 @@ class Command(BaseCommand):
     def run_temporal_workflow(
         self,
         team_id: int,
-        cohort_filters: list[CohortFilters],
+        deduplicated_conditions: dict[str, tuple[list[Any], set[int]]],
+        cohort_ids: list[int],
         parallelism: int,
         batch_size: int,
         workflows_per_batch: int,
@@ -261,10 +242,11 @@ class Command(BaseCommand):
             # Connect to Temporal
             client = await async_connect()
 
-            # Create coordinator workflow inputs
+            # Create coordinator workflow inputs with deduplicated conditions
             inputs = BackfillPrecalculatedPersonPropertiesCoordinatorInputs(
                 team_id=team_id,
-                cohort_filters=cohort_filters,
+                deduplicated_conditions=deduplicated_conditions,
+                cohort_ids=cohort_ids,
                 parallelism=parallelism,
                 batch_size=batch_size,
                 workflows_per_batch=workflows_per_batch,

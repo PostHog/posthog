@@ -70,7 +70,7 @@ export function PropertyGroupFilters({
                                 Add filter group
                             </LemonButton>
                         </div>
-                        <div className="order-1 @lg:order-none @lg:flex-1">
+                        <div className="order-1 @lg:order-none">
                             <InsightTestAccountFilter
                                 disabledReason={disabledReason}
                                 query={query}

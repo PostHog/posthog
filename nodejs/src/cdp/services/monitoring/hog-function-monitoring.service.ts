@@ -1,12 +1,15 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
-import { InternalCaptureEvent } from '~/common/services/internal-capture'
+import { InternalCaptureEvent, InternalCaptureService } from '~/common/services/internal-capture'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { KAFKA_WAREHOUSE_SOURCE_WEBHOOKS } from '~/config/kafka-topics'
+import { KafkaProducerWrapper } from '~/kafka/producer'
 
-import { Hub, TimestampFormat } from '../../../types'
+import { TimestampFormat } from '../../../types'
 import { safeClickhouseString } from '../../../utils/db/utils'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
+import { TeamManager } from '../../../utils/team-manager'
 import { castTimestampOrNow } from '../../../utils/utils'
 import {
     AppMetricType,
@@ -16,17 +19,9 @@ import {
     LogEntrySerialized,
     MetricLogSource,
     MinimalAppMetric,
+    WarehouseWebhookPayload,
 } from '../../types'
 import { fixLogDeduplication } from '../../utils'
-
-export type HogFunctionMonitoringServiceHub = Pick<
-    Hub,
-    | 'kafkaProducer'
-    | 'internalCaptureService'
-    | 'teamManager'
-    | 'HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC'
-    | 'HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC'
->
 
 const counterHogFunctionMetric = new Counter({
     name: 'cdp_hog_function_metric',
@@ -67,8 +62,21 @@ export const isHogFunctionResult = (
 export class HogFunctionMonitoringService {
     messagesToProduce: HogFunctionMonitoringMessage[] = []
     eventsToCapture: InternalCaptureEvent[] = []
+    warehouseWebhookPayloads: WarehouseWebhookPayload[] = []
 
-    constructor(private hub: HogFunctionMonitoringServiceHub) {}
+    private warehouseKafkaProducer?: KafkaProducerWrapper
+
+    constructor(
+        private kafkaProducer: KafkaProducerWrapper,
+        private internalCaptureService: InternalCaptureService,
+        private teamManager: TeamManager,
+        private appMetricsTopic: string,
+        private logEntriesTopic: string
+    ) {}
+
+    setWarehouseKafkaProducer(producer: KafkaProducerWrapper): void {
+        this.warehouseKafkaProducer = producer
+    }
 
     async flush() {
         const messages = [...this.messagesToProduce]
@@ -79,10 +87,13 @@ export class HogFunctionMonitoringService {
         this.eventsToCapture = []
         hogFunctionMonitoringPendingEvents.set(0)
 
+        const warehouseWebhookPayloads = [...this.warehouseWebhookPayloads]
+        this.warehouseWebhookPayloads = []
+
         await Promise.all([
             ...messages.map((x) => {
                 const value = x.value ? Buffer.from(safeClickhouseString(JSON.stringify(x.value))) : null
-                return this.hub.kafkaProducer
+                return this.kafkaProducer
                     .produce({
                         topic: x.topic,
                         key: x.key ? Buffer.from(x.key) : null,
@@ -104,11 +115,23 @@ export class HogFunctionMonitoringService {
                     })
             }),
             eventsToCapture.map((event) =>
-                this.hub.internalCaptureService.capture(event).catch((error) => {
+                this.internalCaptureService.capture(event).catch((error) => {
                     logger.error('Error capturing internal event', { error })
                     captureException(error)
                 })
             ),
+            ...(this.warehouseKafkaProducer
+                ? warehouseWebhookPayloads.map((payload) =>
+                      this.warehouseKafkaProducer!.produce({
+                          topic: KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
+                          key: Buffer.from(`${payload.team_id}:${payload.schema_id}`),
+                          value: Buffer.from(JSON.stringify(payload.payload)),
+                      }).catch((error) => {
+                          logger.error('Error producing warehouse webhook payload', { error })
+                          captureException(error)
+                      })
+                  )
+                : []),
         ])
     }
 
@@ -122,7 +145,7 @@ export class HogFunctionMonitoringService {
         counterHogFunctionMetric.labels(metric.metric_kind, metric.metric_name).inc(appMetric.count)
 
         this.messagesToProduce.push({
-            topic: this.hub.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
+            topic: this.appMetricsTopic,
             value: appMetric,
             key: appMetric.app_source_id,
         })
@@ -143,7 +166,7 @@ export class HogFunctionMonitoringService {
 
         logs.forEach((logEntry) => {
             this.messagesToProduce.push({
-                topic: this.hub.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC,
+                topic: this.logEntriesTopic,
                 value: logEntry,
                 key: logEntry.instance_id,
             })
@@ -186,7 +209,7 @@ export class HogFunctionMonitoringService {
                         this.queueAppMetric(
                             {
                                 team_id: result.invocation.teamId,
-                                app_source_id: result.invocation.functionId,
+                                app_source_id: result.invocation.parentRunId ?? result.invocation.functionId,
                                 metric_kind: result.error ? 'failure' : 'success',
                                 metric_name: result.error ? 'failed' : 'succeeded',
                                 count: 1,
@@ -195,11 +218,16 @@ export class HogFunctionMonitoringService {
                         )
                     }
 
+                    // Warehouse webhook payloads
+                    for (const payload of result.warehouseWebhookPayloads ?? []) {
+                        this.warehouseWebhookPayloads.push(payload)
+                    }
+
                     // PostHog capture events
                     const capturedEvents = result.capturedPostHogEvents
 
                     for (const event of capturedEvents ?? []) {
-                        const team = await this.hub.teamManager.getTeam(event.team_id)
+                        const team = await this.teamManager.getTeam(event.team_id)
                         if (!team) {
                             continue
                         }

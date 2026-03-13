@@ -36,7 +36,7 @@ export const createHogFlowInvocationContext = (
 export const createExampleHogFlowInvocation = (
     hogFlow: HogFlow,
     _context: Partial<HogFlowInvocationContext> = {},
-    _person: CyclotronPerson | undefined = undefined
+    _person: Partial<CyclotronPerson> | undefined = undefined
 ): CyclotronJobInvocationHogFlow => {
     // Add the source of the trigger to the globals
 

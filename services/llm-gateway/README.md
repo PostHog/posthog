@@ -16,7 +16,7 @@ uv run uvicorn llm_gateway.main:app --reload
 
 ```bash
 curl -X POST http://localhost:8080/v1/chat/completions \
-  -H "Authorization: Bearer phx_your_personal_api_key" \
+  -H "Authorization: Bearer phx_dev_local_test_api_key_1234567890abcdef" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-4.1-mini",
@@ -35,6 +35,30 @@ The gateway supports two authentication methods:
 | OAuth Access Token | `pha_`       | `Authorization: Bearer pha_...`                         |
 
 **Required Scope**: `llm_gateway:read`
+
+### Local development key
+
+When running via mprocs, a personal API key with the `llm_gateway:read` scope is **automatically provisioned** on startup.
+The key is deterministic and survives database resets:
+
+```text
+phx_dev_local_test_api_key_1234567890abcdef
+```
+
+You can use this key directly to make requests to the gateway locally.
+It is also available as `settings.DEV_API_KEY` in Django.
+
+In local dev (`DEBUG=True`), the gateway client defaults to `http://localhost:3308` and this key,
+so `get_llm_client()` works out of the box without setting any environment variables.
+
+You can also provision the key manually:
+
+```bash
+python manage.py setup_local_api_key --add-scopes llm_gateway:read
+```
+
+`--add-scopes` merges into existing scopes without removing any.
+`--scopes` replaces all scopes on the key.
 
 ## User attribution
 
@@ -94,6 +118,14 @@ response = client.messages.create(
 )
 ```
 
+## Feature flags
+
+The gateway supports feature flags via the `X-POSTHOG-FLAG-*` headers. Feature flags are sent as `X-POSTHOG-FLAG-<FLAG_KEY>: <VALUE>` headers and appear on PostHog events as `$feature/<FLAG_KEY>: <VALUE>`.
+
+## Custom event properties
+
+The gateway supports capturing additional event properties to PostHog via the `X-POSTHOG-PROPERTY-*` headers. Event properties are sent as `X-POSTHOG-PROPERTY-<PROPERTY_KEY>: <VALUE>` headers and appear on PostHog events as `<PROPERTY_KEY>: <VALUE>`.
+
 ## API endpoints
 
 ### OpenAI-compatible
@@ -112,15 +144,82 @@ For product-specific rate limits and tracking:
 - `POST /{product}/v1/chat/completions`
 - `POST /{product}/v1/messages`
 
-Products: `llm_gateway` (default), `twig`, `wizard`, `django`
+The product name is extracted from the first path segment and recorded as `ai_product` on `$ai_generation` events. See [Products](#products) for the full list and how to add one.
 
 ## Supported models
 
 All OpenAI, Anthropic and Gemini chat models are supported.
 
+## Products
+
+Every request is scoped to a **product**. The product determines which models and auth methods are allowed, and is recorded as `ai_product` on `$ai_generation` events so you can filter costs per product.
+
+### Registered products
+
+Defined in `src/llm_gateway/products/config.py`:
+
+| Product              | Auth            | Models                     | Notes                           |
+| -------------------- | --------------- | -------------------------- | ------------------------------- |
+| `llm_gateway`        | API key + OAuth | All                        | Default when no product in path |
+| `posthog_code`       | OAuth only      | Restricted set             | Desktop coding agent            |
+| `background_agents`  | OAuth only      | Restricted set             | Cloud background agents         |
+| `wizard`             | OAuth only      | All                        | Max AI assistant                |
+| `django`             | API key + OAuth | All                        | Server-side Django calls        |
+| `growth`             | API key + OAuth | All                        | Growth team                     |
+| `llma_translation`   | API key + OAuth | gpt-4.1-mini               | LLM analytics translation       |
+| `llma_summarization` | API key + OAuth | gpt-4.1-nano, gpt-4.1-mini | LLM analytics summarization     |
+| `llma_eval_summary`  | API key + OAuth | gpt-5-mini                 | LLM analytics eval summary      |
+
+Aliases: `twig` and `array` resolve to `posthog_code`.
+
+### Adding a new product
+
+1. **Add to `PRODUCTS`** in `src/llm_gateway/products/config.py`:
+
+   ```python
+   "my_product": ProductConfig(
+       allowed_application_ids=None,  # None = any OAuth app, or frozenset({...}) to restrict
+       allowed_models=None,           # None = all models, or frozenset({...}) to restrict
+       allow_api_keys=True,           # False = OAuth only
+   ),
+   ```
+
+2. **Add to `Product` type** in `posthog/llm/gateway_client.py` (if calling from Django).
+
+3. **Route requests** to `/{my_product}/v1/...` — the gateway extracts the product from the URL path.
+
+That's it. Rate limiting defaults apply automatically (see below).
+
 ## Rate limiting
 
-Cost-based rate limiting is applied per user and per product, and you can specify custom rate limits for your product in it's config.
+Cost-based rate limiting is applied at two levels: **product-level** (shared across all users) and **user-level** (per end-user within a product).
+
+### Product-level limits
+
+A global cost cap for the entire product. Configured in `DEFAULT_PRODUCT_COST_LIMITS` in `src/llm_gateway/config.py`:
+
+```python
+"my_product": ProductCostLimit(limit_usd=1000.0, window_seconds=3600)  # $1000/hour
+```
+
+Products without an explicit entry fall back to **$1000 per 24 hours**.
+
+### User-level limits
+
+Per-user cost caps using a burst + sustained pattern. Configured in `DEFAULT_USER_COST_LIMITS` in `src/llm_gateway/config.py`:
+
+```python
+"my_product": UserCostLimit(
+    burst_limit_usd=100.0,        # Short-term cap
+    burst_window_seconds=86400,   # 24 hours
+    sustained_limit_usd=1000.0,   # Long-term cap
+    sustained_window_seconds=2592000,  # 30 days
+)
+```
+
+Products without an explicit entry fall back to the **default: $100/24h burst, $1000/30d sustained**.
+
+User-level limits only apply when an `end_user_id` is present (OAuth token holder, or `user` param in the request body).
 
 ## Error handling
 

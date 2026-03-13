@@ -7,9 +7,9 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { OnboardingStepKey } from '~/types'
 
-import { OnboardingStep } from './OnboardingStep'
 import { OnboardingStepComponentType } from './onboardingLogic'
 import { ProductConfigOption, onboardingProductConfigurationLogic } from './onboardingProductConfigurationLogic'
+import { OnboardingStep } from './OnboardingStep'
 
 type ConfigType = 'toggle' | 'select'
 type PluginType = 'plugin'

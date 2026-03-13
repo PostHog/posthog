@@ -115,13 +115,13 @@ jobs:
               run: |
                   export CLICKHOUSE_SERVER_IMAGE=${{ matrix.clickhouse-server-image }}
                   docker compose -f docker-compose.dev.yml down
-                  docker compose -f docker-compose.dev.yml up -d
+                  docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d
 
             - name: Wait for Docker services
               run: bin/wait-for-docker
 
             - name: Set up Python
-              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
 
@@ -158,11 +158,21 @@ jobs:
                   save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
-              run: |
-                  cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+              uses: ./.github/actions/setup-sqlx-cli
 
             - name: Add Kafka and ClickHouse to /etc/hosts
               run: sudo echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+
+            - name: Create Dagster test database
+              run: |
+                  # Ensure the test_dagster database exists for Dagster's PostgreSQL-backed
+                  # event log / run storage (avoids SQLite locking issues in tests).
+                  # The init script in docker/postgres-init-scripts/ handles this on fresh
+                  # containers, but this step is a safety net.
+                  docker compose -f docker-compose.dev.yml exec -T db \
+                    psql -U posthog -tAc "SELECT 1 FROM pg_database WHERE datname='test_dagster'" | grep -q 1 || \
+                    docker compose -f docker-compose.dev.yml exec -T db \
+                      psql -U posthog -c "CREATE DATABASE test_dagster;"
 
             - name: Run migrations
               run: |

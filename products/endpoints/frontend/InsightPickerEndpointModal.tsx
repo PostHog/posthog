@@ -1,14 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { BindLogic } from 'kea'
 
-import { IconCode2, IconFunnels, IconPlus, IconRetention, IconTrends } from '@posthog/icons'
+import { IconEndpoints, IconFunnels, IconPlus, IconRetention, IconTrends } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Popover } from 'lib/lemon-ui/Popover'
+import { addSavedInsightsModalLogic } from 'scenes/saved-insights/addSavedInsightsModalLogic'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { SavedInsightsTable } from 'scenes/saved-insights/SavedInsightsTable'
-import { addSavedInsightsModalLogic } from 'scenes/saved-insights/addSavedInsightsModalLogic'
 import { urls } from 'scenes/urls'
 
 import { HogQLQuery, InsightQueryNode } from '~/queries/schema/schema-general'
@@ -65,7 +65,7 @@ export function InsightPickerEndpointModal({ tabId }: InsightPickerEndpointModal
                                 <div className="text-sm text-secondary">
                                     <>
                                         Once the insight is saved, open the right side panel and click
-                                        <br /> <IconCode2 /> <code>Create endpoint</code>.
+                                        <br /> <IconEndpoints /> <code>Create endpoint</code>.
                                     </>
                                 </div>
                             </div>
@@ -75,7 +75,7 @@ export function InsightPickerEndpointModal({ tabId }: InsightPickerEndpointModal
                                         key={type}
                                         type="primary"
                                         icon={<Icon />}
-                                        to={urls.insightNew({ type })}
+                                        to={urls.insightNew({ type, sceneSource: 'endpoints' })}
                                         tooltip={INSIGHT_TYPES_METADATA[type]?.description}
                                         data-attr={`endpoint-quick-create-${type.toLowerCase()}`}
                                     >
@@ -95,7 +95,10 @@ export function InsightPickerEndpointModal({ tabId }: InsightPickerEndpointModal
                                                         type="tertiary"
                                                         fullWidth
                                                         icon={Icon ? <Icon /> : undefined}
-                                                        to={urls.insightNew({ type: type as InsightType })}
+                                                        to={urls.insightNew({
+                                                            type: type as InsightType,
+                                                            sceneSource: 'endpoints',
+                                                        })}
                                                         data-attr={`endpoint-create-${type.toLowerCase()}`}
                                                     >
                                                         {metadata.name}

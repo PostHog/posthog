@@ -6,9 +6,13 @@ import { LemonButton, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { taxonomicFilterPreferencesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPreferencesLogic'
-import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import {
+    DefinitionPopoverRenderer,
+    TaxonomicFilterGroupType,
+    TaxonomicFilterLogicProps,
+} from 'lib/components/TaxonomicFilter/types'
 import { IconBlank } from 'lib/lemon-ui/icons'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { cn } from 'lib/utils/css-classes'
 
 import { TaxonomicFilterEmptyState, taxonomicFilterGroupTypesWithEmptyStates } from './TaxonomicFilterEmptyState'
@@ -22,6 +26,7 @@ export interface InfiniteSelectResultsProps {
     taxonomicFilterLogicProps: TaxonomicFilterLogicProps
     popupAnchorElement: HTMLDivElement | null
     useVerticalLayout?: boolean
+    definitionPopoverRenderer?: DefinitionPopoverRenderer
 }
 
 // CategoryPillContent uses useValues(infiniteListLogic) without props, relying on BindLogic context
@@ -36,7 +41,8 @@ function CategoryPillContent({
     onClick: () => void
 }): JSX.Element {
     const { taxonomicGroups } = useValues(taxonomicFilterLogic)
-    const { totalResultCount, totalListCount, isLoading, hasRemoteDataSource, hasMore } = useValues(infiniteListLogic)
+    const { totalResultCount, totalListCount, isLoading, hasRemoteDataSource, hasMore, needsMoreSearchCharacters } =
+        useValues(infiniteListLogic)
 
     const group = taxonomicGroups.find((g) => g.type === groupType)
 
@@ -60,16 +66,20 @@ function CategoryPillContent({
             ) : (
                 <>
                     {group?.name}
-                    {': '}
-                    {showLoading ? (
-                        <Spinner className="text-sm inline-block ml-1" textColored speed="0.8s" />
-                    ) : (
-                        totalResultCount
+                    {!needsMoreSearchCharacters && (
+                        <>
+                            {': '}
+                            {showLoading ? (
+                                <Spinner className="text-sm inline-block ml-1" textColored speed="0.8s" />
+                            ) : (
+                                totalResultCount
+                            )}
+                            {/* This is a workaround. We need to make the logic fetch more results when querying from clickhouse*/}
+                            <span aria-label={hasMore ? `${totalResultCount} or more` : `${totalResultCount}`}>
+                                {hasMore ? '+' : ''}
+                            </span>
+                        </>
                     )}
-                    {/* This is a workaround. We need to make the logic fetch more results when querying from clickhouse*/}
-                    <span aria-label={hasMore ? `${totalResultCount} or more` : `${totalResultCount}`}>
-                        {hasMore ? '+' : ''}
-                    </span>
                 </>
             )}
         </LemonTag>
@@ -176,6 +186,7 @@ export function InfiniteSelectResults({
     taxonomicFilterLogicProps,
     popupAnchorElement,
     useVerticalLayout: useVerticalLayoutProp,
+    definitionPopoverRenderer,
 }: InfiniteSelectResultsProps): JSX.Element {
     const { activeTab, taxonomicGroups, taxonomicGroupTypes, activeTaxonomicGroup, value } =
         useValues(taxonomicFilterLogic)
@@ -186,7 +197,7 @@ export function InfiniteSelectResults({
 
     const { setActiveTab, selectItem } = useActions(taxonomicFilterLogic)
 
-    const { totalListCount, items } = useValues(logic)
+    const { totalListCount } = useValues(logic)
 
     const RenderComponent = activeTaxonomicGroup?.render
 
@@ -196,7 +207,7 @@ export function InfiniteSelectResults({
         <RenderComponent
             {...(activeTaxonomicGroup?.componentProps ?? {})}
             value={value}
-            onChange={(newValue, item) => selectItem(activeTaxonomicGroup, newValue, item, items.originalQuery)}
+            onChange={(newValue, item) => selectItem(activeTaxonomicGroup, newValue, item)}
             infiniteListLogicProps={infiniteListLogicProps}
         />
     ) : (
@@ -206,7 +217,10 @@ export function InfiniteSelectResults({
                     <TaxonomicGroupTitle openTab={openTab} />
                 </div>
             )}
-            <InfiniteList popupAnchorElement={popupAnchorElement} />
+            <InfiniteList
+                popupAnchorElement={popupAnchorElement}
+                definitionPopoverRenderer={definitionPopoverRenderer}
+            />
         </>
     )
 

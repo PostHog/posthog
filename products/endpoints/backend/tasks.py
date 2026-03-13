@@ -36,6 +36,7 @@ def deactivate_stale_materializations() -> None:
         saved_query__deleted=False,
         saved_query__created_at__lte=stale_threshold,
         endpoint__last_executed_at__lt=stale_threshold,
+        endpoint__deleted=False,
     ).select_related("saved_query", "endpoint")
 
     if not stale_versions.exists():
@@ -85,8 +86,4 @@ def _deactivate_version_materialization(version: EndpointVersion) -> None:
         last_run_at=str(saved_query.last_run_at) if saved_query.last_run_at else None,
     )
 
-    saved_query.revert_materialization()
-    saved_query.soft_delete()
-    version.saved_query = None
-    version.is_materialized = False
-    version.save(update_fields=["saved_query", "is_materialized"])
+    version.disable_materialization()

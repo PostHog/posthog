@@ -1,4 +1,5 @@
 import json
+import uuid as uuid_mod
 from typing import Optional, cast
 
 from django.db.models import QuerySet
@@ -7,6 +8,7 @@ import structlog
 import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -19,13 +21,19 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import log_activity_from_viewset
+from posthog.auth import InternalAPIAuthentication
 from posthog.cdp.validation import (
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
     InputsSerializer,
     generate_template_bytecode,
 )
-from posthog.models.feature_flag.user_blast_radius import get_user_blast_radius
+from posthog.models import Team
+from posthog.models.feature_flag.user_blast_radius import (
+    PERSON_BATCH_SIZE,
+    get_user_blast_radius,
+    get_user_blast_radius_persons,
+)
 from posthog.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test
@@ -280,6 +288,24 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         )
         data["billable_action_types"] = billable_action_types
 
+        conversion = data.get("conversion")
+        if conversion is not None:
+            filters = conversion.get("filters")
+            if filters:
+                serializer = HogFunctionFiltersSerializer(data={"properties": filters}, context=self.context)
+                if self.context.get("is_draft"):
+                    if serializer.is_valid():
+                        compiled_filters = serializer.validated_data
+                        data["conversion"]["filters"] = compiled_filters.get("properties", [])
+                        data["conversion"]["bytecode"] = compiled_filters.get("bytecode", [])
+                else:
+                    serializer.is_valid(raise_exception=True)
+                    compiled_filters = serializer.validated_data
+                    data["conversion"]["filters"] = compiled_filters.get("properties", [])
+                    data["conversion"]["bytecode"] = compiled_filters.get("bytecode", [])
+            if "bytecode" not in data["conversion"]:
+                data["conversion"]["bytecode"] = []
+
         return data
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFlow:
@@ -311,8 +337,9 @@ class HogFlowFilterSet(FilterSet):
         fields = ["id", "created_by", "created_at", "updated_at"]
 
 
+@extend_schema(tags=["workflows"])
 class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "hog_flow"
     queryset = HogFlow.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_class = HogFlowFilterSet
@@ -436,8 +463,9 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             raise exceptions.ValidationError("Missing filters for which to get blast radius")
 
         filters = request.data.get("filters", {})
+        group_type_index = request.data.get("group_type_index", None)
 
-        users_affected, total_users = get_user_blast_radius(self.team, filters)
+        users_affected, total_users = get_user_blast_radius(self.team, filters, group_type_index)
 
         return Response(
             {
@@ -445,6 +473,22 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
                 "total_users": total_users,
             }
         )
+
+    @action(methods=["POST"], detail=False)
+    def bulk_delete(self, request: Request, **kwargs):
+        ids = request.data.get("ids", [])
+        if not ids or not isinstance(ids, list):
+            return Response({"error": "A non-empty list of 'ids' is required"}, status=400)
+
+        try:
+            validated_ids = [uuid_mod.UUID(str(id)) for id in ids]
+        except ValueError:
+            return Response({"error": "One or more IDs are not valid UUIDs"}, status=400)
+
+        queryset = self.get_queryset().filter(id__in=validated_ids, status="archived")
+        deleted_count, _ = queryset.delete()
+
+        return Response({"deleted": deleted_count})
 
     @action(detail=True, methods=["GET", "POST"])
     def batch_jobs(self, request: Request, *args, **kwargs):
@@ -466,3 +510,79 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             batch_jobs = HogFlowBatchJob.objects.filter(hog_flow=hog_flow, team=self.team).order_by("-created_at")
             serializer = HogFlowBatchJobSerializer(batch_jobs, many=True)
             return Response(serializer.data)
+
+
+class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
+    """
+    Internal endpoints for Node.js services to query user blast radius.
+    These endpoints require Bearer token authentication via INTERNAL_API_SECRET and are not exposed to Contour ingress
+    """
+
+    scope_object = "INTERNAL"
+    authentication_classes = [InternalAPIAuthentication]
+
+    # Internal service-to-service endpoints (authenticated with INTERNAL_API_SECRET)
+    def internal_user_blast_radius(self, request: Request, team_id: str) -> Response:
+        """
+        Internal endpoint for Node.js services to query user blast radius.
+        Requires Bearer token authentication via INTERNAL_API_SECRET.
+        """
+
+        if request.method != "POST":
+            return Response({"error": "Method not allowed"}, status=405)
+
+        try:
+            team = Team.objects.get(id=int(team_id))
+        except (Team.DoesNotExist, ValueError):
+            return Response({"error": "Team not found"}, status=404)
+
+        if "filters" not in request.data:
+            return Response({"error": "Missing filters for which to get blast radius"}, status=400)
+
+        filters = request.data.get("filters", {})
+        group_type_index = request.data.get("group_type_index", None)
+
+        try:
+            users_affected, total_users = get_user_blast_radius(team, filters, group_type_index)
+            return Response(
+                {
+                    "users_affected": users_affected,
+                    "total_users": total_users,
+                }
+            )
+        except Exception as e:
+            logger.exception("Error in internal_user_blast_radius", error=str(e), team_id=team_id)
+            return Response({"error": "Internal server error"}, status=500)
+
+    def internal_user_blast_radius_persons(self, request: Request, team_id: str) -> Response:
+        """
+        Internal endpoint for Node.js services to query user blast radius persons with pagination.
+        Requires Bearer token authentication via INTERNAL_API_SECRET.
+        """
+        if request.method != "POST":
+            return Response({"error": "Method not allowed"}, status=405)
+
+        try:
+            team = Team.objects.get(id=int(team_id))
+        except (Team.DoesNotExist, ValueError):
+            return Response({"error": "Team not found"}, status=404)
+
+        if "filters" not in request.data:
+            return Response({"error": "Missing filters for which to get blast radius"}, status=400)
+
+        filters = request.data.get("filters", {}) or {}
+        group_type_index = request.data.get("group_type_index", None)
+        cursor = request.data.get("cursor", None)
+
+        try:
+            users_affected = get_user_blast_radius_persons(team, filters, group_type_index, cursor)
+            return Response(
+                {
+                    "users_affected": users_affected,
+                    "cursor": users_affected[-1] if users_affected else None,
+                    "has_more": len(users_affected) == PERSON_BATCH_SIZE,
+                }
+            )
+        except Exception as e:
+            logger.exception("Error in internal_user_blast_radius_persons", error=str(e), team_id=team_id)
+            return Response({"error": "Internal server error"}, status=500)

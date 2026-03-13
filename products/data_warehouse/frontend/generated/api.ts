@@ -1,3 +1,4 @@
+import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 /**
  * Auto-generated from the Django backend OpenAPI schema.
  * To modify these types, update the Django serializers or views, then run:
@@ -7,7 +8,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     DataModelingJobApi,
     DataModelingJobsListParams,
@@ -611,6 +611,27 @@ export const externalDataSourcesJobsRetrieve = async (
     return apiMutator<void>(getExternalDataSourcesJobsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+/**
+ * Fetch current schema/table list from the source and create any new ExternalDataSchema rows (no data sync).
+ */
+export const getExternalDataSourcesRefreshSchemasCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/refresh_schemas/`
+}
+
+export const externalDataSourcesRefreshSchemasCreate = async (
+    projectId: string,
+    id: string,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSourcesRefreshSchemasCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSourceSerializersApi),
     })
 }
 
@@ -1308,6 +1329,9 @@ export const warehouseTablesFileCreate = async (
     formData.append(`format`, tableApi.format)
     formData.append(`url_pattern`, tableApi.url_pattern)
     formData.append(`credential`, JSON.stringify(tableApi.credential))
+    if (tableApi.options !== undefined) {
+        formData.append(`options`, JSON.stringify(tableApi.options))
+    }
 
     return apiMutator<void>(getWarehouseTablesFileCreateUrl(projectId), {
         ...options,

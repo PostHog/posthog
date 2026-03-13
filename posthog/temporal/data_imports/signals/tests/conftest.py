@@ -1,10 +1,29 @@
 import pytest
 
+MOCK_GITHUB_ISSUE_RECORD: dict = {
+    "id": 12345,
+    "number": 87,
+    "title": "Charts fail to render when filter contains special characters",
+    "body": (
+        "When I add a filter with special characters like `&` or `<` in the value, "
+        "the chart component throws a rendering error and shows a blank white area. "
+        "Reproducible on both Chrome and Firefox. Expected: chart renders normally with escaped values."
+    ),
+    "state": "open",
+    "html_url": "https://github.com/acme/analytics/issues/87",
+    "labels": '[{"id": 1, "name": "bug"}, {"id": 2, "name": "frontend"}]',
+    "created_at": "2025-06-10T14:30:00Z",
+    "updated_at": "2025-06-11T09:15:00Z",
+    "comments": 3,
+    "locked": False,
+}
+
+
 MOCK_ZENDESK_TICKET_RECORD: dict = {
     "id": 42,
     "url": "https://testcorp.zendesk.com/api/v2/tickets/42.json",
     "via": '{"channel":"api","source":{"from":{},"rel":null,"to":{}}}',
-    "tags": [],
+    "tags": '["ack_email_sent","escalated","medium"]',
     "type": None,
     "fields": "[]",
     "status": "open",
@@ -42,6 +61,41 @@ MOCK_ZENDESK_TICKET_RECORD: dict = {
 }
 
 
+MOCK_LINEAR_ISSUE_RECORD: dict = {
+    "id": "abc-123-def",
+    "identifier": "ENG-42",
+    "title": "Dashboard widgets fail to load when timezone is set to UTC+13",
+    "description": (
+        "When the user's timezone is set to UTC+13 (e.g. Samoa), dashboard widgets "
+        "throw a parsing error and display 'Failed to load data'. The date range picker "
+        "also shows incorrect dates. Reproducible in both Chrome and Safari."
+    ),
+    "priority": 2,
+    "priority_label": "High",
+    "number": 42,
+    "url": "https://linear.app/acme/issue/ENG-42",
+    "state": '{"id": "state-1", "name": "In Progress", "type": "started", "color": "#f2c94c"}',
+    "team": '{"id": "team-1", "name": "Engineering", "key": "ENG"}',
+    "labels": '{"nodes": [{"id": "label-1", "name": "bug", "color": "#eb5757"}]}',
+    "assignee": '{"id": "user-1", "name": "Jane Doe", "email": "jane@acme.com"}',
+    "created_at": "2025-06-10T14:30:00.000Z",
+    "updated_at": "2025-06-11T09:15:00.000Z",
+    "estimate": 3,
+    "completed_at": None,
+    "canceled_at": None,
+}
+
+
+@pytest.fixture
+def github_issue_record() -> dict:
+    return {**MOCK_GITHUB_ISSUE_RECORD}
+
+
 @pytest.fixture
 def zendesk_ticket_record() -> dict:
     return {**MOCK_ZENDESK_TICKET_RECORD}
+
+
+@pytest.fixture
+def linear_issue_record() -> dict:
+    return {**MOCK_LINEAR_ISSUE_RECORD}

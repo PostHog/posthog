@@ -8,17 +8,17 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { pluralize } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -27,8 +27,8 @@ import stringWithWBR from 'lib/utils/stringWithWBR'
 import MaxTool from 'scenes/max/MaxTool'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
-import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
+import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -39,24 +39,25 @@ import {
     AccessControlResourceType,
     ActivityScope,
     Experiment,
-    ExperimentProgressStatus,
+    ExperimentStatus,
     ExperimentsTabs,
 } from '~/types'
 
 import { DuplicateExperimentModal } from './DuplicateExperimentModal'
-import { ExperimentVelocityStats } from './ExperimentVelocityStats'
-import { StatusTag } from './ExperimentView/components'
-import { ExperimentsSettings } from './ExperimentsSettings'
-import { Holdouts } from './Holdouts'
-import { SharedMetrics } from './SharedMetrics/SharedMetrics'
 import {
     EXPERIMENTS_PER_PAGE,
     ExperimentsFilters,
     experimentsLogic,
     getExperimentStatus,
+    isExperimentPaused,
     getShippedVariantKey,
     isSingleVariantShipped,
 } from './experimentsLogic'
+import { ExperimentsSettings } from './ExperimentsSettings'
+import { ExperimentVelocityStats } from './ExperimentVelocityStats'
+import { StatusTag } from './ExperimentView/components'
+import { Holdouts } from './Holdouts'
+import { SharedMetrics } from './SharedMetrics/SharedMetrics'
 import { isLegacyExperiment } from './utils'
 
 export const scene: SceneExport = {
@@ -131,15 +132,15 @@ const ExperimentsTableFilters = ({
                                 const { status: _, ...restFilters } = filters
                                 onFiltersChange({ ...restFilters, page: 1 }, true)
                             } else {
-                                onFiltersChange({ status: status as ExperimentProgressStatus, page: 1 })
+                                onFiltersChange({ status: status as ExperimentStatus, page: 1 })
                             }
                         }}
                         options={
                             [
                                 { label: 'All', value: 'all' },
-                                { label: 'Draft', value: ExperimentProgressStatus.Draft },
-                                { label: 'Running / Paused', value: ExperimentProgressStatus.Running },
-                                { label: 'Complete', value: ExperimentProgressStatus.Complete },
+                                { label: 'Draft', value: ExperimentStatus.Draft },
+                                { label: 'Running / Paused', value: ExperimentStatus.Running },
+                                { label: 'Complete', value: ExperimentStatus.Stopped },
                             ] as { label: string; value: string }[]
                         }
                         value={filters.status ?? 'all'}
@@ -311,17 +312,17 @@ const ExperimentsTable = ({
             title: 'Status',
             key: 'status',
             render: function Render(_, experiment: Experiment) {
-                return <StatusTag status={getExperimentStatus(experiment)} />
+                return <StatusTag status={getExperimentStatus(experiment)} isPaused={isExperimentPaused(experiment)} />
             },
             align: 'center',
             sorter: (a, b) => {
                 const statusA = getExperimentStatus(a)
                 const statusB = getExperimentStatus(b)
 
-                const score = {
-                    draft: 1,
-                    running: 2,
-                    complete: 3,
+                const score: Record<ExperimentStatus, number> = {
+                    [ExperimentStatus.Draft]: 1,
+                    [ExperimentStatus.Running]: 2,
+                    [ExperimentStatus.Stopped]: 3,
                 }
                 return score[statusA] > score[statusB] ? 1 : -1
             },
@@ -351,8 +352,7 @@ const ExperimentsTable = ({
                                     }}
                                 />
                                 {!experiment.archived &&
-                                    experiment?.end_date &&
-                                    dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') && (
+                                    getExperimentStatus(experiment) === ExperimentStatus.Stopped && (
                                         <AccessControlAction
                                             resourceType={AccessControlResourceType.Experiment}
                                             minAccessLevel={AccessControlLevel.Editor}
@@ -529,51 +529,53 @@ export function Experiments(): JSX.Element {
                             resourceType={AccessControlResourceType.Experiment}
                             minAccessLevel={AccessControlLevel.Editor}
                         >
-                            <MaxTool
-                                identifier="create_experiment"
-                                initialMaxPrompt="Create an experiment for "
-                                suggestions={[
-                                    'Create an experiment to test…',
-                                    'Set up an A/B test with a 70/30 split between control and test for…',
-                                ]}
-                                callback={(toolOutput: {
-                                    experiment_id?: string | number
-                                    experiment_name?: string
-                                    feature_flag_key?: string
-                                    error?: string
-                                }) => {
-                                    if (toolOutput?.error || !toolOutput?.experiment_id) {
-                                        lemonToast.error(
-                                            `Failed to create experiment: ${toolOutput?.error || 'Unknown error'}`
-                                        )
-                                        return
-                                    }
-                                    // Refresh experiments list to show new experiment, then redirect to it
-                                    loadExperiments()
-                                    router.actions.push(urls.experiment(toolOutput.experiment_id))
-                                }}
-                                position="bottom-right"
-                                active={true}
-                                context={{}}
-                            >
-                                <AppShortcut
-                                    name="NewExperiment"
-                                    keybind={[keyBinds.new]}
-                                    intent="New experiment"
-                                    interaction="click"
-                                    scope={Scene.Experiments}
+                            <div className="flex items-center gap-2">
+                                <MaxTool
+                                    identifier="create_experiment"
+                                    initialMaxPrompt="Create an experiment for "
+                                    suggestions={[
+                                        'Create an experiment to test…',
+                                        'Set up an A/B test with a 70/30 split between control and test for…',
+                                    ]}
+                                    callback={(toolOutput: {
+                                        experiment_id?: string | number
+                                        experiment_name?: string
+                                        feature_flag_key?: string
+                                        error?: string
+                                    }) => {
+                                        if (toolOutput?.error || !toolOutput?.experiment_id) {
+                                            lemonToast.error(
+                                                `Failed to create experiment: ${toolOutput?.error || 'Unknown error'}`
+                                            )
+                                            return
+                                        }
+                                        // Refresh experiments list to show new experiment, then redirect to it
+                                        loadExperiments()
+                                        router.actions.push(urls.experiment(toolOutput.experiment_id))
+                                    }}
+                                    position="bottom-right"
+                                    active={true}
+                                    context={{}}
                                 >
-                                    <LemonButton
-                                        size="small"
-                                        type="primary"
-                                        data-attr="create-experiment"
-                                        to={urls.experiment('new')}
-                                        tooltip="New experiment"
+                                    <AppShortcut
+                                        name="NewExperiment"
+                                        keybind={[keyBinds.new]}
+                                        intent="New experiment"
+                                        interaction="click"
+                                        scope={Scene.Experiments}
                                     >
-                                        <span className="pr-3">New experiment</span>
-                                    </LemonButton>
-                                </AppShortcut>
-                            </MaxTool>
+                                        <LemonButton
+                                            size="small"
+                                            type="primary"
+                                            data-attr="create-experiment"
+                                            to={urls.experiment('new')}
+                                            tooltip="New experiment"
+                                        >
+                                            <span className="pr-3">New experiment</span>
+                                        </LemonButton>
+                                    </AppShortcut>
+                                </MaxTool>
+                            </div>
                         </AccessControlAction>
                     ) : undefined
                 }

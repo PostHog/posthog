@@ -211,10 +211,13 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             editorFilters: filterFalsy([
                 isTrendsLike && {
                     key: 'series',
-                    label: isTrends && display !== ChartDisplayType.CalendarHeatmap ? TrendsSeriesLabel : undefined,
+                    label:
+                        isTrends && display !== ChartDisplayType.CalendarHeatmap && display !== ChartDisplayType.BoxPlot
+                            ? TrendsSeriesLabel
+                            : undefined,
                     component: TrendsSeries,
                 },
-                isTrends && hasFormula
+                isTrends && hasFormula && display !== ChartDisplayType.BoxPlot
                     ? {
                           key: 'formula',
                           label: 'Formula',
@@ -322,6 +325,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                   <span>Breakdown attribution</span>
                                   <Tooltip
                                       closeDelayMs={200}
+                                      interactive
                                       title={
                                           <div className="deprecated-space-y-2">
                                               <div>
@@ -481,10 +485,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                             })}
                         >
                             {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
-                                <div
-                                    key={title}
-                                    className="flex-1 flex flex-col gap-4 max-w-full @[600px]/editor:min-w-0"
-                                >
+                                <div key={title} className="grow shrink basis-[28rem] flex flex-col gap-4 max-w-full">
                                     {editorFilterGroups.map((editorFilterGroup) => (
                                         <EditorFilterGroup
                                             key={editorFilterGroup.title}

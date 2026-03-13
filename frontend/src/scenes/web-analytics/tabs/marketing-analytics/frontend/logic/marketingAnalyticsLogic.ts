@@ -2,8 +2,8 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { actionToUrl } from 'kea-router'
 
 import { getDefaultInterval, isValidRelativeOrAbsoluteDate, updateDatesWithInterval, uuid } from 'lib/utils'
-import { mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
+import { mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
@@ -37,6 +37,7 @@ import { externalAdsCostTile } from './marketingCostTile'
 import {
     MarketingDashboardMapper,
     NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
+    findSchemaByFieldName,
     generateUniqueName,
     validColumnsForTiles,
 } from './utils'
@@ -62,7 +63,7 @@ function getSourceStatus(
             ] || []
         const schemaStatuses = requiredFields
             .map((fieldName) => {
-                const schema = nativeSource.schemas?.find((schema) => schema.name === fieldName)
+                const schema = findSchemaByFieldName(nativeSource.schemas, fieldName, nativeSource.source_type)
                 return schema?.status
             })
             .filter(Boolean)
@@ -475,7 +476,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS[source.source_type as NativeMarketingSource] || []
 
                     const syncingSchemas = requiredFields.filter((fieldName) => {
-                        const schema = source.schemas?.find((s) => s.name === fieldName)
+                        const schema = findSchemaByFieldName(source.schemas, fieldName, source.source_type)
                         return schema?.should_sync ?? false
                     })
 
@@ -872,7 +873,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             actions.syncFromUrl(params)
         }
 
-        actions.loadSources(null)
+        actions.loadSources()
         actions.loadDatabase()
     }),
 ])

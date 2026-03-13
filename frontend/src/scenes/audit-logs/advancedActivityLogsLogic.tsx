@@ -233,14 +233,14 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
             (filters: AdvancedActivityLogFilters): boolean => {
                 return Boolean(
                     filters.start_date ||
-                        filters.end_date ||
-                        filters.users?.length ||
-                        filters.scopes?.length ||
-                        filters.activities?.length ||
-                        filters.item_ids?.length ||
-                        filters.was_impersonated !== undefined ||
-                        filters.is_system !== undefined ||
-                        (filters.detail_filters && Object.keys(filters.detail_filters).length > 0)
+                    filters.end_date ||
+                    filters.users?.length ||
+                    filters.scopes?.length ||
+                    filters.activities?.length ||
+                    filters.item_ids?.length ||
+                    filters.was_impersonated !== undefined ||
+                    filters.is_system !== undefined ||
+                    (filters.detail_filters && Object.keys(filters.detail_filters).length > 0)
                 )
             },
         ],

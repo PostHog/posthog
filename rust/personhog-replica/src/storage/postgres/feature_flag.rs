@@ -6,8 +6,11 @@ use sqlx::FromRow;
 use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION};
 use crate::storage::error::StorageResult;
 use crate::storage::traits::FeatureFlagStorage;
-use crate::storage::types::{HashKeyOverride, HashKeyOverrideContext, HashKeyOverrideInput};
+use crate::storage::types::{HashKeyOverride, HashKeyOverrideContext};
 
+// Kept as an intermediate struct because the rows are aggregated into
+// HashKeyOverrideContext via HashMap grouping logic. All field types already
+// match the DB column types exactly — no widening needed.
 #[derive(Debug, Clone, FromRow)]
 struct HashKeyOverrideContextRow {
     person_id: i64,
@@ -48,34 +51,38 @@ impl FeatureFlagStorage for PostgresStorage {
         let pool = self.pool_for_consistency(consistency);
 
         let rows = if check_person_exists {
-            // Query with person existence check
-            sqlx::query_as::<_, HashKeyOverrideContextRow>(
+            sqlx::query_as!(
+                HashKeyOverrideContextRow,
                 r#"
-                SELECT DISTINCT p.person_id, p.distinct_id, existing.feature_flag_key, existing.hash_key
+                SELECT DISTINCT p.person_id, p.distinct_id,
+                       existing.feature_flag_key as "feature_flag_key?",
+                       existing.hash_key as "hash_key?"
                 FROM posthog_persondistinctid p
                 LEFT JOIN posthog_featureflaghashkeyoverride existing
                     ON existing.person_id = p.person_id AND existing.team_id = p.team_id
                 WHERE p.team_id = $1 AND p.distinct_id = ANY($2)
                     AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
                 "#,
+                team_id as i32,
+                distinct_ids
             )
-            .bind(team_id)
-            .bind(distinct_ids)
             .fetch_all(pool)
             .await?
         } else {
-            // Query without person existence check
-            sqlx::query_as::<_, HashKeyOverrideContextRow>(
+            sqlx::query_as!(
+                HashKeyOverrideContextRow,
                 r#"
-                SELECT ppd.person_id, ppd.distinct_id, fhko.feature_flag_key, fhko.hash_key
+                SELECT ppd.person_id, ppd.distinct_id,
+                       fhko.feature_flag_key as "feature_flag_key?",
+                       fhko.hash_key as "hash_key?"
                 FROM posthog_persondistinctid ppd
                 LEFT JOIN posthog_featureflaghashkeyoverride fhko
                     ON fhko.person_id = ppd.person_id AND fhko.team_id = ppd.team_id
                 WHERE ppd.team_id = $1 AND ppd.distinct_id = ANY($2)
                 "#,
+                team_id as i32,
+                distinct_ids
             )
-            .bind(team_id)
-            .bind(distinct_ids)
             .fetch_all(pool)
             .await?
         };
@@ -114,10 +121,11 @@ impl FeatureFlagStorage for PostgresStorage {
     async fn upsert_hash_key_overrides(
         &self,
         team_id: i64,
-        overrides: &[HashKeyOverrideInput],
+        distinct_ids: &[String],
+        feature_flag_keys: &[String],
         hash_key: &str,
     ) -> StorageResult<i64> {
-        if overrides.is_empty() {
+        if distinct_ids.is_empty() || feature_flag_keys.is_empty() {
             return Ok(0);
         }
 
@@ -127,24 +135,21 @@ impl FeatureFlagStorage for PostgresStorage {
         )];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let person_ids: Vec<i64> = overrides.iter().map(|o| o.person_id).collect();
-        let flag_keys: Vec<&str> = overrides
-            .iter()
-            .map(|o| o.feature_flag_key.as_str())
-            .collect();
-
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r#"
             INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-            SELECT $1, person_id, flag_key, $2
-            FROM UNNEST($3::bigint[], $4::text[]) AS t(person_id, flag_key)
+            SELECT $1, p.person_id, f.flag_key, $2
+            FROM posthog_persondistinctid p
+            CROSS JOIN UNNEST($4::text[]) AS f(flag_key)
+            WHERE p.team_id = $1 AND p.distinct_id = ANY($3)
+              AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
             ON CONFLICT DO NOTHING
             "#,
+            team_id as i32,
+            hash_key,
+            distinct_ids,
+            feature_flag_keys
         )
-        .bind(team_id)
-        .bind(hash_key)
-        .bind(&person_ids)
-        .bind(&flag_keys)
         .execute(&self.primary_pool)
         .await?;
 
@@ -162,13 +167,15 @@ impl FeatureFlagStorage for PostgresStorage {
         )];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let result = sqlx::query(
+        let team_ids_i32: Vec<i32> = team_ids.iter().map(|&id| id as i32).collect();
+
+        let result = sqlx::query!(
             r#"
             DELETE FROM posthog_featureflaghashkeyoverride
             WHERE team_id = ANY($1)
             "#,
+            &team_ids_i32
         )
-        .bind(team_ids)
         .execute(&self.primary_pool)
         .await?;
 

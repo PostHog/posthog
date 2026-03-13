@@ -18,7 +18,7 @@ const INACTIVITY_TIMEOUT_MS = 3000
 
 export function KioskPlayer(): JSX.Element | null {
     const { currentRecordingId, currentRecording } = useValues(sessionRecordingsKioskLogic)
-    const { advanceToNextRecording } = useActions(sessionRecordingsKioskLogic)
+    const { advanceToNextRecording, resetPlayback } = useActions(sessionRecordingsKioskLogic)
     const [isActive, setIsActive] = useState(false)
     const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -36,6 +36,11 @@ export function KioskPlayer(): JSX.Element | null {
 
     useEventListener('mousemove', handleActivity)
     useEventListener('mousedown', handleActivity)
+    useEventListener('keydown', (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+            handleClose()
+        }
+    })
 
     useEffect(() => {
         return () => {
@@ -46,6 +51,7 @@ export function KioskPlayer(): JSX.Element | null {
     }, [])
 
     const handleClose = (): void => {
+        resetPlayback()
         router.actions.push(urls.replay())
     }
 

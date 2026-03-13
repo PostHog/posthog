@@ -1,5 +1,6 @@
 import json
 import logging
+from datetime import timedelta
 from functools import lru_cache
 from typing import Any, Union, cast
 
@@ -43,6 +44,7 @@ from posthog.api.insight_suggestions import generate_insight_name, get_insight_a
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.query import process_query_model
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -54,7 +56,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import INSIGHT, INSIGHT_FUNNELS, INSIGHT_STICKINESS, TRENDS_STICKINESS, FunnelVizType
 from posthog.decorators import cached_by_filters
 from posthog.errors import ExposedCHQueryError
-from posthog.event_usage import groups
+from posthog.event_usage import report_user_action
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.hogql_queries.apply_dashboard_filters import (
     WRAPPER_NODE_KINDS,
@@ -139,8 +141,8 @@ def log_and_report_insight_activity(
     team_id: int,
     user: User,
     was_impersonated: bool,
+    request: Request | None = None,
     changes: list[Change] | None = None,
-    properties: dict[str, Any] | None = None,
 ) -> None:
     """
     Insight id and short_id are passed separately as some activities (like delete) alter the Insight instance
@@ -159,16 +161,16 @@ def log_and_report_insight_activity(
             activity=activity,
             detail=Detail(name=insight_name, changes=changes, short_id=insight_short_id),
         )
-        if properties is None:
-            properties = {}
         organization = Organization.objects.get(id=organization_id)
         team = Team.objects.get(id=team_id)
-        if not was_impersonated and user.distinct_id:
-            posthoganalytics.capture(
+        if not was_impersonated:
+            report_user_action(
+                user,
                 f"insight {activity}",
-                distinct_id=user.distinct_id,
-                properties={"insight_id": insight_short_id, **properties},
-                groups=(groups(organization, team) if team_id else groups(organization)),
+                {"insight_id": insight_short_id},
+                team=team,
+                organization=organization,
+                request=request,
             )
 
 
@@ -197,19 +199,21 @@ def capture_legacy_api_call(request: request.Request, team: Team) -> None:
         raise PermissionDenied("Legacy insight endpoints are not available for this user.")
 
     try:
-        event = "legacy insight endpoint called"
-        distinct_id: str = request.user.distinct_id  # type: ignore
         properties = {
             "path": request._request.path,
             "method": request._request.method,
             "query_method": get_query_method(request=request, team=team),
             "filter": get_filter(request=request, team=team),
-            "was_impersonated": is_impersonated_session(request),
             "user_agent": request.headers.get("user-agent"),
         }
 
-        posthoganalytics.capture(
-            event, distinct_id=distinct_id, properties=properties, groups=(groups(team.organization, team))
+        report_user_action(
+            request.user,
+            "legacy insight endpoint called",
+            properties,
+            team=team,
+            organization=team.organization,
+            request=request,
         )
     except Exception as e:
         logging.exception(f"Error in capture_legacy_api_call: {e}")
@@ -368,7 +372,7 @@ class InsightSerializer(InsightBasicSerializer):
     effective_privilege_level = serializers.SerializerMethodField()
     timezone = serializers.SerializerMethodField(help_text="The timezone this chart is displayed in.")
     last_viewed_at = serializers.SerializerMethodField(read_only=True)
-    dashboards = serializers.PrimaryKeyRelatedField(
+    dashboards = TeamScopedPrimaryKeyRelatedField(
         help_text="""
         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
         A dashboard ID for each of the dashboards that this insight is displayed on.
@@ -455,8 +459,6 @@ class InsightSerializer(InsightBasicSerializer):
         request = self.context["request"]
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
         team_id = self.context["team_id"]
-        current_url = request.headers.get("Referer")
-        session_id = request.headers.get("X-Posthog-Session-Id")
 
         created_by = validated_data.pop("created_by", request.user)
         dashboards = validated_data.pop("dashboards", None)
@@ -481,10 +483,6 @@ class InsightSerializer(InsightBasicSerializer):
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, insight)
 
-        properties = {}
-        properties["$current_url"] = current_url
-        properties["$session_id"] = session_id
-
         log_and_report_insight_activity(
             activity="created",
             insight=insight,
@@ -494,7 +492,7 @@ class InsightSerializer(InsightBasicSerializer):
             team_id=team_id,
             user=self.context["request"].user,
             was_impersonated=is_impersonated_session(self.context["request"]),
-            properties=properties,
+            request=self.context["request"],
         )
 
         return insight
@@ -502,8 +500,6 @@ class InsightSerializer(InsightBasicSerializer):
     @transaction.atomic()
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="PATCH")
     def update(self, instance: Insight, validated_data: dict, **kwargs) -> Insight:
-        current_url = self.context["request"].headers.get("Referer")
-        session_id = self.context["request"].headers.get("X-Posthog-Session-Id")
         dashboards_before_change: list[Union[str, dict]] = []
         try:
             # since it is possible to be restoring a soft deleted insight
@@ -538,7 +534,7 @@ class InsightSerializer(InsightBasicSerializer):
         if not updated_insight.are_alerts_supported:
             instance.alertconfiguration_set.all().delete()
 
-        self._log_insight_update(before_update, dashboards_before_change, updated_insight, current_url, session_id)
+        self._log_insight_update(before_update, dashboards_before_change, updated_insight)
 
         self.user_permissions.reset_insights_dashboard_cached_results()
 
@@ -549,8 +545,6 @@ class InsightSerializer(InsightBasicSerializer):
         before_update,
         dashboards_before_change,
         updated_insight,
-        current_url,
-        session_id,
     ):
         """
         KLUDGE: Automatic detection of insight dashboard updates is flaky
@@ -564,10 +558,6 @@ class InsightSerializer(InsightBasicSerializer):
         ]
         synthetic_dashboard_changes = self._synthetic_dashboard_changes(dashboards_before_change)
         changes = detected_changes + synthetic_dashboard_changes
-
-        properties = {}
-        properties["$current_url"] = current_url
-        properties["$session_id"] = session_id
 
         activity = "updated"
         deleted_change = next((change for change in changes if change.field == "deleted"), None)
@@ -586,8 +576,8 @@ class InsightSerializer(InsightBasicSerializer):
             team_id=self.context["team_id"],
             user=self.context["request"].user,
             was_impersonated=is_impersonated_session(self.context["request"]),
+            request=self.context["request"],
             changes=changes,
-            properties=properties,
         )
 
     def _synthetic_dashboard_changes(self, dashboards_before_change: list[dict]) -> list[Change]:
@@ -1095,13 +1085,79 @@ class InsightViewSet(
             InsightViewed.objects.filter(team=self.team, user=cast(User, request.user))
             .select_related("insight")
             .exclude(insight__deleted=True)
-            .only("insight")
+            .only("insight", "last_viewed_at")
         )
 
-        recently_viewed = [rv.insight for rv in (insight_queryset.order_by("-last_viewed_at")[:5])]
+        recently_viewed = []
+        for rv in insight_queryset.order_by("-last_viewed_at")[:5]:
+            insight = rv.insight
+            insight.last_viewed_at = rv.last_viewed_at  # type: ignore
+            recently_viewed.append(insight)
 
         response = InsightBasicSerializer(recently_viewed, many=True)
         return Response(data=response.data, status=status.HTTP_200_OK)
+
+    @action(methods=["GET"], detail=False)
+    def trending(self, request: request.Request, *args, **kwargs) -> Response:
+        """
+        Returns trending insights based on view count in the last N days (default 7).
+        Defaults to returning top 10 insights.
+        """
+        try:
+            days = int(request.GET.get("days", "1"))
+            limit = min(int(request.GET.get("limit", "10")), 100)
+        except (ValueError, TypeError):
+            raise ValidationError("days and limit must be valid integers")
+
+        cutoff_date = now() - timedelta(days=days)
+
+        queryset = (
+            Insight.objects.filter(team__project_id=self.team.project_id)
+            .annotate(
+                view_count=Count(
+                    "insightviewed",
+                    filter=Q(insightviewed__last_viewed_at__gte=cutoff_date),
+                )
+            )
+            .filter(view_count__gt=0)
+            .order_by("-view_count", "-last_modified_at")
+        )
+
+        queryset = self._filter_queryset_by_access_level(queryset)
+        queryset = queryset[:limit]
+        queryset = queryset.annotate(last_viewed_at=Max("insightviewed__last_viewed_at"))
+
+        response = InsightBasicSerializer(queryset, many=True)
+        data = response.data
+
+        # Batch fetch all viewers to avoid N+1 queries
+        insight_ids = [item["id"] for item in data]
+        all_viewers = (
+            InsightViewed.objects.filter(
+                team=self.team,
+                insight_id__in=insight_ids,
+                last_viewed_at__gte=cutoff_date,
+                user__isnull=False,
+            )
+            .select_related("user")
+            .order_by("insight_id", "-last_viewed_at")
+        )
+
+        viewers_by_insight: dict[int, list] = {}
+        for viewer in all_viewers:
+            iid = viewer.insight_id
+            if iid not in viewers_by_insight:
+                viewers_by_insight[iid] = []
+            if len(viewers_by_insight[iid]) < 3:
+                viewers_by_insight[iid].append(viewer.user)
+
+        instance_map = {instance.pk: instance for instance in queryset}
+        for item in data:
+            item["viewers"] = UserBasicSerializer(viewers_by_insight.get(item["id"], []), many=True).data
+            instance = instance_map.get(item["id"])
+            item["view_count"] = getattr(instance, "view_count", 0) if instance else 0
+
+        return Response(data=data, status=status.HTTP_200_OK)
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
@@ -1315,6 +1371,7 @@ When set, the specified dashboard's filters and date range override will be appl
                 query,
                 execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                 user=request.user if request.user.is_authenticated else None,
+                request=request,
             )
             if isinstance(result_ctx, BaseModel):
                 result = result_ctx.model_dump()
@@ -1358,6 +1415,7 @@ When set, the specified dashboard's filters and date range override will be appl
                 query,
                 execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                 user=request.user if request.user.is_authenticated else None,
+                request=request,
             )
             if isinstance(result_ctx, BaseModel):
                 result = result_ctx.model_dump()
@@ -1482,7 +1540,7 @@ When set, the specified dashboard's filters and date range override will be appl
         filter = Filter(request=request, team=team)
         query = filter_to_query(filter.to_dict()).model_dump()
         query = upgrade(query)  # should not be necessary, but just in case
-        query_runner = get_query_runner(query, team, limit_context=None)
+        query_runner = get_query_runner(query, team, limit_context=None, request=request)
 
         # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
         result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
@@ -1547,7 +1605,7 @@ When set, the specified dashboard's filters and date range override will be appl
         filter = filter.shallow_clone(overrides={"insight": "FUNNELS"})
         query = filter_to_query(filter.to_dict()).model_dump()
         query = upgrade(query)  # should not be necessary, but just in case
-        query_runner = get_query_runner(query, team, limit_context=None)
+        query_runner = get_query_runner(query, team, limit_context=None, request=request)
 
         # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
         result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)

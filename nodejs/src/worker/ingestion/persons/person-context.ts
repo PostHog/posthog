@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
+import { PluginEvent, Properties } from '~/plugin-scaffold'
 
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { Team } from '../../../types'
@@ -25,7 +25,8 @@ export class PersonContext {
         public readonly personStore: PersonsStore,
         public readonly measurePersonJsonbSize: number = 0,
         public readonly mergeMode: MergeMode,
-        public readonly updateAllProperties: boolean = false // When true, all property changes trigger person updates
+        public readonly updateAllProperties: boolean = false, // When true, all property changes trigger person updates
+        public readonly shouldUpdateLastSeenAt: boolean = false
     ) {
         this.eventProperties = event.properties!
     }

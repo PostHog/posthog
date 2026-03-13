@@ -13,6 +13,7 @@ import { HogFunctionTemplateType } from '~/types'
 import { CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
 // Side-effect imports: register product-specific trigger and action nodes
 import '../registry'
+
 import { getRegisteredActionNodeCategories } from '../registry/actions/actionNodeRegistry'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { getDelayDescription } from '../steps/stepDelayLogic'

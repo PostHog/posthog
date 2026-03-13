@@ -5,7 +5,7 @@ import { SurveyQuestion } from '~/types'
 
 import type { disableSurveyLogicType } from './disableSurveyLogicType'
 
-const SURVEY_ID = '019c72ac-3098-0000-8da2-c133ed9d9b9b'
+const SURVEY_ID = '019c89a0-1469-0000-a31c-35883eb31be4'
 
 export const disableSurveyLogic = kea<disableSurveyLogicType>([
     path(['scenes', 'error-tracking', 'configuration', 'disableSurveyLogic']),

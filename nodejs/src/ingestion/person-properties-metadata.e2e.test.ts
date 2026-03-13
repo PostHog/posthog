@@ -14,6 +14,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { resetKafka } from '~/tests/helpers/kafka'
 
 import { createUserTeamAndOrganization, fetchPostgresPersons, resetTestDatabase } from '../../tests/helpers/sql'
+import { createHogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { Hub, PipelineEvent, PluginsServerConfig, ProjectId, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { UUIDT } from '../utils/utils'
@@ -53,6 +54,7 @@ const DEFAULT_TEAM: Team = {
     timezone: 'UTC',
     available_features: [],
     drop_events_older_than_seconds: null,
+    extra_settings: null,
 }
 
 let offsetIncrementer = 0
@@ -171,7 +173,11 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
                 throw new Error(`Failed to fetch team ${newTeam.id} from database`)
             }
 
-            const ingester = new IngestionConsumer(hub)
+            const ingester = new IngestionConsumer(hub, {
+                ...hub,
+                kafkaMetricsProducer: hub.kafkaProducer,
+                hogTransformer: createHogTransformerService(hub, hub),
+            })
             ingester['kafkaConsumer'] = {
                 connect: jest.fn(),
                 disconnect: jest.fn(),

@@ -8,18 +8,18 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
-import { TZLabelProps } from 'lib/components/TZLabel'
 import { DetectiveHog } from 'lib/components/hedgehogs'
+import { TZLabelProps } from 'lib/components/TZLabel'
 
 import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/logDetailsModalLogic'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
-import { LogRow } from 'products/logs/frontend/components/VirtualizedLogsList/LogRow'
-import { LogRowHeader } from 'products/logs/frontend/components/VirtualizedLogsList/LogRowHeader'
 import {
     LOG_ROW_HEADER_HEIGHT,
     RESIZER_HANDLE_WIDTH,
     getMinRowWidth,
 } from 'products/logs/frontend/components/VirtualizedLogsList/layoutUtils'
+import { LogRow } from 'products/logs/frontend/components/VirtualizedLogsList/LogRow'
+import { LogRowHeader } from 'products/logs/frontend/components/VirtualizedLogsList/LogRowHeader'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
 import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
 

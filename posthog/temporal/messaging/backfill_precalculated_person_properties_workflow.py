@@ -139,19 +139,25 @@ class BackfillPrecalculatedPersonPropertiesInputs:
     """Inputs for the precalculated person properties backfill workflow."""
 
     team_id: int
-    cohort_filters: list[CohortFilters]  # All cohorts and their filters
+    # New deduplicated structure: condition_hash -> (bytecode, {cohort_ids using this condition})
+    deduplicated_conditions: dict[str, tuple[list[Any], set[int]]]
+    cohort_ids: list[int]  # All cohort IDs being processed
     batch_size: int = 1000
     start_uuid: str = ""  # Starting UUID for range filtering (empty = no lower bound)
     end_uuid: str = ""  # Ending UUID for range filtering (empty = no upper bound)
 
     @property
+    def total_filters(self) -> int:
+        """Total number of unique filters."""
+        return len(self.deduplicated_conditions)
+
+    @property
     def properties_to_log(self) -> dict[str, Any]:
-        total_filters = sum(len(cf.filters) for cf in self.cohort_filters)
         return {
             "team_id": self.team_id,
-            "cohort_count": len(self.cohort_filters),
-            "cohort_ids": [cf.cohort_id for cf in self.cohort_filters],
-            "filter_count": total_filters,
+            "cohort_count": len(self.cohort_ids),
+            "cohort_ids": self.cohort_ids,
+            "filter_count": self.total_filters,
             "batch_size": self.batch_size,
             "start_uuid": self.start_uuid,
             "end_uuid": self.end_uuid,
@@ -171,8 +177,8 @@ async def backfill_precalculated_person_properties_activity(
     from all cohorts in a single pass for efficiency.
     """
     bind_contextvars()
-    cohort_ids = [cf.cohort_id for cf in inputs.cohort_filters]
-    total_filters = sum(len(cf.filters) for cf in inputs.cohort_filters)
+    cohort_ids = inputs.cohort_ids
+    total_filters = inputs.total_filters
     logger = LOGGER.bind(team_id=inputs.team_id, cohort_count=len(cohort_ids), cohort_ids=cohort_ids)
 
     uuid_range_desc = (
@@ -263,44 +269,46 @@ async def backfill_precalculated_person_properties_activity(
                         person_properties = parse_person_properties(row.get("properties"), person_id)
                         distinct_ids = row["distinct_ids"]
 
-                        # Process all filters from all cohorts
-                        for cohort_filters in inputs.cohort_filters:
-                            cohort_id = cohort_filters.cohort_id
-                            for filter_info in cohort_filters.filters:
-                                # Evaluate person against filter using HogQL bytecode
-                                globals_dict = {
-                                    "person": {
-                                        "id": person_id,
-                                        "properties": person_properties,
-                                    },
-                                    "project": {
-                                        "id": inputs.team_id,
-                                    },
-                                }
+                        # Evaluate each unique condition once per person, then map to cohorts
+                        condition_results = {}  # condition_hash -> bool
+                        globals_dict = {
+                            "person": {
+                                "id": person_id,
+                                "properties": person_properties,
+                            },
+                            "project": {
+                                "id": inputs.team_id,
+                            },
+                        }
 
-                                try:
-                                    result = await asyncio.to_thread(
-                                        execute_bytecode, filter_info.bytecode, globals_dict, timeout=10
-                                    )
-                                    matches = bool(result.result) if result else False
-                                except Exception as e:
-                                    logger.warning(
-                                        f"Error evaluating person {person_id} against filter {filter_info.condition_hash}: {e}",
-                                        person_id=person_id,
-                                        condition_hash=filter_info.condition_hash,
-                                        error=str(e),
-                                    )
-                                    matches = False
+                        # Step 1: Evaluate each unique condition once
+                        for condition_hash, (bytecode, _) in inputs.deduplicated_conditions.items():
+                            try:
+                                result = await asyncio.to_thread(execute_bytecode, bytecode, globals_dict, timeout=10)
+                                condition_results[condition_hash] = bool(result.result) if result else False
+                            except Exception as e:
+                                logger.warning(
+                                    f"Error evaluating person {person_id} against filter {condition_hash}: {e}",
+                                    person_id=person_id,
+                                    condition_hash=condition_hash,
+                                    error=str(e),
+                                )
+                                condition_results[condition_hash] = False
 
+                        # Step 2: Map results to all cohorts that use each condition
+                        for condition_hash, (_, cohort_set) in inputs.deduplicated_conditions.items():
+                            matches = condition_results[condition_hash]
+
+                            for cohort_id in cohort_set:
                                 # ALWAYS emit - both matches and non-matches for EACH distinct_id
                                 for distinct_id in distinct_ids:
                                     event = {
                                         "distinct_id": distinct_id,
                                         "person_id": person_id,
                                         "team_id": inputs.team_id,
-                                        "condition": filter_info.condition_hash,
+                                        "condition": condition_hash,
                                         "matches": matches,
-                                        "source": f"cohort_backfill_{cohort_id}",  # Use the current cohort_id
+                                        "source": f"cohort_backfill_{cohort_id}",
                                     }
 
                                     # Produce to Kafka without blocking - collect send results for later flushing
@@ -396,8 +404,8 @@ class BackfillPrecalculatedPersonPropertiesWorkflow(PostHogWorkflow):
     async def run(self, inputs: BackfillPrecalculatedPersonPropertiesInputs) -> None:
         """Run the workflow to backfill precalculated person properties."""
         workflow_logger = temporalio.workflow.logger
-        cohort_ids = [cf.cohort_id for cf in inputs.cohort_filters]
-        total_filters = sum(len(cf.filters) for cf in inputs.cohort_filters)
+        cohort_ids = inputs.cohort_ids
+        total_filters = inputs.total_filters
         workflow_logger.info(
             f"Starting person properties precalculation for {len(cohort_ids)} cohorts {cohort_ids} "
             f"(team {inputs.team_id}) with {total_filters} total filters"

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import json
+import struct
 import asyncio
 import builtins
 from collections.abc import Generator
@@ -14,7 +15,6 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
-from django.db.models import Q
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 
 import requests
@@ -77,6 +77,9 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.session_recordings.recordings import recording_s3_client
+from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
+from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
 from posthog.session_recordings.session_recording_v2_service import list_blocks
 from posthog.session_recordings.utils import (
     clean_prompt_whitespace,
@@ -84,9 +87,6 @@ from posthog.session_recordings.utils import (
     query_as_params_to_dict,
 )
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
-from posthog.storage.recordings import file_storage
-from posthog.storage.recordings.block_storage import BlockStorage, encrypted_block_storage
-from posthog.storage.recordings.errors import BlockFetchError, RecordingDeletedError
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
 
 from ee.hogai.session_summaries.llm.call import get_openai_client
@@ -132,7 +132,7 @@ STREAM_RESPONSE_TO_CLIENT_HISTOGRAM = Histogram(
 FETCH_BLOCKS_HISTOGRAM = Histogram(
     "session_snapshots_fetch_blocks_seconds",
     "Time taken to fetch recording blocks from storage",
-    labelnames=["source", "decompress", "encrypted"],
+    labelnames=["decompress"],
 )
 
 LOADING_V2_LTS_COUNTER = Counter(
@@ -262,7 +262,9 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
 
         return list(
             SessionRecordingExternalReferenceSerializer(
-                obj.external_references.select_related("integration").all(), many=True, context=self.context
+                obj.external_references.select_related("integration").all(),
+                many=True,
+                context=self.context,
             ).data
         )
 
@@ -479,6 +481,14 @@ class SnapshotsSustainedRateThrottle(PersonalApiKeyRateThrottle):
     rate = "600/hour"
 
 
+def _length_prefix_blocks(blocks: list[bytes]) -> bytes:
+    chunks = []
+    for block in blocks:
+        chunks.append(struct.pack(">I", len(block)))
+        chunks.append(block)
+    return b"".join(chunks)
+
+
 def clean_referer_url(current_url: str | None) -> str:
     try:
         parsed_url = urlparse(current_url)
@@ -529,12 +539,7 @@ class SessionRecordingViewSet(
             return SessionRecordingSerializer
 
     def safely_get_object(self, queryset) -> SessionRecording:
-        recording = SessionRecording.get_or_build(session_id=self.kwargs["pk"], team=self.team)
-
-        if recording.deleted:
-            raise exceptions.NotFound("Recording not found")
-
-        return recording
+        return SessionRecording.get_or_build(session_id=self.kwargs["pk"], team=self.team)
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         tag_queries(product=Product.REPLAY)
@@ -695,20 +700,17 @@ class SessionRecordingViewSet(
         recording = self.get_object()
         loaded = recording.load_metadata()
 
-        if recording is None or recording.deleted or not loaded:
+        if recording is None or not loaded:
             raise exceptions.NotFound("Recording not found")
 
         serializer = SessionRecordingUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         current_url = request.headers.get("Referer")
-        session_id = request.headers.get("X-Posthog-Session-Id")
         player_metadata = serializer.validated_data.get("player_metadata", {})
 
         event_properties = {
-            "$current_url": current_url,
             "cleaned_replay_path": clean_referer_url(current_url),
-            "$session_id": session_id,
             "duration": player_metadata.get("recording_duration"),
             "recording_id": player_metadata.get("id"),
             "start_time": player_metadata.get("start_time"),
@@ -728,6 +730,7 @@ class SessionRecordingViewSet(
                     event="recording viewed",
                     properties=event_properties,
                     team=self.team,
+                    request=request,
                 )
 
             if "analyzed" in serializer.validated_data:
@@ -736,6 +739,7 @@ class SessionRecordingViewSet(
                     event="recording analyzed",
                     properties=event_properties,
                     team=self.team,
+                    request=request,
                 )
 
         return Response({"success": True})
@@ -743,25 +747,28 @@ class SessionRecordingViewSet(
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         recording = self.get_object()
 
-        if recording.deleted:
-            raise exceptions.NotFound("Recording not found")
-
-        recording.deleted = True
-        recording.save()
-
-        if not self._delete_via_recording_api(recording.session_id):
+        deleted_by = cast(User, request.user).email
+        failed_ids = self._delete_via_recording_api([recording.session_id], deleted_by=deleted_by)
+        if failed_ids:
             logger.warning(
-                "recording_api_delete_failed_after_db_delete",
-                session_id=recording.session_id,
+                "single_delete_recording_api_failure",
                 team_id=self.team.id,
+                session_id=recording.session_id,
+                deleted_by=deleted_by,
             )
+            exc = exceptions.APIException(
+                "Failed to delete recording via recording-api",
+                code="recording_api_failure",
+            )
+            exc.status_code = 500
+            raise exc
 
         return Response({"success": True}, status=204)
 
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=False, url_path="bulk_delete")
     def bulk_delete(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        """Bulk soft delete recordings by providing a list of recording IDs.
+        """Bulk delete recordings via recording-api (crypto-shredding).
 
         Accepts optional date_from parameter to optimize ClickHouse query performance by limiting the search range.
         If not provided, defaults to the team's retention period to ensure all recordings can be found.
@@ -778,14 +785,10 @@ class SessionRecordingViewSet(
                 f"Cannot process more than {MAX_RECORDINGS_PER_BULK_ACTION} recordings at once"
             )
 
-        # Load recordings from ClickHouse to get distinct_ids for ones that don't exist in Postgres
-        # Use date_from from UI if provided (optimization for when UI knows the filter range)
-        # Otherwise fall back to retention period (handles direct links where no filter context exists)
         if not date_from:
             retention_period = self.team.session_recording_retention_period or "90d"
             date_from = f"-{retention_period}"
 
-        # Create minimal query with only session_ids - pass None for user to bypass access control filtering
         query_data = {
             "session_ids": session_recording_ids,
             "date_from": date_from,
@@ -795,43 +798,18 @@ class SessionRecordingViewSet(
         query = RecordingsQuery.model_validate(query_data)
         recordings, _, _, _ = list_recordings_from_query(query, None, self.team)
 
-        # Filter recordings based on access control - only allow deletion of recordings user has editor access to
         user_access_control = self.user_access_control
-        accessible_recordings = []
-        for recording in recordings:
-            if user_access_control.check_access_level_for_object(recording, required_level="editor"):
-                accessible_recordings.append(recording)
-
-        # Filter out recordings that are already deleted
-        non_deleted_recordings = [recording for recording in accessible_recordings if not recording.deleted]
-
-        session_recordings_to_create = [
-            SessionRecording(
-                team=self.team,
-                session_id=recording.session_id,
-                distinct_id=recording.distinct_id,
-                deleted=True,
-            )
-            for recording in non_deleted_recordings
+        accessible_recordings = [
+            recording
+            for recording in recordings
+            if user_access_control.check_access_level_for_object(recording, required_level="editor")
         ]
 
-        created_records = []
-        if session_recordings_to_create:
-            created_records = SessionRecording.objects.bulk_create(session_recordings_to_create, ignore_conflicts=True)
+        session_ids = [r.session_id for r in accessible_recordings]
+        deleted_by = cast(User, request.user).email
+        failed_ids = self._delete_via_recording_api(session_ids, deleted_by=deleted_by) if session_ids else []
+        deleted_count = len(session_ids) - len(failed_ids)
 
-        session_ids_to_delete = [recording.session_id for recording in non_deleted_recordings]
-        updated_count = 0
-        if session_ids_to_delete:
-            updated_count = SessionRecording.objects.filter(
-                team=self.team,
-                session_id__in=session_ids_to_delete,
-                deleted=False,
-            ).update(deleted=True)
-
-        deleted_count = len(created_records) + updated_count
-
-        session_ids = [r.session_id for r in non_deleted_recordings]
-        failed_ids = self._bulk_delete_via_recording_api(session_ids)
         if failed_ids:
             logger.warning(
                 "bulk_delete_recording_api_partial_failure",
@@ -847,14 +825,13 @@ class SessionRecordingViewSet(
             total_requested=len(session_recording_ids),
         )
 
-        # Single activity log entry for the bulk operation
         if deleted_count > 0:
             log_activity(
                 organization_id=cast(User, request.user).current_organization_id,
                 team_id=self.team.id,
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated_session(request),
-                item_id=None,  # No single item for bulk operation
+                item_id=None,
                 scope="Replay",
                 activity="bulk_deleted",
                 detail=Detail(
@@ -863,8 +840,14 @@ class SessionRecordingViewSet(
                 ),
             )
 
+        success = len(failed_ids) == 0
         return Response(
-            {"success": True, "deleted_count": deleted_count, "total_requested": len(session_recording_ids)}
+            {
+                "success": success,
+                "deleted_count": deleted_count,
+                "total_requested": len(session_recording_ids),
+                "failed_ids": failed_ids,
+            }
         )
 
     @extend_schema(exclude=True)
@@ -1068,12 +1051,14 @@ class SessionRecordingViewSet(
                 session_id=str(recording.session_id),
                 team_id=self.team.id,
                 deleted_at=e.deleted_at,
+                deleted_by=e.deleted_by,
             )
             return Response(
                 {
                     "error": "recording_deleted",
                     "message": "This recording has been permanently deleted",
                     "deleted_at": e.deleted_at,
+                    "deleted_by": e.deleted_by,
                 },
                 status=status.HTTP_410_GONE,
             )
@@ -1119,8 +1104,9 @@ class SessionRecordingViewSet(
             report_user_action(
                 user=cast(User, request.user),
                 event="recording list filters changed",
-                properties={"$current_url": current_url, "$session_id": session_id, **partial_filters},
+                properties=partial_filters,
                 team=team,
+                request=request,
             )
 
             ProductIntent.register(
@@ -1318,7 +1304,7 @@ class SessionRecordingViewSet(
                 tracer.start_as_current_span("list_blocks__stream_lts_blob_v2_to_client_async"),
             ):
                 posthoganalytics.tag("lts_v2_blob_key", blob_key)
-                storage_client = file_storage.file_storage()
+                storage_client = recording_s3_client.recording_s3_client()
                 content: str | bytes
                 if decompress:
                     content = await asyncio.to_thread(storage_client.download_file_decompressed, blob_key)
@@ -1354,52 +1340,26 @@ class SessionRecordingViewSet(
 
         return blocks
 
-    def _bulk_delete_via_recording_api(self, session_ids: builtins.list[str]) -> builtins.list[str]:
-        """Delete multiple recordings via recording-api bulk endpoint.
+    def _delete_via_recording_api(self, session_ids: builtins.list[str], deleted_by: str) -> builtins.list[str]:
+        """Delete recordings via recording-api.
 
         Returns list of session IDs that failed to delete.
         """
 
         async def _delete_all() -> list[str]:
-            async with encrypted_block_storage() as storage:
-                return await storage.bulk_delete_recordings(session_ids, self.team.id)
+            async with recording_api_client() as storage:
+                return await storage.delete_recordings(session_ids, self.team.id, deleted_by=deleted_by)
 
         try:
             return async_to_sync(_delete_all)()
         except Exception as e:
             logger.exception(
-                "recording_api_bulk_delete_error",
+                "recording_api_delete_error",
                 error=str(e),
                 team_id=self.team.id,
                 session_count=len(session_ids),
             )
             return session_ids
-
-    def _delete_via_recording_api(self, session_id: str) -> bool:
-        """Delete recording via recording-api. Returns True if deleted successfully."""
-
-        async def _delete() -> bool:
-            async with encrypted_block_storage() as storage:
-                return await storage.delete_recording(session_id, self.team.id)
-
-        try:
-            return async_to_sync(_delete)()
-        except BlockFetchError as e:
-            logger.warning(
-                "recording_api_delete_failed",
-                error=str(e),
-                session_id=session_id,
-                team_id=self.team.id,
-            )
-            return False
-        except Exception as e:
-            logger.exception(
-                "recording_api_delete_error",
-                error=str(e),
-                session_id=session_id,
-                team_id=self.team.id,
-            )
-            return False
 
     async def _fetch_blocks_parallel(
         self,
@@ -1407,19 +1367,15 @@ class SessionRecordingViewSet(
         min_blob_key: int,
         max_blob_key: int,
         recording: SessionRecording,
-        block_storage: BlockStorage,
+        api_client: RecordingApiClient,
         decompress: bool,
     ) -> BlockList:
-        async def fetch_single_block(block_index: int) -> tuple[int, str | bytes | None]:
+        async def fetch_single_block(block_index: int) -> tuple[int, bytes | None]:
             try:
                 block = blocks[block_index]
-                content: str | bytes
-                if decompress:
-                    content = await block_storage.fetch_decompressed_block(
-                        block.url, recording.session_id, self.team.id
-                    )
-                else:
-                    content = await block_storage.fetch_compressed_block(block.url, recording.session_id, self.team.id)
+                content = await api_client.fetch_block(
+                    block.url, recording.session_id, self.team.id, decompress=decompress
+                )
                 return block_index, content
             except RecordingDeletedError:
                 # Let this propagate up to return a 410 response
@@ -1436,7 +1392,7 @@ class SessionRecordingViewSet(
         tasks = [fetch_single_block(block_index) for block_index in range(min_blob_key, max_blob_key + 1)]
         results = await asyncio.gather(*tasks)
 
-        blocks_data: list[str | bytes] = []
+        blocks_data: list[bytes] = []
         block_errors = []
 
         for block_index, content in results:
@@ -1460,86 +1416,16 @@ class SessionRecordingViewSet(
         decompress: bool,
     ) -> BlockList:
         compress_label = "decompressed" if decompress else "compressed"
-        source_label = "recording_api"
-        span_name = f"fetch_{compress_label}_blocks_via_{source_label}"
+        span_name = f"fetch_{compress_label}_blocks"
 
-        storage_cm = encrypted_block_storage()
-
-        async with storage_cm as block_storage:
-            encrypted_label = str(self.team.session_recording_encryption)
-            with FETCH_BLOCKS_HISTOGRAM.labels(
-                source=source_label, decompress=str(decompress), encrypted=encrypted_label
-            ).time():
+        async with recording_api_client() as storage:
+            with FETCH_BLOCKS_HISTOGRAM.labels(decompress=str(decompress)).time():
                 with timer(span_name), tracer.start_as_current_span(span_name):
                     return await self._fetch_blocks_parallel(
-                        blocks, min_blob_key, max_blob_key, recording, block_storage, decompress
+                        blocks, min_blob_key, max_blob_key, recording, storage, decompress
                     )
 
-    @tracer.start_as_current_span("_stream_decompressed_blocks")
-    async def _stream_decompressed_blocks(
-        self,
-        recording: SessionRecording,
-        timer: ServerTimingsGathered,
-        min_blob_key: int,
-        max_blob_key: int,
-    ) -> HttpResponse:
-        blocks = await self._fetch_and_validate_blocks(recording, timer, min_blob_key, max_blob_key)
-
-        blocks_data = await self._fetch_blocks_with_storage(
-            blocks, min_blob_key, max_blob_key, recording, timer, decompress=True
-        )
-
-        response = HttpResponse(
-            content="\n".join(blocks_data),
-            content_type="application/jsonl",
-        )
-        response["Cache-Control"] = "max-age=3600"
-        response["Content-Disposition"] = "inline"
-        return response
-
-    @tracer.start_as_current_span("_stream_compressed_blocks")
-    async def _stream_compressed_blocks(
-        self,
-        recording: SessionRecording,
-        timer: ServerTimingsGathered,
-        min_blob_key: int,
-        max_blob_key: int,
-    ) -> HttpResponse:
-        import struct
-
-        blocks = await self._fetch_and_validate_blocks(recording, timer, min_blob_key, max_blob_key)
-
-        blocks_data = await self._fetch_blocks_with_storage(
-            blocks, min_blob_key, max_blob_key, recording, timer, decompress=False
-        )
-
-        payload_chunks = []
-        for block in blocks_data:
-            payload_chunks.append(struct.pack(">I", len(block)))
-            payload_chunks.append(block)
-
-        response = HttpResponse(
-            content=b"".join(payload_chunks),
-            content_type="application/octet-stream",
-        )
-        response["Cache-Control"] = "max-age=3600"
-        response["Content-Disposition"] = "inline"
-        return response
-
-    async def _stream_blob_v2_to_client_async(
-        self,
-        recording: SessionRecording,
-        timer: ServerTimingsGathered,
-        min_blob_key: int,
-        max_blob_key: int,
-        decompress: bool = True,
-    ) -> HttpResponse:
-        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2", decompress=decompress).time():
-            if decompress:
-                return await self._stream_decompressed_blocks(recording, timer, min_blob_key, max_blob_key)
-            else:
-                return await self._stream_compressed_blocks(recording, timer, min_blob_key, max_blob_key)
-
+    @tracer.start_as_current_span("_stream_blob_v2_to_client")
     def _stream_blob_v2_to_client(
         self,
         recording: SessionRecording,
@@ -1548,9 +1434,30 @@ class SessionRecordingViewSet(
         max_blob_key: int,
         decompress: bool = True,
     ) -> HttpResponse:
-        return asyncio.run(
-            self._stream_blob_v2_to_client_async(recording, timer, min_blob_key, max_blob_key, decompress)
-        )
+        async def _run() -> HttpResponse:
+            with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2", decompress=decompress).time():
+                blocks = await self._fetch_and_validate_blocks(recording, timer, min_blob_key, max_blob_key)
+
+                blocks_data = await self._fetch_blocks_with_storage(
+                    blocks, min_blob_key, max_blob_key, recording, timer, decompress=decompress
+                )
+
+                if decompress:
+                    response = HttpResponse(
+                        content=b"".join(blocks_data).rstrip(b"\n"),
+                        content_type="application/jsonl",
+                    )
+                else:
+                    response = HttpResponse(
+                        content=_length_prefix_blocks(blocks_data),
+                        content_type="application/octet-stream",
+                    )
+
+                response["Cache-Control"] = "max-age=3600"
+                response["Content-Disposition"] = "inline"
+                return response
+
+        return asyncio.run(_run())
 
     def _stream_lts_blob_v2_to_client(
         self,
@@ -1633,15 +1540,13 @@ def _load_recording_if_matches_filters(
         return None
 
     s3_persisted_recording = (
-        SessionRecording.objects.filter(team=team, session_id=session_id)
-        .exclude(Q(object_storage_path=None) & Q(full_recording_v2_path=None))
-        .first()
+        SessionRecording.objects.filter(team=team, session_id=session_id).exclude(full_recording_v2_path=None).first()
     )
     if s3_persisted_recording:
         return s3_persisted_recording
 
     prepend_recordings = SessionRecording.get_or_build_from_clickhouse(team, ch_query_result.results)
-    if prepend_recordings and not prepend_recordings[0].deleted:
+    if prepend_recordings:
         return prepend_recordings[0]
 
     return None
@@ -1697,7 +1602,7 @@ def list_recordings_from_query(
 
             persisted_recordings_queryset = SessionRecording.objects.filter(
                 team=team, session_id__in=sorted_session_ids
-            ).exclude(Q(object_storage_path=None) & Q(full_recording_v2_path=None))
+            ).exclude(full_recording_v2_path=None)
 
             persisted_recordings = persisted_recordings_queryset.all()
 
@@ -1739,8 +1644,6 @@ def list_recordings_from_query(
         with timer("build_recordings"), tracer.start_as_current_span("build_recordings"):
             recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
             recordings = recordings + recordings_from_clickhouse
-
-            recordings = [x for x in recordings if not x.deleted]
 
             # If we have specified session_ids we need to sort them by the order they were specified
             if all_session_ids:

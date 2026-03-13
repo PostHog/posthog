@@ -18,10 +18,10 @@ import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-ge
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
-import { FreeHistoricalSyncsBanner } from '../FreeHistoricalSyncsBanner'
 import SchemaForm from '../external/forms/SchemaForm'
 import SourceForm from '../external/forms/SourceForm'
 import { SyncProgressStep } from '../external/forms/SyncProgressStep'
+import { FreeHistoricalSyncsBanner } from '../FreeHistoricalSyncsBanner'
 import { DatawarehouseTableForm } from '../new/DataWarehouseTableForm'
 import { availableSourcesDataLogic } from './availableSourcesDataLogic'
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
@@ -104,6 +104,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         selectedConnector,
         connectors,
         isSelfManagedSource,
+        source,
     } = useValues(sourceWizardLogic)
     const { onBack, onSubmit, setInitialConnector } = useActions(sourceWizardLogic)
     const { tableLoading: manualLinkIsLoading } = useValues(dataWarehouseTableLogic)
@@ -190,13 +191,17 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                         <div>
                             <h4 className="text-lg font-semibold mb-0">{modalTitle}</h4>
                             <p className="text-sm text-muted-alt mb-0">
-                                Import data directly from {selectedConnector.label ?? selectedConnector.name}
+                                {source.access_method === 'direct'
+                                    ? `Query ${selectedConnector.label ?? selectedConnector.name} directly from PostHog without warehouse syncs.`
+                                    : `Sync data from ${selectedConnector.label ?? selectedConnector.name} into the PostHog data warehouse.`}
                             </p>
                         </div>
                     </div>
                 )}
 
-                {selectedConnector && <FreeHistoricalSyncsBanner hideGetStarted={true} />}
+                {selectedConnector && source.access_method !== 'direct' && (
+                    <FreeHistoricalSyncsBanner hideGetStarted={true} />
+                )}
 
                 {currentStep === 1 ? (
                     <FirstStep allowedSources={props.allowedSources} />

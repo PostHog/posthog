@@ -111,6 +111,15 @@ class RateLimit:
         elif limit_value := kwargs.get("limit", None):
             max_concurrency = int(limit_value)
 
+        if not TEST:
+            from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
+
+            kill_switch_level = get_kill_switch_level()
+            if kill_switch_level == KillSwitchLevel.LIGHT:
+                max_concurrency = max(1, max_concurrency // 2)
+            elif kill_switch_level == KillSwitchLevel.FULL:
+                max_concurrency = max(1, max_concurrency // 4)
+
         # p80 is below 1.714ms, therefore max retry is 1.714s
         backoff = ExponentialBackoff(self.retry or 0.15, max_delay=1.714, exp=1.5)
         count = 1
@@ -200,15 +209,7 @@ def get_api_team_rate_limiter():
         is_api: Optional[bool] = None,
         **kwargs,
     ) -> bool:
-        return bool(
-            not TEST
-            and is_api
-            and team_id
-            and (
-                team_id in settings.API_QUERIES_PER_TEAM
-                or (settings.API_QUERIES_LEGACY_TEAM_LIST and team_id not in settings.API_QUERIES_LEGACY_TEAM_LIST)
-            )
-        )
+        return bool(not TEST and is_api and team_id)
 
     if __API_CONCURRENT_QUERY_PER_TEAM is None:
         __API_CONCURRENT_QUERY_PER_TEAM = RateLimit(

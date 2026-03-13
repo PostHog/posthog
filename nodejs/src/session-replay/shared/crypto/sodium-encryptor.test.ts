@@ -48,9 +48,10 @@ describe('SodiumRecordingEncryptor', () => {
         const result = await encryptor.encryptBlock('session-123', 1, clearText)
 
         expect(mockKeyStore.getKey).toHaveBeenCalledWith('session-123', 1)
-        expect(result).toBeInstanceOf(Buffer)
-        expect(result.length).toBeGreaterThan(0)
-        expect(result).not.toEqual(clearText)
+        expect(result.sessionState).toBe('ciphertext')
+        expect(result.data).toBeInstanceOf(Buffer)
+        expect(result.data.length).toBeGreaterThan(0)
+        expect(result.data).not.toEqual(clearText)
     })
 
     it('should throw error if getKey fails', async () => {
@@ -66,8 +67,8 @@ describe('SodiumRecordingEncryptor', () => {
 
         const result = await encryptor.encryptBlock('session-123', 1, clearText)
 
-        expect(result).toBeInstanceOf(Buffer)
-        expect(result.length).toBeGreaterThan(0)
+        expect(result.data).toBeInstanceOf(Buffer)
+        expect(result.data.length).toBeGreaterThan(0)
     })
 
     it('should handle large buffer', async () => {
@@ -76,8 +77,8 @@ describe('SodiumRecordingEncryptor', () => {
 
         const result = await encryptor.encryptBlock('session-123', 1, clearText)
 
-        expect(result).toBeInstanceOf(Buffer)
-        expect(result.length).toBeGreaterThan(clearText.length)
+        expect(result.data).toBeInstanceOf(Buffer)
+        expect(result.data.length).toBeGreaterThan(clearText.length)
     })
 
     it('should produce different output for same input due to random nonce', async () => {
@@ -88,9 +89,9 @@ describe('SodiumRecordingEncryptor', () => {
         const result2 = await encryptor.encryptBlock('session-123', 1, clearText)
 
         // Each encryption uses a random nonce, so outputs should be different
-        expect(result1).not.toEqual(result2)
+        expect(result1.data).not.toEqual(result2.data)
         // But they should have the same length (nonce + ciphertext + auth tag)
-        expect(result1.length).toEqual(result2.length)
+        expect(result1.data.length).toEqual(result2.data.length)
     })
 
     it('should handle binary data', async () => {
@@ -99,8 +100,8 @@ describe('SodiumRecordingEncryptor', () => {
 
         const result = await encryptor.encryptBlock('session-123', 1, binaryData)
 
-        expect(result).toBeInstanceOf(Buffer)
-        expect(result).not.toEqual(binaryData)
+        expect(result.data).toBeInstanceOf(Buffer)
+        expect(result.data).not.toEqual(binaryData)
     })
 
     it('should throw SessionKeyDeletedError when session state is deleted', async () => {
@@ -160,6 +161,6 @@ describe('SodiumRecordingEncryptor', () => {
 
         const result = await encryptor.encryptBlock('session-123', 1, clearText)
 
-        expect(result).toEqual(clearText)
+        expect(result).toEqual({ data: clearText, sessionState: 'cleartext' })
     })
 })

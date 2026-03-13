@@ -6,8 +6,8 @@ import { createPortal } from 'react-dom'
 
 import { IconTrending } from '@posthog/icons'
 
-import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
+import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { VariantTag } from 'scenes/experiments/ExperimentView/components'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
@@ -23,11 +23,12 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { Experiment, InsightType } from '~/types'
 
 import { experimentLogic } from '../../experimentLogic'
+import { isLaunched } from '../../experimentsLogic'
 import { useColumnWidthSync } from '../hooks/useColumnWidthSync'
 import { ChartEmptyState } from '../shared/ChartEmptyState'
 import { ChartLoadingState } from '../shared/ChartLoadingState'
-import { MetricHeader } from '../shared/MetricHeader'
 import { useChartColors } from '../shared/colors'
+import { MetricHeader } from '../shared/MetricHeader'
 import {
     type ExperimentVariantResult,
     formatChanceToWinForGoal,
@@ -43,11 +44,6 @@ import {
     isWinning,
 } from '../shared/utils'
 import { ChartCell } from './ChartCell'
-import { DetailsButton } from './DetailsButton'
-import { DetailsModal } from './DetailsModal'
-import { GridLines } from './GridLines'
-import { renderTooltipContent } from './MetricRowGroupTooltip'
-import { TimeseriesModal } from './TimeseriesModal'
 import {
     CELL_HEIGHT,
     CHART_CELL_VIEW_BOX_HEIGHT,
@@ -56,6 +52,11 @@ import {
     SVG_EDGE_MARGIN,
     VIEW_BOX_WIDTH,
 } from './constants'
+import { DetailsButton } from './DetailsButton'
+import { DetailsModal } from './DetailsModal'
+import { GridLines } from './GridLines'
+import { renderTooltipContent } from './MetricRowGroupTooltip'
+import { TimeseriesModal } from './TimeseriesModal'
 import { useAxisScale } from './useAxisScale'
 
 const FIXED_HEIGHT_STYLE: React.CSSProperties = {
@@ -229,7 +230,7 @@ function CollapsibleBreakdownSection({
                                                                 ) : (
                                                                     <ChartEmptyState
                                                                         height={CELL_HEIGHT}
-                                                                        experimentStarted={!!experiment.start_date}
+                                                                        experimentStarted={isLaunched(experiment)}
                                                                         metric={metric}
                                                                         query={query}
                                                                         onRetry={onRetry}
@@ -674,7 +675,7 @@ export function MetricRowGroup({
                         ) : (
                             <ChartEmptyState
                                 height={noResultHeight}
-                                experimentStarted={!!experiment.start_date}
+                                experimentStarted={isLaunched(experiment)}
                                 metric={metric}
                                 error={error}
                                 query={debugQuery}

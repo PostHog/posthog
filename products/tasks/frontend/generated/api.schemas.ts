@@ -7,6 +7,16 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface CodeInviteRedeemRequestApi {
+    /** @maxLength 50 */
+    code: string
+}
+
+export interface ErrorResponseApi {
+    /** Error message */
+    error: string
+}
+
 /**
  * Serializer for extracted tasks
  */
@@ -30,6 +40,7 @@ export interface PaginatedTaskListApi {
  * * `error_tracking` - Error Tracking
  * `eval_clusters` - Eval Clusters
  * `user_created` - User Created
+ * `slack` - Slack
  * `support_queue` - Support Queue
  * `session_summaries` - Session Summaries
  */
@@ -39,6 +50,7 @@ export const OriginProductEnumApi = {
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',
+    Slack: 'slack',
     SupportQueue: 'support_queue',
     SessionSummaries: 'session_summaries',
 } as const
@@ -109,6 +121,7 @@ export interface PatchedTaskApi {
     readonly slug?: string
     /** @maxLength 255 */
     title?: string
+    title_manually_set?: boolean
     description?: string
     origin_product?: OriginProductEnumApi
     /**
@@ -150,6 +163,12 @@ export interface TaskRunCreateRequestApi {
 * `interactive` - interactive
 * `background` - background */
     mode?: TaskRunCreateRequestModeEnumApi
+    /**
+     * Git branch to checkout in the sandbox
+     * @maxLength 255
+     * @nullable
+     */
+    branch?: string | null
 }
 
 /**
@@ -298,11 +317,6 @@ export interface PatchedTaskRunUpdateApi {
     error_message?: string | null
 }
 
-export interface ErrorResponseApi {
-    /** Error message */
-    error: string
-}
-
 export type TaskRunAppendLogRequestApiEntriesItem = { [key: string]: unknown }
 
 export interface TaskRunAppendLogRequestApi {
@@ -377,11 +391,87 @@ export interface TaskRunArtifactPresignResponseApi {
 }
 
 /**
+ * Parameters for the command
+ */
+export type TaskRunCommandRequestApiParams = { [key: string]: unknown }
+
+/**
+ * * `2.0` - 2.0
+ */
+export type JsonrpcEnumApi = (typeof JsonrpcEnumApi)[keyof typeof JsonrpcEnumApi]
+
+export const JsonrpcEnumApi = {
+    '20': '2.0',
+} as const
+
+/**
+ * * `user_message` - user_message
+ * `cancel` - cancel
+ * `close` - close
+ */
+export type MethodEnumApi = (typeof MethodEnumApi)[keyof typeof MethodEnumApi]
+
+export const MethodEnumApi = {
+    UserMessage: 'user_message',
+    Cancel: 'cancel',
+    Close: 'close',
+} as const
+
+/**
+ * JSON-RPC request to send a command to the agent server in the sandbox.
+ */
+export interface TaskRunCommandRequestApi {
+    /** JSON-RPC version, must be '2.0'
+
+* `2.0` - 2.0 */
+    jsonrpc: JsonrpcEnumApi
+    /** Command method to execute on the agent server
+
+* `user_message` - user_message
+* `cancel` - cancel
+* `close` - close */
+    method: MethodEnumApi
+    /** Parameters for the command */
+    params?: TaskRunCommandRequestApiParams
+    /** Optional JSON-RPC request ID (string or number) */
+    id?: unknown
+}
+
+/**
+ * Command result on success
+ */
+export type TaskRunCommandResponseApiResult = { [key: string]: unknown }
+
+/**
+ * Error details on failure
+ */
+export type TaskRunCommandResponseApiError = { [key: string]: unknown }
+
+/**
+ * Response from the agent server command endpoint.
+ */
+export interface TaskRunCommandResponseApi {
+    /** JSON-RPC version */
+    jsonrpc: string
+    /** Request ID echoed back (string or number) */
+    id?: unknown
+    /** Command result on success */
+    result?: TaskRunCommandResponseApiResult
+    /** Error details on failure */
+    error?: TaskRunCommandResponseApiError
+}
+
+/**
  * Response containing a JWT token for direct sandbox connection
  */
 export interface ConnectionTokenResponseApi {
     /** JWT token for authenticating with the sandbox */
     token: string
+}
+
+export interface TaskRunRelayMessageRequestApi {
+    /** @maxLength 10000 */
+    text: string
 }
 
 /**

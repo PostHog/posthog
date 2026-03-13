@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-import requests
+from posthog.security.outbound_proxy import external_requests
 
 # GraphQL query to get runs for the reconciliation job
 RUNS_QUERY = """
@@ -169,7 +169,7 @@ class DagsterCloudClient:
         if variables:
             payload["variables"] = variables
 
-        response = requests.post(self.base_url, headers=self.headers, json=payload, timeout=60)
+        response = external_requests.post(self.base_url, headers=self.headers, json=payload, timeout=60)
         response.raise_for_status()
 
         result = response.json()

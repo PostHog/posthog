@@ -9,20 +9,20 @@ import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconWarning } from '
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { supportLogic } from 'lib/components/Support/supportLogic'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
 import { holidaysMatcher, isChristmas } from 'lib/holidays'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { IconChristmasOrnament, IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
-import { IconChristmasOrnament, IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber, humanizeBytes, inStorybook, inStorybookTestRunner } from 'lib/utils'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -516,7 +516,7 @@ export function InsightValidationError({
 }
 
 export interface InsightErrorStateProps {
-    title?: string | null
+    title?: string | JSX.Element | null
     query?: Record<string, any> | Node | null
     queryId?: string | null
     excludeDetail?: boolean
@@ -643,6 +643,22 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
                     Learn more about funnels in PostHog docs
                 </Link>
             </div>
+        </div>
+    )
+}
+
+export function BoxPlotMissingPropertyState(): JSX.Element {
+    return (
+        <div
+            data-attr="insight-empty-state"
+            className="flex flex-col items-center justify-center gap-2 rounded px-4 py-6 h-full w-full text-center text-balance"
+        >
+            <IconArchive className="text-4xl shrink-0 text-muted mb-2" />
+
+            <h2 className="text-xl leading-tight font-medium mb-0">Choose a numeric property</h2>
+            <p className="text-sm text-muted mb-1">
+                Select a numeric property to see a box plot of its values over time.
+            </p>
         </div>
     )
 }

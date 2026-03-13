@@ -105,6 +105,27 @@ func LoadExistingEnv() map[string]string {
 	return values
 }
 
+func UpdateEnvValue(key, value string) error {
+	data, err := os.ReadFile(".env")
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(string(data), "\n")
+	prefix := key + "="
+	found := false
+	for i, line := range lines {
+		if strings.HasPrefix(line, prefix) {
+			lines[i] = prefix + value
+			found = true
+			break
+		}
+	}
+	if !found {
+		lines = append(lines, prefix+value)
+	}
+	return os.WriteFile(".env", []byte(strings.Join(lines, "\n")), 0600)
+}
+
 func UpdateEnvForUpgrade(version string) error {
 	existing := LoadExistingEnv()
 
@@ -120,6 +141,12 @@ func UpdateEnvForUpgrade(version string) error {
 
 	if existing["SESSION_RECORDING_V2_METADATA_SWITCHOVER"] == "" {
 		if err := AppendToEnv("SESSION_RECORDING_V2_METADATA_SWITCHOVER", time.Now().Format(time.RFC3339)); err != nil {
+			return err
+		}
+	}
+
+	if version != "" {
+		if err := UpdateEnvValue("POSTHOG_APP_TAG", version); err != nil {
 			return err
 		}
 	}

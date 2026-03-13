@@ -15,54 +15,6 @@ test.describe('Insight creation', () => {
         await playwrightSetup.login(page, workspace!)
     })
 
-    test('Trends: add breakdown, save and verify persistence', async ({ page }) => {
-        const insight = new InsightPage(page)
-
-        await test.step('navigate to new Trends insight and verify chart renders', async () => {
-            await insight.goToNewTrends()
-            await expect(insight.activeTab).toContainText('Trends')
-            await insight.trends.waitForChart()
-        })
-
-        await test.step('add breakdown by Browser and verify row count increases', async () => {
-            await insight.trends.addBreakdown('Browser')
-            await insight.trends.waitForChart()
-            await insight.trends.waitForDetailsTable()
-            const rowCount = await insight.trends.detailsLabels.count()
-            expect(rowCount).toBeGreaterThanOrEqual(1)
-        })
-
-        await test.step('save the insight and verify view mode', async () => {
-            await insight.save()
-            await expect(insight.editButton).toBeVisible()
-            expect(page.url()).not.toContain('/new')
-        })
-    })
-
-    test('Funnels: configure multi-step funnel, verify visualization, save and persist', async ({ page }) => {
-        const insight = new InsightPage(page)
-
-        await test.step('navigate to new Funnels insight and verify active tab', async () => {
-            await insight.goToNewInsight(InsightType.FUNNELS)
-            await expect(insight.activeTab).toContainText('Funnels')
-        })
-
-        await test.step('add a second step and wait for computation', async () => {
-            await page.getByTestId('add-action-event-button-empty-state').click()
-            await insight.funnels.waitForChart()
-        })
-
-        await test.step('verify funnel visualization', async () => {
-            await expect(insight.funnels.stepBars).toHaveCount(2)
-            await expect(page.getByText('Total conversion rate:')).toBeVisible()
-        })
-
-        await test.step('save and verify view mode', async () => {
-            await insight.save()
-            await expect(insight.editButton).toBeVisible()
-        })
-    })
-
     test('Retention: verify table and chart render, save and persist', async ({ page }) => {
         const insight = new InsightPage(page)
 

@@ -1,7 +1,11 @@
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
-from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import flush_kafka_batch
+from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
+    BackfillPrecalculatedPersonPropertiesInputs,
+    backfill_precalculated_person_properties_activity,
+    flush_kafka_batch,
+)
 
 
 class TestFlushKafkaBatch:
@@ -262,3 +266,182 @@ class TestBatchFlushingBehavior:
         assert result2 == 10000
         assert result3 == 5000
         assert result1 + result2 + result3 == 25000
+
+
+class TestBackfillPrecalculatedPersonPropertiesActivity:
+    """Tests for the main backfill activity function."""
+
+    @pytest.mark.asyncio
+    async def test_multi_cohort_processing_with_correct_source_attribution(self):
+        """Should process multiple cohorts and attribute events to correct cohort sources."""
+        # Set up test data
+        person_data = [
+            {
+                "person_id": "person_1",
+                "properties": '{"age": 25, "country": "US"}',
+                "distinct_ids": ["user_1a", "user_1b"],
+            },
+            {
+                "person_id": "person_2",
+                "properties": '{"age": 35, "country": "UK"}',
+                "distinct_ids": ["user_2a"],
+            },
+        ]
+
+        # Create deduplicated conditions structure
+        # Cohort 100: age_filter_25, country_filter_us
+        # Cohort 200: age_filter_35
+        deduplicated_conditions = {
+            "age_filter_25": (["mock_bytecode_age_25"], {100}),
+            "country_filter_us": (["mock_bytecode_country_us"], {100}),
+            "age_filter_35": (["mock_bytecode_age_35"], {200}),
+        }
+
+        inputs = BackfillPrecalculatedPersonPropertiesInputs(
+            team_id=1,
+            deduplicated_conditions=deduplicated_conditions,
+            cohort_ids=[100, 200],
+            batch_size=100,
+            offset=0,
+            limit=2,
+        )
+
+        # Mock dependencies
+        mock_kafka_producer = Mock()
+        mock_send_results = []
+
+        def mock_produce(**kwargs):
+            result = Mock()
+            result.get = Mock(return_value=None)
+            mock_send_results.append((result, kwargs))
+            return result
+
+        mock_kafka_producer.produce = Mock(side_effect=mock_produce)
+        mock_kafka_producer.flush = Mock()
+
+        mock_client = AsyncMock()
+
+        # Create an async generator for the mock
+        async def mock_stream_query(*args, **kwargs):
+            for person in person_data:
+                yield person
+
+        mock_client.stream_query_as_jsonl = mock_stream_query
+
+        # Mock HogQL execution to return different results for different filters
+        def mock_execute_bytecode(bytecode, globals_dict, timeout=None):
+            result = Mock()
+            person_age = globals_dict["person"]["properties"].get("age")
+            person_country = globals_dict["person"]["properties"].get("country")
+
+            # Match filters based on bytecode
+            if bytecode == ["mock_bytecode_age_25"]:
+                result.result = person_age == 25
+            elif bytecode == ["mock_bytecode_age_35"]:
+                result.result = person_age == 35
+            elif bytecode == ["mock_bytecode_country_us"]:
+                result.result = person_country == "US"
+            else:
+                result.result = False
+            return result
+
+        # Mock asyncio.to_thread to handle both flush and execute_bytecode calls
+        async def mock_to_thread(func, *args, **kwargs):
+            if hasattr(func, "_mock_name") and "flush" in func._mock_name:
+                # This is the kafka flush call - just return None
+                return None
+            else:
+                # This is the execute_bytecode call
+                return mock_execute_bytecode(*args, **kwargs)
+
+        with (
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.KafkaProducer",
+                return_value=mock_kafka_producer,
+            ),
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_client"
+            ) as mock_get_client,
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.Heartbeater"
+            ) as mock_heartbeater,
+            patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.bind_contextvars"),
+            patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.LOGGER"),
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_person_properties_backfill_success_metric"
+            ) as mock_metric,
+            patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.tags_context"),
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.asyncio.to_thread",
+                side_effect=mock_to_thread,
+            ),
+        ):
+            mock_get_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_get_client.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            mock_heartbeater_instance = Mock()
+            mock_heartbeater_instance.__aenter__ = AsyncMock(return_value=mock_heartbeater_instance)
+            mock_heartbeater_instance.__aexit__ = AsyncMock(return_value=None)
+            mock_heartbeater.return_value = mock_heartbeater_instance
+
+            mock_metric.return_value.add = Mock()
+
+            # Execute the activity
+            await backfill_precalculated_person_properties_activity(inputs)
+
+        # Verify Kafka messages were produced
+        assert len(mock_send_results) > 0
+
+        # Extract all events from mock calls
+        produced_events = []
+        for _result, call_kwargs in mock_send_results:
+            produced_events.append(call_kwargs["data"])
+
+        # Expected events:
+        # Person 1 (age=25, country=US) should match:
+        #   - cohort 100: age_filter_25 (matches), country_filter_us (matches)
+        # Person 2 (age=35, country=UK) should match:
+        #   - cohort 100: age_filter_25 (doesn't match), country_filter_us (doesn't match)
+        #   - cohort 200: age_filter_35 (matches)
+
+        # Group events by cohort source
+        cohort_100_events = [e for e in produced_events if e["source"] == "cohort_backfill_100"]
+        cohort_200_events = [e for e in produced_events if e["source"] == "cohort_backfill_200"]
+
+        # Should have events for both cohorts
+        assert len(cohort_100_events) > 0, "Should have events for cohort 100"
+        assert len(cohort_200_events) > 0, "Should have events for cohort 200"
+
+        # Verify cohort 100 events have correct source and conditions
+        cohort_100_conditions = {e["condition"] for e in cohort_100_events}
+        assert "age_filter_25" in cohort_100_conditions
+        assert "country_filter_us" in cohort_100_conditions
+
+        # Verify cohort 200 events have correct source and conditions
+        cohort_200_conditions = {e["condition"] for e in cohort_200_events}
+        assert "age_filter_35" in cohort_200_conditions
+
+        # Verify person 1 matches are correct for cohort 100
+        person_1_cohort_100_events = [e for e in cohort_100_events if e["person_id"] == "person_1"]
+
+        # Person 1 should have matching events for both filters in cohort 100
+        person_1_matches = {e["condition"]: e["matches"] for e in person_1_cohort_100_events}
+        assert person_1_matches.get("age_filter_25") is True  # age=25 matches
+        assert person_1_matches.get("country_filter_us") is True  # country=US matches
+
+        # Verify person 2 matches are correct for cohort 200
+        person_2_cohort_200_events = [e for e in cohort_200_events if e["person_id"] == "person_2"]
+
+        person_2_matches = {e["condition"]: e["matches"] for e in person_2_cohort_200_events}
+        assert person_2_matches.get("age_filter_35") is True  # age=35 matches
+
+        # Verify all events have the correct team_id
+        for event in produced_events:
+            assert event["team_id"] == 1
+
+        # Verify distinct_ids are properly handled - each person should generate events for each distinct_id
+        person_1_distinct_ids = {e["distinct_id"] for e in produced_events if e["person_id"] == "person_1"}
+        assert person_1_distinct_ids == {"user_1a", "user_1b"}
+
+        person_2_distinct_ids = {e["distinct_id"] for e in produced_events if e["person_id"] == "person_2"}
+        assert person_2_distinct_ids == {"user_2a"}

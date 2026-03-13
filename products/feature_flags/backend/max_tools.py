@@ -251,6 +251,8 @@ class CreateFeatureFlagTool(MaxTool):
                 successful_authenticator=None,
                 session={},
                 data=serializer_data,
+                META={},
+                headers={},
             )
             team = self._team
             context = {
@@ -290,7 +292,7 @@ class CreateFeatureFlagTool(MaxTool):
 
                     @database_sync_to_async
                     def get_existing_flag():
-                        return FeatureFlag.objects.filter(team=self._team, key=flag_schema.key, deleted=False).first()
+                        return FeatureFlag.objects.filter(team=self._team, key=flag_schema.key).first()
 
                     existing = await get_existing_flag()
                     if existing:

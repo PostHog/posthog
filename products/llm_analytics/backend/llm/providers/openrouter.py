@@ -10,6 +10,8 @@ from collections.abc import Generator
 import httpx
 import openai
 
+from posthog.security.outbound_proxy import external_httpx
+
 from products.llm_analytics.backend.llm.providers.openai import OpenAIAdapter, OpenAIConfig
 from products.llm_analytics.backend.llm.types import (
     AnalyticsContext,
@@ -61,7 +63,7 @@ class OpenRouterAdapter(OpenAIAdapter):
         from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
 
         try:
-            response = httpx.get(
+            response = external_httpx.get(
                 "https://openrouter.ai/api/v1/auth/key",
                 headers={"Authorization": f"Bearer {api_key}"},
                 timeout=OpenAIConfig.TIMEOUT,
@@ -84,6 +86,10 @@ class OpenRouterAdapter(OpenAIAdapter):
             return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
 
     @staticmethod
+    def recommended_models() -> set[str]:
+        return set()
+
+    @staticmethod
     def list_models(api_key: str | None = None) -> list[str]:
         """List available OpenRouter models. Returns empty list without a key (BYOKEY-only)."""
         if not api_key:
@@ -96,9 +102,9 @@ class OpenRouterAdapter(OpenAIAdapter):
                 timeout=OpenAIConfig.TIMEOUT,
                 default_headers=OPENROUTER_HEADERS,
             )
-            return sorted(m.id for m in client.models.list())
-        except Exception as e:
-            logger.exception(f"Error listing OpenRouter models: {e}")
+            return [m.id for m in sorted(client.models.list(), key=lambda m: m.created, reverse=True)]
+        except Exception:
+            logger.exception("Error listing OpenRouter models")
             return []
 
     @staticmethod

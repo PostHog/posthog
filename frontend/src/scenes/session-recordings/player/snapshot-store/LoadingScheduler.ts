@@ -1,5 +1,4 @@
-import { SnapshotStore } from './SnapshotStore'
-import { LoadBatch, Mode } from './types'
+import { LoadBatch, Mode, SnapshotStore } from '@posthog/replay-shared'
 
 const DEFAULT_BATCH_SIZE = 10
 const BUFFER_AHEAD_SOURCES = 30
@@ -21,6 +20,10 @@ export class LoadingScheduler {
         this.mode = { kind: 'buffer_ahead' }
     }
 
+    loadAll(): void {
+        this.mode = { kind: 'load_all' }
+    }
+
     get currentMode(): Mode {
         return this.mode
     }
@@ -36,6 +39,10 @@ export class LoadingScheduler {
 
         if (this.mode.kind === 'seek') {
             return this.getSeekBatch(store, batchSize)
+        }
+
+        if (this.mode.kind === 'load_all') {
+            return this.getLoadAllBatch(store, batchSize)
         }
 
         return this.getBufferAheadBatch(store, batchSize, playbackPosition)
@@ -137,6 +144,17 @@ export class LoadingScheduler {
         }
 
         return null
+    }
+
+    private getLoadAllBatch(store: SnapshotStore, batchSize: number): LoadBatch | null {
+        const unloaded = store.getUnloadedIndicesInRange(0, store.sourceCount - 1)
+        if (unloaded.length === 0) {
+            return null
+        }
+        return {
+            sourceIndices: this.truncateToContiguous(unloaded.slice(0, batchSize)),
+            reason: 'load_all',
+        }
     }
 
     private truncateToContiguous(indices: number[]): number[] {

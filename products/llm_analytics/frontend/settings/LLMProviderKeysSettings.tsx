@@ -14,12 +14,12 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { IconKey } from 'lib/lemon-ui/icons'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { TrialUsageMeterDisplay } from './TrialUsageMeter'
+import { LLMProviderIcon, LLM_PROVIDER_SELECT_OPTIONS } from '../LLMProviderIcon'
 import {
     AlternativeKey,
     DependentConfigsResponse,
@@ -29,7 +29,9 @@ import {
     LLMProviderKeyState,
     LLM_PROVIDER_LABELS,
     llmProviderKeysLogic,
+    sortProviderKeys,
 } from './llmProviderKeysLogic'
+import { TrialUsageMeterDisplay } from './TrialUsageMeter'
 
 function StateTag({ state, errorMessage }: { state: LLMProviderKeyState; errorMessage: string | null }): JSX.Element {
     const tagProps: { type: 'success' | 'danger' | 'warning' | 'default'; children: string } = {
@@ -239,13 +241,7 @@ function AddKeyModal(): JSX.Element {
                     <LemonSelect
                         value={provider}
                         onChange={handleProviderChange}
-                        options={[
-                            { value: 'openai', label: 'OpenAI' },
-                            { value: 'anthropic', label: 'Anthropic' },
-                            { value: 'gemini', label: 'Google Gemini' },
-                            { value: 'openrouter', label: 'OpenRouter' },
-                            { value: 'fireworks', label: 'Fireworks' },
-                        ]}
+                        options={LLM_PROVIDER_SELECT_OPTIONS}
                         className="mt-1"
                         fullWidth
                     />
@@ -347,8 +343,9 @@ function EditKeyModal({ keyToEdit }: { keyToEdit: LLMProviderKey }): JSX.Element
             <div className="space-y-4">
                 <div>
                     <label className="text-sm font-medium">Provider</label>
-                    <div className="mt-1">
-                        <LemonTag type="default">{LLM_PROVIDER_LABELS[keyToEdit.provider]}</LemonTag>
+                    <div className="mt-1 flex items-center gap-1.5">
+                        <LLMProviderIcon provider={keyToEdit.provider} />
+                        <span>{LLM_PROVIDER_LABELS[keyToEdit.provider]}</span>
                     </div>
                 </div>
                 <div>
@@ -528,7 +525,12 @@ export function LLMProviderKeysSettings(): JSX.Element {
         {
             title: 'Provider',
             key: 'provider',
-            render: (_, key) => <LemonTag type="default">{LLM_PROVIDER_LABELS[key.provider]}</LemonTag>,
+            render: (_, key) => (
+                <div className="flex items-center gap-1.5">
+                    <LLMProviderIcon provider={key.provider} />
+                    <span>{LLM_PROVIDER_LABELS[key.provider]}</span>
+                </div>
+            ),
         },
         {
             title: 'Key',
@@ -563,22 +565,20 @@ export function LLMProviderKeysSettings(): JSX.Element {
             width: 150,
             render: (_, key) => (
                 <div className="flex gap-1">
-                    {key.state !== 'ok' && (
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.LlmAnalytics}
-                            minAccessLevel={AccessControlLevel.Editor}
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            icon={<IconRefresh />}
+                            loading={validatingKeyId === key.id}
+                            onClick={() => validateProviderKey({ id: key.id })}
                         >
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                icon={<IconRefresh />}
-                                loading={validatingKeyId === key.id}
-                                onClick={() => validateProviderKey({ id: key.id })}
-                            >
-                                Validate
-                            </LemonButton>
-                        </AccessControlAction>
-                    )}
+                            Validate
+                        </LemonButton>
+                    </AccessControlAction>
                     <AccessControlAction
                         resourceType={AccessControlResourceType.LlmAnalytics}
                         minAccessLevel={AccessControlLevel.Editor}
@@ -639,7 +639,7 @@ export function LLMProviderKeysSettings(): JSX.Element {
                                 <p className="text-muted mb-4 text-center">
                                     Add your API key for LLM analytics features with your own account.
                                     <br />
-                                    Supports evaluations today and playground support coming soon.
+                                    Used for evaluations and the playground.
                                 </p>
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.LlmAnalytics}
@@ -657,7 +657,7 @@ export function LLMProviderKeysSettings(): JSX.Element {
                         ) : (
                             <LemonTable
                                 columns={columns}
-                                dataSource={providerKeys}
+                                dataSource={sortProviderKeys(providerKeys)}
                                 loading={providerKeysLoading}
                                 rowKey="id"
                             />

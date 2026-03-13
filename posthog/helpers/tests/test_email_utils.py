@@ -100,7 +100,7 @@ class TestESPSuppressionCheck(SimpleTestCase):
     def test_cache_hit_returns_cached_value_without_api_call(self, mock_cache):
         mock_cache.get.return_value = True
 
-        with patch("posthog.helpers.email_utils.requests.get") as mock_get:
+        with patch("posthog.helpers.email_utils.external_requests.get") as mock_get:
             result = check_esp_suppression("test@example.com")
 
             mock_get.assert_not_called()
@@ -109,7 +109,7 @@ class TestESPSuppressionCheck(SimpleTestCase):
 
     @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
     @patch("posthog.helpers.email_utils.cache")
-    @patch("posthog.helpers.email_utils.requests.get")
+    @patch("posthog.helpers.email_utils.external_requests.get")
     def test_cache_miss_triggers_api_call_and_caches_result(self, mock_get, mock_cache):
         mock_cache.get.return_value = None
 
@@ -130,7 +130,7 @@ class TestESPSuppressionCheck(SimpleTestCase):
 
     @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
     @patch("posthog.helpers.email_utils.cache")
-    @patch("posthog.helpers.email_utils.requests.get")
+    @patch("posthog.helpers.email_utils.external_requests.get")
     def test_cache_set_with_correct_ttl(self, mock_get, mock_cache):
         mock_cache.get.return_value = None
         mock_response = MagicMock()
@@ -153,7 +153,7 @@ class TestESPSuppressionCheck(SimpleTestCase):
     )
     @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
     @patch("posthog.helpers.email_utils.cache")
-    @patch("posthog.helpers.email_utils.requests.get")
+    @patch("posthog.helpers.email_utils.external_requests.get")
     def test_api_failures_use_fallback_to_allow_login(
         self, name, exception, expected_suppressed, expected_reason, mock_get, mock_cache
     ):
@@ -186,7 +186,7 @@ class TestESPSuppressionCheck(SimpleTestCase):
 
     @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
     @patch("posthog.helpers.email_utils.cache")
-    @patch("posthog.helpers.email_utils.requests.get")
+    @patch("posthog.helpers.email_utils.external_requests.get")
     def test_api_error_caches_error_state_with_short_ttl(self, mock_get, mock_cache):
         mock_cache.get.return_value = None
         mock_get.side_effect = requests.Timeout()
@@ -201,7 +201,7 @@ class TestESPSuppressionCheck(SimpleTestCase):
 
     @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
     @patch("posthog.helpers.email_utils.cache")
-    @patch("posthog.helpers.email_utils.requests.get")
+    @patch("posthog.helpers.email_utils.external_requests.get")
     def test_429_rate_limit_caches_with_short_ttl(self, mock_get, mock_cache):
         mock_cache.get.return_value = None
         mock_response = MagicMock()
@@ -225,7 +225,7 @@ class TestESPSuppressionCheck(SimpleTestCase):
 
         mock_cache.get.side_effect = cache_get_side_effect
 
-        with patch("posthog.helpers.email_utils.requests.get") as mock_get:
+        with patch("posthog.helpers.email_utils.external_requests.get") as mock_get:
             result = check_esp_suppression("test@example.com")
 
             mock_get.assert_not_called()
@@ -250,7 +250,7 @@ class TestESPSuppressionAnalytics(SimpleTestCase):
     @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
     @patch("posthog.helpers.email_utils.posthoganalytics.capture")
     @patch("posthog.helpers.email_utils.cache")
-    @patch("posthog.helpers.email_utils.requests.get")
+    @patch("posthog.helpers.email_utils.external_requests.get")
     def test_analytics_captured_for_each_scenario(
         self,
         name,
