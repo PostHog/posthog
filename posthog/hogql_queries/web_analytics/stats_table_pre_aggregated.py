@@ -605,11 +605,17 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             case WebStatsBreakdown.INITIAL_PAGE:
                 path = self._apply_path_cleaning(ast.Field(chain=["entry_pathname"]))
                 if self.runner.query.includeHost:
+                    # Known limitation: pre-aggregated schema only has a single `host` column (from the
+                    # event), not session-level `entry_hostname`/`end_hostname`. For sessions that traverse
+                    # multiple hosts, this may show the wrong host for entry/exit pages. The non-pre-aggregated
+                    # runner uses `session.$entry_hostname` which is accurate. Fixing this requires a schema
+                    # migration to add entry/exit host columns to the pre-aggregated table.
                     return self._prepend_host(path)
                 return path
             case WebStatsBreakdown.EXIT_PAGE:
                 path = self._apply_path_cleaning(ast.Field(chain=["end_pathname"]))
                 if self.runner.query.includeHost:
+                    # See INITIAL_PAGE comment above for the same limitation.
                     return self._prepend_host(path)
                 return path
             case WebStatsBreakdown.DEVICE_TYPE:
