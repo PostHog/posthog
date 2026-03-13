@@ -340,7 +340,14 @@ def enqueue_process_query_task(
 
     limit_context = LimitContext.POSTHOG_AI if is_posthog_ai else LimitContext.QUERY_ASYNC
     task_signature = process_query_task.si(
-        team.id, user_id, query_id, query_json, query_tags, is_query_service, limit_context, analytics_props
+        team.id,
+        user_id,
+        query_id,
+        query_json,
+        query_tags,
+        is_query_service,
+        limit_context,
+        analytics_props=analytics_props,
     )
 
     if _test_only_bypass_celery:
