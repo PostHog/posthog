@@ -8,6 +8,9 @@ import { HealthCheckResult, HealthCheckResultError, PluginServerService, Plugins
 import { logger } from '../utils/logger'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { TeamManager } from '../utils/team-manager'
+import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
+import { PersonsStore } from '../worker/ingestion/persons/persons-store'
+import { PersonRepository } from '../worker/ingestion/persons/repositories/person-repository'
 import {
     TestingJoinedIngestionPipelineConfig,
     TestingJoinedIngestionPipelineContext,
@@ -31,11 +34,13 @@ export type IngestionTestingConsumerFullConfig = Pick<
     | 'CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC'
     | 'CLICKHOUSE_HEATMAPS_KAFKA_TOPIC'
     | 'KAFKA_BATCH_START_LOGGING_ENABLED'
+    | 'PERSONS_PREFETCH_ENABLED'
 >
 
 export interface IngestionTestingConsumerDeps {
     /** Single producer for all output (events, DLQ, internal messages) — writes to WarpStream */
     kafkaProducer: KafkaProducerWrapper
+    personRepository: PersonRepository
     teamManager: TeamManager
 }
 
@@ -47,6 +52,7 @@ export class IngestionTestingConsumer {
     protected kafkaConsumer: KafkaConsumer
     isStopping = false
     protected kafkaProducer?: KafkaProducerWrapper
+    private personsStore: PersonsStore
     public readonly promiseScheduler = new PromiseScheduler()
 
     private joinedPipeline!: BatchPipeline<
@@ -79,6 +85,7 @@ export class IngestionTestingConsumer {
 
         // Single WarpStream producer used for all output (events, DLQ, internal messages)
         this.kafkaProducer = this.deps.kafkaProducer
+        this.personsStore = new BatchWritingPersonsStore(this.deps.personRepository, this.kafkaProducer)
     }
 
     public get service(): PluginServerService {
@@ -101,12 +108,14 @@ export class IngestionTestingConsumer {
             dlqTopic: this.dlqTopic,
             groupId: this.groupId,
             outputs,
+            personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
             perDistinctIdOptions: {
                 CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: this.config.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
             },
         }
         const joinedPipelineDeps: TestingJoinedIngestionPipelineDeps = {
             kafkaProducer: this.kafkaProducer!,
+            personsStore: this.personsStore,
             promiseScheduler: this.promiseScheduler,
             teamManager: this.deps.teamManager,
         }

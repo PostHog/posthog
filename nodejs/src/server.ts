@@ -126,7 +126,11 @@ export class PluginServer {
 
         const capabilities = getPluginServerCapabilities(this.config)
 
-        const needsIngestion = !!(capabilities.ingestionV2Combined || capabilities.ingestionV2)
+        const needsIngestion = !!(
+            capabilities.ingestionV2Combined ||
+            capabilities.ingestionV2 ||
+            capabilities.ingestionV2Testing
+        )
 
         const needsCdp = !!(
             capabilities.cdpProcessedEvents ||
@@ -270,6 +274,7 @@ export class PluginServer {
 
                     const consumer = new IngestionTestingConsumer(this.config, {
                         kafkaProducer: kafkaWarpStreamProducer,
+                        personRepository: ingestionCdpServices!.personRepository,
                         teamManager,
                     })
                     await consumer.start()
