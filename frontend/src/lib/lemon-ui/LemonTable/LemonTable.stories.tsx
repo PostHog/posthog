@@ -455,6 +455,67 @@ export const WithCellActions = (): JSX.Element => {
     )
 }
 
+const WIDE_COLUMNS: LemonTableProps<MockPerson>['columns'] = [
+    {
+        title: 'Name',
+        dataIndex: 'name',
+        width: 200,
+    },
+    {
+        title: 'Occupation',
+        dataIndex: 'occupation',
+        width: 200,
+    },
+    {
+        title: 'Age',
+        key: 'age',
+        width: 200,
+        render: (_, person) => `${person.name.length * 12} years`,
+    },
+    {
+        title: 'Zodiac sign',
+        key: 'zodiac',
+        width: 200,
+        render: () => 'Gemini',
+    },
+    {
+        title: 'Favorite color',
+        key: 'color',
+        width: 200,
+        render: (_, person) => (person.occupation === 'Engineer' ? 'Blue' : 'Red'),
+    },
+    {
+        title: 'City',
+        key: 'city',
+        width: 200,
+        render: () => 'Vienna',
+    },
+]
+
+const WIDE_DATA: MockPerson[] = [
+    { name: 'Werner C.', occupation: 'Engineer' },
+    { name: 'Ursula Z.', occupation: 'Retired' },
+    { name: 'Ludwig A.', occupation: 'Painter' },
+    { name: 'Arnold S.', occupation: 'Body-builder' },
+    { name: 'Franz B.', occupation: 'Teacher' },
+]
+
+export const WithHiddenHorizontalScrollbar = (): JSX.Element => {
+    return (
+        <div className="w-80">
+            <LemonTable columns={WIDE_COLUMNS} dataSource={WIDE_DATA} />
+        </div>
+    )
+}
+
+export const WithVisibleHorizontalScrollbar = (): JSX.Element => {
+    return (
+        <div className="w-80">
+            <LemonTable columns={WIDE_COLUMNS} dataSource={WIDE_DATA} showScrollbar />
+        </div>
+    )
+}
+
 export const WithRowActions = (): JSX.Element => {
     return (
         <LemonTable

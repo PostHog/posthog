@@ -88,6 +88,8 @@ export interface LemonTableProps<T extends Record<string, any>> {
     maxHeaderWidth?: string
     /** Whether to hide the scrollbar. */
     hideScrollbar?: boolean
+    /** Whether to always show styled scrollbars when content overflows. */
+    showScrollbar?: boolean
     /** Row actions to display in a "More" menu at the end of each row. Return null to hide actions for specific rows. */
     rowActions?: (record: T, recordIndex: number) => React.ReactNode | null
     /** Whether to hide the sorting indicator when no sort is active. Defaults to false. */
@@ -129,6 +131,7 @@ export function LemonTable<T extends Record<string, any>>({
     pinnedColumns,
     maxHeaderWidth,
     hideScrollbar,
+    showScrollbar,
     rowActions,
     hideSortingIndicatorWhenInactive = false,
 }: LemonTableProps<T>): JSX.Element {
@@ -258,6 +261,7 @@ export function LemonTable<T extends Record<string, any>>({
                 rowRibbonColor !== undefined && `LemonTable--with-ribbon`,
                 stealth && 'LemonTable--stealth',
                 !uppercaseHeader && 'LemonTable--lowercase-header',
+                showScrollbar && 'LemonTable--show-scrollbar',
                 className
             )}
             // eslint-disable-next-line react/forbid-dom-props
@@ -268,6 +272,7 @@ export function LemonTable<T extends Record<string, any>>({
                 innerClassName={hideScrollbar ? 'hide-scrollbar' : undefined}
                 direction="horizontal"
                 scrollRef={scrollRef}
+                styledScrollbars={showScrollbar}
             >
                 <div className="LemonTable__content">
                     <table ref={tableRef}>
