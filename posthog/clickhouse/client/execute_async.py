@@ -18,12 +18,12 @@ from posthog import celery, redis
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
-from posthog.event_usage import AnalyticsProps
 from posthog.exceptions_capture import capture_exception
 from posthog.renderers import SafeJSONRenderer
 from posthog.tasks.tasks import process_query_task
 
 if TYPE_CHECKING:
+    from posthog.event_usage import AnalyticsProps
     from posthog.models.team.team import Team
 
 logger = structlog.get_logger(__name__)
@@ -181,7 +181,7 @@ def execute_process_query(
     query_json: dict,
     limit_context: Optional[LimitContext],
     is_query_service: bool = False,
-    analytics_props: Optional[AnalyticsProps] = None,
+    analytics_props: Optional["AnalyticsProps"] = None,
 ):
     tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
     manager = QueryStatusManager(query_id, team_id)
@@ -281,7 +281,7 @@ def enqueue_process_query_task(
     _test_only_bypass_celery: bool = False,
     is_query_service: bool = False,
     is_posthog_ai: bool = False,
-    analytics_props: Optional[AnalyticsProps] = None,
+    analytics_props: Optional["AnalyticsProps"] = None,
 ) -> QueryStatus:
     if not query_id:
         query_id = uuid.uuid4().hex
