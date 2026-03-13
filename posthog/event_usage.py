@@ -5,6 +5,7 @@ Module to centralize event reporting on the server-side.
 import re
 from enum import StrEnum
 from typing import TYPE_CHECKING, Optional
+from urllib.parse import urlparse
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
@@ -321,9 +322,21 @@ def get_mcp_properties(request) -> dict[str, str | None]:
 
 def get_request_analytics_properties(request) -> dict[str, str | bool | None]:
     """Extract standard analytics properties from a request."""
+    current_url = request.headers.get("Referer")
+    host: str | None = None
+    pathname: str | None = None
+    if current_url:
+        try:
+            parsed = urlparse(current_url)
+            host = parsed.netloc or None
+            pathname = parsed.path or None
+        except Exception:
+            pass
     return {
         "source": get_event_source(request),
-        "$current_url": request.headers.get("Referer"),
+        "$current_url": current_url,
+        "$host": host,
+        "$pathname": pathname,
         "$session_id": request.headers.get("X-Posthog-Session-Id"),
         "was_impersonated": is_impersonated_session(request),
         **get_mcp_properties(request),

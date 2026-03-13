@@ -25,6 +25,8 @@ class TestReportUserAction(BaseTest):
                 {
                     "source": "api",
                     "$current_url": "http://app.posthog.com/insights",
+                    "$host": "app.posthog.com",
+                    "$pathname": "/insights",
                     "$session_id": "sess-123",
                     "was_impersonated": False,
                     "mcp_user_agent": None,
@@ -45,6 +47,8 @@ class TestReportUserAction(BaseTest):
                 {
                     "source": "api",
                     "$current_url": "http://app.posthog.com/insights",
+                    "$host": "app.posthog.com",
+                    "$pathname": "/insights",
                     "$session_id": "sess-123",
                     "was_impersonated": False,
                     "mcp_user_agent": "posthog/cursor 1.0",
@@ -66,6 +70,8 @@ class TestReportUserAction(BaseTest):
                 {
                     "source": "api",
                     "$current_url": None,
+                    "$host": None,
+                    "$pathname": None,
                     "$session_id": None,
                     "was_impersonated": False,
                     "mcp_user_agent": None,
@@ -82,6 +88,8 @@ class TestReportUserAction(BaseTest):
                 {
                     "source": "api",
                     "$current_url": "http://app.posthog.com/insights",
+                    "$host": "app.posthog.com",
+                    "$pathname": "/insights",
                     "$session_id": "sess-123",
                     "was_impersonated": False,
                     "mcp_user_agent": None,
@@ -99,6 +107,8 @@ class TestReportUserAction(BaseTest):
                 {
                     "source": "terraform",
                     "$current_url": "override",
+                    "$host": "app.posthog.com",
+                    "$pathname": "/insights",
                     "$session_id": "sess-123",
                     "was_impersonated": False,
                     "mcp_user_agent": None,
@@ -115,6 +125,8 @@ class TestReportUserAction(BaseTest):
                 {
                     "source": "api",
                     "$current_url": None,
+                    "$host": None,
+                    "$pathname": None,
                     "$session_id": None,
                     "was_impersonated": False,
                     "mcp_user_agent": None,
