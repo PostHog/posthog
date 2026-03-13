@@ -22,17 +22,6 @@ if(request.method != 'POST') {
 
 let body := request.body
 
-// Handle Slack URL verification challenge
-if (body.type = 'url_verification') {
-  return {
-    'httpResponse': {
-      'status': 200,
-      'headers': {'Content-Type': 'application/json'},
-      'body': jsonStringify({'challenge': body.challenge})
-    }
-  }
-}
-
 if (not inputs.bypass_signature_check) {
   let rawBody := request.stringBody
   let slackSignature := request.headers['x-slack-signature']
@@ -56,6 +45,17 @@ if (not inputs.bypass_signature_check) {
         'status': 400,
         'body': 'Bad signature',
       }
+    }
+  }
+}
+
+// Handle Slack URL verification challenge
+if (body.type = 'url_verification') {
+  return {
+    'httpResponse': {
+      'status': 200,
+      'headers': {'Content-Type': 'application/json'},
+      'body': jsonStringify({'challenge': body.challenge})
     }
   }
 }
