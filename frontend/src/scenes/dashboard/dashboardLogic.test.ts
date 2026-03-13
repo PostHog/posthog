@@ -619,7 +619,6 @@ describe('dashboardLogic', () => {
                 const getInsightWithRetrySpy = jest
                     .spyOn(dashboardUtils, 'getInsightWithRetry')
                     .mockRejectedValue(refreshError)
-
                 ;(api.update as jest.Mock).mockClear()
 
                 await expectLogic(logic, () => {
@@ -838,7 +837,7 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
         })
 
-        it('clamps layoutZoom between 0.5 and 1', async () => {
+        it('clamps layoutZoom between 0.25 and 1', async () => {
             await expectLogic(logic).toMatchValues({ layoutZoom: 1 })
 
             await expectLogic(logic, () => {
@@ -847,7 +846,7 @@ describe('dashboardLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setLayoutZoom(0.1)
-            }).toMatchValues({ layoutZoom: 0.5 })
+            }).toMatchValues({ layoutZoom: 0.25 })
 
             await expectLogic(logic, () => {
                 logic.actions.setLayoutZoom(0.75)
@@ -862,6 +861,23 @@ describe('dashboardLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderSaveDashboard)
             }).toMatchValues({ layoutZoom: 1 })
+        })
+
+        it('resets layoutZoom to 1 when container becomes single-column', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setLayoutZoom(0.25)
+            }).toMatchValues({ layoutZoom: 0.25 })
+
+            await expectLogic(logic, () => {
+                // columns === 1 -> xs layout
+                logic.actions.updateContainerWidth(400, 1)
+            }).toMatchValues({ layoutZoom: 1 })
+
+            await expectLogic(logic, () => {
+                // moving back to multi-column should not change zoom
+                logic.actions.setLayoutZoom(0.5)
+                logic.actions.updateContainerWidth(1200, 12)
+            }).toMatchValues({ layoutZoom: 0.5 })
         })
     })
 

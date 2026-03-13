@@ -50,8 +50,7 @@ export function DashboardItems(): JSX.Element {
         dataColorThemeId,
         canEditDashboard,
     } = useValues(dashboardLogic)
-    // layoutZoom is a UI-only field not yet in dashboardLogic typegen
-    const { layoutZoom = 1 } = useValues(dashboardLogic) as { layoutZoom?: number }
+    const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
         updateLayouts,
         updateContainerWidth,
