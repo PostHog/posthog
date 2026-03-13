@@ -139,42 +139,49 @@ describe('accessControlsLogic', () => {
         })
 
         describe('combined filters', () => {
-            it('matches when a selected resource has one of the selected levels', () => {
-                const filters = {
-                    ...emptyFilters,
-                    resourceKeys: ['insight' as APIScopeObject],
-                    ruleLevels: [AccessControlLevel.Manager],
-                }
-                expect(matchesFilters(memberEntry, filters)).toBe(true)
-            })
-
-            it('rejects when no selected resource has any of the selected levels', () => {
-                const filters = {
-                    ...emptyFilters,
-                    resourceKeys: ['dashboard' as APIScopeObject],
-                    ruleLevels: [AccessControlLevel.Viewer],
-                }
-                expect(matchesFilters(roleEntry, filters)).toBe(false)
-            })
-
-            it('matches when resource has effective access at the selected level', () => {
-                const filters = {
-                    ...emptyFilters,
-                    resourceKeys: ['dashboard' as APIScopeObject],
-                    ruleLevels: [AccessControlLevel.Editor],
-                }
-                // roleEntry has dashboard=Editor, so this should match
-                expect(matchesFilters(roleEntry, filters)).toBe(true)
-            })
-
-            it('rejects when resource has no effective access even if level exists elsewhere', () => {
-                const filters = {
-                    ...emptyFilters,
-                    resourceKeys: ['insight' as APIScopeObject],
-                    ruleLevels: [AccessControlLevel.Admin],
-                }
-                // roleEntry has insight=null, so even though Admin exists on project, this should not match
-                expect(matchesFilters(roleEntry, filters)).toBe(false)
+            it.each([
+                [
+                    'matches when a selected resource has one of the selected levels',
+                    {
+                        ...emptyFilters,
+                        resourceKeys: ['insight' as APIScopeObject],
+                        ruleLevels: [AccessControlLevel.Manager],
+                    },
+                    memberEntry,
+                    true,
+                ],
+                [
+                    'rejects when no selected resource has any of the selected levels',
+                    {
+                        ...emptyFilters,
+                        resourceKeys: ['dashboard' as APIScopeObject],
+                        ruleLevels: [AccessControlLevel.Viewer],
+                    },
+                    roleEntry,
+                    false,
+                ],
+                [
+                    'matches when resource has effective access at the selected level',
+                    {
+                        ...emptyFilters,
+                        resourceKeys: ['dashboard' as APIScopeObject],
+                        ruleLevels: [AccessControlLevel.Editor],
+                    },
+                    roleEntry,
+                    true,
+                ],
+                [
+                    'rejects when resource has no effective access even if level exists elsewhere',
+                    {
+                        ...emptyFilters,
+                        resourceKeys: ['insight' as APIScopeObject],
+                        ruleLevels: [AccessControlLevel.Admin],
+                    },
+                    roleEntry,
+                    false,
+                ],
+            ])('%s', (_desc, filters, entry, expected) => {
+                expect(matchesFilters(entry, filters)).toBe(expected)
             })
         })
     })
