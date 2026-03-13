@@ -70,9 +70,24 @@ export const HogFlowBatchJobSchema = z.object({
     updated_at: z.string(),
 })
 
+export interface HogFlowDraft {
+    name?: string
+    description?: string
+    actions?: HogFlowAction[]
+    edges?: HogFlowEdge[]
+    trigger?: z.infer<typeof HogFlowTriggerSchema>
+    trigger_masking?: z.infer<typeof HogFlowSchema>['trigger_masking']
+    conversion?: z.infer<typeof HogFlowSchema>['conversion']
+    exit_condition?: z.infer<typeof HogFlowSchema>['exit_condition']
+    variables?: z.infer<typeof HogFlowSchema>['variables']
+    updated_at?: string | null
+}
+
 // NOTE: these are purposefully exported as interfaces to support kea typegen
 export interface HogFlow extends z.infer<typeof HogFlowSchema> {
     created_by?: UserBasicType | null
+    draft?: HogFlowDraft | null
+    draft_updated_at?: string | null
 }
 export interface HogFlowEdge extends z.infer<typeof HogFlowEdgeSchema> {}
 export interface HogFlowActionEdge extends Edge<{ edge: HogFlowEdge; label?: string }> {}

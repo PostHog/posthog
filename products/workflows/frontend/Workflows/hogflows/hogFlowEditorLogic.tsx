@@ -153,7 +153,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     connect(() => ({
         values: [
             workflowLogic,
-            ['workflow', 'edgesByActionId', 'hogFunctionTemplatesById'],
+            ['workflow', 'edgesByActionId', 'hogFunctionTemplatesById', 'draftDeletedActionIds'],
             optOutCategoriesLogic(),
             ['categories', 'categoriesLoading'],
         ],
@@ -310,18 +310,20 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
         selectedNodeCanBeDeleted: [
-            (s) => [s.selectedNode, s.nodes, s.edges],
-            (selectedNode, nodes, edges) => {
+            (s) => [s.selectedNode, s.nodes, s.edges, s.draftDeletedActionIds],
+            (selectedNode, nodes, edges, draftDeletedActionIds) => {
                 if (!selectedNode) {
                     return false
                 }
 
                 const outgoingNodes = getOutgoers(selectedNode, nodes, edges)
-                if (outgoingNodes.length === 1) {
+                // Filter out ghost nodes — they'll be stripped on publish
+                const liveOutgoing = outgoingNodes.filter((n) => !draftDeletedActionIds.has(n.id))
+                if (liveOutgoing.length <= 1) {
                     return true
                 }
 
-                return new Set(outgoingNodes.map((node) => node.id)).size === 1
+                return new Set(liveOutgoing.map((node) => node.id)).size === 1
             },
         ],
         selectedNodeCanBeCopiedOrMoved: [
