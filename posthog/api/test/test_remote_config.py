@@ -127,6 +127,36 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
         # NOT actually testing the content here as it will change dynamically
 
     @patch("posthog.models.remote_config.get_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
+    def test_array_js_includes_cache_headers(self, mock_get_array_js_content):
+        response = self.client.get(f"/array/{self.team.api_token}/array.js")
+        assert response.status_code == status.HTTP_200_OK
+        assert "ETag" in response.headers
+        assert response.headers["ETag"].startswith('"') and response.headers["ETag"].endswith('"')
+        assert response.headers["Cache-Control"] == "public, max-age=3600, stale-while-revalidate=86400"
+        assert f"token:{self.team.api_token}" in response.headers["Cache-Tag"]
+        assert "posthog-js-" in response.headers["Cache-Tag"]
+
+    @patch("posthog.models.remote_config.get_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
+    def test_array_js_returns_304_on_etag_match(self, mock_get_array_js_content):
+        response = self.client.get(f"/array/{self.team.api_token}/array.js")
+        etag = response.headers["ETag"]
+
+        response = self.client.get(
+            f"/array/{self.team.api_token}/array.js",
+            HTTP_IF_NONE_MATCH=etag,
+        )
+        assert response.status_code == status.HTTP_304_NOT_MODIFIED
+        assert response.headers["ETag"] == etag
+
+    @patch("posthog.models.remote_config.get_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
+    def test_array_js_returns_200_on_etag_mismatch(self, mock_get_array_js_content):
+        response = self.client.get(
+            f"/array/{self.team.api_token}/array.js",
+            HTTP_IF_NONE_MATCH='"stale-etag"',
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+    @patch("posthog.models.remote_config.get_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
     def test_valid_array_uses_config_js_cache(self, mock_get_array_js_content):
         with self.assertNumQueries(FuzzyInt(CONFIG_REFRESH_QUERY_COUNT, CONFIG_REFRESH_QUERY_COUNT + 1)):
             response = self.client.get(
