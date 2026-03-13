@@ -20,7 +20,6 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
-import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { humanFriendlyNumber } from 'lib/utils'
@@ -587,34 +586,21 @@ export function FeatureFlagReleaseConditionsCollapsible({
 
                                             <div>
                                                 <LemonLabel className="mb-1">Rollout percentage</LemonLabel>
-                                                <div className="flex items-center gap-3">
-                                                    <div className="flex items-center gap-1">
-                                                        {[10, 25, 50, 75, 100].map((pct) => (
-                                                            <LemonButton
-                                                                key={pct}
-                                                                size="small"
-                                                                type={
-                                                                    (group.rollout_percentage ?? 100) === pct
-                                                                        ? 'primary'
-                                                                        : 'secondary'
-                                                                }
-                                                                onClick={() => updateConditionSet(index, pct)}
-                                                            >
-                                                                {pct}%
-                                                            </LemonButton>
-                                                        ))}
-                                                    </div>
-                                                    <div className="flex-1">
-                                                        <LemonSlider
-                                                            value={group.rollout_percentage ?? 100}
-                                                            onChange={(value) => {
-                                                                updateConditionSet(index, value)
-                                                            }}
-                                                            min={0}
-                                                            max={100}
-                                                            step={1}
-                                                        />
-                                                    </div>
+                                                <div className="flex items-center gap-2">
+                                                    {[10, 25, 50, 75, 100].map((pct) => (
+                                                        <LemonButton
+                                                            key={pct}
+                                                            size="small"
+                                                            type={
+                                                                (group.rollout_percentage ?? 100) === pct
+                                                                    ? 'primary'
+                                                                    : 'secondary'
+                                                            }
+                                                            onClick={() => updateConditionSet(index, pct)}
+                                                        >
+                                                            {pct}%
+                                                        </LemonButton>
+                                                    ))}
                                                     <LemonInput
                                                         type="number"
                                                         min={0}
