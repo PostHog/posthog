@@ -437,6 +437,85 @@ export interface PatchedLLMProviderKeyApi {
     readonly last_used_at?: string | null
 }
 
+export interface ReviewQueueItemApi {
+    readonly id: string
+    /** Review queue ID that currently owns this pending trace. */
+    readonly queue_id: string
+    /** Human-readable name of the queue that currently owns this pending trace. */
+    readonly queue_name: string
+    /** Trace ID currently pending human review. */
+    readonly trace_id: string
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** User who queued this trace. */
+    readonly created_by: UserBasicApi
+    readonly team: number
+}
+
+export interface PaginatedReviewQueueItemListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ReviewQueueItemApi[]
+}
+
+export interface ReviewQueueItemCreateApi {
+    /** Review queue ID that should own this pending trace. */
+    queue_id: string
+    /**
+     * Trace ID to add to the selected review queue.
+     * @maxLength 255
+     */
+    trace_id: string
+}
+
+export interface PatchedReviewQueueItemUpdateApi {
+    /** Review queue ID that should own this pending trace. */
+    queue_id?: string
+}
+
+export interface ReviewQueueApi {
+    readonly id: string
+    /** Human-readable queue name. */
+    readonly name: string
+    /** Number of pending traces currently assigned to this queue. */
+    readonly pending_item_count: number
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** User who created this review queue. */
+    readonly created_by: UserBasicApi
+    readonly team: number
+}
+
+export interface PaginatedReviewQueueListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ReviewQueueApi[]
+}
+
+export interface ReviewQueueCreateApi {
+    /**
+     * Human-readable queue name.
+     * @maxLength 255
+     */
+    name: string
+}
+
+export interface PatchedReviewQueueUpdateApi {
+    /**
+     * Human-readable queue name.
+     * @maxLength 255
+     */
+    name?: string
+}
+
 /**
  * * `categorical` - categorical
  * `numeric` - numeric
@@ -1159,6 +1238,57 @@ export type LlmAnalyticsProviderKeysListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type LlmAnalyticsReviewQueueItemsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Order by `created_at` or `updated_at`.
+     */
+    order_by?: string
+    /**
+     * Filter by a specific review queue ID.
+     */
+    queue_id?: string
+    /**
+     * Search pending trace IDs.
+     */
+    search?: string
+    /**
+     * Filter by an exact trace ID.
+     */
+    trace_id?: string
+    /**
+     * Filter by multiple trace IDs separated by commas.
+     */
+    trace_id__in?: string
+}
+
+export type LlmAnalyticsReviewQueuesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    name?: string
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Order by `name`, `updated_at`, or `created_at`.
+     */
+    order_by?: string
+    /**
+     * Search review queue names.
+     */
+    search?: string
 }
 
 export type LlmAnalyticsScoreDefinitionsListParams = {
