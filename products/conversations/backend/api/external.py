@@ -61,6 +61,8 @@ def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Resp
     if not api_key:
         return None, Response({"error": "Empty API key"}, status=status.HTTP_401_UNAUTHORIZED)
 
+    # Authenticate against secret_api_token (not api_token) because api_token
+    # is the public project key embedded in client-side JS and visible to anyone.
     try:
         team = Team.objects.get(
             Q(secret_api_token=api_key) | Q(secret_api_token_backup=api_key),
@@ -249,7 +251,7 @@ class ExternalTicketView(APIView):
                     was_impersonated=False,
                 )
             except Exception as e:
-                logger.debug("assign_ticket_failed", ticket_id=str(ticket.id), error=str(e))
+                capture_exception(e, {"ticket_id": str(ticket.id)})
                 return Response({"error": "Failed to assign ticket"}, status=status.HTTP_400_BAD_REQUEST)
 
         if "tags" in serializer.validated_data:

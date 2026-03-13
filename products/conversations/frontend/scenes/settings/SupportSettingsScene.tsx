@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
+import { IconPencil, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -315,7 +315,7 @@ function SecretApiKeySection(): JSX.Element {
                     <CodeSnippet
                         actions={
                             <LemonButton
-                                icon={<IconPlus />}
+                                icon={<IconRefresh />}
                                 size="xsmall"
                                 onClick={openRotateDialog}
                                 disabledReason={
@@ -329,7 +329,7 @@ function SecretApiKeySection(): JSX.Element {
                         className={currentTeam?.secret_api_token ? '' : 'text-muted'}
                         thing="Secret API key"
                     >
-                        {currentTeam?.secret_api_token || 'Click the rotate button on the right to generate a new key.'}
+                        {currentTeam?.secret_api_token || 'Click the generate button on the right to create a new key.'}
                     </CodeSnippet>
                 </div>
 
