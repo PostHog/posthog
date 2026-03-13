@@ -852,6 +852,21 @@
             "readOnlyHint": true
         }
     },
+    "annotations-partial-update": {
+        "description": "Update an existing annotation by ID. You can change its text (`content`), when it happened (`date_marker`, ISO 8601), or its visibility scope (`project` or `organization`). Only the fields you provide are updated.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "Update annotation",
+        "title": "Update annotation",
+        "required_scopes": ["annotation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "annotation-delete": {
         "description": "Soft-delete an annotation by ID. This hides the annotation from normal lists while preserving historical records.",
         "category": "Annotations",
@@ -1375,21 +1390,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
-    },
-    "annotations-partial-update": {
-        "description": "Update an existing annotation by ID. You can change its text (`content`), when it happened (`date_marker`, ISO 8601), or its visibility scope (`project` or `organization`). Only the fields you provide are updated.",
-        "category": "Annotations",
-        "feature": "annotations",
-        "summary": "Update annotation",
-        "title": "Update annotation",
-        "required_scopes": ["annotation:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
         }
     },
     "workflows-get": {
