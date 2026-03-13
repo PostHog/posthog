@@ -67,7 +67,7 @@ func sendRaw(t *testing.T, path string, raw string) map[string]any {
 	if err != nil {
 		t.Fatalf("dial %s: %v", path, err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if _, err := conn.Write([]byte(raw + "\n")); err != nil {
 		t.Fatalf("write request: %v", err)

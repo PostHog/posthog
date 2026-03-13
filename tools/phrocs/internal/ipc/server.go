@@ -49,7 +49,7 @@ func Serve(path string, mgr *process.Manager) error {
 	if err != nil {
 		return err
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	for {
 		conn, err := ln.Accept()
@@ -61,7 +61,7 @@ func Serve(path string, mgr *process.Manager) error {
 }
 
 func handle(conn net.Conn, mgr *process.Manager) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {
 		var req request

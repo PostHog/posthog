@@ -75,11 +75,11 @@ type Metrics struct {
 
 // Snapshot is a point-in-time view of a process suitable for serialization.
 type Snapshot struct {
-	Name    string `json:"process"`
-	Status  string `json:"status"`
-	PID     int    `json:"pid"`
-	Ready   bool   `json:"ready"`
-	ExitCode *int  `json:"exit_code"`
+	Name     string `json:"process"`
+	Status   string `json:"status"`
+	PID      int    `json:"pid"`
+	Ready    bool   `json:"ready"`
+	ExitCode *int   `json:"exit_code"`
 
 	StartedAt        time.Time  `json:"started_at"`
 	ReadyAt          *time.Time `json:"ready_at,omitempty"`
