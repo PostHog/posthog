@@ -85,6 +85,24 @@ class TestComputeVersionManifest(SimpleTestCase):
             "pointers": {"1": "1.358.0", "1.358": "1.358.0"},
         }
 
+    def test_prerelease_versions_included_but_not_in_pointers(self):
+        entries = [
+            {"version": "1.358.0", "timestamp": "2025-01-15T00:00:00Z"},
+            {"version": "1.359.0-beta.1", "timestamp": "2025-01-20T00:00:00Z"},
+        ]
+        result = compute_version_manifest(entries)
+        assert "1.359.0-beta.1" in result["versions"]
+        assert result["pointers"]["1"] == "1.358.0"
+
+    def test_prerelease_does_not_override_stable_pointer(self):
+        entries = [
+            {"version": "1.360.0", "timestamp": "2025-01-15T00:00:00Z"},
+            {"version": "1.361.0-dev", "timestamp": "2025-01-20T00:00:00Z"},
+        ]
+        result = compute_version_manifest(entries)
+        assert result["pointers"]["1"] == "1.360.0"
+        assert "1.361" not in result["pointers"]
+
 
 class TestGetJsContent(SimpleTestCase):
     def setUp(self):

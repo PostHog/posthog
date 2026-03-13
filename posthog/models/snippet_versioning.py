@@ -99,6 +99,13 @@ def compute_version_manifest(entries: list[VersionEntry]) -> VersionManifest:
             continue
         version = entry["version"]
         versions.append(version)
+
+        # Only strict semver versions (e.g. "1.358.0") participate in pointer
+        # computation. Pre-release tags like "1.358.0-dev" are included in
+        # the versions list so teams can pin to them, but they don't become
+        # pointer targets.
+        if not _EXACT_VERSION_RE.match(version):
+            continue
         parsed = _parse_version(version)
         major, minor, _patch = parsed
 
@@ -262,7 +269,8 @@ def sync_manifest_from_s3() -> VersionManifest:
     # next-highest version if the top one is missing (e.g. broken publish)
     #
     # In practice, this shouldn't ever iterate more than once per major version.
-    sorted_versions = sorted(manifest["versions"], key=_parse_version, reverse=True)
+    semver_versions = [v for v in manifest["versions"] if _EXACT_VERSION_RE.match(v)]
+    sorted_versions = sorted(semver_versions, key=_parse_version, reverse=True)
     major_pins = {pin: ver for pin, ver in manifest["pointers"].items() if "." not in pin}
     for pin, version in major_pins.items():
         if validate_version_artifacts(version):
