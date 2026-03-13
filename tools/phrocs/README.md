@@ -58,7 +58,7 @@ Press `esc` to exit without copying.
 ### Search mode
 
 Press `/` to enter search mode, type a query, then press `enter` to keep highlights active.
-Use `n` and `N` to jump between matches.
+Use `↵` and `⇧↵` to jump to the next/previous match.
 Press `esc` to clear the active search.
 
 ## Debug logging
