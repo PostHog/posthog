@@ -16,6 +16,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesInputs,
     BackfillPrecalculatedPersonPropertiesWorkflow,
+    PersonPropertyFilter,
 )
 
 LOGGER = get_logger(__name__)
@@ -36,7 +37,7 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorInputs:
     """Inputs for the coordinator workflow that spawns child workflows."""
 
     team_id: int
-    deduplicated_conditions: dict[str, tuple[list[Any], set[int]]]  # condition_hash -> (bytecode, cohort_ids)
+    filters: list[PersonPropertyFilter]  # Deduplicated filters with cohort mappings
     cohort_ids: list[int]  # All cohort IDs being processed
     parallelism: int = 10  # Number of child workflows to spawn
     batch_size: int = 1000  # Persons per batch within each worker
@@ -46,7 +47,7 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorInputs:
     @property
     def total_filters(self) -> int:
         """Total number of unique filters."""
-        return len(self.deduplicated_conditions)
+        return len(self.filters)
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -151,9 +152,7 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
         )
 
         # Step 2: Use already deduplicated conditions from management command
-        workflow_logger.info(
-            f"Processing {len(inputs.deduplicated_conditions)} unique conditions across {len(cohort_ids)} cohorts"
-        )
+        workflow_logger.info(f"Processing {len(inputs.filters)} unique conditions across {len(cohort_ids)} cohorts")
 
         # Step 3: Calculate ranges for each child workflow
         persons_per_workflow = math.ceil(total_persons / inputs.parallelism)
@@ -172,7 +171,7 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
                     id=f"{temporalio.workflow.info().workflow_id}-child-{i}",
                     inputs=BackfillPrecalculatedPersonPropertiesInputs(
                         team_id=inputs.team_id,
-                        deduplicated_conditions=inputs.deduplicated_conditions,
+                        filters=inputs.filters,
                         cohort_ids=inputs.cohort_ids,
                         batch_size=inputs.batch_size,
                         offset=offset,
