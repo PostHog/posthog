@@ -15901,6 +15901,8 @@ export namespace Schemas {
        * @nullable
        */
       external_references?: SessionRecordingExternalReference[] | null;
+      /** @nullable */
+      has_summary?: boolean | null;
       id: string;
       /** @nullable */
       inactive_seconds?: number | null;
