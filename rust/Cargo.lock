@@ -1734,6 +1734,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "capture-metrics"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "apache-avro",
+ "axum 0.7.9",
+ "base64 0.22.1",
+ "bytes",
+ "capture",
+ "chrono",
+ "common-alloc",
+ "common-continuous-profiling",
+ "common-metrics",
+ "envconfig",
+ "health",
+ "limiters",
+ "metrics",
+ "opentelemetry-proto 0.29.0",
+ "prost 0.13.5",
+ "rdkafka",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tonic 0.12.3",
+ "tower-http 0.5.2",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "cast"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
