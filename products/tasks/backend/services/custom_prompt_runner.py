@@ -109,13 +109,11 @@ async def _create_task_and_trigger(
         repository=context.repository,
         create_pr=False,
         mode="background",
+        branch=branch if branch and branch != "master" else None,
     )
     task_run = await sync_to_async(lambda: task.latest_run)()
     if not task_run:
         raise RuntimeError("Task.create_and_run did not produce a TaskRun")
-    if branch and branch != "master":
-        task_run.branch = branch
-        await sync_to_async(task_run.save)(update_fields=["branch"])
     return task, task_run
 
 
