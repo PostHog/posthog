@@ -1,6 +1,8 @@
 import { z } from 'zod'
 
-import { FilterGroupsSchema } from './flags.js'
+import { FeatureFlagsCreateBody } from '@/generated/feature_flags/api'
+
+const FeatureFlagFiltersSchema = FeatureFlagsCreateBody.shape.filters
 
 // Survey question types
 const BaseSurveyQuestionSchema = z.object({
@@ -389,7 +391,7 @@ export const CreateSurveyInputSchema = z.object({
             'When at least one question is answered, the response is stored (true). The response is stored when all questions are answered (false).'
         ),
     linked_flag_id: z.number().nullable().optional().describe('The feature flag linked to this survey'),
-    targeting_flag_filters: FilterGroupsSchema.optional().describe(
+    targeting_flag_filters: FeatureFlagFiltersSchema.describe(
         "Target specific users based on their properties. Example: {groups: [{properties: [{key: 'email', value: ['@company.com'], operator: 'icontains'}], rollout_percentage: 100}]}"
     ),
 })
@@ -449,7 +451,7 @@ export const UpdateSurveyInputSchema = z.object({
         ),
     linked_flag_id: z.number().nullable().optional().describe('The feature flag to link to this survey'),
     targeting_flag_id: z.number().optional().describe('An existing targeting flag to use for this survey'),
-    targeting_flag_filters: FilterGroupsSchema.optional().describe(
+    targeting_flag_filters: FeatureFlagFiltersSchema.describe(
         "Target specific users based on their properties. Example: {groups: [{properties: [{key: 'email', value: ['@company.com'], operator: 'icontains'}], rollout_percentage: 50}]}"
     ),
     remove_targeting_flag: z

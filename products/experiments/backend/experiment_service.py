@@ -114,6 +114,32 @@ class ExperimentService:
                 except pydantic.ValidationError as e:
                     raise ValidationError(f"Invalid metric at index {i}: {e.errors()}")
 
+    @staticmethod
+    def validate_saved_metrics_ids(saved_metrics_ids: list | None, team_id: int) -> None:
+        """Validate saved metric references accepted by the API layer."""
+        if saved_metrics_ids is None:
+            return
+
+        if not isinstance(saved_metrics_ids, list):
+            raise ValidationError("Saved metrics must be a list")
+
+        for saved_metric in saved_metrics_ids:
+            if not isinstance(saved_metric, dict):
+                raise ValidationError("Saved metric must be an object")
+            if "id" not in saved_metric:
+                raise ValidationError("Saved metric must have an id")
+            if "metadata" in saved_metric and not isinstance(saved_metric["metadata"], dict):
+                raise ValidationError("Metadata must be an object")
+            if "metadata" in saved_metric and "type" not in saved_metric["metadata"]:
+                raise ValidationError("Metadata must have a type key")
+
+        saved_metrics = ExperimentSavedMetric.objects.filter(
+            id__in=[saved_metric["id"] for saved_metric in saved_metrics_ids],
+            team_id=team_id,
+        )
+        if saved_metrics.count() != len(saved_metrics_ids):
+            raise ValidationError("Saved metric does not exist or does not belong to this project")
+
     @transaction.atomic
     def create_experiment(
         self,
@@ -146,6 +172,7 @@ class ExperimentService:
         event_source: EventSource | None = None,
     ) -> Experiment:
         """Create experiment with full validation and defaults."""
+        self.validate_saved_metrics_ids(saved_metrics_ids, self.team.id)
         is_draft = start_date is None
 
         feature_flag, used_variants = self._ensure_feature_flag(
@@ -484,6 +511,9 @@ class ExperimentService:
         ``ExperimentSerializer``.  The caller is responsible for DRF-level input
         validation (field types, metric schema, etc.) before calling this method.
         """
+        if "saved_metrics_ids" in update_data:
+            self.validate_saved_metrics_ids(update_data["saved_metrics_ids"], self.team.id)
+
         context = serializer_context or self._build_serializer_context()
         feature_flag = experiment.feature_flag
 

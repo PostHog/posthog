@@ -25,6 +25,8 @@ class TestReportUserAction(BaseTest):
                 {
                     "source": "api",
                     "$current_url": "http://app.posthog.com/insights",
+                    "$host": "app.posthog.com",
+                    "$pathname": "/insights",
                     "$session_id": "sess-123",
                     "was_impersonated": False,
                     "mcp_user_agent": None,
@@ -45,6 +47,8 @@ class TestReportUserAction(BaseTest):
                 {
                     "source": "api",
                     "$current_url": "http://app.posthog.com/insights",
+                    "$host": "app.posthog.com",
+                    "$pathname": "/insights",
                     "$session_id": "sess-123",
                     "was_impersonated": False,
                     "mcp_user_agent": "posthog/cursor 1.0",
@@ -66,6 +70,8 @@ class TestReportUserAction(BaseTest):
                 {
                     "source": "api",
                     "$current_url": None,
+                    "$host": None,
+                    "$pathname": None,
                     "$session_id": None,
                     "was_impersonated": False,
                     "mcp_user_agent": None,
@@ -82,6 +88,8 @@ class TestReportUserAction(BaseTest):
                 {
                     "source": "api",
                     "$current_url": "http://app.posthog.com/insights",
+                    "$host": "app.posthog.com",
+                    "$pathname": "/insights",
                     "$session_id": "sess-123",
                     "was_impersonated": False,
                     "mcp_user_agent": None,
@@ -99,6 +107,8 @@ class TestReportUserAction(BaseTest):
                 {
                     "source": "terraform",
                     "$current_url": "override",
+                    "$host": "app.posthog.com",
+                    "$pathname": "/insights",
                     "$session_id": "sess-123",
                     "was_impersonated": False,
                     "mcp_user_agent": None,
@@ -115,6 +125,8 @@ class TestReportUserAction(BaseTest):
                 {
                     "source": "api",
                     "$current_url": None,
+                    "$host": None,
+                    "$pathname": None,
                     "$session_id": None,
                     "was_impersonated": False,
                     "mcp_user_agent": None,
@@ -138,14 +150,14 @@ class TestReportUserAction(BaseTest):
 
         mock_capture.assert_called_once()
         captured_props = mock_capture.call_args[1]["properties"]
-        assert captured_props == expected_properties
+        assert captured_props == {**expected_properties, "$set_once": {"email": self.user.email}}
 
     @patch("posthog.event_usage.posthoganalytics.capture")
     def test_no_request_passes_properties_unchanged(self, mock_capture):
         report_user_action(self.user, "test event", properties={"key": "val"})
 
         mock_capture.assert_called_once()
-        assert mock_capture.call_args[1]["properties"] == {"key": "val"}
+        assert mock_capture.call_args[1]["properties"] == {"key": "val", "$set_once": {"email": self.user.email}}
 
 
 class TestGetEventSource(BaseTest):
