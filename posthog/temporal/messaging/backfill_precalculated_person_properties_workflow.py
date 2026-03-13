@@ -209,7 +209,7 @@ async def backfill_precalculated_person_properties_activity(
 
             # Query person table for current batch with their distinct_ids using UUID range filtering
             uuid_filter_clause = ""
-            query_params = {"team_id": inputs.team_id, "limit": current_batch_size}
+            query_params: dict[str, Any] = {"team_id": inputs.team_id, "limit": current_batch_size}
 
             # Add UUID range filtering if specified
             if inputs.start_uuid:
