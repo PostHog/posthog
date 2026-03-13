@@ -20,3 +20,9 @@ PERSONHOG_ROUTING_ERRORS_TOTAL = Counter(
     "Errors encountered during personhog routing (triggers fallback to ORM)",
     labelnames=["operation", "source", "error_type", "client_name"],
 )
+
+PERSONHOG_TEAM_MISMATCH_TOTAL = Counter(
+    "personhog_team_mismatch_total",
+    "Persons dropped because personhog returned a mismatched team_id",
+    labelnames=["operation", "client_name"],
+)

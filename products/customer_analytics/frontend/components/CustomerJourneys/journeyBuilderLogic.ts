@@ -1,4 +1,5 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -8,6 +9,8 @@ import { getDefaultEventName, getProjectEventExistence } from 'lib/utils/getAppC
 import { funnelPathsExpansionLogic } from 'scenes/funnels/FunnelFlowGraph/funnelPathsExpansionLogic'
 import { PathExpansion } from 'scenes/funnels/FunnelFlowGraph/pathFlowUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { eventNameToEventsNode } from '~/queries/nodes/InsightQuery/utils/eventNameToEventsNode'
 import {
@@ -20,7 +23,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { insightsApi } from '~/scenes/insights/utils/api'
-import { FunnelPathType, FunnelVizType, InsightLogicProps } from '~/types'
+import { Breadcrumb, FunnelPathType, FunnelVizType, InsightLogicProps } from '~/types'
 
 import { customerJourneysLogic } from './customerJourneysLogic'
 import type { journeyBuilderLogicType } from './journeyBuilderLogicType'
@@ -72,8 +75,6 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
     })),
 
     actions({
-        openBuilder: true,
-        closeBuilder: true,
         setQuery: (query: InsightVizNode<FunnelsQuery>) => ({ query }),
         setQueryFromViz: (query: InsightVizNode<FunnelsQuery>) => ({ query }),
         addStep: (insertAtIndex: number) => ({ insertAtIndex }),
@@ -95,18 +96,12 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             funnelStepCount,
         }),
         setJourneyName: (name: string) => ({ name }),
+        setJourneyDescription: (description: string) => ({ description }),
         saveJourney: true,
         saveJourneyFailure: (error: string) => ({ error }),
     }),
 
     reducers({
-        isBuilderOpen: [
-            false,
-            {
-                openBuilder: () => true,
-                addJourneySuccess: () => false,
-            },
-        ],
         query: [
             createDefaultQuery(),
             {
@@ -122,6 +117,13 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
                 addJourneySuccess: () => '',
             },
         ],
+        journeyDescription: [
+            '',
+            {
+                setJourneyDescription: (_, { description }) => description,
+                addJourneySuccess: () => '',
+            },
+        ],
         isSaving: [
             false,
             {
@@ -134,6 +136,26 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
     }),
 
     selectors({
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: Scene.CustomerAnalytics,
+                    name: 'Customer analytics',
+                    path: urls.customerAnalyticsDashboard(),
+                    iconType: 'cohort',
+                },
+                {
+                    key: 'customer-journeys',
+                    name: 'Customer journeys',
+                    path: urls.customerAnalyticsJourneys(),
+                },
+                {
+                    key: Scene.CustomerJourneyBuilder,
+                    name: 'New journey',
+                },
+            ],
+        ],
         stepCount: [(s) => [s.query], (query): number => query.source.series.length],
         series: [(s) => [s.query], (query): AnyEntityNode[] => query.source.series as AnyEntityNode[]],
         taxonomicGroupTypes: [
@@ -156,10 +178,6 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
     listeners(({ actions, values }) => ({
         setQuery: () => {
             actions.collapsePath()
-            actions.setInsightQuery(values.query)
-        },
-
-        openBuilder: () => {
             actions.setInsightQuery(values.query)
         },
 
@@ -247,7 +265,7 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
         },
 
         saveJourney: async () => {
-            const { series, journeyName, query } = values
+            const { series, journeyName, journeyDescription, query } = values
             const name = (journeyName.trim() || 'Untitled journey').slice(0, JOURNEY_NAME_MAX_LENGTH)
             const insightName = `${INSIGHT_NAME_PREFIX}${name}`.slice(0, JOURNEY_NAME_MAX_LENGTH)
 
@@ -273,6 +291,7 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
                 const insight = await insightsApi.create({
                     query,
                     name: insightName,
+                    description: journeyDescription.trim() || undefined,
                     saved: true,
                 })
 
@@ -283,7 +302,7 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
                     name,
                 })
 
-                actions.closeBuilder()
+                router.actions.push(urls.customerAnalyticsJourneys())
             } catch (e) {
                 const message = e instanceof Error ? e.message : 'Failed to save journey'
                 actions.saveJourneyFailure(message)
@@ -291,4 +310,8 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             }
         },
     })),
+
+    afterMount(({ actions, values }) => {
+        actions.setInsightQuery(values.query)
+    }),
 ])

@@ -6,5 +6,11 @@
     "type": "module",
     "exports": {
         ".": "./index.mjs"
+    },
+    "scripts": {
+        "test": "vitest run"
+    },
+    "devDependencies": {
+        "vitest": "^3.0.0"
     }
 }

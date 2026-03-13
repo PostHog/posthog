@@ -312,13 +312,16 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
                         continue
                     }
 
-                    // Auto-exclude underscore-prefixed fields
-                    if (name.startsWith('_')) {
-                        bodyOmitFields.add(name)
+                    // exclude_params are removed at the Orval schema level by
+                    // applyNestedExclusions in generate-orval-schemas.mjs, so
+                    // they won't exist in the Zod schema. Skip them here to
+                    // avoid generating .omit() calls for nonexistent fields.
+                    if (excludeSet.has(name)) {
                         continue
                     }
-                    // Apply exclude_params / include_params
-                    if (excludeSet.has(name)) {
+
+                    // Auto-exclude underscore-prefixed fields
+                    if (name.startsWith('_')) {
                         bodyOmitFields.add(name)
                         continue
                     }
