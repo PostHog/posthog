@@ -894,7 +894,7 @@ def create_data_ops_dashboard(team, user) -> Dashboard:
 
     _create_tile_for_insight(
         dashboard,
-        name="Data Ops Overview",
+        name="Events ingested",
         description="",
         query={
             "kind": "InsightVizNode",
