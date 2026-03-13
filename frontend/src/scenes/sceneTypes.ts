@@ -28,6 +28,7 @@ export enum Scene {
     CustomCss = 'CustomCss',
     CustomerAnalytics = 'CustomerAnalytics',
     CustomerAnalyticsConfiguration = 'CustomerAnalyticsConfiguration',
+    CustomerJourneyBuilder = 'CustomerJourneyBuilder',
     Dashboard = 'Dashboard',
     Dashboards = 'Dashboards',
     DataManagement = 'DataManagement',

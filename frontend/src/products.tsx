@@ -51,6 +51,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     CustomerAnalytics: () => import('../../products/customer_analytics/frontend/CustomerAnalyticsScene'),
     CustomerAnalyticsConfiguration: () =>
         import('../../products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/CustomerAnalyticsConfigurationScene'),
+    CustomerJourneyBuilder: () =>
+        import('../../products/customer_analytics/frontend/scenes/CustomerJourneyBuilderScene/CustomerJourneyBuilderScene'),
     DataWarehouse: () => import('../../products/data_warehouse/DataWarehouseScene'),
     Models: () => import('../../frontend/src/scenes/models/ModelsScene'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
@@ -117,6 +119,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
     '/support/settings': ['SupportSettings', 'supportSettings'],
     '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
+    '/customer_analytics/journeys/new': ['CustomerJourneyBuilder', 'customerJourneyBuilder'],
     '/customer_analytics/journeys': ['CustomerAnalytics', 'customerAnalyticsJourneys'],
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     '/data-warehouse': ['DataWarehouse', 'dataWarehouse'],
@@ -140,6 +143,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/live-debugger': ['LiveDebugger', 'liveDebugger'],
     '/llm-analytics/dashboard': ['LLMAnalytics', 'llmAnalyticsDashboard'],
     '/llm-analytics/generations': ['LLMAnalytics', 'llmAnalyticsGenerations'],
+    '/llm-analytics/reviews': ['LLMAnalytics', 'llmAnalyticsReviews'],
     '/llm-analytics/traces': ['LLMAnalytics', 'llmAnalyticsTraces'],
     '/llm-analytics/traces/:id': ['LLMAnalyticsTrace', 'llmAnalytics'],
     '/llm-analytics/users': ['LLMAnalytics', 'llmAnalyticsUsers'],
@@ -206,6 +210,8 @@ export const productRedirects: Record<
         combineUrl(`/llm-analytics/dashboard`, searchParams, hashParams).url,
     '/llm-observability/generations': (_params, searchParams, hashParams) =>
         combineUrl(`/llm-analytics/generations`, searchParams, hashParams).url,
+    '/llm-observability/reviews': (_params, searchParams, hashParams) =>
+        combineUrl(`/llm-analytics/reviews`, searchParams, hashParams).url,
     '/llm-observability/traces': (_params, searchParams, hashParams) =>
         combineUrl(`/llm-analytics/traces`, searchParams, hashParams).url,
     '/llm-observability/traces/:id': (params, searchParams, hashParams) =>
@@ -267,6 +273,7 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         name: 'Customer analytics configuration',
     },
+    CustomerJourneyBuilder: { projectBased: true, name: 'New journey' },
     DataWarehouse: {
         name: 'Data warehouse',
         projectBased: true,
@@ -542,6 +549,7 @@ export const productUrls = {
     customerAnalyticsDashboard: (): string => '/customer_analytics/dashboard',
     customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
     customerAnalyticsConfiguration: (): string => '/customer_analytics/configuration',
+    customerJourneyBuilder: (): string => '/customer_analytics/journeys/new',
     dashboards: (): string => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
@@ -666,6 +674,7 @@ export const productUrls = {
     liveDebugger: (): string => '/live-debugger',
     llmAnalyticsDashboard: (): string => '/llm-analytics/dashboard',
     llmAnalyticsGenerations: (): string => '/llm-analytics/generations',
+    llmAnalyticsReviews: (): string => '/llm-analytics/reviews',
     llmAnalyticsTraces: (): string => '/llm-analytics/traces',
     llmAnalyticsTrace: (
         id: string,
@@ -1182,7 +1191,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         tags: ['beta'],
         flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS,
         sceneKey: 'CustomerAnalytics',
-        sceneKeys: ['CustomerAnalytics', 'CustomerAnalyticsConfiguration'],
+        sceneKeys: ['CustomerAnalytics', 'CustomerJourneyBuilder'],
     },
     {
         path: 'Dashboards',

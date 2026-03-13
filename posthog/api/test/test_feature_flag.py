@@ -9413,8 +9413,9 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
     def test_flag_status_reasons(self):
         FeatureFlag.objects.all().delete()
 
-        # Request status for non-existent flag
-        self.assert_expected_response(1, FeatureFlagStatus.UNKNOWN, "Flag could not be found")
+        # Request status for non-existent flag returns 404
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/1/status")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
         # Request status for flag that has been soft deleted
         deleted_flag = FeatureFlag.objects.create(
@@ -9917,6 +9918,20 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
         )
         self.assert_expected_response(new_flag.id, FeatureFlagStatus.ACTIVE)
+
+    def test_flag_status_cross_team_returns_404(self):
+        other_team = Team.objects.create(organization=Organization.objects.create(name="other org"))
+        other_flag = FeatureFlag.objects.create(
+            name="Other team flag",
+            key="other-team-flag",
+            team=other_team,
+            active=True,
+            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
+        )
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/{other_flag.id}/status",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_flag_status_recently_called_at_100_rollout_is_active(self):
         """Flag that was recently called at 100% should be ACTIVE (usage data takes precedence)"""

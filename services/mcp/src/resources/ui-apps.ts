@@ -185,7 +185,7 @@ function registerApp(server: McpServer, context: Context, { name, uri, descripti
         }
     }
 
-    server.registerResource(name, uri, { description: description }, async (uri) => {
+    server.registerResource(name, uri, { mimeType: RESOURCE_MIME_TYPE, description }, async (uri) => {
         return {
             contents: [
                 {
