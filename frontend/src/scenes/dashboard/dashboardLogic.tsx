@@ -588,7 +588,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             1,
             {
                 setLayoutZoom: (_state: number, { layoutZoom }: { layoutZoom: number }) =>
-                    Math.min(1, Math.max(0.5, layoutZoom)),
+                    Math.min(1, Math.max(0.25, layoutZoom)),
+                updateContainerWidth: (state: number, { columns }: { columns: number }) => (columns === 1 ? 1 : state),
             },
         ],
         dashboard: [

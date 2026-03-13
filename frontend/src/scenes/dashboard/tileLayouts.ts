@@ -13,6 +13,9 @@ export interface TileLayout {
     h: number
 }
 
+const MIN_TILE_HEIGHT_ROWS = 2
+const MIN_TEXT_TILE_HEIGHT_ROWS = 1
+
 export interface DuplicateLayoutResult {
     duplicateLayouts: { sm?: TileLayout }
     tilesToUpdate: Array<{ id: number; layouts: { sm?: TileLayout } }>
@@ -162,8 +165,11 @@ export const calculateLayouts = (
             const layout = breakpoint === 'xs' ? undefined : tile.layouts?.[breakpoint]
             const { x, y, w, h } = layout || {}
 
+            const isTextTile = !!tile.text
             const realW = Math.min(w || defaultW, columnCount)
             const realH = h || defaultH
+            const minH = isTextTile ? MIN_TEXT_TILE_HEIGHT_ROWS : MIN_TILE_HEIGHT_ROWS
+            const minW = isTextTile ? 1 : 2
 
             return {
                 i: tile.id?.toString(),
@@ -171,8 +177,8 @@ export const calculateLayouts = (
                 y: y != null && Number.isInteger(y) ? y : Infinity,
                 w: realW,
                 h: realH,
-                minW: 1,
-                minH: 1,
+                minW,
+                minH,
             }
         })
 

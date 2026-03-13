@@ -26,7 +26,7 @@ import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType }
 import { DashboardTextItem } from './items/DashboardTextItem'
 
 const DRAG_AUTO_SCROLL_THRESHOLD = 100
-const DRAG_AUTO_SCROLL_SPEED = 8
+const DRAG_AUTO_SCROLL_SPEED = 12
 
 const BASE_ROW_HEIGHT = 80
 const BASE_MARGIN: [number, number] = [16, 16]
@@ -50,8 +50,7 @@ export function DashboardItems(): JSX.Element {
         dataColorThemeId,
         canEditDashboard,
     } = useValues(dashboardLogic)
-    // layoutZoom is a UI-only field not yet in dashboardLogic typegen
-    const { layoutZoom = 1 } = useValues(dashboardLogic) as { layoutZoom?: number }
+    const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
         updateLayouts,
         updateContainerWidth,
