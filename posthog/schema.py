@@ -2259,7 +2259,7 @@ class IntegrationFilter(BaseModel):
 
 class IntegrationKind(StrEnum):
     SLACK = "slack"
-    SLACK_TWIG = "slack-twig"
+    SLACK_POSTHOG_CODE = "slack-posthog-code"
     SALESFORCE = "salesforce"
     HUBSPOT = "hubspot"
     GOOGLE_PUBSUB = "google-pubsub"
@@ -5585,6 +5585,10 @@ class FileSystemImport(BaseModel):
     created_at: str | None = Field(
         default=None,
         description="Timestamp when file was added. Used to check persistence",
+    )
+    displayLabel: str | None = Field(
+        default=None,
+        description=("Display label override — when set, shown in the nav instead of the last segment of `path`"),
     )
     flag: str | None = None
     href: str | None = Field(default=None, description="Object's URL")

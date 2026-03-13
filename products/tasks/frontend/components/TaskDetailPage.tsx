@@ -116,9 +116,9 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                             type="secondary"
                             size="small"
                             icon={<IconExternal />}
-                            onClick={() => window.open(`twig://task/${task.id}`, '_blank')}
+                            onClick={() => window.open(`posthog-code://task/${task.id}`, '_blank')}
                         >
-                            Open in Twig
+                            Open in PostHog Code
                         </LemonButton>
                         {prUrl && (
                             <LemonButton

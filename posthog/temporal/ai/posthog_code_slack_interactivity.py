@@ -9,38 +9,38 @@ from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
 
-TWIG_SLACK_INTERACTIVITY_TIMEOUT_SECONDS = 5 * 60
+POSTHOG_CODE_SLACK_INTERACTIVITY_TIMEOUT_SECONDS = 5 * 60
 logger = structlog.get_logger(__name__)
 
 
 @dataclass
-class TwigSlackInteractivityInputs:
+class PostHogCodeSlackInteractivityInputs:
     payload: dict[str, Any]
 
 
-@workflow.defn(name="twig-slack-terminate-task-processing")
-class TwigSlackTerminateTaskWorkflow(PostHogWorkflow):
+@workflow.defn(name="posthog-code-slack-terminate-task-processing")
+class PostHogCodeSlackTerminateTaskWorkflow(PostHogWorkflow):
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> TwigSlackInteractivityInputs:
+    def parse_inputs(inputs: list[str]) -> PostHogCodeSlackInteractivityInputs:
         loaded = json.loads(inputs[0])
-        return TwigSlackInteractivityInputs(**loaded)
+        return PostHogCodeSlackInteractivityInputs(**loaded)
 
     @workflow.run
-    async def run(self, inputs: TwigSlackInteractivityInputs) -> None:
+    async def run(self, inputs: PostHogCodeSlackInteractivityInputs) -> None:
         await workflow.execute_activity(
-            process_twig_terminate_task_activity,
+            process_posthog_code_terminate_task_activity,
             args=(inputs,),
-            start_to_close_timeout=timedelta(seconds=TWIG_SLACK_INTERACTIVITY_TIMEOUT_SECONDS),
+            start_to_close_timeout=timedelta(seconds=POSTHOG_CODE_SLACK_INTERACTIVITY_TIMEOUT_SECONDS),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
 
 @activity.defn
-def process_twig_terminate_task_activity(inputs: TwigSlackInteractivityInputs) -> None:
-    process_twig_task_termination_payload(inputs.payload)
+def process_posthog_code_terminate_task_activity(inputs: PostHogCodeSlackInteractivityInputs) -> None:
+    process_posthog_code_task_termination_payload(inputs.payload)
 
 
-def process_twig_task_termination_payload(payload: dict[str, Any]) -> None:
+def process_posthog_code_task_termination_payload(payload: dict[str, Any]) -> None:
     from posthog.models.integration import Integration, SlackIntegration
     from posthog.temporal.common.client import sync_connect
 
@@ -50,20 +50,20 @@ def process_twig_task_termination_payload(payload: dict[str, Any]) -> None:
     from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
 
     actions = payload.get("actions", [])
-    action = next((a for a in actions if a.get("action_id") == "twig_terminate_task"), None)
+    action = next((a for a in actions if a.get("action_id") == "posthog_code_terminate_task"), None)
     if not action:
-        logger.warning("twig_terminate_no_action")
+        logger.warning("posthog_code_terminate_no_action")
         return
 
     action_value = action.get("value", "")
     if not action_value:
-        logger.warning("twig_terminate_no_value")
+        logger.warning("posthog_code_terminate_no_value")
         return
 
     try:
         value = json.loads(action_value)
     except json.JSONDecodeError:
-        logger.warning("twig_terminate_invalid_value")
+        logger.warning("posthog_code_terminate_invalid_value")
         return
 
     run_id = value.get("run_id")
@@ -74,20 +74,20 @@ def process_twig_task_termination_payload(payload: dict[str, Any]) -> None:
     slack_team_id = payload.get("team", {}).get("id")
 
     if not run_id or not integration_id:
-        logger.warning("twig_terminate_missing_context", run_id=run_id, integration_id=integration_id)
+        logger.warning("posthog_code_terminate_missing_context", run_id=run_id, integration_id=integration_id)
         return
 
     if not slack_team_id:
-        logger.warning("twig_terminate_missing_slack_team", run_id=run_id)
+        logger.warning("posthog_code_terminate_missing_slack_team", run_id=run_id)
         return
 
     if not expected_user_id:
-        logger.warning("twig_terminate_missing_expected_user", run_id=run_id)
+        logger.warning("posthog_code_terminate_missing_expected_user", run_id=run_id)
         return
 
     if requesting_user_id != expected_user_id:
         logger.warning(
-            "twig_terminate_user_mismatch",
+            "posthog_code_terminate_user_mismatch",
             expected=expected_user_id,
             actual=requesting_user_id,
             run_id=run_id,
@@ -95,9 +95,11 @@ def process_twig_task_termination_payload(payload: dict[str, Any]) -> None:
         return
 
     try:
-        integration = Integration.objects.get(id=integration_id, kind="slack-twig", integration_id=slack_team_id)
+        integration = Integration.objects.get(
+            id=integration_id, kind="slack-posthog-code", integration_id=slack_team_id
+        )
     except Integration.DoesNotExist:
-        logger.warning("twig_terminate_integration_not_found", integration_id=integration_id)
+        logger.warning("posthog_code_terminate_integration_not_found", integration_id=integration_id)
         return
 
     channel = payload.get("channel", {}).get("id") or payload.get("container", {}).get("channel_id")
@@ -107,11 +109,11 @@ def process_twig_task_termination_payload(payload: dict[str, Any]) -> None:
     try:
         task_run = TaskRun.objects.select_related("task").get(id=run_id, team_id=integration.team_id)
     except TaskRun.DoesNotExist:
-        logger.warning("twig_terminate_run_not_found", run_id=run_id)
+        logger.warning("posthog_code_terminate_run_not_found", run_id=run_id)
         return
 
     if task_run.is_terminal:
-        logger.info("twig_terminate_run_already_terminal", run_id=run_id, status=task_run.status)
+        logger.info("posthog_code_terminate_run_already_terminal", run_id=run_id, status=task_run.status)
         if channel and thread_ts:
             try:
                 slack_client = SlackIntegration(integration).client
@@ -121,7 +123,7 @@ def process_twig_task_termination_payload(payload: dict[str, Any]) -> None:
                     text=f"This run is already `{task_run.status}`. There is nothing to terminate.",
                 )
             except Exception:
-                logger.warning("twig_terminate_terminal_feedback_failed", run_id=run_id)
+                logger.warning("posthog_code_terminate_terminal_feedback_failed", run_id=run_id)
         return
 
     auth_token = None
@@ -131,14 +133,14 @@ def process_twig_task_termination_payload(payload: dict[str, Any]) -> None:
         try:
             auth_token = create_sandbox_connection_token(task_run, user_id=created_by.id, distinct_id=distinct_id)
         except Exception as e:
-            logger.warning("twig_terminate_auth_token_failed", run_id=run_id, error=str(e))
+            logger.warning("posthog_code_terminate_auth_token_failed", run_id=run_id, error=str(e))
 
     cancel_result = send_cancel(task_run, auth_token=auth_token)
     if cancel_result.success:
-        logger.info("twig_terminate_command_dispatched", run_id=run_id)
+        logger.info("posthog_code_terminate_command_dispatched", run_id=run_id)
     else:
         logger.warning(
-            "twig_terminate_command_failed_fallback_signal",
+            "posthog_code_terminate_command_failed_fallback_signal",
             run_id=run_id,
             error=cancel_result.error,
             status_code=cancel_result.status_code,
@@ -152,9 +154,9 @@ def process_twig_task_termination_payload(payload: dict[str, Any]) -> None:
         import asyncio
 
         asyncio.run(handle.signal(ProcessTaskWorkflow.complete_task, args=["cancelled", "Run terminated from Slack"]))
-        logger.info("twig_terminate_signaled", run_id=run_id, workflow_id=workflow_id)
+        logger.info("posthog_code_terminate_signaled", run_id=run_id, workflow_id=workflow_id)
     except Exception as e:
-        logger.exception("twig_terminate_signal_failed", run_id=run_id, error=str(e))
+        logger.exception("posthog_code_terminate_signal_failed", run_id=run_id, error=str(e))
         if not cancel_result.success:
             return
 
@@ -177,4 +179,4 @@ def process_twig_task_termination_payload(payload: dict[str, Any]) -> None:
                 ],
             )
         except Exception:
-            logger.warning("twig_terminate_message_update_failed", run_id=run_id)
+            logger.warning("posthog_code_terminate_message_update_failed", run_id=run_id)
