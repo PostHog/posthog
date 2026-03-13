@@ -164,6 +164,47 @@ data_warehouse_tables: PostgresTable = PostgresTable(
     },
 )
 
+pipeline_schemas: PostgresTable = PostgresTable(
+    name="pipeline_schemas",
+    postgres_table_name="posthog_externaldataschema",
+    access_scope="external_data_source",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "source_id": StringDatabaseField(name="source_id"),
+        "table_id": StringDatabaseField(name="table_id"),
+        "should_sync": BooleanDatabaseField(name="should_sync"),
+        "status": StringDatabaseField(name="status"),
+        "sync_type": StringDatabaseField(name="sync_type"),
+        "last_synced_at": DateTimeDatabaseField(name="last_synced_at"),
+        "latest_error": StringDatabaseField(name="latest_error"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "deleted_at": DateTimeDatabaseField(name="deleted_at"),
+    },
+)
+
+pipeline_sync_jobs: PostgresTable = PostgresTable(
+    name="pipeline_sync_jobs",
+    postgres_table_name="posthog_externaldatajob",
+    access_scope="external_data_source",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "pipeline_id": StringDatabaseField(name="pipeline_id"),
+        "schema_id": StringDatabaseField(name="schema_id"),
+        "status": StringDatabaseField(name="status"),
+        "rows_synced": IntegerDatabaseField(name="rows_synced"),
+        "latest_error": StringDatabaseField(name="latest_error"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "finished_at": DateTimeDatabaseField(name="finished_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
 feature_flags: PostgresTable = PostgresTable(
     name="feature_flags",
     postgres_table_name="posthog_featureflag",
@@ -380,6 +421,8 @@ class SystemTables(TableNode):
         "insight_variables": TableNode(name="insight_variables", table=insight_variables),
         "insights": TableNode(name="insights", table=insights),
         "notebooks": TableNode(name="notebooks", table=notebooks),
+        "pipeline_schemas": TableNode(name="pipeline_schemas", table=pipeline_schemas),
+        "pipeline_sync_jobs": TableNode(name="pipeline_sync_jobs", table=pipeline_sync_jobs),
         "surveys": TableNode(name="surveys", table=surveys),
         "teams": TableNode(name="teams", table=teams),
     }
