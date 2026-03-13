@@ -41,16 +41,17 @@ def resolve_sandbox_context_for_local_dev(repository: str) -> CustomPromptSandbo
     resolves it automatically).
     """
     from posthog.models.integration import Integration
+    from posthog.models.organization import OrganizationMembership
     from posthog.models.team.team import Team
-    from posthog.models.user import User
 
-    team = Team.objects.first()
+    team = Team.objects.select_related("organization").first()
     if not team:
         raise RuntimeError("No team found in local database")
 
-    user = User.objects.first()
-    if not user:
-        raise RuntimeError("No user found in local database")
+    membership = OrganizationMembership.objects.filter(organization=team.organization).order_by("id").first()
+    if not membership:
+        raise RuntimeError(f"No users in organization '{team.organization.name}' (team {team.id})")
+    user = membership.user
 
     # Validate the integration exists upfront so we fail early with a clear message.
     gh = Integration.objects.filter(team=team, kind="github").first()
