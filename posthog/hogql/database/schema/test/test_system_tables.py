@@ -24,6 +24,7 @@ from posthog.models import (
     Survey,
     Team,
 )
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.hog_functions.hog_function import HogFunction
@@ -76,6 +77,10 @@ class TestSystemTablesTeamScoping(BaseTest):
             f"Add a factory to SYSTEM_TABLE_FACTORIES in test_system_tables.py "
             f"or add to excluded_tables with a reason."
         )
+
+
+def _create_activity_log(team: Team, label: str) -> ActivityLog:
+    return ActivityLog.objects.create(team=team, activity="updated", scope="FeatureFlag", item_id=label)
 
 
 def _create_action(team: Team, label: str) -> Action:
@@ -173,6 +178,7 @@ def _create_team(team: Team, label: str) -> Team:
 
 
 SYSTEM_TABLE_FACTORIES = [
+    ("activity_logs", _create_activity_log),
     ("actions", _create_action),
     ("cohorts", _create_cohort),
     ("cohort_calculation_history", _create_cohort_calculation_history),
