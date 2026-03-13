@@ -119,10 +119,10 @@ class Command(BaseCommand):
 
         result = asyncio.run(
             run_multi_turn_research(
+                TEST_SIGNALS,
+                context,
                 title=TEST_TITLE,
                 summary=TEST_SUMMARY,
-                signals=TEST_SIGNALS,
-                context=context,
                 branch="master",
                 verbose=verbose,
                 output_fn=self._flushing_write,

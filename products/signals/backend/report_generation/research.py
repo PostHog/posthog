@@ -134,23 +134,29 @@ When in doubt between "immediately_actionable" and "requires_human_input", choos
 When in doubt between "requires_human_input" and "not_actionable", choose "not_actionable"."""
 
 
-def build_initial_research_prompt(title: str, summary: str, first_signal: SignalData, total_signals: int) -> str:
+def build_initial_research_prompt(
+    first_signal: SignalData,
+    total_signals: int,
+    *,
+    title: str | None = None,
+    summary: str | None = None,
+) -> str:
     """Build the opening prompt for the first signal in a multi-turn research session."""
     signal_block = _render_signal_for_research(first_signal, 1, total_signals)
     finding_schema = json.dumps(SignalFinding.model_json_schema(), indent=2)
 
+    report_context = ""
+    if title or summary:
+        report_context = "\n---\n\n## Report under investigation\n\n"
+        if title:
+            report_context += f"**Title:** {title}\n\n"
+        if summary:
+            report_context += f"**Summary:** {summary}\n\n"
+
     return f"""{_RESEARCH_PREAMBLE}
 
 You will investigate **{total_signals} signal(s)** one at a time. I will send each signal in a separate message. For each one, investigate it thoroughly then respond with a `SignalFinding` JSON object.
-
----
-
-## Report under investigation
-
-**Title:** {title}
-
-**Summary:** {summary}
-
+{report_context}
 ---
 
 {_RESEARCH_PROTOCOL}
@@ -231,11 +237,11 @@ Respond with a JSON object matching this schema:
 
 
 async def run_multi_turn_research(
-    title: str,
-    summary: str,
     signals: list[SignalData],
     context: CustomPromptSandboxContext,
     *,
+    title: str | None = None,
+    summary: str | None = None,
     branch: str = "master",
     verbose: bool = False,
     output_fn: OutputFn = None,
@@ -255,7 +261,7 @@ async def run_multi_turn_research(
         output_fn(f"Starting multi-turn research: {total} signal(s)")
 
     # Turn 1: initial prompt with signal 1
-    initial_prompt = build_initial_research_prompt(title, summary, signals[0], total)
+    initial_prompt = build_initial_research_prompt(signals[0], total, title=title, summary=summary)
     session, first_finding = await start_session(
         prompt=initial_prompt,
         context=context,
