@@ -4,8 +4,8 @@ The Rust feature flags service uses three independent rate limiters, all impleme
 
 | Limiter     | Scope         | Default config             | Purpose                            |
 | ----------- | ------------- | -------------------------- | ---------------------------------- |
-| IP-based    | Per source IP | 1000 burst / 50 per second | DDoS defense                       |
-| Token-based | Per API token | 500 burst / 10 per second  | Per-project limits                 |
+| IP-based    | Per source IP | 1250 burst / 50 per second | DDoS defense                       |
+| Token-based | Per API token | 625 burst / 10 per second  | Per-project limits                 |
 | Definitions | Per team ID   | 600 per minute             | `/flags/definitions` rate limiting |
 
 Rate limiting runs before body decoding and authentication in the `/flags` request pipeline. IP is checked first, then token. The definitions limiter is a simple allow/deny gate with no warn tier.
@@ -26,19 +26,22 @@ By default, the warn tier is derived at 80% of the enforce capacity (`FLAGS_WARN
 
 Resolution logic lives in `resolve_rate_limit_capacities()` in `router.rs`. The mode is determined by `log_only` and the warn ratio:
 
-| Mode                | Condition                         | Behavior                                                                                                                      |
-| ------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| **Default**         | `log_only == false`, `ratio > 0`  | Warn tier is derived at `ratio` of enforce capacity. Operators get warning signals before hard 429s.                          |
-| **Warn disabled**   | `log_only == false`, `ratio == 0` | No warn tier. Hard block at enforce capacity with no prior warning.                                                           |
-| **Legacy log-only** | `log_only == true`                | Warn at enforce capacity, never block (`warn_only` mode). Preserves the legacy contract where rate limiting is observational. |
+| Mode                | Condition                         | Behavior                                                                                                                  |
+| ------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| **Default**         | `log_only == false`, `ratio > 0`  | Warn tier is derived at `ratio` of enforce capacity. Operators get warning signals before hard 429s.                      |
+| **Warn disabled**   | `log_only == false`, `ratio == 0` | No warn tier. Hard block at enforce capacity with no prior warning.                                                       |
+| **Legacy log-only** | `log_only == true`                | Same thresholds as default mode, but never blocks (`warn_only` mode). Metrics show what _would_ happen under enforcement. |
 
 ### Migration path
 
 To move from legacy log-only to full enforcement:
 
 1. **Start** with the defaults: `FLAGS_RATE_LIMIT_LOG_ONLY=true` (observe via metrics)
-2. **Switch to enforce mode**: set `FLAGS_RATE_LIMIT_LOG_ONLY=false` — the warn tier is auto-derived at 80% of enforce capacity
-3. **Tune thresholds** using the `flags_rate_limit_exceeded_total` counter (labels: `mode="warned"` vs `mode="enforced"`)
+2. **Monitor** using the `flags_rate_limit_exceeded_total` counter — two orthogonal labels:
+   - `mode`: `log_only` (observe-only) or `enforcing` (actually blocking)
+   - `action`: `warned` (crossed warn tier) or `blocked` (crossed enforce tier)
+     In log-only mode, `action="blocked"` shows what _would_ be blocked without actually rejecting requests.
+3. **Switch to enforce mode**: set `FLAGS_RATE_LIMIT_LOG_ONLY=false` — thresholds stay the same, but requests are now actually blocked
 4. _(Optional)_ Adjust `FLAGS_WARN_CAPACITY_RATIO` if the default 80% doesn't fit your traffic pattern (0.0 disables the warn tier)
 5. **Remove** the deprecated `FLAGS_RATE_LIMIT_LOG_ONLY` env var once satisfied
 
@@ -63,10 +66,10 @@ A background task runs every 60 seconds (`RATE_LIMITER_CLEANUP_INTERVAL_SECS`) t
 | Variable                                   | Default | Purpose                                                            |
 | ------------------------------------------ | ------- | ------------------------------------------------------------------ |
 | `FLAGS_RATE_LIMIT_ENABLED`                 | `false` | Enable token-based rate limiting                                   |
-| `FLAGS_BUCKET_CAPACITY`                    | `500`   | Token bucket enforce capacity                                      |
+| `FLAGS_BUCKET_CAPACITY`                    | `625`   | Token bucket enforce capacity (warn at 80% = 500)                  |
 | `FLAGS_BUCKET_REPLENISH_RATE`              | `10.0`  | Tokens per second                                                  |
 | `FLAGS_IP_RATE_LIMIT_ENABLED`              | `false` | Enable IP-based rate limiting                                      |
-| `FLAGS_IP_BURST_SIZE`                      | `1000`  | IP bucket enforce capacity                                         |
+| `FLAGS_IP_BURST_SIZE`                      | `1250`  | IP bucket enforce capacity (warn at 80% = 1000)                    |
 | `FLAGS_IP_REPLENISH_RATE`                  | `50.0`  | Requests per second per IP                                         |
 | `FLAGS_WARN_CAPACITY_RATIO`                | `0.8`   | Warn tier as fraction of enforce capacity (0.0 disables warn tier) |
 | `FLAGS_RATE_LIMIT_LOG_ONLY`                | `true`  | _(deprecated)_ Set to `false` and use `FLAGS_WARN_CAPACITY_RATIO`  |

@@ -117,12 +117,9 @@ pub fn router(
     )
     .expect("Failed to initialize flag definitions rate limiter");
 
-    // Initialize token-based rate limiter with backwards-compatible configuration.
-    //
-    // Priority logic:
-    // - If log_only == true: use enforce_capacity as warn capacity
-    //   with no hard enforce (warn-only, matches today's log-only behavior)
-    // - If log_only == false: derive warn tier from warn_ratio of enforce capacity
+    // Initialize token-based rate limiter.
+    // Both modes use the same thresholds (warn at ratio of enforce capacity).
+    // log_only=true sets warn_only, so requests are never blocked.
     let (flags_warn_cap, flags_enforce_cap, flags_warn_only) = resolve_rate_limit_capacities(
         config.flags_bucket_capacity,
         config.flags_warn_capacity_ratio,
@@ -281,33 +278,24 @@ pub fn router(
 /// Resolves warn/enforce capacities with backwards-compat logic for the old `log_only` flag.
 ///
 /// Returns `(warn_capacity, enforce_capacity, warn_only)`:
-/// - `log_only == true`: Treat enforce capacity as warn-only threshold. `warn_only` is
-///   true — requests are never blocked, only warned. This preserves the legacy log-only
-///   contract where rate limiting is observational.
-/// - `log_only == false`: Derive warn tier at `warn_ratio` of enforce capacity. Operators
-///   get warning signals before hard 429s. Set `warn_ratio` to 0.0 to disable the warn tier.
+/// - Both modes use the same threshold calculation: warn at `warn_ratio` of enforce capacity.
+/// - `log_only == true`: Sets `warn_only = true` so requests are never blocked, only warned.
+///   Thresholds are identical to enforcing mode, giving operators visibility into what
+///   _would_ happen when they flip `log_only` to `false`.
+/// - `log_only == false`: Same thresholds, but enforce tier actually blocks with 429s.
+/// - Set `warn_ratio` to 0.0 to disable the warn tier entirely.
 fn resolve_rate_limit_capacities(
     enforce_capacity: u32,
     warn_ratio: f64,
     log_only: bool,
 ) -> (Option<u32>, u32, bool) {
-    if log_only {
-        // Backwards compat: log-only mode → use enforce_capacity as warn capacity,
-        // set enforce very high so it effectively never triggers.
-        // warn_only=true ensures requests are never blocked even if the enforce
-        // bucket is somehow exhausted under extreme sustained traffic.
-        // Note: u32::MAX overflows governor's internal nanos arithmetic,
-        // so we use a large-but-safe value instead.
-        (Some(enforce_capacity), 1_000_000, true)
+    let derived_warn = (enforce_capacity as f64 * warn_ratio.clamp(0.0, 1.0)) as u32;
+    let warn_capacity = if derived_warn > 0 {
+        Some(derived_warn)
     } else {
-        // Derive warn tier from ratio
-        let derived_warn = (enforce_capacity as f64 * warn_ratio.clamp(0.0, 1.0)) as u32;
-        if derived_warn > 0 {
-            (Some(derived_warn), enforce_capacity, false)
-        } else {
-            (None, enforce_capacity, false)
-        }
-    }
+        None
+    };
+    (warn_capacity, enforce_capacity, log_only)
 }
 
 /// Spawns a background task to periodically clean up stale rate limiter entries.
@@ -580,10 +568,11 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_rate_limit_log_only_backwards_compat() {
+    fn test_resolve_rate_limit_log_only_uses_real_thresholds() {
+        // log_only uses the same thresholds as enforcing mode — only warn_only differs
         let (warn, enforce, warn_only) = resolve_rate_limit_capacities(200, 0.8, true);
-        assert_eq!(warn, Some(200));
-        assert_eq!(enforce, 1_000_000);
+        assert_eq!(warn, Some(160));
+        assert_eq!(enforce, 200);
         assert!(warn_only);
     }
 

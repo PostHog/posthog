@@ -137,6 +137,34 @@ impl KeyedRateLimiter {
         })
     }
 
+    /// The metric `mode` label: `"log_only"` when warn-only, `"enforcing"` otherwise.
+    fn mode_label(&self) -> &'static str {
+        if self.warn_only {
+            "log_only"
+        } else {
+            "enforcing"
+        }
+    }
+
+    /// Emits a "blocked" metric and returns `Warned` (if warn_only) or `Blocked`.
+    ///
+    /// In log_only mode, `action="blocked"` is still emitted to show what _would_
+    /// happen if enforcement were enabled, but the request is not actually blocked.
+    fn record_block(&self, key_string: String) -> RateLimitResult {
+        counter!(
+            self.config.metric_name,
+            self.config.key_label => key_string,
+            "mode" => self.mode_label(),
+            "action" => "blocked"
+        )
+        .increment(1);
+        if self.warn_only {
+            RateLimitResult::Warned
+        } else {
+            RateLimitResult::Blocked
+        }
+    }
+
     /// Checks if a request should be allowed based on the rate limit.
     ///
     /// Always consumes tokens from both limiters to keep them in sync.
@@ -157,30 +185,15 @@ impl KeyedRateLimiter {
             .is_none_or(|wl| wl.check_key(&key_string).is_ok());
 
         if !enforce_ok {
-            if self.warn_only {
-                // Legacy log-only compat: never block, only warn
-                counter!(
-                    self.config.metric_name,
-                    self.config.key_label => key_string,
-                    "mode" => "warned"
-                )
-                .increment(1);
-                return RateLimitResult::Warned;
-            }
-            counter!(
-                self.config.metric_name,
-                self.config.key_label => key_string,
-                "mode" => "enforced"
-            )
-            .increment(1);
-            return RateLimitResult::Blocked;
+            return self.record_block(key_string);
         }
 
         if !warn_ok {
             counter!(
                 self.config.metric_name,
                 self.config.key_label => key_string.clone(),
-                "mode" => "warned"
+                "mode" => self.mode_label(),
+                "action" => "warned"
             )
             .increment(1);
             tracing::debug!(
@@ -345,23 +358,7 @@ impl FlagsRateLimiter {
         if let Some(limiter) = self.custom_limiters.get(bucket_key) {
             let key_string = bucket_key.to_string();
             if limiter.check_key(&key_string).is_err() {
-                if self.inner.warn_only {
-                    counter!(
-                        self.inner.config.metric_name,
-                        self.inner.config.key_label => key_string,
-                        "mode" => "warned"
-                    )
-                    .increment(1);
-                    return RateLimitResult::Warned;
-                } else {
-                    counter!(
-                        self.inner.config.metric_name,
-                        self.inner.config.key_label => key_string,
-                        "mode" => "enforced"
-                    )
-                    .increment(1);
-                    return RateLimitResult::Blocked;
-                }
+                return self.inner.record_block(key_string);
             }
             return RateLimitResult::Allowed;
         }

@@ -445,9 +445,10 @@ pub struct Config {
     #[envconfig(from = "FLAGS_RATE_LIMIT_ENABLED", default = "false")]
     pub flags_rate_limit_enabled: FlexBool,
 
-    // Token bucket capacity (maximum burst size / enforce threshold)
-    // Matches Python's DecideRateThrottle default of 500
-    #[envconfig(from = "FLAGS_BUCKET_CAPACITY", default = "500")]
+    // Token bucket capacity (maximum burst size / enforce threshold).
+    // Set to 625 so the warn tier (80%) lands at 500, matching the legacy
+    // log-only threshold that operators' dashboards already track.
+    #[envconfig(from = "FLAGS_BUCKET_CAPACITY", default = "625")]
     pub flags_bucket_capacity: u32,
 
     // Token bucket replenish rate (tokens per second)
@@ -461,8 +462,10 @@ pub struct Config {
     #[envconfig(from = "FLAGS_IP_RATE_LIMIT_ENABLED", default = "false")]
     pub flags_ip_rate_limit_enabled: FlexBool,
 
-    // IP rate limit burst size (maximum requests per IP / enforce threshold)
-    #[envconfig(from = "FLAGS_IP_BURST_SIZE", default = "1000")]
+    // IP rate limit burst size (maximum requests per IP / enforce threshold).
+    // Set to 1250 so the warn tier (80%) lands at 1000, matching the legacy
+    // log-only threshold.
+    #[envconfig(from = "FLAGS_IP_BURST_SIZE", default = "1250")]
     pub flags_ip_burst_size: u32,
 
     // IP rate limit replenish rate (requests per second per IP)
@@ -737,10 +740,10 @@ impl Config {
             object_storage_region: "us-east-1".to_string(),
             object_storage_endpoint: "".to_string(),
             flags_rate_limit_enabled: FlexBool(false),
-            flags_bucket_capacity: 500,
+            flags_bucket_capacity: 625,
             flags_bucket_replenish_rate: 10.0,
             flags_ip_rate_limit_enabled: FlexBool(false),
-            flags_ip_burst_size: 500,
+            flags_ip_burst_size: 1250,
             flags_ip_replenish_rate: 100.0,
             flags_warn_capacity_ratio: 0.8,
             flags_rate_limit_log_only: FlexBool(true),
