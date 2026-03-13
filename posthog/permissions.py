@@ -471,8 +471,9 @@ class APIScopePermission(ScopeBasePermission):
 
         if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             key_scopes = request.successful_authenticator.personal_api_key.scopes
-            # TRICKY: Legacy Personal API keys have no scopes and are allowed to do anything
-            if not key_scopes:
+            # TRICKY: Legacy Personal API keys have scopes=None and are allowed to do anything.
+            # Must use `is None` — an empty list [] is NOT legacy and must be denied.
+            if key_scopes is None:
                 return True
         elif isinstance(request.successful_authenticator, OAuthAccessTokenAuthentication):
             # OAuth tokens store scopes as space-separated string

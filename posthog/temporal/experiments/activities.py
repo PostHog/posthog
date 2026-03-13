@@ -36,6 +36,11 @@ from products.experiments.stats.shared.statistics import StatisticError
 logger = structlog.get_logger(__name__)
 
 
+def _get_significant_variant_keys(result_dict: dict) -> set[str]:
+    variant_results = result_dict.get("variant_results") or []
+    return {v["key"] for v in variant_results if v.get("significant")}
+
+
 def _check_significance_transition(
     experiment: Experiment,
     metric_uuid: str,
@@ -44,7 +49,8 @@ def _check_significance_transition(
     query_to_utc: datetime,
 ) -> None:
     try:
-        if not result_dict.get("significant"):
+        new_significant_keys = _get_significant_variant_keys(result_dict)
+        if not new_significant_keys:
             return
 
         previous = (
@@ -59,33 +65,39 @@ def _check_significance_transition(
             .first()
         )
 
-        if previous and previous.result and previous.result.get("significant"):
+        prev_significant_keys = (
+            _get_significant_variant_keys(previous.result) if previous and previous.result else set()
+        )
+        newly_significant = new_significant_keys - prev_significant_keys
+
+        if not newly_significant:
             return
 
         experiment_url = f"/project/{experiment.team_id}/experiments/{experiment.id}"
 
-        logger.info(
-            "Producing internal event for experiment significance transition",
-            experiment_id=experiment.id,
-            metric_uuid=metric_uuid,
-        )
+        for variant_key in newly_significant:
+            logger.info(
+                "Producing internal event for experiment significance transition",
+                experiment_id=experiment.id,
+                metric_uuid=metric_uuid,
+                variant_key=variant_key,
+            )
 
-        produce_internal_event(
-            team_id=experiment.team_id,
-            event=InternalEventEvent(
-                event="$experiment_metric_significant",
-                distinct_id=f"team_{experiment.team_id}",
-                properties={
-                    "experiment_id": experiment.id,
-                    "experiment_name": experiment.name,
-                    "metric_uuid": metric_uuid,
-                    "significance_code": result_dict.get("significance_code"),
-                    "experiment_url": experiment_url,
-                },
-            ),
-        )
+            produce_internal_event(
+                team_id=experiment.team_id,
+                event=InternalEventEvent(
+                    event="$experiment_metric_significant",
+                    distinct_id=f"team_{experiment.team_id}",
+                    properties={
+                        "experiment_id": experiment.id,
+                        "experiment_name": experiment.name,
+                        "metric_uuid": metric_uuid,
+                        "variant_key": variant_key,
+                        "experiment_url": experiment_url,
+                    },
+                ),
+            )
     except Exception:
-        # produce_internal_event already logs on failure; use warning to avoid duplicate tracebacks
         logger.warning(
             "Significance transition check failed, skipping notification",
             experiment_id=experiment.id,

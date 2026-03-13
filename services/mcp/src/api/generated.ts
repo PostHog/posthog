@@ -351,10 +351,10 @@ export namespace Schemas {
      * * `is_set` - is_set
     * `is_not_set` - is_not_set
      */
-    export type ExistencePropertyFilterOperatorEnum = typeof ExistencePropertyFilterOperatorEnum[keyof typeof ExistencePropertyFilterOperatorEnum];
+    export type Operator3e6Enum = typeof Operator3e6Enum[keyof typeof Operator3e6Enum];
 
 
-    export const ExistencePropertyFilterOperatorEnum = {
+    export const Operator3e6Enum = {
       IsSet: 'is_set',
       IsNotSet: 'is_not_set',
     } as const;
@@ -396,7 +396,7 @@ export namespace Schemas {
 
     * `is_set` - is_set
     * `is_not_set` - is_not_set */
-      operator: ExistencePropertyFilterOperatorEnum;
+      operator: Operator3e6Enum;
     }
 
     export type ActionStepPropertyFilter = StringPropertyFilter | NumericPropertyFilter | ArrayPropertyFilter | DatePropertyFilter | ExistencePropertyFilter;
@@ -4065,6 +4065,7 @@ export namespace Schemas {
     * `research` - research
     * `flags` - flags
     * `llm_analytics` - llm_analytics
+    * `sandbox` - sandbox
      */
     export type AgentModeEnum = typeof AgentModeEnum[keyof typeof AgentModeEnum];
 
@@ -4081,6 +4082,7 @@ export namespace Schemas {
       Research: 'research',
       Flags: 'flags',
       LlmAnalytics: 'llm_analytics',
+      Sandbox: 'sandbox',
     } as const;
 
     export interface InsightsThresholdBounds {
@@ -6409,6 +6411,7 @@ export namespace Schemas {
       readonly has_unsupported_content: boolean;
       /** @nullable */
       readonly agent_mode: string | null;
+      readonly is_sandbox: boolean;
       /** Return pending approval cards as structured data.
 
     Combines metadata from conversation.approval_decisions with payload from checkpoint
@@ -13681,7 +13684,7 @@ export namespace Schemas {
       readonly last_modified_by: UserBasic;
       /** @nullable */
       ensure_experience_continuity?: boolean | null;
-      readonly experiment_set: string;
+      readonly experiment_set: readonly number[];
       readonly surveys: FeatureFlagSurveys;
       readonly features: FeatureFlagFeatures;
       rollback_conditions?: unknown | null;
@@ -13733,6 +13736,415 @@ export namespace Schemas {
       _should_create_usage_dashboard?: boolean;
       /** Check if this feature flag is used in any team's session recording linked flag setting. */
       readonly is_used_in_replay_settings: boolean;
+    }
+
+    /**
+     * * `cohort` - cohort
+    * `person` - person
+    * `group` - group
+     */
+    export type Type380Enum = typeof Type380Enum[keyof typeof Type380Enum];
+
+
+    export const Type380Enum = {
+      Cohort: 'cohort',
+      Person: 'person',
+      Group: 'group',
+    } as const;
+
+    /**
+     * * `exact` - exact
+    * `is_not` - is_not
+    * `icontains` - icontains
+    * `not_icontains` - not_icontains
+    * `regex` - regex
+    * `not_regex` - not_regex
+    * `gt` - gt
+    * `gte` - gte
+    * `lt` - lt
+    * `lte` - lte
+     */
+    export type FeatureFlagFilterPropertyGenericSchemaOperatorEnum = typeof FeatureFlagFilterPropertyGenericSchemaOperatorEnum[keyof typeof FeatureFlagFilterPropertyGenericSchemaOperatorEnum];
+
+
+    export const FeatureFlagFilterPropertyGenericSchemaOperatorEnum = {
+      Exact: 'exact',
+      IsNot: 'is_not',
+      Icontains: 'icontains',
+      NotIcontains: 'not_icontains',
+      Regex: 'regex',
+      NotRegex: 'not_regex',
+      Gt: 'gt',
+      Gte: 'gte',
+      Lt: 'lt',
+      Lte: 'lte',
+    } as const;
+
+    export interface FeatureFlagFilterPropertyGenericSchema {
+      /** Property key used in this feature flag condition. */
+      key: string;
+      /** Property filter type. Common values are 'person' and 'cohort'.
+
+    * `cohort` - cohort
+    * `person` - person
+    * `group` - group */
+      type?: Type380Enum;
+      /**
+       * Resolved cohort name for cohort-type filters.
+       * @nullable
+       */
+      cohort_name?: string | null;
+      /**
+       * Group type index when using group-based filters.
+       * @nullable
+       */
+      group_type_index?: number | null;
+      /** Comparison value for the property filter. Supports strings, numbers, booleans, and arrays. */
+      value: unknown;
+      /** Operator used to compare the property value.
+
+    * `exact` - exact
+    * `is_not` - is_not
+    * `icontains` - icontains
+    * `not_icontains` - not_icontains
+    * `regex` - regex
+    * `not_regex` - not_regex
+    * `gt` - gt
+    * `gte` - gte
+    * `lt` - lt
+    * `lte` - lte */
+      operator: FeatureFlagFilterPropertyGenericSchemaOperatorEnum;
+    }
+
+    export interface FeatureFlagFilterPropertyExistsSchema {
+      /** Property key used in this feature flag condition. */
+      key: string;
+      /** Property filter type. Common values are 'person' and 'cohort'.
+
+    * `cohort` - cohort
+    * `person` - person
+    * `group` - group */
+      type?: Type380Enum;
+      /**
+       * Resolved cohort name for cohort-type filters.
+       * @nullable
+       */
+      cohort_name?: string | null;
+      /**
+       * Group type index when using group-based filters.
+       * @nullable
+       */
+      group_type_index?: number | null;
+      /** Existence operator.
+
+    * `is_set` - is_set
+    * `is_not_set` - is_not_set */
+      operator: Operator3e6Enum;
+      /** Optional value. Runtime behavior determines whether this is ignored. */
+      value?: unknown;
+    }
+
+    /**
+     * * `is_date_exact` - is_date_exact
+    * `is_date_after` - is_date_after
+    * `is_date_before` - is_date_before
+     */
+    export type FeatureFlagFilterPropertyDateSchemaOperatorEnum = typeof FeatureFlagFilterPropertyDateSchemaOperatorEnum[keyof typeof FeatureFlagFilterPropertyDateSchemaOperatorEnum];
+
+
+    export const FeatureFlagFilterPropertyDateSchemaOperatorEnum = {
+      IsDateExact: 'is_date_exact',
+      IsDateAfter: 'is_date_after',
+      IsDateBefore: 'is_date_before',
+    } as const;
+
+    export interface FeatureFlagFilterPropertyDateSchema {
+      /** Property key used in this feature flag condition. */
+      key: string;
+      /** Property filter type. Common values are 'person' and 'cohort'.
+
+    * `cohort` - cohort
+    * `person` - person
+    * `group` - group */
+      type?: Type380Enum;
+      /**
+       * Resolved cohort name for cohort-type filters.
+       * @nullable
+       */
+      cohort_name?: string | null;
+      /**
+       * Group type index when using group-based filters.
+       * @nullable
+       */
+      group_type_index?: number | null;
+      /** Date comparison operator.
+
+    * `is_date_exact` - is_date_exact
+    * `is_date_after` - is_date_after
+    * `is_date_before` - is_date_before */
+      operator: FeatureFlagFilterPropertyDateSchemaOperatorEnum;
+      /** Date value in ISO format or relative date expression. */
+      value: string;
+    }
+
+    /**
+     * * `semver_gt` - semver_gt
+    * `semver_gte` - semver_gte
+    * `semver_lt` - semver_lt
+    * `semver_lte` - semver_lte
+    * `semver_eq` - semver_eq
+    * `semver_neq` - semver_neq
+    * `semver_tilde` - semver_tilde
+    * `semver_caret` - semver_caret
+    * `semver_wildcard` - semver_wildcard
+     */
+    export type FeatureFlagFilterPropertySemverSchemaOperatorEnum = typeof FeatureFlagFilterPropertySemverSchemaOperatorEnum[keyof typeof FeatureFlagFilterPropertySemverSchemaOperatorEnum];
+
+
+    export const FeatureFlagFilterPropertySemverSchemaOperatorEnum = {
+      SemverGt: 'semver_gt',
+      SemverGte: 'semver_gte',
+      SemverLt: 'semver_lt',
+      SemverLte: 'semver_lte',
+      SemverEq: 'semver_eq',
+      SemverNeq: 'semver_neq',
+      SemverTilde: 'semver_tilde',
+      SemverCaret: 'semver_caret',
+      SemverWildcard: 'semver_wildcard',
+    } as const;
+
+    export interface FeatureFlagFilterPropertySemverSchema {
+      /** Property key used in this feature flag condition. */
+      key: string;
+      /** Property filter type. Common values are 'person' and 'cohort'.
+
+    * `cohort` - cohort
+    * `person` - person
+    * `group` - group */
+      type?: Type380Enum;
+      /**
+       * Resolved cohort name for cohort-type filters.
+       * @nullable
+       */
+      cohort_name?: string | null;
+      /**
+       * Group type index when using group-based filters.
+       * @nullable
+       */
+      group_type_index?: number | null;
+      /** Semantic version comparison operator.
+
+    * `semver_gt` - semver_gt
+    * `semver_gte` - semver_gte
+    * `semver_lt` - semver_lt
+    * `semver_lte` - semver_lte
+    * `semver_eq` - semver_eq
+    * `semver_neq` - semver_neq
+    * `semver_tilde` - semver_tilde
+    * `semver_caret` - semver_caret
+    * `semver_wildcard` - semver_wildcard */
+      operator: FeatureFlagFilterPropertySemverSchemaOperatorEnum;
+      /** Semantic version string. */
+      value: string;
+    }
+
+    /**
+     * * `icontains_multi` - icontains_multi
+    * `not_icontains_multi` - not_icontains_multi
+     */
+    export type FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnum = typeof FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnum[keyof typeof FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnum];
+
+
+    export const FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnum = {
+      IcontainsMulti: 'icontains_multi',
+      NotIcontainsMulti: 'not_icontains_multi',
+    } as const;
+
+    export interface FeatureFlagFilterPropertyMultiContainsSchema {
+      /** Property key used in this feature flag condition. */
+      key: string;
+      /** Property filter type. Common values are 'person' and 'cohort'.
+
+    * `cohort` - cohort
+    * `person` - person
+    * `group` - group */
+      type?: Type380Enum;
+      /**
+       * Resolved cohort name for cohort-type filters.
+       * @nullable
+       */
+      cohort_name?: string | null;
+      /**
+       * Group type index when using group-based filters.
+       * @nullable
+       */
+      group_type_index?: number | null;
+      /** Multi-contains operator.
+
+    * `icontains_multi` - icontains_multi
+    * `not_icontains_multi` - not_icontains_multi */
+      operator: FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnum;
+      /** List of strings to evaluate against. */
+      value: string[];
+    }
+
+    /**
+     * * `cohort` - cohort
+     */
+    export type FeatureFlagFilterPropertyCohortInSchemaTypeEnum = typeof FeatureFlagFilterPropertyCohortInSchemaTypeEnum[keyof typeof FeatureFlagFilterPropertyCohortInSchemaTypeEnum];
+
+
+    export const FeatureFlagFilterPropertyCohortInSchemaTypeEnum = {
+      Cohort: 'cohort',
+    } as const;
+
+    /**
+     * * `in` - in
+    * `not_in` - not_in
+     */
+    export type FeatureFlagFilterPropertyCohortInSchemaOperatorEnum = typeof FeatureFlagFilterPropertyCohortInSchemaOperatorEnum[keyof typeof FeatureFlagFilterPropertyCohortInSchemaOperatorEnum];
+
+
+    export const FeatureFlagFilterPropertyCohortInSchemaOperatorEnum = {
+      In: 'in',
+      NotIn: 'not_in',
+    } as const;
+
+    export interface FeatureFlagFilterPropertyCohortInSchema {
+      /** Property key used in this feature flag condition. */
+      key: string;
+      /** Cohort property type required for in/not_in operators.
+
+    * `cohort` - cohort */
+      type: FeatureFlagFilterPropertyCohortInSchemaTypeEnum;
+      /**
+       * Resolved cohort name for cohort-type filters.
+       * @nullable
+       */
+      cohort_name?: string | null;
+      /**
+       * Group type index when using group-based filters.
+       * @nullable
+       */
+      group_type_index?: number | null;
+      /** Membership operator for cohort properties.
+
+    * `in` - in
+    * `not_in` - not_in */
+      operator: FeatureFlagFilterPropertyCohortInSchemaOperatorEnum;
+      /** Cohort comparison value (single or list, depending on usage). */
+      value: unknown;
+    }
+
+    /**
+     * * `flag` - flag
+     */
+    export type FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnum = typeof FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnum[keyof typeof FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnum];
+
+
+    export const FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnum = {
+      Flag: 'flag',
+    } as const;
+
+    /**
+     * * `flag_evaluates_to` - flag_evaluates_to
+     */
+    export type FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnum = typeof FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnum[keyof typeof FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnum];
+
+
+    export const FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnum = {
+      FlagEvaluatesTo: 'flag_evaluates_to',
+    } as const;
+
+    export interface FeatureFlagFilterPropertyFlagEvaluatesSchema {
+      /** Property key used in this feature flag condition. */
+      key: string;
+      /** Flag property type required for flag dependency checks.
+
+    * `flag` - flag */
+      type: FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnum;
+      /**
+       * Resolved cohort name for cohort-type filters.
+       * @nullable
+       */
+      cohort_name?: string | null;
+      /**
+       * Group type index when using group-based filters.
+       * @nullable
+       */
+      group_type_index?: number | null;
+      /** Operator for feature flag dependency evaluation.
+
+    * `flag_evaluates_to` - flag_evaluates_to */
+      operator: FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnum;
+      /** Value to compare flag evaluation against. */
+      value: unknown;
+    }
+
+    export type FeatureFlagFilterPropertySchema = FeatureFlagFilterPropertyGenericSchema | FeatureFlagFilterPropertyExistsSchema | FeatureFlagFilterPropertyDateSchema | FeatureFlagFilterPropertySemverSchema | FeatureFlagFilterPropertyMultiContainsSchema | FeatureFlagFilterPropertyCohortInSchema | FeatureFlagFilterPropertyFlagEvaluatesSchema;
+
+    export interface FeatureFlagConditionGroupSchema {
+      /** Property conditions for this release condition group. */
+      properties?: FeatureFlagFilterPropertySchema[];
+      /** Rollout percentage for this release condition group. */
+      rollout_percentage?: number;
+      /**
+       * Variant key override for multivariate flags.
+       * @nullable
+       */
+      variant?: string | null;
+    }
+
+    export interface FeatureFlagMultivariateVariantSchema {
+      /** Unique key for this variant. */
+      key: string;
+      /** Human-readable name for this variant. */
+      name?: string;
+      /** Variant rollout percentage. */
+      rollout_percentage: number;
+    }
+
+    export interface FeatureFlagMultivariateSchema {
+      /** Variant definitions for multivariate feature flags. */
+      variants: FeatureFlagMultivariateVariantSchema[];
+    }
+
+    /**
+     * Optional payload values keyed by variant key.
+     */
+    export type FeatureFlagFiltersSchemaPayloads = {[key: string]: string};
+
+    export type FeatureFlagFiltersSchemaSuperGroupsItem = {[key: string]: unknown};
+
+    export interface FeatureFlagFiltersSchema {
+      /** Release condition groups for the feature flag. */
+      groups?: FeatureFlagConditionGroupSchema[];
+      /** Multivariate configuration for variant-based rollouts. */
+      multivariate?: FeatureFlagMultivariateSchema | null;
+      /**
+       * Group type index for group-based feature flags.
+       * @nullable
+       */
+      aggregation_group_type_index?: number | null;
+      /** Optional payload values keyed by variant key. */
+      payloads?: FeatureFlagFiltersSchemaPayloads;
+      /** Additional super condition groups used by experiments. */
+      super_groups?: FeatureFlagFiltersSchemaSuperGroupsItem[];
+    }
+
+    export interface FeatureFlagCreateRequestSchema {
+      /** Feature flag key. */
+      key?: string;
+      /** Feature flag description (stored in the `name` field for backwards compatibility). */
+      name?: string;
+      /** Feature flag targeting configuration. */
+      filters?: FeatureFlagFiltersSchema;
+      /** Whether the feature flag is active. */
+      active?: boolean;
+      /** Organizational tags for this feature flag. */
+      tags?: string[];
+      /** Evaluation context tags. Must be a subset of `tags`. */
+      evaluation_tags?: string[];
     }
 
     export interface FileSystem {
@@ -16477,6 +16889,7 @@ export namespace Schemas {
       trace_id: string;
       session_id?: string;
       agent_mode?: AgentModeEnum;
+      is_sandbox?: boolean;
       resume_payload?: unknown | null;
     }
 
@@ -19631,6 +20044,7 @@ export namespace Schemas {
       readonly has_unsupported_content?: boolean;
       /** @nullable */
       readonly agent_mode?: string | null;
+      readonly is_sandbox?: boolean;
       /** Return pending approval cards as structured data.
 
     Combines metadata from conversation.approval_decisions with payload from checkpoint
@@ -20378,84 +20792,19 @@ export namespace Schemas {
       readonly user_access_level?: string | null;
     }
 
-    export type PatchedFeatureFlagFilters = {[key: string]: unknown};
-
-    export type PatchedFeatureFlagSurveys = {[key: string]: unknown};
-
-    export type PatchedFeatureFlagFeatures = {[key: string]: unknown};
-
-    /**
-     * Serializer mixin that handles tags for objects.
-     */
-    export interface PatchedFeatureFlag {
-      readonly id?: number;
-      /** contains the description for the flag (field name `name` is kept for backwards-compatibility) */
-      name?: string;
-      /** @maxLength 400 */
+    export interface PatchedFeatureFlagPartialUpdateRequestSchema {
+      /** Feature flag key. */
       key?: string;
-      filters?: PatchedFeatureFlagFilters;
-      deleted?: boolean;
+      /** Feature flag description (stored in the `name` field for backwards compatibility). */
+      name?: string;
+      /** Feature flag targeting configuration. */
+      filters?: FeatureFlagFiltersSchema;
+      /** Whether the feature flag is active. */
       active?: boolean;
-      readonly created_by?: UserBasic;
-      created_at?: string;
-      /** @nullable */
-      readonly updated_at?: string | null;
-      version?: number;
-      readonly last_modified_by?: UserBasic;
-      /** @nullable */
-      ensure_experience_continuity?: boolean | null;
-      readonly experiment_set?: string;
-      readonly surveys?: PatchedFeatureFlagSurveys;
-      readonly features?: PatchedFeatureFlagFeatures;
-      rollback_conditions?: unknown | null;
-      /** @nullable */
-      performed_rollback?: boolean | null;
-      readonly can_edit?: boolean;
-      tags?: unknown[];
-      evaluation_tags?: unknown[];
-      readonly usage_dashboard?: number;
-      analytics_dashboards?: number[];
-      /** @nullable */
-      has_enriched_analytics?: boolean | null;
-      /**
-       * The effective access level the user has for this object
-       * @nullable
-       */
-      readonly user_access_level?: string | null;
-      /** Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.
-
-    * `feature_flags` - feature_flags
-    * `experiments` - experiments
-    * `surveys` - surveys
-    * `early_access_features` - early_access_features
-    * `web_experiments` - web_experiments
-    * `product_tours` - product_tours */
-      creation_context?: FeatureFlagCreationContextEnum;
-      /** @nullable */
-      is_remote_configuration?: boolean | null;
-      /** @nullable */
-      has_encrypted_payloads?: boolean | null;
-      readonly status?: string;
-      /** Specifies where this feature flag should be evaluated
-
-    * `server` - Server
-    * `client` - Client
-    * `all` - All */
-      evaluation_runtime?: EvaluationRuntimeEnum | BlankEnum | NullEnum | null;
-      /** Identifier used for bucketing users into rollout and variants
-
-    * `distinct_id` - User ID (default)
-    * `device_id` - Device ID */
-      bucketing_identifier?: BucketingIdentifierEnum | BlankEnum | NullEnum | null;
-      /**
-       * Last time this feature flag was called (from $feature_flag_called events)
-       * @nullable
-       */
-      last_called_at?: string | null;
-      _create_in_folder?: string;
-      _should_create_usage_dashboard?: boolean;
-      /** Check if this feature flag is used in any team's session recording linked flag setting. */
-      readonly is_used_in_replay_settings?: boolean;
+      /** Organizational tags for this feature flag. */
+      tags?: string[];
+      /** Evaluation context tags. Must be a subset of `tags`. */
+      evaluation_tags?: string[];
     }
 
     export interface PatchedFileSystem {
@@ -21694,7 +22043,7 @@ export namespace Schemas {
       invite_message?: string | null;
     }
 
-    export interface PatchedSurveySerializerCreateUpdateOnly {
+    export interface PatchedSurveySerializerCreateUpdateOnlySchema {
       readonly id?: string;
       /** @maxLength 400 */
       name?: string;
@@ -21710,7 +22059,7 @@ export namespace Schemas {
       targeting_flag_id?: number;
       readonly targeting_flag?: MinimalFeatureFlag;
       readonly internal_targeting_flag?: MinimalFeatureFlag;
-      targeting_flag_filters?: unknown | null;
+      targeting_flag_filters?: FeatureFlagFiltersSchema | null;
       /** @nullable */
       remove_targeting_flag?: boolean | null;
       /** 
@@ -25930,6 +26279,200 @@ export namespace Schemas {
       form_content?: unknown | null;
     }
 
+    export interface SurveySerializerCreateUpdateOnlySchema {
+      readonly id: string;
+      /** @maxLength 400 */
+      name: string;
+      description?: string;
+      type: SurveyType;
+      /** @nullable */
+      schedule?: string | null;
+      readonly linked_flag: MinimalFeatureFlag;
+      /** @nullable */
+      linked_flag_id?: number | null;
+      /** @nullable */
+      linked_insight_id?: number | null;
+      targeting_flag_id?: number;
+      readonly targeting_flag: MinimalFeatureFlag;
+      readonly internal_targeting_flag: MinimalFeatureFlag;
+      targeting_flag_filters?: FeatureFlagFiltersSchema | null;
+      /** @nullable */
+      remove_targeting_flag?: boolean | null;
+      /** 
+            The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
+
+            Basic (open-ended question)
+            - `id`: The question ID
+            - `type`: `open`
+            - `question`: The text of the question.
+            - `description`: Optional description of the question.
+            - `descriptionContentType`: Content type of the description (`html` or `text`).
+            - `optional`: Whether the question is optional (`boolean`).
+            - `buttonText`: Text displayed on the submit button.
+            - `branching`: Branching logic for the question. See branching types below for details.
+
+            Link (a question with a link)
+            - `id`: The question ID
+            - `type`: `link`
+            - `question`: The text of the question.
+            - `description`: Optional description of the question.
+            - `descriptionContentType`: Content type of the description (`html` or `text`).
+            - `optional`: Whether the question is optional (`boolean`).
+            - `buttonText`: Text displayed on the submit button.
+            - `link`: The URL associated with the question.
+            - `branching`: Branching logic for the question. See branching types below for details.
+
+            Rating (a question with a rating scale)
+            - `id`: The question ID
+            - `type`: `rating`
+            - `question`: The text of the question.
+            - `description`: Optional description of the question.
+            - `descriptionContentType`: Content type of the description (`html` or `text`).
+            - `optional`: Whether the question is optional (`boolean`).
+            - `buttonText`: Text displayed on the submit button.
+            - `display`: Display style of the rating (`number` or `emoji`).
+            - `scale`: The scale of the rating (`number`).
+            - `lowerBoundLabel`: Label for the lower bound of the scale.
+            - `upperBoundLabel`: Label for the upper bound of the scale.
+            - `isNpsQuestion`: Whether the question is an NPS rating.
+            - `branching`: Branching logic for the question. See branching types below for details.
+
+            Multiple choice
+            - `id`: The question ID
+            - `type`: `single_choice` or `multiple_choice`
+            - `question`: The text of the question.
+            - `description`: Optional description of the question.
+            - `descriptionContentType`: Content type of the description (`html` or `text`).
+            - `optional`: Whether the question is optional (`boolean`).
+            - `buttonText`: Text displayed on the submit button.
+            - `choices`: An array of choices for the question.
+            - `shuffleOptions`: Whether to shuffle the order of the choices (`boolean`).
+            - `hasOpenChoice`: Whether the question allows an open-ended response (`boolean`).
+            - `branching`: Branching logic for the question. See branching types below for details.
+
+            Branching logic can be one of the following types:
+
+            Next question: Proceeds to the next question
+            ```json
+            {
+                "type": "next_question"
+            }
+            ```
+
+            End: Ends the survey, optionally displaying a confirmation message.
+            ```json
+            {
+                "type": "end"
+            }
+            ```
+
+            Response-based: Branches based on the response values. Available for the `rating` and `single_choice` question types.
+            ```json
+            {
+                "type": "response_based",
+                "responseValues": {
+                    "responseKey": "value"
+                }
+            }
+            ```
+
+            Specific question: Proceeds to a specific question by index.
+            ```json
+            {
+                "type": "specific_question",
+                "index": 2
+            }
+            ```
+
+            Translations: Each question can include inline translations.
+            - `translations`: Object mapping language codes to translated fields.
+            - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+            - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
+
+            Example with translations:
+            ```json
+            {
+                "id": "uuid",
+                "type": "rating",
+                "question": "How satisfied are you?",
+                "lowerBoundLabel": "Not satisfied",
+                "upperBoundLabel": "Very satisfied",
+                "translations": {
+                    "es": {
+                        "question": "¿Qué tan satisfecho estás?",
+                        "lowerBoundLabel": "No satisfecho",
+                        "upperBoundLabel": "Muy satisfecho"
+                    },
+                    "fr": {
+                        "question": "Dans quelle mesure êtes-vous satisfait?"
+                    }
+                }
+            }
+            ```
+             */
+      questions?: unknown | null;
+      conditions?: unknown | null;
+      appearance?: unknown | null;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      /** @nullable */
+      start_date?: string | null;
+      /** @nullable */
+      end_date?: string | null;
+      archived?: boolean;
+      /**
+       * @minimum 0
+       * @maximum 2147483647
+       * @nullable
+       */
+      responses_limit?: number | null;
+      /**
+       * @minimum 0
+       * @maximum 500
+       * @nullable
+       */
+      iteration_count?: number | null;
+      /**
+       * @minimum 0
+       * @maximum 2147483647
+       * @nullable
+       */
+      iteration_frequency_days?: number | null;
+      /** @nullable */
+      iteration_start_dates?: (string | null)[] | null;
+      /**
+       * @minimum 0
+       * @maximum 2147483647
+       * @nullable
+       */
+      current_iteration?: number | null;
+      /** @nullable */
+      current_iteration_start_date?: string | null;
+      /** @nullable */
+      response_sampling_start_date?: string | null;
+      response_sampling_interval_type?: ResponseSamplingIntervalTypeEnum | BlankEnum | NullEnum | null;
+      /**
+       * @minimum 0
+       * @maximum 2147483647
+       * @nullable
+       */
+      response_sampling_interval?: number | null;
+      /**
+       * @minimum 0
+       * @maximum 2147483647
+       * @nullable
+       */
+      response_sampling_limit?: number | null;
+      response_sampling_daily_limits?: unknown | null;
+      /** @nullable */
+      enable_partial_responses?: boolean | null;
+      /** @nullable */
+      enable_iframe_embedding?: boolean | null;
+      translations?: unknown | null;
+      _create_in_folder?: string;
+      form_content?: unknown | null;
+    }
+
     export type TaskRunAppendLogRequestEntriesItem = {[key: string]: unknown};
 
     export interface TaskRunAppendLogRequest {
@@ -29102,6 +29645,7 @@ export namespace Schemas {
       Boolean: 'boolean',
       Experiment: 'experiment',
       Multivariant: 'multivariant',
+      RemoteConfig: 'remote_config',
     } as const;
 
     export type FeatureFlagsActivityRetrieve2Params = {

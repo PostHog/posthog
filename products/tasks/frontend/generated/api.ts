@@ -511,6 +511,25 @@ export const tasksRunsSetOutputPartialUpdate = async (
 }
 
 /**
+ * API for managing task runs. Each run represents an execution of a task.
+ */
+export const getTasksRunsStreamRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/stream/`
+}
+
+export const tasksRunsStreamRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskRunDetailApi> => {
+    return apiMutator<TaskRunDetailApi>(getTasksRunsStreamRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
  * Get autonomy readiness details for a specific repository in the current project.
  * @summary Get repository readiness
  */

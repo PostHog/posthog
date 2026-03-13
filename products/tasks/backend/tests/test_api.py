@@ -641,8 +641,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
-        mock_execute_relay.return_value = "relay-1"
-
         integration = Integration.objects.create(team=self.team, kind="slack-twig", integration_id="T_SLACK", config={})
         SlackThreadTaskMapping.objects.create(
             team=self.team,
@@ -654,6 +652,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             task_run=run,
             mentioning_slack_user_id="U123",
         )
+        mock_execute_relay.return_value = "relay-1"
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
@@ -668,6 +667,21 @@ class TestTaskRunAPI(BaseTaskAPITest):
             text="Which license should I use?",
             delete_progress=True,
         )
+
+    @patch("products.tasks.backend.api.execute_twig_agent_relay_workflow")
+    def test_relay_message_skips_when_no_slack_mapping(self, mock_execute_relay):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
+            {"text": "Which license should I use?"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"status": "skipped"})
+        mock_execute_relay.assert_not_called()
 
     @patch("products.tasks.backend.api.execute_twig_agent_relay_workflow")
     def test_relay_message_skips_for_terminal_run(self, mock_execute_relay):
@@ -706,8 +720,18 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
-
         integration = Integration.objects.create(team=self.team, kind="slack-twig", integration_id="T_SLACK", config={})
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T_SLACK",
+            channel="C123",
+            thread_ts="1234.5678",
+            task=task,
+            task_run=run,
+            mentioning_slack_user_id="U123",
+        )
+
         SlackThreadTaskMapping.objects.create(
             team=self.team,
             integration=integration,
