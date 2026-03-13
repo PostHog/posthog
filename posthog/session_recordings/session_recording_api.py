@@ -254,7 +254,10 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
         if view and getattr(view, "action", None) == "list":
             return False
 
-        from ee.models.session_summaries import SingleSessionSummary
+        try:
+            from ee.models.session_summaries import SingleSessionSummary
+        except ImportError:
+            return False
 
         return SingleSessionSummary.objects.filter(
             team_id=obj.team_id,
