@@ -267,6 +267,25 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert data["mask_value"] != original_key.mask_value
 
 
+class TestPersonalAPIKeysAPIValidation(APIBaseTest):
+    def test_cannot_create_key_with_empty_scopes(self):
+        response = self.client.post(
+            "/api/personal_api_keys/",
+            {"label": "empty", "scopes": [], "scoped_organizations": [], "scoped_teams": []},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_cannot_update_key_to_empty_scopes(self):
+        key = PersonalAPIKey.objects.create(
+            label="Test",
+            user=self.user,
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["insight:read"],
+        )
+        response = self.client.patch(f"/api/personal_api_keys/{key.id}", {"scopes": []})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
 class PersonalAPIKeysBaseTest(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
 
@@ -286,7 +305,7 @@ class PersonalAPIKeysBaseTest(APIBaseTest):
             label="Test",
             user=self.user,
             secure_value=hash_key_value(self.value),
-            scopes=[],
+            scopes=["*"],
             scoped_teams=[],
             scoped_organizations=[],
         )
@@ -463,7 +482,7 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
             label="Test last_updated_at",
             user=self.user,
             secure_value=hash_key_value(value),
-            scopes=[],
+            scopes=["*"],
         )
         assert key.last_used_at is None
 
@@ -491,6 +510,12 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         self.key.save()
         response = self._do_request("/api/users/@me/")
         assert response.status_code == status.HTTP_200_OK
+
+    def test_rejects_empty_scopes_list_as_not_legacy(self):
+        self.key.scopes = []
+        self.key.save()
+        response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_forbids_scoped_access_for_unsupported_endpoint(self):
         # Even * scope isn't allowed for unsupported endpoints

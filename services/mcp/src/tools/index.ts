@@ -23,12 +23,6 @@ import getExperiment from './experiments/get'
 import getAllExperiments from './experiments/getAll'
 import getExperimentResults from './experiments/getResults'
 import updateExperiment from './experiments/update'
-// Feature Flags
-import createFeatureFlag from './featureFlags/create'
-import deleteFeatureFlag from './featureFlags/delete'
-import getAllFeatureFlags from './featureFlags/getAll'
-import getFeatureFlagDefinition from './featureFlags/getDefinition'
-import updateFeatureFlag from './featureFlags/update'
 // Generated tools (from definitions/*.yaml)
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
@@ -85,13 +79,6 @@ import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
 
 // Map of tool names to tool factory functions
 const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
-    // Feature Flags
-    'feature-flag-get-definition': getFeatureFlagDefinition,
-    'feature-flag-get-all': getAllFeatureFlags,
-    'create-feature-flag': createFeatureFlag,
-    'update-feature-flag': updateFeatureFlag,
-    'delete-feature-flag': deleteFeatureFlag,
-
     // Organizations
     'organizations-get': getOrganizations,
     'switch-organization': setActiveOrganization,

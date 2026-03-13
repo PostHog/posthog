@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass
 from django.conf import settings
 
 import grpc.aio
+import requests
 import dns.resolver
 import dns.asyncresolver
 import temporalio.common
@@ -26,7 +27,6 @@ from temporalio.client import (
 from temporalio.exceptions import ActivityError, ApplicationError, RetryState
 
 from posthog.models import ProxyRecord
-from posthog.security.outbound_proxy import external_requests
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule
@@ -146,7 +146,7 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
         ip = arecords[0].to_text()
         # this is rare enough and fast enough that it's probably fine
         # but maybe we want to cache this and/or do it async
-        cloudflare_ips = external_requests.get("https://www.cloudflare.com/ips-v4").text.split("\n")
+        cloudflare_ips = requests.get("https://www.cloudflare.com/ips-v4").text.split("\n")
         is_cloudflare = any(ipaddress.ip_address(ip) in ipaddress.ip_network(cidr) for cidr in cloudflare_ips)
         if is_cloudflare:
             # Before blaming the customer, check if the IPs match our target
@@ -567,13 +567,15 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                     ),
                 )
 
-            # Everything's created and ready to go, update to VALID
+            # Everything's created and ready to go, update to VALID and clear
+            # any messages from earlier retries (e.g. Cloudflare proxying warning)
             await temporalio.workflow.execute_activity(
                 activity_update_proxy_record,
                 UpdateProxyRecordInputs(
                     organization_id=inputs.organization_id,
                     proxy_record_id=inputs.proxy_record_id,
                     status=ProxyRecord.Status.VALID.value,
+                    message="",
                 ),
                 start_to_close_timeout=dt.timedelta(seconds=10),
                 retry_policy=temporalio.common.RetryPolicy(

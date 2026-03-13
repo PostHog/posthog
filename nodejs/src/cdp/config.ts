@@ -50,9 +50,6 @@ export type CdpConfig = {
     CDP_FETCH_BACKOFF_BASE_MS: number
     CDP_FETCH_BACKOFF_MAX_MS: number
     CDP_OVERFLOW_QUEUE_ENABLED: boolean
-    OUTBOUND_PROXY_URL: string
-    OUTBOUND_PROXY_ENABLED: boolean
-
     HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: string
     HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: string
 
@@ -61,8 +58,6 @@ export type CdpConfig = {
     // Cyclotron (CDP job queue)
     CYCLOTRON_DATABASE_URL: string
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
-    CYCLOTRON_SHADOW_DATABASE_URL?: string
-    CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: boolean
     CYCLOTRON_NODE_DATABASE_URL?: string
     // SES (Workflows email sending)
     SES_ENDPOINT: string
