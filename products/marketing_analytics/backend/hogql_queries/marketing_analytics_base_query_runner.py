@@ -473,7 +473,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
     def _apply_drill_down_level(self) -> None:
         """Read drillDownLevel from query and apply to config"""
         level = getattr(self.query, "drillDownLevel", None)
-        if level:
+        if level is not None:
             self.config.drill_down_level = level
 
     def to_query(self) -> ast.SelectQuery:

@@ -190,9 +190,11 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                               canOpenModal: true,
                               canOpenInsight: false,
                               docs: {
-                                  title: 'Breakdown',
+                                  title: `${MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[drillDownLevel].columnAlias} breakdown`,
                                   description:
-                                      'Breakdown of marketing data across all channels, sources, or campaigns.',
+                                      drillDownLevel === MarketingAnalyticsDrillDownLevel.Campaign
+                                          ? 'Breakdown of marketing costs by individual campaign names across all ad platforms.'
+                                          : `Breakdown of marketing data by ${MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[drillDownLevel].columnAlias.toLowerCase()}.`,
                               },
                           }
                         : null,

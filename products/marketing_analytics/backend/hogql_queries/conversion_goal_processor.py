@@ -24,6 +24,49 @@ DAY_IN_SECONDS = 86400
 
 
 @dataclass
+class TrackedField:
+    """A field tracked through the conversion attribution pipeline for channel classification."""
+
+    name: str  # Pipeline-internal name (e.g., "campaign", "referring_domain")
+    event_property: str  # Default event property name (e.g., "utm_campaign", "$referring_domain")
+    schema_map_key: str | None = None  # Key in schema_map for DataWarehouse custom mapping
+    default_value: str = ""  # Default when field is empty/missing in organic context
+
+    @property
+    def conversion_array(self) -> str:
+        return f"conversion_{self.name}s"
+
+    @property
+    def utm_array(self) -> str:
+        return f"utm_{self.name}s"
+
+    @property
+    def conversion_value(self) -> str:
+        return f"conversion_{self.name}"
+
+    @property
+    def fallback_value(self) -> str:
+        return f"fallback_{self.name}"
+
+    @property
+    def attributed_name(self) -> str:
+        return f"{self.name}_name"
+
+
+# Fields tracked through the 4-stage attribution pipeline.
+# The first two (campaign, source) are also used as the pageview UTM filter criteria.
+TRACKED_FIELDS: list[TrackedField] = [
+    TrackedField("campaign", "utm_campaign", "utm_campaign_name"),
+    TrackedField("source", "utm_source", "utm_source_name"),
+    TrackedField("medium", "utm_medium", "utm_medium_name"),
+    TrackedField("referring_domain", "$referring_domain", None, "$direct"),
+    TrackedField("gclid", "$gclid"),
+    TrackedField("fbclid", "$fbclid"),
+    TrackedField("gad_source", "$gad_source"),
+]
+
+
+@dataclass
 class ConversionGoalProcessor:
     """
     Processes conversion goals for marketing analytics queries.
@@ -68,6 +111,12 @@ class ConversionGoalProcessor:
                 ast.Field(chain=[campaign_field]),
                 ast.Field(chain=[source_field]),
             )
+
+    def _resolve_field_name(self, field: TrackedField) -> str:
+        """Resolve a tracked field's event property name, checking schema_map for overrides."""
+        if field.schema_map_key:
+            return self.goal.schema_map.get(field.schema_map_key, field.event_property)
+        return field.event_property
 
     def get_select_field(self) -> ast.Expr:
         """Build select field expression based on math aggregation type"""
@@ -173,9 +222,9 @@ class ConversionGoalProcessor:
         self, conversion_event: Optional[str], where_conditions: list[ast.Expr]
     ) -> ast.SelectQuery:
         """Build subquery that collects arrays of conversion and UTM data per person"""
-        schema_map = self.goal.schema_map
-        utm_campaign_field = schema_map.get("utm_campaign_name", "utm_campaign")
-        utm_source_field = schema_map.get("utm_source_name", "utm_source")
+        resolved = {f.name: self._resolve_field_name(f) for f in TRACKED_FIELDS}
+        utm_campaign_field = resolved["campaign"]
+        utm_source_field = resolved["source"]
 
         # Build WHERE clause with clean separation of concerns
         final_where = self._build_comprehensive_where_clause(
@@ -187,12 +236,24 @@ class ConversionGoalProcessor:
             ast.Field(chain=["events", "person_id"]),
             self._build_conversion_timestamps_array(conversion_event),
             self._build_conversion_math_values_array(conversion_event),
-            self._build_conversion_utm_array("conversion_campaigns", conversion_event, utm_campaign_field),
-            self._build_conversion_utm_array("conversion_sources", conversion_event, utm_source_field),
-            self._build_utm_pageview_array("utm_timestamps", utm_campaign_field, utm_source_field, "timestamp"),
-            self._build_utm_pageview_array("utm_campaigns", utm_campaign_field, utm_source_field, utm_campaign_field),
-            self._build_utm_pageview_array("utm_sources", utm_campaign_field, utm_source_field, utm_source_field),
         ]
+
+        # Add conversion arrays for each tracked field
+        for field in TRACKED_FIELDS:
+            select_columns.append(
+                self._build_conversion_utm_array(field.conversion_array, conversion_event, resolved[field.name])
+            )
+
+        # Add pageview UTM arrays (timestamps + each tracked field)
+        select_columns.append(
+            self._build_utm_pageview_array("utm_timestamps", utm_campaign_field, utm_source_field, "timestamp")
+        )
+        for field in TRACKED_FIELDS:
+            select_columns.append(
+                self._build_utm_pageview_array(
+                    field.utm_array, utm_campaign_field, utm_source_field, resolved[field.name]
+                )
+            )
 
         # Build HAVING clause
         having_expr = ast.CompareOperation(
@@ -600,24 +661,24 @@ class ConversionGoalProcessor:
                     property=ast.Field(chain=["i"]),
                 ),
             ),
-            ast.Alias(
-                alias="conversion_campaign",
-                expr=ast.ArrayAccess(
-                    array=ast.Field(chain=["conversion_campaigns"]),
-                    property=ast.Field(chain=["i"]),
-                ),
-            ),
-            ast.Alias(
-                alias="conversion_source",
-                expr=ast.ArrayAccess(
-                    array=ast.Field(chain=["conversion_sources"]),
-                    property=ast.Field(chain=["i"]),
-                ),
-            ),
-            self._build_last_utm_timestamp_expr(attribution_window_seconds),
-            self._build_fallback_utm_expr("fallback_campaign", "utm_campaigns"),
-            self._build_fallback_utm_expr("fallback_source", "utm_sources"),
         ]
+
+        # Add conversion value and fallback for each tracked field
+        for field in TRACKED_FIELDS:
+            select_columns.append(
+                ast.Alias(
+                    alias=field.conversion_value,
+                    expr=ast.ArrayAccess(
+                        array=ast.Field(chain=[field.conversion_array]),
+                        property=ast.Field(chain=["i"]),
+                    ),
+                )
+            )
+
+        select_columns.append(self._build_last_utm_timestamp_expr(attribution_window_seconds))
+
+        for field in TRACKED_FIELDS:
+            select_columns.append(self._build_fallback_utm_expr(field.fallback_value, field.utm_array))
 
         return ast.SelectQuery(
             select=select_columns,
@@ -705,25 +766,30 @@ class ConversionGoalProcessor:
         """Build subquery that applies attribution logic"""
         select_columns: list[ast.Expr] = [
             ast.Field(chain=["person_id"]),
-            ast.Alias(
-                alias="campaign_name",
-                expr=self._build_attribution_expr("conversion_campaign", "fallback_campaign"),
-            ),
-            ast.Alias(
-                alias="campaign_id",
-                # Campaign IDs don't exist in event data, only in marketing platform data
-                # Use "-" as placeholder to indicate not applicable
-                expr=ast.Constant(value="-"),
-            ),
-            ast.Alias(
-                alias="source_name",
-                expr=self._build_attribution_expr("conversion_source", "fallback_source"),
-            ),
-            ast.Alias(
-                alias="conversion_value",
-                expr=self._get_final_conversion_value_expr(),
-            ),
         ]
+
+        # Add attributed value for each tracked field
+        for field in TRACKED_FIELDS:
+            select_columns.append(
+                ast.Alias(
+                    alias=field.attributed_name,
+                    expr=self._build_attribution_expr(field.conversion_value, field.fallback_value),
+                )
+            )
+
+        select_columns.extend(
+            [
+                ast.Alias(
+                    alias="campaign_id",
+                    # Campaign IDs don't exist in event data, only in marketing platform data
+                    expr=ast.Constant(value="-"),
+                ),
+                ast.Alias(
+                    alias="conversion_value",
+                    expr=self._get_final_conversion_value_expr(),
+                ),
+            ]
+        )
 
         return ast.SelectQuery(
             select=select_columns,
@@ -801,18 +867,26 @@ class ConversionGoalProcessor:
     def _build_final_aggregation_query(self, attribution_query: ast.SelectQuery) -> ast.SelectQuery:
         """Build final aggregation query with organic defaults"""
         level = self.config.drill_down_level
-        campaign_expr = self._build_organic_default_expr("campaign_name", self.config.organic_campaign)
-        source_expr = self._normalize_source_field(
-            self._build_organic_default_expr("source_name", self.config.organic_source)
-        )
+
+        # Build organic-default expressions for each tracked field
+        # Campaign and source use config-driven organic defaults; others use TrackedField defaults
+        organic_overrides = {
+            "campaign": self.config.organic_campaign,
+            "source": self.config.organic_source,
+        }
+        field_exprs: dict[str, ast.Expr] = {}
+        for field in TRACKED_FIELDS:
+            default = organic_overrides.get(field.name, field.default_value)
+            expr = self._build_organic_default_expr(field.attributed_name, default)
+            if field.name == "source":
+                expr = self._normalize_source_field(expr)
+            field_exprs[field.name] = expr
+
+        campaign_expr = field_exprs["campaign"]
+        source_expr = field_exprs["source"]
 
         if level == MarketingAnalyticsDrillDownLevel.CHANNEL:
-            # At channel level, compute channel_type and use it as the grouping key
-            # Use utm_source as source and derive medium from whether it's a known paid source
-            channel_type_expr = self._build_channel_type_expr(
-                source_expr=source_expr,
-                medium_expr=ast.Constant(value=""),
-            )
+            channel_type_expr = self._build_channel_type_expr(field_exprs=field_exprs)
             select_columns: list[ast.Expr] = [
                 ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
                 ast.Alias(alias=self.config.campaign_field, expr=channel_type_expr),
@@ -872,22 +946,45 @@ class ConversionGoalProcessor:
             ],
         )
 
-    def _build_channel_type_expr(self, source_expr: ast.Expr, medium_expr: ast.Expr) -> ast.Expr:
-        """Compute channel_type for conversion goal data using web analytics' classification."""
+    def _resolve_direct_field_expr(self, field: TrackedField, table: str) -> ast.Expr:
+        """Resolve a tracked field to an AST expression for direct queries (no attribution pipeline)."""
+        if self.goal.kind in ["EventsNode", "ActionsNode"]:
+            resolved_name = self._resolve_field_name(field)
+            raw_expr: ast.Expr = ast.Field(chain=["events", "properties", resolved_name])
+            return ast.Call(name="coalesce", args=[raw_expr, ast.Constant(value=field.default_value)])
+        elif field.schema_map_key and field.schema_map_key in self.goal.schema_map:
+            raw_expr = ast.Field(chain=[self.goal.schema_map[field.schema_map_key]])
+            return ast.Call(name="coalesce", args=[raw_expr, ast.Constant(value=field.default_value)])
+        else:
+            return ast.Constant(value=field.default_value)
+
+    def _build_channel_type_expr(self, field_exprs: dict[str, ast.Expr]) -> ast.Expr:
+        """Compute channel_type for conversion goal data using web analytics' classification.
+
+        Uses all tracked fields from the attribution pipeline for accurate classification.
+        """
         modifiers = create_default_modifiers_for_team(self.team)
+
+        # Convert gclid/fbclid string values to boolean presence checks
+        gclid_expr = field_exprs.get("gclid", ast.Constant(value=""))
+        has_gclid = ast.Call(name="notEmpty", args=[ast.Call(name="toString", args=[gclid_expr])])
+
+        fbclid_expr = field_exprs.get("fbclid", ast.Constant(value=""))
+        has_fbclid = ast.Call(name="notEmpty", args=[ast.Call(name="toString", args=[fbclid_expr])])
+
         return create_channel_type_expr(
             custom_rules=modifiers.customChannelTypeRules,
             source_exprs=ChannelTypeExprs(
-                source=source_expr,
-                medium=medium_expr,
-                campaign=ast.Constant(value=""),
-                referring_domain=ast.Constant(value="$direct"),
+                source=field_exprs.get("source", ast.Constant(value="")),
+                medium=field_exprs.get("medium", ast.Constant(value="")),
+                campaign=field_exprs.get("campaign", ast.Constant(value="")),
+                referring_domain=field_exprs.get("referring_domain", ast.Constant(value="$direct")),
                 url=ast.Constant(value=""),
                 hostname=ast.Constant(value=""),
                 pathname=ast.Constant(value=""),
-                has_gclid=ast.Constant(value=False),
-                has_fbclid=ast.Constant(value=False),
-                gad_source=ast.Constant(value=None),
+                has_gclid=has_gclid,
+                has_fbclid=has_fbclid,
+                gad_source=field_exprs.get("gad_source", ast.Constant(value=None)),
             ),
         )
 
@@ -926,11 +1023,19 @@ class ConversionGoalProcessor:
             ast.Call(name="coalesce", args=[utm_source_expr, ast.Constant(value=self.config.organic_source)])
         )
 
+        # Build field expressions for all tracked fields
+        field_exprs: dict[str, ast.Expr] = {
+            "campaign": campaign_expr,
+            "source": source_expr,
+        }
+        for field in TRACKED_FIELDS:
+            if field.name in ("campaign", "source"):
+                continue  # Already handled above with special organic defaults
+            field_expr = self._resolve_direct_field_expr(field, table)
+            field_exprs[field.name] = field_expr
+
         if level == MarketingAnalyticsDrillDownLevel.CHANNEL:
-            channel_type_expr = self._build_channel_type_expr(
-                source_expr=source_expr,
-                medium_expr=ast.Constant(value=""),
-            )
+            channel_type_expr = self._build_channel_type_expr(field_exprs=field_exprs)
             select_columns: list[ast.Expr] = [
                 ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
                 ast.Alias(alias=self.config.campaign_field, expr=channel_type_expr),

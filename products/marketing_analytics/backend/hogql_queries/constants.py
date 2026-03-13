@@ -253,7 +253,7 @@ class DrillDownLevelConfig(TypedDict):
 
 
 # Centralized drill-down level configuration
-DRILL_DOWN_LEVEL_CONFIG: dict[str, DrillDownLevelConfig] = {
+DRILL_DOWN_LEVEL_CONFIG: dict[MarketingAnalyticsDrillDownLevel, DrillDownLevelConfig] = {
     MarketingAnalyticsDrillDownLevel.CHANNEL: {
         "column_alias": "Channel",
         "excluded_base_columns": frozenset(

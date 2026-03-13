@@ -324,16 +324,8 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
                 for key, coalesce_col in coalesce_columns.items():
                     conversion_columns_mapping[key] = coalesce_col
 
-                # Wrap metric columns with ifNull(..., 0) for organic channels with no cost data
-                for col_key in list(conversion_columns_mapping.keys()):
-                    col_expr = conversion_columns_mapping[col_key]
-                    if isinstance(col_expr, ast.Alias) and col_key not in coalesce_columns:
-                        # Check if this references campaign_costs CTE — wrap with ifNull
-                        if self._references_cte(col_expr.expr, self.config.campaign_costs_cte_name):
-                            conversion_columns_mapping[col_key] = ast.Alias(
-                                alias=col_expr.alias,
-                                expr=ast.Call(name="ifNull", args=[col_expr.expr, ast.Constant(value=0)]),
-                            )
+                # Leave campaign_costs metric columns as NULL for conversion-only rows
+                # so the frontend displays "-" instead of 0 for cost/clicks/impressions etc.
             else:
                 # Campaign level — LEFT JOIN on match_key + source
                 join_type = "LEFT JOIN"

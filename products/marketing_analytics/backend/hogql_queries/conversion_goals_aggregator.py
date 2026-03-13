@@ -342,8 +342,10 @@ class ConversionGoalsAggregator:
         group_by_fields = self.config.group_by_fields
 
         if level in (MarketingAnalyticsDrillDownLevel.CHANNEL, MarketingAnalyticsDrillDownLevel.SOURCE):
-            # At channel/source level there is a single grouping field (campaign_field holds channel/source)
-            campaign_field = group_by_fields[0]
+            # At channel/source level both CTEs store the grouping value (channel/source) in campaign_field.
+            # group_by_fields[0] differs per level (campaign_field vs source_field), but the unified
+            # conversion CTE always writes the value into campaign_field, so we must reference that.
+            campaign_field = self.config.campaign_field
             fallback = "Unknown" if level == MarketingAnalyticsDrillDownLevel.CHANNEL else self.config.organic_source
             campaign_alias = self.config.get_campaign_column_alias()
             campaign_args = [
