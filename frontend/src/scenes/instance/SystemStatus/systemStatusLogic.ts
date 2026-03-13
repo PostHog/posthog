@@ -53,6 +53,10 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'CLICKHOUSE_KILL_SWITCH',
     'SENTRY_AUTH_TOKEN',
     'SENTRY_ORGANIZATION',
+    'CONVERSATIONS_EMAIL_INBOUND_DOMAIN',
+    'CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY',
+    'CONVERSATIONS_EMAIL_MAILGUN_API_KEY',
+    'CONVERSATIONS_EMAIL_MAILGUN_REGION',
 ]
 
 // Note: This logic does some heavy calculations - avoid connecting it outside of system status pages!

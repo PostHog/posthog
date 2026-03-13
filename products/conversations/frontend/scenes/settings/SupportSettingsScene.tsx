@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import {
@@ -16,6 +17,7 @@ import {
 
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -278,6 +280,242 @@ function SlackChannelSection(): JSX.Element {
     )
 }
 
+function EmailSection(): JSX.Element {
+    return (
+        <SceneSection
+            title="Email channel"
+            description="Receive support emails as conversation tickets. Customers email your support address, and replies from your team are sent back via email."
+            className="mt-4"
+        >
+            <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
+                <EmailChannelSection />
+            </LemonCard>
+        </SceneSection>
+    )
+}
+
+function EmailChannelSection(): JSX.Element {
+    const {
+        emailStatus,
+        emailStatusLoading,
+        emailFromAddress,
+        emailFromName,
+        emailConnecting,
+        emailVerifying,
+        emailTestSending,
+    } = useValues(supportSettingsLogic)
+    const { setEmailFromAddress, setEmailFromName, connectEmail, disconnectEmail, verifyEmailDomain, sendTestEmail } =
+        useActions(supportSettingsLogic)
+
+    const [testEmailAddress, setTestEmailAddress] = useState('')
+
+    if (emailStatusLoading && !emailStatus) {
+        return <div className="text-muted-alt text-sm">Loading email status...</div>
+    }
+
+    if (!emailStatus?.connected) {
+        return (
+            <div className="flex flex-col gap-y-2">
+                <div>
+                    <label className="font-medium">Connect email</label>
+                    <p className="text-xs text-muted-alt">
+                        Enter the email address customers will use to contact support. We'll provide forwarding
+                        instructions and DNS records to set up.
+                    </p>
+                </div>
+                <div className="flex flex-col gap-2 max-w-md">
+                    <LemonInput
+                        value={emailFromAddress}
+                        onChange={setEmailFromAddress}
+                        placeholder="support@company.com"
+                        fullWidth
+                    />
+                    <LemonInput
+                        value={emailFromName}
+                        onChange={setEmailFromName}
+                        placeholder="Acme Support"
+                        fullWidth
+                    />
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        onClick={connectEmail}
+                        loading={emailConnecting}
+                        disabledReason={
+                            !emailFromAddress.trim()
+                                ? 'Enter an email address'
+                                : !emailFromName.trim()
+                                  ? 'Enter a display name'
+                                  : undefined
+                        }
+                    >
+                        Connect email
+                    </LemonButton>
+                </div>
+            </div>
+        )
+    }
+
+    const sendingRecords = emailStatus.dns_records?.sending_dns_records || []
+
+    return (
+        <div className="flex flex-col gap-y-2">
+            <div className="flex items-center gap-4 justify-between">
+                <div>
+                    <label className="font-medium">Connection</label>
+                    <p className="text-xs text-muted-alt">Email channel is connected.</p>
+                </div>
+                <LemonTag type={emailStatus.domain_verified ? 'success' : 'warning'}>
+                    {emailStatus.domain_verified ? 'Verified' : 'Pending verification'}
+                </LemonTag>
+            </div>
+
+            <LemonDivider />
+
+            <div>
+                <label className="font-medium">Forwarding address</label>
+                <p className="text-xs text-muted-alt mb-2">
+                    Set up a forwarding rule in your email provider to forward emails from{' '}
+                    <strong>{emailStatus.from_email}</strong> to this address:
+                </p>
+                <div className="flex gap-2 items-center">
+                    <code className="bg-bg-light px-2 py-1 rounded text-sm flex-1 truncate">
+                        {emailStatus.inbound_address}
+                    </code>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={() => void copyToClipboard(emailStatus.inbound_address || '')}
+                    >
+                        Copy
+                    </LemonButton>
+                </div>
+            </div>
+
+            {sendingRecords.length > 0 && (
+                <>
+                    <LemonDivider />
+                    <div>
+                        <label className="font-medium">DNS records</label>
+                        <p className="text-xs text-muted-alt mb-2">
+                            Add these DNS records to your domain to authorize PostHog to send emails on behalf of{' '}
+                            <strong>{emailStatus.domain}</strong>.
+                        </p>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-xs">
+                                <thead>
+                                    <tr className="border-b">
+                                        <th className="text-left py-1 pr-2 font-medium">Type</th>
+                                        <th className="text-left py-1 pr-2 font-medium">Name</th>
+                                        <th className="text-left py-1 pr-2 font-medium">Value</th>
+                                        <th className="text-left py-1 font-medium">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {sendingRecords.map(
+                                        (
+                                            record: {
+                                                record_type: string
+                                                name: string
+                                                value: string
+                                                valid: string
+                                            },
+                                            i: number
+                                        ) => (
+                                            <tr key={i} className="border-b">
+                                                <td className="py-1 pr-2">
+                                                    <code>{record.record_type}</code>
+                                                </td>
+                                                <td className="py-1 pr-2">
+                                                    <code className="break-all">{record.name}</code>
+                                                </td>
+                                                <td className="py-1 pr-2">
+                                                    <code className="break-all">{record.value}</code>
+                                                </td>
+                                                <td className="py-1">
+                                                    <LemonTag
+                                                        type={record.valid === 'valid' ? 'success' : 'muted'}
+                                                        size="small"
+                                                    >
+                                                        {record.valid === 'valid' ? 'Valid' : 'Pending'}
+                                                    </LemonTag>
+                                                </td>
+                                            </tr>
+                                        )
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div className="mt-2">
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={verifyEmailDomain}
+                                loading={emailVerifying}
+                            >
+                                Verify domain
+                            </LemonButton>
+                        </div>
+                    </div>
+                </>
+            )}
+
+            {emailStatus.domain_verified && (
+                <>
+                    <LemonDivider />
+                    <div>
+                        <label className="font-medium">Send test email</label>
+                        <p className="text-xs text-muted-alt mb-2">
+                            Send a test email to verify outbound delivery is working.
+                        </p>
+                        <div className="flex gap-2 max-w-md">
+                            <LemonInput
+                                value={testEmailAddress}
+                                onChange={setTestEmailAddress}
+                                placeholder="test@example.com"
+                                fullWidth
+                            />
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => sendTestEmail(testEmailAddress)}
+                                loading={emailTestSending}
+                                disabledReason={!testEmailAddress.trim() ? 'Enter an email address' : undefined}
+                            >
+                                Send test
+                            </LemonButton>
+                        </div>
+                    </div>
+                </>
+            )}
+
+            <LemonDivider />
+            <div className="flex justify-end">
+                <LemonButton
+                    type="secondary"
+                    status="danger"
+                    size="small"
+                    onClick={() => {
+                        LemonDialog.open({
+                            title: 'Disconnect email?',
+                            description:
+                                'This will stop creating tickets from emails. Existing tickets will not be affected.',
+                            primaryButton: {
+                                status: 'danger',
+                                children: 'Disconnect',
+                                onClick: disconnectEmail,
+                            },
+                            secondaryButton: { children: 'Cancel' },
+                        })
+                    }}
+                >
+                    Disconnect email
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
 export function SupportSettingsScene(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -372,6 +610,7 @@ export function SupportSettingsScene(): JSX.Element {
                         </LemonCard>
                     </SceneSection>
                     <SlackSection />
+                    <EmailSection />
                     <SceneSection title="In-app widget" className="mt-4">
                         <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
                             <div className="flex items-center gap-4 justify-between">

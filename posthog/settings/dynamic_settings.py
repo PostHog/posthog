@@ -165,6 +165,26 @@ CONSTANCE_CONFIG = {
         "Used to validate GitHub webhook events (HMAC-SHA256 signature verification)",
         str,
     ),
+    "CONVERSATIONS_EMAIL_INBOUND_DOMAIN": (
+        get_from_env("CONVERSATIONS_EMAIL_INBOUND_DOMAIN", default=""),
+        "Mailgun domain for receiving inbound emails (e.g. mg.posthog.com).",
+        str,
+    ),
+    "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY": (
+        get_from_env("CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY", default=""),
+        "Mailgun webhook signing key for validating inbound email webhooks.",
+        str,
+    ),
+    "CONVERSATIONS_EMAIL_MAILGUN_API_KEY": (
+        get_from_env("CONVERSATIONS_EMAIL_MAILGUN_API_KEY", default=""),
+        "Mailgun API key for domain management (add/verify/delete sending domains).",
+        str,
+    ),
+    "CONVERSATIONS_EMAIL_MAILGUN_REGION": (
+        get_from_env("CONVERSATIONS_EMAIL_MAILGUN_REGION", default="us"),
+        "Mailgun region: 'us' or 'eu'.",
+        str,
+    ),
     "PARALLEL_DASHBOARD_ITEM_CACHE": (
         get_from_env("PARALLEL_DASHBOARD_ITEM_CACHE", default=5),
         "user to determine how many insight cache updates to run at a time",
@@ -247,6 +267,10 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SUPPORT_SLACK_APP_CLIENT_SECRET",
     "SUPPORT_SLACK_SIGNING_SECRET",
     "GITHUB_WEBHOOK_SECRET",
+    "CONVERSATIONS_EMAIL_INBOUND_DOMAIN",
+    "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY",
+    "CONVERSATIONS_EMAIL_MAILGUN_API_KEY",
+    "CONVERSATIONS_EMAIL_MAILGUN_REGION",
     "PARALLEL_DASHBOARD_ITEM_CACHE",
     "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
     "RATE_LIMIT_ENABLED",
@@ -267,4 +291,6 @@ SECRET_SETTINGS = [
     "SUPPORT_SLACK_SIGNING_SECRET",
     "SUPPORT_SLACK_APP_CLIENT_SECRET",
     "GITHUB_WEBHOOK_SECRET",
+    "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY",
+    "CONVERSATIONS_EMAIL_MAILGUN_API_KEY",
 ]
