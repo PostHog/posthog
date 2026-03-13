@@ -1,10 +1,12 @@
 from django.db import models
+from django.db.models import Q
+from django.utils import timezone
 
 from posthog.models.team.team import Team
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDModel
 
 
-class ReviewQueue(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
+class ReviewQueue(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     name = models.CharField(max_length=255)
 
@@ -16,12 +18,24 @@ class ReviewQueue(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "name"],
+                condition=Q(deleted=False),
                 name="llma_rev_queue_name_uniq",
             )
         ]
 
+    def soft_delete(self) -> None:
+        if self.deleted:
+            return
 
-class ReviewQueueItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
+        now = timezone.now()
+        self.deleted = True
+        self.deleted_at = now
+        self.save(update_fields=["deleted", "deleted_at", "updated_at"])
+
+        self.items.filter(deleted=False).update(deleted=True, deleted_at=now, updated_at=now)
+
+
+class ReviewQueueItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     queue = models.ForeignKey(ReviewQueue, on_delete=models.CASCADE, related_name="items")
     trace_id = models.CharField(max_length=255)
@@ -35,6 +49,15 @@ class ReviewQueueItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "trace_id"],
+                condition=Q(deleted=False),
                 name="llma_rev_q_item_trace_uniq",
             )
         ]
+
+    def soft_delete(self) -> None:
+        if self.deleted:
+            return
+
+        self.deleted = True
+        self.deleted_at = timezone.now()
+        self.save(update_fields=["deleted", "deleted_at", "updated_at"])

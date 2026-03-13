@@ -74,6 +74,16 @@ class TestReviewQueuesApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([queue["name"] for queue in response.data["results"]], ["Support queue"])
 
+    def test_soft_deleted_queue_is_excluded_from_active_list(self):
+        active_queue = self._create_queue(name="Support queue")
+        deleted_queue = self._create_queue(name="Bug bash")
+        deleted_queue.soft_delete()
+
+        response = self.client.get(self._queues_endpoint())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([queue["id"] for queue in response.data["results"]], [str(active_queue.id)])
+
     def test_can_add_pending_trace_to_queue(self):
         queue = self._create_queue()
 
@@ -157,21 +167,60 @@ class TestReviewQueuesApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([item["trace_id"] for item in response.data["results"]], ["trace_a", "trace_b"])
 
-    def test_delete_queue_item_removes_pending_assignment(self):
+    def test_soft_deleted_queue_item_is_excluded_from_active_list(self):
+        queue = self._create_queue()
+        active_item = self._create_queue_item(queue=queue, trace_id="trace_active")
+        deleted_item = self._create_queue_item(queue=queue, trace_id="trace_deleted")
+        deleted_item.soft_delete()
+
+        response = self.client.get(self._queue_items_endpoint())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item["id"] for item in response.data["results"]], [str(active_item.id)])
+
+    def test_delete_queue_item_soft_deletes_pending_assignment(self):
         queue = self._create_queue()
         item = self._create_queue_item(queue=queue, trace_id="trace_pending")
 
         response = self.client.delete(f"{self._queue_items_endpoint()}{item.id}/")
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(ReviewQueueItem.objects.filter(pk=item.id).exists())
+        item.refresh_from_db()
+        self.assertTrue(item.deleted)
+        self.assertIsNotNone(item.deleted_at)
 
-    def test_delete_queue_cascades_pending_assignments(self):
+    def test_delete_queue_soft_deletes_queue_and_pending_assignments(self):
         queue = self._create_queue()
         item = self._create_queue_item(queue=queue, trace_id="trace_pending")
 
         response = self.client.delete(f"{self._queues_endpoint()}{queue.id}/")
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(ReviewQueue.objects.filter(pk=queue.id).exists())
-        self.assertFalse(ReviewQueueItem.objects.filter(pk=item.id).exists())
+        queue.refresh_from_db()
+        item.refresh_from_db()
+        self.assertTrue(queue.deleted)
+        self.assertIsNotNone(queue.deleted_at)
+        self.assertTrue(item.deleted)
+        self.assertIsNotNone(item.deleted_at)
+
+    def test_can_reuse_soft_deleted_queue_name(self):
+        queue = self._create_queue(name="Escalations")
+        queue.soft_delete()
+
+        response = self.client.post(self._queues_endpoint(), {"name": "Escalations"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_can_requeue_trace_after_soft_deleted_queue_item(self):
+        queue = self._create_queue(name="First queue")
+        other_queue = self._create_queue(name="Second queue")
+        item = self._create_queue_item(queue=queue, trace_id="trace_pending")
+        item.soft_delete()
+
+        response = self.client.post(
+            self._queue_items_endpoint(),
+            {"queue_id": str(other_queue.id), "trace_id": "trace_pending"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 from django.db import IntegrityError
-from django.db.models import Count, QuerySet
+from django.db.models import Count, Q, QuerySet
 
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
@@ -75,7 +75,7 @@ class BaseReviewQueueWriteSerializer(serializers.Serializer):
         if not normalized_name:
             raise serializers.ValidationError({"name": "This field is required."})
 
-        duplicate_queryset = ReviewQueue.objects.filter(team=team, name=normalized_name)
+        duplicate_queryset = ReviewQueue.objects.filter(team=team, name=normalized_name, deleted=False)
         if instance:
             duplicate_queryset = duplicate_queryset.exclude(pk=instance.pk)
 
@@ -183,7 +183,7 @@ class BaseReviewQueueItemWriteSerializer(serializers.Serializer):
 
     def _resolve_queue(self, queue_id: str) -> ReviewQueue:
         team = cast(Team, self.context["team"])
-        queue = ReviewQueue.objects.filter(team=team, pk=queue_id).first()
+        queue = ReviewQueue.objects.filter(team=team, pk=queue_id, deleted=False).first()
         if not queue:
             raise serializers.ValidationError({"queue_id": "Review queue not found."})
         return queue
@@ -214,7 +214,7 @@ class ReviewQueueItemCreateSerializer(BaseReviewQueueItemWriteSerializer):
                 {"trace_id": "This trace is already reviewed and cannot be added to a queue."}
             )
 
-        existing_item = ReviewQueueItem.objects.filter(team=team, trace_id=normalized_trace_id).first()
+        existing_item = ReviewQueueItem.objects.filter(team=team, trace_id=normalized_trace_id, deleted=False).first()
         if existing_item:
             if existing_item.queue_id == resolved_queue.id:
                 raise serializers.ValidationError({"trace_id": "This trace is already pending in this queue."})
@@ -306,9 +306,9 @@ class ReviewQueueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Mode
 
     def safely_get_queryset(self, queryset: QuerySet[ReviewQueue, ReviewQueue]) -> QuerySet[ReviewQueue, ReviewQueue]:
         return (
-            queryset.filter(team_id=self.team_id)
+            queryset.filter(team_id=self.team_id, deleted=False)
             .select_related("created_by")
-            .annotate(pending_item_count=Count("items"))
+            .annotate(pending_item_count=Count("items", filter=Q(items__deleted=False)))
         )
 
     def _serialize_saved_queue(self, queue: ReviewQueue) -> dict[str, Any]:
@@ -412,7 +412,7 @@ class ReviewQueueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Mode
             request=request,
         )
 
-        queue.delete()
+        queue.soft_delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -429,7 +429,11 @@ class ReviewQueueItemViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, 
     def safely_get_queryset(
         self, queryset: QuerySet[ReviewQueueItem, ReviewQueueItem]
     ) -> QuerySet[ReviewQueueItem, ReviewQueueItem]:
-        return queryset.filter(team_id=self.team_id).select_related("queue", "created_by").order_by("created_at", "id")
+        return (
+            queryset.filter(team_id=self.team_id, deleted=False, queue__deleted=False)
+            .select_related("queue", "created_by")
+            .order_by("created_at", "id")
+        )
 
     def _serialize_saved_item(self, item: ReviewQueueItem) -> dict[str, Any]:
         hydrated_item = self.get_queryset().get(pk=item.pk)
@@ -550,5 +554,5 @@ class ReviewQueueItemViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, 
             request=request,
         )
 
-        item.delete()
+        item.soft_delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
