@@ -463,3 +463,134 @@ def rich_content_to_slack_payload(
             return content_to_slack_mrkdwn(source_content), blocks
 
     return content_to_slack_mrkdwn(fallback_content), None
+
+
+def _serialize_text_node_to_html(node: JSON) -> str:
+    """Convert a TipTap text node to HTML with inline marks."""
+    import html as html_module
+
+    text = html_module.escape(node.get("text", ""))
+    if not text:
+        return ""
+
+    marks = node.get("marks", [])
+    link_href = None
+
+    for mark in marks:
+        mark_type = mark.get("type")
+        if mark_type == "bold":
+            text = f"<strong>{text}</strong>"
+        elif mark_type == "italic":
+            text = f"<em>{text}</em>"
+        elif mark_type == "code":
+            text = f"<code>{text}</code>"
+        elif mark_type == "underline":
+            text = f"<u>{text}</u>"
+        elif mark_type == "link":
+            link_href = mark.get("attrs", {}).get("href")
+
+    if link_href:
+        text = f'<a href="{html_module.escape(link_href)}">{text}</a>'
+
+    return text
+
+
+def _serialize_inline_nodes_to_html(nodes: list[JSON]) -> str:
+    """Convert a list of TipTap inline nodes to HTML."""
+    import html as html_module
+
+    chunks: list[str] = []
+    for node in nodes:
+        node_type = node.get("type")
+        if node_type == "text":
+            chunks.append(_serialize_text_node_to_html(node))
+        elif node_type == "hardBreak":
+            chunks.append("<br>")
+        elif node_type == "image":
+            src = node.get("attrs", {}).get("src")
+            if src:
+                alt = node.get("attrs", {}).get("alt", "image")
+                chunks.append(
+                    f'<img src="{html_module.escape(src)}" alt="{html_module.escape(alt)}" style="max-width:100%">'
+                )
+    return "".join(chunks)
+
+
+def rich_content_to_html(rich_content: JSON | None) -> str:
+    """Convert TipTap JSON to email-safe HTML.
+
+    Produces a minimal HTML document with inline styles suitable for email clients.
+    """
+    if not rich_content or rich_content.get("type") != "doc":
+        return ""
+
+    body_parts: list[str] = []
+
+    for node in rich_content.get("content", []):
+        node_type = node.get("type")
+
+        if node_type == "paragraph":
+            inner = _serialize_inline_nodes_to_html(node.get("content", []))
+            body_parts.append(f'<p style="margin:0 0 1em 0">{inner}</p>')
+
+        elif node_type == "blockquote":
+            inner_blocks: list[str] = []
+            for child in node.get("content", []):
+                if child.get("type") == "paragraph":
+                    inner_blocks.append(_serialize_inline_nodes_to_html(child.get("content", [])))
+            body_parts.append(
+                '<blockquote style="border-left:3px solid #ccc;padding-left:12px;margin:0 0 1em 0;color:#555">'
+                + "<br>".join(inner_blocks)
+                + "</blockquote>"
+            )
+
+        elif node_type == "bulletList":
+            items: list[str] = []
+            for li in node.get("content", []):
+                if li.get("type") == "listItem":
+                    li_parts = []
+                    for child in li.get("content", []):
+                        if child.get("type") == "paragraph":
+                            li_parts.append(_serialize_inline_nodes_to_html(child.get("content", [])))
+                    items.append(f"<li>{'<br>'.join(li_parts)}</li>")
+            body_parts.append(f'<ul style="margin:0 0 1em 0">{"".join(items)}</ul>')
+
+        elif node_type == "orderedList":
+            items = []
+            for li in node.get("content", []):
+                if li.get("type") == "listItem":
+                    li_parts = []
+                    for child in li.get("content", []):
+                        if child.get("type") == "paragraph":
+                            li_parts.append(_serialize_inline_nodes_to_html(child.get("content", [])))
+                    items.append(f"<li>{'<br>'.join(li_parts)}</li>")
+            body_parts.append(f'<ol style="margin:0 0 1em 0">{"".join(items)}</ol>')
+
+        elif node_type == "codeBlock":
+            inner = _serialize_inline_nodes_to_html(node.get("content", []))
+            body_parts.append(
+                '<pre style="background:#f5f5f5;padding:12px;border-radius:4px;'
+                'overflow-x:auto;margin:0 0 1em 0"><code>' + inner + "</code></pre>"
+            )
+
+        elif node_type == "image":
+            import html as html_module
+
+            src = node.get("attrs", {}).get("src")
+            if src:
+                alt = node.get("attrs", {}).get("alt", "image")
+                body_parts.append(
+                    f'<p style="margin:0 0 1em 0">'
+                    f'<img src="{html_module.escape(src)}" alt="{html_module.escape(alt)}" style="max-width:100%">'
+                    f"</p>"
+                )
+
+    if not body_parts:
+        return ""
+
+    body_html = "\n".join(body_parts)
+    return (
+        '<!DOCTYPE html><html><head><meta charset="utf-8"></head>'
+        f"<body style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;"
+        f'font-size:14px;line-height:1.5;color:#333">{body_html}</body></html>'
+    )

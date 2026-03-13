@@ -9,6 +9,19 @@ import { SlackChannelType, UserBasicType } from '~/types'
 
 import type { supportSettingsLogicType } from './supportSettingsLogicType'
 
+export interface EmailStatusResponse {
+    connected: boolean
+    inbound_address?: string
+    from_email?: string
+    from_name?: string
+    domain?: string
+    domain_verified?: boolean
+    dns_records?: {
+        sending_dns_records?: Array<{ record_type: string; name: string; value: string; valid: string }>
+        receiving_dns_records?: Array<{ record_type: string; name: string; value: string; valid: string }>
+    }
+}
+
 export const supportSettingsLogic = kea<supportSettingsLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'settings', 'supportSettingsLogic']),
     connect(() => ({
@@ -45,6 +58,13 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         setSlackTicketEmojiValue: (value: string | null) => ({ value }),
         saveSlackTicketEmoji: true,
         disconnectSlack: true,
+        // Email channel settings
+        setEmailFromAddress: (value: string) => ({ value }),
+        setEmailFromName: (value: string) => ({ value }),
+        connectEmail: true,
+        disconnectEmail: true,
+        verifyEmailDomain: true,
+        sendTestEmail: (testEmail: string) => ({ testEmail }),
     }),
     reducers({
         conversationsEnabledLoading: [
@@ -118,6 +138,42 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 setSlackTicketEmojiValue: (_, { value }) => value,
             },
         ],
+        emailFromAddress: [
+            '',
+            {
+                setEmailFromAddress: (_, { value }) => value,
+            },
+        ],
+        emailFromName: [
+            '',
+            {
+                setEmailFromName: (_, { value }) => value,
+            },
+        ],
+        emailConnecting: [
+            false,
+            {
+                connectEmail: () => true,
+                connectEmailSuccess: () => false,
+                connectEmailFailure: () => false,
+            },
+        ],
+        emailVerifying: [
+            false,
+            {
+                verifyEmailDomain: () => true,
+                verifyEmailDomainSuccess: () => false,
+                verifyEmailDomainFailure: () => false,
+            },
+        ],
+        emailTestSending: [
+            false,
+            {
+                sendTestEmail: () => true,
+                sendTestEmailSuccess: () => false,
+                sendTestEmailFailure: () => false,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         slackChannels: [
@@ -131,6 +187,70 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                         lemonToast.error('Failed to load Slack channels')
                         return values.slackChannels
                     }
+                },
+            },
+        ],
+        emailStatus: [
+            null as EmailStatusResponse | null,
+            {
+                loadEmailStatus: async () => {
+                    try {
+                        return await api.get('api/conversations/v1/email/status')
+                    } catch {
+                        return null
+                    }
+                },
+                connectEmail: async () => {
+                    try {
+                        const response = await api.create('api/conversations/v1/email/connect', {
+                            from_email: values.emailFromAddress,
+                            from_name: values.emailFromName,
+                        })
+                        lemonToast.success('Email connected')
+                        return {
+                            connected: true,
+                            ...response,
+                        }
+                    } catch (e: any) {
+                        lemonToast.error(e.detail || 'Failed to connect email')
+                        return values.emailStatus
+                    }
+                },
+                verifyEmailDomain: async () => {
+                    try {
+                        const response = await api.create('api/conversations/v1/email/verify-domain', {})
+                        if (response.domain_verified) {
+                            lemonToast.success('Domain verified successfully')
+                        } else {
+                            lemonToast.warning('Domain not yet verified. Please check your DNS records.')
+                        }
+                        return {
+                            ...values.emailStatus,
+                            domain_verified: response.domain_verified,
+                        }
+                    } catch {
+                        lemonToast.error('Failed to verify domain')
+                        return values.emailStatus
+                    }
+                },
+                disconnectEmail: async () => {
+                    try {
+                        await api.create('api/conversations/v1/email/disconnect', {})
+                        lemonToast.success('Email disconnected')
+                        return { connected: false } as EmailStatusResponse
+                    } catch {
+                        lemonToast.error('Failed to disconnect email')
+                        return values.emailStatus
+                    }
+                },
+                sendTestEmail: async ({ testEmail }: { testEmail: string }) => {
+                    try {
+                        await api.create('api/conversations/v1/email/test', { test_email: testEmail })
+                        lemonToast.success(`Test email sent to ${testEmail}`)
+                    } catch {
+                        lemonToast.error('Failed to send test email')
+                    }
+                    return values.emailStatus
                 },
             },
         ],
@@ -319,5 +439,6 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         if (values.slackConnected) {
             actions.loadSlackChannelsWithToken()
         }
+        actions.loadEmailStatus()
     }),
 ])

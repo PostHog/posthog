@@ -348,3 +348,116 @@ def _read_image_bytes_for_slack_upload(team_id: int, image_url: str) -> bytes | 
         bytes_size=len(payload),
     )
     return payload
+
+
+@shared_task(ignore_result=True, max_retries=3, default_retry_delay=10)
+def send_conversation_email(
+    ticket_id: str,
+    comment_id: str,
+    team_id: int,
+    content: str,
+    rich_content: dict | None,
+) -> None:
+    """Send a support agent's reply to the customer via email using existing SMTP settings."""
+    from django.conf import settings as django_settings
+    from django.core import mail
+    from django.core.mail.backends.smtp import EmailBackend
+    from django.utils.module_loading import import_string
+
+    from posthog.models.instance_setting import get_instance_setting
+
+    from products.conversations.backend.formatting import rich_content_to_html
+    from products.conversations.backend.models import EmailMessageMapping, TeamConversationsEmailConfig, Ticket
+
+    try:
+        ticket = Ticket.objects.select_related("team").get(id=ticket_id, team_id=team_id)
+    except Ticket.DoesNotExist:
+        logger.warning("email_reply_ticket_not_found", ticket_id=ticket_id)
+        return
+
+    if not ticket.email_from:
+        logger.warning("email_reply_no_recipient", ticket_id=ticket_id)
+        return
+
+    try:
+        config = TeamConversationsEmailConfig.objects.get(team_id=team_id)
+    except TeamConversationsEmailConfig.DoesNotExist:
+        logger.warning("email_reply_no_config", team_id=team_id)
+        return
+
+    # Build threading headers
+    thread_mappings = list(
+        EmailMessageMapping.objects.filter(team_id=team_id, ticket_id=ticket_id)
+        .order_by("created_at")
+        .values_list("message_id", flat=True)
+    )
+
+    # Find the most recent customer message for In-Reply-To
+    latest_customer_mapping = (
+        EmailMessageMapping.objects.filter(
+            team_id=team_id, ticket_id=ticket_id, comment__isnull=False, comment__item_context__author_type="customer"
+        )
+        .order_by("-created_at")
+        .first()
+    )
+
+    generated_message_id = f"<conv-{ticket_id}-{comment_id}@{config.domain}>"
+
+    headers = {"Message-ID": generated_message_id}
+    if latest_customer_mapping:
+        headers["In-Reply-To"] = latest_customer_mapping.message_id
+    if thread_mappings:
+        headers["References"] = " ".join(thread_mappings)
+
+    subject = f"Re: {ticket.email_subject}" if ticket.email_subject else "Re: Support request"
+    from_email = f'"{config.from_name}" <{config.from_email}>'
+
+    # Build HTML body from rich_content
+    html_body = rich_content_to_html(rich_content) if rich_content else None
+
+    msg = mail.EmailMultiAlternatives(
+        subject=subject,
+        body=content,
+        from_email=from_email,
+        to=[ticket.email_from],
+        headers=headers,
+    )
+
+    if html_body:
+        msg.attach_alternative(html_body, "text/html")
+
+    try:
+        klass = import_string(django_settings.EMAIL_BACKEND) if django_settings.EMAIL_BACKEND else EmailBackend
+        connection = klass(
+            host=get_instance_setting("EMAIL_HOST"),
+            port=get_instance_setting("EMAIL_PORT"),
+            username=get_instance_setting("EMAIL_HOST_USER"),
+            password=get_instance_setting("EMAIL_HOST_PASSWORD"),
+            use_tls=get_instance_setting("EMAIL_USE_TLS"),
+            use_ssl=get_instance_setting("EMAIL_USE_SSL"),
+        )
+        connection.open()
+        connection.send_messages([msg])
+        connection.close()
+    except Exception:
+        logger.exception("email_reply_smtp_failed", ticket_id=ticket_id, team_id=team_id)
+        raise
+
+    # Record the outbound message ID for threading
+    from posthog.models.comment import Comment as CommentModel
+
+    comment_obj = CommentModel.objects.filter(id=comment_id).first()
+    EmailMessageMapping.objects.create(
+        message_id=generated_message_id,
+        team_id=team_id,
+        ticket=ticket,
+        comment=comment_obj,
+    )
+
+    logger.info(
+        "email_reply_sent",
+        ticket_id=ticket_id,
+        team_id=team_id,
+        to=ticket.email_from,
+        message_id=generated_message_id,
+    )

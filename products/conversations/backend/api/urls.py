@@ -2,6 +2,8 @@
 
 from django.urls import path, re_path
 
+from .email_events import email_inbound_handler
+from .email_settings import EmailConnectView, EmailDisconnectView, EmailStatusView, EmailTestView, EmailVerifyDomainView
 from .external import ExternalTicketView
 from .restore import WidgetRestoreRedeemView, WidgetRestoreRequestView
 from .slack_channels import SlackChannelsView
@@ -22,5 +24,12 @@ urlpatterns = [
     re_path(r"^v1/slack/callback/?$", support_slack_oauth_callback, name="supporthog-slack-callback"),
     re_path(r"^v1/slack/disconnect/?$", SupportSlackDisconnectView.as_view(), name="supporthog-slack-disconnect"),
     re_path(r"^v1/slack/channels/?$", SlackChannelsView.as_view(), name="slack-channels"),
+    # Email
+    re_path(r"^v1/email/inbound/?$", email_inbound_handler, name="email-inbound"),
+    re_path(r"^v1/email/connect/?$", EmailConnectView.as_view(), name="email-connect"),
+    re_path(r"^v1/email/verify-domain/?$", EmailVerifyDomainView.as_view(), name="email-verify-domain"),
+    re_path(r"^v1/email/test/?$", EmailTestView.as_view(), name="email-test"),
+    re_path(r"^v1/email/disconnect/?$", EmailDisconnectView.as_view(), name="email-disconnect"),
+    re_path(r"^v1/email/status/?$", EmailStatusView.as_view(), name="email-status"),
     path("external/ticket/<uuid:ticket_id>", ExternalTicketView.as_view(), name="external-ticket"),
 ]
