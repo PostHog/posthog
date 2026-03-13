@@ -146,6 +146,8 @@ for path, data, servers in mcp_configs:
 
     if "grafana-eu" not in servers:
         changes.append("Add new 'grafana-eu' entry (clone of 'grafana' with GRAFANA_REGION=eu)")
+    elif servers["grafana-eu"].get("env", {}).get("GRAFANA_REGION") != "eu":
+        changes.append("Pin GRAFANA_REGION=eu on existing 'grafana-eu' entry")
 
     if slim:
         if grafana.get("args", []) != SLIM_ARGS:
@@ -188,7 +190,11 @@ if settings_changes:
     for p in settings_changes:
         print(f"  + Allow {p}")
     print()
-elif settings is not None and not grafana_perms:
+elif settings is None:
+    print(f"Note: {settings_path} not found — permissions will not be migrated.")
+    print("  You may need to grant permissions manually after restarting.")
+    print()
+elif not grafana_perms:
     print(f"Note: No mcp__grafana__* permissions found in {settings_path}.")
     print("  You may need to add permissions manually after restarting.")
     print()
@@ -213,13 +219,17 @@ if confirm.strip().lower() != "y":
 for path, data, servers, _changes in all_mcp_changes:
     grafana = servers["grafana"]
 
-    shutil.copy2(path, path + ".bak")
+    bak_path = path + ".bak"
+    if not os.path.exists(bak_path):
+        shutil.copy2(path, bak_path)
 
     # Clone for EU before mutating the US entry
     if "grafana-eu" not in servers:
         eu_entry = copy.deepcopy(grafana)
         eu_entry.setdefault("env", {})["GRAFANA_REGION"] = "eu"
         servers["grafana-eu"] = eu_entry
+    else:
+        servers["grafana-eu"].setdefault("env", {})["GRAFANA_REGION"] = "eu"
 
     # Pin GRAFANA_REGION on existing entry
     grafana.setdefault("env", {})["GRAFANA_REGION"] = "us"
@@ -237,7 +247,9 @@ for path, data, servers, _changes in all_mcp_changes:
 # --- Apply settings changes ---
 
 if settings_changes and settings is not None:
-    shutil.copy2(settings_path, settings_path + ".bak")
+    bak_path = settings_path + ".bak"
+    if not os.path.exists(bak_path):
+        shutil.copy2(settings_path, bak_path)
 
     if "permissions" not in settings:
         settings["permissions"] = {}
