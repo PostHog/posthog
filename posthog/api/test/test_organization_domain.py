@@ -666,6 +666,8 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 class TestSCIMRequestLogsAPI(APILicensedTest):
     def setUp(self):
         super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         self.domain = OrganizationDomain.objects.create(
             organization=self.organization,
             domain="logs-test.com",
