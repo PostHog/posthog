@@ -124,6 +124,7 @@ class PersonPropertyFilter:
 
     condition_hash: str
     bytecode: list[Any]  # HogQL bytecode
+    cohort_ids: list[int]  # Cohorts that use this condition
 
 
 @dataclasses.dataclass
@@ -139,8 +140,7 @@ class BackfillPrecalculatedPersonPropertiesInputs:
     """Inputs for the precalculated person properties backfill workflow."""
 
     team_id: int
-    # New deduplicated structure: condition_hash -> (bytecode, {cohort_ids using this condition})
-    deduplicated_conditions: dict[str, tuple[list[Any], set[int]]]
+    filters: list[PersonPropertyFilter]  # Deduplicated filters with cohort mappings
     cohort_ids: list[int]  # All cohort IDs being processed
     batch_size: int = 1000
     start_uuid: str = ""  # Starting UUID for range filtering (empty = no lower bound)
@@ -149,7 +149,7 @@ class BackfillPrecalculatedPersonPropertiesInputs:
     @property
     def total_filters(self) -> int:
         """Total number of unique filters."""
-        return len(self.deduplicated_conditions)
+        return len(self.filters)
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -269,8 +269,6 @@ async def backfill_precalculated_person_properties_activity(
                         person_properties = parse_person_properties(row.get("properties"), person_id)
                         distinct_ids = row["distinct_ids"]
 
-                        # Evaluate each unique condition once per person, then map to cohorts
-                        condition_results = {}  # condition_hash -> bool
                         globals_dict = {
                             "person": {
                                 "id": person_id,
@@ -281,32 +279,31 @@ async def backfill_precalculated_person_properties_activity(
                             },
                         }
 
-                        # Step 1: Evaluate each unique condition once
-                        for condition_hash, (bytecode, _) in inputs.deduplicated_conditions.items():
+                        # Evaluate each filter once per person and send results to all cohorts that use it
+                        for filter_obj in inputs.filters:
                             try:
-                                result = await asyncio.to_thread(execute_bytecode, bytecode, globals_dict, timeout=10)
-                                condition_results[condition_hash] = bool(result.result) if result else False
+                                result = await asyncio.to_thread(
+                                    execute_bytecode, filter_obj.bytecode, globals_dict, timeout=10
+                                )
+                                matches = bool(result.result) if result else False
                             except Exception as e:
                                 logger.warning(
-                                    f"Error evaluating person {person_id} against filter {condition_hash}: {e}",
+                                    f"Error evaluating person {person_id} against filter {filter_obj.condition_hash}: {e}",
                                     person_id=person_id,
-                                    condition_hash=condition_hash,
+                                    condition_hash=filter_obj.condition_hash,
                                     error=str(e),
                                 )
-                                condition_results[condition_hash] = False
+                                matches = False
 
-                        # Step 2: Map results to all cohorts that use each condition
-                        for condition_hash, (_, cohort_set) in inputs.deduplicated_conditions.items():
-                            matches = condition_results[condition_hash]
-
-                            for cohort_id in cohort_set:
+                            # Send results to all cohorts that use this filter
+                            for cohort_id in filter_obj.cohort_ids:
                                 # ALWAYS emit - both matches and non-matches for EACH distinct_id
                                 for distinct_id in distinct_ids:
                                     event = {
                                         "distinct_id": distinct_id,
                                         "person_id": person_id,
                                         "team_id": inputs.team_id,
-                                        "condition": condition_hash,
+                                        "condition": filter_obj.condition_hash,
                                         "matches": matches,
                                         "source": f"cohort_backfill_{cohort_id}",
                                     }

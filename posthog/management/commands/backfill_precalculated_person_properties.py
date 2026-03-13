@@ -65,6 +65,7 @@ def extract_person_property_filters(cohort: Cohort) -> list[PersonPropertyFilter
             PersonPropertyFilter(
                 condition_hash=condition_hash,
                 bytecode=bytecode,
+                cohort_ids=[],  # Will be populated during deduplication
             )
         )
 
@@ -147,7 +148,6 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"Found {len(cohorts)} realtime cohort(s) to process for team {team_id}"))
 
         # Collect and deduplicate filters across all cohorts
-        # Map: condition_hash -> (bytecode, {cohort_ids})
         condition_map: dict[str, tuple[list[Any], set[int]]] = {}
         cohort_ids = []
         total_original_filters = 0
@@ -188,24 +188,39 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING("No person property filters found across any cohorts"))
             return
 
+        # Convert to list of PersonPropertyFilter objects with deterministic ordering
+        deduplicated_filters = [
+            PersonPropertyFilter(
+                condition_hash=condition_hash,
+                bytecode=bytecode,
+                cohort_ids=sorted(cohort_set),  # Sort cohort IDs for deterministic order
+            )
+            for condition_hash, (bytecode, cohort_set) in sorted(
+                condition_map.items()
+            )  # Sort by condition_hash for deterministic order
+        ]
+
+        # Sort cohort_ids for deterministic workflow ordering
+        cohort_ids = sorted(cohort_ids)
+
         self.stdout.write(
             self.style.SUCCESS(
-                f"\nDeduplicated {len(condition_map)} unique conditions across {len(cohort_ids)} cohorts"
+                f"\nDeduplicated {len(deduplicated_filters)} unique conditions across {len(cohort_ids)} cohorts"
             )
         )
-        for cond_hash, (_, cids) in condition_map.items():
-            self.stdout.write(f"  - {cond_hash} (used by cohorts: {sorted(cids)})")
+        for filter_obj in deduplicated_filters:
+            self.stdout.write(f"  - {filter_obj.condition_hash} (used by cohorts: {filter_obj.cohort_ids})")
 
         # Run single coordinator workflow with true deduplication
         self.stdout.write(
             self.style.SUCCESS(
-                f"\nProcessing {len(cohort_ids)} cohorts: reduced {total_original_filters} filters to {len(condition_map)} unique conditions"
+                f"\nProcessing {len(cohort_ids)} cohorts: reduced {total_original_filters} filters to {len(deduplicated_filters)} unique conditions"
             )
         )
 
         workflow_id = self.run_temporal_workflow(
             team_id=team_id,
-            deduplicated_conditions=condition_map,
+            filters=deduplicated_filters,
             cohort_ids=cohort_ids,
             parallelism=parallelism,
             batch_size=batch_size,
@@ -218,7 +233,7 @@ class Command(BaseCommand):
                 f"\nSuccessfully started single coordinator workflow for team {team_id}\n"
                 f"  Workflow ID: {workflow_id}\n"
                 f"  Cohorts: {cohort_ids}\n"
-                f"  Unique conditions: {len(condition_map)}\n"
+                f"  Unique conditions: {len(deduplicated_filters)}\n"
                 f"  Parallelism: {parallelism} workers"
             )
         )
@@ -229,7 +244,7 @@ class Command(BaseCommand):
     def run_temporal_workflow(
         self,
         team_id: int,
-        deduplicated_conditions: dict[str, tuple[list[Any], set[int]]],
+        filters: list[PersonPropertyFilter],
         cohort_ids: list[int],
         parallelism: int,
         batch_size: int,
@@ -242,10 +257,10 @@ class Command(BaseCommand):
             # Connect to Temporal
             client = await async_connect()
 
-            # Create coordinator workflow inputs with deduplicated conditions
+            # Create coordinator workflow inputs with deduplicated filters
             inputs = BackfillPrecalculatedPersonPropertiesCoordinatorInputs(
                 team_id=team_id,
-                deduplicated_conditions=deduplicated_conditions,
+                filters=filters,
                 cohort_ids=cohort_ids,
                 parallelism=parallelism,
                 batch_size=batch_size,

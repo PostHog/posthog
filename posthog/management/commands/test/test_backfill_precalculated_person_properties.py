@@ -78,18 +78,17 @@ class BackfillPrecalculatedPersonPropertiesCommandTestCase(BaseTest):
         # Verify the workflow was called
         self.assertTrue(mock_workflow.called)
         call_args = mock_workflow.call_args[1]
-        deduplicated_conditions = call_args["deduplicated_conditions"]
+        filters = call_args["filters"]
         cohort_ids = call_args["cohort_ids"]
 
-        # Should have deduplicated conditions with 1 unique condition shared by 2 cohorts
-        self.assertEqual(len(deduplicated_conditions), 1)
+        # Should have 1 filter shared by 2 cohorts
+        self.assertEqual(len(filters), 1)
         self.assertEqual(set(cohort_ids), {cohort1.id, cohort2.id})
 
         # The shared condition should be present with both cohorts
-        self.assertIn(shared_condition_hash, deduplicated_conditions)
-        bytecode, cohort_set = deduplicated_conditions[shared_condition_hash]
-        self.assertEqual(bytecode, shared_bytecode)
-        self.assertEqual(cohort_set, {cohort1.id, cohort2.id})
+        self.assertEqual(filters[0].condition_hash, shared_condition_hash)
+        self.assertEqual(filters[0].bytecode, shared_bytecode)
+        self.assertEqual(set(filters[0].cohort_ids), {cohort1.id, cohort2.id})
 
         # Verify output shows deduplication
         output = self.command_output.getvalue()
