@@ -61,24 +61,9 @@ grafana-token dev <your-dev-token>  # optional
 
 ### 4. Configure your MCP client
 
-#### Claude Code
+Add the wrapper script to your MCP client configuration. See the [Usage](#usage) section for single-server and multi-server configuration examples.
 
-Add to your Claude Code MCP configuration (`~/.claude/settings.json` or project's `.claude/settings.json`):
-
-```json
-{
-  "mcpServers": {
-    "grafana": {
-      "command": "/Users/YOUR_USERNAME/dev/posthog/posthog/infra-scripts/mcp/mcp-grafana-wrapper.sh",
-      "args": []
-    }
-  }
-}
-```
-
-#### Cursor / VS Code
-
-Add to your MCP settings:
+For a basic single-server setup, add to your MCP settings (`~/.config/claude-code/.mcp.json` for Claude Code, or your editor's MCP config):
 
 ```json
 {
@@ -93,7 +78,15 @@ Add to your MCP settings:
 
 ## Usage
 
-### Switching regions
+### Region selection
+
+The wrapper script determines which Grafana region to connect to using (in order of precedence):
+
+1. **`GRAFANA_REGION` env var** — set in your MCP client config (recommended for multi-server setups)
+2. **`~/.grafana-region` file** — set via the `grafana-region` command
+3. **Default** — `us` if neither is set
+
+#### Single-server setup (switching regions manually)
 
 Use the `grafana-region` command to switch between PostHog environments:
 
@@ -106,13 +99,60 @@ grafana-region dev      # Switch to dev environment
 
 **Important: Restart required after switching regions**
 
-MCP servers are initialized once when your AI assistant starts. The region is read from `~/.grafana-region` at startup, so changing the region file while the assistant is running has no effect until you restart.
+MCP servers are initialized once when your AI assistant starts. The region is read at startup, so changing the region while the assistant is running has no effect until you restart.
 
 To restart and apply the new region:
 
 - **Claude Code**: Type `/exit` to quit, then restart Claude Code
 - **Cursor**: Close and reopen the editor, or restart the MCP server from settings
 - **VS Code**: Reload the window (`Cmd+Shift+P` → "Developer: Reload Window")
+
+#### Multi-server setup (both regions simultaneously)
+
+Run two MCP server instances with the `GRAFANA_REGION` env var so both regions are available without restarting.
+You can also use `-disable-*` flags to reduce the tool surface per server (see `mcp-grafana --help` for the full list).
+
+##### Claude Code
+
+Add to `~/.config/claude-code/.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "grafana": {
+      "command": "/Users/YOUR_USERNAME/dev/posthog/posthog/infra-scripts/mcp/mcp-grafana-wrapper.sh",
+      "args": ["-disable-admin", "-disable-alerting", "-disable-incident", "-disable-oncall"],
+      "env": { "GRAFANA_REGION": "us" }
+    },
+    "grafana-eu": {
+      "command": "/Users/YOUR_USERNAME/dev/posthog/posthog/infra-scripts/mcp/mcp-grafana-wrapper.sh",
+      "args": ["-disable-admin", "-disable-alerting", "-disable-incident", "-disable-oncall"],
+      "env": { "GRAFANA_REGION": "eu" }
+    }
+  }
+}
+```
+
+#### Migrating from single-server to multi-server
+
+If you already have a single `grafana` server configured with both US and EU tokens in Keychain, run the migration script:
+
+```bash
+grafana-migrate-multi            # migrate with confirmation prompt
+grafana-migrate-multi --dry-run  # preview changes without writing
+grafana-migrate-multi --slim     # also normalize to recommended (smaller) disable-flag set
+```
+
+The script:
+
+1. Pins `GRAFANA_REGION=us` on your existing `grafana` entry
+2. Adds a `grafana-eu` entry (clone of `grafana` with `GRAFANA_REGION=eu`)
+3. Duplicates your `mcp__grafana__*` permissions for `mcp__grafana-eu__*` in `~/.claude/settings.json`
+
+With `--slim`, it also replaces the `args` on both entries with the recommended set (`-disable-admin`, `-disable-alerting`, `-disable-incident`, `-disable-oncall`), removing any extra disable flags you may have accumulated.
+
+Backups of modified files are saved with a `.bak` extension.
+After migrating, restart your MCP client. The `grafana-region` command is no longer needed since each server has its region pinned via env var.
 
 ### Checking token status
 
