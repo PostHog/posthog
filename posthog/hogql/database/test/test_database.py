@@ -1492,6 +1492,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         database = Database.create_for(team=self.team)
         serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
+        assert not database.has_table("analytics_platform_preaggregationjob")
+        assert "analytics_platform_preaggregationjob" not in database.get_warehouse_table_names()
         assert "analytics_platform_preaggregationjob" not in serialized
 
     def test_serialize_direct_postgres_table_uses_table_name_in_direct_mode(self) -> None:
@@ -1654,6 +1656,40 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert "enabled_table" in serialized
         assert "disabled_table" not in serialized
         assert database.get_serialization_errors() == {}
+
+    def test_direct_postgres_direct_mode_skips_tables_materialized_from_views(self) -> None:
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="materialized_table",
+            query={"kind": "HogQLQuery", "query": "SELECT event FROM events"},
+        )
+        DataWarehouseTable.objects.create(
+            name="materialized_table",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
+        serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
+
+        assert not database.has_table("materialized_table")
+        assert "materialized_table" not in serialized
 
     def test_deleted_direct_postgres_schema_does_not_reenable_table(self) -> None:
         credentials = DataWarehouseCredential.objects.create(
