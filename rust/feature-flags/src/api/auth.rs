@@ -2,9 +2,9 @@ use crate::{
     api::errors::FlagError, metrics::consts::PERSONAL_API_KEY_HASH_MODE_COUNTER,
     router::State as AppState, team::team_models::Team,
 };
-use common_metrics::inc;
 use axum::http::HeaderMap;
 use common_database::PostgresReader;
+use common_metrics::inc;
 use tracing::{debug, warn};
 
 /// Token prefix constants
