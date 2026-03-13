@@ -333,30 +333,23 @@ impl DeduplicationStore {
         self.store.update_db_metrics(Self::TIMESTAMP_CF)
     }
 
-    /// Create a checkpoint and return metadata about the checkpoint
-    /// This ensures consistency by:
-    /// 1. Flushing WAL to disk
-    /// 2. Flushing all column families
-    /// 3. Capturing sequence number for consistency verification
-    /// 4. Creating the checkpoint with hard links
+    /// Create a checkpoint and return metadata about the checkpoint.
+    /// Consistency is ensured by:
+    /// 1. Flushing WAL to disk (explicit)
+    /// 2. Capturing sequence number for consistency verification
+    /// 3. Creating the checkpoint with hard links (internally flushes
+    ///    memtables via log_size_for_flush=0 in rust-rocksdb 0.24)
     pub fn create_checkpoint_with_metadata<P: AsRef<std::path::Path>>(
         &self,
         checkpoint_path: P,
     ) -> Result<LocalCheckpointInfo> {
-        // Step 1: Flush WAL to ensure durability
         self.store.flush_wal(true)?;
 
-        // Step 2: Flush all column families to ensure data is in SST files
-        self.flush()?;
-
-        // Step 3: Get sequence number for consistency tracking
         let sequence = self.store.latest_sequence_number();
 
-        // Step 4: Get SST files after flush
-        let sst_files = self.get_sst_file_names()?;
-
-        // Step 5: Create the checkpoint (RocksDB internally handles file deletion safety)
         self.store.create_checkpoint(checkpoint_path)?;
+
+        let sst_files = self.get_sst_file_names()?;
 
         Ok(LocalCheckpointInfo {
             sst_files,
