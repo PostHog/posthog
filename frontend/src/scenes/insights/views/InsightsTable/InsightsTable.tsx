@@ -468,6 +468,9 @@ export function InsightsTable({
             firstColumnSticky
             pinnedColumns={pinnedColumns}
             maxHeaderWidth="20rem"
+            // Allow vertical scrolling within the card so long tables
+            // inside dashboards remain scrollable without resizing tiles.
+            allowContentScroll={isInDashboardContext}
         />
     )
 }

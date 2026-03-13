@@ -9,7 +9,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
-from posthog.models import FeatureFlag
+from posthog.models import FeatureFlag, Team
 from posthog.models.experiment import (
     Experiment,
     ExperimentHoldout,
@@ -324,6 +324,49 @@ class TestExperimentService(APIBaseTest):
         assert len(links) == 1
         assert links[0].saved_metric_id == saved_metric.id
         assert experiment.primary_metrics_ordered_uuids == ["sm-uuid"]
+
+    @parameterized.expand(
+        [
+            ("not_list", {"id": 1}, "Saved metrics must be a list"),
+            ("missing_id", [{"metadata": {"type": "primary"}}], "Saved metric must have an id"),
+            ("non_object", [[1]], "Saved metric must be an object"),
+            ("metadata_not_object", [{"id": 1, "metadata": "primary"}], "Metadata must be an object"),
+            ("metadata_missing_type", [{"id": 1, "metadata": {"xxx": "primary"}}], "Metadata must have a type key"),
+        ]
+    )
+    def test_create_experiment_validates_saved_metrics_payload(
+        self, _: str, saved_metrics_ids: object, expected_error: str
+    ) -> None:
+        self._create_flag(key="saved-metrics-invalid")
+        service = self._service()
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.create_experiment(
+                name="Saved Metrics Invalid",
+                feature_flag_key="saved-metrics-invalid",
+                saved_metrics_ids=saved_metrics_ids,  # type: ignore[arg-type]
+            )
+
+        assert expected_error in str(ctx.exception)
+
+    def test_create_experiment_rejects_saved_metrics_from_another_team(self) -> None:
+        self._create_flag(key="saved-metrics-team-check")
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        saved_metric = ExperimentSavedMetric.objects.create(
+            team=other_team,
+            name="Other Team Metric",
+            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "other-uuid", "event": "$pageview"},
+        )
+        service = self._service()
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.create_experiment(
+                name="Wrong Team Metric",
+                feature_flag_key="saved-metrics-team-check",
+                saved_metrics_ids=[{"id": saved_metric.id, "metadata": {"type": "primary"}}],
+            )
+
+        assert "Saved metric does not exist or does not belong to this project" in str(ctx.exception)
 
     # ------------------------------------------------------------------
     # Service contract fields
@@ -838,6 +881,34 @@ class TestExperimentService(APIBaseTest):
         fresh_experiment = Experiment.objects.get(id=experiment.id)
         assert fresh_experiment.primary_metrics_ordered_uuids == ["sm-1"]
         assert fresh_experiment.secondary_metrics_ordered_uuids == []
+
+    def test_update_experiment_validates_saved_metrics_before_mutation(self) -> None:
+        self._create_flag(key="saved-metrics-update-validate")
+        sm1 = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="SM1",
+            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "sm-1", "event": "$pageview"},
+        )
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Update Validation",
+            feature_flag_key="saved-metrics-update-validate",
+            saved_metrics_ids=[{"id": sm1.id, "metadata": {"type": "primary"}}],
+        )
+
+        with (
+            patch("django.db.models.query.QuerySet.delete") as delete_mock,
+            self.assertRaises(ValidationError) as ctx,
+        ):
+            service.update_experiment(
+                experiment,
+                {
+                    "saved_metrics_ids": [[sm1.id]],
+                },
+            )
+
+        assert "Saved metric must be an object" in str(ctx.exception)
+        delete_mock.assert_not_called()
 
     def test_update_experiment_validates_unknown_keys_before_saved_metric_mutation(self):
         self._create_flag(key="validate-before-mutate")
