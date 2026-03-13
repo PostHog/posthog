@@ -27,6 +27,7 @@ export const DEFAULT_PERSON_PROFILE_CONTENT: JSONContent[] = [
     { type: NotebookNodeType.LLMTrace, index: 3, attrs: { title: 'LLM traces' } },
     { type: NotebookNodeType.ZendeskTickets, index: 4, attrs: { title: 'Zendesk tickets' } },
     { type: NotebookNodeType.Issues, index: 5, attrs: { title: 'Issues' } },
+    { type: NotebookNodeType.SupportTickets, index: 6, attrs: { title: 'Support tickets' } },
 ]
 
 export const DEFAULT_GROUP_PROFILE_SIDEBAR: JSONContent[] = [
@@ -46,7 +47,7 @@ export const DEFAULT_GROUP_PROFILE_CONTENT: JSONContent[] = [
 
 export type CustomerProfileAttrs = {
     personId?: string | undefined
-    distinctId?: string
+    distinctIds?: string[]
     groupKey?: string
     groupTypeIndex?: GroupTypeIndex
 }
@@ -144,11 +145,16 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
             ],
             (scopedSidebarContent, scopedAddAttrFunction, featureFlags, scope, attrs) => {
                 const isJourneysEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_JOURNEYS]
+                const isSupportEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT]
                 const scopedDefaultContent = (
                     scope === CustomerProfileScope.PERSON
                         ? DEFAULT_PERSON_PROFILE_CONTENT
                         : DEFAULT_GROUP_PROFILE_CONTENT
-                ).filter((node) => node.type !== NotebookNodeType.CustomerJourney || isJourneysEnabled)
+                ).filter(
+                    (node) =>
+                        (node.type !== NotebookNodeType.CustomerJourney || isJourneysEnabled) &&
+                        (node.type !== NotebookNodeType.SupportTickets || isSupportEnabled)
+                )
 
                 const sidebar = scopedSidebarContent.map((node) => scopedAddAttrFunction({ attrs, node }))
                 return scopedDefaultContent.map((node, index) => {
@@ -274,7 +280,7 @@ export interface AddAttrsToNodeProps {
 
 export function addPersonAttrsToNode({ attrs, node, children = [] }: AddAttrsToNodeProps): JSONContent {
     const personId = attrs?.personId
-    const distinctId = attrs?.distinctId
+    const distinctId = attrs?.distinctIds?.[0]
     const nodeId = `${node.type}-${personId}`
 
     switch (node.type) {
@@ -286,6 +292,11 @@ export function addPersonAttrsToNode({ attrs, node, children = [] }: AddAttrsToN
             return {
                 ...node,
                 attrs: { ...node.attrs, nodeId, personId, children },
+            }
+        case NotebookNodeType.SupportTickets:
+            return {
+                ...node,
+                attrs: { ...node.attrs, nodeId, personId, distinctIds: attrs?.distinctIds, children },
             }
         case NotebookNodeType.PersonFeed:
             return {
