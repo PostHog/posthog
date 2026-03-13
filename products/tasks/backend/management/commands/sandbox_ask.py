@@ -17,6 +17,7 @@ class Command(BaseCommand):
     help = (
         "Ask a question about a repository via a sandbox agent. "
         "The agent clones the repo and answers using the full codebase as context."
+        "Could be used as a smoke-test during development."
     )
 
     def add_arguments(self, parser):
