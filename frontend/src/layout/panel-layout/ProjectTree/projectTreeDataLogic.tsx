@@ -11,6 +11,7 @@ import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, humanList, identifierToHuman, pluralize } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -463,6 +464,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                   href: item.href,
                               }
                     const response = await api.fileSystemShortcuts.create(shortcutItem)
+                    eventUsageLogic.actions.reportNavbarStarredItemAdded(shortcutItem.type, shortcutPath)
                     const isAIFirst = values.featureFlags[FEATURE_FLAGS.AI_FIRST]
                     lemonToast.success(isAIFirst ? 'Added to starred' : 'Shortcut created successfully', {
                         button: {
@@ -478,7 +480,9 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     )
                 },
                 deleteShortcut: async ({ id }) => {
+                    const shortcut = values.shortcutData.find((s) => s.id === id)
                     await api.fileSystemShortcuts.delete(id)
+                    eventUsageLogic.actions.reportNavbarStarredItemRemoved(shortcut?.path ?? 'unknown')
                     const isAIFirst = values.featureFlags[FEATURE_FLAGS.AI_FIRST]
                     if (isAIFirst) {
                         lemonToast.success('Removed from starred')

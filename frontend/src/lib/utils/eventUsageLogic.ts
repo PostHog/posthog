@@ -921,6 +921,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportUsageMetricCreated: () => true,
         reportUsageMetricUpdated: () => true,
         reportUsageMetricDeleted: () => true,
+        // navbar starred
+        reportNavbarStarredItemAdded: (itemType: string, itemName: string) => ({ itemType, itemName }),
+        reportNavbarStarredItemRemoved: (itemName: string) => ({ itemName }),
+        reportNavbarStarredItemClicked: (itemType: string, itemName: string) => ({ itemType, itemName }),
     }),
     listeners(({ values }) => ({
         reportBillingCTAShown: () => {
@@ -2206,6 +2210,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             }
             const eventName = delay ? 'person profile analyzed' : 'person profile viewed'
             posthog.capture(eventName, { delay })
+        },
+        reportNavbarStarredItemAdded: ({ itemType, itemName }) => {
+            posthog.capture('navbar starred item added', { item_type: itemType, item_name: itemName })
+        },
+        reportNavbarStarredItemRemoved: ({ itemName }) => {
+            posthog.capture('navbar starred item removed', { item_name: itemName })
+        },
+        reportNavbarStarredItemClicked: ({ itemType, itemName }) => {
+            posthog.capture('navbar starred item clicked', { item_type: itemType, item_name: itemName })
         },
     })),
 ])
