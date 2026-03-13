@@ -697,12 +697,24 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }),
         ],
         controls: [
-            (s) => [s.isPathCleaningEnabled, s.shouldFilterTestAccounts, s.shouldStripQueryParams, s.includeHostPath],
-            (isPathCleaningEnabled, filterTestAccounts, shouldStripQueryParams, includeHostPath) => ({
+            (s) => [
+                s.isPathCleaningEnabled,
+                s.shouldFilterTestAccounts,
+                s.shouldStripQueryParams,
+                s.includeHostPath,
+                s.featureFlags,
+            ],
+            (
+                isPathCleaningEnabled: boolean,
+                filterTestAccounts: boolean,
+                shouldStripQueryParams: boolean,
+                includeHostPath: boolean,
+                featureFlags: Record<string, boolean>
+            ) => ({
                 isPathCleaningEnabled,
                 filterTestAccounts,
                 shouldStripQueryParams,
-                includeHostPath,
+                includeHostPath: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_INCLUDE_HOST] && includeHostPath,
             }),
         ],
         filters: [
