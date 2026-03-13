@@ -1,8 +1,9 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from posthoganalytics.client import Client
 
 from posthog.feature_flags.sdk_cache_provider import HyperCacheFlagProvider
 
@@ -84,3 +85,121 @@ class TestHyperCacheFlagProvider(SimpleTestCase):
         from posthoganalytics.flag_definition_cache import FlagDefinitionCacheProvider
 
         assert isinstance(self.provider, FlagDefinitionCacheProvider)
+
+
+SAMPLE_FLAGS = {
+    "flags": [
+        {"id": 1, "key": "beta-feature", "active": True, "filters": {"groups": [{"rollout_percentage": 100}]}},
+        {"id": 2, "key": "disabled-flag", "active": False, "filters": {}},
+    ],
+    "group_type_mapping": {"0": "company", "1": "project"},
+    "cohorts": {"10": {"properties": [{"key": "plan", "value": "enterprise"}]}},
+}
+
+
+class TestSDKClientIntegration(SimpleTestCase):
+    """Test HyperCacheFlagProvider with a real posthoganalytics.Client."""
+
+    def _make_client(self, provider: HyperCacheFlagProvider) -> Client:
+        return Client(
+            project_api_key="test-key",
+            personal_api_key="test-personal-key",
+            host="http://localhost:8000",
+            flag_definition_cache_provider=provider,
+            poll_interval=99999,  # prevent background polling
+            send=False,
+            enable_exception_autocapture=False,
+        )
+
+    def test_sdk_loads_flags_from_provider_instead_of_api(self):
+        mock_hypercache = MagicMock()
+        mock_hypercache.get_from_cache.return_value = SAMPLE_FLAGS
+        provider = HyperCacheFlagProvider(team_id=2)
+        provider._hypercache = mock_hypercache
+
+        client = self._make_client(provider)
+
+        with patch.object(client, "_fetch_feature_flags_from_api") as mock_api:
+            client._load_feature_flags()
+
+            mock_api.assert_not_called()
+
+        assert len(client.feature_flags) == 2
+        assert client.feature_flags_by_key["beta-feature"]["active"] is True
+        assert client.group_type_mapping == {"0": "company", "1": "project"}
+        assert client.cohorts == {"10": {"properties": [{"key": "plan", "value": "enterprise"}]}}
+
+    def test_sdk_falls_back_to_api_when_cache_is_empty_and_no_flags_loaded(self):
+        mock_hypercache = MagicMock()
+        mock_hypercache.get_from_cache.return_value = None
+        provider = HyperCacheFlagProvider(team_id=2)
+        provider._hypercache = mock_hypercache
+
+        client = self._make_client(provider)
+
+        with patch.object(client, "_fetch_feature_flags_from_api") as mock_api:
+            client._load_feature_flags()
+
+            mock_api.assert_called_once()
+
+    def test_sdk_skips_api_when_cache_empty_but_flags_already_loaded(self):
+        mock_hypercache = MagicMock()
+        provider = HyperCacheFlagProvider(team_id=2)
+        provider._hypercache = mock_hypercache
+
+        client = self._make_client(provider)
+
+        # First call: cache has data → loads flags
+        mock_hypercache.get_from_cache.return_value = SAMPLE_FLAGS
+        client._load_feature_flags()
+        assert len(client.feature_flags) == 2
+
+        # Second call: cache is empty → keeps existing flags, no API call
+        mock_hypercache.get_from_cache.return_value = None
+
+        with patch.object(client, "_fetch_feature_flags_from_api") as mock_api:
+            client._load_feature_flags()
+
+            mock_api.assert_not_called()
+
+        # Flags from the first load are still there
+        assert len(client.feature_flags) == 2
+
+    def test_sdk_picks_up_flag_changes_on_next_poll(self):
+        mock_hypercache = MagicMock()
+        provider = HyperCacheFlagProvider(team_id=2)
+        provider._hypercache = mock_hypercache
+
+        client = self._make_client(provider)
+
+        # Initial load
+        mock_hypercache.get_from_cache.return_value = SAMPLE_FLAGS
+        client._load_feature_flags()
+        assert client.feature_flags_by_key["beta-feature"]["active"] is True
+
+        # Flag changed in HyperCache (e.g., toggled off via Django admin)
+        updated_flags = {
+            "flags": [
+                {"id": 1, "key": "beta-feature", "active": False, "filters": {}},
+            ],
+            "group_type_mapping": {},
+            "cohorts": {},
+        }
+        mock_hypercache.get_from_cache.return_value = updated_flags
+        client._load_feature_flags()
+
+        assert client.feature_flags_by_key["beta-feature"]["active"] is False
+        assert len(client.feature_flags) == 1
+
+    def test_sdk_falls_back_to_api_when_provider_raises(self):
+        mock_hypercache = MagicMock()
+        mock_hypercache.get_from_cache.side_effect = Exception("Redis down")
+        provider = HyperCacheFlagProvider(team_id=2)
+        provider._hypercache = mock_hypercache
+
+        client = self._make_client(provider)
+
+        with patch.object(client, "_fetch_feature_flags_from_api") as mock_api:
+            client._load_feature_flags()
+
+            mock_api.assert_called_once()

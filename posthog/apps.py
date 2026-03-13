@@ -78,6 +78,9 @@ class PostHogConfig(AppConfig):
         # Falls back to the SDK's emergency API fetch (via personal_api_key) only when
         # the cache is cold. In E2E testing personal_api_key is None, so a cold cache
         # will result in no flag definitions being loaded — which is acceptable there.
+        if settings.DEBUG and str_to_bool(os.environ.get("POSTHOG_ENABLE_SDK_CACHE_PROVIDER", "false")):
+            posthoganalytics.disabled = False
+
         if not posthoganalytics.disabled:
             from posthog.feature_flags.sdk_cache_provider import HyperCacheFlagProvider
 
