@@ -284,9 +284,13 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             SessionRecordingExternalReferenceSerializer,
         )
 
+        external_references_manager = getattr(obj, "external_references", None)
+        if external_references_manager is None:
+            return []
+
         return list(
             SessionRecordingExternalReferenceSerializer(
-                obj.external_references.select_related("integration").all(),
+                external_references_manager.select_related("integration").all(),
                 many=True,
                 context=self.context,
             ).data
