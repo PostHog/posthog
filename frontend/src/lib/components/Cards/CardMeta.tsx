@@ -195,7 +195,7 @@ export function CardMeta({
                                     }
                                 >
                                     <div
-                                        className="shrink-0 cursor-default"
+                                        className="shrink-0 cursor-pointer"
                                         onMouseEnter={showDetails}
                                         onMouseLeave={hideDetails}
                                     >
