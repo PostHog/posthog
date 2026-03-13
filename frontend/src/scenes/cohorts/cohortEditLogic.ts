@@ -281,7 +281,6 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             errors: ({ name, is_static, filters, query }) => ({
                 name: !name ? 'Cohort name cannot be empty' : undefined,
                 csv: undefined,
-                query: query && !query.query ? 'HogQL query cannot be empty' : undefined,
                 filters: {
                     properties: {
                         values: is_static || query ? undefined : filters.properties.values.map(validateGroup),

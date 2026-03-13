@@ -651,8 +651,8 @@ def _strip_trailing_settings_clause(sql: str) -> str:
     """
     import re
 
-    match = re.search(r"\nSETTINGS\s", sql)
-    return sql[: match.start()] if match else sql
+    matches = list(re.finditer(r"\sSETTINGS\s", sql))
+    return sql[: matches[-1].start()] if matches else sql
 
 
 def _recalculate_cohortpeople_for_team_hogql(
