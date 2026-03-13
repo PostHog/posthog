@@ -7,7 +7,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase, override_settings
 
-from posthog.models.snippet_versioning import REDIS_POINTER_MAP_KEY
+from posthog.models.snippet_versioning import REDIS_POINTER_MAP_KEY, ManifestSyncError
 
 
 class TestPublish(SimpleTestCase):
@@ -191,3 +191,20 @@ class TestYank(SimpleTestCase):
 
         mock_storage.write.assert_not_called()
         assert cache.get(REDIS_POINTER_MAP_KEY) is None
+
+
+class TestSync(SimpleTestCase):
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    @patch("posthog.management.commands.snippet_version.sync_manifest_from_s3")
+    def test_sync_runs_successfully(self, mock_sync):
+        mock_sync.return_value = {"versions": ["1.358.0"], "pointers": {"1": "1.358.0"}}
+        call_command("snippet_version", "sync")
+        mock_sync.assert_called_once()
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    @patch("posthog.management.commands.snippet_version.sync_manifest_from_s3")
+    def test_sync_raises_command_error_on_manifest_sync_error(self, mock_sync):
+        mock_sync.side_effect = ManifestSyncError("versions.json not found in S3")
+        with self.assertRaises(CommandError) as ctx:
+            call_command("snippet_version", "sync")
+        assert "versions.json not found in S3" in str(ctx.exception)

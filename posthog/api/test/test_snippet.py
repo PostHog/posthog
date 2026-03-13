@@ -92,6 +92,37 @@ class TestSnippetVersionAPI(APIBaseTest):
         assert data["resolved_version"] == "1.358.0"
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    def test_patch_empty_string_clears_pin(self):
+        # First set a pin
+        self.client.patch(
+            f"/api/projects/{self.team.id}/snippet/version/",
+            {"snippet_version_pin": "1.358.0"},
+            content_type="application/json",
+        )
+        # Then clear it with empty string
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/snippet/version/",
+            {"snippet_version_pin": ""},
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["snippet_version_pin"] is None
+        assert data["resolved_version"] == "1.359.0"
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    def test_patch_null_clears_pin(self):
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/snippet/version/",
+            {"snippet_version_pin": None},
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["snippet_version_pin"] is None
+        assert data["resolved_version"] == "1.359.0"
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
     def test_patch_unknown_version_rejected(self):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/snippet/version/",

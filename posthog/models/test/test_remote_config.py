@@ -309,6 +309,31 @@ class TestRemoteConfigSdkVersion(_RemoteConfigBase):
         assert "sdkVersion" in config
         assert "scriptBaseUrl" not in config["sdkVersion"]
 
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    def test_sdk_version_reflects_team_pin(self):
+        import json
+
+        from django.core.cache import cache
+
+        from posthog.models.snippet_versioning import REDIS_POINTER_MAP_KEY
+        from posthog.models.team.extensions import get_or_create_team_extension
+        from posthog.models.team.snippet_config import TeamSnippetConfig
+
+        manifest = {
+            "versions": ["1.358.0", "1.359.0"],
+            "pointers": {"1": "1.359.0", "1.358": "1.358.0", "1.359": "1.359.0"},
+        }
+        cache.set(REDIS_POINTER_MAP_KEY, json.dumps(manifest), timeout=None)
+
+        snippet_config = get_or_create_team_extension(self.team, TeamSnippetConfig)
+        snippet_config.snippet_version_pin = "1.358"
+        snippet_config.save()
+        self.sync_remote_config()
+
+        config = RemoteConfig.get_config_via_token(self.team.api_token)
+        assert config["sdkVersion"]["requested"] == "1.358"
+        assert config["sdkVersion"]["resolved"] == "1.358.0"
+
 
 class TestRemoteConfigSurveys(_RemoteConfigBase):
     # Largely copied from TestSurveysAPIList
