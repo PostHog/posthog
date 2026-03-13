@@ -111,7 +111,8 @@ export function DashboardItems(): JSX.Element {
 
     const effectiveZoom = dashboardMode === DashboardMode.Edit && showLayoutZoom ? layoutZoom : 1
     const rowHeight = BASE_ROW_HEIGHT * effectiveZoom
-    const margin = BASE_MARGIN.map((m) => m * effectiveZoom) as [number, number]
+    const spacingFactor = 1
+    const margin = BASE_MARGIN.map((m) => m * spacingFactor) as [number, number]
 
     return (
         <div className="dashboard-items-wrapper" ref={gridWrapperRef}>
