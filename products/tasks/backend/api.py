@@ -3,12 +3,14 @@ import json
 import uuid
 import logging
 import traceback
+from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import cast
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import F
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 from django.utils import timezone
 
 import requests as http_requests
@@ -28,6 +30,8 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import CodeInviteThrottle
 from posthog.storage import object_storage
+
+from ee.hogai.utils.aio import async_to_sync
 
 from .models import CodeInvite, CodeInviteRedemption, Task, TaskRun
 from .repository_readiness import compute_repository_readiness
@@ -53,6 +57,7 @@ from .serializers import (
     TaskSerializer,
 )
 from .services.connection_token import create_sandbox_connection_token
+from .stream.redis_stream import TaskRunRedisStream, TaskRunStreamError, get_task_run_stream_key
 from .temporal.client import execute_task_processing_workflow, execute_twig_agent_relay_workflow
 
 logger = logging.getLogger(__name__)
@@ -216,10 +221,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def run(self, request, pk=None, **kwargs):
         task = cast(Task, self.get_object())
         mode = request.validated_data.get("mode", "background")
+        branch = request.validated_data.get("branch")
 
-        logger.info(f"Creating task run for task {task.id} with mode={mode}")
+        logger.info(f"Creating task run for task {task.id} with mode={mode}, branch={branch}")
 
-        task_run = task.create_run(mode=mode)
+        task_run = task.create_run(mode=mode, branch=branch)
 
         logger.info(f"Triggering workflow for task {task.id}, run {task_run.id}")
 
@@ -253,6 +259,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "relay_message",
             "session_logs",
             "command",
+            "stream",
         ]
     }
     http_method_names = ["get", "post", "patch", "head", "options"]
@@ -478,6 +485,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def relay_message(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
         if task_run.is_terminal:
+            return Response({"status": "skipped"})
+
+        # Skip relay for non-Slack tasks — no thread to post to
+        from products.slack_app.backend.models import SlackThreadTaskMapping
+
+        if not SlackThreadTaskMapping.objects.filter(task_run=task_run).exists():
             return Response({"status": "skipped"})
 
         text = request.validated_data["text"].strip()
@@ -903,6 +916,29 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         response["Cache-Control"] = "no-cache"
         response["Server-Timing"] = timer.to_header_string()
         return response
+
+    @action(detail=True, methods=["get"], url_path="stream", required_scopes=["task:read"])
+    def stream(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        stream_key = get_task_run_stream_key(str(task_run.id))
+
+        async def async_stream() -> AsyncGenerator[bytes, None]:
+            redis_stream = TaskRunRedisStream(stream_key)
+            if not await redis_stream.wait_for_stream():
+                yield b'event: error\ndata: {"error":"Stream not available"}\n\n'
+                return
+            try:
+                async for event in redis_stream.read_stream():
+                    yield f"data: {json.dumps(event)}\n\n".encode()
+            except TaskRunStreamError as e:
+                logger.error("TaskRunRedisStream error for stream %s: %s", stream_key, e, exc_info=True)
+                yield b'event: error\ndata: {"error": "Stream error"}\n\n'
+
+        return StreamingHttpResponse(
+            async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_to_sync(lambda: async_stream()),
+            content_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     @staticmethod
     def _get_event_type(entry: dict) -> str:

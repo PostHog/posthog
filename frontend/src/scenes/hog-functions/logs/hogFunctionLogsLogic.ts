@@ -190,7 +190,7 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
                     )
 
                     if (!entryContainingEventId) {
-                        return undefined
+                        continue
                     }
 
                     for (const matcher of eventIdMatchers) {

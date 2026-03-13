@@ -11,7 +11,10 @@ use metrics::counter;
 
 impl FeatureFlagList {
     pub fn new(flags: Vec<FeatureFlag>) -> Self {
-        Self { flags }
+        Self {
+            flags,
+            ..Default::default()
+        }
     }
 
     /// Parses a JSON Value from hypercache into a list of feature flags.
@@ -91,19 +94,14 @@ impl FeatureFlagList {
                   f.version,
                   f.evaluation_runtime,
                   COALESCE(
-                      ARRAY_AGG(tag.name) FILTER (WHERE tag.name IS NOT NULL),
+                      ARRAY_AGG(ctx.name) FILTER (WHERE ctx.name IS NOT NULL),
                       '{}'::text[]
                   ) AS evaluation_tags,
                   bucketing_identifier
               FROM posthog_featureflag AS f
               JOIN posthog_team AS t ON (f.team_id = t.id)
-              -- Evaluation tags are distinct from organizational tags. This bridge table links
-              -- flags to tags that constrain runtime evaluation. We use LEFT JOIN to retain flags
-              -- with zero evaluation tags, so ARRAY_AGG(...) returns an empty array rather than
-              -- dropping the flag row entirely.
-              LEFT JOIN posthog_featureflagevaluationtag AS et ON (f.id = et.feature_flag_id)
-              -- Only fetch names for tags that are evaluation constraints (not all org tags)
-              LEFT JOIN posthog_tag AS tag ON (et.tag_id = tag.id)
+              LEFT JOIN posthog_featureflagevaluationcontext AS ec ON (f.id = ec.feature_flag_id)
+              LEFT JOIN posthog_evaluationcontext AS ctx ON (ec.evaluation_context_id = ctx.id)
             WHERE t.id = $1
               AND f.deleted = false
               -- Exclude encrypted remote config flags - they can only be accessed via

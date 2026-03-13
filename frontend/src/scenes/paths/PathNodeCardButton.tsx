@@ -64,7 +64,9 @@ export function PathNodeCardButton({
             <div className="font-semibold overflow-hidden max-h-16">
                 <span className="text-xxs text-secondary mr-1">{`0${name[0]}`}</span>
                 <Tooltip title={tooltipContent} placement="right">
-                    <span className="text-xs break-words">{displayName}</span>
+                    <span className="text-xs break-words" data-attr="path-node-name">
+                        {displayName}
+                    </span>
                     {isTruncated && <IconInfo className="ml-1 text-muted align-text-bottom" />}
                 </Tooltip>
             </div>
@@ -72,7 +74,9 @@ export function PathNodeCardButton({
             <PopoverReferenceContext.Provider value={null}>
                 <div className="flex flex-nowrap">
                     <LemonButton size="small" onClick={openModal}>
-                        <span className="text-link text-xs px-1 font-medium">{count}</span>
+                        <span className="text-link text-xs px-1 font-medium" data-attr="path-node-count">
+                            {count}
+                        </span>
                     </LemonButton>
                     <LemonMenu
                         items={[

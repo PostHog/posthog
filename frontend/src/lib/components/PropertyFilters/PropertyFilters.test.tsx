@@ -87,7 +87,7 @@ describe('PropertyFilters', () => {
     it('add filter: click add, search, select property, verify onChange shape', async () => {
         const { onChange } = renderPropertyFilters({ sendAllKeyUpdates: true })
 
-        userEvent.click(screen.getByTestId('new-prop-filter-test-page'))
+        await userEvent.click(screen.getByTestId('new-prop-filter-test-page'))
 
         await waitFor(() => {
             expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
@@ -99,7 +99,7 @@ describe('PropertyFilters', () => {
             expect(screen.getAllByText('$browser').length).toBeGreaterThanOrEqual(1)
         })
 
-        userEvent.click(screen.getByTestId('prop-filter-event_properties-0'))
+        await userEvent.click(screen.getByTestId('prop-filter-event_properties-0'))
 
         await waitFor(() => {
             expect(onChange).toHaveBeenCalled()
@@ -119,7 +119,7 @@ describe('PropertyFilters', () => {
 
         const firstRow = screen.getByTestId('property-filter-0')
         const closeButton = firstRow.querySelector('.PropertyFilterButton--closeable .LemonButton')
-        userEvent.click(closeButton!)
+        await userEvent.click(closeButton!)
 
         await waitFor(() => {
             expect(onChange).toHaveBeenCalled()
@@ -145,7 +145,7 @@ describe('PropertyFilters', () => {
             </Provider>
         )
 
-        userEvent.click(screen.getByTestId('new-prop-filter-round-trip'))
+        await userEvent.click(screen.getByTestId('new-prop-filter-round-trip'))
         await waitFor(() => {
             expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
         })
@@ -155,7 +155,7 @@ describe('PropertyFilters', () => {
             expect(screen.getAllByText('$browser').length).toBeGreaterThanOrEqual(1)
         })
 
-        userEvent.click(screen.getByTestId('prop-filter-event_properties-0'))
+        await userEvent.click(screen.getByTestId('prop-filter-event_properties-0'))
         await waitFor(() => {
             expect(onChange).toHaveBeenCalled()
         })

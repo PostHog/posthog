@@ -40,7 +40,7 @@ const counterDefault = (dateFrom: Dayjs | string | null | undefined): number => 
 
 const dateOptionDefault = (dateFrom: Dayjs | string | null | undefined): DateOption => {
     if (dateFrom && typeof dateFrom === 'string') {
-        const dateOption = dateOptionsMap[dateFrom.slice(-1)]
+        const dateOption = dateOptionsMap[dateFrom.slice(-1) as keyof typeof dateOptionsMap]
         if (dateOption) {
             return dateOption
         }

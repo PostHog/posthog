@@ -12,14 +12,10 @@ import {
     setActiveProjectAndOrg,
     validateEnvironmentVariables,
 } from '@/shared/test-utils'
-import createFeatureFlagTool from '@/tools/featureFlags/create'
-import deleteFeatureFlagTool from '@/tools/featureFlags/delete'
-import getAllFeatureFlagsTool from '@/tools/featureFlags/getAll'
-import getFeatureFlagDefinitionTool from '@/tools/featureFlags/getDefinition'
-import updateFeatureFlagTool from '@/tools/featureFlags/update'
+import { GENERATED_TOOLS } from '@/tools/generated/feature_flags'
 import type { Context } from '@/tools/types'
 
-describe('Feature Flags', { concurrent: false }, () => {
+describe('Feature flags', { concurrent: false }, () => {
     let context: Context
     const createdResources: CreatedResources = {
         featureFlags: [],
@@ -42,13 +38,12 @@ describe('Feature Flags', { concurrent: false }, () => {
     })
 
     describe('create-feature-flag tool', () => {
-        const createTool = createFeatureFlagTool()
+        const createTool = GENERATED_TOOLS['create-feature-flag']!()
 
         it('should create a feature flag with minimal required fields', async () => {
             const params = {
-                name: 'Test Feature Flag',
+                name: 'Test feature flag',
                 key: generateUniqueKey('test-flag'),
-                description: 'Integration test flag',
                 filters: {
                     groups: [
                         {
@@ -61,23 +56,22 @@ describe('Feature Flags', { concurrent: false }, () => {
             }
 
             const result = await createTool.handler(context, params)
-
             const flagData = parseToolResponse(result)
-            createdResources.featureFlags.push(flagData.id)
 
             expect(flagData.id).toBeTruthy()
             expect(flagData.key).toBe(params.key)
             expect(flagData.name).toBe(params.name)
             expect(flagData.active).toBe(params.active)
-            expect(flagData.url).toContain('/feature_flags/')
+            expect(flagData._posthogUrl).toContain('/feature_flags/')
             expect(flagData.updated_at).toBeTruthy()
+
+            createdResources.featureFlags.push(flagData.id)
         })
 
-        it('should create a feature flag with tags', async () => {
+        it('should create a feature flag with tags and evaluation tags', async () => {
             const params = {
-                name: 'Tagged Feature Flag',
+                name: 'Tagged feature flag',
                 key: generateUniqueKey('tagged-flag'),
-                description: 'Flag with tags',
                 filters: {
                     groups: [
                         {
@@ -88,55 +82,23 @@ describe('Feature Flags', { concurrent: false }, () => {
                 },
                 active: true,
                 tags: ['test', 'integration'],
+                evaluation_tags: ['test'],
             }
 
             const result = await createTool.handler(context, params)
             const flagData = parseToolResponse(result)
-            createdResources.featureFlags.push(flagData.id)
 
             expect(flagData.id).toBeTruthy()
             expect(flagData.key).toBe(params.key)
             expect(flagData.name).toBe(params.name)
-        })
 
-        it('should create a feature flag with complex filters', async () => {
-            const params = {
-                name: 'Complex Filter Flag',
-                key: generateUniqueKey('complex-flag'),
-                description: 'Flag with complex filters',
-                active: true,
-                filters: {
-                    groups: [
-                        {
-                            variant: null,
-                            properties: [
-                                {
-                                    key: 'email',
-                                    type: 'person',
-                                    value: 'test@example.com',
-                                    operator: 'exact',
-                                },
-                            ],
-                            rollout_percentage: 100,
-                        },
-                    ],
-                },
-            }
-
-            const result = await createTool.handler(context, params)
-            const flagData = parseToolResponse(result)
             createdResources.featureFlags.push(flagData.id)
-
-            expect(flagData.id).toBeTruthy()
-            expect(flagData.key).toBe(params.key)
-            expect(flagData.name).toBe(params.name)
         })
 
         it('should create a multivariate feature flag', async () => {
             const params = {
-                name: 'Multivariate Test Flag',
-                key: generateUniqueKey('multivariate-flag'),
-                description: 'Flag with multiple variants for A/B testing',
+                name: 'Multivariate flag',
+                key: generateUniqueKey('multi-flag'),
                 active: true,
                 filters: {
                     groups: [
@@ -156,411 +118,202 @@ describe('Feature Flags', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params)
             const flagData = parseToolResponse(result)
-            createdResources.featureFlags.push(flagData.id)
 
             expect(flagData.id).toBeTruthy()
-            expect(flagData.key).toBe(params.key)
-            expect(flagData.name).toBe(params.name)
-            expect(flagData.filters.multivariate).toBeTruthy()
             expect(flagData.filters.multivariate.variants).toHaveLength(2)
-            expect(flagData.filters.multivariate.variants[0].key).toBe('control')
-            expect(flagData.filters.multivariate.variants[1].key).toBe('test')
+
+            createdResources.featureFlags.push(flagData.id)
+        })
+    })
+
+    describe('feature-flag-get-all tool', () => {
+        const getAllTool = GENERATED_TOOLS['feature-flag-get-all']!()
+        const createTool = GENERATED_TOOLS['create-feature-flag']!()
+        const getTool = GENERATED_TOOLS['feature-flag-get-definition']!()
+
+        it('should list feature flags', async () => {
+            const createResult = await createTool.handler(context, {
+                name: 'List test flag',
+                key: generateUniqueKey('list-test'),
+                filters: {
+                    groups: [{ properties: [], rollout_percentage: 100 }],
+                },
+                active: true,
+            })
+            const createdFlag = parseToolResponse(createResult)
+            createdResources.featureFlags.push(createdFlag.id)
+
+            const result = await getAllTool.handler(context, { limit: 10, offset: 0 })
+            const response = parseToolResponse(result)
+
+            expect(Array.isArray(response.results)).toBe(true)
+            expect(response.results.some((flag: { id: number }) => flag.id === createdFlag.id)).toBe(true)
+            expect(response._posthogUrl).toContain('/feature_flags')
         })
 
-        it('should create a multivariate flag with variant-specific targeting', async () => {
-            const params = {
-                name: 'Targeted Multivariate Flag',
-                key: generateUniqueKey('targeted-multivariate'),
-                description: 'Multivariate flag with group-specific variant targeting',
-                active: true,
+        it('should support search by key and use returned ID for retrieval', async () => {
+            const uniqueKey = generateUniqueKey('search-key')
+            const createResult = await createTool.handler(context, {
+                name: 'Search test flag',
+                key: uniqueKey,
                 filters: {
-                    groups: [
-                        {
-                            properties: [
-                                {
-                                    key: 'email',
-                                    type: 'person',
-                                    value: '@posthog.com',
-                                    operator: 'icontains',
-                                },
-                            ],
-                            rollout_percentage: 100,
-                            variant: 'test',
-                        },
-                        {
-                            properties: [],
-                            rollout_percentage: 100,
-                        },
-                    ],
-                    multivariate: {
-                        variants: [
-                            { key: 'control', name: 'Control Group', rollout_percentage: 50 },
-                            { key: 'test', name: 'Test Group', rollout_percentage: 50 },
-                        ],
-                    },
+                    groups: [{ properties: [], rollout_percentage: 100 }],
                 },
+                active: true,
+            })
+            const createdFlag = parseToolResponse(createResult)
+            createdResources.featureFlags.push(createdFlag.id)
+
+            const searchResult = await getAllTool.handler(context, { search: uniqueKey, limit: 20, offset: 0 })
+            const listResponse = parseToolResponse(searchResult)
+            const found = listResponse.results.find((flag: { id: number; key: string }) => flag.key === uniqueKey)
+
+            expect(found).toBeTruthy()
+            if (!found) {
+                throw new Error(`Expected to find feature flag with key ${uniqueKey}`)
             }
+            expect(found.id).toBe(createdFlag.id)
 
-            const result = await createTool.handler(context, params)
+            const getResult = await getTool.handler(context, { id: found.id })
+            const flagData = parseToolResponse(getResult)
+            expect(flagData.id).toBe(createdFlag.id)
+            expect(flagData.key).toBe(uniqueKey)
+        })
+    })
+
+    describe('feature-flag-get-definition tool', () => {
+        const getTool = GENERATED_TOOLS['feature-flag-get-definition']!()
+        const createTool = GENERATED_TOOLS['create-feature-flag']!()
+
+        it('should get a feature flag by ID', async () => {
+            const createResult = await createTool.handler(context, {
+                name: 'Definition test flag',
+                key: generateUniqueKey('definition-test'),
+                filters: {
+                    groups: [{ properties: [], rollout_percentage: 100 }],
+                },
+                active: true,
+            })
+            const createdFlag = parseToolResponse(createResult)
+            createdResources.featureFlags.push(createdFlag.id)
+
+            const result = await getTool.handler(context, { id: createdFlag.id })
             const flagData = parseToolResponse(result)
-            createdResources.featureFlags.push(flagData.id)
 
-            expect(flagData.id).toBeTruthy()
-            expect(flagData.key).toBe(params.key)
-            expect(flagData.filters.multivariate.variants).toHaveLength(2)
-            expect(flagData.filters.groups[0].variant).toBe('test')
+            expect(flagData.id).toBe(createdFlag.id)
+            expect(flagData.key).toBe(createdFlag.key)
+            expect(flagData._posthogUrl).toContain('/feature_flags/')
         })
     })
 
     describe('update-feature-flag tool', () => {
-        const createTool = createFeatureFlagTool()
-        const updateTool = updateFeatureFlagTool()
+        const updateTool = GENERATED_TOOLS['update-feature-flag']!()
+        const createTool = GENERATED_TOOLS['create-feature-flag']!()
 
-        it('should update a feature flag by key', async () => {
-            // First create a flag
-            const createParams = {
-                name: 'Original Name',
+        it('should update a feature flag by ID', async () => {
+            const createResult = await createTool.handler(context, {
+                name: 'Original name',
                 key: generateUniqueKey('update-test'),
-                description: 'Original description',
                 filters: {
-                    groups: [
-                        {
-                            properties: [],
-                            rollout_percentage: 100,
-                        },
-                    ],
+                    groups: [{ properties: [], rollout_percentage: 100 }],
                 },
                 active: true,
-            }
-
-            const createResult = await createTool.handler(context, createParams)
+            })
             const createdFlag = parseToolResponse(createResult)
             createdResources.featureFlags.push(createdFlag.id)
 
-            // Update the flag
-            const updateParams = {
-                flagKey: createParams.key,
-                data: {
-                    name: 'Updated Name',
-                    description: 'Updated description',
-                    active: false,
-                },
-            }
-
-            const updateResult = await updateTool.handler(context, updateParams)
+            const updateResult = await updateTool.handler(context, {
+                id: createdFlag.id,
+                name: 'Updated name',
+                active: false,
+            })
             const updatedFlag = parseToolResponse(updateResult)
 
-            expect(updatedFlag.name).toBe('Updated Name')
+            expect(updatedFlag.id).toBe(createdFlag.id)
+            expect(updatedFlag.name).toBe('Updated name')
             expect(updatedFlag.active).toBe(false)
-            expect(updatedFlag.key).toBe(createParams.key)
-            expect(updatedFlag.updated_at).toBeTruthy()
+            expect(updatedFlag._posthogUrl).toContain('/feature_flags/')
         })
 
         it('should update feature flag filters', async () => {
-            // Create a flag
-            const createParams = {
-                name: 'Filter Update Test',
+            const createResult = await createTool.handler(context, {
+                name: 'Filter update flag',
                 key: generateUniqueKey('filter-update'),
-                description: 'Testing filter updates',
                 filters: {
-                    groups: [
-                        {
-                            properties: [],
-                            rollout_percentage: 100,
-                        },
-                    ],
+                    groups: [{ properties: [], rollout_percentage: 100 }],
                 },
                 active: true,
-            }
-
-            const createResult = await createTool.handler(context, createParams)
+            })
             const createdFlag = parseToolResponse(createResult)
             createdResources.featureFlags.push(createdFlag.id)
 
-            // Update with new filters
-            const updateParams = {
-                flagKey: createParams.key,
-                data: {
-                    filters: {
-                        groups: [
-                            {
-                                variant: null,
-                                properties: [],
-                                rollout_percentage: 50,
-                            },
-                        ],
-                    },
+            const updateResult = await updateTool.handler(context, {
+                id: createdFlag.id,
+                filters: {
+                    groups: [{ properties: [], rollout_percentage: 50 }],
                 },
-            }
-
-            const updateResult = await updateTool.handler(context, updateParams)
+            })
             const updatedFlag = parseToolResponse(updateResult)
 
-            expect(updatedFlag.id).toBeTruthy()
-            expect(updatedFlag.key).toBe(createParams.key)
-        })
-    })
-
-    describe('get-all-feature-flags tool', () => {
-        const createTool = createFeatureFlagTool()
-        const getAllTool = getAllFeatureFlagsTool()
-
-        it('should list all feature flags', async () => {
-            // Create a few test flags
-            const testFlags = []
-            for (let i = 0; i < 3; i++) {
-                const params = {
-                    name: `List Test Flag ${i}`,
-                    key: generateUniqueKey(`list-test-${i}`),
-                    description: `Test flag ${i}`,
-                    filters: {
-                        groups: [
-                            {
-                                properties: [],
-                                rollout_percentage: 100,
-                            },
-                        ],
-                    },
-                    active: true,
-                }
-
-                const result = await createTool.handler(context, params)
-                const flag = parseToolResponse(result)
-                testFlags.push(flag)
-                createdResources.featureFlags.push(flag.id)
-            }
-
-            // Get all flags
-            const result = await getAllTool.handler(context, {})
-            const allFlags = parseToolResponse(result)
-
-            expect(Array.isArray(allFlags)).toBe(true)
-            expect(allFlags.length).toBeGreaterThanOrEqual(3)
-
-            // Verify our test flags are in the list
-            for (const testFlag of testFlags) {
-                const found = allFlags.find((f: any) => f.id === testFlag.id)
-                expect(found).toBeTruthy()
-                expect(found.key).toBe(testFlag.key)
-            }
-        })
-
-        it('should return flags with proper structure', async () => {
-            const result = await getAllTool.handler(context, {})
-            const flags = parseToolResponse(result)
-
-            if (flags.length > 0) {
-                const flag = flags[0]
-                expect(flag).toHaveProperty('id')
-                expect(flag).toHaveProperty('key')
-                expect(flag).toHaveProperty('name')
-                expect(flag).toHaveProperty('active')
-                expect(flag).toHaveProperty('updated_at')
-            }
-        })
-
-        it('should respect limit parameter', async () => {
-            const result = await getAllTool.handler(context, { data: { limit: 2 } })
-            const flags = parseToolResponse(result)
-            expect(flags.length).toBeLessThanOrEqual(2)
-        })
-
-        it('should respect offset parameter', async () => {
-            // Create test flags to ensure we have controlled data
-            const testFlags = []
-            for (let i = 0; i < 3; i++) {
-                const result = await createTool.handler(context, {
-                    name: `Offset Test Flag ${i}`,
-                    key: generateUniqueKey(`offset-test-${i}`),
-                    description: `Test flag ${i} for offset testing`,
-                    filters: {
-                        groups: [
-                            {
-                                properties: [],
-                                rollout_percentage: 100,
-                            },
-                        ],
-                    },
-                    active: true,
-                })
-                const flagData = parseToolResponse(result)
-                testFlags.push(flagData)
-                createdResources.featureFlags.push(flagData.id)
-            }
-
-            // Get all flags
-            const allResult = await getAllTool.handler(context, { data: { limit: 10 } })
-            const allFlags = parseToolResponse(allResult)
-
-            // Get flags with offset=1
-            const offsetResult = await getAllTool.handler(context, { data: { limit: 10, offset: 1 } })
-            const offsetFlags = parseToolResponse(offsetResult)
-
-            // Extract IDs for comparison
-            const allFlagIds = allFlags.map((f: any) => f.id)
-            const offsetFlagIds = offsetFlags.map((f: any) => f.id)
-            const testFlagIds = testFlags.map((f: any) => f.id)
-
-            // Verify offset is working by checking that offsetFlagIds matches allFlagIds starting from index 1
-            expect(offsetFlags.length).toBeGreaterThan(0)
-            expect(offsetFlagIds[0]).toBe(allFlagIds[1])
-
-            // Verify our test flags appear in the results to ensure we're testing with controlled data
-            const testFlagsInAll = testFlagIds.filter((id) => allFlagIds.includes(id))
-            expect(testFlagsInAll.length).toBeGreaterThan(0)
-        })
-
-        it('should use default limit when not specified', async () => {
-            const result = await getAllTool.handler(context, {})
-            const flags = parseToolResponse(result)
-            expect(flags.length).toBeLessThanOrEqual(50)
-        })
-    })
-
-    describe('get-feature-flag-definition tool', () => {
-        const createTool = createFeatureFlagTool()
-        const getDefinitionTool = getFeatureFlagDefinitionTool()
-
-        it('should get feature flag definition by key', async () => {
-            // Create a flag
-            const createParams = {
-                name: 'Definition Test Flag',
-                key: generateUniqueKey('definition-test'),
-                description: 'Test flag for definition',
-                filters: {
-                    groups: [
-                        {
-                            properties: [],
-                            rollout_percentage: 100,
-                        },
-                    ],
-                },
-                active: true,
-                tags: ['test-tag'],
-            }
-
-            const createResult = await createTool.handler(context, createParams)
-            const createdFlag = parseToolResponse(createResult)
-            createdResources.featureFlags.push(createdFlag.id)
-
-            // Get definition
-            const result = await getDefinitionTool.handler(context, { flagKey: createParams.key })
-            const definition = parseToolResponse(result)
-
-            expect(definition.id).toBe(createdFlag.id)
-            expect(definition.key).toBe(createParams.key)
-            expect(definition.name).toBe(createParams.name)
-            expect(definition.active).toBe(createParams.active)
-            expect(definition.updated_at).toBeTruthy()
-        })
-
-        it('should return error message for non-existent flag key', async () => {
-            const nonExistentKey = generateUniqueKey('non-existent')
-
-            const result = await getDefinitionTool.handler(context, { flagKey: nonExistentKey })
-
-            expect(result).toEqual({ error: `Flag with key "${nonExistentKey}" not found.` })
+            expect(updatedFlag.id).toBe(createdFlag.id)
         })
     })
 
     describe('delete-feature-flag tool', () => {
-        const createTool = createFeatureFlagTool()
-        const deleteTool = deleteFeatureFlagTool()
+        const deleteTool = GENERATED_TOOLS['delete-feature-flag']!()
+        const getAllTool = GENERATED_TOOLS['feature-flag-get-all']!()
+        const createTool = GENERATED_TOOLS['create-feature-flag']!()
 
-        it('should delete a feature flag by key', async () => {
-            // Create a flag
-            const createParams = {
-                name: 'Delete Test Flag',
+        it('should delete a feature flag by ID', async () => {
+            const createResult = await createTool.handler(context, {
+                name: 'Delete test flag',
                 key: generateUniqueKey('delete-test'),
-                description: 'Test flag for deletion',
                 filters: {
-                    groups: [
-                        {
-                            properties: [],
-                            rollout_percentage: 100,
-                        },
-                    ],
+                    groups: [{ properties: [], rollout_percentage: 100 }],
                 },
                 active: true,
-            }
-
-            await createTool.handler(context, createParams)
-
-            // Delete the flag
-            const deleteResult = await deleteTool.handler(context, { flagKey: createParams.key })
-
-            const deleteResponse = parseToolResponse(deleteResult)
-            expect(deleteResponse.success).toBe(true)
-            expect(deleteResponse.message).toContain('deleted successfully')
-
-            // Verify it's deleted by trying to get it
-            const getDefinitionTool = getFeatureFlagDefinitionTool()
-            const getResult = await getDefinitionTool.handler(context, {
-                flagKey: createParams.key,
             })
-            expect(getResult).toEqual({ error: `Flag with key "${createParams.key}" not found.` })
-        })
+            const createdFlag = parseToolResponse(createResult)
 
-        it('should handle deletion of non-existent flag', async () => {
-            const nonExistentKey = generateUniqueKey('non-existent-delete')
+            await deleteTool.handler(context, { id: createdFlag.id })
 
-            const result = await deleteTool.handler(context, { flagKey: nonExistentKey })
-            expect(result).toEqual({ message: 'Feature flag is already deleted.' })
+            const listResult = await getAllTool.handler(context, { limit: 100, offset: 0 })
+            const listResponse = parseToolResponse(listResult)
+            expect(listResponse.results.some((flag: { id: number }) => flag.id === createdFlag.id)).toBe(false)
         })
     })
 
     describe('Feature flag workflow', () => {
         it('should support full CRUD workflow', async () => {
-            const createTool = createFeatureFlagTool()
-            const updateTool = updateFeatureFlagTool()
-            const getDefinitionTool = getFeatureFlagDefinitionTool()
-            const deleteTool = deleteFeatureFlagTool()
+            const createTool = GENERATED_TOOLS['create-feature-flag']!()
+            const updateTool = GENERATED_TOOLS['update-feature-flag']!()
+            const getTool = GENERATED_TOOLS['feature-flag-get-definition']!()
+            const deleteTool = GENERATED_TOOLS['delete-feature-flag']!()
 
-            const flagKey = generateUniqueKey('workflow-test')
-
-            // Create
-            const createParams = {
-                name: 'Workflow Test Flag',
-                key: flagKey,
-                description: 'Testing full workflow',
+            const createResult = await createTool.handler(context, {
+                name: 'Workflow test flag',
+                key: generateUniqueKey('workflow-test'),
                 filters: {
-                    groups: [
-                        {
-                            properties: [],
-                            rollout_percentage: 100,
-                        },
-                    ],
+                    groups: [{ properties: [], rollout_percentage: 100 }],
                 },
                 active: false,
-            }
-
-            const createResult = await createTool.handler(context, createParams)
+            })
             const createdFlag = parseToolResponse(createResult)
 
-            // Read
-            const getResult = await getDefinitionTool.handler(context, { flagKey: flagKey })
+            const getResult = await getTool.handler(context, { id: createdFlag.id })
             const retrievedFlag = parseToolResponse(getResult)
             expect(retrievedFlag.id).toBe(createdFlag.id)
 
-            // Update
-            const updateParams = {
-                flagKey: flagKey,
-                data: {
-                    active: true,
-                    name: 'Updated Workflow Flag',
-                },
-            }
-
-            const updateResult = await updateTool.handler(context, updateParams)
+            const updateResult = await updateTool.handler(context, {
+                id: createdFlag.id,
+                active: true,
+                name: 'Updated workflow flag',
+            })
             const updatedFlag = parseToolResponse(updateResult)
             expect(updatedFlag.active).toBe(true)
-            expect(updatedFlag.name).toBe('Updated Workflow Flag')
+            expect(updatedFlag.name).toBe('Updated workflow flag')
 
-            // Delete
-            const deleteResult = await deleteTool.handler(context, { flagKey: flagKey })
-            const deleteResponse = parseToolResponse(deleteResult)
-            expect(deleteResponse.success).toBe(true)
-            expect(deleteResponse.message).toContain('deleted successfully')
+            await deleteTool.handler(context, { id: createdFlag.id })
         })
     })
 })

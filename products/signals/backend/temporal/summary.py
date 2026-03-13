@@ -7,14 +7,12 @@ from django.db import transaction
 
 import structlog
 import temporalio
-from asgiref.sync import sync_to_async
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
 from posthog.schema import EmbeddingModelName
 
 from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
@@ -25,6 +23,7 @@ from products.signals.backend.temporal.actionability_judge import (
     ActionabilityJudgeInput,
     actionability_judge_activity,
 )
+from products.signals.backend.temporal.clickhouse import execute_hogql_query_with_retry
 from products.signals.backend.temporal.safety_judge import SafetyJudgeInput, safety_judge_activity
 from products.signals.backend.temporal.summarize_signals import (
     SummarizeSignalsInput,
@@ -68,7 +67,7 @@ class SignalReportSummaryWorkflow:
         fetch_result: FetchSignalsForReportOutput = await workflow.execute_activity(
             fetch_signals_for_report_activity,
             FetchSignalsForReportInput(team_id=inputs.team_id, report_id=inputs.report_id),
-            start_to_close_timeout=timedelta(minutes=2),
+            start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
@@ -235,7 +234,7 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
             ORDER BY timestamp ASC
         """
 
-        result = await sync_to_async(execute_hogql_query, thread_sensitive=False)(
+        result = await execute_hogql_query_with_retry(
             query_type="SignalsFetchForReport",
             query=query,
             team=team,

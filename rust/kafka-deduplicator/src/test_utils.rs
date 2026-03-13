@@ -23,6 +23,7 @@ pub mod test_helpers {
     use serde_json::{json, Value};
     use uuid::Uuid;
 
+    use crate::rocksdb::store::RocksDbConfig;
     use crate::store::{DeduplicationStore, DeduplicationStoreConfig};
 
     /// Creates a simple test RawEvent with reasonable defaults.
@@ -124,6 +125,7 @@ pub mod test_helpers {
         let config = DeduplicationStoreConfig {
             path: path.to_path_buf(),
             max_capacity: 1_000_000,
+            rocksdb: RocksDbConfig::default(),
         };
         DeduplicationStore::new(config, topic.to_string(), partition).unwrap()
     }

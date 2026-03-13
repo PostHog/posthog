@@ -1,26 +1,21 @@
 import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
 
-import { IconBalance, IconFlag } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonDialog,
-    LemonInput,
-    LemonModal,
-    LemonTable,
-    LemonTableColumns,
-} from '@posthog/lemon-ui'
+import { IconFlag } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDialog, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
-import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 
 import { MultivariateFlagVariant } from '~/types'
 
+import {
+    useVariantDistributionValidation,
+    VariantDistributionEditor,
+} from '../ExperimentForm/VariantDistributionEditor'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
-import { isEvenlyDistributed } from '../utils'
 import { VariantTag } from './components'
 import { HoldoutSelector } from './HoldoutSelector'
 import { VariantScreenshot } from './VariantScreenshot'
@@ -31,46 +26,52 @@ export function DistributionModal(): JSX.Element {
     const { closeDistributionModal } = useActions(modalsLogic)
     const { isDistributionModalOpen } = useValues(modalsLogic)
 
-    const _featureFlagLogic = featureFlagLogic({ id: experiment.feature_flag?.id ?? null } as FeatureFlagLogicProps)
-    const { featureFlag, areVariantRolloutsValid, variantRolloutSum } = useValues(_featureFlagLogic)
-    const { setFeatureFlagFilters, distributeVariantsEqually } = useActions(_featureFlagLogic)
+    const [variants, setVariants] = useState<MultivariateFlagVariant[]>([])
+    const { areVariantRolloutsValid } = useVariantDistributionValidation(variants)
 
-    const handleRolloutPercentageChange = (index: number, value: number | undefined): void => {
-        if (!featureFlag?.filters?.multivariate) {
+    // Initialize local state only when the modal transitions from closed to open.
+    // Intentionally omit experiment data from deps so auto-refresh doesn't clobber edits.
+    useEffect(() => {
+        if (isDistributionModalOpen) {
+            setVariants(experiment.feature_flag?.filters?.multivariate?.variants || [])
+        }
+    }, [isDistributionModalOpen])
+
+    const handleClose = (): void => {
+        closeDistributionModal()
+    }
+
+    const handleSave = (): void => {
+        if (!experiment.feature_flag) {
             return
         }
-
-        const numericValue = value || 0
-
-        const updatedVariants = featureFlag.filters.multivariate.variants.map((variant, i) =>
-            i === index ? { ...variant, rollout_percentage: numericValue } : variant
-        )
-
-        setFeatureFlagFilters(
-            {
-                ...featureFlag.filters,
-                multivariate: { ...featureFlag.filters.multivariate, variants: updatedVariants },
+        // FeatureFlagBasicType has all fields updateDistribution needs (id, filters)
+        updateDistribution({
+            ...experiment.feature_flag,
+            filters: {
+                ...experiment.feature_flag.filters,
+                multivariate: {
+                    ...experiment.feature_flag.filters.multivariate,
+                    variants,
+                },
             },
-            null
-        )
+        } as any)
+        closeDistributionModal()
     }
 
     return (
         <LemonModal
             isOpen={isDistributionModalOpen}
-            onClose={closeDistributionModal}
+            onClose={handleClose}
             width={600}
             title="Change experiment distribution"
             footer={
                 <div className="flex items-center gap-2">
-                    <LemonButton type="secondary" onClick={closeDistributionModal}>
+                    <LemonButton type="secondary" onClick={handleClose}>
                         Cancel
                     </LemonButton>
                     <LemonButton
-                        onClick={() => {
-                            updateDistribution(featureFlag)
-                            closeDistributionModal()
-                        }}
+                        onClick={handleSave}
                         type="primary"
                         loading={experimentLoading}
                         disabled={!areVariantRolloutsValid}
@@ -80,61 +81,18 @@ export function DistributionModal(): JSX.Element {
                 </div>
             }
         >
-            <div className="deprecated-space-y-4">
+            <div className="flex flex-col gap-4">
                 <LemonBanner type="info">
                     Adjusting variant distribution may impact the validity of your results. Adjust only if you're aware
                     of how changes will affect your experiment.
                 </LemonBanner>
 
-                <div>
-                    <div className="flex justify-between items-center mb-2">
-                        <h3 className="font-semibold mb-0">Variant distribution</h3>
-                        <LemonButton
-                            size="small"
-                            onClick={distributeVariantsEqually}
-                            tooltip="Distribute split evenly"
-                            icon={<IconBalance />}
-                            className={
-                                isEvenlyDistributed(featureFlag?.filters?.multivariate?.variants || [])
-                                    ? 'invisible'
-                                    : ''
-                            }
-                        >
-                            Distribute evenly
-                        </LemonButton>
-                    </div>
+                <VariantDistributionEditor
+                    variants={variants}
+                    onVariantsChange={setVariants}
+                    rolloutPercentage={experiment.feature_flag?.filters?.groups?.[0]?.rollout_percentage ?? 100}
+                />
 
-                    <LemonTable
-                        dataSource={featureFlag?.filters?.multivariate?.variants || []}
-                        columns={[
-                            {
-                                title: 'Variant',
-                                dataIndex: 'key',
-                                render: (value) => <span className="font-semibold">{value}</span>,
-                            },
-                            {
-                                title: 'Split',
-                                dataIndex: 'rollout_percentage',
-                                render: (_, record, index) => (
-                                    <LemonInput
-                                        type="number"
-                                        value={record.rollout_percentage}
-                                        onChange={(value) => handleRolloutPercentageChange(index, value)}
-                                        min={0}
-                                        max={100}
-                                        suffix={<span>%</span>}
-                                    />
-                                ),
-                            },
-                        ]}
-                    />
-
-                    {!areVariantRolloutsValid && (
-                        <p className="text-danger mt-2">
-                            Percentage splits must sum to 100 (currently {variantRolloutSum}).
-                        </p>
-                    )}
-                </div>
                 <HoldoutSelector />
             </div>
         </LemonModal>

@@ -32,6 +32,7 @@ export const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = [
 export const NATIVE_SOURCE_FEATURE_FLAGS: Partial<Record<NativeMarketingSource, FeatureFlagKey>> = {
     BingAds: FEATURE_FLAGS.BING_ADS_SOURCE,
     SnapchatAds: FEATURE_FLAGS.SNAPCHAT_ADS_SOURCE,
+    PinterestAds: FEATURE_FLAGS.PINTEREST_ADS_SOURCE,
 }
 
 /**
@@ -253,14 +254,15 @@ interface SourceColumnMappings {
     fallbackCurrency?: string
 }
 
+interface ConversionExprResult extends Partial<DataWarehouseNode> {
+    perRowValueExpr?: string
+}
+
 interface SourceTileConfig {
     idField: string
     timestampField: string
     columnMappings: SourceColumnMappings
-    specialConversionLogic?: (
-        _table: any,
-        tileColumnSelection: validColumnsForTiles
-    ) => Partial<DataWarehouseNode> | null
+    specialConversionLogic?: (_table: any, tileColumnSelection: validColumnsForTiles) => ConversionExprResult | null
 }
 
 export function safeFloat(field: string): string {
@@ -274,17 +276,18 @@ export function sumSafeFloat(field: string): string {
 function buildConversionExpr(
     fields: string | readonly string[],
     table: any,
-    buildExpr?: (availableFields: string[]) => string
-): Partial<DataWarehouseNode> {
+    buildExpr?: (availableFields: string[]) => string,
+    buildPerRowExpr?: (availableFields: string[]) => string
+): ConversionExprResult {
     const fieldList = typeof fields === 'string' ? [fields] : [...fields]
     const availableFields = fieldList.filter((field) => table.fields && field in table.fields)
     if (availableFields.length === 0) {
         return { math: HogQLMathType.HogQL, math_hogql: '0' }
     }
-    const mathHogql = buildExpr
-        ? buildExpr(availableFields)
-        : `SUM(${availableFields.map((field) => safeFloat(field)).join(' + ')})`
-    return { math: HogQLMathType.HogQL, math_hogql: mathHogql }
+    const defaultPerRow = availableFields.map((field) => safeFloat(field)).join(' + ')
+    const perRowValueExpr = buildPerRowExpr ? buildPerRowExpr(availableFields) : defaultPerRow
+    const mathHogql = buildExpr ? buildExpr(availableFields) : `SUM(${defaultPerRow})`
+    return { math: HogQLMathType.HogQL, math_hogql: mathHogql, perRowValueExpr }
 }
 
 const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
@@ -375,11 +378,20 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
                 })
             }
             if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
-                return buildConversionExpr('action_values', table, ([field]) => {
-                    const omniSum = buildArraySumExpr(field, omniActionTypes)
-                    const fallbackSum = buildArraySumExpr(field, fallbackActionTypes)
-                    return `SUM(if(${omniSum} > 0, ${omniSum}, ${fallbackSum}))`
-                })
+                return buildConversionExpr(
+                    'action_values',
+                    table,
+                    ([field]) => {
+                        const omniSum = buildArraySumExpr(field, omniActionTypes)
+                        const fallbackSum = buildArraySumExpr(field, fallbackActionTypes)
+                        return `SUM(if(${omniSum} > 0, ${omniSum}, ${fallbackSum}))`
+                    },
+                    ([field]) => {
+                        const omniSum = buildArraySumExpr(field, omniActionTypes)
+                        const fallbackSum = buildArraySumExpr(field, fallbackActionTypes)
+                        return `if(${omniSum} > 0, ${omniSum}, ${fallbackSum})`
+                    }
+                )
             }
             return null
         },
@@ -446,6 +458,34 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
             }
             if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
                 return buildConversionExpr(conversionValueFields, table)
+            }
+            return null
+        },
+    },
+    PinterestAds: {
+        idField: 'campaign_id',
+        timestampField: 'date',
+        columnMappings: {
+            cost: 'spend_in_dollar',
+            impressions: 'total_impression',
+            clicks: 'total_clickthrough',
+            reportedConversion: 'total_conversions',
+            reportedConversionValue: 'total_checkout_value_in_micro_dollar',
+            costNeedsDivision: false,
+            currencyColumn: 'currency',
+            fallbackCurrency: 'USD',
+        },
+        specialConversionLogic: (table, tileColumnSelection) => {
+            if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
+                return buildConversionExpr('total_conversions', table)
+            }
+            if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
+                return buildConversionExpr(
+                    ['total_checkout_value_in_micro_dollar'],
+                    table,
+                    ([field]) => `SUM(ifNull(toFloat(${field}), 0) / 1000000)`,
+                    ([field]) => `ifNull(toFloat(${field}), 0) / 1000000`
+                )
             }
             return null
         },
@@ -629,14 +669,24 @@ export function createMarketingTile(
                 finalMathHogql &&
                 finalMathHogql !== '0'
             ) {
-                finalMathHogql = wrapAggregatedWithCurrencyConversion(
-                    finalMathHogql,
-                    tileConfig.columnMappings,
-                    table,
-                    baseCurrency
-                )
+                if (specialLogic.perRowValueExpr) {
+                    finalMathHogql = wrapWithCurrencyConversion(
+                        specialLogic.perRowValueExpr,
+                        tileConfig.columnMappings,
+                        table,
+                        baseCurrency
+                    )
+                } else {
+                    finalMathHogql = wrapAggregatedWithCurrencyConversion(
+                        finalMathHogql,
+                        tileConfig.columnMappings,
+                        table,
+                        baseCurrency
+                    )
+                }
             }
 
+            const { perRowValueExpr: _, ...specialLogicRest } = specialLogic
             return {
                 ...buildNativeTileNode(
                     table,
@@ -645,7 +695,7 @@ export function createMarketingTile(
                     tileColumnSelection,
                     finalMathHogql ?? '0'
                 ),
-                ...specialLogic,
+                ...specialLogicRest,
                 math_hogql: finalMathHogql,
             }
         }
