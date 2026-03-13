@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass, field
 from typing import Any, Optional
 from urllib.parse import urlparse
@@ -50,6 +51,23 @@ def get_sandbox_mcp_configs(
     - eu.posthog.com → https://mcp-eu.posthog.com/mcp
     - Other hosts → empty list (MCP not available)
     """
+    # TODO: revert after tests — hardcoded to prod MCP for local research agent iteration
+    if settings.DEBUG:
+        from django.conf import settings as django_settings
+
+        api_key = getattr(django_settings, "POSTHOG_PROD_READONLY_API_KEY", None) or os.environ.get(
+            "POSTHOG_PROD_READONLY_API_KEY", ""
+        )
+        if api_key:
+            headers = [
+                {"name": "Authorization", "value": f"Bearer {api_key}"},
+                {"name": "x-posthog-project-id", "value": "2"},
+                {"name": "x-posthog-mcp-version", "value": "2"},
+                {"name": "x-posthog-read-only", "value": "true"},
+            ]
+            return [McpServerConfig(type="http", name="posthog", url="https://mcp.posthog.com/mcp", headers=headers)]
+    # END TODO
+
     url = _resolve_mcp_url()
     if not url:
         return []
