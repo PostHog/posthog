@@ -29,6 +29,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
+import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
 import { SyncTypeLabelMap, defaultQuery, syncAnchorIntervalToHumanReadable } from 'scenes/data-warehouse/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -756,22 +757,9 @@ const SyncMethodModal = ({
 }
 
 function WebhookSetupCaption({ sourceType }: { sourceType: string }): JSX.Element | null {
-    const [caption, setCaption] = useState<string | null>(null)
+    const { availableSources } = useValues(availableSourcesDataLogic)
 
-    useEffect(() => {
-        api.externalDataSources
-            .wizard()
-            .then((sources) => {
-                const config = sources[sourceType]
-                if (config?.webhookSetupCaption) {
-                    setCaption(config.webhookSetupCaption)
-                }
-            })
-            .catch(() => {
-                // Ignore errors fetching caption
-            })
-    }, [sourceType])
-
+    const caption = availableSources?.[sourceType]?.webhookSetupCaption
     if (!caption) {
         return null
     }
