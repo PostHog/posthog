@@ -8,6 +8,7 @@ const createMockContext = (): Context => ({
     api: {} as any,
     cache: {} as any,
     env: {
+        ASSETS: {} as any,
         INKEEP_API_KEY: undefined,
         POSTHOG_ANALYTICS_API_KEY: undefined,
         POSTHOG_ANALYTICS_HOST: undefined,

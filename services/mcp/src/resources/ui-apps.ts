@@ -28,130 +28,146 @@ import {
     WORKFLOW_RESOURCE_URI,
 } from './ui-apps-constants'
 
-// Import bundled HTML at build time (wrangler Text rule)
-// Each UI app has its own HTML file in ui-apps-dist/src/ui-apps/apps/<name>/
-import actionListHtml from '../../ui-apps-dist/src/ui-apps/apps/action-list/index.html'
-import actionHtml from '../../ui-apps-dist/src/ui-apps/apps/action/index.html'
-import cohortListHtml from '../../ui-apps-dist/src/ui-apps/apps/cohort-list/index.html'
-import cohortHtml from '../../ui-apps-dist/src/ui-apps/apps/cohort/index.html'
-import debugHtml from '../../ui-apps-dist/src/ui-apps/apps/debug/index.html'
-import errorDetailsHtml from '../../ui-apps-dist/src/ui-apps/apps/error-details/index.html'
-import errorIssueListHtml from '../../ui-apps-dist/src/ui-apps/apps/error-issue-list/index.html'
-import errorIssueHtml from '../../ui-apps-dist/src/ui-apps/apps/error-issue/index.html'
-import experimentListHtml from '../../ui-apps-dist/src/ui-apps/apps/experiment-list/index.html'
-import experimentResultsHtml from '../../ui-apps-dist/src/ui-apps/apps/experiment-results/index.html'
-import experimentHtml from '../../ui-apps-dist/src/ui-apps/apps/experiment/index.html'
-import featureFlagListHtml from '../../ui-apps-dist/src/ui-apps/apps/feature-flag-list/index.html'
-import featureFlagHtml from '../../ui-apps-dist/src/ui-apps/apps/feature-flag/index.html'
-import llmCostsHtml from '../../ui-apps-dist/src/ui-apps/apps/llm-costs/index.html'
-import queryResultsHtml from '../../ui-apps-dist/src/ui-apps/apps/query-results/index.html'
-import surveyGlobalStatsHtml from '../../ui-apps-dist/src/ui-apps/apps/survey-global-stats/index.html'
-import surveyListHtml from '../../ui-apps-dist/src/ui-apps/apps/survey-list/index.html'
-import surveyStatsHtml from '../../ui-apps-dist/src/ui-apps/apps/survey-stats/index.html'
-import surveyHtml from '../../ui-apps-dist/src/ui-apps/apps/survey/index.html'
-import workflowListHtml from '../../ui-apps-dist/src/ui-apps/apps/workflow-list/index.html'
-import workflowHtml from '../../ui-apps-dist/src/ui-apps/apps/workflow/index.html'
+// UI app HTML is served from static assets (Cloudflare Workers Static Assets binding)
+// instead of being bundled into the worker script. This avoids ~12.5MB of HTML strings
+// being parsed at module scope, which would exceed the 1-second CPU startup time limit.
+// HTML is fetched lazily on first resource access via env.ASSETS.fetch().
 
-const UI_APPS: Array<{ name: string; uri: string; description: string; html: string }> = [
+const UI_APPS: Array<{ name: string; uri: string; description: string; assetPath: string }> = [
     // Core
     {
         name: 'MCP Apps Debug',
         uri: DEBUG_RESOURCE_URI,
         description: 'Debug app for testing MCP Apps SDK integration',
-        html: debugHtml,
+        assetPath: '/src/ui-apps/apps/debug/index.html',
     },
     {
         name: 'Query Results',
         uri: QUERY_RESULTS_RESOURCE_URI,
         description: 'Interactive visualization for PostHog query results',
-        html: queryResultsHtml,
+        assetPath: '/src/ui-apps/apps/query-results/index.html',
     },
     // Actions
-    { name: 'Action', uri: ACTION_RESOURCE_URI, description: 'Action detail view', html: actionHtml },
-    { name: 'Action list', uri: ACTION_LIST_RESOURCE_URI, description: 'Action list view', html: actionListHtml },
+    {
+        name: 'Action',
+        uri: ACTION_RESOURCE_URI,
+        description: 'Action detail view',
+        assetPath: '/src/ui-apps/apps/action/index.html',
+    },
+    {
+        name: 'Action list',
+        uri: ACTION_LIST_RESOURCE_URI,
+        description: 'Action list view',
+        assetPath: '/src/ui-apps/apps/action-list/index.html',
+    },
     // Cohorts
-    { name: 'Cohort', uri: COHORT_RESOURCE_URI, description: 'Cohort detail view', html: cohortHtml },
-    { name: 'Cohort list', uri: COHORT_LIST_RESOURCE_URI, description: 'Cohort list view', html: cohortListHtml },
+    {
+        name: 'Cohort',
+        uri: COHORT_RESOURCE_URI,
+        description: 'Cohort detail view',
+        assetPath: '/src/ui-apps/apps/cohort/index.html',
+    },
+    {
+        name: 'Cohort list',
+        uri: COHORT_LIST_RESOURCE_URI,
+        description: 'Cohort list view',
+        assetPath: '/src/ui-apps/apps/cohort-list/index.html',
+    },
     // Error tracking
     {
         name: 'Error details',
         uri: ERROR_DETAILS_RESOURCE_URI,
         description: 'Error details with stack traces',
-        html: errorDetailsHtml,
+        assetPath: '/src/ui-apps/apps/error-details/index.html',
     },
     {
         name: 'Error issue',
         uri: ERROR_ISSUE_RESOURCE_URI,
         description: 'Error tracking issue detail view',
-        html: errorIssueHtml,
+        assetPath: '/src/ui-apps/apps/error-issue/index.html',
     },
     {
         name: 'Error issue list',
         uri: ERROR_ISSUE_LIST_RESOURCE_URI,
         description: 'Error tracking issue list view',
-        html: errorIssueListHtml,
+        assetPath: '/src/ui-apps/apps/error-issue-list/index.html',
     },
     // Experiments
     {
         name: 'Experiment',
         uri: EXPERIMENT_RESOURCE_URI,
         description: 'Experiment detail view',
-        html: experimentHtml,
+        assetPath: '/src/ui-apps/apps/experiment/index.html',
     },
     {
         name: 'Experiment list',
         uri: EXPERIMENT_LIST_RESOURCE_URI,
         description: 'Experiment list view',
-        html: experimentListHtml,
+        assetPath: '/src/ui-apps/apps/experiment-list/index.html',
     },
     {
         name: 'Experiment results',
         uri: EXPERIMENT_RESULTS_RESOURCE_URI,
         description: 'Experiment results visualization',
-        html: experimentResultsHtml,
+        assetPath: '/src/ui-apps/apps/experiment-results/index.html',
     },
     // Feature flags
     {
         name: 'Feature flag',
         uri: FEATURE_FLAG_RESOURCE_URI,
         description: 'Feature flag detail view',
-        html: featureFlagHtml,
+        assetPath: '/src/ui-apps/apps/feature-flag/index.html',
     },
     {
         name: 'Feature flag list',
         uri: FEATURE_FLAG_LIST_RESOURCE_URI,
         description: 'Feature flag list view',
-        html: featureFlagListHtml,
+        assetPath: '/src/ui-apps/apps/feature-flag-list/index.html',
     },
     // LLM analytics
     {
         name: 'LLM costs',
         uri: LLM_COSTS_RESOURCE_URI,
         description: 'LLM costs breakdown by model',
-        html: llmCostsHtml,
+        assetPath: '/src/ui-apps/apps/llm-costs/index.html',
     },
     // Surveys
-    { name: 'Survey', uri: SURVEY_RESOURCE_URI, description: 'Survey detail view', html: surveyHtml },
-    { name: 'Survey list', uri: SURVEY_LIST_RESOURCE_URI, description: 'Survey list view', html: surveyListHtml },
+    {
+        name: 'Survey',
+        uri: SURVEY_RESOURCE_URI,
+        description: 'Survey detail view',
+        assetPath: '/src/ui-apps/apps/survey/index.html',
+    },
+    {
+        name: 'Survey list',
+        uri: SURVEY_LIST_RESOURCE_URI,
+        description: 'Survey list view',
+        assetPath: '/src/ui-apps/apps/survey-list/index.html',
+    },
     {
         name: 'Survey stats',
         uri: SURVEY_STATS_RESOURCE_URI,
         description: 'Survey statistics view',
-        html: surveyStatsHtml,
+        assetPath: '/src/ui-apps/apps/survey-stats/index.html',
     },
     {
         name: 'Survey global stats',
         uri: SURVEY_GLOBAL_STATS_RESOURCE_URI,
         description: 'Survey global statistics view',
-        html: surveyGlobalStatsHtml,
+        assetPath: '/src/ui-apps/apps/survey-global-stats/index.html',
     },
     // Workflows
-    { name: 'Workflow', uri: WORKFLOW_RESOURCE_URI, description: 'Workflow detail view', html: workflowHtml },
+    {
+        name: 'Workflow',
+        uri: WORKFLOW_RESOURCE_URI,
+        description: 'Workflow detail view',
+        assetPath: '/src/ui-apps/apps/workflow/index.html',
+    },
     {
         name: 'Workflow list',
         uri: WORKFLOW_LIST_RESOURCE_URI,
         description: 'Workflow list view',
-        html: workflowListHtml,
+        assetPath: '/src/ui-apps/apps/workflow-list/index.html',
     },
 ]
 
@@ -172,10 +188,14 @@ interface RegisterAppParams {
     name: string
     uri: string
     description: string
-    html: string
+    assetPath: string
 }
 
-function registerApp(server: McpServer, context: Context, { name, uri, description, html }: RegisterAppParams): void {
+function registerApp(
+    server: McpServer,
+    context: Context,
+    { name, uri, description, assetPath }: RegisterAppParams
+): void {
     const analyticsBaseUrl = context.env.POSTHOG_MCP_APPS_ANALYTICS_BASE_URL
     const uiMetadata: McpUiResourceMeta = {}
     if (analyticsBaseUrl) {
@@ -186,6 +206,11 @@ function registerApp(server: McpServer, context: Context, { name, uri, descripti
     }
 
     server.registerResource(name, uri, { mimeType: RESOURCE_MIME_TYPE, description }, async (uri) => {
+        // Lazily fetch HTML from the static assets binding.
+        // The hostname is arbitrary — only the pathname is used to match assets.
+        const response = await context.env.ASSETS.fetch(new Request(`http://assets${assetPath}`))
+        const html = await response.text()
+
         return {
             contents: [
                 {

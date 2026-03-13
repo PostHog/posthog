@@ -22,7 +22,7 @@ let cachedResources: Unzipped | null = null
  */
 async function fetchContextMillResources(context: Context): Promise<Unzipped> {
     // Check for local URL override in environment (for testing)
-    const localUrlRaw = (context.env as Record<string, string | undefined>)?.POSTHOG_MCP_LOCAL_SKILLS_URL
+    const localUrlRaw = (context.env as unknown as Record<string, string | undefined>)?.POSTHOG_MCP_LOCAL_SKILLS_URL
     const localUrl = localUrlRaw && localUrlRaw.trim() !== '' ? localUrlRaw : undefined
     const url = localUrl || CONTEXT_MILL_URL
 
