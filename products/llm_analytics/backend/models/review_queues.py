@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Q
 from django.utils import timezone
 
@@ -23,6 +23,7 @@ class ReviewQueue(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFi
             )
         ]
 
+    @transaction.atomic
     def soft_delete(self) -> None:
         if self.deleted:
             return
@@ -33,6 +34,9 @@ class ReviewQueue(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFi
         self.save(update_fields=["deleted", "deleted_at", "updated_at"])
 
         self.items.filter(deleted=False).update(deleted=True, deleted_at=now, updated_at=now)
+
+    def delete(self, *args: object, **kwargs: object) -> None:
+        raise Exception("Cannot hard delete ReviewQueue. Use soft_delete() instead.")
 
 
 class ReviewQueueItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields):
@@ -61,3 +65,6 @@ class ReviewQueueItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMe
         self.deleted = True
         self.deleted_at = timezone.now()
         self.save(update_fields=["deleted", "deleted_at", "updated_at"])
+
+    def delete(self, *args: object, **kwargs: object) -> None:
+        raise Exception("Cannot hard delete ReviewQueueItem. Use soft_delete() instead.")

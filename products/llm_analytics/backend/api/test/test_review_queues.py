@@ -137,6 +137,25 @@ class TestReviewQueuesApi(APIBaseTest):
             ),
         )
 
+    def test_cannot_add_pending_trace_to_same_queue_twice(self):
+        queue = self._create_queue()
+        self._create_queue_item(queue=queue, trace_id="trace_pending")
+
+        response = self.client.post(
+            self._queue_items_endpoint(),
+            {"queue_id": str(queue.id), "trace_id": "trace_pending"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data,
+            self.validation_error_response(
+                message="This trace is already pending in this queue.",
+                attr="trace_id",
+            ),
+        )
+
     def test_can_move_pending_trace_to_another_queue(self):
         first_queue = self._create_queue(name="First queue")
         second_queue = self._create_queue(name="Second queue")
@@ -151,6 +170,26 @@ class TestReviewQueuesApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         item.refresh_from_db()
         self.assertEqual(item.queue, second_queue)
+
+    def test_patch_queue_item_requires_queue_id(self):
+        queue = self._create_queue(name="First queue")
+        item = self._create_queue_item(queue=queue, trace_id="trace_pending")
+
+        response = self.client.patch(
+            f"{self._queue_items_endpoint()}{item.id}/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data,
+            self.validation_error_response(
+                message="This field is required.",
+                code="required",
+                attr="queue_id",
+            ),
+        )
 
     def test_can_list_queue_items_filtered_by_queue_id_and_trace_ids(self):
         queue = self._create_queue(name="Support queue")

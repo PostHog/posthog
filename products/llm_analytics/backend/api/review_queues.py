@@ -192,6 +192,9 @@ class BaseReviewQueueItemWriteSerializer(serializers.Serializer):
         self.context["_resolved_queue"] = self._resolve_queue(value)
         return value
 
+    def _get_resolved_queue(self) -> ReviewQueue:
+        return cast(ReviewQueue, self.context["_resolved_queue"])
+
 
 class ReviewQueueItemCreateSerializer(BaseReviewQueueItemWriteSerializer):
     trace_id = serializers.CharField(
@@ -201,9 +204,7 @@ class ReviewQueueItemCreateSerializer(BaseReviewQueueItemWriteSerializer):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         team = cast(Team, self.context["team"])
-        resolved_queue = cast(
-            ReviewQueue, self.context.get("_resolved_queue") or self._resolve_queue(attrs["queue_id"])
-        )
+        resolved_queue = self._get_resolved_queue()
 
         normalized_trace_id = attrs["trace_id"].strip()
         if not normalized_trace_id:
@@ -246,9 +247,7 @@ class ReviewQueueItemUpdateSerializer(BaseReviewQueueItemWriteSerializer):
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         team = cast(Team, self.context["team"])
         instance = cast(ReviewQueueItem, self.instance)
-        resolved_queue = cast(
-            ReviewQueue, self.context.get("_resolved_queue") or self._resolve_queue(attrs["queue_id"])
-        )
+        resolved_queue = self._get_resolved_queue()
 
         if TraceReview.objects.filter(team=team, trace_id=instance.trace_id, deleted=False).exists():
             raise serializers.ValidationError({"trace_id": "This trace is already reviewed and cannot stay queued."})
@@ -404,6 +403,8 @@ class ReviewQueueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Mode
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         queue = self.get_object()
 
+        queue.soft_delete()
+
         report_user_action(
             request.user,
             "llma review queue deleted",
@@ -412,7 +413,6 @@ class ReviewQueueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Mode
             request=request,
         )
 
-        queue.soft_delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -525,7 +525,6 @@ class ReviewQueueItemViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, 
         serializer = ReviewQueueItemUpdateSerializer(
             item,
             data=request.data,
-            partial=True,
             context={**self.get_serializer_context(), "team": self.team},
         )
         serializer.is_valid(raise_exception=True)
@@ -546,6 +545,8 @@ class ReviewQueueItemViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         item = self.get_object()
 
+        item.soft_delete()
+
         report_user_action(
             request.user,
             "llma review queue item deleted",
@@ -554,5 +555,4 @@ class ReviewQueueItemViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, 
             request=request,
         )
 
-        item.soft_delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
