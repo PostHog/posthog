@@ -3,6 +3,7 @@ import {
     IconBook,
     IconBrain,
     IconCheckbox,
+    IconCloud,
     IconCreditCard,
     IconDocument,
     IconGlobe,
@@ -23,6 +24,7 @@ import { isObject } from '~/lib/utils'
 import { AgentMode, AssistantTool } from '~/queries/schema/schema-assistant-messages'
 import { RecordingUniversalFilters } from '~/types'
 
+import type { SessionSummarizationUpdate } from './messages/SessionSummarizationProgress'
 import { EnhancedToolCall } from './Thread'
 
 export interface DisplayFormatterContext {
@@ -49,7 +51,7 @@ export interface ToolDefinition<N extends string = string> {
     displayFormatter?: (
         toolCall: EnhancedToolCall,
         { registeredToolMap }: DisplayFormatterContext
-    ) => string | [text: string, widgetDef: RecordingsWidgetDef | null]
+    ) => string | [text: string, widgetDef: RecordingsWidgetDef | SessionSummarizationWidgetDef | null]
     /**
      * If only available in a specific product, specify it here.
      * We're using Scene instead of ProductKey, because that's more flexible (specifically for SQL editor there
@@ -60,6 +62,8 @@ export interface ToolDefinition<N extends string = string> {
     flag?: (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
     /** If the tool is in beta, set this to true to display a beta badge */
     beta?: boolean
+    /** If the tool is in alpha, set this to true to display an alpha badge */
+    alpha?: boolean
     /** Agent modes this tool is available in (defined in backend presets) */
     modes?: AgentMode[]
 }
@@ -106,6 +110,11 @@ export interface RecordingsWidgetDef {
     args: RecordingUniversalFilters
 }
 
+export interface SessionSummarizationWidgetDef {
+    widget: 'session_summarization'
+    args: { updates: SessionSummarizationUpdate[] }
+}
+
 /** Static mode definition for display purposes. */
 export interface ModeDefinition {
     name: string
@@ -114,6 +123,7 @@ export interface ModeDefinition {
     /** Scenes that should trigger this agent mode */
     scenes?: Set<Scene>
     beta?: boolean
+    alpha?: boolean
     /** Feature flag key that gates this mode. When set, the mode is only available if the flag is enabled. */
     flag?: keyof typeof FEATURE_FLAGS
 }
@@ -910,10 +920,26 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         beta: true,
         modes: [AgentMode.SessionReplay],
         displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Summarized sessions'
+            const text = toolCall.status === 'completed' ? 'Summarized sessions' : 'Summarizing sessions...'
+            // Parse structured updates from the tool call updates
+            const updates = toolCall.updates
+            if (updates && updates.length > 0) {
+                const parsedUpdates: SessionSummarizationUpdate[] = []
+                for (const update of updates) {
+                    try {
+                        const parsed = JSON.parse(update)
+                        if (isObject(parsed) && (parsed.type === 'sessions_discovered' || parsed.type === 'progress')) {
+                            parsedUpdates.push(parsed as unknown as SessionSummarizationUpdate)
+                        }
+                    } catch {
+                        // Not a structured update, skip
+                    }
+                }
+                if (parsedUpdates.length > 0) {
+                    return [text, { widget: 'session_summarization', args: { updates: parsedUpdates } }]
+                }
             }
-            return 'Summarizing sessions...'
+            return text
         },
     },
     web_search: {
@@ -1000,7 +1026,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
 }
 
 export const MODE_DEFINITIONS: Record<
-    Exclude<AgentMode, AgentMode.Plan | AgentMode.Execution | AgentMode.Research>,
+    Exclude<AgentMode, AgentMode.Plan | AgentMode.Execution | AgentMode.Research | AgentMode.Sandbox>,
     ModeDefinition
 > = {
     [AgentMode.ProductAnalytics]: {
@@ -1032,14 +1058,12 @@ export const MODE_DEFINITIONS: Record<
         description: 'Searches and analyzes error tracking issues to help you understand and fix bugs.',
         icon: iconForType('error_tracking'),
         scenes: new Set([Scene.ErrorTracking]),
-        flag: 'PHAI_ERROR_TRACKING_MODE',
     },
     [AgentMode.Survey]: {
         name: 'Surveys',
         description: 'Creates and analyzes surveys to collect user feedback.',
         icon: iconForType('survey'),
         scenes: new Set([Scene.Surveys, Scene.Survey]),
-        flag: 'PHAI_SURVEY_MODE',
     },
     [AgentMode.Onboarding]: {
         name: 'Onboarding',
@@ -1061,7 +1085,6 @@ export const MODE_DEFINITIONS: Record<
             Scene.ExperimentsSharedMetric,
             Scene.ExperimentsSharedMetrics,
         ]),
-        flag: 'POSTHOG_AI_FLAGS_MODE',
     },
     [AgentMode.LLMAnalytics]: {
         name: 'LLM analytics',
@@ -1077,7 +1100,6 @@ export const MODE_DEFINITIONS: Record<
             Scene.LLMAnalyticsPlayground,
             Scene.LLMAnalyticsUsers,
         ]),
-        flag: 'PHAI_LLM_ANALYTICS_MODE',
     },
 }
 
@@ -1101,6 +1123,13 @@ export const SPECIAL_MODES: Record<string, ModeDefinition> = {
             'Answers complex questions using advanced reasoning models and more resources, taking more time to provide deeper insights.',
         icon: <IconBrain />,
         beta: true,
+    },
+    sandbox: {
+        name: 'Sandbox',
+        description: 'Spawns a cloud coding agent to work on the PostHog codebase.',
+        icon: <IconCloud />,
+        flag: 'PHAI_SANDBOX_MODE',
+        alpha: true,
     },
 }
 

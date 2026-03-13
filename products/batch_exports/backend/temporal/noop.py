@@ -6,8 +6,9 @@ from typing import Any
 
 from temporalio import activity, workflow
 
-from posthog.batch_exports.service import BackfillDetails, NoOpInputs
 from posthog.temporal.common.base import PostHogWorkflow
+
+from products.batch_exports.backend.service import BackfillDetails, NoOpInputs
 
 
 @dataclass

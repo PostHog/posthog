@@ -26,6 +26,7 @@ from products.data_warehouse.backend.types import IncrementalFieldType, Partitio
 def get_schemas(
     config: BigQuerySourceConfig,
     logger: FilteringBoundLogger | None = None,
+    names: list[str] | None = None,
 ) -> dict[str, list[tuple[str, str, bool]]]:
     schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
 
@@ -64,6 +65,10 @@ def get_schemas(
 
         for row in rows:
             schema_list[row.table_name].append((row.column_name, row.data_type, row.is_nullable == "YES"))
+
+    if names is not None:
+        names_set = set(names)
+        schema_list = {k: v for k, v in schema_list.items() if k in names_set}
 
     return schema_list
 

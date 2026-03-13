@@ -566,33 +566,35 @@ pub async fn insert_evaluation_tags_for_flag_in_pg(
     let mut conn = client.get_connection().await?;
 
     for tag_name in tag_names {
-        // First, insert the tag if it doesn't exist
-        let tag_uuid = Uuid::now_v7();
-        let tag_id: Uuid = sqlx::query_scalar(
+        // Insert the evaluation context if it doesn't exist
+        let ctx_uuid = Uuid::now_v7();
+        let ctx_id: Uuid = sqlx::query_scalar(
             r#"
-            INSERT INTO posthog_tag (id, name, team_id)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (name, team_id) DO UPDATE 
+            INSERT INTO posthog_evaluationcontext (id, name, team_id, created_at)
+            VALUES ($1, $2, $3, NOW())
+            ON CONFLICT (team_id, name) DO UPDATE
             SET name = EXCLUDED.name
             RETURNING id
             "#,
         )
-        .bind(tag_uuid)
+        .bind(ctx_uuid)
         .bind(tag_name)
         .bind(team_id)
         .fetch_one(&mut *conn)
         .await?;
 
-        // Then, create the association
+        // Then, create the flag-context association
+        let assoc_uuid = Uuid::now_v7();
         sqlx::query(
             r#"
-            INSERT INTO posthog_featureflagevaluationtag (feature_flag_id, tag_id, created_at)
-            VALUES ($1, $2, NOW())
-            ON CONFLICT (feature_flag_id, tag_id) DO NOTHING
+            INSERT INTO posthog_featureflagevaluationcontext (id, feature_flag_id, evaluation_context_id, created_at)
+            VALUES ($1, $2, $3, NOW())
+            ON CONFLICT (feature_flag_id, evaluation_context_id) DO NOTHING
             "#,
         )
+        .bind(assoc_uuid)
         .bind(flag_id)
-        .bind(tag_id)
+        .bind(ctx_id)
         .execute(&mut *conn)
         .await?;
     }
@@ -667,6 +669,7 @@ pub async fn insert_cohort_for_team_in_pg(
         errors_calculating: 0,
         groups: serde_json::json!([]),
         created_by_id: None,
+        cohort_type: None,
     };
 
     let mut conn = client.get_connection().await?;
@@ -1375,6 +1378,29 @@ impl TestContext {
         let redis_client = setup_redis_client(Some(self.config.redis_url.clone())).await;
         self.populate_flag_definitions_cache(redis_client, team_id)
             .await
+    }
+
+    /// Populate cache for a team and store an ETag alongside it.
+    /// The ETag is stored at `{cache_key}:etag` using pickle serialization,
+    /// matching Django's HyperCache behavior.
+    pub async fn populate_cache_for_team_with_etag(
+        &self,
+        team_id: i32,
+        etag: &str,
+    ) -> Result<(), Error> {
+        let redis_client = setup_redis_client(Some(self.config.redis_url.clone())).await;
+        self.populate_flag_definitions_cache(redis_client.clone(), team_id)
+            .await?;
+
+        let etag_key =
+            format!("posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag");
+        let pickled_etag =
+            serde_pickle::to_vec(&etag, Default::default()).expect("Failed to pickle ETag");
+        redis_client
+            .set_bytes(etag_key, pickled_etag, None)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to set ETag: {e}"))?;
+        Ok(())
     }
 
     /// Generates a unique test email address with an optional prefix

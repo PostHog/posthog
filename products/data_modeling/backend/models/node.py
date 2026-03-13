@@ -6,6 +6,8 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
+from .dag import DAG
+
 
 class NodeType(models.TextChoices):
     TABLE = "table"
@@ -18,6 +20,7 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     # models.PROTECT prevents deleting a saved query if its referenced by a Node
     saved_query = models.ForeignKey(DataWarehouseSavedQuery, on_delete=models.PROTECT, null=True, blank=True)
+    dag_fk = models.ForeignKey(DAG, on_delete=models.CASCADE, null=True, blank=True)
     dag_id = models.TextField(max_length=256, default="posthog", db_index=True)
     # duplicate of dag_id, will replace it after code refs are migrated
     dag_id_text = models.TextField(max_length=256, default="posthog")
@@ -26,6 +29,7 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     name = models.TextField(max_length=2048, db_index=True)
     # type of the node (source table, view, or mat view)
     type = models.TextField(max_length=16, choices=NodeType.choices, default=NodeType.TABLE)
+    description = models.TextField(max_length=1024, default="", blank=True)
     properties = models.JSONField(default=dict)
 
     def save(self, *args, **kwargs):
@@ -34,6 +38,7 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
             self.name = self.saved_query.name
         elif not self.name:
             raise ValueError("Node without a saved_query must have a name")
+        # keep text fields in sync until constraints are migrated to use dag_fk
         self.dag_id = self.dag_id_text
         super().save(*args, **kwargs)
 

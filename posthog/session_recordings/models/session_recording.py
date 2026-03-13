@@ -3,13 +3,44 @@ from typing import Any, Optional, Union
 
 from django.db import models
 
+import structlog
+
 from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.person import READ_DB_FOR_PERSONS, Person
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
+from posthog.personhog_client.metrics import (
+    PERSONHOG_ROUTING_ERRORS_TOTAL,
+    PERSONHOG_ROUTING_TOTAL,
+    PERSONHOG_TEAM_MISMATCH_TOTAL,
+    get_client_name,
+)
 from posthog.session_recordings.models.metadata import RecordingMatchingEvents, RecordingMetadata
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+
+logger = structlog.get_logger(__name__)
+
+
+def _fetch_person_by_distinct_id_via_personhog(team_id: int, distinct_id: str) -> Person | None:
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.converters import proto_person_to_model
+    from posthog.personhog_client.proto import GetPersonByDistinctIdRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    resp = client.get_person_by_distinct_id(GetPersonByDistinctIdRequest(team_id=team_id, distinct_id=distinct_id))
+    if resp.person and resp.person.id and resp.person.team_id == team_id:
+        # Only pass the queried distinct_id — the list endpoint also intentionally
+        # sets a single distinct_id to avoid expensive all-distinct-ids lookups.
+        # The MinimalPersonSerializer truncates to 10 anyway.
+        return proto_person_to_model(resp.person, distinct_ids=[distinct_id])
+    if resp.person and resp.person.id and resp.person.team_id != team_id:
+        PERSONHOG_TEAM_MISMATCH_TOTAL.labels(operation="load_person", client_name=get_client_name()).inc()
+        logger.warning("personhog_team_mismatch", operation="load_person", team_id=team_id, dropped=1)
+    return None
 
 
 class SessionRecording(UUIDTModel):
@@ -45,8 +76,6 @@ class SessionRecording(UUIDTModel):
 
     start_url = models.CharField(blank=True, null=True, max_length=512)
 
-    # we can't store storage version in the stored content
-    # as we might need to know the version before knowing how to load the data
     storage_version = models.CharField(blank=True, null=True, max_length=20)
 
     retention_period_days = models.IntegerField(blank=True, null=True)
@@ -69,7 +98,7 @@ class SessionRecording(UUIDTModel):
         if self._metadata:
             return True
 
-        if self.object_storage_path or self.full_recording_v2_path:
+        if self.full_recording_v2_path:
             # Nothing todo as we have all the metadata in the model
             pass
         else:
@@ -130,6 +159,23 @@ class SessionRecording(UUIDTModel):
         if self._person:
             return
 
+        from posthog.personhog_client.gate import use_personhog
+
+        if use_personhog() and self.distinct_id:
+            try:
+                person = _fetch_person_by_distinct_id_via_personhog(self.team.pk, self.distinct_id)
+                if person is not None:
+                    self.person = person
+                PERSONHOG_ROUTING_TOTAL.labels(
+                    operation="load_person", source="personhog", client_name=get_client_name()
+                ).inc()
+                return
+            except Exception:
+                PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                    operation="load_person", source="personhog", error_type="grpc_error", client_name=get_client_name()
+                ).inc()
+                logger.warning("personhog_load_person_failure", team_id=self.team.pk, exc_info=True)
+
         try:
             self.person = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(
                 persondistinctid__distinct_id=self.distinct_id,
@@ -138,6 +184,9 @@ class SessionRecording(UUIDTModel):
             )
         except Person.DoesNotExist:
             pass
+        PERSONHOG_ROUTING_TOTAL.labels(
+            operation="load_person", source="django_orm", client_name=get_client_name()
+        ).inc()
 
     def check_viewed_for_user(self, user: Any, save_viewed=False) -> None:
         if not save_viewed:

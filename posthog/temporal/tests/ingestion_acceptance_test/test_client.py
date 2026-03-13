@@ -49,7 +49,7 @@ class TestCaptureEvent:
         mock_posthog_sdk.capture.assert_called_once_with(
             distinct_id="user_123",
             event="test_event",
-            properties=properties,
+            properties={"$ignore_sent_at": True, **properties},
             uuid=event_uuid,
         )
 
@@ -57,7 +57,7 @@ class TestCaptureEvent:
         client.capture_event(event_name="test_event", distinct_id="user_123")
 
         call_kwargs = mock_posthog_sdk.capture.call_args[1]
-        assert call_kwargs["properties"] == {}
+        assert call_kwargs["properties"] == {"$ignore_sent_at": True}
 
 
 class TestFetchEventByUuid:

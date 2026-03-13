@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    CodeInviteRedeemRequestApi,
     ConnectionTokenResponseApi,
     PaginatedTaskListApi,
     PaginatedTaskRunDetailListApi,
@@ -26,6 +27,7 @@ import type {
     TaskRunCreateRequestApi,
     TaskRunDetailApi,
     TaskRunRelayMessageRequestApi,
+    TaskRunRelayMessageResponseApi,
     TasksListParams,
     TasksRepositoryReadinessRetrieveParams,
     TasksRunsListParams,
@@ -48,6 +50,41 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+/**
+ * Check whether the authenticated user has access to PostHog Code.
+ * @summary Check access
+ */
+export const getCodeInvitesCheckAccessRetrieveUrl = () => {
+    return `/api/code/invites/check-access/`
+}
+
+export const codeInvitesCheckAccessRetrieve = async (options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getCodeInvitesCheckAccessRetrieveUrl(), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Redeem a PostHog Code invite code to enable access.
+ * @summary Redeem invite code
+ */
+export const getCodeInvitesRedeemCreateUrl = () => {
+    return `/api/code/invites/redeem/`
+}
+
+export const codeInvitesRedeemCreate = async (
+    codeInviteRedeemRequestApi: CodeInviteRedeemRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getCodeInvitesRedeemCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(codeInviteRedeemRequestApi),
+    })
+}
 
 /**
  * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.
@@ -407,8 +444,8 @@ export const tasksRunsRelayMessageCreate = async (
     id: string,
     taskRunRelayMessageRequestApi: TaskRunRelayMessageRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getTasksRunsRelayMessageCreateUrl(projectId, taskId, id), {
+): Promise<TaskRunRelayMessageResponseApi> => {
+    return apiMutator<TaskRunRelayMessageResponseApi>(getTasksRunsRelayMessageCreateUrl(projectId, taskId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -471,6 +508,25 @@ export const tasksRunsSetOutputPartialUpdate = async (
     return apiMutator<TaskRunDetailApi>(getTasksRunsSetOutputPartialUpdateUrl(projectId, taskId, id), {
         ...options,
         method: 'PATCH',
+    })
+}
+
+/**
+ * API for managing task runs. Each run represents an execution of a task.
+ */
+export const getTasksRunsStreamRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/stream/`
+}
+
+export const tasksRunsStreamRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskRunDetailApi> => {
+    return apiMutator<TaskRunDetailApi>(getTasksRunsStreamRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -28,17 +28,17 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import (
+from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
+
+from products.batch_exports.backend.service import (
     BatchExportField,
     BatchExportInsertInputs,
     BatchExportModel,
     BatchExportSchema,
     BigQueryBatchExportInputs,
 )
-from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_logger, get_write_only_logger
-
 from products.batch_exports.backend.temporal.batch_exports import (
     OverBillingLimitError,
     StartBatchExportRunInputs,
@@ -721,7 +721,13 @@ class BigQueryClient:
         while True:
             try:
                 result = await asyncio.to_thread(self._run_load_job, file, bq_table, job_config=job_config)
-            except (TooManyRequests, ServiceUnavailable, GatewayTimeout, InternalServerError) as err:
+            except (
+                TooManyRequests,
+                ServiceUnavailable,
+                GatewayTimeout,
+                InternalServerError,
+                BigQueryQuotaExceededError,
+            ) as err:
                 backoff = min(max_retry, initial_retry * (backoff_factor**attempt))
                 self.logger.exception(
                     "LoadJob transient error encountered", attempt=attempt, backoff=backoff, error_code=err.code
@@ -778,6 +784,8 @@ class BigQueryQuotaExceededError(Exception):
     This error indicates that we have been exporting too much data and need to
     slow down. This error is retryable.
     """
+
+    code = 403  # BigQuery reports quota errors as 403 Forbidden.
 
     def __init__(self, message: str):
         super().__init__(f"A BigQuery quota has been exceeded. Error: {message}")

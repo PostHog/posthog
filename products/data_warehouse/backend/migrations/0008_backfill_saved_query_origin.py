@@ -1,6 +1,6 @@
 from django.db import migrations
 
-from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+from posthog.schema import DataWarehouseSavedQueryOrigin
 
 CHUNK_SIZE = 1000
 
@@ -12,7 +12,7 @@ def forwards_func(apps, schema_editor):
     for query in (
         SavedQuery.objects.filter(managed_viewset__isnull=False).only("id", "origin").iterator(chunk_size=CHUNK_SIZE)
     ):
-        query.origin = DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET
+        query.origin = DataWarehouseSavedQueryOrigin.MANAGED_VIEWSET
         chunk.append(query)
 
         if len(chunk) == CHUNK_SIZE:
@@ -26,7 +26,7 @@ def forwards_func(apps, schema_editor):
     for query in (
         SavedQuery.objects.filter(managed_viewset__isnull=True).only("id", "origin").iterator(chunk_size=CHUNK_SIZE)
     ):
-        query.origin = DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE
+        query.origin = DataWarehouseSavedQueryOrigin.DATA_WAREHOUSE
         chunk.append(query)
 
         if len(chunk) == CHUNK_SIZE:

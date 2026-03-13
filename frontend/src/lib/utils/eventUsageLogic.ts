@@ -35,9 +35,12 @@ import {
     isInsightQueryNode,
     isInsightVizNode,
     isNodeWithSource,
+    isStickinessQuery,
+    isTrendsQuery,
 } from '~/queries/utils'
 import { PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import {
+    ChartDisplayType,
     CohortType,
     DashboardMode,
     DashboardTile,
@@ -79,6 +82,8 @@ export enum DashboardEventSource {
     MainNavigation = 'main_nav',
     DashboardsList = 'dashboards_list',
     SceneCommonButtons = 'scene_common_buttons',
+    CardEdgeHover = 'card_edge_hover',
+    CardDragHandle = 'card_drag_handle',
 }
 
 export enum InsightEventSource {
@@ -220,13 +225,18 @@ function sanitizeQuery(query: Node | null): Record<string, string | number | boo
 
         // trends like
         payload.has_formula = !!getFormula(querySource)
-        payload.display = getDisplay(querySource)
+        payload.display =
+            getDisplay(querySource) ??
+            (isTrendsQuery(querySource) || isStickinessQuery(querySource)
+                ? ChartDisplayType.ActionsLineGraph
+                : undefined)
         payload.compare = getCompareFilter(querySource)?.compare
         payload.compare_to = getCompareFilter(querySource)?.compare_to
 
         // funnels
         payload.funnel_viz_type = isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnelVizType : undefined
         payload.funnel_order_type = isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnelOrderType : undefined
+        payload.has_data_warehouse_series = !!getSeries(querySource)?.find((e) => isDataWarehouseNode(e))
     }
 
     return objectClean(payload)
@@ -243,6 +253,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportPersonsModalViewed: (params: any) => ({
             params,
         }),
+        reportPersonsModalSearched: (params: { teamId?: number | null; actorType?: string }) => ({ params }),
         // timing
         reportTimeToSeeData: (payload: TimeToSeeDataPayload) => ({ payload }),
         reportGroupTypeDetailDashboardCreated: () => ({}),
@@ -340,7 +351,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportDashboardModeToggled: (
             dashboard: DashboardType<QueryBasedInsightModel> | null,
-            mode: DashboardMode,
+            mode: DashboardMode | null,
             source: DashboardEventSource | null
         ) => ({ dashboard, mode, source }),
         reportDashboardRefreshed: (
@@ -405,6 +416,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         ) => ({ attribute, originalLength, newLength }),
         reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
         reportDashboardWhitelabelToggled: (isWhiteLabelled: boolean) => ({ isWhiteLabelled }),
+        reportDashboardTileRepositioned: (dashboardId: number, action: 'moved' | 'resized') => ({
+            dashboardId,
+            action,
+        }),
+        reportDashboardInsightMetaUpdated: (
+            dashboardId: number | undefined,
+            insightId: number,
+            attribute: 'name' | 'description'
+        ) => ({ dashboardId, insightId, attribute }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
         reportTimezoneComponentViewed: (
             component: 'label' | 'indicator',
@@ -624,6 +644,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 triggered_by: 'page_load' | 'manual' | 'auto_refresh' | 'config_change'
                 force_refresh: boolean
                 refresh_id: string
+                experiment_duration_hours: number | null
+                experiment_status: string | null
+                total_metrics_count: number
             }
         ) => ({
             experimentId,
@@ -756,6 +779,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             totalDurationMs: number,
             queryDurations: { aggregate: number; openEnded: number }
         ) => ({ survey, totalDurationMs, queryDurations }),
+        reportSurveyEmptyStateViewed: true,
+        reportSurveyAiPromptSubmitted: (source: string) => ({ source }),
         reportProductTourViewed: (tour: ProductTour) => ({ tour }),
         reportProductTourCreated: (tour: ProductTour, creationSource?: 'app' | 'toolbar') => ({
             tour,
@@ -795,8 +820,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             selected,
             recommendationSource,
         }),
-        reportOnboardingReverseProxyDomainEntered: (domain: string) => ({ domain }),
-        reportOnboardingReverseProxyDocsClicked: true,
         reportBillingCTAShown: true,
         reportBillingUsageInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportBillingSpendInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
@@ -967,7 +990,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             // "insight created" essentially means that the user clicked "New insight"
             await breakpoint(500) // Debounce to avoid multiple quick "New insight" clicks being reported
 
-            posthog.capture('insight created', sanitizeQuery(query))
+            posthog.capture('insight created', { ...sanitizeQuery(query), source: 'web' })
         },
         reportInsightSaved: async ({ insight, query, isNewInsight }) => {
             // "insight saved" is a proxy for the new insight's results being valuable to the user
@@ -995,10 +1018,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             }
 
             const eventName = delay ? 'insight analyzed' : 'insight viewed'
-            posthog.capture(eventName, objectClean(payload))
+            posthog.capture(eventName, objectClean({ ...payload, source: 'web' }))
         },
         reportPersonsModalViewed: async ({ params }) => {
             posthog.capture('insight person modal viewed', params)
+        },
+        reportPersonsModalSearched: async ({ params }) => {
+            posthog.capture('insight person modal searched', params)
         },
         reportDashboardViewed: async ({ dashboard, lastRefreshed, delay }, breakpoint) => {
             if (!delay) {
@@ -1043,7 +1069,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             }
 
             const eventName = delay ? 'dashboard analyzed' : 'viewed dashboard' // `viewed dashboard` name is kept for backwards compatibility
-            posthog.capture(eventName, properties)
+            posthog.capture(eventName, { ...properties, source: 'web' })
         },
         reportProjectCreationSubmitted: async ({
             projectCount,
@@ -1175,6 +1201,19 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportDashboardWhitelabelToggled: async ({ isWhiteLabelled }) => {
             posthog.capture(`dashboard whitelabel toggled`, { is_whitelabelled: isWhiteLabelled })
+        },
+        reportDashboardTileRepositioned: async ({ dashboardId, action }) => {
+            posthog.capture('dashboard tile repositioned', {
+                dashboard_id: dashboardId,
+                action,
+            })
+        },
+        reportDashboardInsightMetaUpdated: async ({ dashboardId, insightId, attribute }) => {
+            posthog.capture('dashboard insight meta updated', {
+                dashboard_id: dashboardId,
+                insight_id: insightId,
+                attribute,
+            })
         },
         reportUpgradeModalShown: async (payload) => {
             posthog.capture('upgrade modal shown', payload)
@@ -1832,6 +1871,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 source,
             })
         },
+        reportSurveyEmptyStateViewed: () => {
+            posthog.capture('survey empty state viewed')
+        },
+        reportSurveyAiPromptSubmitted: ({ source }) => {
+            posthog.capture('survey AI prompt submitted', {
+                source,
+            })
+        },
         reportSurveyCycleDetected: ({ survey }) => {
             posthog.capture('survey cycle detected', {
                 name: survey.name,
@@ -1957,12 +2004,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('sdk selected', {
                 sdk: sdk.key,
             })
-        },
-        reportOnboardingReverseProxyDomainEntered: ({ domain }) => {
-            posthog.capture('onboarding reverse proxy domain entered', { domain })
-        },
-        reportOnboardingReverseProxyDocsClicked: () => {
-            posthog.capture('onboarding reverse proxy docs clicked')
         },
         // command bar
         reportCommandBarStatusChanged: ({ status }) => {

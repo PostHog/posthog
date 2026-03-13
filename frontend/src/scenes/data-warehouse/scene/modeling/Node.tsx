@@ -202,7 +202,7 @@ function NodeMetadata({
                             <TZLabel
                                 className="text-[10px]"
                                 time={lastRunAt}
-                                formatDate="MMM DD, YYYY"
+                                formatDate="MMM D"
                                 formatTime="HH:mm"
                                 showPopover={false}
                             />
@@ -370,16 +370,16 @@ const NodeComponent = React.memo(function NodeComponent(props: { id: string; dat
     const canOpenInEditor = type !== 'table' && type !== 'endpoint' && savedQueryId
     const handleNodeClick = useCallback((): void => {
         if (type === 'endpoint') {
-            const versionMatch = props.data.name.match(/^(.+)_v(\d+)$/)
+            const versionMatch = name.match(/^(.+)_v(\d+)$/)
             if (versionMatch) {
                 newTab(urls.endpoint(versionMatch[1], parseInt(versionMatch[2])))
             } else {
-                newTab(urls.endpoint(props.data.name))
+                newTab(urls.endpoint(name))
             }
         } else if (canOpenInEditor) {
             newTab(urls.sqlEditor({ view_id: savedQueryId }))
         }
-    }, [type, canOpenInEditor, savedQueryId, newTab])
+    }, [type, canOpenInEditor, savedQueryId, newTab, name])
 
     const handleMouseEnter = useCallback(() => setHoveredNodeId(id), [id, setHoveredNodeId])
     const handleMouseLeave = useCallback(() => setHoveredNodeId(null), [setHoveredNodeId])

@@ -10,7 +10,6 @@ from typing import Any, Iterator, List, Optional, Union  # noqa: UP035
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models.query import Prefetch
 from django.utils import timezone
 
 from drf_spectacular.types import OpenApiTypes
@@ -35,7 +34,7 @@ from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.client import query_with_columns
 from posthog.clickhouse.client.limit import get_events_list_rate_limiter
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Element, Filter, Person, PersonDistinctId, PropertyDefinition
+from posthog.models import Element, Filter, Person, PropertyDefinition
 from posthog.models.event.query_event_list import query_events_list
 from posthog.models.event.sql import SELECT_ONE_EVENT_SQL
 from posthog.models.event.util import ClickhouseEventSerializer
@@ -397,13 +396,6 @@ class EventViewSet(
     def _get_people(self, query_result: List[dict], team: Team) -> dict[str, Any]:  # noqa: UP006
         distinct_ids = [event["distinct_id"] for event in query_result]
         persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
-        persons = persons.prefetch_related(
-            Prefetch(
-                "persondistinctid_set",
-                queryset=PersonDistinctId.objects.filter(team_id=team.pk).order_by("id"),
-                to_attr="distinct_ids_cache",
-            )
-        )
         distinct_to_person: dict[str, Person] = {}
         for person in persons:
             for distinct_id in person.distinct_ids:
@@ -475,6 +467,8 @@ class EventViewSet(
             value=request.GET.get("value"),
         )
 
+        force_refresh = request.GET.get("force_refresh", "false").lower() == "true"
+
         if key == "custom_event":
             return self._custom_event_values(query_params)
         else:
@@ -482,11 +476,12 @@ class EventViewSet(
             if self._is_property_hidden(key, team):
                 return self._return_with_short_cache([], refreshing=False)
 
-            return self._event_property_values(query_params)
+            return self._event_property_values(query_params, force_refresh=force_refresh)
 
     def _event_property_values(
         self,
         query_params: EventValueQueryParams,
+        force_refresh: bool = False,
     ) -> response.Response:
         from posthog.hogql_queries.property_values_query_runner import (
             CachedPropertyValuesQueryResponse,
@@ -524,8 +519,14 @@ class EventViewSet(
                     search_value=query_params.value,
                     event_names=query_params.event_names or None,
                 ),
+                request=self.request,
             )
-            result = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
+            execution_mode = (
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+                if force_refresh
+                else ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+            )
+            result = runner.run(execution_mode)
             assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
             is_refreshing = (
                 isinstance(result, CachedPropertyValuesQueryResponse)

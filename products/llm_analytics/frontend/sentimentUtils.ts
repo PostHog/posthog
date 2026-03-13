@@ -1,3 +1,6 @@
+/** Tight date window around trace creation for sentiment ClickHouse queries. */
+export const SENTIMENT_DATE_WINDOW_DAYS = 2
+
 export type SentimentLabel = 'positive' | 'neutral' | 'negative'
 
 interface MessageScore {
@@ -59,19 +62,4 @@ export function buildSentimentBarTooltip(
         parts.push(`max negative: ${Math.round(maxNegative * 100)}%`)
     }
     return parts.length > 1 ? `${parts[0]} (${parts.slice(1).join(', ')})` : parts[0]
-}
-
-export function flattenGenerationMessages(
-    generations?: Record<string, { messages?: Record<string | number, MessageScore> }>
-): Record<string, MessageScore> | undefined {
-    if (!generations) {
-        return undefined
-    }
-    const flat: Record<string, MessageScore> = {}
-    for (const [genId, gen] of Object.entries(generations)) {
-        for (const [msgId, msg] of Object.entries(gen.messages ?? {})) {
-            flat[`${genId}:${msgId}`] = msg
-        }
-    }
-    return Object.keys(flat).length > 0 ? flat : undefined
 }

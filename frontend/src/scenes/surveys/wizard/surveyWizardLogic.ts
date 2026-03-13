@@ -54,11 +54,11 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
             surveysLogic,
             ['loadSurveys'],
             eventUsageLogic,
-            ['reportSurveyCreated', 'reportSurveyEdited'],
+            ['reportSurveyCreated', 'reportSurveyEdited', 'reportSurveyTemplateClicked'],
             teamLogic,
             ['addProductIntent'],
         ],
-        values: [surveyLogic({ id: props.id }), ['survey', 'surveyLoading']],
+        values: [surveyLogic({ id: props.id }), ['survey', 'surveyLoading'], teamLogic, ['currentTeam']],
     })),
 
     actions({
@@ -245,6 +245,7 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
             actions.setSurveyValue('appearance', {
                 ...defaultSurveyAppearance,
                 ...themeAppearance,
+                ...values.currentTeam?.survey_config?.appearance,
                 ...cleanTemplateBehavior,
             })
 
@@ -260,6 +261,8 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
                 ...template.conditions,
                 seenSurveyWaitPeriodInDays: frequencyToDays[frequencyValue],
             })
+
+            actions.reportSurveyTemplateClicked(template.templateType, SURVEY_CREATED_SOURCE.SURVEY_WIZARD)
         },
         restoreDefaultQuestions: () => {
             const template = values.selectedTemplate
