@@ -22,6 +22,7 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'native_email',
         'posthog_assignee',
         'posthog_ticket_tags',
+        'agent_config',
     ]),
     key: z.string(),
     label: z.string(),
@@ -67,6 +68,7 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     body: z.union([z.string(), z.null()]).optional(),
     max_tries: z.number().optional(),
     headers: z.record(z.string()).optional(),
+    timeout_ms: z.number().optional(),
 })
 
 export const CyclotronInvocationQueueParametersEmailSchema = z.object({

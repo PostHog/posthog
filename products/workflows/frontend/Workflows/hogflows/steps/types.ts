@@ -70,6 +70,7 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'native_email',
         'posthog_assignee',
         'posthog_ticket_tags',
+        'agent_config',
     ]),
     key: z.string(),
     label: z.string(),

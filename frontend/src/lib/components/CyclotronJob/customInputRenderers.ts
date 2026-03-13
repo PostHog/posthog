@@ -18,4 +18,7 @@ export const CUSTOM_INPUT_RENDERERS: Record<
     posthog_ticket_tags: lazy(
         () => import('products/conversations/frontend/components/TicketTags/CyclotronJobInputTicketTags')
     ),
+    agent_config: lazy(
+        () => import('products/workflows/frontend/Workflows/hogflows/steps/components/CyclotronJobInputAgentConfig')
+    ),
 }
