@@ -11,7 +11,7 @@ import { insertHogFunction, insertHogFunctionTemplate } from '~/cdp/_tests/fixtu
 import { CdpApi } from '~/cdp/cdp-api'
 import { template as pixelTemplate } from '~/cdp/templates/_sources/pixel/pixel.template'
 import { template as incomingWebhookTemplate } from '~/cdp/templates/_sources/webhook/incoming_webhook.template'
-import { HogFunctionType } from '~/cdp/types'
+import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '~/cdp/types'
 import { HogFlow } from '~/schema/hogflow'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
@@ -20,9 +20,69 @@ import { closeHub, createHub } from '~/utils/db/hub'
 
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { insertHogFlow } from '../_tests/fixtures-hogflows'
+import { getCustomHttpResponse } from '../consumers/cdp-source-webhooks.consumer'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { compileHog } from '../templates/compiler'
 import { compileInputs } from '../templates/test/test-helpers'
+
+describe('getCustomHttpResponse', () => {
+    const makeResult = (execResult: any): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> =>
+        ({ execResult }) as any
+
+    it('should return null when execResult has no httpResponse', () => {
+        expect(getCustomHttpResponse(makeResult({}))).toBeNull()
+        expect(getCustomHttpResponse(makeResult(null))).toBeNull()
+        expect(getCustomHttpResponse(makeResult(undefined))).toBeNull()
+    })
+
+    it('should extract status and body from httpResponse', () => {
+        const result = getCustomHttpResponse(makeResult({ httpResponse: { status: 200, body: 'hello' } }))
+        expect(result).toEqual({
+            status: 200,
+            body: 'hello',
+            contentType: undefined,
+            isBase64Encoded: undefined,
+        })
+    })
+
+    it('should default status to 500 when not a number', () => {
+        const result = getCustomHttpResponse(makeResult({ httpResponse: { status: 'bad', body: 'error' } }))
+        expect(result?.status).toEqual(500)
+    })
+
+    it('should extract contentType when present', () => {
+        const result = getCustomHttpResponse(
+            makeResult({ httpResponse: { status: 200, body: '', contentType: 'image/gif' } })
+        )
+        expect(result?.contentType).toEqual('image/gif')
+    })
+
+    it('should extract isBase64Encoded when present', () => {
+        const result = getCustomHttpResponse(
+            makeResult({
+                httpResponse: {
+                    status: 200,
+                    body: 'R0lGODlh',
+                    contentType: 'image/gif',
+                    isBase64Encoded: true,
+                },
+            })
+        )
+        expect(result).toEqual({
+            status: 200,
+            body: 'R0lGODlh',
+            contentType: 'image/gif',
+            isBase64Encoded: true,
+        })
+    })
+
+    it('should handle object body', () => {
+        const result = getCustomHttpResponse(
+            makeResult({ httpResponse: { status: 400, body: { error: 'bad request' } } })
+        )
+        expect(result?.body).toEqual({ error: 'bad request' })
+    })
+})
 
 describe('SourceWebhooksConsumer', () => {
     let hub: Hub
@@ -218,10 +278,11 @@ describe('SourceWebhooksConsumer', () => {
                 })
                 expect(res.status).toEqual(200)
                 expect(res.body).toBeInstanceOf(Buffer)
-                expect(res.headers['content-type']).toEqual('image/gif; charset=utf-8')
-                // parse body
-                const body = Buffer.from(res.body).toString()
-                expect(body).toContain('GIF')
+                // Should NOT have charset=utf-8 appended (binary data, not text)
+                expect(res.headers['content-type']).toEqual('image/gif')
+                // Verify the response body is the exact expected GIF binary
+                const expectedGif = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
+                expect(Buffer.from(res.body)).toEqual(expectedGif)
             })
 
             it('should allow capturing an event using GET request with gif extension', async () => {
@@ -234,10 +295,56 @@ describe('SourceWebhooksConsumer', () => {
                 })
                 expect(res.status).toEqual(200)
                 expect(res.body).toBeInstanceOf(Buffer)
-                expect(res.headers['content-type']).toEqual('image/gif; charset=utf-8')
-                // parse body
-                const body = Buffer.from(res.body).toString()
-                expect(body).toContain('GIF')
+                expect(res.headers['content-type']).toEqual('image/gif')
+                const expectedGif = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
+                expect(Buffer.from(res.body)).toEqual(expectedGif)
+            })
+
+            it('should return base64-encoded binary response with correct content-type when isBase64Encoded is true', async () => {
+                const base64Png = 'iVBORw0KGgo='
+                const customBinaryFunction = await insertHogFunction(hub.postgres, team.id, {
+                    type: 'source_webhook',
+                    hog: `return { 'httpResponse': { 'status': 200, 'body': '${base64Png}', 'contentType': 'image/png', 'isBase64Encoded': true } }`,
+                    bytecode: await compileHog(
+                        `return { 'httpResponse': { 'status': 200, 'body': '${base64Png}', 'contentType': 'image/png', 'isBase64Encoded': true } }`
+                    ),
+                    inputs: {},
+                })
+                const res = await doGetRequest({ webhookId: customBinaryFunction.id })
+                expect(res.status).toEqual(200)
+                expect(res.headers['content-type']).toEqual('image/png')
+                expect(Buffer.from(res.body)).toEqual(Buffer.from(base64Png, 'base64'))
+            })
+
+            it('should return plain text string response without charset corruption when isBase64Encoded is false', async () => {
+                const customTextFunction = await insertHogFunction(hub.postgres, team.id, {
+                    type: 'source_webhook',
+                    hog: `return { 'httpResponse': { 'status': 200, 'body': 'Hello, world!', 'contentType': 'text/plain' } }`,
+                    bytecode: await compileHog(
+                        `return { 'httpResponse': { 'status': 200, 'body': 'Hello, world!', 'contentType': 'text/plain' } }`
+                    ),
+                    inputs: {},
+                })
+                const res = await doGetRequest({ webhookId: customTextFunction.id })
+                expect(res.status).toEqual(200)
+                expect(res.headers['content-type']).toContain('text/plain')
+                expect(res.text).toEqual('Hello, world!')
+            })
+
+            it('should default to application/octet-stream when isBase64Encoded is true but no contentType', async () => {
+                const base64Data = 'AQIDBA=='
+                const customBinaryFunction = await insertHogFunction(hub.postgres, team.id, {
+                    type: 'source_webhook',
+                    hog: `return { 'httpResponse': { 'status': 200, 'body': '${base64Data}', 'isBase64Encoded': true } }`,
+                    bytecode: await compileHog(
+                        `return { 'httpResponse': { 'status': 200, 'body': '${base64Data}', 'isBase64Encoded': true } }`
+                    ),
+                    inputs: {},
+                })
+                const res = await doGetRequest({ webhookId: customBinaryFunction.id })
+                expect(res.status).toEqual(200)
+                expect(res.headers['content-type']).toEqual('application/octet-stream')
+                expect(Buffer.from(res.body)).toEqual(Buffer.from(base64Data, 'base64'))
             })
         })
 

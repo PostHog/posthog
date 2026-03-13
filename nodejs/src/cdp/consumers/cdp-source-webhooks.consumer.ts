@@ -47,6 +47,7 @@ export type HogFunctionWebhookResult = {
     status: number
     body: Record<string, any> | string
     contentType?: string
+    isBase64Encoded?: boolean
 }
 
 export const getCustomHttpResponse = (
@@ -57,6 +58,14 @@ export const getCustomHttpResponse = (
         return {
             status: 'status' in httpResponse && typeof httpResponse.status === 'number' ? httpResponse.status : 500,
             body: 'body' in httpResponse ? httpResponse.body : '',
+            contentType:
+                'contentType' in httpResponse && typeof httpResponse.contentType === 'string'
+                    ? httpResponse.contentType
+                    : undefined,
+            isBase64Encoded:
+                'isBase64Encoded' in httpResponse && typeof httpResponse.isBase64Encoded === 'boolean'
+                    ? httpResponse.isBase64Encoded
+                    : undefined,
         }
     }
 
