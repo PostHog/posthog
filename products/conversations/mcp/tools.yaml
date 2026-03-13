@@ -1,0 +1,98 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Support
+feature: conversations
+url_prefix: /conversations
+tools:
+    conversations-list:
+        operation: conversations_list
+        enabled: false
+    conversations-create:
+        operation: conversations_create
+        enabled: false
+    conversations-retrieve:
+        operation: conversations_retrieve
+        enabled: false
+    conversations-append-message-create:
+        operation: conversations_append_message_create
+        enabled: false
+    conversations-cancel-partial-update:
+        operation: conversations_cancel_partial_update
+        enabled: false
+    conversations-queue-retrieve:
+        operation: conversations_queue_retrieve
+        enabled: false
+    conversations-queue-create:
+        operation: conversations_queue_create
+        enabled: false
+    conversations-queue-partial-update:
+        operation: conversations_queue_partial_update
+        enabled: false
+    conversations-queue-destroy:
+        operation: conversations_queue_destroy
+        enabled: false
+    conversations-queue-clear-create:
+        operation: conversations_queue_clear_create
+        enabled: false
+    conversations-tickets-list:
+        operation: conversations_tickets_list
+        enabled: true
+        scopes:
+            - ticket:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List support tickets
+        description: >
+            List all support tickets in the project. Returns tickets with status, priority, channel source, assignee,
+            message counts, and timestamps. Supports filtering by status, priority, channel, assignee, and date range.
+        mcp_version: 1
+    conversations-tickets-create:
+        operation: conversations_tickets_create
+        enabled: false
+    conversations-tickets-retrieve:
+        operation: conversations_tickets_retrieve
+        enabled: true
+        scopes:
+            - ticket:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get support ticket
+        description: >
+            Get a specific support ticket by ID or ticket number. Returns full ticket details including status,
+            priority, assignee, message stats, and person data.
+        mcp_version: 1
+    conversations-tickets-update:
+        operation: conversations_tickets_update
+        enabled: false
+    conversations-tickets-partial-update:
+        operation: conversations_tickets_partial_update
+        enabled: true
+        scopes:
+            - ticket:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update support ticket
+        description: >
+            Update a support ticket. Can change status (new, open, pending, on_hold, resolved), priority (low, medium,
+            high), assignee, or SLA due date.
+        mcp_version: 1
+    conversations-tickets-destroy:
+        operation: conversations_tickets_destroy
+        enabled: false
+    conversations-tickets-suggest-reply-create:
+        operation: conversations_tickets_suggest_reply_create
+        enabled: false
+    conversations-tickets-unread-count-retrieve:
+        operation: conversations_tickets_unread_count_retrieve
+        enabled: false

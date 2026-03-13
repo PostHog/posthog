@@ -358,6 +358,36 @@ error_tracking_issues: PostgresTable = PostgresTable(
     },
 )
 
+support_tickets: PostgresTable = PostgresTable(
+    name="support_tickets",
+    postgres_table_name="posthog_conversations_ticket",
+    access_scope="ticket",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "ticket_number": IntegerDatabaseField(name="ticket_number"),
+        "channel_source": StringDatabaseField(name="channel_source"),
+        "distinct_id": StringDatabaseField(name="distinct_id"),
+        "status": StringDatabaseField(name="status"),
+        "priority": StringDatabaseField(name="priority"),
+        "anonymous_traits": StringJSONDatabaseField(name="anonymous_traits"),
+        "_ai_resolved": BooleanDatabaseField(name="ai_resolved", hidden=True),
+        "ai_resolved": ExpressionField(
+            name="ai_resolved", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_ai_resolved"])])
+        ),
+        "escalation_reason": StringDatabaseField(name="escalation_reason"),
+        "message_count": IntegerDatabaseField(name="message_count"),
+        "last_message_at": DateTimeDatabaseField(name="last_message_at"),
+        "last_message_text": StringDatabaseField(name="last_message_text"),
+        "unread_customer_count": IntegerDatabaseField(name="unread_customer_count"),
+        "unread_team_count": IntegerDatabaseField(name="unread_team_count"),
+        "session_id": StringDatabaseField(name="session_id"),
+        "sla_due_at": DateTimeDatabaseField(name="sla_due_at"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
 
 class SystemTables(TableNode):
     name: str = "system"
@@ -380,6 +410,7 @@ class SystemTables(TableNode):
         "insight_variables": TableNode(name="insight_variables", table=insight_variables),
         "insights": TableNode(name="insights", table=insights),
         "notebooks": TableNode(name="notebooks", table=notebooks),
+        "support_tickets": TableNode(name="support_tickets", table=support_tickets),
         "surveys": TableNode(name="surveys", table=surveys),
         "teams": TableNode(name="teams", table=teams),
     }
