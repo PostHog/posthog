@@ -25,6 +25,38 @@ import { captureTimeToSeeData } from '../../internalMetrics'
 import { getItemGroup } from './InfiniteList'
 import type { infiniteListLogicType } from './infiniteListLogicType'
 
+/** Properties that should be promoted to the top of search results when their search terms match. */
+const PROMOTED_PROPERTY_SEARCH_TERMS: Record<string, string[]> = {
+    $current_url: ['url'],
+}
+
+/**
+ * If the search query matches a promoted property's search terms, move that property
+ * to the top of results so users find it quickly.
+ */
+function promoteMatchingProperties(
+    results: TaxonomicDefinitionTypes[],
+    searchQuery: string
+): TaxonomicDefinitionTypes[] {
+    if (!searchQuery) {
+        return results
+    }
+    const query = searchQuery.toLowerCase().trim()
+    const promoted: TaxonomicDefinitionTypes[] = []
+    const rest: TaxonomicDefinitionTypes[] = []
+
+    for (const item of results) {
+        const name = 'name' in item ? (item as { name?: string }).name : undefined
+        if (name && PROMOTED_PROPERTY_SEARCH_TERMS[name]?.some((term) => query.includes(term))) {
+            promoted.push(item)
+        } else {
+            rest.push(item)
+        }
+    }
+
+    return promoted.length > 0 ? [...promoted, ...rest] : results
+}
+
 export interface RowInfo {
     startIndex: number
     stopIndex: number
@@ -461,16 +493,17 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 }
                 const remoteIsFresh = remoteItems.searchQuery === searchQuery
                 const results = hasRemoteDataSource ? (remoteIsFresh ? remoteItems.results : []) : localItems.results
-                return results.slice(0, MAX_TOP_MATCHES_PER_GROUP)
+                return promoteMatchingProperties(results, searchQuery).slice(0, MAX_TOP_MATCHES_PER_GROUP)
             },
         ],
         items: [
-            (s) => [s.remoteItems, s.localItems, s.listGroupType, s.topMatchItemsWithSkeletons],
-            (remoteItems, localItems, listGroupType, topMatchItemsWithSkeletons) => {
+            (s) => [s.remoteItems, s.localItems, s.listGroupType, s.topMatchItemsWithSkeletons, s.searchQuery],
+            (remoteItems, localItems, listGroupType, topMatchItemsWithSkeletons, searchQuery) => {
                 const topMatches =
                     listGroupType === TaxonomicFilterGroupType.SuggestedFilters ? topMatchItemsWithSkeletons : []
+                const combinedResults = [...localItems.results, ...remoteItems.results, ...topMatches]
                 return {
-                    results: [...localItems.results, ...remoteItems.results, ...topMatches],
+                    results: searchQuery ? promoteMatchingProperties(combinedResults, searchQuery) : combinedResults,
                     count:
                         localItems.count +
                         remoteItems.count +
