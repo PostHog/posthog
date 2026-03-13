@@ -17,8 +17,6 @@
                     <form id="preferences-form" class="space-y-6">
                         {% csrf_token %}
                         <input type="hidden" name="token" value="{{ token }}" />
-
-
                         <h2 class="text-xl font-semibold text-gray-800">Your subscription preferences:</h2>
                         {% for category in categories %}
                         <div class="bg-gray-50 rounded-lg p-6 transition-all duration-200 hover:shadow-md">
