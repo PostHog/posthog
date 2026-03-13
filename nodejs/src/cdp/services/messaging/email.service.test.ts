@@ -23,6 +23,7 @@ describe('parseAddressList', () => {
     it('should return undefined for empty values', () => {
         expect(parseAddressList(undefined)).toBeUndefined()
         expect(parseAddressList('')).toBeUndefined()
+        expect(parseAddressList(',')).toBeUndefined()
     })
 })
 

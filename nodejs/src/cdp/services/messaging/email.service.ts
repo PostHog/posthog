@@ -25,10 +25,11 @@ export function parseAddressList(value?: string): string[] | undefined {
     if (!value || !value.trim()) {
         return undefined
     }
-    return value
+    const result = value
         .split(',')
         .map((addr) => addr.trim())
         .filter((addr) => addr.length > 0)
+    return result.length > 0 ? result : undefined
 }
 
 export class EmailService {
