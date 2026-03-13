@@ -142,7 +142,11 @@ export function ScimLogsModal(): JSX.Element {
                     expandable={{
                         expandedRowRender: (log) => <LogDetailExpanded log={log} />,
                     }}
-                    emptyState="No SCIM requests logged yet for this domain."
+                    emptyState={
+                        scimLogsStatusFilter !== 'all' || scimLogsSearch
+                            ? 'No SCIM requests match the current filters.'
+                            : 'No SCIM requests logged yet for this domain.'
+                    }
                 />
             </div>
         </LemonModal>
