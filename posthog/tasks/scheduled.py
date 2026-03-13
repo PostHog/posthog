@@ -552,7 +552,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
-        300.0,  # every 5 minutes
+        crontab(hour="*", minute="*/5"),
         sync_snippet_manifest.s(),
         name="sync posthog-js snippet manifest",
     )
