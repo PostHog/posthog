@@ -14,6 +14,7 @@ from products.tasks.backend.services.custom_prompt_runner import (
     POLL_INTERVAL_SECONDS,
     CustomPromptSandboxContext,
     OutputFn,
+    _check_logs,
     _create_task_and_trigger,
     _stream_new_lines,
 )
@@ -116,7 +117,7 @@ async def _poll_for_turn(session: MultiTurnSession) -> str:
         elapsed += POLL_INTERVAL_SECONDS
 
         try:
-            new_end_turn, last_message, full_log, total_lines = await sync_to_async(_check_logs_from_offset)(
+            new_end_turn, last_message, full_log, total_lines = await sync_to_async(_check_logs)(
                 session.task_run, session.log_lines_seen
             )
         except ObjectStorageError:
@@ -148,7 +149,7 @@ async def _poll_for_turn(session: MultiTurnSession) -> str:
             # One final log read
             for attempt in range(MAX_CONSECUTIVE_STORAGE_ERRORS):
                 try:
-                    _, final_message, final_log, final_lines = await sync_to_async(_check_logs_from_offset)(
+                    _, final_message, final_log, final_lines = await sync_to_async(_check_logs)(
                         session.task_run, session.log_lines_seen
                     )
                     break
@@ -172,73 +173,3 @@ async def _poll_for_turn(session: MultiTurnSession) -> str:
             raise RuntimeError(f"multi_turn: TaskRun reached terminal status={refreshed.status} with no agent message")
 
     raise RuntimeError(f"multi_turn: polling timed out after {elapsed}s")
-
-
-def _check_logs_from_offset(task_run: TaskRun, skip_lines: int) -> tuple[bool, str | None, str | None, int]:
-    """Read S3 logs and parse only lines after skip_lines for new end_turn/agent messages.
-
-    Returns (found_new_end_turn, last_agent_message, full_log_content, total_line_count).
-    """
-    import json
-
-    from posthog.storage import object_storage
-
-    from products.tasks.backend.services.custom_prompt_runner import _extract_text
-
-    log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
-    if not log_content.strip():
-        return False, None, None, 0
-
-    lines = log_content.strip().split("\n")
-    total_lines = len(lines)
-
-    # Eventual consistency: if S3 returns fewer lines than expected, no new data
-    if total_lines <= skip_lines:
-        return False, None, log_content, total_lines
-
-    new_lines = lines[skip_lines:]
-    agent_finished = False
-    _AGENT_MSG_TYPES = {"agent_message", "agent_message_chunk"}
-    parsed_updates: list[dict] = []
-
-    for line in new_lines:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        notification = entry.get("notification")
-        if not isinstance(notification, dict):
-            continue
-        result = notification.get("result")
-        if isinstance(result, dict) and result.get("stopReason") == "end_turn":
-            agent_finished = True
-        if notification.get("method") != "session/update":
-            continue
-        params = notification.get("params")
-        update = params.get("update") if isinstance(params, dict) else None
-        if not isinstance(update, dict):
-            continue
-        parsed_updates.append(update)
-
-    # Walk backwards to find the last agent message in the new lines
-    trailing_parts: list[str] = []
-    found_agent_msg = False
-    for update in reversed(parsed_updates):
-        is_agent_msg = update.get("sessionUpdate") in _AGENT_MSG_TYPES
-        if not found_agent_msg:
-            if is_agent_msg:
-                found_agent_msg = True
-            else:
-                continue
-        if found_agent_msg and not is_agent_msg:
-            break
-        text = _extract_text(update)
-        if text:
-            trailing_parts.append(text)
-    trailing_parts.reverse()
-    latest_text = "".join(trailing_parts) if trailing_parts else None
-
-    return agent_finished, latest_text, log_content, total_lines

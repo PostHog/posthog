@@ -120,6 +120,7 @@ async def _poll_until_done(
     from products.tasks.backend.models import TaskRun
 
     printed_lines = 0
+    log_lines_seen = 0
     elapsed = 0
     consecutive_storage_errors = 0
     last_seen_message: str | None = None
@@ -129,7 +130,7 @@ async def _poll_until_done(
         elapsed += POLL_INTERVAL_SECONDS
 
         try:
-            finished, last_message, full_log = await sync_to_async(_check_logs)(task_run)
+            finished, last_message, full_log, total_lines = await sync_to_async(_check_logs)(task_run, log_lines_seen)
         except ObjectStorageError:
             consecutive_storage_errors += 1
             logger.warning(
@@ -151,6 +152,7 @@ async def _poll_until_done(
         printed_lines = _stream_new_lines(full_log, printed_lines, verbose=verbose, output_fn=output_fn)
         if finished and last_message:
             return "completed", last_message, full_log
+        log_lines_seen = total_lines
         refreshed = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
         if refreshed.status in {
             TaskRun.Status.COMPLETED,
@@ -162,7 +164,9 @@ async def _poll_until_done(
             final_full_log = None
             for attempt in range(MAX_CONSECUTIVE_STORAGE_ERRORS):
                 try:
-                    _, final_last_message, final_full_log = await sync_to_async(_check_logs)(task_run)
+                    _, final_last_message, final_full_log, _ = await sync_to_async(_check_logs)(
+                        task_run, log_lines_seen
+                    )
                     break
                 except ObjectStorageError:
                     logger.warning(
@@ -214,17 +218,30 @@ def _stream_new_lines(
     return len(lines)
 
 
-def _check_logs(task_run) -> tuple[bool, str | None, str | None]:
-    """Parse S3 logs. Returns (agent_finished, last_agent_message, full_log_content)."""
+def _check_logs(task_run, skip_lines: int = 0) -> tuple[bool, str | None, str | None, int]:
+    """Parse S3 logs. Returns (agent_finished, last_agent_message, full_log_content, total_line_count).
+
+    When skip_lines > 0, only lines after that offset are inspected for end_turn
+    and agent messages. This avoids re-parsing the entire log on every poll cycle.
+    """
     from posthog.storage import object_storage
 
     log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
     if not log_content.strip():
-        return False, None, None
+        return False, None, None, 0
+
+    all_lines = log_content.strip().split("\n")
+    total_lines = len(all_lines)
+
+    # Eventual consistency: if S3 returns fewer lines than expected, no new data
+    if total_lines <= skip_lines:
+        return False, None, log_content, total_lines
+
+    lines_to_parse = all_lines[skip_lines:]
     agent_finished = False
     # Collect all parsed session updates so we can walk backwards at the end.
     parsed_updates: list[dict] = []
-    for line in log_content.strip().split("\n"):
+    for line in lines_to_parse:
         line = line.strip()
         if not line:
             continue
@@ -266,7 +283,7 @@ def _check_logs(task_run) -> tuple[bool, str | None, str | None]:
             trailing_parts.append(text)
     trailing_parts.reverse()
     latest_text = "".join(trailing_parts) if trailing_parts else None
-    return agent_finished, latest_text, log_content
+    return agent_finished, latest_text, log_content, total_lines
 
 
 def _extract_text(update: dict) -> str | None:
