@@ -12,7 +12,7 @@ export interface EdgeApi {
     readonly source_id: string
     readonly target_id: string
     /** @nullable */
-    dag_fk?: string | null
+    dag?: string | null
     properties?: unknown
     readonly created_at: string
     /** @nullable */
@@ -49,7 +49,7 @@ export interface NodeApi {
     name: string
     type?: NodeTypeEnumApi
     /** @nullable */
-    dag_fk?: string | null
+    dag?: string | null
     /** @maxLength 1024 */
     description?: string
     /** @nullable */
