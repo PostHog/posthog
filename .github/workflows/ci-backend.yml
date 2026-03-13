@@ -525,9 +525,11 @@ jobs:
             - name: Preserve CI Docker helper during rollout
               run: |
                   # Temporary during rollout: this job checks out `master`,
-                  # which does not include `bin/ci-wait-for-docker` yet.
+                  # which does not include the latest Docker wait helpers yet.
                   cp bin/ci-wait-for-docker /tmp/ci-wait-for-docker
                   chmod +x /tmp/ci-wait-for-docker
+                  cp bin/wait-for-docker /tmp/wait-for-docker
+                  chmod +x /tmp/wait-for-docker
 
             # First running migrations from master, to simulate the real-world scenario
             - name: Checkout master
@@ -538,10 +540,12 @@ jobs:
 
             - name: Restore CI Docker helper during rollout
               run: |
-                  # Temporary during rollout: restore the helper after the
-                  # checkout to `master` removes it from the workspace.
+                  # Temporary during rollout: restore the helpers after the
+                  # checkout to `master` removes them from the workspace.
                   cp /tmp/ci-wait-for-docker bin/ci-wait-for-docker
                   chmod +x bin/ci-wait-for-docker
+                  cp /tmp/wait-for-docker bin/wait-for-docker
+                  chmod +x bin/wait-for-docker
 
             - name: Install python dependencies for master
               run: |

@@ -32,8 +32,20 @@ done
 SERVICES=("${unique_services[@]}")
 
 compose() {
+    local compose_files=()
+    local compose_args=()
+    local compose_file
+    local separator
+
     if [ -n "${COMPOSE_FILE:-}" ]; then
-        docker compose "$@"
+        separator="${COMPOSE_PATH_SEPARATOR:-:}"
+        IFS="$separator" read -r -a compose_files <<< "$COMPOSE_FILE"
+        for compose_file in "${compose_files[@]}"; do
+            if [ -n "$compose_file" ]; then
+                compose_args+=(-f "$compose_file")
+            fi
+        done
+        env -u COMPOSE_FILE docker compose "${compose_args[@]}" "$@"
     else
         docker compose -f "$DEFAULT_COMPOSE_FILE" "$@"
     fi
