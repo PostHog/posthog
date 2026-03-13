@@ -6,6 +6,7 @@ import {
     type ExperimentVariantResult,
     formatChanceToWinForGoal,
     formatPValue,
+    formatTickValue,
     getChanceToWin,
     getDefaultMetricTitle,
     getMetricColors,
@@ -266,5 +267,18 @@ describe('formatPValue', () => {
         [1, '1.000'],
     ])('returns 3 decimal places for p-value %p >= 0.01', (input, expected) => {
         expect(formatPValue(input)).toBe(expected)
+    })
+})
+
+describe('formatTickValue', () => {
+    it.each([
+        [0, '0%'],
+        [0.5, '50%'],
+        [-0.15, '-15%'],
+        [0.055, '5.50%'],
+        [0.005, '0.500%'],
+        [1.5, '150%'],
+    ])('formatTickValue(%p) === %p', (input, expected) => {
+        expect(formatTickValue(input)).toBe(expected)
     })
 })
