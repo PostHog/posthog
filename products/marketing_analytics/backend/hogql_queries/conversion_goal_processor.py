@@ -877,10 +877,10 @@ class ConversionGoalProcessor:
         field_exprs: dict[str, ast.Expr] = {}
         for field in TRACKED_FIELDS:
             default = organic_overrides.get(field.name, field.default_value)
-            expr = self._build_organic_default_expr(field.attributed_name, default)
+            field_expr: ast.Expr = self._build_organic_default_expr(field.attributed_name, default)
             if field.name == "source":
-                expr = self._normalize_source_field(expr)
-            field_exprs[field.name] = expr
+                field_expr = self._normalize_source_field(field_expr)
+            field_exprs[field.name] = field_expr
 
         campaign_expr = field_exprs["campaign"]
         source_expr = field_exprs["source"]

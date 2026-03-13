@@ -79,7 +79,7 @@ class MarketingAnalyticsConfig:
     decimal_precision: int = DECIMAL_PRECISION
 
     # Drill-down level (defaults to campaign for backward compatibility)
-    drill_down_level: str = MarketingAnalyticsDrillDownLevel.CAMPAIGN
+    drill_down_level: MarketingAnalyticsDrillDownLevel = MarketingAnalyticsDrillDownLevel.CAMPAIGN
 
     # Attribution settings (can be overridden by team settings)
     attribution_window_days: int = 90
