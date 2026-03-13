@@ -1,13 +1,12 @@
 import './CardMeta.scss'
 
 import clsx from 'clsx'
-import React from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Transition } from 'react-transition-group'
 
 import { IconInfo, IconPieChart } from '@posthog/icons'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import { useDelayedHover } from 'lib/hooks/useDelayedHover'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -98,11 +97,36 @@ export function CardMeta({
         inStorybookTestRunner() ||
         (!!primaryWidth && primaryWidth > 480 && controlsAvailableSpace >= neededWidth)
 
-    const {
-        visible: detailsPopoverVisible,
-        show: showDetails,
-        hide: hideDetails,
-    } = useDelayedHover({ showDelay: 300, hideDelay: 400 })
+    const [popoverVisible, setPopoverVisible] = useState(false)
+    const [pinned, setPinned] = useState(false)
+    const hoverTimerRef = useRef<ReturnType<typeof setTimeout>>()
+
+    useEffect(() => () => clearTimeout(hoverTimerRef.current), [])
+
+    const clearHoverTimer = (): void => clearTimeout(hoverTimerRef.current)
+
+    const showDetails = useCallback(() => {
+        clearHoverTimer()
+        hoverTimerRef.current = setTimeout(() => setPopoverVisible(true), 300)
+    }, [])
+
+    const hideDetails = useCallback(() => {
+        clearHoverTimer()
+        hoverTimerRef.current = setTimeout(() => setPopoverVisible(false), 800)
+    }, [])
+
+    const handleClickInfo = useCallback((e: React.MouseEvent) => {
+        e.stopPropagation()
+        clearHoverTimer()
+        setPinned((prev) => !prev)
+        setPopoverVisible((prev) => !prev)
+    }, [])
+
+    const handleClickOutside = useCallback(() => {
+        clearHoverTimer()
+        setPinned(false)
+        setPopoverVisible(false)
+    }, [])
 
     return (
         <div
@@ -137,14 +161,15 @@ export function CardMeta({
                                         ))}
                                 </div>
                             </div>
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-start gap-1">
                                 <div className="overflow-hidden min-w-0">{meta}</div>
                                 <Popover
-                                    visible={detailsPopoverVisible}
+                                    visible={popoverVisible}
                                     placement="bottom"
                                     showArrow
+                                    onClickOutside={handleClickOutside}
                                     onMouseEnterInside={showDetails}
-                                    onMouseLeaveInside={hideDetails}
+                                    onMouseLeaveInside={pinned ? undefined : hideDetails}
                                     overlay={
                                         <div
                                             className="p-4 max-w-md space-y-2"
@@ -195,11 +220,17 @@ export function CardMeta({
                                     }
                                 >
                                     <div
-                                        className="shrink-0 cursor-pointer"
+                                        className="pt-0.5"
                                         onMouseEnter={showDetails}
-                                        onMouseLeave={hideDetails}
+                                        onMouseLeave={pinned ? undefined : hideDetails}
                                     >
-                                        <IconInfo className="text-default text-lg align-middle" />
+                                        <LemonButton
+                                            icon={<IconInfo />}
+                                            size="small"
+                                            noPadding
+                                            data-attr="card-meta-info"
+                                            onClick={handleClickInfo}
+                                        />
                                     </div>
                                 </Popover>
                             </div>
