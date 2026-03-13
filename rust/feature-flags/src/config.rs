@@ -164,11 +164,11 @@ impl FromStr for FlagsTokenRateLimitOverrides {
         }
 
         let parsed: HashMap<String, String> = serde_json::from_str(s)
-            .map_err(|e| format!("Failed to parse flags rate limits as JSON: {e}"))?;
+            .map_err(|e| format!("Failed to parse FLAGS_TOKEN_RATE_LIMIT_OVERRIDES as JSON: {e}"))?;
 
         if parsed.len() > MAX_FLAGS_RATE_LIMIT_OVERRIDES {
             return Err(format!(
-                "Too many flags rate limit overrides: {} (max {MAX_FLAGS_RATE_LIMIT_OVERRIDES})",
+                "Too many FLAGS_TOKEN_RATE_LIMIT_OVERRIDES entries: {} (max {MAX_FLAGS_RATE_LIMIT_OVERRIDES})",
                 parsed.len()
             ));
         }
