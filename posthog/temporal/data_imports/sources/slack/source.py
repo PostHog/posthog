@@ -34,6 +34,8 @@ class SlackSource(SimpleSource[SlackSourceConfig], OAuthMixin):
             name=SchemaExternalDataSourceType.SLACK,
             caption="Connect your Slack workspace to sync channels, users, and messages.",
             iconPath="/static/services/slack.png",
+            featureFlag="slack-dwh",
+            unreleasedSource=True,
             betaSource=True,
             fields=cast(
                 list[FieldType],
