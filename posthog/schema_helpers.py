@@ -157,8 +157,7 @@ def filter_key_for_query(node: InsightQueryNode) -> str:
 def grouped_chart_display_types(display: ChartDisplayType) -> ChartDisplayType:
     match display:
         case (
-            ChartDisplayType.AUTO
-            | ChartDisplayType.ACTIONS_LINE_GRAPH
+            ChartDisplayType.ACTIONS_LINE_GRAPH
             | ChartDisplayType.ACTIONS_BAR
             | ChartDisplayType.ACTIONS_AREA_GRAPH
             | ChartDisplayType.ACTIONS_UNSTACKED_BAR
@@ -192,6 +191,9 @@ def grouped_chart_display_types(display: ChartDisplayType) -> ChartDisplayType:
         case ChartDisplayType.BOX_PLOT:
             # separate runner
             return ChartDisplayType.BOX_PLOT
+
+        case ChartDisplayType.AUTO:
+            return ChartDisplayType.AUTO
 
         case _:
             assert_never(display)
