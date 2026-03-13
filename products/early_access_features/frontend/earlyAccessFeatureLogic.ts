@@ -57,7 +57,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         updateStage: (stage: EarlyAccessFeatureStage) => ({ stage }),
         deleteEarlyAccessFeature: (earlyAccessFeatureId: EarlyAccessFeatureType['id']) => ({ earlyAccessFeatureId }),
         setActiveTab: (activeTab: EarlyAccessFeatureTabs) => ({ activeTab }),
-        showGAPromotionConfirmation: (onConfirm: () => void) => ({ onConfirm }),
+        showGAPromotionConfirmation: (onConfirm: (rolloutToAll: boolean) => void) => ({ onConfirm }),
     }),
     loaders(({ props, values, actions }) => ({
         earlyAccessFeature: {
@@ -241,14 +241,22 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         },
         showGAPromotionConfirmation: async ({ onConfirm }) => {
             const { LemonDialog } = await import('lib/lemon-ui/LemonDialog')
+            const React = await import('react')
+            const { GAPromotionDialogContent } = await import('./GAPromotionDialogContent')
+            let rolloutToAll = false
             LemonDialog.open({
                 title: 'Promote to General Availability?',
                 description:
                     'Once promoted to General Availability, this feature cannot be edited anymore. Users will have access to the stable version.',
+                content: React.createElement(GAPromotionDialogContent, {
+                    onChange: (checked: boolean) => {
+                        rolloutToAll = checked
+                    },
+                }),
                 primaryButton: {
                     children: 'Promote to GA',
                     type: 'primary',
-                    onClick: onConfirm,
+                    onClick: () => onConfirm(rolloutToAll),
                 },
                 secondaryButton: {
                     children: 'Cancel',
@@ -257,8 +265,12 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             })
         },
         updateStage: async ({ stage }) => {
-            const save = (): void => {
-                actions.saveEarlyAccessFeature({ ...values.earlyAccessFeature, stage })
+            const save = (rolloutToAll?: boolean): void => {
+                actions.saveEarlyAccessFeature({
+                    ...values.earlyAccessFeature,
+                    stage,
+                    ...(rolloutToAll ? { rollout_to_all: true } : {}),
+                })
 
                 // Mark stage update task as completed when user changes stage
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.UpdateFeatureStage)

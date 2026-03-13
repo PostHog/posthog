@@ -102,6 +102,68 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response_data["stage"] == target_stage
         assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
 
+    def test_promote_to_ga_with_rollout_to_all_clears_super_groups_and_sets_100_percent(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={
+                "name": "Hick bondoogling",
+                "description": "Test feature",
+                "stage": "beta",
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+
+        feature_id = response_data["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature_id}",
+            data={
+                "stage": EarlyAccessFeature.Stage.GENERAL_AVAILABILITY,
+                "rollout_to_all": True,
+            },
+            format="json",
+        )
+        response_data = response.json()
+
+        assert response.status_code == status.HTTP_200_OK, response_data
+        assert response_data["stage"] == EarlyAccessFeature.Stage.GENERAL_AVAILABILITY
+        assert not response_data["feature_flag"]["filters"].get("super_groups", None)
+        assert len(response_data["feature_flag"]["filters"]["groups"]) == 1
+        assert response_data["feature_flag"]["filters"]["groups"][0]["rollout_percentage"] == 100
+        assert response_data["feature_flag"]["filters"]["groups"][0]["properties"] == []
+
+    def test_promote_to_ga_without_rollout_to_all_preserves_super_groups(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={
+                "name": "Hick bondoogling 2",
+                "description": "Test feature",
+                "stage": "beta",
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+
+        feature_id = response_data["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature_id}",
+            data={
+                "stage": EarlyAccessFeature.Stage.GENERAL_AVAILABILITY,
+            },
+            format="json",
+        )
+        response_data = response.json()
+
+        assert response.status_code == status.HTTP_200_OK, response_data
+        assert response_data["stage"] == EarlyAccessFeature.Stage.GENERAL_AVAILABILITY
+        assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+
     def test_demote_alpha_to_concept_removes_super_groups(self):
         """Demoting from ALPHA back to CONCEPT should remove super_groups."""
         response = self.client.post(
