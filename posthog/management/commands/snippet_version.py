@@ -11,6 +11,7 @@ from posthog.models.snippet_versioning import (
     S3_VERSIONS_KEY,
     ManifestSyncError,
     VersionManifest,
+    array_js_path,
     changed_pointers,
     compute_version_manifest,
     sync_manifest_from_s3,
@@ -116,7 +117,7 @@ class Command(BaseCommand):
         if not validate_version_artifacts(version):
             raise CommandError(
                 f"Artifacts for v{version} not found in S3 bucket {settings.POSTHOG_JS_S3_BUCKET}. "
-                f"Ensure posthog-js/v{version}/array.js exists before publishing."
+                f"Ensure {array_js_path(version)} exists before publishing."
             )
         self.stdout.write(self.style.SUCCESS("Artifacts validated"))
 

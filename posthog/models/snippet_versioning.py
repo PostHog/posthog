@@ -21,6 +21,12 @@ _disk_js_content: Optional[str] = None
 
 DEFAULT_SNIPPET_VERSION = "1"
 S3_VERSIONS_KEY = "versions.json"
+S3_JS_ENTRY_POINT = "array.js"
+
+
+def array_js_path(version: str) -> str:
+    return f"{version}/{S3_JS_ENTRY_POINT}"
+
 
 REDIS_JS_CONTENT_TTL = 60 * 60 * 24 * 30  # 30 days — version content is immutable
 REDIS_JS_KEY_PREFIX = "js_snippet"
@@ -127,7 +133,7 @@ def get_js_content(requested_version: Optional[str] = None) -> str:
 
     Fallback chain for resolved versions:
     1. Redis (version-keyed, immutable)
-    2. S3 bucket (v{version}/array.js)
+    2. S3 bucket ({version}/array.js)
     3. Disk (frontend/dist/array.js from current deploy)
     """
     version = resolve_version(requested_version)
@@ -147,7 +153,7 @@ def get_js_content(requested_version: Optional[str] = None) -> str:
 
     # 2. Try S3
     try:
-        s3_key = f"v{version}/array.js"
+        s3_key = array_js_path(version)
         content = object_storage.read(s3_key, bucket=settings.POSTHOG_JS_S3_BUCKET, missing_ok=True)
         if content is not None:
             cache.set(redis_key, content, REDIS_JS_CONTENT_TTL)
@@ -191,7 +197,7 @@ def validate_version_artifacts(version: str) -> bool:
         return False
     try:
         content = object_storage.read(
-            f"v{version}/array.js",
+            array_js_path(version),
             bucket=settings.POSTHOG_JS_S3_BUCKET,
             missing_ok=True,
         )
