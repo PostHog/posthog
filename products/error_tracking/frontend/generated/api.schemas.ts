@@ -125,6 +125,7 @@ export interface ErrorTrackingGroupingRuleApi {
     readonly id: string
     filters: unknown
     readonly assignee: string
+    readonly issue: string
     /**
      * @minimum -2147483648
      * @maximum 2147483647
@@ -148,6 +149,7 @@ export interface PatchedErrorTrackingGroupingRuleApi {
     readonly id?: string
     filters?: unknown
     readonly assignee?: string
+    readonly issue?: string
     /**
      * @minimum -2147483648
      * @maximum 2147483647
@@ -273,10 +275,6 @@ export interface ErrorTrackingSuppressionRuleApi {
      * @maximum 2147483647
      */
     order_key: number
-    disabled_data?: unknown | null
-    sampling_rate?: number
-    readonly created_at: string
-    readonly updated_at: string
 }
 
 export interface PaginatedErrorTrackingSuppressionRuleListApi {
@@ -296,10 +294,6 @@ export interface PatchedErrorTrackingSuppressionRuleApi {
      * @maximum 2147483647
      */
     order_key?: number
-    disabled_data?: unknown | null
-    sampling_rate?: number
-    readonly created_at?: string
-    readonly updated_at?: string
 }
 
 export interface ErrorTrackingSymbolSetApi {
