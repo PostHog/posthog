@@ -15,15 +15,7 @@ export const ProxyRecordsListParams = zod.object({
     organization_id: zod.string(),
 })
 
-export const ProxyRecordsListQueryParams = zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
-})
-
-export const ProxyRecordsListResponse = zod.object({
-    count: zod.number(),
-    next: zod.string().url().nullish(),
-    previous: zod.string().url().nullish(),
+export const ProxyRecordsListResponseItem = zod.object({
     results: zod.array(
         zod.object({
             id: zod.string().describe('Unique identifier for the proxy record.'),
@@ -54,7 +46,11 @@ export const ProxyRecordsListResponse = zod.object({
             created_by: zod.number().describe('ID of the user who created this proxy record.'),
         })
     ),
+    max_proxy_records: zod
+        .number()
+        .describe("Maximum number of proxy records allowed for this organization's current plan."),
 })
+export const ProxyRecordsListResponse = zod.array(ProxyRecordsListResponseItem)
 
 /**
  * Create a new managed reverse proxy. Provide the domain you want to proxy through. The response includes the CNAME target you need to add as a DNS record. Once the CNAME is configured, the proxy will be automatically verified and provisioned.

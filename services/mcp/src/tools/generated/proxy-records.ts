@@ -5,26 +5,22 @@ import type { Schemas } from '@/api/generated'
 import {
     ProxyRecordsCreateBody,
     ProxyRecordsDestroyParams,
-    ProxyRecordsListQueryParams,
     ProxyRecordsRetrieveParams,
     ProxyRecordsRetryCreateParams,
 } from '@/generated/proxy-records/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const ProxyListSchema = ProxyRecordsListQueryParams
+const ProxyListSchema = z.object({})
 
-const proxyList = (): ToolBase<typeof ProxyListSchema, Schemas.PaginatedProxyRecordList & { _posthogUrl: string }> => ({
+const proxyList = (): ToolBase<typeof ProxyListSchema, Schemas.ProxyRecordListResponse & { _posthogUrl: string }> => ({
     name: 'proxy-list',
     schema: ProxyListSchema,
+    // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof ProxyListSchema>) => {
         const orgId = await context.stateManager.getOrgID()
-        const result = await context.api.request<Schemas.PaginatedProxyRecordList>({
+        const result = await context.api.request<Schemas.ProxyRecordListResponse>({
             method: 'GET',
             path: `/api/organizations/${orgId}/proxy_records/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-            },
         })
         return {
             ...(result as any),

@@ -169,9 +169,17 @@ function resolveResponseType(operation: OpenApiOperation, knownTypes: Set<string
         if (!responseContent?.schema) {
             continue
         }
-        const schema = responseContent.schema
+        const schema = responseContent.schema as Record<string, unknown>
         if ('$ref' in schema && schema.$ref) {
-            const schemaName = schema.$ref.replace('#/components/schemas/', '')
+            const schemaName = (schema.$ref as string).replace('#/components/schemas/', '')
+            if (knownTypes.has(schemaName)) {
+                return `Schemas.${schemaName}`
+            }
+        }
+        // Handle array responses (e.g. list endpoints with pagination_class = None)
+        const items = schema.items as Record<string, unknown> | undefined
+        if (schema.type === 'array' && items && '$ref' in items && items.$ref) {
+            const schemaName = (items.$ref as string).replace('#/components/schemas/', '')
             if (knownTypes.has(schemaName)) {
                 return `Schemas.${schemaName}`
             }
@@ -548,13 +556,16 @@ function generateToolCode(
         metaBlock = `    _meta: {\n        ui: {\n            resourceUri: '${config.ui_resource_uri}',\n        },\n    },\n`
     }
 
+    const paramsUsed = hasBody || hasQuery || composition.pathParamNames.length > 0
+    const unusedParamsComment = paramsUsed ? '' : '// eslint-disable-next-line no-unused-vars\n'
+
     const code = `
 ${schemaDecl}
 
 const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${resultType}> => ({
     name: '${toolName}',
     schema: ${schemaName},
-    handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
+    ${unusedParamsComment}handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
 ${handlerBody}    },
 ${metaBlock}})
 `
