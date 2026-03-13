@@ -162,15 +162,12 @@ def look_up_clickhouse_error_code_meta(error: ServerException) -> ErrorCodeMeta:
 
 def classify_query_error(e: Exception) -> QueryErrorCategory:
     """Classify a query execution exception into a high-level category for observability."""
-    # ClickHouse errors — use the category from the error code metadata
     if isinstance(e, ServerException):
         return look_up_clickhouse_error_code_meta(e).get_category()
 
-    # Rate limited (non-CH)
     if isinstance(e, (ClickHouseAtCapacity, ConcurrencyLimitExceeded)):
         return QueryErrorCategory.RATE_LIMITED
 
-    # User errors — query too big/slow (APIException subclasses from wrap_clickhouse_query_error)
     if isinstance(
         e,
         (
@@ -182,11 +179,9 @@ def classify_query_error(e: Exception) -> QueryErrorCategory:
     ):
         return QueryErrorCategory.QUERY_PERFORMANCE_ERROR
 
-    # User errors — bad HogQL query construction
     if isinstance(e, ExposedHogQLError):
         return QueryErrorCategory.USER_ERROR
 
-    # Everything else
     return QueryErrorCategory.ERROR
 
 
