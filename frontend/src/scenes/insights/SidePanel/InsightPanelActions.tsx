@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconCode2, IconEndpoints, IconPencil, IconPeople } from '@posthog/icons'
+import { IconCode2, IconCopy, IconEndpoints, IconPencil, IconPeople } from '@posthog/icons'
 
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { SceneAddToDashboardButton } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDashboardButton'
@@ -14,11 +14,13 @@ import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyt
 import { SceneShareButton } from 'lib/components/Scenes/SceneShareButton'
 import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
@@ -46,6 +48,10 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
     const { push } = useActions(router)
     const { openAddToDashboardModal, openTerraformModal } = useActions(insightModalsLogic(insightLogicProps))
 
+    const { currentOrganization } = useValues(organizationLogic)
+    const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
+    const interProjectTransfersEnabled = useFeatureFlag('INTER_PROJECT_TRANSFERS')
+
     const isSavedInsight = hasDashboardItemId && !!insight?.id && !!insight?.short_id
     const canExport = exportContext != null && insight.short_id != null
     const canEditInSqlEditor =
@@ -60,6 +66,17 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
                 dataAttrKey={RESOURCE_TYPE}
                 onClick={() => duplicateInsight(insight as QueryBasedInsightModel, true)}
             />
+            {isSavedInsight && hasMultipleProjects && interProjectTransfersEnabled && (
+                <ButtonPrimitive
+                    menuItem
+                    onClick={() => push(urls.resourceTransfer('Insight', insight.id!))}
+                    data-attr="insight-copy-to-project"
+                    tooltip="Copy this insight to another project"
+                >
+                    <IconCopy />
+                    Copy to another project
+                </ButtonPrimitive>
+            )}
             <SceneFavorite
                 dataAttrKey={RESOURCE_TYPE}
                 onClick={() => setInsightMetadata({ favorited: !insight.favorited })}
