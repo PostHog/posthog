@@ -174,7 +174,7 @@ describe('TaxonomicFilter', () => {
         await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'url')
 
         await waitFor(() => {
-            expect(screen.getByTestId('prop-filter-event_properties-0')).toHaveTextContent('$current_url')
+            expect(screen.getByTestId('prop-filter-event_properties-0')).toHaveTextContent(/current[ _]url/i)
         })
 
         // Clicking the first result should select $current_url

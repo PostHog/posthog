@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { MAX_TOP_MATCHES_PER_GROUP, taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
     InfiniteListLogicProps,
+    SkeletonItem,
     isSkeletonItem,
     ListFuse,
     ListStorage,
@@ -34,18 +35,22 @@ const PROMOTED_PROPERTY_SEARCH_TERMS: Record<string, string[]> = {
  * If the search query matches a promoted property's search terms, move that property
  * to the top of results so users find it quickly.
  */
-function promoteMatchingProperties(
-    results: TaxonomicDefinitionTypes[],
+function promoteMatchingProperties<T extends TaxonomicDefinitionTypes | SkeletonItem>(
+    results: T[],
     searchQuery: string
-): TaxonomicDefinitionTypes[] {
+): T[] {
     if (!searchQuery) {
         return results
     }
     const query = searchQuery.toLowerCase().trim()
-    const promoted: TaxonomicDefinitionTypes[] = []
-    const rest: TaxonomicDefinitionTypes[] = []
+    const promoted: T[] = []
+    const rest: T[] = []
 
     for (const item of results) {
+        if (isSkeletonItem(item)) {
+            rest.push(item)
+            continue
+        }
         const name = 'name' in item ? (item as { name?: string }).name : undefined
         if (name && PROMOTED_PROPERTY_SEARCH_TERMS[name]?.some((term) => query.includes(term))) {
             promoted.push(item)
