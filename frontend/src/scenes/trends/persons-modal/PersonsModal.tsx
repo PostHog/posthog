@@ -480,6 +480,9 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                             {
                                 key: 'properties',
                                 label: 'Properties',
+                                // created_at is null for actors without a PostgreSQL Person record
+                                // (personless mode, merged, or deleted persons) — skip the timeline
+                                // request which would 404, and show static properties instead.
                                 content:
                                     propertiesTimelineFilter && actor.created_at ? (
                                         <PropertiesTimeline actor={actor} filter={propertiesTimelineFilter} />
