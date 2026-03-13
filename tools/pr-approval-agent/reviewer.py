@@ -151,6 +151,15 @@ REVIEWER_SYSTEM = textwrap.dedent(
     - "Touches shared query builder — needs team review."
     - "Gates denied: touches CI workflows and migration files."
 
+    When you REFUSE or ESCALATE, tell the author what to do next so they
+    can address the concern and re-request. Be specific and practical.
+    Examples:
+    - "Get a review from a team member on [team] before re-requesting."
+    - "Address the unresolved comment on line X of file Y."
+    - "This PR touches billing code — request a human review instead."
+    - "Request a review from Codex, Claude, or a teammate first."
+    Do NOT suggest splitting PRs or restructuring to avoid gates.
+
     Your output is constrained to a JSON schema with verdict, reasoning,
     risk, and issues fields. Fill them according to the rules above.
     """
