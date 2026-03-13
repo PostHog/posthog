@@ -236,6 +236,7 @@ class TestSanitizeHeaderValue(BaseTest):
     @parameterized.expand(
         [
             ("passthrough", "posthog/wizard 1.0", "posthog/wizard 1.0"),
+            ("uuidv7_session_id", "019644d0-a67c-7fa5-a44c-e864c81b5087", "019644d0-a67c-7fa5-a44c-e864c81b5087"),
             ("strips_control_chars", "agent\x00with\x1fnulls", "agentwithnulls"),
             ("truncates_to_max_length", "a" * 1500, "a" * 1000),
             ("strips_whitespace", "  spaces  ", "spaces"),

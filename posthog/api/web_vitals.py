@@ -33,7 +33,6 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.ValidationError({"pathname": "This field is required."})
 
         query_runner = get_query_runner(
-            request=request,
             query={
                 "kind": "TrendsQuery",
                 "dateRange": {"date_from": "-7d", "explicitDate": False},
