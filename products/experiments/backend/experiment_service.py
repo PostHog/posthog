@@ -512,7 +512,7 @@ class ExperimentService:
         validation (field types, metric schema, etc.) before calling this method.
         """
         if "saved_metrics_ids" in update_data:
-            self.validate_saved_metrics_ids(update_data.get("saved_metrics_ids"), self.team.id)
+            self.validate_saved_metrics_ids(update_data["saved_metrics_ids"], self.team.id)
 
         context = serializer_context or self._build_serializer_context()
         feature_flag = experiment.feature_flag
