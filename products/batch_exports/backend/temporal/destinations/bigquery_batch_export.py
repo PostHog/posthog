@@ -11,8 +11,8 @@ import collections.abc
 
 from django.conf import settings
 
+import boto3
 import pyarrow as pa
-import aioboto3
 import requests
 import google.auth
 import google.auth.aws
@@ -321,22 +321,38 @@ class AWSCredentialsMissingError(Exception):
         super().__init__(f"One or more required credentials are missing: {', '.join(missing)}")
 
 
-class Aioboto3CredentialsSupplier(google.auth.aws.AwsSecurityCredentialsSupplier):
-    """Implementation of credential supplier for `google.auth` using `aioboto3`.
+class Boto3CredentialsSupplier(google.auth.aws.AwsSecurityCredentialsSupplier):
+    """Implementation of credential supplier for `google.auth` using `boto3`.
 
     The default credential supplier provided by `google.auth` tries to manually execute
-    requests, but it's more straight forward for us to rely on `aioboto3` to resolve
+    requests, but it's more straight forward for us to rely on `boto3` to resolve
     credentials.
 
-    The interface requires all methods to be blocking, but we can schedule `aioboto3`
-    async calls in the event loop via `asyncio.run_corountine_threadsafe`.
+    The interface requires all methods to be blocking, but we assume credentials are
+    lazily loaded, and only fetched within some method wrapped by `asyncio.to_thread`.
     """
 
-    def __init__(self) -> None:
-        self.session = aioboto3.session.Session()
+    def __init__(self, session: boto3.Session | None = None) -> None:
+        self.session = session or boto3.Session()
 
     def get_aws_security_credentials(self, context, request) -> google.auth.aws.AwsSecurityCredentials:
-        return asyncio.run_coroutine_threadsafe(self._get_credentials(), asyncio.get_event_loop()).result()
+        session_credentials = self.session.get_credentials()
+        if session_credentials is None:
+            raise AWSCredentialsMissingError("session")
+
+        credentials = session_credentials.get_frozen_credentials()
+
+        if credentials.access_key is None:
+            raise AWSCredentialsMissingError("access_key")
+
+        if credentials.secret_key is None:
+            raise AWSCredentialsMissingError("secret_key")
+
+        return google.auth.aws.AwsSecurityCredentials(
+            credentials.access_key,
+            credentials.secret_key,
+            credentials.token,
+        )
 
     def get_aws_region(self, context, request) -> str:
         """Similar to the default implementation, but without a fallback request."""
@@ -349,25 +365,6 @@ class Aioboto3CredentialsSupplier(google.auth.aws.AwsSecurityCredentialsSupplier
             return env_aws_region
 
         raise AWSCredentialsMissingError("region_name")
-
-    async def _get_credentials(self) -> google.auth.aws.AwsSecurityCredentials:
-        session_credentials = self.session.get_credentials()
-        if session_credentials is None:
-            raise AWSCredentialsMissingError("session")
-
-        credentials = await session_credentials.get_frozen_credentials()
-
-        if credentials.access_key is None:
-            raise AWSCredentialsMissingError("access_key")
-
-        if credentials.secret_key is None:
-            raise AWSCredentialsMissingError("access_key")
-
-        return google.auth.aws.AwsSecurityCredentials(
-            credentials.access_key,
-            credentials.secret_key,
-            credentials.token,
-        )
 
 
 class BigQueryClient:
@@ -404,7 +401,7 @@ class BigQueryClient:
                     audience=settings.BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD,
                     subject_token_type="urn:ietf:params:aws:token-type:aws4_request",  # Only possible value
                     token_url="https://sts.googleapis.com/v1/token",  # Default
-                    aws_security_credentials_supplier=Aioboto3CredentialsSupplier(),
+                    aws_security_credentials_supplier=Boto3CredentialsSupplier(),
                     scopes=["https://www.googleapis.com/auth/cloud-platform"],
                 ),
                 target_principal=settings.BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT,
