@@ -1,3 +1,4 @@
+import re
 from collections.abc import Generator, Iterable
 from graphlib import TopologicalSorter
 from typing import Any, cast
@@ -478,9 +479,8 @@ def _deduplicate_name(model: type[models.Model], name: str, team: Team) -> str:
     """
     taken_names: set[str] = set(
         model.objects.filter(
-            Q(name=name) | Q(name__endswith="(Copy)") | Q(name__regex=r"\(Copy \d+\)$"),
+            Q(name=name) | Q(name=f"{name} (Copy)") | Q(name__regex=rf"^{re.escape(name)} \(Copy \d+\)$"),
             team=team,
-            name__startswith=name,
         ).values_list("name", flat=True)
     )
 
