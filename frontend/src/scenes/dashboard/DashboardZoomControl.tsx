@@ -41,8 +41,9 @@ export function DashboardZoomControl({ layoutZoom, setLayoutZoom }: DashboardZoo
                     onClick={() => {
                         const nextZoom = layoutZoom <= 0.75 ? 1 : 0.25
                         setLayoutZoom(nextZoom)
-                        eventUsageLogic.actions.reportDashboardLayoutZoomChanged(dashboard ?? null, nextZoom, 'toggle')
+                        eventUsageLogic.actions.reportDashboardLayoutZoomChanged(dashboard ?? null, nextZoom, 'button')
                     }}
+                    disabledReason={isSmallLayout ? 'Layout editing is disabled on smaller screens.' : undefined}
                     tooltip="Toggle zoom level. Makes it easier to edit the layout for busier dashboards."
                 >
                     {layoutZoom < 1 ? <IconPlus className="size-4 mr-1" /> : <IconMinus className="size-4 mr-1" />}

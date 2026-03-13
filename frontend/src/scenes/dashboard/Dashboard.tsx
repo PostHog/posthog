@@ -230,11 +230,9 @@ function DashboardScene(): JSX.Element {
                                     </div>
                                     {dashboardMode === DashboardMode.Edit &&
                                         canEditDashboard &&
-                                        [
-                                            DashboardPlacement.Dashboard,
-                                            DashboardPlacement.ProjectHomepage,
-                                            DashboardPlacement.Builtin,
-                                        ].includes(placement) && (
+                                        [DashboardPlacement.Dashboard, DashboardPlacement.ProjectHomepage].includes(
+                                            placement
+                                        ) && (
                                             <DashboardZoomControl
                                                 layoutZoom={layoutZoom}
                                                 setLayoutZoom={setLayoutZoom}

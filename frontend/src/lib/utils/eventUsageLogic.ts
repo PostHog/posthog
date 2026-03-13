@@ -358,7 +358,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportDashboardLayoutZoomChanged: (
             dashboard: DashboardType<QueryBasedInsightModel> | null,
             layoutZoom: number,
-            source: 'slider' | 'shortcut'
+            source: 'button' | 'shortcut'
         ) => ({ dashboard, layoutZoom, source }),
         reportDashboardRefreshed: (
             dashboardId: number,
