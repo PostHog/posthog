@@ -371,6 +371,12 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 )
             },
         ],
+        hasOnlyDataWarehouseSeries: [
+            (s) => [s.series],
+            (series): boolean => {
+                return !!series && series.length > 0 && series.every((node) => isDataWarehouseNode(node))
+            },
+        ],
 
         currentDataWarehouseSchemaColumns: [
             (s) => [
@@ -895,7 +901,7 @@ const handleQuerySourceUpdateSideEffects = (
         ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
     }
 
-    // Remove breakdown filter and formulas for box plot
+    // Remove formulas for box plot (formulas don't apply to statistical distributions)
     if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.BoxPlot) {
         ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
         ;(mergedUpdate as TrendsQuery).trendsFilter = {

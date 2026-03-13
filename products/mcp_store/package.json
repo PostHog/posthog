@@ -1,5 +1,8 @@
 {
     "name": "@posthog/products-mcp-store",
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/test -v --tb=short"
+    },
     "dependencies": {
         "kea": "catalog:",
         "kea-forms": "catalog:",

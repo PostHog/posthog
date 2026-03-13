@@ -3,7 +3,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use super::{
-    plan_checkpoint, CheckpointExporter, CheckpointInfo, CheckpointMetadata, UploadCancelledError,
+    plan_checkpoint, CheckpointExporter, CheckpointInfo, CheckpointMetadata,
+    PlanningCancelledError, UploadCancelledError,
 };
 use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::types::Partition;
@@ -48,6 +49,46 @@ pub struct CheckpointWorker {
 }
 
 impl CheckpointWorker {
+    fn pre_local_checkpoint_skip_cause(cancel_cause: Option<&str>) -> &'static str {
+        match cancel_cause {
+            Some("rebalance") => "rebalance_before_local_checkpoint",
+            Some("shutdown") => "shutdown_before_local_checkpoint",
+            _ => "cancelled_before_local_checkpoint",
+        }
+    }
+
+    fn pre_plan_skip_cause(cancel_cause: Option<&str>) -> &'static str {
+        match cancel_cause {
+            Some("rebalance") => "rebalance_before_planning",
+            Some("shutdown") => "shutdown_before_planning",
+            _ => "cancelled_before_planning",
+        }
+    }
+
+    fn during_plan_skip_cause(cancel_cause: Option<&str>) -> &'static str {
+        match cancel_cause {
+            Some("rebalance") => "rebalance_during_planning",
+            Some("shutdown") => "shutdown_during_planning",
+            _ => "cancelled_during_planning",
+        }
+    }
+
+    fn post_plan_skip_cause(cancel_cause: Option<&str>) -> &'static str {
+        match cancel_cause {
+            Some("rebalance") => "rebalance_after_planning",
+            Some("shutdown") => "shutdown_after_planning",
+            _ => "cancelled_after_planning",
+        }
+    }
+
+    fn during_upload_skip_cause(cancel_cause: Option<&str>) -> &'static str {
+        match cancel_cause {
+            Some("rebalance") => "rebalance_during_upload",
+            Some("shutdown") => "shutdown_during_upload",
+            _ => "cancelled_during_upload",
+        }
+    }
+
     pub fn new(
         worker_id: u32,
         local_base_dir: &Path,
@@ -101,7 +142,8 @@ impl CheckpointWorker {
     }
 
     /// Perform a complete checkpoint operation with cancellation support.
-    /// If cancel_token is provided and cancelled during export, returns an error early.
+    /// If cancel_token is provided and cancelled, the worker may skip before local
+    /// checkpoint creation, during checkpoint planning, or during export/upload.
     ///
     /// The optional `cancel_cause` is used for metrics when cancelled (e.g., "rebalance" or "shutdown").
     pub async fn checkpoint_partition_cancellable(
@@ -112,7 +154,12 @@ impl CheckpointWorker {
         cancel_cause: Option<&str>,
     ) -> Result<Option<CheckpointInfo>> {
         // Create the local checkpoint
-        let rocks_metadata = self.create_checkpoint(store).await?;
+        let Some(rocks_metadata) = self
+            .create_checkpoint_cancellable(store, cancel_token, cancel_cause)
+            .await?
+        else {
+            return Ok(None);
+        };
 
         // Export checkpoint with cancellation support
         let result = self
@@ -138,6 +185,22 @@ impl CheckpointWorker {
         &self,
         store: &DeduplicationStore,
     ) -> Result<LocalCheckpointInfo> {
+        let Some(rocks_metadata) = self
+            .create_checkpoint_cancellable(store, None, None)
+            .await?
+        else {
+            unreachable!("checkpoint creation without a cancellation token cannot be skipped");
+        };
+
+        Ok(rocks_metadata)
+    }
+
+    async fn create_checkpoint_cancellable(
+        &self,
+        store: &DeduplicationStore,
+        cancel_token: Option<&CancellationToken>,
+        cancel_cause: Option<&str>,
+    ) -> Result<Option<LocalCheckpointInfo>> {
         info!(
             self.worker_id,
             partition = self.partition.to_string(),
@@ -147,6 +210,21 @@ impl CheckpointWorker {
 
         // Ensure local checkpoint directory exists - results observed internally, safe to bubble up
         self.create_partition_checkpoint_directory().await?;
+
+        if cancel_token.is_some_and(CancellationToken::is_cancelled) {
+            let tags = [
+                ("result", "skipped"),
+                ("cause", Self::pre_local_checkpoint_skip_cause(cancel_cause)),
+            ];
+            metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
+            info!(
+                self.worker_id,
+                partition = self.partition.to_string(),
+                attempt_timestamp = self.attempt_timestamp.to_string(),
+                "Checkpoint worker: cancellation observed before local checkpoint creation, skipping"
+            );
+            return Ok(None);
+        }
 
         // this creates the local RocksDB checkpoint - results observed internally, safe to bubble up
         let rocks_metadata = self.create_local_partition_checkpoint(store).await?;
@@ -161,7 +239,7 @@ impl CheckpointWorker {
             );
         }
 
-        Ok(rocks_metadata)
+        Ok(Some(rocks_metadata))
     }
 
     /// Clean up the temporary checkpoint directory (step 3 of checkpoint process)
@@ -299,6 +377,21 @@ impl CheckpointWorker {
 
         match self.exporter.as_ref() {
             Some(exporter) => {
+                if cancel_token.is_some_and(CancellationToken::is_cancelled) {
+                    let tags = [
+                        ("result", "skipped"),
+                        ("cause", Self::pre_plan_skip_cause(cancel_cause)),
+                    ];
+                    metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
+                    info!(
+                        self.worker_id,
+                        local_attempt_path = local_attempt_path_tag,
+                        attempt_type,
+                        "Checkpoint worker: cancellation observed before checkpoint planning, skipping export"
+                    );
+                    return Ok(None);
+                }
+
                 // Create checkpoint plan (sync fs I/O + hashing; run on blocking pool)
                 let local_attempt_path = self.get_local_attempt_path();
                 let remote_namespace = self.remote_namespace.clone();
@@ -306,7 +399,8 @@ impl CheckpointWorker {
                 let attempt_timestamp = self.attempt_timestamp;
                 let sequence = rocks_metadata.sequence;
                 let prev_metadata_owned = previous_metadata.cloned();
-                let plan = unwrap_blocking_task(
+                let cancel_token_owned = cancel_token.cloned();
+                let plan = match unwrap_blocking_task(
                     tokio::task::spawn_blocking(move || {
                         plan_checkpoint(
                             &local_attempt_path,
@@ -317,17 +411,52 @@ impl CheckpointWorker {
                             consumer_offset,
                             producer_offset,
                             prev_metadata_owned.as_ref(),
+                            cancel_token_owned.as_ref(),
                         )
                     }),
                     "plan_checkpoint task panicked",
                 )
                 .await
-                .with_context(|| {
-                    format!(
-                        "checkpoint planning failed for {} at {}",
-                        attempt_type, local_attempt_path_tag
-                    )
-                })?;
+                {
+                    Ok(plan) => plan,
+                    Err(e) => {
+                        if e.downcast_ref::<PlanningCancelledError>().is_some() {
+                            let tags = [
+                                ("result", "skipped"),
+                                ("cause", Self::during_plan_skip_cause(cancel_cause)),
+                            ];
+                            metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
+                            info!(
+                                self.worker_id,
+                                local_attempt_path = local_attempt_path_tag,
+                                attempt_type,
+                                "Checkpoint worker: cancellation observed during checkpoint planning, skipping export"
+                            );
+                            return Ok(None);
+                        }
+                        return Err(e).with_context(|| {
+                            format!(
+                                "checkpoint planning failed for {} at {}",
+                                attempt_type, local_attempt_path_tag
+                            )
+                        });
+                    }
+                };
+
+                if cancel_token.is_some_and(CancellationToken::is_cancelled) {
+                    let tags = [
+                        ("result", "skipped"),
+                        ("cause", Self::post_plan_skip_cause(cancel_cause)),
+                    ];
+                    metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
+                    info!(
+                        self.worker_id,
+                        local_attempt_path = local_attempt_path_tag,
+                        attempt_type,
+                        "Checkpoint worker: cancellation observed after checkpoint planning, skipping export"
+                    );
+                    return Ok(None);
+                }
 
                 info!(
                     self.worker_id,
@@ -359,21 +488,29 @@ impl CheckpointWorker {
                     }
 
                     Err(e) => {
-                        // Cancellation is NOT an error - metrics only (s3_uploader already logged the detail)
                         if e.downcast_ref::<UploadCancelledError>().is_some() {
-                            let tags = [("result", "skipped"), ("cause", "cancelled")];
+                            let tags = [
+                                ("result", "skipped"),
+                                ("cause", Self::during_upload_skip_cause(cancel_cause)),
+                            ];
                             metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
-                        } else {
-                            let tags = [("result", "error"), ("cause", "export")];
-                            metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
-                            error!(
+                            info!(
                                 self.worker_id,
                                 local_attempt_path = local_attempt_path_tag,
                                 attempt_type,
-                                "Checkpoint worker: export failed: {e:#}"
+                                "Checkpoint worker: upload cancelled, skipping export"
                             );
+                            return Ok(None);
                         }
 
+                        let tags = [("result", "error"), ("cause", "export")];
+                        metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
+                        error!(
+                            self.worker_id,
+                            local_attempt_path = local_attempt_path_tag,
+                            attempt_type,
+                            "Checkpoint worker: export failed: {e:#}"
+                        );
                         Err(e)
                     }
                 }
@@ -535,6 +672,46 @@ mod tests {
                 .iter()
                 .any(|p| p.to_string_lossy().ends_with(".log")),
             "Missing .log file"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_worker_skips_local_checkpoint_when_token_cancelled_before_start() {
+        let tmp_store_dir = TempDir::new().unwrap();
+        let store = create_test_dedup_store(tmp_store_dir.path(), "test_topic", 0);
+
+        let event = create_test_raw_event();
+        let key = TimestampKey::from(&event);
+        let metadata = TimestampMetadata::new(&event);
+        store.put_timestamp_record(&key, &metadata).unwrap();
+
+        let tmp_checkpoint_dir = TempDir::new().unwrap();
+        let partition = Partition::new("test_topic".to_string(), 0);
+        let attempt_timestamp = Utc::now();
+        let worker = CheckpointWorker::new_for_testing(
+            1,
+            tmp_checkpoint_dir.path(),
+            "test",
+            partition,
+            attempt_timestamp,
+            None,
+        );
+
+        let cancel_token = CancellationToken::new();
+        cancel_token.cancel();
+
+        let result = worker
+            .checkpoint_partition_cancellable(&store, None, Some(&cancel_token), Some("rebalance"))
+            .await
+            .unwrap();
+
+        assert!(
+            result.is_none(),
+            "checkpoint should be skipped before local creation"
+        );
+        assert!(
+            !worker.get_local_attempt_path().exists(),
+            "local checkpoint directory should not be created when checkpoint is skipped"
         );
     }
 }

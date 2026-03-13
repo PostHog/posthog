@@ -38,6 +38,7 @@ exports[`queries errorTrackingQuery usage in web analytics should return a query
     "tags": {
       "productKey": "error_tracking",
     },
+    "useQueryV2": undefined,
     "volumeResolution": 20,
     "withAggregations": true,
     "withFirstEvent": false,

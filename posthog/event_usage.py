@@ -5,6 +5,7 @@ Module to centralize event reporting on the server-side.
 import re
 from enum import StrEnum
 from typing import TYPE_CHECKING, Optional
+from urllib.parse import urlparse
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
@@ -315,14 +316,24 @@ def get_mcp_properties(request) -> dict[str, str | None]:
         "mcp_client_name": sanitize_header_value(request.headers.get("X-Posthog-Mcp-Client-Name")),
         "mcp_client_version": sanitize_header_value(request.headers.get("X-Posthog-Mcp-Client-Version")),
         "mcp_protocol_version": sanitize_header_value(request.headers.get("X-Posthog-Mcp-Protocol-Version")),
+        "mcp_oauth_client_name": sanitize_header_value(request.headers.get("X-Posthog-Mcp-Oauth-Client-Name")),
     }
 
 
 def get_request_analytics_properties(request) -> dict[str, str | bool | None]:
     """Extract standard analytics properties from a request."""
+    current_url = request.headers.get("Referer")
+    host: str | None = None
+    pathname: str | None = None
+    if current_url:
+        parsed = urlparse(current_url)
+        host = parsed.netloc or None
+        pathname = parsed.path or None
     return {
         "source": get_event_source(request),
-        "$current_url": request.headers.get("Referer"),
+        "$current_url": current_url,
+        "$host": host,
+        "$pathname": pathname,
         "$session_id": request.headers.get("X-Posthog-Session-Id"),
         "was_impersonated": is_impersonated_session(request),
         **get_mcp_properties(request),
@@ -345,6 +356,8 @@ def report_user_action(
         properties = {}
     if request is not None:
         properties = {**get_request_analytics_properties(request), **properties}
+    if user.email:
+        properties["$set_once"] = {"email": user.email}
     posthoganalytics.capture(
         distinct_id=user.distinct_id,
         event=event,
