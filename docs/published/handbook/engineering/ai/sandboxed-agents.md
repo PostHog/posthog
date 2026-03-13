@@ -4,9 +4,10 @@ sidebar: Docs
 showTitle: true
 ---
 
-Sandboxed agents are background AI agents that run in isolated cloud containers with access to PostHog data,
+Sandboxed agents are AI agents that run in isolated cloud containers with access to PostHog data,
 GitHub repositories, and code execution.
-Use them when your feature needs an autonomous agent that reads PostHog data, writes code, and produces artifacts like PRs or reports.
+They support two modes: **background** (batch tasks that produce artifacts like PRs or reports) and **interactive** (real-time conversational agents that stream responses via SSE).
+Use them when your feature needs an autonomous agent that reads PostHog data, writes code, and produces artifacts.
 
 For simpler LLM calls (summarization, translation, classification),
 skip this page and use the LLM gateway (`get_llm_client()`) directly —
@@ -16,8 +17,8 @@ it's simpler and doesn't need a sandbox.
 
 | Example                                                                                         | Solution                           |
 | ----------------------------------------------------------------------------------------------- | ---------------------------------- |
-| Signals team building an enrichment pipeline that generates reports from PostHog analytics data | Sandboxed agent (this page)        |
-| Conversations team building a support agent that queries PostHog and customer documentation     | Sandboxed agent (this page)        |
+| Signals team building an enrichment pipeline that generates reports from PostHog analytics data | Sandboxed agent — background mode  |
+| Conversations team building an interactive chat agent with code execution                       | Sandboxed agent — interactive mode |
 | LLM analytics summarizing a funnel, generating a natural-language insight title                 | LLM gateway via `get_llm_client()` |
 | Not sure                                                                                        | Ask in `#team-posthog-ai`          |
 
@@ -27,12 +28,16 @@ If it just needs to _answer a question_ given some context you already have, use
 ## How it works
 
 A sandboxed agent runs inside an isolated cloud container (Modal in production, Docker locally).
-The system provisions the sandbox, clones a GitHub repo, starts an agent server, and waits for the agent to finish.
+The system provisions the sandbox, clones a GitHub repo, starts an agent server, and then either waits for the agent to finish (background mode) or streams events in real time (interactive mode).
+
+### Background mode
+
+Background mode runs the agent to completion and produces artifacts like pull requests.
 
 ```text
 Your product code
     │
-    │  Task.create_and_run(...)
+    │  Task.create_and_run(..., mode="background")
     ▼
 Temporal workflow (process-task)
     │
@@ -42,6 +47,30 @@ Temporal workflow (process-task)
     ├── 4. Start agent server
     ├── 5. Wait for completion (heartbeat-extended timeout)
     └── 6. Cleanup sandbox
+```
+
+### Interactive mode
+
+Interactive mode relays sandbox events to a Redis stream and streams them to the browser via SSE.
+It supports multi-turn conversations through Temporal signals and snapshot-based resumption.
+
+```text
+Your product code
+    │
+    │  Task.create_and_run(..., mode="interactive")
+    ▼
+Temporal workflow (process-task)
+    │
+    ├── 1. Create scoped OAuth token
+    ├── 2. Provision sandbox (Modal / Docker)
+    ├── 3. Clone repository
+    ├── 4. Start agent server
+    ├── 5. Relay events to Redis stream (relay_sandbox_events activity)
+    ├── 6. Wait for follow-up messages (send_followup_message signal)
+    ├── 7. Create snapshot on turn complete (create_resume_snapshot activity)
+    └── 8. Cleanup sandbox
+
+Browser ◄── SSE ◄── Django endpoint ◄── Redis stream ◄── Temporal relay ◄── Sandbox SSE
 ```
 
 The agent inside the sandbox gets:
@@ -80,7 +109,7 @@ task = Task.create_and_run(
 | `repository`           | Yes      | GitHub repo in `org/repo` format (e.g., `posthog/posthog-js`)              |
 | `posthog_mcp_scopes`   | No       | Scope preset or explicit scope list (default: `"full"`)                    |
 | `create_pr`            | No       | Whether the agent should create a PR (default: `True`)                     |
-| `mode`                 | No       | Execution mode (default: `"background"`)                                   |
+| `mode`                 | No       | Execution mode: `"background"` (default) or `"interactive"`                |
 | `slack_thread_context` | No       | Slack thread context for agents triggered from Slack                       |
 | `start_workflow`       | No       | Whether to start the Temporal workflow immediately (default: `True`)       |
 
@@ -97,6 +126,64 @@ class OriginProduct(models.TextChoices):
 ```
 
 Then create and run a Django migration.
+
+## Interactive mode
+
+Interactive mode enables real-time conversational agents that stream responses to the browser via Server-Sent Events (SSE). Use it when building chat interfaces or other conversational experiences on top of sandboxed agents.
+
+Interactive mode requires the `phai-sandbox-mode` feature flag (bypassed when `DEBUG=1`).
+
+### How interactive streaming works
+
+When you create a task with `mode="interactive"`, the Temporal workflow starts a `relay_sandbox_events` activity alongside the agent server. This activity:
+
+1. Connects to the sandbox's SSE endpoint (`GET /events`)
+2. Relays each event into a per-run Redis stream
+3. Reconnects on transient failures (up to 5 attempts)
+
+A Django SSE endpoint reads from this Redis stream and pushes events to the browser. This queue-based decoupling means the browser's read speed doesn't affect the sandbox relay.
+
+**Redis stream configuration:**
+
+| Setting         | Value                          |
+| --------------- | ------------------------------ |
+| Stream key      | `task-run-stream:{run_id}`     |
+| Max entries     | 2000                           |
+| Stream TTL      | 60 minutes                     |
+| Wait timeout    | 120 seconds (sandbox startup)  |
+
+### Turn detection
+
+The agent signals when its turn is complete by sending a `_posthog/turn_complete` notification. The SSE stream uses this to know when to stop streaming for the current turn.
+
+Terminal notifications that end the session entirely:
+
+- `_posthog/task_complete` — agent finished successfully
+- `_posthog/error` — agent encountered an error
+
+A 60-second idle timeout acts as a safety fallback if no turn-complete signal arrives.
+
+### Follow-up messages
+
+After the first turn completes, the browser can send follow-up messages. The Django layer signals the Temporal workflow via `ProcessTaskWorkflow.send_followup_message`, which triggers the `send_followup_to_sandbox` activity to deliver the message to the running sandbox.
+
+### Snapshot-based resumption
+
+When a task run reaches a terminal state, the workflow creates a filesystem snapshot of the sandbox via `create_resume_snapshot`. If the user sends another message, the system creates a new task run that resumes from that snapshot:
+
+1. Look up the previous run's `snapshot_external_id` from its state
+2. Create a new `TaskRun` with the snapshot ID in its extra state
+3. Provision a new sandbox from the snapshot
+4. Continue the conversation
+
+### Conversation model integration
+
+Interactive sandboxes are linked to a `Conversation` model through two fields:
+
+- `sandbox_task_id` — permanent link to the `Task`
+- `sandbox_run_id` — link to the current `TaskRun` (updated on snapshot resume)
+
+A Redis mapping (`conversation-sandbox:{conversation_id}`) provides fast lookups from conversation to task/run IDs with a 24-hour TTL. If the Redis mapping expires, the system falls back to the conversation's database fields.
 
 ## Fine-grained access tokens
 
@@ -194,6 +281,7 @@ Key requirements:
 - `DEBUG=1` and `SANDBOX_PROVIDER=docker` in your `.env`
 - A GitHub App with Contents and Pull Requests permissions
 - The `tasks` feature flag enabled at 100%
+- The `phai-sandbox-mode` feature flag enabled (for interactive mode)
 - Temporal running (starts automatically via mprocs with `./bin/start`)
 
 ## Questions?
