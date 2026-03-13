@@ -4,6 +4,7 @@ from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     ExpressionField,
     FieldOrTable,
+    FloatDatabaseField,
     IntegerDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
@@ -344,6 +345,26 @@ notebooks: PostgresTable = PostgresTable(
     },
 )
 
+data_modeling_jobs: PostgresTable = PostgresTable(
+    name="data_modeling_jobs",
+    postgres_table_name="posthog_datamodelingjob",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "saved_query_id": StringDatabaseField(name="saved_query_id"),
+        "status": StringDatabaseField(name="status"),
+        "rows_materialized": IntegerDatabaseField(name="rows_materialized"),
+        "rows_expected": IntegerDatabaseField(name="rows_expected"),
+        "error": StringDatabaseField(name="error"),
+        "workflow_id": StringDatabaseField(name="workflow_id"),
+        "workflow_run_id": StringDatabaseField(name="workflow_run_id"),
+        "storage_delta_mib": FloatDatabaseField(name="storage_delta_mib"),
+        "last_run_at": DateTimeDatabaseField(name="last_run_at"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
 error_tracking_issues: PostgresTable = PostgresTable(
     name="error_tracking_issues",
     postgres_table_name="posthog_errortrackingissue",
@@ -366,6 +387,7 @@ class SystemTables(TableNode):
         "cohort_calculation_history": TableNode(name="cohort_calculation_history", table=cohort_calculation_history),
         "cohorts": TableNode(name="cohorts", table=cohorts),
         "dashboards": TableNode(name="dashboards", table=dashboards),
+        "data_modeling_jobs": TableNode(name="data_modeling_jobs", table=data_modeling_jobs),
         "data_warehouse_sources": TableNode(name="data_warehouse_sources", table=data_warehouse_sources),
         "data_warehouse_tables": TableNode(name="data_warehouse_tables", table=data_warehouse_tables),
         "error_tracking_issues": TableNode(name="error_tracking_issues", table=error_tracking_issues),
