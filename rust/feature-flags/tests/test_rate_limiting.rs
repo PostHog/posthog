@@ -1319,8 +1319,26 @@ async fn test_rate_limit_backwards_compat_log_only() -> Result<()> {
         "distinct_id": "user123",
     });
 
-    // All requests should succeed (log_only mode never blocks)
-    for i in 1..=5 {
+    // With capacity=2 and default warn_ratio=0.8, warn capacity = floor(2*0.8) = 1.
+    // Request 1: within both thresholds → 200, no warning header
+    let response = client
+        .post(format!("http://{}/flags", server.addr))
+        .header("content-type", "application/json")
+        .json(&payload)
+        .send()
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK, "Request 1 should succeed");
+    assert!(
+        response
+            .headers()
+            .get("X-PostHog-Rate-Limit-Warning")
+            .is_none(),
+        "Request 1 should not have warning header"
+    );
+
+    // Requests 2-5: exceed warn or enforce thresholds → 200 with warning header
+    // (log_only mode converts all rejections to warnings)
+    for i in 2..=5 {
         let response = client
             .post(format!("http://{}/flags", server.addr))
             .header("content-type", "application/json")
@@ -1332,6 +1350,14 @@ async fn test_rate_limit_backwards_compat_log_only() -> Result<()> {
             response.status(),
             StatusCode::OK,
             "Request {i} should succeed in backwards-compat log-only mode"
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get("X-PostHog-Rate-Limit-Warning")
+                .map(|v| v.to_str().unwrap()),
+            Some("true"),
+            "Request {i} should have warning header in log-only mode"
         );
     }
 
