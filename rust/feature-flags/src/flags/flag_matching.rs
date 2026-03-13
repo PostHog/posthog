@@ -1556,7 +1556,7 @@ impl FeatureFlagMatcher {
         // New format takes precedence: `holdout` has explicit id and exclusion_percentage.
         // During the migration, Django writes both formats, so both may be present.
         if let Some(holdout) = &flag.filters.holdout {
-            let percentage = holdout.exclusion_percentage;
+            let percentage = holdout.exclusion_percentage.clamp(0.0, 100.0);
 
             if percentage < 100.0
                 && self.get_holdout_hash(flag, None, request_hash_key_override)?
