@@ -736,103 +736,6 @@ export interface PatchedRoleApi {
     readonly is_default?: string
 }
 
-/**
- * * `USR` - user
- * `GIT` - GitHub
- */
-export type CreationTypeEnumApi = (typeof CreationTypeEnumApi)[keyof typeof CreationTypeEnumApi]
-
-export const CreationTypeEnumApi = {
-    Usr: 'USR',
-    Git: 'GIT',
-} as const
-
-/**
- * * `dashboard_item` - insight
- * `dashboard` - dashboard
- * `project` - project
- * `organization` - organization
- * `recording` - recording
- */
-export type AnnotationScopeEnumApi = (typeof AnnotationScopeEnumApi)[keyof typeof AnnotationScopeEnumApi]
-
-export const AnnotationScopeEnumApi = {
-    DashboardItem: 'dashboard_item',
-    Dashboard: 'dashboard',
-    Project: 'project',
-    Organization: 'organization',
-    Recording: 'recording',
-} as const
-
-export interface AnnotationApi {
-    readonly id: number
-    /**
-     * @maxLength 8192
-     * @nullable
-     */
-    content?: string | null
-    /** @nullable */
-    date_marker?: string | null
-    creation_type?: CreationTypeEnumApi
-    /** @nullable */
-    dashboard_item?: number | null
-    /** @nullable */
-    dashboard_id?: number | null
-    /** @nullable */
-    readonly dashboard_name: string | null
-    /** @nullable */
-    readonly insight_short_id: string | null
-    /** @nullable */
-    readonly insight_name: string | null
-    /** @nullable */
-    readonly insight_derived_name: string | null
-    readonly created_by: UserBasicApi
-    /** @nullable */
-    readonly created_at: string | null
-    readonly updated_at: string
-    deleted?: boolean
-    scope?: AnnotationScopeEnumApi
-}
-
-export interface PaginatedAnnotationListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: AnnotationApi[]
-}
-
-export interface PatchedAnnotationApi {
-    readonly id?: number
-    /**
-     * @maxLength 8192
-     * @nullable
-     */
-    content?: string | null
-    /** @nullable */
-    date_marker?: string | null
-    creation_type?: CreationTypeEnumApi
-    /** @nullable */
-    dashboard_item?: number | null
-    /** @nullable */
-    dashboard_id?: number | null
-    /** @nullable */
-    readonly dashboard_name?: string | null
-    /** @nullable */
-    readonly insight_short_id?: string | null
-    /** @nullable */
-    readonly insight_name?: string | null
-    /** @nullable */
-    readonly insight_derived_name?: string | null
-    readonly created_by?: UserBasicApi
-    /** @nullable */
-    readonly created_at?: string | null
-    readonly updated_at?: string
-    deleted?: boolean
-    scope?: AnnotationScopeEnumApi
-}
-
 export interface CommentApi {
     readonly id: string
     readonly created_by: UserBasicApi
@@ -1927,21 +1830,6 @@ export type RolesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
-}
-
-export type AnnotationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * A search term.
-     */
-    search?: string
 }
 
 export type CommentsListParams = {

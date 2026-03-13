@@ -732,6 +732,81 @@
             "readOnlyHint": true
         }
     },
+    "proxy-list": {
+        "description": "List all managed reverse proxies configured for the current organization. Returns each proxy's domain, CNAME target, provisioning status, and the maximum number of proxies allowed by the current plan. Use this to check whether a reverse proxy is set up before recommending one.",
+        "category": "Reverse proxy",
+        "feature": "reverse_proxy",
+        "summary": "List reverse proxies",
+        "title": "List reverse proxies",
+        "required_scopes": ["organization:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "proxy-get": {
+        "description": "Get full details of a specific reverse proxy by ID. Returns the domain, CNAME target (the DNS record value the user needs to configure), current provisioning status, and any error or warning messages. Use this to debug why a proxy isn't working or to check DNS verification status.",
+        "category": "Reverse proxy",
+        "feature": "reverse_proxy",
+        "summary": "Get reverse proxy details",
+        "title": "Get reverse proxy details",
+        "required_scopes": ["organization:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "proxy-create": {
+        "description": "Create a new managed reverse proxy for a custom domain. Provide the domain (e.g. 'e.example.com') that will proxy requests to PostHog. The response includes the CNAME target — the user must add a CNAME DNS record pointing their domain to this target. Once DNS propagates, the proxy is automatically verified and an SSL certificate is issued. The proxy starts in 'waiting' status until DNS is verified.",
+        "category": "Reverse proxy",
+        "feature": "reverse_proxy",
+        "summary": "Create reverse proxy",
+        "title": "Create reverse proxy",
+        "required_scopes": ["organization:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "proxy-retry": {
+        "description": "Retry provisioning a reverse proxy that has failed. Only works for proxies in 'erroring' or 'timed_out' status. Resets the proxy to 'waiting' and restarts the DNS verification and certificate provisioning workflow.",
+        "category": "Reverse proxy",
+        "feature": "reverse_proxy",
+        "summary": "Retry reverse proxy provisioning",
+        "title": "Retry reverse proxy provisioning",
+        "required_scopes": ["organization:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "proxy-delete": {
+        "description": "Delete a managed reverse proxy. For proxies still being set up (waiting, erroring, timed_out), the record is removed immediately. For active proxies, a cleanup workflow is started to remove the provisioned infrastructure.",
+        "category": "Reverse proxy",
+        "feature": "reverse_proxy",
+        "summary": "Delete reverse proxy",
+        "title": "Delete reverse proxy",
+        "required_scopes": ["organization:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "actions-get-all": {
         "description": "Get all actions in the project. Actions are reusable event definitions that can combine multiple trigger conditions (page views, clicks, form submissions) into a single trackable event for use in insights and funnels. Supports pagination with limit and offset parameters. Note: Search/filtering by name is not supported on this endpoint.",
         "category": "Actions",
@@ -803,6 +878,81 @@
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "annotations-list": {
+        "description": "List annotations in the current project, newest first. Use this to review existing deployment markers and analysis notes before adding new annotations.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "List annotations",
+        "title": "List annotations",
+        "required_scopes": ["annotation:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "annotation-create": {
+        "description": "Create an annotation to mark an important change (for example, a deployment) on charts and trends. Provide a note in `content`, when it happened in `date_marker` (ISO 8601), and whether it is scoped to the current `project` or the whole `organization`.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "Create annotation",
+        "title": "Create annotation",
+        "required_scopes": ["annotation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "annotation-retrieve": {
+        "description": "Retrieve a single annotation by ID from the current project. Use this when you already know the annotation ID and want complete details.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "Retrieve annotation",
+        "title": "Retrieve annotation",
+        "required_scopes": ["annotation:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "annotations-partial-update": {
+        "description": "Update an existing annotation by ID. You can change its text (`content`), when it happened (`date_marker`, ISO 8601), or its visibility scope (`project` or `organization`). Only the fields you provide are updated.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "Update annotation",
+        "title": "Update annotation",
+        "required_scopes": ["annotation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "annotation-delete": {
+        "description": "Soft-delete an annotation by ID. This hides the annotation from normal lists while preserving historical records.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "Delete annotation",
+        "title": "Delete annotation",
+        "required_scopes": ["annotation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
         }

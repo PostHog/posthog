@@ -4257,12 +4257,20 @@ export namespace Schemas {
     export interface Annotation {
       readonly id: number;
       /**
+       * Annotation text shown on charts to describe the change, release, or incident.
        * @maxLength 8192
        * @nullable
        */
       content?: string | null;
-      /** @nullable */
+      /**
+       * When this annotation happened (ISO 8601 timestamp). Used to position it on charts.
+       * @nullable
+       */
       date_marker?: string | null;
+      /** Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.
+
+    * `USR` - user
+    * `GIT` - GitHub */
       creation_type?: CreationTypeEnum;
       /** @nullable */
       dashboard_item?: number | null;
@@ -4280,7 +4288,15 @@ export namespace Schemas {
       /** @nullable */
       readonly created_at: string | null;
       readonly updated_at: string;
+      /** Soft-delete flag. Set to true to hide the annotation, or false to restore it. */
       deleted?: boolean;
+      /** Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.
+
+    * `dashboard_item` - insight
+    * `dashboard` - dashboard
+    * `project` - project
+    * `organization` - organization
+    * `recording` - recording */
       scope?: AnnotationScopeEnum;
     }
 
@@ -18313,51 +18329,6 @@ export namespace Schemas {
       results: ProjectBackwardCompatBasic[];
     }
 
-    /**
-     * * `waiting` - Waiting
-    * `issuing` - Issuing
-    * `valid` - Valid
-    * `warning` - Warning
-    * `erroring` - Erroring
-    * `deleting` - Deleting
-    * `timed_out` - Timed Out
-     */
-    export type ProxyRecordStatusEnum = typeof ProxyRecordStatusEnum[keyof typeof ProxyRecordStatusEnum];
-
-
-    export const ProxyRecordStatusEnum = {
-      Waiting: 'waiting',
-      Issuing: 'issuing',
-      Valid: 'valid',
-      Warning: 'warning',
-      Erroring: 'erroring',
-      Deleting: 'deleting',
-      TimedOut: 'timed_out',
-    } as const;
-
-    export interface ProxyRecord {
-      readonly id: string;
-      /** @maxLength 64 */
-      domain: string;
-      readonly target_cname: string;
-      readonly status: ProxyRecordStatusEnum;
-      /** @nullable */
-      readonly message: string | null;
-      readonly created_at: string;
-      readonly updated_at: string;
-      /** @nullable */
-      readonly created_by: number | null;
-    }
-
-    export interface PaginatedProxyRecordList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: ProxyRecord[];
-    }
-
     export interface QueryTabState {
       readonly id: string;
       /** 
@@ -19819,12 +19790,20 @@ export namespace Schemas {
     export interface PatchedAnnotation {
       readonly id?: number;
       /**
+       * Annotation text shown on charts to describe the change, release, or incident.
        * @maxLength 8192
        * @nullable
        */
       content?: string | null;
-      /** @nullable */
+      /**
+       * When this annotation happened (ISO 8601 timestamp). Used to position it on charts.
+       * @nullable
+       */
       date_marker?: string | null;
+      /** Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.
+
+    * `USR` - user
+    * `GIT` - GitHub */
       creation_type?: CreationTypeEnum;
       /** @nullable */
       dashboard_item?: number | null;
@@ -19842,7 +19821,15 @@ export namespace Schemas {
       /** @nullable */
       readonly created_at?: string | null;
       readonly updated_at?: string;
+      /** Soft-delete flag. Set to true to hide the annotation, or false to restore it. */
       deleted?: boolean;
+      /** Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.
+
+    * `dashboard_item` - insight
+    * `dashboard` - dashboard
+    * `project` - project
+    * `organization` - organization
+    * `recording` - recording */
       scope?: AnnotationScopeEnum;
     }
 
@@ -21779,20 +21766,6 @@ export namespace Schemas {
       readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnum[];
     }
 
-    export interface PatchedProxyRecord {
-      readonly id?: string;
-      /** @maxLength 64 */
-      domain?: string;
-      readonly target_cname?: string;
-      readonly status?: ProxyRecordStatusEnum;
-      /** @nullable */
-      readonly message?: string | null;
-      readonly created_at?: string;
-      readonly updated_at?: string;
-      /** @nullable */
-      readonly created_by?: number | null;
-    }
-
     export interface PatchedQueryTabState {
       readonly id?: string;
       /** 
@@ -23203,6 +23176,64 @@ export namespace Schemas {
        * @nullable
        */
       version?: number | null;
+    }
+
+    /**
+     * * `waiting` - Waiting
+    * `issuing` - Issuing
+    * `valid` - Valid
+    * `warning` - Warning
+    * `erroring` - Erroring
+    * `deleting` - Deleting
+    * `timed_out` - Timed Out
+     */
+    export type ProxyRecordStatusEnum = typeof ProxyRecordStatusEnum[keyof typeof ProxyRecordStatusEnum];
+
+
+    export const ProxyRecordStatusEnum = {
+      Waiting: 'waiting',
+      Issuing: 'issuing',
+      Valid: 'valid',
+      Warning: 'warning',
+      Erroring: 'erroring',
+      Deleting: 'deleting',
+      TimedOut: 'timed_out',
+    } as const;
+
+    export interface ProxyRecord {
+      /** Unique identifier for the proxy record. */
+      readonly id: string;
+      /** The custom domain to proxy through, e.g. 'e.example.com'. Must be a valid subdomain you control. */
+      domain: string;
+      /** The CNAME target to add as a DNS record for your domain. Point your domain's CNAME to this value. */
+      readonly target_cname: string;
+      /** Current provisioning status. Values: waiting (DNS verification pending), issuing (SSL certificate being issued), valid (proxy is live and working), warning (proxy has issues but is operational), erroring (proxy setup failed), deleting (removal in progress), timed_out (DNS verification timed out).
+
+    * `waiting` - Waiting
+    * `issuing` - Issuing
+    * `valid` - Valid
+    * `warning` - Warning
+    * `erroring` - Erroring
+    * `deleting` - Deleting
+    * `timed_out` - Timed Out */
+      readonly status: ProxyRecordStatusEnum;
+      /**
+       * Human-readable status message with details about errors or warnings, if any.
+       * @nullable
+       */
+      readonly message: string | null;
+      /** When this proxy record was created. */
+      readonly created_at: string;
+      /** When this proxy record was last updated. */
+      readonly updated_at: string;
+      /** ID of the user who created this proxy record. */
+      readonly created_by: number;
+    }
+
+    export interface ProxyRecordListResponse {
+      results: ProxyRecord[];
+      /** Maximum number of proxy records allowed for this organization's current plan. */
+      max_proxy_records: number;
     }
 
     /**
@@ -28957,17 +28988,6 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
-    };
-
-    export type ProxyRecordsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
     };
 
     export type RolesListParams = {
