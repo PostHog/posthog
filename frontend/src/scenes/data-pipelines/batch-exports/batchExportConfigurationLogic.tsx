@@ -86,7 +86,7 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
         ...batchExportConfig.destination.config,
     }
 
-    if (destinationType === 'Databricks' || destinationType === 'AzureBlob') {
+    if (destinationType === 'Databricks' || destinationType === 'AzureBlob' || destinationType === 'BigQuery') {
         config.integration_id = batchExportConfig.destination.integration
     }
 

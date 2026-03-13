@@ -4,7 +4,6 @@ import { IconInfo } from '@posthog/icons'
 import {
     LemonCalendarSelectInput,
     LemonCheckbox,
-    LemonFileInput,
     LemonInput,
     LemonSelect,
     LemonTextArea,
@@ -642,8 +641,14 @@ export function BatchExportsEditFields({
                 </>
             ) : batchExportConfigForm.destination === 'BigQuery' ? (
                 <>
-                    <LemonField name="json_config_file" label="Google Cloud JSON key file">
-                        <LemonFileInput accept=".json" multiple={false} />
+                    <LemonField name="integration_id" label="Integration">
+                        {({ value, onChange }) => (
+                            <IntegrationChoice
+                                integration="google-cloud-service-account"
+                                value={value}
+                                onChange={onChange}
+                            />
+                        )}
                     </LemonField>
 
                     <LemonField name="table_id" label="Table ID">

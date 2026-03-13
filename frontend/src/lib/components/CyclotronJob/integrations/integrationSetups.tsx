@@ -55,6 +55,17 @@ registerIntegrationSetup({
 })
 
 registerIntegrationSetup({
+    kind: 'google-cloud-service-account',
+    menuItem: ({ openModal }) => ({
+        label: 'Configure new Google Cloud service account',
+        onClick: () => openModal('google-cloud-service-account'),
+    }),
+    SetupModal: ({ isOpen, integration, onComplete }) => (
+        <DatabricksSetupModal isOpen={isOpen} integration={integration} onComplete={onComplete} />
+    ),
+})
+
+registerIntegrationSetup({
     kind: 'gitlab',
     menuItem: ({ openModal }) => ({
         label: 'Configure new GitLab account',
