@@ -120,11 +120,12 @@ describe('createErrorTrackingPrepareEventStep', () => {
         }
     })
 
-    it('uses event.now as timestamp when timestamp is missing', async () => {
+    it('uses pre-validated timestamp from cymbal step', async () => {
+        // Timestamp validation happens in the cymbal processing step before this step.
+        // The prepare step expects event.timestamp to already be validated and set.
         const event = createTestPluginEvent({
             event: '$exception',
-            timestamp: undefined,
-            now: '2024-01-20T12:00:00.000Z',
+            timestamp: '2024-01-20T12:00:00.000Z',
         })
 
         const result = await step({ event, team, person: null, headers: createTestHeaders() })

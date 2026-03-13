@@ -208,19 +208,74 @@ describe('createCymbalProcessingStep', () => {
         ])
     })
 
-    it('uses timestamp from event', async () => {
-        const input = createInput()
-        input.event.timestamp = '2024-01-15T10:30:00.000Z'
+    describe('timestamp validation', () => {
+        it('uses timestamp from event when valid', async () => {
+            const input = createInput()
+            input.event.timestamp = '2024-01-15T10:30:00.000Z'
 
-        mockCymbalClient.processExceptions.mockResolvedValueOnce([createResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValueOnce([createResponse()])
 
-        await step([input])
+            await step([input])
 
-        expect(mockCymbalClient.processExceptions).toHaveBeenCalledWith([
-            expect.objectContaining({
-                timestamp: '2024-01-15T10:30:00.000Z',
-            }),
-        ])
+            expect(mockCymbalClient.processExceptions).toHaveBeenCalledWith([
+                expect.objectContaining({
+                    timestamp: '2024-01-15T10:30:00.000Z',
+                }),
+            ])
+        })
+
+        it('falls back to current time when timestamp is missing', async () => {
+            jest.useFakeTimers()
+            jest.setSystemTime(new Date('2024-01-20T12:00:00.000Z'))
+
+            try {
+                const input = createInput()
+                input.event.timestamp = undefined as any
+
+                mockCymbalClient.processExceptions.mockResolvedValueOnce([createResponse()])
+
+                await step([input])
+
+                expect(mockCymbalClient.processExceptions).toHaveBeenCalledWith([
+                    expect.objectContaining({
+                        timestamp: '2024-01-20T12:00:00.000Z',
+                    }),
+                ])
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('stores validated timestamp back on event for downstream steps', async () => {
+            const input = createInput()
+            input.event.timestamp = '2024-01-15T10:30:00.000Z'
+
+            mockCymbalClient.processExceptions.mockResolvedValueOnce([createResponse()])
+
+            const results = await step([input])
+
+            expect(results[0].type).toBe(PipelineResultType.OK)
+            if (isOkResult(results[0])) {
+                // The validated timestamp should be stored on event.timestamp
+                expect(results[0].value.event.timestamp).toBe('2024-01-15T10:30:00.000Z')
+            }
+        })
+
+        it('emits warning for invalid timestamp and falls back to current time', async () => {
+            const input = createInput()
+            input.event.timestamp = 'not-a-valid-timestamp' as any
+
+            mockCymbalClient.processExceptions.mockResolvedValueOnce([createResponse()])
+
+            const results = await step([input])
+
+            expect(results[0].type).toBe(PipelineResultType.OK)
+            if (isOkResult(results[0])) {
+                // Should have a timestamp warning
+                expect(results[0].warnings.length).toBeGreaterThanOrEqual(1)
+                expect(results[0].warnings.some((w) => w.type.includes('timestamp'))).toBe(true)
+            }
+        })
     })
 
     it('throws on Cymbal client error so Kafka retries the batch', async () => {

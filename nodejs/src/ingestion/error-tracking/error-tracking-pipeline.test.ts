@@ -46,10 +46,13 @@ describe('ErrorTrackingPipeline', () => {
 
     const team = createTestTeam({ id: 123, api_token: 'test-token-123' })
 
-    const createTestPerson = (overrides: Partial<InternalPerson> = {}): InternalPerson => ({
+    const createTestPerson = (
+        overrides: Partial<InternalPerson> & { distinct_id?: string } = {}
+    ): InternalPerson & { distinct_id: string } => ({
         id: '1',
         uuid: 'person-uuid-123',
         team_id: 123,
+        distinct_id: 'user-123', // Default matches createKafkaMessage default
         properties: { email: 'test@example.com', name: 'Test User' },
         is_user_id: null,
         is_identified: true,
@@ -216,7 +219,7 @@ describe('ErrorTrackingPipeline', () => {
 
         mockPersonRepository = {
             fetchPerson: jest.fn(),
-            fetchPersonsByDistinctIds: jest.fn(),
+            fetchPersonsByDistinctIds: jest.fn().mockResolvedValue([]),
             fetchPersonsByPersonIds: jest.fn(),
             createPerson: jest.fn(),
             updatePerson: jest.fn(),
@@ -298,7 +301,7 @@ describe('ErrorTrackingPipeline', () => {
     describe('runErrorTrackingPipeline', () => {
         it('processes a single event through the full pipeline and emits to Kafka', async () => {
             const person = createTestPerson()
-            mockPersonRepository.fetchPerson.mockResolvedValue(person)
+            mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValue([person])
 
             // Cymbal receives raw properties (no GeoIP yet) and adds fingerprint/issue_id
             const cymbalResponse = createCymbalResponseWithEnrichedProperties({
@@ -575,7 +578,7 @@ describe('ErrorTrackingPipeline', () => {
         })
 
         it('propagates database errors from person lookup', async () => {
-            mockPersonRepository.fetchPerson.mockRejectedValue(new Error('Database error'))
+            mockPersonRepository.fetchPersonsByDistinctIds.mockRejectedValue(new Error('Database error'))
             mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
 
             const message = createKafkaMessage({})
@@ -850,7 +853,7 @@ describe('ErrorTrackingPipeline', () => {
 
             // Test with person found - should be 'full' mode
             const person = createTestPerson()
-            mockPersonRepository.fetchPerson.mockResolvedValue(person)
+            mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValue([person])
             mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
 
             const pipeline1 = createErrorTrackingPipeline(pipelineConfig)
@@ -912,7 +915,7 @@ describe('ErrorTrackingPipeline', () => {
 
         it('records resolved_teams metric when team is resolved', async () => {
             const person = createTestPerson()
-            mockPersonRepository.fetchPerson.mockResolvedValue(person)
+            mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValue([person])
             mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
 
             const configWithTopHog: ErrorTrackingPipelineConfig = {
@@ -935,35 +938,9 @@ describe('ErrorTrackingPipeline', () => {
             expect(resolvedTeamsMetric.value).toBe(1)
         })
 
-        it('records person_lookup_time metric for person lookups', async () => {
-            const person = createTestPerson()
-            mockPersonRepository.fetchPerson.mockResolvedValue(person)
-            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
-
-            const configWithTopHog: ErrorTrackingPipelineConfig = {
-                ...pipelineConfig,
-                topHog,
-            }
-
-            const pipeline = createErrorTrackingPipeline(configWithTopHog)
-            await runErrorTrackingPipeline(pipeline, [createKafkaMessage({})])
-            await topHog.flush()
-
-            // Verify Hog transformations were run
-            expect(mockHogTransformer.transformEventAndProduceMessages).toHaveBeenCalledTimes(1)
-
-            const messages = getTopHogMessages()
-            const personLookupMetric = messages.find((m) => m.metric === 'person_lookup_time')
-            expect(personLookupMetric).toBeDefined()
-            expect(personLookupMetric.type).toBe('sum')
-            expect(personLookupMetric.key.team_id).toBe('123')
-            expect(personLookupMetric.key.distinct_id).toBe('user-123')
-            expect(personLookupMetric.value).toBeGreaterThanOrEqual(0)
-        })
-
         it('records emitted_events metric when events are emitted', async () => {
             const person = createTestPerson()
-            mockPersonRepository.fetchPerson.mockResolvedValue(person)
+            mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValue([person])
             mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
 
             const configWithTopHog: ErrorTrackingPipelineConfig = {
@@ -988,7 +965,7 @@ describe('ErrorTrackingPipeline', () => {
 
         it('records emitted_events_per_distinct_id metric with distinct_id', async () => {
             const person = createTestPerson()
-            mockPersonRepository.fetchPerson.mockResolvedValue(person)
+            mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValue([person])
             mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
 
             const configWithTopHog: ErrorTrackingPipelineConfig = {
@@ -1014,7 +991,7 @@ describe('ErrorTrackingPipeline', () => {
 
         it('includes pipeline and lane labels in TopHog output', async () => {
             const person = createTestPerson()
-            mockPersonRepository.fetchPerson.mockResolvedValue(person)
+            mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValue([person])
             mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
 
             const configWithTopHog: ErrorTrackingPipelineConfig = {
@@ -1039,7 +1016,7 @@ describe('ErrorTrackingPipeline', () => {
 
         it('aggregates metrics across multiple events', async () => {
             const person = createTestPerson()
-            mockPersonRepository.fetchPerson.mockResolvedValue(person)
+            mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValue([person])
             mockCymbalClient.processExceptions.mockImplementation((events) =>
                 Promise.resolve(events.map(() => createCymbalResponse()))
             )

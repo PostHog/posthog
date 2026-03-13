@@ -54,7 +54,7 @@ jest.mock('../../utils/logger', () => ({
 // Create a mock PersonRepository to avoid database schema issues
 const createMockPersonRepository = (): jest.Mocked<PersonRepository> => ({
     fetchPerson: jest.fn().mockResolvedValue(undefined),
-    fetchPersonsByDistinctIds: jest.fn(),
+    fetchPersonsByDistinctIds: jest.fn().mockResolvedValue([]),
     fetchPersonsByPersonIds: jest.fn(),
     createPerson: jest.fn(),
     updatePerson: jest.fn(),

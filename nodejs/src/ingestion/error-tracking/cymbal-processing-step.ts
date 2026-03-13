@@ -1,6 +1,8 @@
 import { PluginEvent } from '~/plugin-scaffold'
-import { Team } from '~/types'
+import { ISOTimestamp, Team } from '~/types'
 import { logger } from '~/utils/logger'
+import { invalidTimestampCounter } from '~/worker/ingestion/event-pipeline/metrics'
+import { parseEventTimestamp } from '~/worker/ingestion/timestamps'
 
 import { BatchProcessingStep } from '../pipelines/base-batch-pipeline'
 import { PipelineWarning } from '../pipelines/pipeline.interface'
@@ -11,6 +13,24 @@ import { CymbalRequest, CymbalResponse } from './cymbal/types'
 export interface CymbalProcessingInput {
     event: PluginEvent
     team: Team
+}
+
+/**
+ * Validates and normalizes the event timestamp.
+ * Returns the validated ISO timestamp and any warnings from invalid timestamps.
+ */
+function validateEventTimestamp(event: PluginEvent): { timestamp: ISOTimestamp; warnings: PipelineWarning[] } {
+    const warnings: PipelineWarning[] = []
+    const invalidTimestampCallback = function (type: string, details: Record<string, any>) {
+        invalidTimestampCounter.labels(type).inc()
+        warnings.push({ type, details })
+    }
+
+    const parsedTimestamp = parseEventTimestamp(event, invalidTimestampCallback)
+    return {
+        timestamp: parsedTimestamp.toISO() as ISOTimestamp,
+        warnings,
+    }
 }
 
 /**
@@ -58,13 +78,22 @@ export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
             return []
         }
 
+        // Validate timestamps and collect warnings for each input.
+        // This must happen before building Cymbal requests since Cymbal needs valid timestamps.
+        const validatedInputs = inputs.map((input) => {
+            const { timestamp, warnings } = validateEventTimestamp(input.event)
+            // Store validated timestamp back on event for downstream steps
+            input.event.timestamp = timestamp
+            return { input, timestamp, warnings }
+        })
+
         // Build requests for all inputs - Cymbal expects AnyEvent format
-        const requests: CymbalRequest[] = inputs.map(({ event, team }) => ({
-            uuid: event.uuid,
-            event: event.event,
-            team_id: team.id,
-            timestamp: (event.timestamp ?? event.now)!,
-            properties: event.properties ?? {},
+        const requests: CymbalRequest[] = validatedInputs.map(({ input, timestamp }) => ({
+            uuid: input.event.uuid,
+            event: input.event.event,
+            team_id: input.team.id,
+            timestamp,
+            properties: input.event.properties ?? {},
         }))
 
         try {
@@ -72,7 +101,7 @@ export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
 
             // Map responses back to results, maintaining 1:1 correspondence
             return responses.map((response, index) => {
-                const input = inputs[index]
+                const { input, warnings: timestampWarnings } = validatedInputs[index]
 
                 // Null response means the event should be dropped (suppressed)
                 if (!response) {
@@ -88,8 +117,9 @@ export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
                 // We mutate the event directly since it's not used after this step.
                 input.event.properties = response.properties
 
-                // Check for processing errors from Cymbal
-                const warnings = getCymbalProcessingWarnings(response, input.event.uuid)
+                // Combine timestamp validation warnings with Cymbal processing warnings
+                const cymbalWarnings = getCymbalProcessingWarnings(response, input.event.uuid)
+                const warnings = [...timestampWarnings, ...cymbalWarnings]
 
                 return ok({ ...input, event: input.event }, [], warnings)
             })

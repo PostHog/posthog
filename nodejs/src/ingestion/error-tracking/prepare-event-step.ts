@@ -1,9 +1,6 @@
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, ISOTimestamp, Person, PreIngestionEvent, Team } from '~/types'
-import { invalidTimestampCounter } from '~/worker/ingestion/event-pipeline/metrics'
-import { parseEventTimestamp } from '~/worker/ingestion/timestamps'
 
-import { PipelineWarning } from '../pipelines/pipeline.interface'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
@@ -15,8 +12,7 @@ export interface ErrorTrackingPrepareEventInput {
 }
 
 /**
- * Output adds preparedEvent, removes event (no longer needed).
- * Person is optional - undefined if no person was found in the database.
+ * Output adds preparedEvent, removes event and person (transformed/consumed).
  * Preserves team and headers for downstream steps.
  */
 export type ErrorTrackingPrepareEventOutput<T> = Omit<T, 'event' | 'person'> & {
@@ -31,7 +27,7 @@ export type ErrorTrackingPrepareEventOutput<T> = Omit<T, 'event' | 'person'> & {
  *
  * This step:
  * 1. Converts PluginEvent to PreIngestionEvent format
- * 2. Validates timestamp (falls back to now if invalid)
+ * 2. Uses pre-validated timestamp (validated by cymbal processing step)
  * 3. Extracts historical_migration flag from headers
  *
  * The output is compatible with createCreateEventStep() and createEmitEventStep().
@@ -41,13 +37,7 @@ export function createErrorTrackingPrepareEventStep<T extends ErrorTrackingPrepa
     ErrorTrackingPrepareEventOutput<T>
 > {
     return function errorTrackingPrepareEventStep(input) {
-        const { event, team, person, headers } = input
-
-        const warnings: PipelineWarning[] = []
-        const invalidTimestampCallback = function (type: string, details: Record<string, any>) {
-            invalidTimestampCounter.labels(type).inc()
-            warnings.push({ type, details })
-        }
+        const { event, person, ...rest } = input
 
         // Convert PluginEvent to PreIngestionEvent.
         // Remove $set and $set_once from properties because error tracking events
@@ -61,16 +51,17 @@ export function createErrorTrackingPrepareEventStep<T extends ErrorTrackingPrepa
         delete properties.$set
         delete properties.$set_once
 
-        const timestamp = parseEventTimestamp(event, invalidTimestampCallback)
+        // Timestamp is already validated by the cymbal processing step
+        const timestamp = event.timestamp as ISOTimestamp
 
         const preparedEvent: PreIngestionEvent = {
             eventUuid: event.uuid,
             event: event.event,
-            teamId: team.id,
-            projectId: team.project_id,
+            teamId: rest.team.id,
+            projectId: rest.team.project_id,
             distinctId: event.distinct_id,
             properties,
-            timestamp: timestamp.toISO() as ISOTimestamp,
+            timestamp,
         }
 
         // Error tracking always uses processPerson=true to:
@@ -78,20 +69,16 @@ export function createErrorTrackingPrepareEventStep<T extends ErrorTrackingPrepa
         // 2. Include person properties in events (when a real person is found)
         const processPerson = true
 
-        const historicalMigration = headers.historical_migration ?? false
+        const historicalMigration = rest.headers.historical_migration ?? false
 
         return Promise.resolve(
-            ok(
-                {
-                    ...input,
-                    preparedEvent,
-                    person: person ?? undefined,
-                    processPerson,
-                    historicalMigration,
-                },
-                [],
-                warnings
-            )
+            ok({
+                ...rest,
+                preparedEvent,
+                person: person ?? undefined,
+                processPerson,
+                historicalMigration,
+            })
         )
     }
 }
