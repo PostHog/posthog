@@ -1856,7 +1856,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            concat(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), ''), ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '')), '')) AS breakdown_value,
+            nullIf(concat(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), ''), ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '')), '')), '') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -1917,7 +1917,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            concat(ifNull(toString(events__session.`$entry_hostname`), ''), ifNull(toString(events__session.`$entry_pathname`), '')) AS breakdown_value,
+            nullIf(concat(ifNull(toString(events__session.`$entry_hostname`), ''), ifNull(toString(events__session.`$entry_pathname`), '')), '') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -1980,7 +1980,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            concat(ifNull(toString(events__session.`$end_hostname`), ''), ifNull(toString(events__session.`$end_pathname`), '')) AS breakdown_value,
+            nullIf(concat(ifNull(toString(events__session.`$end_hostname`), ''), ifNull(toString(events__session.`$end_pathname`), '')), '') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -2043,7 +2043,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            concat(ifNull(toString(events__session.`$end_hostname`), ''), ifNull(toString(events__session.`$end_pathname`), '')) AS breakdown_value,
+            nullIf(concat(ifNull(toString(events__session.`$end_hostname`), ''), ifNull(toString(events__session.`$end_pathname`), '')), '') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -2292,7 +2292,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            concat(ifNull(toString(events__session.`$entry_hostname`), ''), ifNull(toString(events__session.`$entry_pathname`), '')) AS breakdown_value,
+            nullIf(concat(ifNull(toString(events__session.`$entry_hostname`), ''), ifNull(toString(events__session.`$entry_pathname`), '')), '') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -2355,7 +2355,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            concat(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), ''), ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '')), '')) AS breakdown_value,
+            nullIf(concat(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), ''), ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '')), '')), '') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp

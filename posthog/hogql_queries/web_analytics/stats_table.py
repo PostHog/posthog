@@ -590,8 +590,14 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
 
     def _prepend_host(self, host_expr: ast.Expr, path_expr: ast.Expr) -> ast.Expr:
         return ast.Call(
-            name="concat",
-            args=[host_expr, path_expr],
+            name="nullIf",
+            args=[
+                ast.Call(
+                    name="concat",
+                    args=[host_expr, path_expr],
+                ),
+                ast.Constant(value=""),
+            ],
         )
 
     def _counts_breakdown_value(self):
