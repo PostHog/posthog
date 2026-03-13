@@ -42,8 +42,14 @@ interface DashboardProps {
     backTo?: { url: string; name: string }
 }
 
+// Wrapper needed because SceneComponent<DashboardLogicProps> requires the component to accept
+// DashboardLogicProps, but DashboardScene takes { backTo? } (logic props are bound separately).
+function DashboardSceneWrapper(): JSX.Element {
+    return <DashboardScene />
+}
+
 export const scene: SceneExport<DashboardLogicProps> = {
-    component: DashboardScene,
+    component: DashboardSceneWrapper,
     logic: dashboardLogic,
     paramsToProps: ({ params: { id, placement } }) => ({
         id: parseInt(id as string),
