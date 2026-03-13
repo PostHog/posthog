@@ -86,6 +86,7 @@ export function setupInsightMocks({
             match: (query) => query.kind === NodeKind.TrendsQuery,
             response: (query) => buildTrendsResponse(resolveSeriesData(query)),
         },
+        // TODO: Add mock responses for other query types
     ]
 
     useMocks({
@@ -108,6 +109,10 @@ export function setupInsightMocks({
                 const values = (propValues[key] ?? []).map((name) => ({ name }))
                 return [200, values]
             },
+            // TODO: support loading saved insights — accept a savedInsights option in SetupMocksOptions
+            // and return them here, enabling tests that load insights by short ID
+            '/api/environments/:team_id/insights/': { results: [] },
+            '/api/environments/:team_id/insights/trend': [],
         },
         post: {
             '/api/environments/:team_id/query': (req: RestRequest) => {

@@ -1,37 +1,62 @@
-# Insight test harness
+# Insight testing
 
-A test wrapper for rendering insight components with mocked data and a chart inspection API.
+A test wrapper for rendering insight components (or any component that depends on insight infrastructure) with mocked data and a chart inspection API.
 
 ## Quick start
 
 ```tsx
-import { renderInsight, waitForChart, buildTrendsQuery } from './index'
+import { renderInsightPage, waitForChart, buildTrendsQuery } from './index'
 
-renderInsight({
+renderInsightPage({
   query: buildTrendsQuery({
     series: [{ kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' }],
   }),
 })
 
-const chart = await waitForChart(1) // waits until 1 series is rendered
+const chart = await waitForChart()
 expect(chart.series('$pageview').data).toEqual([45, 82, 134, 210, 95])
 ```
 
-## `renderInsight(props?)`
+## `renderInsightPage(props?)`
 
-Renders an `InsightViz` component with mocked API responses.
+Renders a full `InsightViz` component with mocked API responses.
+Handles all setup automatically — Kea context, common logics, and API mocks.
 
 | Prop            | Type                | Description                                              |
 | --------------- | ------------------- | -------------------------------------------------------- |
 | `query`         | `TrendsQuery`       | Query to render (defaults to a `$pageview` trends query) |
-| `showFilters`   | `boolean`           | Show filter controls (interval, breakdown, etc.)         |
+| `showFilters`   | `boolean`           | Show filter controls (defaults to `true`)                |
 | `mocks`         | `SetupMocksOptions` | Override event/property definitions and property values  |
 | `mockResponses` | `MockResponse[]`    | Custom query response matchers                           |
 
+## `renderWithInsights(props)`
+
+Renders any component with insight mocks and Kea logics ready.
+Use this when testing a component that contains insights internally
+(e.g. a page that embeds `InsightViz`) rather than testing `InsightViz` directly.
+
+```tsx
+import { renderWithInsights } from './index'
+
+renderWithInsights({
+  component: <JourneyBuilder steps={steps} />,
+  mockResponses: [{ match: (q) => q.kind === 'TrendsQuery', response: myTrendsData }],
+})
+```
+
+| Prop            | Type                 | Description                                             |
+| --------------- | -------------------- | ------------------------------------------------------- |
+| `component`     | `React.ReactElement` | The component to render                                 |
+| `mocks`         | `SetupMocksOptions`  | Override event/property definitions and property values |
+| `mockResponses` | `MockResponse[]`     | Custom query response matchers                          |
+
 ## Chart API
 
-`getChart(index?)` returns a `Chart` for the most recently rendered chart (or a specific one by index).
-`waitForChart(expectedSeries?)` polls until a chart renders with the expected number of series.
+`waitForChart()` waits for a new chart to render since the last call, then returns it.
+Back-to-back calls after interactions always return fresh data.
+
+`getChart(index?)` returns the most recently rendered chart (or a specific one by index)
+without waiting.
 
 ### Chart
 
@@ -70,7 +95,7 @@ Renders an `InsightViz` component with mocked API responses.
 
 ## Interactions
 
-When `showFilters: true`, you can simulate user interactions:
+Filter controls render by default (`showFilters` defaults to `true`):
 
 ```tsx
 import { series, breakdown, interval, display, compare } from './index'
@@ -81,6 +106,8 @@ await interval.set('week') // change the time interval
 await display.set('Bar chart') // change chart display type
 await compare.enable() // enable compare to previous period
 ```
+
+After any interaction, call `await waitForChart()` to get the updated chart.
 
 ## Test data
 

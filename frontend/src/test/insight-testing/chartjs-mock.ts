@@ -37,6 +37,9 @@ export function resetCapturedCharts(): void {
     MockChart._instances = []
 }
 
+/** Returns all captured chart snapshots. The latest entry is always a live
+ *  snapshot of the most recent MockChart instance so that callers see
+ *  post-update data without needing a new Chart constructor call. */
 export function getCapturedChartConfigs(): CapturedChart[] {
     return capturedCharts
 }

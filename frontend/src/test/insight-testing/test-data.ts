@@ -79,11 +79,11 @@ export const trendsSeries = {
         labels,
     },
     napsByHedgehog: [
-        { label: 'Spike', data: [1, 2, 3, 4, 1], breakdown_value: 'Spike' },
-        { label: 'Bramble', data: [0, 0, 1, 1, 0], breakdown_value: 'Bramble' },
-        { label: 'Thistle', data: [0, 1, 0, 2, 1], breakdown_value: 'Thistle' },
-        { label: 'Conker', data: [0, 0, 0, 0, 0], breakdown_value: 'Conker' },
-        { label: 'Prickles', data: [0, 0, 1, 1, 0], breakdown_value: 'Prickles' },
+        { label: 'Spike', data: [1, 2, 3, 4, 1], days, labels, breakdown_value: 'Spike' },
+        { label: 'Bramble', data: [0, 0, 1, 1, 0], days, labels, breakdown_value: 'Bramble' },
+        { label: 'Thistle', data: [0, 1, 0, 2, 1], days, labels, breakdown_value: 'Thistle' },
+        { label: 'Conker', data: [0, 0, 0, 0, 0], days, labels, breakdown_value: 'Conker' },
+        { label: 'Prickles', data: [0, 0, 1, 1, 0], days, labels, breakdown_value: 'Prickles' },
     ],
 }
 

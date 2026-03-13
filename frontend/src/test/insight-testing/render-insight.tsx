@@ -1,8 +1,11 @@
 import { render } from '@testing-library/react'
 import { useState } from 'react'
 
+import { actionsModel } from '~/models/actionsModel'
+import { groupsModel } from '~/models/groupsModel'
 import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 
+import { initKeaTests } from '../init'
 import { resetCapturedCharts } from './chartjs-mock'
 import { setupInsightMocks, type MockResponse, type SetupMocksOptions } from './mocks'
 
@@ -17,7 +20,30 @@ export function buildTrendsQuery(overrides?: Partial<TrendsQuery>): TrendsQuery 
     }
 }
 
-export interface RenderInsightProps {
+/** Sets up Kea context, mounts common logics, and configures insight API mocks. */
+function setupTestEnvironment(mocks?: SetupMocksOptions, mockResponses?: MockResponse[]): void {
+    resetCapturedCharts()
+
+    initKeaTests()
+    actionsModel.mount()
+    groupsModel.mount()
+
+    setupInsightMocks({ ...mocks, mockResponses })
+}
+
+export interface RenderWithInsightsProps {
+    component: React.ReactElement
+    mocks?: SetupMocksOptions
+    mockResponses?: MockResponse[]
+}
+
+/** Render any component with insight mocks and Kea logics ready. */
+export function renderWithInsights(props: RenderWithInsightsProps): ReturnType<typeof render> {
+    setupTestEnvironment(props.mocks, props.mockResponses)
+    return render(props.component)
+}
+
+export interface RenderInsightPageProps {
     query?: TrendsQuery
     showFilters?: boolean
     mocks?: SetupMocksOptions
@@ -39,13 +65,8 @@ function InsightWrapper({ query, showFilters = false }: { query: TrendsQuery; sh
     return <InsightViz uniqueKey={INSIGHT_TEST_KEY} query={vizQuery} setQuery={setVizQuery} />
 }
 
-export function renderInsight(props: RenderInsightProps = {}): ReturnType<typeof render> {
-    resetCapturedCharts()
+export function renderInsightPage(props: RenderInsightPageProps = {}): ReturnType<typeof render> {
+    setupTestEnvironment(props.mocks, props.mockResponses)
 
-    setupInsightMocks({
-        ...props.mocks,
-        mockResponses: props.mockResponses,
-    })
-
-    return render(<InsightWrapper query={props.query ?? buildTrendsQuery()} showFilters={props.showFilters ?? false} />)
+    return render(<InsightWrapper query={props.query ?? buildTrendsQuery()} showFilters={props.showFilters ?? true} />)
 }
