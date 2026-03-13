@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { LemonDialog, LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -21,7 +21,6 @@ import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTa
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { pluralize } from 'lib/utils'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import MaxTool from 'scenes/max/MaxTool'
@@ -44,6 +43,7 @@ import {
 } from '~/types'
 
 import { DuplicateExperimentModal } from './DuplicateExperimentModal'
+import { confirmArchiveExperiment, confirmDeleteExperiment } from './experimentActions'
 import {
     EXPERIMENTS_PER_PAGE,
     ExperimentsFilters,
@@ -359,28 +359,11 @@ const ExperimentsTable = ({
                                             userAccessLevel={experiment.user_access_level}
                                         >
                                             <LemonButton
-                                                onClick={() => {
-                                                    LemonDialog.open({
-                                                        title: 'Archive this experiment?',
-                                                        content: (
-                                                            <div className="text-sm text-secondary">
-                                                                This action will hide the experiment from the list by
-                                                                default. It can be restored at any time.
-                                                            </div>
-                                                        ),
-                                                        primaryButton: {
-                                                            children: 'Archive',
-                                                            type: 'primary',
-                                                            onClick: () => archiveExperiment(experiment.id as number),
-                                                            size: 'small',
-                                                        },
-                                                        secondaryButton: {
-                                                            children: 'Cancel',
-                                                            type: 'tertiary',
-                                                            size: 'small',
-                                                        },
-                                                    })
-                                                }}
+                                                onClick={() =>
+                                                    confirmArchiveExperiment(() =>
+                                                        archiveExperiment(experiment.id as number)
+                                                    )
+                                                }
                                                 data-attr={`experiment-${experiment.id}-dropdown-archive`}
                                                 fullWidth
                                             >
@@ -396,36 +379,13 @@ const ExperimentsTable = ({
                                 >
                                     <LemonButton
                                         status="danger"
-                                        onClick={() => {
-                                            LemonDialog.open({
-                                                title: 'Delete this experiment?',
-                                                content: (
-                                                    <div className="text-sm text-secondary">
-                                                        Experiment with its settings will be deleted, but event data
-                                                        will be preserved.
-                                                    </div>
-                                                ),
-                                                primaryButton: {
-                                                    children: 'Delete',
-                                                    type: 'primary',
-                                                    onClick: () => {
-                                                        void deleteWithUndo({
-                                                            endpoint: `projects/${currentProjectId}/experiments`,
-                                                            object: { name: experiment.name, id: experiment.id },
-                                                            callback: () => {
-                                                                loadExperiments()
-                                                            },
-                                                        })
-                                                    },
-                                                    size: 'small',
-                                                },
-                                                secondaryButton: {
-                                                    children: 'Cancel',
-                                                    type: 'tertiary',
-                                                    size: 'small',
-                                                },
+                                        onClick={() =>
+                                            confirmDeleteExperiment({
+                                                projectId: currentProjectId,
+                                                experiment,
+                                                onDelete: () => loadExperiments(),
                                             })
-                                        }}
+                                        }
                                         data-attr={`experiment-${experiment.id}-dropdown-remove`}
                                         fullWidth
                                     >
