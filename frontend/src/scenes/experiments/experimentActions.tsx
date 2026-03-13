@@ -4,6 +4,15 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
 import { Experiment } from '~/types'
 
+import { hasEnded } from './experimentsLogic'
+
+/** Whether an experiment is in a state where it can be archived (ignoring permissions). */
+export function canArchiveExperiment(
+    experiment: Pick<Experiment, 'archived' | 'start_date' | 'end_date' | 'status'>
+): boolean {
+    return !experiment.archived && hasEnded(experiment)
+}
+
 export function confirmArchiveExperiment(onConfirm: () => void): void {
     LemonDialog.open({
         title: 'Archive this experiment?',

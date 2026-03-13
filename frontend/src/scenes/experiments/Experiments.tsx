@@ -43,7 +43,7 @@ import {
 } from '~/types'
 
 import { DuplicateExperimentModal } from './DuplicateExperimentModal'
-import { confirmArchiveExperiment, confirmDeleteExperiment } from './experimentActions'
+import { canArchiveExperiment, confirmArchiveExperiment, confirmDeleteExperiment } from './experimentActions'
 import {
     EXPERIMENTS_PER_PAGE,
     ExperimentsFilters,
@@ -351,26 +351,25 @@ const ExperimentsTable = ({
                                         })
                                     }}
                                 />
-                                {!experiment.archived &&
-                                    getExperimentStatus(experiment) === ExperimentStatus.Stopped && (
-                                        <AccessControlAction
-                                            resourceType={AccessControlResourceType.Experiment}
-                                            minAccessLevel={AccessControlLevel.Editor}
-                                            userAccessLevel={experiment.user_access_level}
+                                {canArchiveExperiment(experiment) && (
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.Experiment}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={experiment.user_access_level}
+                                    >
+                                        <LemonButton
+                                            onClick={() =>
+                                                confirmArchiveExperiment(() =>
+                                                    archiveExperiment(experiment.id as number)
+                                                )
+                                            }
+                                            data-attr={`experiment-${experiment.id}-dropdown-archive`}
+                                            fullWidth
                                         >
-                                            <LemonButton
-                                                onClick={() =>
-                                                    confirmArchiveExperiment(() =>
-                                                        archiveExperiment(experiment.id as number)
-                                                    )
-                                                }
-                                                data-attr={`experiment-${experiment.id}-dropdown-archive`}
-                                                fullWidth
-                                            >
-                                                Archive experiment
-                                            </LemonButton>
-                                        </AccessControlAction>
-                                    )}
+                                            Archive experiment
+                                        </LemonButton>
+                                    </AccessControlAction>
+                                )}
                                 <LemonDivider />
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.Experiment}

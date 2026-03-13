@@ -73,7 +73,7 @@ import {
 
 import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
-import { confirmArchiveExperiment, confirmDeleteExperiment } from '../experimentActions'
+import { canArchiveExperiment, confirmArchiveExperiment, confirmDeleteExperiment } from '../experimentActions'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatusColor, getExperimentStatusLabel } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
@@ -319,6 +319,14 @@ export function PageHeaderCustom(): JSX.Element {
 
     const exposureCohortId = experiment?.exposure_cohort
 
+    const canEdit = userHasAccess(
+        AccessControlResourceType.Experiment,
+        AccessControlLevel.Editor,
+        experiment.user_access_level
+    )
+    const canArchive = canEdit && canArchiveExperiment(experiment)
+    const canDelete = canEdit
+
     const handleArchive = (): void => confirmArchiveExperiment(() => archiveExperiment())
     const handleDelete = (): void =>
         confirmDeleteExperiment({
@@ -338,11 +346,7 @@ export function PageHeaderCustom(): JSX.Element {
                 isLoading={experimentLoading}
                 onNameChange={(name) => updateExperiment({ name })}
                 onDescriptionChange={(description) => updateExperiment({ description })}
-                canEdit={userHasAccess(
-                    AccessControlResourceType.Experiment,
-                    AccessControlLevel.Editor,
-                    experiment.user_access_level
-                )}
+                canEdit={canEdit}
                 renameDebounceMs={0}
                 saveOnBlur
                 actions={
@@ -359,14 +363,10 @@ export function PageHeaderCustom(): JSX.Element {
                                 </LemonButton>
                             </div>
                         )}
-                        {experiment && isExperimentLaunched && (
-                            <div className="flex flex-row gap-2">
-                                {isExperimentStopped && (
-                                    <LemonButton type="secondary" status="danger" onClick={handleArchive} size="small">
-                                        <b>Archive</b>
-                                    </LemonButton>
-                                )}
-                            </div>
+                        {canArchive && (
+                            <LemonButton type="secondary" status="danger" onClick={handleArchive} size="small">
+                                <b>Archive</b>
+                            </LemonButton>
                         )}
                         {experiment && isExperimentRunning && !isExperimentStopped && (
                             <>
@@ -481,15 +481,22 @@ export function PageHeaderCustom(): JSX.Element {
 
                         <LemonDivider />
 
-                        {!experiment.archived && isExperimentStopped && (
+                        {canArchive && (
                             <ButtonPrimitive menuItem data-attr="archive-experiment" onClick={handleArchive}>
                                 <IconArchive /> Archive experiment
                             </ButtonPrimitive>
                         )}
 
-                        <ButtonPrimitive variant="danger" menuItem data-attr="delete-experiment" onClick={handleDelete}>
-                            <IconTrash /> Delete experiment
-                        </ButtonPrimitive>
+                        {canDelete && (
+                            <ButtonPrimitive
+                                variant="danger"
+                                menuItem
+                                data-attr="delete-experiment"
+                                onClick={handleDelete}
+                            >
+                                <IconTrash /> Delete experiment
+                            </ButtonPrimitive>
+                        )}
 
                         <PauseExperimentModal />
                         <ResumeExperimentModal />
