@@ -326,6 +326,25 @@ class TestProxyRecordAPI(APIBaseTest):
         assert record.status == ProxyRecord.Status.DELETING
         mock_temporal.start_workflow.assert_called_once()
 
+    @patch("posthog.api.proxy_record.sync_connect")
+    def test_destroy_returns_500_and_reverts_status_on_temporal_failure(self, mock_sync_connect):
+        mock_sync_connect.side_effect = Exception("connection failed")
+
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="faildelete.example.com",
+            target_cname="abc123.proxy.posthog.com",
+            status=ProxyRecord.Status.VALID,
+        )
+
+        response = self.client.delete(
+            f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/",
+        )
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        record.refresh_from_db()
+        assert record.status == ProxyRecord.Status.VALID
+
     def test_destroy_proxy_record_from_other_org_not_found(self):
         other_org = Organization.objects.create(name="Other Org")
         record = ProxyRecord.objects.create(

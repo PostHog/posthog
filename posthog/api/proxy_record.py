@@ -267,25 +267,34 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
             _capture_proxy_event(request, record, "deleted")
             record.delete()
         else:
+            previous_status = record.status
             record.status = ProxyRecord.Status.DELETING
             record.save()
 
-            temporal = sync_connect()
-            inputs = DeleteManagedProxyInputs(
-                organization_id=record.organization_id,
-                proxy_record_id=record.id,
-                domain=record.domain,
-                target_cname=record.target_cname,
-            )
-            workflow_id = f"proxy-delete-{inputs.proxy_record_id}"
-            asyncio.run(
-                temporal.start_workflow(
-                    "delete-proxy",
-                    inputs,
-                    id=workflow_id,
-                    task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            try:
+                temporal = sync_connect()
+                inputs = DeleteManagedProxyInputs(
+                    organization_id=record.organization_id,
+                    proxy_record_id=record.id,
+                    domain=record.domain,
+                    target_cname=record.target_cname,
                 )
-            )
+                workflow_id = f"proxy-delete-{inputs.proxy_record_id}"
+                asyncio.run(
+                    temporal.start_workflow(
+                        "delete-proxy",
+                        inputs,
+                        id=workflow_id,
+                        task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                    )
+                )
+            except Exception:
+                record.status = previous_status
+                record.save()
+                return Response(
+                    {"detail": "Failed to start deletion workflow."},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
 
             _capture_proxy_event(request, record, "deleted")
 
