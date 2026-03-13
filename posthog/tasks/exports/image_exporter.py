@@ -24,7 +24,7 @@ from posthog.schema import FunnelLayout, NodeKind
 
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.caching.calculate_results import calculate_for_query_based_insight
-from posthog.event_usage import EventSource
+from posthog.event_usage import AnalyticsProps, EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import InsightVariable
@@ -399,6 +399,7 @@ def export_image(
         try:
             # Track cache keys for insights so we can pass them to Chrome for guaranteed cache hits
             insight_cache_keys: dict[int, str] = {}
+            export_analytics_props: AnalyticsProps = {"source": source or EventSource.EXPORT}
 
             if exported_asset.insight:
                 logger.info(
@@ -430,7 +431,7 @@ def export_image(
                         user=None,
                         variables_override=dashboard_variables,
                         tile_filters_override=tile_filters_override,
-                        analytics_props={"source": source or EventSource.EXPORT},
+                        analytics_props=export_analytics_props,
                     )
                     if result.cache_key:
                         insight_cache_keys[exported_asset.insight.id] = result.cache_key
@@ -463,7 +464,7 @@ def export_image(
                             user=None,
                             variables_override=dashboard_variables,
                             tile_filters_override=tile.filters_overrides,
-                            analytics_props={"source": source or EventSource.EXPORT},
+                            analytics_props=export_analytics_props,
                         )
                         if result.cache_key:
                             insight_cache_keys[insight.id] = result.cache_key

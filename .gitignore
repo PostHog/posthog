@@ -14,7 +14,6 @@ __pycache__/
 .posthog/
 .postgres-backups/
 .python-version
-.scratch/
 .temporal-worker-settings
 .turbo
 .venv

@@ -393,30 +393,12 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
             "creation_context": creation_context,
         }
 
-        report_user_action(
-            user,
-            ProductTourEventName.UPDATED,
-            analytics_metadata,
-            team=team,
-            request=request,
-        )
+        report_user_action(user, ProductTourEventName.UPDATED, analytics_metadata, team=team, request=request)
 
         if before_start_date is None and instance.start_date is not None:
-            report_user_action(
-                user,
-                ProductTourEventName.LAUNCHED,
-                analytics_metadata,
-                team=team,
-                request=request,
-            )
+            report_user_action(user, ProductTourEventName.LAUNCHED, analytics_metadata, team=team, request=request)
         elif before_end_date is None and instance.end_date is not None:
-            report_user_action(
-                user,
-                ProductTourEventName.STOPPED,
-                analytics_metadata,
-                team=team,
-                request=request,
-            )
+            report_user_action(user, ProductTourEventName.STOPPED, analytics_metadata, team=team, request=request)
 
         if instance.draft_content is not None:
             instance.draft_content = None

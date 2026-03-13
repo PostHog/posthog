@@ -17,7 +17,7 @@ from posthog.schema import DateRange, LogAttributesQuery, LogsQuery, LogValuesQu
 
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.event_usage import AnalyticsProps, get_request_analytics_properties
+from posthog.event_usage import get_request_analytics_properties
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import User
 from posthog.models.exported_asset import ExportedAsset
@@ -93,7 +93,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         query = LogsQuery(**logs_query_params)
         analytics_props = get_request_analytics_properties(request)
 
-        def results_generator(query: LogsQuery, logs_query_params: dict, analytics_props: AnalyticsProps):
+        def results_generator(query: LogsQuery, logs_query_params: dict):
             """
             A generator that yields results by splitting the query into time slices
 
@@ -201,7 +201,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props)
             yield from response.results
 
-        results = list(results_generator(query, logs_query_params, analytics_props))
+        results = list(results_generator(query, logs_query_params))
         has_more = len(results) > requested_limit
         results = results[:requested_limit]  # Rm the +1 we used to check for another page
 
