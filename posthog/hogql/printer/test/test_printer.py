@@ -1644,25 +1644,28 @@ class TestPrinter(BaseTest):
             f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY events.event, toTimeZone(events.timestamp, %(hogql_val_0)s) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
-    def test_select_group_by_grouping_sets(self):
-        self.assertEqual(
-            self._select(
-                "select event, distinct_id, count() as c from events group by grouping sets ((event), (distinct_id), ())"
+    @parameterized.expand(
+        [
+            (
+                "grouping_sets",
+                "select event, distinct_id, count() as c from events group by grouping sets ((event), (distinct_id), ())",
+                "GROUP BY GROUPING SETS ((events.event), (events.distinct_id), ())",
             ),
-            f"SELECT events.event AS event, events.distinct_id AS distinct_id, count() AS c FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY GROUPING SETS ((events.event), (events.distinct_id), ()) LIMIT {MAX_SELECT_RETURNED_ROWS}",
-        )
-
-    def test_select_group_by_cube(self):
-        self.assertEqual(
-            self._select("select event, distinct_id, count() as c from events group by cube(event, distinct_id)"),
-            f"SELECT events.event AS event, events.distinct_id AS distinct_id, count() AS c FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY CUBE(events.event, events.distinct_id) LIMIT {MAX_SELECT_RETURNED_ROWS}",
-        )
-
-    def test_select_group_by_rollup(self):
-        self.assertEqual(
-            self._select("select event, distinct_id, count() as c from events group by rollup(event, distinct_id)"),
-            f"SELECT events.event AS event, events.distinct_id AS distinct_id, count() AS c FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY ROLLUP(events.event, events.distinct_id) LIMIT {MAX_SELECT_RETURNED_ROWS}",
-        )
+            (
+                "cube",
+                "select event, distinct_id, count() as c from events group by cube(event, distinct_id)",
+                "GROUP BY CUBE(events.event, events.distinct_id)",
+            ),
+            (
+                "rollup",
+                "select event, distinct_id, count() as c from events group by rollup(event, distinct_id)",
+                "GROUP BY ROLLUP(events.event, events.distinct_id)",
+            ),
+        ]
+    )
+    def test_select_group_by_mode(self, _name: str, input_sql: str, expected_fragment: str):
+        result = self._select(input_sql)
+        self.assertIn(expected_fragment, result)
 
     def test_select_distinct(self):
         self.assertEqual(

@@ -4,6 +4,8 @@ from datetime import date, datetime
 from typing import Any, Optional, cast
 from uuid import UUID
 
+import re2
+
 from posthog.hogql import ast
 from posthog.hogql.ast import ConstantType, FieldTraverserType
 from posthog.hogql.base import _T_AST
@@ -819,14 +821,9 @@ class Resolver(CloningVisitor):
             return list(node.columns)
 
         regex = node.regex or ""
-        # Guard against ReDoS: Python's re module uses NFA backtracking which can hang
-        # on crafted patterns. ClickHouse uses re2 (linear-time) so this only affects
-        # the resolver, not query execution. Cap length as a simple mitigation.
-        if len(regex) > 1000:
-            raise ResolutionError("COLUMNS() regex pattern is too long")
         try:
-            pattern = re.compile(regex)
-        except re.error as e:
+            pattern = re2.compile(regex)
+        except re2.error as e:
             raise ResolutionError(f"COLUMNS() has an invalid regex pattern: {e}")
         scope = self.scopes[-1]
         all_table_types: list[ast.TableOrSelectType] = list(scope.tables.values()) + list(scope.anonymous_tables)
