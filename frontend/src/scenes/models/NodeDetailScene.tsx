@@ -27,7 +27,7 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
         <SceneContent>
             <NodeDetailHeader id={id} />
             {!nodeLoading && node && <NodeDetailDetails id={id} />}
-            {node?.type !== 'table' && <NodeDetailQuery id={id} />}
+            {!nodeLoading && node && node.type !== 'table' && <NodeDetailQuery id={id} />}
             <NodeDetailLineage id={id} />
             {hasMaterialization && <NodeDetailMaterialization id={id} />}
         </SceneContent>
