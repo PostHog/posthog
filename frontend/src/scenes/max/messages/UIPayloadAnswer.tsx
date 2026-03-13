@@ -34,6 +34,7 @@ import { ERROR_TRACKING_SCENE_LOGIC_KEY } from 'products/error_tracking/frontend
 
 import { isDangerousOperationResponse, normalizeDangerousOperationResponse } from '../approvalOperationUtils'
 import { DangerousOperationApprovalCard } from '../DangerousOperationApprovalCard'
+import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { ErrorTrackingFiltersSummary } from './ErrorTrackingFiltersSummary'
 import { ErrorTrackingIssueCard } from './ErrorTrackingIssueCard'
@@ -99,8 +100,8 @@ export function RecordingsWidget({
     filters: RecordingUniversalFilters
 }): JSX.Element {
     const { onAcceptSessionFilters } = useValues(maxLogic)
-    const { activeSceneId } = useValues(sceneLogic)
-    const isOnReplayPage = activeSceneId === Scene.Replay
+    const { registeredToolMap } = useValues(maxGlobalLogic)
+    const hasFilterSessionRecordingsTool = !!registeredToolMap['filter_session_recordings']
     const logicProps: SessionRecordingPlaylistLogicProps = {
         logicKey: `ai-recordings-widget-${toolCallId}`,
         filters,
@@ -111,7 +112,7 @@ export function RecordingsWidget({
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
             <MessageTemplate type="ai" wrapperClassName="w-full" boxClassName="p-0 overflow-hidden">
-                {!isOnReplayPage && (
+                {!hasFilterSessionRecordingsTool && (
                     <div className="flex items-center justify-between px-2 pt-2">
                         <span className="text-xs font-semibold text-secondary">Session replay</span>
                         <LemonButton
