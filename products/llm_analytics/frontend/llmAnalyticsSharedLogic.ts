@@ -29,6 +29,7 @@ export type LLMAnalyticsTabId =
     | 'users'
     | 'errors'
     | 'tools'
+    | 'sentiment'
     | 'sessions'
     | 'playground'
     | 'datasets'
@@ -149,6 +150,8 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
                     return 'errors'
                 } else if (sceneKey === 'llmAnalyticsTools') {
                     return 'tools'
+                } else if (sceneKey === 'llmAnalyticsSentiment') {
+                    return 'sentiment'
                 } else if (sceneKey === 'llmAnalyticsSessions') {
                     return 'sessions'
                 } else if (sceneKey === 'llmAnalyticsPlayground') {
@@ -221,6 +224,7 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
             [urls.llmAnalyticsUsers()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsErrors()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsTools()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmAnalyticsSentiment()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsSessions()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsPlayground()]: (_, searchParams) => applySearchParams(searchParams),
         }

@@ -150,6 +150,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/llm-analytics/users': ['LLMAnalytics', 'llmAnalyticsUsers'],
     '/llm-analytics/errors': ['LLMAnalytics', 'llmAnalyticsErrors'],
     '/llm-analytics/tools': ['LLMAnalytics', 'llmAnalyticsTools'],
+    '/llm-analytics/sentiment': ['LLMAnalytics', 'llmAnalyticsSentiment'],
     '/llm-analytics/sessions': ['LLMAnalytics', 'llmAnalyticsSessions'],
     '/llm-analytics/sessions/:id': ['LLMAnalyticsSession', 'llmAnalytics'],
     '/llm-analytics/playground': ['LLMAnalyticsPlayground', 'llmAnalyticsPlayground'],
@@ -704,6 +705,7 @@ export const productUrls = {
     llmAnalyticsUsers: (): string => '/llm-analytics/users',
     llmAnalyticsErrors: (): string => '/llm-analytics/errors',
     llmAnalyticsTools: (): string => '/llm-analytics/tools',
+    llmAnalyticsSentiment: (): string => '/llm-analytics/sentiment',
     llmAnalyticsSessions: (): string => '/llm-analytics/sessions',
     llmAnalyticsSession: (
         id: string,
