@@ -9,13 +9,12 @@
     <body>
         {% block content %}
         <div class="min-h-screen bg-gray-50">
-            <div class="max-w-lg mx-auto py-12 px-4 sm:px-6 lg:px-8">
+            <div class="max-w-2xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
                 <div class="bg-white shadow-xl rounded-xl p-8">
-                    <h1 class="text-3xl font-bold text-gray-900 mb-2">Successfully unsubscribed</h1>
-                    <p class="text-gray-600 text-lg mb-8"><span class="font-semibold">{{ recipient.identifier|escape }}</span> has been unsubscribed from all marketing emails.</p>
-                    <p class="text-gray-600 text-lg mb-8">
-                        To manage message preferences, please visit the
-                        <a class="text-blue-600 hover:underline" href="{{ request.path }}">message preferences page</a>.
+                    <h1 class="text-2xl font-bold text-gray-900 mb-2">Successfully unsubscribed</h1>
+                    <p class="text-gray-600 text-base mb-8"><span class="font-semibold">{{ recipient.identifier|escape }}</span> has been unsubscribed from all marketing emails.</p>
+                    <p class="text-gray-600 text-base">
+                        Want to stay subscribed to some emails? <a class="text-blue-600 hover:underline" href="{{ request.path }}">Manage your preferences</a>.
                     </p>
                 </div>
             </div>
