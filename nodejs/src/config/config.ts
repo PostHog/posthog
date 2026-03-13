@@ -12,10 +12,32 @@ import { getDefaultLlmAnalyticsConfig } from '../llm-analytics/config'
 import {
     getDefaultLogsIngestionConsumerConfig,
     getDefaultTracesIngestionConsumerConfig,
-} from '../logs-ingestion/config'
+} from '../logs-ingestion/config'import {
+    getDefaultMetricsIngestionConsumerConfig,
+} from '../metrics-ingestion/config'
 import { getDefaultSessionRecordingApiConfig, getDefaultSessionRecordingConfig } from '../session-recording/config'
 import { PluginsServerConfig, ValueMatcher, stringToPluginServerMode } from '../types'
 import { stringToBoolean } from '../utils/env-utils'
+    KAFKA_APP_METRICS_2,
+    KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
+    KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
+    KAFKA_EVENTS_JSON,
+    KAFKA_EVENTS_PLUGIN_INGESTION,
+    KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
+    KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+    KAFKA_LOGS_CLICKHOUSE,
+    KAFKA_LOGS_INGESTION,
+    KAFKA_LOGS_INGESTION_DLQ,
+    KAFKA_LOGS_INGESTION_OVERFLOW,
+    KAFKA_LOG_ENTRIES,
+    KAFKA_METRICS_CLICKHOUSE,
+    KAFKA_METRICS_INGESTION,
+    KAFKA_METRICS_INGESTION_DLQ,
+    KAFKA_METRICS_INGESTION_OVERFLOW,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_DLQ,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
+} from './kafka-topics'
 
 // Re-export for backwards compatibility
 export { DEFAULT_HTTP_SERVER_PORT } from '../common/config'
@@ -29,6 +51,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         ...getDefaultLlmAnalyticsConfig(),
         ...getDefaultIngestionConsumerConfig(),
         ...getDefaultLogsIngestionConsumerConfig(),
+        ...getDefaultMetricsIngestionConsumerConfig(),
         ...getDefaultTracesIngestionConsumerConfig(),
         ...getDefaultErrorTrackingConsumerConfig(),
         ...getDefaultSessionRecordingConfig(),
