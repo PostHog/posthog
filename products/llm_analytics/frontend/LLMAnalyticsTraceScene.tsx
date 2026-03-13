@@ -320,7 +320,7 @@ function Chip({
         <Tooltip title={tooltipTitle ?? title}>
             <LemonTag
                 size="small"
-                className={classNames('bg-surface-primary !h-[26px] !px-2 !py-0 !leading-none', className)}
+                className={classNames('bg-surface-primary', className)}
                 icon={icon}
                 type={type}
                 onClick={onClick}
