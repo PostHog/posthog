@@ -33,6 +33,7 @@ from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.client import query_with_columns
 from posthog.clickhouse.client.limit import get_events_list_rate_limiter
+from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Element, Filter, Person, PropertyDefinition
 from posthog.models.event.query_event_list import query_events_list
@@ -526,7 +527,7 @@ class EventViewSet(
                 if force_refresh
                 else ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
             )
-            result = runner.run(execution_mode)
+            result = runner.run(execution_mode, analytics_props=get_request_analytics_properties(self.request))
             assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
             is_refreshing = (
                 isinstance(result, CachedPropertyValuesQueryResponse)
