@@ -12,7 +12,6 @@ pub struct Person {
     pub version: Option<i64>,
     pub is_identified: bool,
     pub is_user_id: Option<bool>,
-    pub last_seen_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Debug, Clone)]

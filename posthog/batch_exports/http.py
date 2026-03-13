@@ -32,24 +32,9 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.utils import action
 from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS, TIMEZONES
-from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun, Team, User
-from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
-from posthog.models.integration import (
-    AzureBlobIntegration,
-    AzureBlobIntegrationError,
-    DatabricksIntegration,
-    DatabricksIntegrationError,
-    Integration,
-)
-from posthog.models.signals import model_activity_signal, mutable_receiver
-from posthog.temporal.common.client import sync_connect
-from posthog.utils import relative_date_parse, str_to_bool
-
-from products.batch_exports.backend.api.destination_tests import get_destination_test
-from products.batch_exports.backend.service import (
+from posthog.batch_exports.service import (
     DESTINATION_WORKFLOWS,
     BaseBatchExportInputs,
     BatchExportIdError,
@@ -65,6 +50,20 @@ from products.batch_exports.backend.service import (
     sync_cancel_running_batch_export_backfill,
     unpause_batch_export,
 )
+from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun, Team, User
+from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
+from posthog.models.integration import (
+    AzureBlobIntegration,
+    AzureBlobIntegrationError,
+    DatabricksIntegration,
+    DatabricksIntegrationError,
+    Integration,
+)
+from posthog.models.signals import model_activity_signal, mutable_receiver
+from posthog.temporal.common.client import sync_connect
+from posthog.utils import relative_date_parse, str_to_bool
+
+from products.batch_exports.backend.api.destination_tests import get_destination_test
 from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import (
     SUPPORTED_COMPRESSIONS as AZURE_BLOB_SUPPORTED_COMPRESSIONS,
 )
@@ -235,7 +234,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
 class BatchExportDestinationSerializer(serializers.ModelSerializer):
     """Serializer for an BatchExportDestination model."""
 
-    integration_id = TeamScopedPrimaryKeyRelatedField(
+    integration_id = serializers.PrimaryKeyRelatedField(
         write_only=True, queryset=Integration.objects.all(), source="integration", required=False, allow_null=True
     )
 

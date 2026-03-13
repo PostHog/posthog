@@ -129,10 +129,9 @@ async def resolve_smart_select_repositories(issue) -> list[RepositoryContext]:
             org = github.organization()
 
             for repo in repos:
-                repo_name = repo["name"]
-                if await _meets_smart_select_constraints(org, repo_name, constraints):
+                if await _meets_smart_select_constraints(org, repo, constraints):
                     available_repos.append(
-                        RepositoryContext(integration=integration, repository=repo_name, organization=org)
+                        RepositoryContext(integration=integration, repository=repo, organization=org)
                     )
         except Exception:
             continue
@@ -166,10 +165,7 @@ async def resolve_legacy_repository(issue) -> list[RepositoryContext]:
 
     return [
         RepositoryContext(
-            integration=integration,
-            repository=repositories[0]["name"],
-            organization=github.organization(),
-            is_primary=True,
+            integration=integration, repository=repositories[0], organization=github.organization(), is_primary=True
         )
     ]
 

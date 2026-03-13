@@ -2,7 +2,7 @@ import { useReactFlow } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconCopy, IconDrag, IconEllipsis, IconTrash } from '@posthog/icons'
+import { IconCopy, IconDrag, IconEllipsis, IconTrash, IconUndo } from '@posthog/icons'
 import { LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
@@ -25,10 +25,11 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
         selectedNodeCanBeDeleted,
         selectedNodeCanBeCopiedOrMoved,
         animatingEdgePair,
-        workflow,
     } = useValues(hogFlowEditorLogic)
     const { setSelectedNodeId, startCopyingNode, startMovingNode } = useActions(hogFlowEditorLogic)
-    const { actionValidationErrorsById, logicProps } = useValues(workflowLogic)
+    const { actionValidationErrorsById, logicProps, draftNewActionIds, draftDeletedActionIds, originalWorkflow } =
+        useValues(workflowLogic)
+    const { softDeleteAction, restoreAction } = useActions(workflowLogic)
     const { deleteElements } = useReactFlow()
 
     const isSelected = selectedNode?.id === action.id
@@ -49,8 +50,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
         cancelEditingDescription,
     } = useActions(stepViewLogic(stepViewLogicProps))
 
-    const shouldShowMetricsSummary = mode === 'metrics' && workflow.trigger?.type !== 'batch'
-    const height = shouldShowMetricsSummary ? NODE_HEIGHT + 10 : NODE_HEIGHT
+    const height = mode === 'metrics' ? NODE_HEIGHT + 10 : NODE_HEIGHT
 
     const Step = useHogFlowStep(action)
     const { selectedColor, colorLight, color, icon } = useMemo(() => {
@@ -70,6 +70,8 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
 
     const hasValidationError = actionValidationErrorsById[action.id]?.valid === false
     const isAnimationTarget = mode === 'test' && animatingEdgePair?.endsWith(`->${action.id}`)
+    const isDraftNew = draftNewActionIds.has(action.id)
+    const isDraftDeleted = draftDeletedActionIds.has(action.id)
 
     return (
         <div
@@ -77,9 +79,17 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
             style={{
                 width: NODE_WIDTH,
                 height,
-                borderWidth: 1,
-                borderColor: isAnimationTarget ? 'var(--success)' : selectedColor,
+                borderWidth: isDraftNew || isDraftDeleted ? 2 : 1,
+                borderStyle: isDraftNew || isDraftDeleted ? 'dashed' : 'solid',
+                borderColor: isDraftDeleted
+                    ? 'var(--danger)'
+                    : isDraftNew
+                      ? 'var(--warning)'
+                      : isAnimationTarget
+                        ? 'var(--success)'
+                        : selectedColor,
                 boxShadow: `0px 2px 0px 0px ${colorLight}`,
+                opacity: isDraftDeleted ? 0.5 : isDraftNew ? 0.85 : 1,
                 zIndex: 0,
             }}
         >
@@ -183,7 +193,17 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                         </Tooltip>
                     )}
                 </div>
-                {isSelected && node?.deletable && (
+                {isDraftDeleted && (
+                    <div className="absolute top-0.5 right-0.5" onClick={(e) => e.stopPropagation()}>
+                        <LemonButton
+                            icon={<IconUndo />}
+                            size="xsmall"
+                            noPadding
+                            onClick={() => restoreAction(action.id)}
+                        />
+                    </div>
+                )}
+                {isSelected && node?.deletable && !isDraftDeleted && (
                     <div className="absolute top-0.5 right-0.5" onClick={(e) => e.stopPropagation()}>
                         <LemonMenu
                             items={[
@@ -208,8 +228,13 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                                     status: 'danger',
                                     icon: <IconTrash />,
                                     onClick: () => {
-                                        void deleteElements({ nodes: [node] })
-                                        setSelectedNodeId(null)
+                                        if (originalWorkflow?.status === 'active') {
+                                            softDeleteAction(action.id)
+                                            setSelectedNodeId(null)
+                                        } else {
+                                            void deleteElements({ nodes: [node] })
+                                            setSelectedNodeId(null)
+                                        }
                                     },
                                     disabledReason: !selectedNodeCanBeDeleted
                                         ? 'Clean up branching steps first'
@@ -227,7 +252,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                     <LemonBadge status="warning" size="small" content="!" position="top-right" />
                 </div>
             ) : null}
-            {shouldShowMetricsSummary && (
+            {mode === 'metrics' && (
                 <div
                     style={{
                         borderTopColor: colorLight,

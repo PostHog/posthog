@@ -1,7 +1,7 @@
 import { JSONContent } from '@tiptap/core'
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { beforeUnload, router } from 'kea-router'
+import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -318,10 +318,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 )
             },
         ],
-        hasPendingWork: [
-            (s) => [s.hasUnsavedChanges, s.draftContent],
-            (hasUnsavedChanges, draftContent): boolean => hasUnsavedChanges || draftContent !== null,
-        ],
         chatPanelWidth: [
             () => [],
             () =>
@@ -578,8 +574,4 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     beforeUnmount(({ cache }) => {
         cache.disposables.disposeAll()
     }),
-    beforeUnload(({ values }) => ({
-        enabled: () => values.hasPendingWork,
-        message: 'You have unsaved changes. Are you sure you want to leave?',
-    })),
 ])

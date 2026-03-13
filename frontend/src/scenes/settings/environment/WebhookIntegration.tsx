@@ -3,9 +3,8 @@ import { useEffect, useState } from 'react'
 
 import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
 
-import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -19,10 +18,6 @@ export function WebhookIntegration(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openSupportForm } = useActions(supportLogic)
-    const restrictedReason = useRestrictedArea({
-        scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
-    })
 
     useEffect(() => {
         if (currentTeam?.slack_incoming_webhook) {
@@ -68,7 +63,6 @@ export function WebhookIntegration(): JSX.Element {
                     }
                     disabled={loading}
                     onPressEnter={() => testWebhook(webhook)}
-                    disabledReason={restrictedReason}
                 />
                 <div className="flex items-center gap-2">
                     <LemonButton
@@ -79,7 +73,6 @@ export function WebhookIntegration(): JSX.Element {
                             testWebhook(webhook)
                         }}
                         loading={loading}
-                        disabledReason={restrictedReason}
                     >
                         Test & Save
                     </LemonButton>
@@ -92,7 +85,6 @@ export function WebhookIntegration(): JSX.Element {
                             setWebhook('')
                         }}
                         disabled={!currentTeam?.slack_incoming_webhook}
-                        disabledReason={restrictedReason}
                     >
                         Clear & Disable
                     </LemonButton>

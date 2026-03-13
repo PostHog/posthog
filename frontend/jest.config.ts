@@ -9,6 +9,7 @@ process.env.TZ = process.env.TZ || 'UTC'
 
 const esmModules = [
     'query-selector-shadow-dom',
+    'react-syntax-highlighter',
     '@react-hook',
     '@medv',
     'monaco-editor',
@@ -123,8 +124,6 @@ const config: Config = {
         '^scenes/(.*)$': '<rootDir>/src/scenes/$1',
         '^products/(.*)$': '<rootDir>/../products/$1',
         '^common/(.*)$': '<rootDir>/../common/$1',
-        '^@posthog/replay-shared$': '<rootDir>/../common/replay-shared/src/index.ts',
-        '^@posthog/replay-shared/(.*)$': '<rootDir>/../common/replay-shared/src/$1',
         '^@posthog/shared-onboarding/(.*)$': '<rootDir>/../docs/onboarding/$1',
         '^@posthog/rrweb/es/rrweb': '@posthog/rrweb/dist/rrweb.min.js',
         d3: '<rootDir>/node_modules/d3/dist/d3.min.js',

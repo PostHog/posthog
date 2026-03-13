@@ -27,17 +27,12 @@ from posthog.schema import (
     MarketingIntegrationConfig5,
     MarketingIntegrationConfig6,
     MarketingIntegrationConfig7,
-    MarketingIntegrationConfig8,
     MetaAdsConversionFallbackActionTypes,
     MetaAdsConversionOmniActionTypes,
-    MetaAdsConversionSpecificActionTypes,
     MetaAdsDefaultSources,
     MetaAdsTableExclusions,
     MetaAdsTableKeywords,
     NativeMarketingSource,
-    PinterestAdsDefaultSources,
-    PinterestAdsTableExclusions,
-    PinterestAdsTableKeywords,
     RedditAdsDefaultSources,
     RedditAdsTableExclusions,
     RedditAdsTableKeywords,
@@ -275,7 +270,6 @@ _ALL_CONFIG_MODELS: list[type[BaseModel]] = [
     MarketingIntegrationConfig5,
     MarketingIntegrationConfig6,
     MarketingIntegrationConfig7,
-    MarketingIntegrationConfig8,
 ]
 
 
@@ -312,7 +306,6 @@ _DEFAULT_SOURCES_ENUMS = {
     NativeMarketingSource.REDDIT_ADS: RedditAdsDefaultSources,
     NativeMarketingSource.BING_ADS: BingAdsDefaultSources,
     NativeMarketingSource.SNAPCHAT_ADS: SnapchatAdsDefaultSources,
-    NativeMarketingSource.PINTEREST_ADS: PinterestAdsDefaultSources,
 }
 
 _TABLE_KEYWORDS_ENUMS = {
@@ -323,7 +316,6 @@ _TABLE_KEYWORDS_ENUMS = {
     NativeMarketingSource.REDDIT_ADS: RedditAdsTableKeywords,
     NativeMarketingSource.BING_ADS: BingAdsTableKeywords,
     NativeMarketingSource.SNAPCHAT_ADS: SnapchatAdsTableKeywords,
-    NativeMarketingSource.PINTEREST_ADS: PinterestAdsTableKeywords,
 }
 
 _TABLE_EXCLUSIONS_ENUMS = {
@@ -334,7 +326,6 @@ _TABLE_EXCLUSIONS_ENUMS = {
     NativeMarketingSource.REDDIT_ADS: RedditAdsTableExclusions,
     NativeMarketingSource.BING_ADS: BingAdsTableExclusions,
     NativeMarketingSource.SNAPCHAT_ADS: SnapchatAdsTableExclusions,
-    NativeMarketingSource.PINTEREST_ADS: PinterestAdsTableExclusions,
 }
 
 # Derived constants from generated types
@@ -379,7 +370,6 @@ SNAPCHAT_CONVERSION_VALUE_FIELDS = [e.value for e in SnapchatAdsConversionValueF
 META_CONVERSION_ACTION_TYPES = {
     "omni": [e.value for e in MetaAdsConversionOmniActionTypes],
     "fallback": [e.value for e in MetaAdsConversionFallbackActionTypes],
-    "specific": [e.value for e in MetaAdsConversionSpecificActionTypes],
 }
 
 # Column kind mapping for WebAnalyticsItemBase

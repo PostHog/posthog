@@ -17,7 +17,6 @@ from rest_framework.serializers import BaseSerializer
 from posthog.api.capture import capture_internal
 from posthog.api.llm_prompt_serializers import (
     LLMPromptFetchQuerySerializer,
-    LLMPromptListQuerySerializer,
     LLMPromptPublicSerializer,
     LLMPromptPublishSerializer,
     LLMPromptResolveQuerySerializer,
@@ -38,7 +37,7 @@ from posthog.api.services.llm_prompt import (
     publish_prompt_version,
     resolve_versions_page,
 )
-from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import JwtAuthentication, SessionAuthentication
 from posthog.event_usage import report_team_action, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import LLMPrompt, User
@@ -90,7 +89,6 @@ class LLMPromptFeatureFlagPermission(BasePermission):
         )
 
 
-@extend_schema(tags=["llm_analytics"])
 class LLMPromptViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
@@ -126,9 +124,7 @@ class LLMPromptViewSet(
         return None
 
     def _ensure_web_authenticated(self, request: Request) -> Response | None:
-        if not isinstance(
-            request.successful_authenticator, SessionAuthentication | JwtAuthentication | PersonalAPIKeyAuthentication
-        ):
+        if not isinstance(request.successful_authenticator, SessionAuthentication | JwtAuthentication):
             return Response(
                 {"detail": "This endpoint is only available to web-authenticated users."},
                 status=status.HTTP_403_FORBIDDEN,
@@ -363,7 +359,6 @@ class LLMPromptViewSet(
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    @extend_schema(parameters=[LLMPromptListQuerySerializer])
     @llma_track_latency("llma_prompts_list")
     @monitor(feature=None, endpoint="llma_prompts_list", method="GET")
     def list(self, request: Request, *args, **kwargs) -> Response:

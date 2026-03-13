@@ -7,12 +7,7 @@ const schema = InsightGenerateHogQLFromQuestionSchema
 
 type Params = z.infer<typeof schema>
 
-type Result = { content: Array<{ type: string; text: string }> } | unknown[]
-
-export const generateHogQLHandler: ToolBase<typeof schema, Result>['handler'] = async (
-    context: Context,
-    params: Params
-) => {
+export const generateHogQLHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
     const { question } = params
     const projectId = await context.stateManager.getProjectId()
 
@@ -35,7 +30,7 @@ export const generateHogQLHandler: ToolBase<typeof schema, Result>['handler'] = 
     return result.data
 }
 
-const tool = (): ToolBase<typeof schema, Result> => ({
+const tool = (): ToolBase<typeof schema> => ({
     name: 'query-generate-hogql-from-question',
     schema,
     handler: generateHogQLHandler,

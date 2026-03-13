@@ -8,7 +8,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { HogQLQueryString, hogql } from '~/queries/utils'
-import { PersonType } from '~/types'
 
 /**
  * Generates a stable color index from a string using djb2 hash.
@@ -44,7 +43,7 @@ const EMAIL_REGEX = /.+@.+\..+/i
 /** Very rough UUID format. It's loose around length, because the posthog-js UUID util returns non-normative IDs. */
 const BROWSER_ANON_ID_REGEX = /^(?:[a-fA-F0-9]+-){4}[a-fA-F0-9]+$/i
 /** Score distinct IDs for display: UUID-like (i.e. anon ID) gets 0, custom format gets 1, email-like gets 2. */
-export function scoreDistinctId(id: string): number {
+function scoreDistinctId(id: string): number {
     if (EMAIL_REGEX.test(id)) {
         return 2
     }
@@ -108,29 +107,6 @@ export function asDisplay(
     return display ? midEllipsis(display, maxLength || 40) : 'Anonymous'
 }
 
-// Property editor inputs are always strings — coerce to native types before persisting
-export function coercePropertyValue(value: string | number | boolean | null): string | number | boolean | null {
-    if (value === null || value === '') {
-        return value
-    }
-
-    let result: string | number | boolean | null = value
-
-    const attemptedParsedNumber = Number(value)
-    if (Number.isFinite(attemptedParsedNumber) && typeof value !== 'boolean') {
-        result = attemptedParsedNumber
-    }
-
-    if (typeof result === 'string') {
-        const lowercaseValue = result.toLowerCase()
-        if (lowercaseValue === 'true' || lowercaseValue === 'false' || lowercaseValue === 'null') {
-            result = lowercaseValue === 'true' ? true : lowercaseValue === 'null' ? null : false
-        }
-    }
-
-    return result
-}
-
 export const asLink = (person?: PersonPropType | null): string | undefined =>
     person?.distinct_id
         ? urls.personByDistinctId(person.distinct_id)
@@ -139,27 +115,6 @@ export const asLink = (person?: PersonPropType | null): string | undefined =>
           : person?.id
             ? urls.personByUUID(person.id)
             : undefined
-
-/**
- * Parse a row from the HogQL person query into a PersonType.
- * Column order matches getHogqlQueryStringForPersonId:
- * [id, distinct_ids, properties, is_identified, created_at, last_seen_at]
- */
-export function parsePersonFromHogQLRow(row: any[]): PersonType {
-    let properties = {}
-    try {
-        properties = JSON.parse(row[2] || '{}')
-    } catch {}
-    return {
-        id: row[0],
-        uuid: row[0],
-        distinct_ids: row[1],
-        properties,
-        is_identified: !!row[3],
-        created_at: row[4],
-        last_seen_at: row[5],
-    }
-}
 
 export const getHogqlQueryStringForPersonId = (): HogQLQueryString => {
     return hogql`SELECT

@@ -14,9 +14,8 @@ import { OnboardingStepKey, type SDK, SDKInstructionsMap, SDKTag, SDKTagOverride
 
 import { OnboardingStepComponentType, onboardingLogic } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
-import { type AdblockDetectionResult, useAdblockDetection } from './hooks/useAdblockDetection'
 import { useInstallationComplete } from './hooks/useInstallationComplete'
-import { AdblockWarning, RealtimeCheckIndicator } from './RealtimeCheckIndicator'
+import { RealtimeCheckIndicator } from './RealtimeCheckIndicator'
 import { sdksLogic } from './sdksLogic'
 import { SDKSnippet } from './SDKSnippet'
 
@@ -25,7 +24,6 @@ interface SDKInstructionsModalProps {
     onClose: () => void
     sdk?: SDK
     sdkInstructionMap: SDKInstructionsMap
-    adblockResult: AdblockDetectionResult
     verifyingProperty?: string
     verifyingName?: string
 }
@@ -35,7 +33,6 @@ export function SDKInstructionsModal({
     onClose,
     sdk,
     sdkInstructionMap,
-    adblockResult,
     verifyingProperty = 'ingested_event',
     verifyingName = 'event',
 }: SDKInstructionsModalProps): JSX.Element {
@@ -59,11 +56,6 @@ export function SDKInstructionsModal({
                     <div className="flex-grow overflow-y-auto px-4 py-2">
                         <SDKSnippet sdk={sdk} sdkInstructions={sdkInstructions} />
                     </div>
-                    {!installationComplete && (
-                        <div className="px-4 py-2">
-                            <AdblockWarning adblockResult={adblockResult} />
-                        </div>
-                    )}
                     <footer className="sticky bottom-0 w-full bg-bg-light dark:bg-bg-depth rounded-b-sm p-2 flex justify-between items-center gap-2 px-4">
                         <RealtimeCheckIndicator
                             teamPropertyToVerify={verifyingProperty}
@@ -99,7 +91,6 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     const { currentTeam } = useValues(teamLogic)
 
     const installationComplete = useInstallationComplete(teamPropertyToVerify)
-    const adblockResult = useAdblockDetection()
     const isSkipButtonExperiment = useFeatureFlag('ONBOARDING_SKIP_INSTALL_STEP', 'test')
 
     useEffect(() => {
@@ -128,7 +119,6 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
             }
         >
             {header}
-            {!installationComplete && <AdblockWarning adblockResult={adblockResult} />}
             <div className="flex flex-col gap-y-4 mt-6">
                 <div className="flex flex-col gap-y-2">
                     <div className="flex flex-col-reverse md:flex-row justify-between gap-4">
@@ -221,7 +211,6 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
                     onClose={() => setInstructionsModalOpen(false)}
                     sdk={selectedSDK}
                     sdkInstructionMap={sdkInstructionMap}
-                    adblockResult={adblockResult}
                     verifyingProperty={teamPropertyToVerify}
                     verifyingName={listeningForName}
                 />

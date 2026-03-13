@@ -9,11 +9,6 @@ type WindowSize = {
 
 type Breakpoint = keyof typeof TAILWIND_BREAKPOINTS
 
-type UseWindowSizeOptions = {
-    /** Pixels to subtract from window width when checking breakpoints (e.g. side panel width) */
-    widthOffset?: number
-}
-
 type UseWindowSize = {
     windowSize: WindowSize
     isWindowLessThan: (breakpoint: Breakpoint) => boolean
@@ -41,14 +36,13 @@ function getServerSnapshot(): WindowSize {
     return serverSnapshot
 }
 
-export function useWindowSize(options?: UseWindowSizeOptions): UseWindowSize {
+export function useWindowSize(): UseWindowSize {
     const windowSize = useSyncExternalStore(subscribeToResize, getWindowSize, getServerSnapshot)
-    const widthOffset = options?.widthOffset ?? 0
 
     const isWindowLessThan = useCallback(
         (breakpoint: keyof typeof TAILWIND_BREAKPOINTS) =>
-            !!windowSize?.width && windowSize.width - widthOffset < TAILWIND_BREAKPOINTS[breakpoint],
-        [windowSize, widthOffset]
+            !!windowSize?.width && windowSize.width < TAILWIND_BREAKPOINTS[breakpoint],
+        [windowSize]
     )
 
     return { windowSize, isWindowLessThan }

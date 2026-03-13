@@ -13,7 +13,6 @@ export enum MaxContextType {
     ACTION = 'action',
     ERROR_TRACKING_ISSUE = 'error_tracking_issue',
     EVALUATION = 'evaluation',
-    NOTEBOOK = 'notebook',
 }
 
 export type InsightWithQuery = Pick<Partial<QueryBasedInsightModel>, 'query'> & Partial<QueryBasedInsightModel>
@@ -67,12 +66,6 @@ export interface MaxEvaluationContext {
     hog_source?: string | null
 }
 
-export interface MaxNotebookContext {
-    type: MaxContextType.NOTEBOOK
-    id: string // short_id
-    name?: string | null
-}
-
 // The main shape for the UI context sent to the backend
 export interface MaxUIContext {
     dashboards?: MaxDashboardContext[]
@@ -81,7 +74,6 @@ export interface MaxUIContext {
     actions?: MaxActionContext[]
     error_tracking_issues?: MaxErrorTrackingIssueContext[]
     evaluations?: MaxEvaluationContext[]
-    notebooks?: MaxNotebookContext[]
     form_answers?: Record<string, string> // question_id -> answer for create_form tool responses
 }
 
@@ -102,7 +94,6 @@ export type MaxContextItem =
     | MaxActionContext
     | MaxErrorTrackingIssueContext
     | MaxEvaluationContext
-    | MaxNotebookContext
 
 type MaxInsightContextInput = {
     type: MaxContextType.INSIGHT
@@ -137,10 +128,6 @@ type MaxEvaluationContextInput = {
         hog_source?: string | null
     }
 }
-type MaxNotebookContextInput = {
-    type: MaxContextType.NOTEBOOK
-    data: { short_id: string; title?: string | null }
-}
 export type MaxContextInput =
     | MaxInsightContextInput
     | MaxDashboardContextInput
@@ -148,7 +135,6 @@ export type MaxContextInput =
     | MaxActionContextInput
     | MaxErrorTrackingIssueContextInput
     | MaxEvaluationContextInput
-    | MaxNotebookContextInput
 
 /**
  * Helper functions to create maxContext items safely
@@ -203,11 +189,6 @@ export const createMaxContextHelpers = {
     }): MaxEvaluationContextInput => ({
         type: MaxContextType.EVALUATION,
         data: evaluation,
-    }),
-
-    notebook: (notebook: { short_id: string; title?: string | null }): MaxNotebookContextInput => ({
-        type: MaxContextType.NOTEBOOK,
-        data: notebook,
     }),
 }
 

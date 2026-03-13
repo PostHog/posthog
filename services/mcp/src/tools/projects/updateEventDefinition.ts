@@ -1,6 +1,5 @@
 import type { z } from 'zod'
 
-import type { ApiEventDefinition } from '@/schema/api'
 import { EventDefinitionUpdateSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -8,9 +7,7 @@ const schema = EventDefinitionUpdateSchema
 
 type Params = z.infer<typeof schema>
 
-type Result = ApiEventDefinition & { url: string }
-
-export const updateEventDefinitionHandler: ToolBase<typeof schema, Result>['handler'] = async (
+export const updateEventDefinitionHandler: ToolBase<typeof schema>['handler'] = async (
     context: Context,
     params: Params
 ) => {
@@ -32,7 +29,7 @@ export const updateEventDefinitionHandler: ToolBase<typeof schema, Result>['hand
     }
 }
 
-const tool = (): ToolBase<typeof schema, Result> => ({
+const tool = (): ToolBase<typeof schema> => ({
     name: 'event-definition-update',
     schema,
     handler: updateEventDefinitionHandler,

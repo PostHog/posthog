@@ -126,8 +126,7 @@ export const TwoDimensionalHeatmap = (): JSX.Element => {
 
     const heatmapSettings = chartSettings.heatmap ?? {}
     const selectedColumns = [heatmapSettings.xAxisColumn, heatmapSettings.yAxisColumn, heatmapSettings.valueColumn]
-    const rows =
-        response && 'results' in response ? response.results : response && 'result' in response ? response.result : []
+    const rows = response?.['results'] ?? response?.['result'] ?? []
     const columnIndexes = useMemo(() => {
         return columns.reduce(
             (acc, column) => {

@@ -273,12 +273,7 @@ export function ReplayAuthorizedDomains(): JSX.Element {
                 Domains and wildcard subdomains are allowed (e.g. <code>https://*.example.com</code>). However,
                 wildcarded top-level domains cannot be used (for security reasons).
             </p>
-            <AuthorizedUrlList
-                type={AuthorizedUrlListType.RECORDING_DOMAINS}
-                showLaunch={false}
-                allowAdd={false}
-                displaySuggestions={false}
-            />
+            <AuthorizedUrlList type={AuthorizedUrlListType.RECORDING_DOMAINS} showLaunch={false} allowAdd={false} />
         </div>
     )
 }

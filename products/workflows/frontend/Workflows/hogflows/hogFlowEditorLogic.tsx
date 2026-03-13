@@ -153,7 +153,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     connect(() => ({
         values: [
             workflowLogic,
-            ['workflow', 'edgesByActionId', 'hogFunctionTemplatesById'],
+            ['workflow', 'edgesByActionId', 'hogFunctionTemplatesById', 'draftDeletedActionIds'],
             optOutCategoriesLogic(),
             ['categories', 'categoriesLoading'],
         ],
@@ -310,18 +310,20 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
         selectedNodeCanBeDeleted: [
-            (s) => [s.selectedNode, s.nodes, s.edges],
-            (selectedNode, nodes, edges) => {
+            (s) => [s.selectedNode, s.nodes, s.edges, s.draftDeletedActionIds],
+            (selectedNode, nodes, edges, draftDeletedActionIds) => {
                 if (!selectedNode) {
                     return false
                 }
 
                 const outgoingNodes = getOutgoers(selectedNode, nodes, edges)
-                if (outgoingNodes.length === 1) {
+                // Filter out ghost nodes — they'll be stripped on publish
+                const liveOutgoing = outgoingNodes.filter((n) => !draftDeletedActionIds.has(n.id))
+                if (liveOutgoing.length <= 1) {
                     return true
                 }
 
-                return new Set(outgoingNodes.map((node) => node.id)).size === 1
+                return new Set(liveOutgoing.map((node) => node.id)).size === 1
             },
         ],
         selectedNodeCanBeCopiedOrMoved: [
@@ -345,7 +347,14 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     const _params: AppMetricsTotalsRequest = {
                         ...params,
                         breakdownBy: ['instance_id', 'metric_name'],
-                        metricName: ['succeeded', 'failed', 'disabled_permanently', 'rate_limited', 'triggered'],
+                        metricName: [
+                            'succeeded',
+                            'failed',
+                            'filtered',
+                            'disabled_permanently',
+                            'rate_limited',
+                            'triggered',
+                        ],
                     }
                     const response = await loadAppMetricsTotals(_params, timezone)
                     await breakpoint(10)
@@ -362,7 +371,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             // TRICKY: Trigger and exit dont get their own metrics so we pull from the overall metrics
                             if (['succeeded', 'failed'].includes(metricName)) {
                                 instanceId = EXIT_NODE_ID
-                            } else if (['disabled_permanently', 'rate_limited', 'triggered'].includes(metricName)) {
+                            } else if (
+                                ['filtered', 'disabled_permanently', 'rate_limited', 'triggered'].includes(metricName)
+                            ) {
                                 instanceId = TRIGGER_NODE_ID
                                 if (['disabled_permanently', 'rate_limited'].includes(metricName)) {
                                     metricName = 'failed'
@@ -763,16 +774,11 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                 'priority',
                                 'ticket_number',
                                 'channel_source',
-                                'distinct_id',
                                 'message_count',
                                 'last_message_at',
                                 'last_message_text',
                                 'unread_team_count',
                                 'unread_customer_count',
-                                'sla_due_at',
-                                'assignee',
-                                'current_url',
-                                'tags',
                             ].map((prop) => `${prefix}_${prop}`)
 
                             const newVars = spreadKeys

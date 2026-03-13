@@ -110,7 +110,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         setLiveTailRunning: (enabled: boolean) => ({ enabled }),
         setLiveTailInterval: (interval: number) => ({ interval }),
         setLogs: (logs: LogMessage[]) => ({ logs }),
-        setSparkline: (sparkline: any[] | null) => ({ sparkline }),
+        setSparkline: (sparkline: any[]) => ({ sparkline }),
         setNextCursor: (nextCursor: string | null) => ({ nextCursor }),
         expireLiveTail: () => true,
         setLiveTailExpired: (liveTailExpired: boolean) => ({ liveTailExpired }),
@@ -305,7 +305,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     actions.setSparklineAbortController(null)
                     return response
                 },
-                setSparkline: ({ sparkline }) => sparkline ?? [],
+                setSparkline: ({ sparkline }) => sparkline,
             },
         ],
     })),
@@ -370,11 +370,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         ],
         sparklineData: [
             (s) => [s.sparkline, s.sparklineBreakdownBy],
-            (sparkline: any[] | null, sparklineBreakdownBy: LogsSparklineBreakdownBy) => {
-                if (!sparkline) {
-                    return { labels: [], dates: [], data: [] }
-                }
-
+            (sparkline: any[], sparklineBreakdownBy: LogsSparklineBreakdownBy) => {
                 const breakdownKey = sparklineBreakdownBy
 
                 let lastTime = ''
@@ -433,7 +429,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         ],
         totalLogsMatchingFilters: [
             (s) => [s.sparkline],
-            (sparkline): number => sparkline?.reduce((sum: number, item: any) => sum + item.count, 0) ?? 0,
+            (sparkline): number => sparkline.reduce((sum, item) => sum + item.count, 0),
         ],
         logsRemainingToLoad: [
             (s) => [s.totalLogsMatchingFilters, s.logs],

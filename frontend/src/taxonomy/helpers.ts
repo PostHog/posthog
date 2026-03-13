@@ -2,16 +2,9 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { CoreFilterDefinition } from '~/types'
 
-import { CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinitionsGroup } from './taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from './taxonomy'
 
 /** Return whether a given filter key is part of PostHog's core (marked by the PostHog logo). */
-
-const hasCoreFilterDefinitionsForGroup = (
-    type: TaxonomicFilterGroupType
-): Record<string, CoreFilterDefinition> | null =>
-    type in CORE_FILTER_DEFINITIONS_BY_GROUP
-        ? CORE_FILTER_DEFINITIONS_BY_GROUP[type as CoreFilterDefinitionsGroup]
-        : null
 
 export function isCoreFilter(key: string): boolean {
     return Object.values(CORE_FILTER_DEFINITIONS_BY_GROUP).some((mapping) => Object.keys(mapping).includes(key))
@@ -29,9 +22,8 @@ export function getCoreFilterDefinition(
 
     value = value.toString()
     const isGroupTaxonomicFilterType = type.startsWith('groups_')
-    const groupDefinitions = hasCoreFilterDefinitionsForGroup(type)
-    if (groupDefinitions && value in groupDefinitions) {
-        return { ...groupDefinitions[value] }
+    if (type in CORE_FILTER_DEFINITIONS_BY_GROUP && value in CORE_FILTER_DEFINITIONS_BY_GROUP[type]) {
+        return { ...CORE_FILTER_DEFINITIONS_BY_GROUP[type][value] }
     } else if (
         isGroupTaxonomicFilterType &&
         value in CORE_FILTER_DEFINITIONS_BY_GROUP[TaxonomicFilterGroupType.GroupsPrefix]
@@ -98,9 +90,9 @@ export function getCoreFilterDefinition(
 }
 
 export function getFirstFilterTypeFor(propertyKey: string): TaxonomicFilterGroupType | null {
-    for (const type of Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP) as CoreFilterDefinitionsGroup[]) {
+    for (const type of Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP) as TaxonomicFilterGroupType[]) {
         if (propertyKey in CORE_FILTER_DEFINITIONS_BY_GROUP[type]) {
-            return type as TaxonomicFilterGroupType
+            return type
         }
     }
     return null
@@ -113,7 +105,7 @@ export function getFilterLabel(key: PropertyKey, type: TaxonomicFilterGroupType)
 
 export function getPropertyKey(value: string, type: TaxonomicFilterGroupType): string {
     // Find the key by looking through the mapping
-    const group = hasCoreFilterDefinitionsForGroup(type)
+    const group = CORE_FILTER_DEFINITIONS_BY_GROUP[type]
     if (group) {
         const foundKey = Object.entries(group).find(([_, def]) => (def as any).label === value || _ === value)?.[0]
         return foundKey || value

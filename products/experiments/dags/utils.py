@@ -88,8 +88,9 @@ def schedule_experiment_metric_partitions(
             Experiment.objects.filter(
                 deleted=False,
                 scheduling_config__timeseries=True,
-                status=Experiment.Status.RUNNING,
+                start_date__isnull=False,
                 start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=90),
+                end_date__isnull=True,
                 team__in=Team.objects.filter(time_filter),
             ).values_list("id", flat=True)
         )

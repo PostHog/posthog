@@ -1521,25 +1521,25 @@ class TestManagementCommands(BaseTest):
         self.assertIn("DATA_MISMATCH", output)
         self.assertIn("FIXED", output)
 
-    def test_verify_cache_detects_evaluation_context_rename(self):
-        """Test that verification detects when an evaluation context is renamed."""
-        from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
+    def test_verify_cache_detects_evaluation_tag_rename(self):
+        """Test that verification detects when a tag used by a flag is renamed."""
         from posthog.models.feature_flag.flags_cache import update_flags_cache, verify_team_flags
 
+        # Create a flag with an evaluation tag
         flag = FeatureFlag.objects.create(
             team=self.team,
             key="test-flag",
             created_by=self.user,
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
-        ctx = EvaluationContext.objects.create(team=self.team, name="original-context-name")
-        FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=ctx)
+        tag = Tag.objects.create(team=self.team, name="original-tag-name")
+        FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=tag)
 
         # Warm the cache
         update_flags_cache(self.team)
 
-        # Rename the context directly in DB (bypassing signals to simulate stale cache)
-        EvaluationContext.objects.filter(id=ctx.id).update(name="renamed-context-name")
+        # Rename the tag directly in DB (bypassing signals to simulate stale cache)
+        Tag.objects.filter(id=tag.id).update(name="renamed-tag-name")
 
         # Verify should detect the mismatch
         result = verify_team_flags(self.team, verbose=True)
@@ -1552,8 +1552,8 @@ class TestManagementCommands(BaseTest):
         # Verify the actual values in the diff
         field_diffs = result["diffs"][0]["field_diffs"]
         eval_tag_diff = next(d for d in field_diffs if d["field"] == "evaluation_tags")
-        self.assertEqual(eval_tag_diff["cached_value"], ["original-context-name"])
-        self.assertEqual(eval_tag_diff["db_value"], ["renamed-context-name"])
+        self.assertEqual(eval_tag_diff["cached_value"], ["original-tag-name"])
+        self.assertEqual(eval_tag_diff["db_value"], ["renamed-tag-name"])
 
         # Mismatch result should include db_data for cache fix optimization
         self.assertIn("db_data", result)
@@ -2218,21 +2218,6 @@ class TestGetTeamsWithFlagsQueryset(BaseTest):
         team_no_flags = Team.objects.create(organization=self.organization, name="No Flags")
         qs = get_teams_with_flags_queryset()
         assert team_no_flags.id not in qs.values_list("id", flat=True)
-
-    def test_queryset_does_not_include_parent_team_join(self):
-        """The Q() wrapper in get_teams_with_flags_queryset bypasses
-        RootTeamQuerySet.filter() to keep the EXISTS subquery simple.
-        If someone removes the Q() wrapper, the query will regress to
-        include parent_team joins that are unusable at scale."""
-        qs = get_teams_with_flags_queryset()
-        sql = str(qs.query).lower()
-        # Extract the EXISTS subquery — this is where the regression would appear.
-        # The SELECT column list legitimately contains parent_team_id as a Team field.
-        exists_start = sql.index("exists(")
-        subquery_sql = sql[exists_start:]
-        assert "parent_team" not in subquery_sql, (
-            f"EXISTS subquery should not reference parent_team, got: {subquery_sql}"
-        )
 
     def test_team_with_multiple_flags_returned_once(self):
         FeatureFlag.objects.create(team=self.team, key="flag-1", created_by=self.user)

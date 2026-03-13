@@ -12,7 +12,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { API_SCOPES } from 'lib/scopes'
-import { capitalizeFirstLetter, isKeyOf } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -53,7 +53,6 @@ function ScopesList({
     return (
         <div>
             {visibleScopes.map(({ key, disabledActions, warnings, info }) => {
-                const radioValue = formScopeRadioValues[key]
                 return (
                     <Fragment key={key}>
                         <div className="flex items-center justify-between gap-2 min-h-8">
@@ -68,7 +67,7 @@ function ScopesList({
                             </div>
                             <LemonSegmentedButton
                                 onChange={(value) => setScopeRadioValue(key, value)}
-                                value={radioValue ?? 'none'}
+                                value={formScopeRadioValues[key] ?? 'none'}
                                 options={[
                                     { label: 'No access', value: 'none' },
                                     {
@@ -89,10 +88,10 @@ function ScopesList({
                                 size="xsmall"
                             />
                         </div>
-                        {warnings && isKeyOf(radioValue, warnings) && (
+                        {warnings?.[formScopeRadioValues[key]] && (
                             <div className="flex items-start gap-2 text-xs italic pb-2">
                                 <IconWarning className="text-base text-secondary mt-0.5" />
-                                <span>{warnings[radioValue]}</span>
+                                <span>{warnings[formScopeRadioValues[key]]}</span>
                             </div>
                         )}
                     </Fragment>

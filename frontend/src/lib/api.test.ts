@@ -77,17 +77,12 @@ describe('API helper', () => {
             },
         ]
 
-        const verbs = [
-            (url: string) => api.get(url),
-            (url: string) => api.update(url, undefined),
-            (url: string) => api.create(url, undefined),
-            (url: string) => api.delete(url),
-        ]
+        const verbs = ['get', 'update', 'create', 'delete']
 
         verbs.forEach((verb) => {
             testCases.forEach((testCase) => {
                 it(`when API is using verb ${verb} it normalizes ${testCase.url} to ${testCase.expected}`, () => {
-                    verb(testCase.url)
+                    api[verb](testCase.url)
                     expect(fakeFetch.mock.calls[0][0]).toEqual(testCase.expected)
                 })
             })

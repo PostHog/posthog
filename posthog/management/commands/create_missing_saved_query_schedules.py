@@ -42,6 +42,7 @@ class Command(BaseCommand):
 
         queryset = DataWarehouseSavedQuery.objects.filter(
             deleted=False,
+            table__isnull=False,
             sync_frequency_interval__isnull=False,
         )
 

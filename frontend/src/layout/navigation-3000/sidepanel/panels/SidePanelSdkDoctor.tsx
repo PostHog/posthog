@@ -1,18 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { IconInfo, IconStethoscope } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonMenu,
-    LemonTable,
-    LemonTableColumns,
-    LemonTag,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -22,17 +12,10 @@ import { newInternalTab } from 'lib/utils/newInternalTab'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
-import { ActivityTab } from '~/types'
-
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
-import {
-    AugmentedTeamSdkVersionsInfoRelease,
-    type OutdatedTrafficAlert,
-    type SdkType,
-    sidePanelSdkDoctorLogic,
-} from './sidePanelSdkDoctorLogic'
+import { AugmentedTeamSdkVersionsInfoRelease, type SdkType, sidePanelSdkDoctorLogic } from './sidePanelSdkDoctorLogic'
 
-export const SDK_TYPE_READABLE_NAME: Record<SdkType, string> = {
+const SDK_TYPE_READABLE_NAME: Record<SdkType, string> = {
     web: 'Web',
     'posthog-ios': 'iOS',
     'posthog-android': 'Android',
@@ -103,80 +86,6 @@ const queryForSdkVersion = (sdkType: SdkType, version: string): string => {
     return `SELECT * FROM events WHERE timestamp >= NOW() - INTERVAL 7 DAY AND properties.$lib = '${sdkType}' AND properties.$lib_version = '${version}' ORDER BY timestamp DESC LIMIT 50`
 }
 
-// Matches the Activity explore page's DataTableNode format
-const activityPageUrlForSdkVersion = (sdkType: SdkType, version: string): string => {
-    const query = {
-        kind: 'DataTableNode',
-        columns: [
-            '*',
-            'event',
-            'person_display_name -- Person',
-            'coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen',
-            'properties.$lib',
-            'timestamp',
-        ],
-        hiddenColumns: [],
-        pinnedColumns: [],
-        source: {
-            kind: 'EventsQuery',
-            select: [
-                '*',
-                'timestamp',
-                'properties.$lib',
-                'properties.$lib_version',
-                'event',
-                'person_display_name -- Person',
-                'coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen',
-            ],
-            orderBy: ['timestamp DESC'],
-            after: '-7d',
-            properties: [
-                {
-                    key: '$lib',
-                    value: [sdkType],
-                    operator: 'exact',
-                    type: 'event',
-                },
-                {
-                    key: '$lib_version',
-                    value: [version],
-                    operator: 'exact',
-                    type: 'event',
-                },
-            ],
-        },
-        context: { type: 'team_columns' },
-        allowSorting: true,
-        embedded: false,
-        expandable: true,
-        full: true,
-        propertiesViaUrl: true,
-        showActions: true,
-        showColumnConfigurator: true,
-        showCount: false,
-        showDateRange: true,
-        showElapsedTime: false,
-        showEventFilter: true,
-        showEventsFilter: false,
-        showExport: true,
-        showHogQLEditor: true,
-        showOpenEditorButton: true,
-        showPersistentColumnConfigurator: true,
-        showPropertyFilter: true,
-        showRecordingColumn: false,
-        showReload: true,
-        showResultsTable: true,
-        showSavedFilters: false,
-        showSavedQueries: true,
-        showSearch: true,
-        showSourceQueryOptions: true,
-        showTableViews: false,
-        showTestAccountFilters: true,
-        showTimings: false,
-    }
-    return combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: query }).url
-}
-
 const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
     {
         title: 'Version',
@@ -184,38 +93,20 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
         render: function RenderVersion(_, record) {
             return (
                 <div className="flex items-center gap-2 justify-start">
-                    <LemonMenu
-                        items={[
-                            {
-                                label: 'Events on Activity page',
-                                onClick: () => {
-                                    posthog.capture('sdk doctor view events', {
-                                        sdkType: record.type,
-                                        destination: 'activity_page',
-                                    })
-                                    newInternalTab(activityPageUrlForSdkVersion(record.type, record.version))
-                                },
-                            },
-                            {
-                                label: 'SQL query',
-                                onClick: () => {
-                                    posthog.capture('sdk doctor view events', {
-                                        sdkType: record.type,
-                                        destination: 'sql_editor',
-                                    })
-                                    newInternalTab(
-                                        urls.sqlEditor({
-                                            query: queryForSdkVersion(record.type, record.version),
-                                        })
-                                    )
-                                },
-                            },
-                        ]}
-                    >
-                        <code className="text-xs font-mono bg-muted-highlight rounded-sm cursor-pointer hover:bg-muted">
-                            {record.version}
-                        </code>
-                    </LemonMenu>
+                    <Tooltip title="View events" delayMs={0}>
+                        <Link
+                            onClick={() => {
+                                posthog.capture('sdk doctor view events', {
+                                    sdkType: record.type,
+                                })
+                                newInternalTab(
+                                    urls.sqlEditor({ query: queryForSdkVersion(record.type, record.version) })
+                                )
+                            }}
+                        >
+                            <code className="text-xs font-mono bg-muted-highlight rounded-sm">{record.version}</code>
+                        </Link>
+                    </Tooltip>
                     {record.isOutdated ? (
                         <Tooltip
                             placement="right"
@@ -388,15 +279,6 @@ export function SidePanelSdkDoctor(): JSX.Element | null {
                                 onClick: snoozeWarning,
                             }}
                         >
-                            {Object.entries(augmentedData).flatMap(([sdkType, sdk]) =>
-                                sdk.outdatedTrafficAlerts.map((alert: OutdatedTrafficAlert) => (
-                                    <p key={`${sdkType}-${alert.version}`} className="text-sm mb-1">
-                                        Version <code className="text-xs font-mono">{alert.version}</code> of the{' '}
-                                        {SDK_TYPE_READABLE_NAME[sdkType as SdkType]} SDK has captured more than{' '}
-                                        {alert.thresholdPercent}% of events in the last 7 days.
-                                    </p>
-                                ))
-                            )}
                             <p className="font-semibold">
                                 An outdated SDK means you're missing out on bug fixes and enhancements.
                             </p>

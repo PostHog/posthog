@@ -13,7 +13,6 @@ import {
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { BoxPlotLegend } from 'scenes/insights/views/BoxPlot/BoxPlotLegend'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
@@ -61,15 +60,12 @@ export function ExportedInsight({
     const { short_id, query, name, derived_name, description } = insight
 
     const showWatermark = noHeader && !whitelabel
-    const trendsDisplay =
-        isInsightVizNode(query) && isTrendsQuery(query.source) ? query.source.trendsFilter?.display : undefined
-    const isBoxPlot = trendsDisplay === ChartDisplayType.BoxPlot
     const showLegend =
         legend &&
         isInsightVizNode(query) &&
         isTrendsQuery(query.source) &&
-        !SINGLE_SERIES_DISPLAY_TYPES.includes(trendsDisplay as ChartDisplayType) &&
-        !DISPLAY_TYPES_WITHOUT_LEGEND.includes(trendsDisplay as ChartDisplayType)
+        !SINGLE_SERIES_DISPLAY_TYPES.includes(query.source.trendsFilter?.display as ChartDisplayType) &&
+        !DISPLAY_TYPES_WITHOUT_LEGEND.includes(query.source.trendsFilter?.display as ChartDisplayType)
 
     const showDetailedResultsTable =
         detailedResults &&
@@ -116,7 +112,7 @@ export function ExportedInsight({
                     />
                     {showLegend && (
                         <div className="p-4">
-                            {isBoxPlot ? <BoxPlotLegend horizontal /> : <InsightLegend horizontal readOnly />}
+                            <InsightLegend horizontal readOnly />
                         </div>
                     )}
                     {showDetailedResultsTable && (

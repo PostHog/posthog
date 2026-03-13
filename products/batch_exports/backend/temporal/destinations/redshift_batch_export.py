@@ -19,11 +19,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_logger, get_write_only_logger
-
-from products.batch_exports.backend.service import (
+from posthog.batch_exports.service import (
     AWSCredentials,
     BatchExportField,
     BatchExportInsertInputs,
@@ -32,6 +28,10 @@ from products.batch_exports.backend.service import (
     IAMRole,
     RedshiftBatchExportInputs,
 )
+from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
+
 from products.batch_exports.backend.temporal.batch_exports import (
     OverBillingLimitError,
     StartBatchExportRunInputs,

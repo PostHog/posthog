@@ -8,13 +8,11 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
-from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import KlaviyoSourceConfig
 from posthog.temporal.data_imports.sources.klaviyo.klaviyo import (
-    KlaviyoResumeConfig,
     klaviyo_source,
     validate_credentials as validate_klaviyo_credentials,
 )
@@ -24,7 +22,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class KlaviyoSource(ResumableSource[KlaviyoSourceConfig, KlaviyoResumeConfig]):
+class KlaviyoSource(SimpleSource[KlaviyoSourceConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.KLAVIYO
@@ -65,13 +63,11 @@ Make sure to grant the following read permissions:
             featureFlag="dwh_klaviyo",
         )
 
-    def get_schemas(
-        self, config: KlaviyoSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
-    ) -> list[SourceSchema]:
+    def get_schemas(self, config: KlaviyoSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         # Events are immutable - append-only is the only sync mode
         append_only_endpoints = {"events"}
 
-        schemas = [
+        return [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None
@@ -81,10 +77,6 @@ Make sure to grant the following read permissions:
             )
             for endpoint in list(ENDPOINTS)
         ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
 
     def validate_credentials(
         self, config: KlaviyoSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -94,20 +86,12 @@ Make sure to grant the following read permissions:
 
         return False, "Invalid Klaviyo API key"
 
-    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[KlaviyoResumeConfig]:
-        return ResumableSourceManager[KlaviyoResumeConfig](inputs, KlaviyoResumeConfig)
-
-    def source_for_pipeline(
-        self,
-        config: KlaviyoSourceConfig,
-        resumable_source_manager: ResumableSourceManager[KlaviyoResumeConfig],
-        inputs: SourceInputs,
-    ) -> SourceResponse:
+    def source_for_pipeline(self, config: KlaviyoSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return klaviyo_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
-            resumable_source_manager=resumable_source_manager,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

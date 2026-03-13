@@ -1,12 +1,9 @@
-import type { Schemas } from '@/api/generated'
 import { OrganizationGetDetailsSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
 const schema = OrganizationGetDetailsSchema
 
-export const getDetailsHandler: ToolBase<typeof schema, Schemas.OrganizationBasic>['handler'] = async (
-    context: Context
-) => {
+export const getDetailsHandler: ToolBase<typeof schema>['handler'] = async (context: Context) => {
     const orgId = await context.stateManager.getOrgID()
 
     if (!orgId) {
@@ -24,7 +21,7 @@ export const getDetailsHandler: ToolBase<typeof schema, Schemas.OrganizationBasi
     return orgResult.data
 }
 
-const tool = (): ToolBase<typeof schema, Schemas.OrganizationBasic> => ({
+const tool = (): ToolBase<typeof schema> => ({
     name: 'organization-details-get',
     schema,
     handler: getDetailsHandler,

@@ -36,7 +36,6 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         setStatusFilters: (statuses: SignalReportStatus[]) => ({ statuses }),
         setActiveDetailTab: (tab: DetailTab) => ({ tab }),
         deleteReport: (reportId: string) => ({ reportId }),
-        reingestReport: (reportId: string) => ({ reportId }),
         runSessionAnalysis: true,
         runSessionAnalysisSuccess: true,
         runSessionAnalysisFailure: (error: string) => ({ error }),
@@ -90,12 +89,6 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
     })),
 
     reducers({
-        reportsResponse: {
-            deleteReport: (state: CountedPaginatedResponse<SignalReport> | null, { reportId }: { reportId: string }) =>
-                state
-                    ? { ...state, results: state.results.filter((r) => r.id !== reportId), count: state.count - 1 }
-                    : state,
-        },
         selectedReportId: [
             null as string | null,
             {
@@ -202,29 +195,15 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             }
         },
         deleteReport: async ({ reportId }) => {
-            // Reducer handles optimistic removal from list
-            if (values.selectedReportId === reportId) {
-                actions.setSelectedReportId(null)
-            }
             try {
                 await api.signalReports.delete(reportId)
                 lemonToast.success('Report deleted')
-            } catch (error: any) {
-                const errorMessage = error?.detail || error?.message || 'Failed to delete report'
-                lemonToast.error(errorMessage)
-                actions.loadReports()
-            }
-        },
-        reingestReport: async ({ reportId }) => {
-            try {
-                await api.signalReports.reingest(reportId)
-                lemonToast.success('Reingestion started — signals will be re-grouped')
                 if (values.selectedReportId === reportId) {
                     actions.setSelectedReportId(null)
                 }
                 actions.loadReports()
             } catch (error: any) {
-                const errorMessage = error?.detail || error?.message || 'Failed to start reingestion'
+                const errorMessage = error?.detail || error?.message || 'Failed to delete report'
                 lemonToast.error(errorMessage)
             }
         },

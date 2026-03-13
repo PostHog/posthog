@@ -4,7 +4,6 @@ import { Form } from 'kea-forms'
 import { IconChevronLeft } from '@posthog/icons'
 import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
-import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { dayjs } from 'lib/dayjs'
@@ -21,12 +20,10 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { DashboardType, InsightShortId } from '~/types'
-
-import { InsightSelector } from '../InsightSelector'
 import { subscriptionLogic } from '../subscriptionLogic'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import {
+    SubscriptionBaseProps,
     bysetposOptions,
     frequencyOptionsPlural,
     frequencyOptionsSingular,
@@ -37,10 +34,8 @@ import {
     weekdayOptions,
 } from '../utils'
 
-interface EditSubscriptionProps {
+interface EditSubscriptionProps extends SubscriptionBaseProps {
     id: number | 'new'
-    insightShortId?: InsightShortId
-    dashboard?: DashboardType<any> | null
     onCancel: () => void
     onDelete: () => void
 }
@@ -48,11 +43,10 @@ interface EditSubscriptionProps {
 export function EditSubscription({
     id,
     insightShortId,
-    dashboard,
+    dashboardId,
     onCancel,
     onDelete,
 }: EditSubscriptionProps): JSX.Element {
-    const dashboardId = dashboard?.id
     const logicProps = {
         id,
         insightShortId,
@@ -67,23 +61,17 @@ export function EditSubscription({
     const { meFirstMembers, membersLoading } = useValues(membersLogic)
     const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged } = useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
-    const { resetSubscription, generatePreview } = useActions(logic)
+    const { generatePreview } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
-    const { slackIntegrations, integrations } = useValues(integrationsLogic)
+    const { slackIntegrations } = useValues(integrationsLogic)
+    // TODO: Fix this so that we use the appropriate config...
+    const firstSlackIntegration = slackIntegrations?.[0]
 
     const emailDisabled = !preflight?.email_service_available
 
-    // For new subscriptions, show InsightSelector immediately (useEffect will auto-select)
-    // For editing, wait until subscription data has loaded from API (target_type exists)
-    // We check target_type instead of dashboard_export_insights because old subscriptions
-    // may have no insights selected yet
-    const isEditing = id !== 'new'
-    const subscriptionLoaded = !!subscription?.target_type
-    const selectionReady = !isEditing || subscriptionLoaded
-
     const _onDelete = (): void => {
-        if (isEditing) {
+        if (id !== 'new') {
             deleteSubscription(id)
             onDelete()
         }
@@ -167,28 +155,6 @@ export function EditSubscription({
                             <LemonInput placeholder="e.g. Weekly team report" />
                         </LemonField>
 
-                        {dashboard?.tiles && selectionReady && (
-                            <LemonField name="dashboard_export_insights" label="Insights to include">
-                                {({ value, onChange }) => (
-                                    <InsightSelector
-                                        tiles={dashboard.tiles}
-                                        selectedInsightIds={value ?? []}
-                                        onChange={onChange}
-                                        // After auto-selecting default insights, reset the form's "changed"
-                                        // state so that auto-selection alone doesn't trigger the
-                                        // "unsaved changes" warning when leaving. We merge the selected IDs
-                                        // into the subscription to preserve the auto-selected values.
-                                        onDefaultsApplied={(selectedIds) =>
-                                            resetSubscription({
-                                                ...subscription,
-                                                dashboard_export_insights: selectedIds,
-                                            })
-                                        }
-                                    />
-                                )}
-                            </LemonField>
-                        )}
-
                         <LemonField name="target_type" label="Destination">
                             <LemonSelect options={targetTypeOptions} />
                         </LemonField>
@@ -240,61 +206,32 @@ export function EditSubscription({
 
                         {subscription.target_type === 'slack' ? (
                             <>
-                                {!slackIntegrations?.length ? (
+                                {!firstSlackIntegration ? (
                                     <SlackNotConfiguredBanner />
                                 ) : (
                                     <>
-                                        <LemonField name="integration_id" label="Slack connection">
+                                        <LemonField
+                                            name="target_value"
+                                            label="Which Slack channel to send reports to"
+                                            help={
+                                                <>
+                                                    Private channels are only shown if you have{' '}
+                                                    <Link to="https://posthog.com/docs/webhooks/slack" target="_blank">
+                                                        added the PostHog Slack App
+                                                    </Link>{' '}
+                                                    to them. You can also paste the channel ID (e.g.{' '}
+                                                    <code>C1234567890</code>) to search for channels.
+                                                </>
+                                            }
+                                        >
                                             {({ value, onChange }) => (
-                                                <IntegrationChoice
-                                                    integration="slack"
+                                                <SlackChannelPicker
                                                     value={value}
-                                                    onChange={(newValue) => {
-                                                        onChange(newValue)
-                                                        // Only clear channel when user actively switches,
-                                                        // not on initial auto-select (value is null)
-                                                        if (value !== null && newValue !== value) {
-                                                            logic.actions.setSubscriptionValue('target_value', '')
-                                                        }
-                                                    }}
+                                                    onChange={onChange}
+                                                    integration={firstSlackIntegration}
                                                 />
                                             )}
                                         </LemonField>
-
-                                        {subscription.integration_id && (
-                                            <LemonField
-                                                name="target_value"
-                                                label="Which Slack channel to send reports to"
-                                                help={
-                                                    <>
-                                                        Private channels are only shown if you have{' '}
-                                                        <Link
-                                                            to="https://posthog.com/docs/webhooks/slack"
-                                                            target="_blank"
-                                                        >
-                                                            added the PostHog Slack App
-                                                        </Link>{' '}
-                                                        to them. You can also paste the channel ID (e.g.{' '}
-                                                        <code>C1234567890</code>) to search for channels.
-                                                    </>
-                                                }
-                                            >
-                                                {({ value, onChange }) => {
-                                                    const selectedIntegration = integrations?.find(
-                                                        (i) => i.id === subscription.integration_id
-                                                    )
-                                                    return selectedIntegration ? (
-                                                        <SlackChannelPicker
-                                                            value={value}
-                                                            onChange={onChange}
-                                                            integration={selectedIntegration}
-                                                        />
-                                                    ) : (
-                                                        <></>
-                                                    )
-                                                }}
-                                            </LemonField>
-                                        )}
                                     </>
                                 )}
                             </>

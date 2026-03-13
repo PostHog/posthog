@@ -76,15 +76,11 @@ if (action == 'track') {
         payload['traits'] := traits
     }
 } else if (action == 'group') {
-    let gid := inputs.groupId
-    if (event.event == '$groupidentify' and not empty(event.properties.$group_key)) {
-        gid := event.properties.$group_key
-    }
-    if (empty(gid)) {
+    if (empty(inputs.groupId)) {
         print('No group ID set. Skipping as group ID is required for group events.')
         return
     }
-    payload['groupId'] := gid
+    payload['groupId'] := inputs.groupId
     let traits := {}
     if (inputs.include_all_properties) {
         let groupSet := event.properties.$group_set
@@ -167,9 +163,8 @@ if (res.status >= 400) {
             key: 'groupId',
             type: 'string',
             label: 'Group ID',
-            description:
-                'Organization or account identifier. Required for group events. Defaults to your first PostHog group type ($group_0). If you use multiple group types, change to $group_1, $group_2, etc. You can also use a custom event property.',
-            default: '{event.properties.$group_0}',
+            description: 'Organization or account identifier. Required for group events.',
+            default: '',
             secret: false,
             required: false,
         },

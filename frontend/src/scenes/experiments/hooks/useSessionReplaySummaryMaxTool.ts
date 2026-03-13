@@ -7,7 +7,6 @@ import { useMaxTool } from 'scenes/max/useMaxTool'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import { experimentLogic } from '../experimentLogic'
-import { isLaunched } from '../experimentsLogic'
 
 /**
  * Minimal context sent to the backend for session replay summarization.
@@ -32,9 +31,9 @@ export const useSessionReplaySummaryMaxTool = (): ReturnType<typeof useMaxTool> 
     const resultsCount = orderedPrimaryMetricsWithResults.length
     const shouldShowButton = useMemo(() => {
         const hasResults = resultsCount > 0
-        const hasStarted = isLaunched(experiment)
+        const hasStarted = !!experiment.start_date
         return hasResults && hasStarted
-    }, [resultsCount, experiment.status, experiment.start_date, experiment.end_date])
+    }, [resultsCount, experiment.start_date])
 
     const maxToolResult = useMaxTool({
         identifier: 'experiment_session_replays_summary',

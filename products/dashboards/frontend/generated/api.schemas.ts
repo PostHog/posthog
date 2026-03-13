@@ -128,14 +128,9 @@ export const EffectivePrivilegeLevelEnumApi = {
  */
 export interface DashboardBasicApi {
     readonly id: number
-    /**
-     * Name of the dashboard.
-     * @nullable
-     */
+    /** @nullable */
     readonly name: string | null
-    /** Description of the dashboard. */
     readonly description: string
-    /** Whether the dashboard is pinned to the top of the list. */
     readonly pinned: boolean
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -147,10 +142,6 @@ export interface DashboardBasicApi {
     readonly deleted: boolean
     readonly creation_mode: CreationModeEnumApi
     tags?: unknown[]
-    /** Controls who can edit the dashboard.
-
-* `21` - Everyone in the project can edit
-* `37` - Only those invited to this dashboard can edit */
     readonly restriction_level: DashboardRestrictionLevelApi
     readonly effective_restriction_level: EffectiveRestrictionLevelEnumApi
     readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
@@ -217,12 +208,8 @@ export interface DashboardApi {
     readonly filters: DashboardApiFilters
     /** @nullable */
     readonly variables: DashboardApiVariables
-    /** Custom color mapping for breakdown values. */
     breakdown_colors?: unknown
-    /**
-     * ID of the color theme used for chart visualizations.
-     * @nullable
-     */
+    /** @nullable */
     data_color_theme_id?: number | null
     tags?: unknown[]
     /**
@@ -245,21 +232,11 @@ export interface DashboardApi {
     /** @nullable */
     readonly persisted_variables: DashboardApiPersistedVariables
     readonly team_id: number
-    /**
-     * List of quick filter IDs associated with this dashboard
-     * @nullable
-     */
-    quick_filter_ids?: string[] | null
     /** @nullable */
     readonly tiles: readonly DashboardApiTilesItem[] | null
-    /** Template key to create the dashboard from a predefined template. */
     use_template?: string
-    /**
-     * ID of an existing dashboard to duplicate.
-     * @nullable
-     */
+    /** @nullable */
     use_dashboard?: number | null
-    /** When deleting, also delete insights that are only on this dashboard. */
     delete_insights?: boolean
     _create_in_folder?: string
 }
@@ -317,12 +294,8 @@ export interface PatchedDashboardApi {
     readonly filters?: PatchedDashboardApiFilters
     /** @nullable */
     readonly variables?: PatchedDashboardApiVariables
-    /** Custom color mapping for breakdown values. */
     breakdown_colors?: unknown
-    /**
-     * ID of the color theme used for chart visualizations.
-     * @nullable
-     */
+    /** @nullable */
     data_color_theme_id?: number | null
     tags?: unknown[]
     /**
@@ -345,31 +318,13 @@ export interface PatchedDashboardApi {
     /** @nullable */
     readonly persisted_variables?: PatchedDashboardApiPersistedVariables
     readonly team_id?: number
-    /**
-     * List of quick filter IDs associated with this dashboard
-     * @nullable
-     */
-    quick_filter_ids?: string[] | null
     /** @nullable */
     readonly tiles?: readonly PatchedDashboardApiTilesItem[] | null
-    /** Template key to create the dashboard from a predefined template. */
     use_template?: string
-    /**
-     * ID of an existing dashboard to duplicate.
-     * @nullable
-     */
+    /** @nullable */
     use_dashboard?: number | null
-    /** When deleting, also delete insights that are only on this dashboard. */
     delete_insights?: boolean
     _create_in_folder?: string
-}
-
-export interface ReorderTilesRequestApi {
-    /**
-     * Array of tile IDs in the desired display order (top to bottom, left to right).
-     * @minItems 1
-     */
-    tile_order: number[]
 }
 
 export interface DataColorThemeApi {
@@ -498,18 +453,6 @@ export type DashboardsMoveTilePartialUpdateFormat =
     (typeof DashboardsMoveTilePartialUpdateFormat)[keyof typeof DashboardsMoveTilePartialUpdateFormat]
 
 export const DashboardsMoveTilePartialUpdateFormat = {
-    Json: 'json',
-    Txt: 'txt',
-} as const
-
-export type DashboardsReorderTilesCreateParams = {
-    format?: DashboardsReorderTilesCreateFormat
-}
-
-export type DashboardsReorderTilesCreateFormat =
-    (typeof DashboardsReorderTilesCreateFormat)[keyof typeof DashboardsReorderTilesCreateFormat]
-
-export const DashboardsReorderTilesCreateFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const

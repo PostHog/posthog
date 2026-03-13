@@ -4,7 +4,6 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { EXPERIMENT_TARGET_SELECTOR } from 'lib/actionUtils'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { isLaunched } from 'scenes/experiments/experimentsLogic'
 import { urls } from 'scenes/urls'
 
 import { percentageDistribution } from '~/scenes/experiments/utils'
@@ -238,7 +237,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 1. The experiment is still in draft form
                 2. there's more than one test variant, and the variant is not control*/
                 return (
-                    !isLaunched(experimentForm) &&
+                    experimentForm.start_date == null &&
                     experimentForm.variants &&
                     Object.keys(experimentForm.variants).length > 2
                 )
@@ -249,7 +248,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             (experimentForm: WebExperimentForm): boolean | undefined => {
                 /*Only show the add button if all of these conditions are met:
                 1. The experiment is still in draft form*/
-                return !isLaunched(experimentForm)
+                return experimentForm.start_date == null
             },
         ],
         selectedExperiment: [

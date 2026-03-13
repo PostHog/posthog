@@ -21,7 +21,7 @@ import {
     VariablesSummary,
 } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { isKeyOf, pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { DashboardType } from '~/types'
@@ -154,7 +154,6 @@ const dashboardActionsMapping: Record<
     last_refresh: () => null,
     tiles: () => null,
     last_viewed_at: () => null,
-    quick_filter_ids: () => null,
 }
 
 export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
@@ -186,7 +185,7 @@ export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotificat
 
         try {
             for (const change of logItem.detail.changes || []) {
-                if (!change?.field || !isKeyOf(change.field, dashboardActionsMapping)) {
+                if (!change?.field || !dashboardActionsMapping[change.field]) {
                     continue // dashboard updates have to have a "field" to be described
                 }
 

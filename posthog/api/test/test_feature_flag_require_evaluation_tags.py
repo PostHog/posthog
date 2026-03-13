@@ -4,7 +4,6 @@ from unittest.mock import patch
 from rest_framework import status
 
 from posthog.models import FeatureFlag, Tag
-from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
 
 
@@ -39,7 +38,7 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         flag = FeatureFlag.objects.get(key="test-flag", team=self.team)
-        self.assertEqual(flag.flag_evaluation_contexts.count(), 0)
+        self.assertEqual(flag.evaluation_tags.count(), 0)
 
     def test_create_flag_without_tags_when_required(self):
         """Test creating a flag without evaluation tags when requirement is enabled should fail"""
@@ -94,7 +93,7 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         flag = FeatureFlag.objects.get(key="test-flag-with-tags", team=self.team)
-        eval_tag_names = set(flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True))
+        eval_tag_names = set(flag.evaluation_tags.values_list("tag__name", flat=True))
         self.assertEqual(eval_tag_names, {"production"})
 
     def test_update_flag_without_tags_when_required(self):
@@ -145,7 +144,7 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         flag = FeatureFlag.objects.get(key="test-flag-multiple", team=self.team)
-        eval_tag_names = set(flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True))
+        eval_tag_names = set(flag.evaluation_tags.values_list("tag__name", flat=True))
         self.assertEqual(eval_tag_names, {"production", "staging"})
 
     def test_create_flag_without_feature_flag_enabled(self):
@@ -232,7 +231,7 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
         # Should succeed because at least one evaluation tag remains
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         flag.refresh_from_db()
-        eval_tag_names = set(flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True))
+        eval_tag_names = set(flag.evaluation_tags.values_list("tag__name", flat=True))
         self.assertEqual(eval_tag_names, {"production"})
 
     def test_update_flag_without_evaluation_tags_when_required(self):
@@ -298,7 +297,7 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         flag.refresh_from_db()
         # Evaluation tags should remain unchanged
-        eval_tag_names = set(flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True))
+        eval_tag_names = set(flag.evaluation_tags.values_list("tag__name", flat=True))
         self.assertEqual(eval_tag_names, {"production"})
 
     def test_create_survey_flag_without_tags_when_required(self):
@@ -319,7 +318,7 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
         # Should succeed because surveys are exempt from the requirement
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         flag = FeatureFlag.objects.get(key="survey-flag", team=self.team)
-        self.assertEqual(flag.flag_evaluation_contexts.count(), 0)
+        self.assertEqual(flag.evaluation_tags.count(), 0)
 
     def test_create_experiment_flag_without_tags_when_required(self):
         """Test that experiment flags cannot be created without tags when requirement is enabled"""
@@ -360,7 +359,7 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
         # Should succeed because experiment has evaluation tags
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         flag = FeatureFlag.objects.get(key="experiment-flag-with-tags", team=self.team)
-        eval_tag_names = set(flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True))
+        eval_tag_names = set(flag.evaluation_tags.values_list("tag__name", flat=True))
         self.assertEqual(eval_tag_names, {"production"})
 
     def test_filter_by_evaluation_tags(self):
@@ -374,8 +373,6 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
         )
         tag = Tag.objects.create(name="production", team_id=self.team.id)
         FeatureFlagEvaluationTag.objects.create(feature_flag=flag_with_tags, tag=tag)
-        ctx = EvaluationContext.objects.create(name="production", team=self.team)
-        FeatureFlagEvaluationContext.objects.create(feature_flag=flag_with_tags, evaluation_context=ctx)
 
         # Create flag without evaluation tags
         FeatureFlag.objects.create(

@@ -11,7 +11,6 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ActivityLogPaginatedResponseApi,
     FeatureFlagApi,
-    FeatureFlagCreateRequestSchemaApi,
     FeatureFlagsActivityRetrieve2Params,
     FeatureFlagsActivityRetrieveParams,
     FeatureFlagsEvaluationReasonsRetrieveParams,
@@ -21,7 +20,7 @@ import type {
     LocalEvaluationResponseApi,
     MyFlagsResponseApi,
     PaginatedFeatureFlagListApi,
-    PatchedFeatureFlagPartialUpdateRequestSchemaApi,
+    PatchedFeatureFlagApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -110,14 +109,14 @@ export const getFeatureFlagsCreateUrl = (projectId: string) => {
 
 export const featureFlagsCreate = async (
     projectId: string,
-    featureFlagCreateRequestSchemaApi: FeatureFlagCreateRequestSchemaApi,
+    featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
 ): Promise<FeatureFlagApi> => {
     return apiMutator<FeatureFlagApi>(getFeatureFlagsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlagCreateRequestSchemaApi),
+        body: JSON.stringify(featureFlagApi),
     })
 }
 
@@ -176,14 +175,14 @@ export const getFeatureFlagsPartialUpdateUrl = (projectId: string, id: number) =
 export const featureFlagsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedFeatureFlagPartialUpdateRequestSchemaApi: PatchedFeatureFlagPartialUpdateRequestSchemaApi,
+    patchedFeatureFlagApi: NonReadonly<PatchedFeatureFlagApi>,
     options?: RequestInit
 ): Promise<FeatureFlagApi> => {
     return apiMutator<FeatureFlagApi>(getFeatureFlagsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedFeatureFlagPartialUpdateRequestSchemaApi),
+        body: JSON.stringify(patchedFeatureFlagApi),
     })
 }
 

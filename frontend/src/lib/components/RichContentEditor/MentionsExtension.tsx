@@ -8,7 +8,6 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useSt
 import { LemonButton, ProfilePicture } from '@posthog/lemon-ui'
 
 import { Popover } from 'lib/lemon-ui/Popover'
-import { isKeyOf } from 'lib/utils'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { OrganizationMemberType } from '~/types'
@@ -100,7 +99,7 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
                 Enter: onPressEnter,
             }
 
-            if (isKeyOf(event.key, keyMappings)) {
+            if (keyMappings[event.key]) {
                 keyMappings[event.key]()
                 return true
             }

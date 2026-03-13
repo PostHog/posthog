@@ -107,8 +107,9 @@ def _make_dynamodb_client(
 
 
 class _PatchContext:
-    def __init__(self, sync_execute_mock: MagicMock):
+    def __init__(self, sync_execute_mock: MagicMock, recording_objects_mock: MagicMock):
         self.sync_execute = sync_execute_mock
+        self.recording_objects = recording_objects_mock
 
 
 def _patch_clients(backup_client: MagicMock, dynamodb_client: MagicMock):
@@ -119,7 +120,8 @@ def _patch_clients(backup_client: MagicMock, dynamodb_client: MagicMock):
             return dynamodb_client
         raise ValueError(f"Unexpected boto3.client call: {service_name}")
 
-    ctx = _PatchContext(MagicMock())
+    ctx = _PatchContext(MagicMock(), MagicMock())
+    ctx.recording_objects.filter.return_value.update.return_value = 1
 
     class _Combined:
         def __enter__(self):
@@ -131,11 +133,17 @@ def _patch_clients(backup_client: MagicMock, dynamodb_client: MagicMock):
                 "posthog.management.commands.restore_session_recording_keys.sync_execute",
                 ctx.sync_execute,
             )
+            self._p3 = patch(
+                "posthog.management.commands.restore_session_recording_keys.SessionRecording.objects",
+                ctx.recording_objects,
+            )
             self._p1.__enter__()
             self._p2.__enter__()
+            self._p3.__enter__()
             return ctx
 
         def __exit__(self, *args):
+            self._p3.__exit__(*args)
             self._p2.__exit__(*args)
             self._p1.__exit__(*args)
 
@@ -620,6 +628,23 @@ class TestRestoreSessionRecordingKeysCommand:
         assert params["session_ids"] == ["session-abc"]
         assert params["team_ids"] == [42]
 
+    def test_undelete_postgres_after_single_key_restore(self):
+        backup = _make_backup_client(recovery_point_arn=RECOVERY_ARN)
+        dynamodb = _make_dynamodb_client(get_item_response={"Item": ITEM_ENCRYPTED})
+
+        with _patch_clients(backup, dynamodb) as ctx:
+            call_command(
+                "restore_session_recording_keys",
+                "--team-id=42",
+                "--session-id=session-abc",
+                "--recovery-point-arn=" + RECOVERY_ARN,
+            )
+
+        ctx.recording_objects.filter.assert_called_once_with(
+            session_id__in=["session-abc"], team_id__in={42}, deleted=True
+        )
+        ctx.recording_objects.filter.return_value.update.assert_called_once_with(deleted=None)
+
     def test_undelete_batches_all_session_ids_in_single_mutation(self):
         backup = _make_backup_client(recovery_point_arn=RECOVERY_ARN)
         dynamodb = _make_dynamodb_client(query_items=[ITEM_ENCRYPTED, ITEM_CLEARTEXT])
@@ -649,6 +674,7 @@ class TestRestoreSessionRecordingKeysCommand:
             )
 
         ctx.sync_execute.assert_not_called()
+        ctx.recording_objects.filter.assert_not_called()
 
     def test_undelete_not_called_for_skipped_items(self):
         backup = _make_backup_client(recovery_point_arn=RECOVERY_ARN)
@@ -664,3 +690,4 @@ class TestRestoreSessionRecordingKeysCommand:
             )
 
         ctx.sync_execute.assert_not_called()
+        ctx.recording_objects.filter.assert_not_called()

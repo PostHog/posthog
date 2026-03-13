@@ -32,7 +32,7 @@ MAX_API_KEYS_PER_USER = 10  # Same as in scopes.tsx
 class PersonalAPIKeySerializer(serializers.ModelSerializer):
     # Specifying method name because the serializer class already has a get_value method
     value = serializers.SerializerMethodField(method_name="get_key_value", read_only=True)
-    scopes = serializers.ListField(child=serializers.CharField(required=True), allow_empty=False)
+    scopes = serializers.ListField(child=serializers.CharField(required=True))
     scoped_teams = serializers.ListField(child=serializers.IntegerField(required=False))
     scoped_organizations = serializers.ListField(child=serializers.CharField(required=False))
 
@@ -129,9 +129,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)
-        # TRICKY: Legacy Personal API keys have scopes=None and are shown as ["*"].
-        # An empty list [] is NOT legacy and must be preserved as-is.
-        ret["scopes"] = ["*"] if ret["scopes"] is None else ret["scopes"]
+        ret["scopes"] = ret["scopes"] or ["*"]
         return ret
 
     def create(self, validated_data: dict, **kwargs) -> PersonalAPIKey:

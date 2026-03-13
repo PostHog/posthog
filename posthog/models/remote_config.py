@@ -9,7 +9,6 @@ from django.dispatch.dispatcher import receiver
 from django.http import HttpRequest
 from django.utils import timezone
 
-import requests
 import structlog
 from opentelemetry import trace
 from prometheus_client import Counter
@@ -25,9 +24,10 @@ from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDTModel, execute_with_timeout
+from posthog.security.outbound_proxy import external_requests
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
-from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
+from products.error_tracking.backend.models import ErrorTrackingAutoCaptureControls, ErrorTrackingSuppressionRule
 from products.product_tours.backend.models import ProductTour
 
 tracer = trace.get_tracer(__name__)
@@ -131,6 +131,7 @@ class RemoteConfig(UUIDTModel):
         from posthog.plugins.site import get_decide_site_apps
 
         from products.error_tracking.backend.api.suppression_rules import get_suppression_rules
+        from products.error_tracking.backend.models import get_autocapture_triggers
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
         # should be kept consistent. The JS code should be minified and the JSON should be as small as possible.
@@ -167,6 +168,11 @@ class RemoteConfig(UUIDTModel):
         config["errorTracking"] = {
             "autocaptureExceptions": bool(team.autocapture_exceptions_opt_in),
             "suppressionRules": get_suppression_rules(team) if team.autocapture_exceptions_opt_in else [],
+            **(
+                {"errorTrackingAutocaptureTriggers": get_autocapture_triggers(team.id)}
+                if team.autocapture_exceptions_opt_in
+                else {}
+            ),
         }
 
         # MARK: Logs
@@ -476,7 +482,7 @@ class RemoteConfig(UUIDTModel):
         logger.info(f"Purging CDN for team {self.team_id}", {"data": data})
 
         try:
-            res = requests.post(
+            res = external_requests.post(
                 settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT,
                 headers={"Authorization": f"Bearer {settings.REMOTE_CONFIG_CDN_PURGE_TOKEN}"},
                 json=data,
@@ -591,6 +597,16 @@ def product_tour_deleted(sender, instance, **kwargs):
 
 @receiver(post_save, sender=ErrorTrackingSuppressionRule)
 def error_tracking_suppression_rule_saved(sender, instance: "ErrorTrackingSuppressionRule", created, **kwargs):
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+
+
+@receiver(post_save, sender=ErrorTrackingAutoCaptureControls)
+def error_tracking_autocapture_controls_saved(sender, instance: "ErrorTrackingAutoCaptureControls", created, **kwargs):
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+
+
+@receiver(post_delete, sender=ErrorTrackingAutoCaptureControls)
+def error_tracking_autocapture_controls_deleted(sender, instance: "ErrorTrackingAutoCaptureControls", **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 

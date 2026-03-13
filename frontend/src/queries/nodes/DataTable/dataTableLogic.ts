@@ -4,7 +4,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual, sortedKeys } from 'lib/utils'
-import { RequiredExcept } from 'lib/utils/types'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '~/queries/nodes/DataTable/queryFeatures'
@@ -19,6 +18,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { isDataTableNode, isEventsQuery } from '~/queries/utils'
+import { RequiredExcept } from '~/types'
 
 import type { dataTableLogicType } from './dataTableLogicType'
 import { getColumnsForQuery, removeExpressionComment } from './utils'

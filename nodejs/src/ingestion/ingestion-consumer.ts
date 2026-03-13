@@ -10,6 +10,7 @@ import { KafkaProducerWrapper } from '../kafka/producer'
 import {
     HealthCheckResult,
     HealthCheckResultError,
+    IngestionConsumerConfig,
     PluginServerService,
     PluginsServerConfig,
     RedisPool,
@@ -34,7 +35,6 @@ import {
     JoinedIngestionPipelineInput,
     createJoinedIngestionPipeline,
 } from './analytics'
-import { IngestionConsumerConfig } from './config'
 import { CookielessManager } from './cookieless/cookieless-manager'
 import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, IngestionOutputs } from './event-processing/ingestion-outputs'
 import { parseSplitAiEventsConfig } from './event-processing/split-ai-events-step'
@@ -65,7 +65,7 @@ export interface IngestionConsumerDeps {
     hogTransformer: HogTransformerService
 }
 
-export const latestOffsetTimestampGauge = new Gauge({
+const latestOffsetTimestampGauge = new Gauge({
     name: 'latest_processed_timestamp_ms',
     help: 'Timestamp of the latest offset that has been committed.',
     labelNames: ['topic', 'partition', 'groupId'],

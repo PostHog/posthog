@@ -78,7 +78,13 @@ export function ExperimentWarningBanner(): JSX.Element | null {
         if (experimentWarning) {
             reportExperimentInconsistencyWarningShown(experiment, experimentWarning.key)
         }
-    }, [reportExperimentInconsistencyWarningShown, experimentWarning, experiment])
+    }, [
+        experimentWarning?.key,
+        experimentWarning?.variantKey,
+        reportExperimentInconsistencyWarningShown,
+        experimentWarning,
+        experiment,
+    ])
 
     if (!experimentWarning) {
         return null

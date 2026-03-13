@@ -17,12 +17,10 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
 
     actions({
         mergeIssues: (ids: string[]) => ({ ids }),
-        splitIssue: (
-            id: ErrorTrackingIssue['id'],
-            fingerprints: { fingerprint: string; name?: string; description?: string }[]
-        ) => ({
+        splitIssue: (id: ErrorTrackingIssue['id'], fingerprints: string[], exclusive: boolean = true) => ({
             id,
             fingerprints,
+            exclusive,
         }),
         resolveIssues: (ids: string[]) => ({ ids }),
         suppressIssues: (ids: string[]) => ({ ids }),
@@ -35,7 +33,6 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
         updateIssueDescription: (id: string, description: string) => ({ id, description }),
         createIssueCohort: (id: string, name: string, description: string) => ({ id, name, description }),
 
-        splitIssueSuccess: (newIssueIds: string[]) => ({ newIssueIds }),
         mutationSuccess: (mutationName: string) => ({ mutationName }),
         mutationFailure: (mutationName: string, error: unknown) => ({ mutationName, error }),
         clearNeedsReload: true,
@@ -70,11 +67,10 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                     })
                 }
             },
-            splitIssue: async ({ id, fingerprints }) => {
+            splitIssue: async ({ id, fingerprints, exclusive }) => {
                 await runMutation('splitIssues', async () => {
                     posthog.capture('error_tracking_issue_split', { issueId: id })
-                    const response = await api.errorTracking.split(id, fingerprints)
-                    actions.splitIssueSuccess(response.new_issue_ids)
+                    await api.errorTracking.split(id, fingerprints, exclusive)
                 })
             },
             resolveIssues: async ({ ids }) => {

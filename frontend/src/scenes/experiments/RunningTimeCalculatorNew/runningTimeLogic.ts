@@ -6,7 +6,6 @@ import api from 'lib/api'
 import { ConversionRateInputType, Experiment } from '~/types'
 
 import { DEFAULT_MDE, experimentLogic } from '../experimentLogic'
-import { isLaunched } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import {
     ManualCalculatorMetricType,
@@ -87,7 +86,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
             (s) => [s.experiment, s.isManualMode],
             (experiment, isManualMode): RunningTimeConfig => {
                 // Pre-launch experiments must use manual mode (no data available for automatic)
-                const isPreLaunch = !isLaunched(experiment)
+                const isPreLaunch = !experiment?.start_date
                 return {
                     mode: isPreLaunch || isManualMode ? 'manual' : 'automatic',
                     mde: experiment?.parameters?.minimum_detectable_effect ?? DEFAULT_MDE,
@@ -220,7 +219,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
         persistRunningTimeEstimate: async () => {
             const { isManualMode, remainingDays, targetSampleSize, experiment, currentProjectId } = values
 
-            if (isManualMode || !isLaunched(experiment) || remainingDays === null || targetSampleSize === null) {
+            if (isManualMode || !experiment?.start_date || remainingDays === null || targetSampleSize === null) {
                 return
             }
 

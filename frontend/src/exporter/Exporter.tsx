@@ -9,7 +9,6 @@ import { Logo } from 'lib/brand/Logo'
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
@@ -100,7 +99,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                                 <h1 className="mb-2" data-attr="dashboard-item-title">
                                     {dashboard.name}
                                 </h1>
-                                <LemonMarkdown lowKeyHeadings>{dashboard.description || ''}</LemonMarkdown>
+                                <span>{dashboard.description}</span>
                             </div>
                             <span className="SharedDashboard-header-team">{currentTeam?.name}</span>
                         </div>
@@ -114,7 +113,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                     ) : type === ExportType.Image ? (
                         <>
                             <h1 className="mb-2">{dashboard.name}</h1>
-                            <LemonMarkdown lowKeyHeadings>{dashboard.description || ''}</LemonMarkdown>
+                            <p>{dashboard.description}</p>
                         </>
                     ) : null
                 ) : null}

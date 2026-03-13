@@ -27,6 +27,7 @@ interface SessionInfo {
 export function VercelConnect(): JSX.Element {
     const { searchParams } = useValues(router)
     const sessionKey = searchParams.session
+    const nextUrl = searchParams.next
 
     const [loading, setLoading] = useState(true)
     const [linking, setLinking] = useState(false)
@@ -96,7 +97,7 @@ export function VercelConnect(): JSX.Element {
                 setSuccess(true)
                 setLinking(false)
 
-                const returnUrl = data.next_url
+                const returnUrl = sessionInfo?.next_url || nextUrl
                 if (returnUrl) {
                     window.location.href = returnUrl
                 }
@@ -107,7 +108,7 @@ export function VercelConnect(): JSX.Element {
             })
     }
 
-    const redirectUrl = sessionInfo?.next_url
+    const redirectUrl = sessionInfo?.next_url || nextUrl
 
     if (loading) {
         return (

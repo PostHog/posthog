@@ -47,11 +47,6 @@ export type SdkDoctorResponse = {
 }
 
 // This is the final data used to display in the UI
-export type OutdatedTrafficAlert = {
-    version: SdkVersion
-    thresholdPercent: number
-}
-
 export type AugmentedTeamSdkVersionsInfo = {
     [key in SdkType]?: {
         isOutdated: boolean
@@ -59,7 +54,6 @@ export type AugmentedTeamSdkVersionsInfo = {
         needsUpdating: boolean
         currentVersion: SdkVersion
         allReleases: AugmentedTeamSdkVersionsInfoRelease[]
-        outdatedTrafficAlerts: OutdatedTrafficAlert[]
     }
 }
 
@@ -165,10 +159,8 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                 }
 
                 // Threshold for considering an outdated version's traffic "significant"
-                // Web SDK ships very frequently, so we use a higher threshold (20% vs 10%)
-                // to avoid over-alerting when old versions linger in the 7-day event window
-                const SIGNIFICANT_TRAFFIC_THRESHOLD_WEB = 0.2
-                const SIGNIFICANT_TRAFFIC_THRESHOLD_DEFAULT = 0.1
+                // If an outdated version handles ≥10% of events, flag the SDK as needing attention
+                const SIGNIFICANT_TRAFFIC_THRESHOLD = 0.1
 
                 return Object.fromEntries(
                     Object.entries(rawData).map(([sdkType, teamSdkUsage]) => {
@@ -185,25 +177,15 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                         // Calculate total events across all versions of this SDK
                         const totalEvents = releasesInfo.reduce((sum, r) => sum + r.count, 0)
 
-                        // Check if any outdated version handles significant traffic
-                        // Web SDK uses 20% threshold (ships frequently), others use 10%
+                        // Check if any outdated version handles significant traffic (≥10% of events)
                         // Skip for mobile SDKs - users don't auto-update apps, so outdated versions are expected
                         const isMobileSdk = DEVICE_CONTEXT_CONFIG.mobileSDKs.includes(sdkType as SdkType)
-                        const trafficThreshold =
-                            sdkType === 'web'
-                                ? SIGNIFICANT_TRAFFIC_THRESHOLD_WEB
-                                : SIGNIFICANT_TRAFFIC_THRESHOLD_DEFAULT
-                        const thresholdPercent = trafficThreshold * 100
-
-                        // Find outdated versions exceeding the traffic threshold
-                        const outdatedTrafficAlerts: OutdatedTrafficAlert[] =
-                            !isMobileSdk && totalEvents > 0
-                                ? releasesInfo
-                                      .filter((r) => r.isOutdated && r.count / totalEvents >= trafficThreshold)
-                                      .map((r) => ({ version: r.version, thresholdPercent }))
-                                : []
-
-                        const hasSignificantOutdatedTraffic = outdatedTrafficAlerts.length > 0
+                        const hasSignificantOutdatedTraffic =
+                            !isMobileSdk &&
+                            totalEvents > 0 &&
+                            releasesInfo.some(
+                                (r) => r.isOutdated && r.count / totalEvents >= SIGNIFICANT_TRAFFIC_THRESHOLD
+                            )
 
                         // SDK is outdated if most recent version is outdated OR any outdated version has significant traffic
                         // Safe: backend only includes SDKs with at least one usage entry
@@ -217,7 +199,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 needsUpdating: isOutdated || releasesInfo[0]!.isOld,
                                 currentVersion: teamSdkUsage.latest_version,
                                 allReleases: releasesInfo,
-                                outdatedTrafficAlerts,
                             },
                         ]
                     })
@@ -391,14 +372,13 @@ function computeAugmentedInfoRelease(
             isOld = releasesBehind > 0 && weeksOld > ageThreshold
         }
 
-        // Grace period: Don't flag versions released within the grace period (even if major version behind)
+        // Grace period: Don't flag versions released <7 days ago (even if major version behind)
         // This gives our team time to fix any issues with recent releases before we nag them about new releases
-        // Web SDK ships very frequently, so it gets a longer grace period (14 days vs 7 days)
         //
         // NOTE: If daysSinceRelease is undefined (e.g., failed releases not in GitHub),
         // we continue with release count logic only - this is intentional
         let isRecentRelease = false
-        const GRACE_PERIOD_DAYS = type === 'web' ? 14 : 7
+        const GRACE_PERIOD_DAYS = 7
 
         if (daysSinceRelease !== undefined) {
             isRecentRelease = daysSinceRelease < GRACE_PERIOD_DAYS

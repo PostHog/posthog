@@ -2,7 +2,8 @@ import datetime as dt
 
 import pytest
 
-from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, BatchExportSchema
+from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
+
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
     COMPRESSION_EXTENSIONS,
     FILE_FORMAT_EXTENSIONS,

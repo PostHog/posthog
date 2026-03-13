@@ -2,7 +2,7 @@ import { useActions, useAsyncActions, useValues } from 'kea'
 import { useLayoutEffect, useState } from 'react'
 
 import { IconBell, IconCheck } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { BasicCard } from 'lib/components/Cards/BasicCard'
 import { IconLink } from 'lib/lemon-ui/icons'
@@ -16,15 +16,13 @@ const hasPosthogJsFailedToLoadFeaturePreviews = (): boolean => !!window.POSTHOG_
 // Feature previews can be linked to by using hash in the url
 // example external link: https://app.posthog.com/settings/user-feature-previews#llm-analytics
 export function FeaturePreviews(): JSX.Element {
-    const { filteredEarlyAccessFeatures, rawEarlyAccessFeaturesLoading, searchTerm } = useValues(featurePreviewsLogic)
-    const { loadEarlyAccessFeatures, setSearchTerm } = useActions(featurePreviewsLogic)
+    const { earlyAccessFeatures, rawEarlyAccessFeaturesLoading } = useValues(featurePreviewsLogic)
+    const { loadEarlyAccessFeatures } = useActions(featurePreviewsLogic)
 
     useLayoutEffect(() => loadEarlyAccessFeatures(), [loadEarlyAccessFeatures])
 
-    const betaFeatures = filteredEarlyAccessFeatures.filter((f) => f.stage === 'beta')
-    const shouldShowEmptyState =
-        filteredEarlyAccessFeatures.length === 0 && !rawEarlyAccessFeaturesLoading && !searchTerm
-    const failedToLoadFeaturePreviews = shouldShowEmptyState && hasPosthogJsFailedToLoadFeaturePreviews()
+    const betaFeatures = earlyAccessFeatures.filter((f) => f.stage === 'beta')
+    const failedToLoadFeaturePreviews = earlyAccessFeatures.length === 0 && hasPosthogJsFailedToLoadFeaturePreviews()
 
     return (
         <div className="flex flex-col gap-2">
@@ -49,38 +47,23 @@ export function FeaturePreviews(): JSX.Element {
             {rawEarlyAccessFeaturesLoading ? (
                 <SpinnerOverlay />
             ) : (
-                <>
-                    {!shouldShowEmptyState && (
-                        <LemonInput
-                            type="search"
-                            placeholder="Search feature previews..."
-                            value={searchTerm}
-                            onChange={setSearchTerm}
-                            allowClear
-                        />
-                    )}
-                    {betaFeatures.length === 0 && searchTerm.trim() ? (
-                        <p className="text-secondary text-center mt-4">No matching feature previews</p>
-                    ) : (
-                        betaFeatures.map((feature) => (
-                            <div key={feature.flagKey}>
-                                <FeaturePreview feature={feature} />
-                            </div>
-                        ))
-                    )}
-                </>
+                betaFeatures.map((feature) => (
+                    <div key={feature.flagKey}>
+                        <FeaturePreview feature={feature} />
+                    </div>
+                ))
             )}
         </div>
     )
 }
 
 export function FeaturePreviewsComingSoon(): JSX.Element {
-    const { filteredEarlyAccessFeatures, rawEarlyAccessFeaturesLoading } = useValues(featurePreviewsLogic)
+    const { earlyAccessFeatures, rawEarlyAccessFeaturesLoading } = useValues(featurePreviewsLogic)
     const { loadEarlyAccessFeatures } = useActions(featurePreviewsLogic)
 
     useLayoutEffect(() => loadEarlyAccessFeatures(), [loadEarlyAccessFeatures])
 
-    const conceptFeatures = filteredEarlyAccessFeatures.filter((f) => f.stage === 'concept')
+    const conceptFeatures = earlyAccessFeatures.filter((f) => f.stage === 'concept')
 
     return (
         <div className="flex flex-col gap-2">

@@ -17,7 +17,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { AccessControlLevel, AccessControlResourceType, FeatureFlagEvaluationRuntime, FeatureFlagType } from '~/types'
 
 import { EditableOverviewSection } from './EditableOverviewSection'
-import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
+import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { FeatureFlagInstructions } from './FeatureFlagInstructions'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
@@ -35,22 +35,17 @@ interface FeatureFlagOverviewV2Props {
 
 interface TagsDisplayProps {
     tags: string[]
-    evaluationContexts: string[]
+    evaluationTags: string[]
     flagId: number | null
-    hasEvaluationContexts: boolean
+    hasEvaluationTags: boolean
 }
 
-function TagsDisplay({ tags, evaluationContexts, flagId, hasEvaluationContexts }: TagsDisplayProps): JSX.Element {
-    const hasTags = tags.length > 0 || evaluationContexts.length > 0
+function TagsDisplay({ tags, evaluationTags, flagId, hasEvaluationTags }: TagsDisplayProps): JSX.Element {
+    const hasTags = tags.length > 0 || evaluationTags.length > 0
 
-    if (hasEvaluationContexts && hasTags) {
+    if (hasEvaluationTags && hasTags) {
         return (
-            <FeatureFlagEvaluationContexts
-                tags={tags}
-                evaluationContexts={evaluationContexts}
-                flagId={flagId}
-                context="static"
-            />
+            <FeatureFlagEvaluationTags tags={tags} evaluationTags={evaluationTags} flagId={flagId} context="static" />
         )
     }
 
@@ -206,12 +201,14 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                             <div className="font-semibold">Advanced options</div>
 
                             <div className="flex flex-col gap-2">
-                                {!hasEvaluationTags && <label className="text-sm font-medium">Tags</label>}
+                                <label className="text-sm font-medium">
+                                    {hasEvaluationTags ? 'Tags & evaluation contexts' : 'Tags'}
+                                </label>
                                 <TagsDisplay
                                     tags={featureFlag.tags || []}
-                                    evaluationContexts={featureFlag.evaluation_contexts || []}
+                                    evaluationTags={featureFlag.evaluation_tags || []}
                                     flagId={featureFlag.id}
-                                    hasEvaluationContexts={hasEvaluationTags}
+                                    hasEvaluationTags={hasEvaluationTags}
                                 />
                             </div>
 
@@ -265,12 +262,11 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                             <RecentFeatureFlagInsights />
 
                             <div className="flex flex-col gap-3 mt-2 pt-3 border-t border-border-light">
-                                <div className="flex items-start gap-2">
-                                    <span className="text-sm text-muted flex-1">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-sm text-muted">
                                         Watch recordings of users exposed to this flag
                                     </span>
                                     <ViewRecordingsPlaylistButton
-                                        className="shrink-0"
                                         filters={recordingFilterForFlag}
                                         type="secondary"
                                         size="small"
@@ -286,12 +282,11 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                                     />
                                 </div>
                                 {onGetFeedback && (
-                                    <div className="flex items-start gap-2">
-                                        <span className="text-sm text-muted flex-1">
-                                            Get feedback from users who see this flag
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-sm text-muted">
+                                            Gather feedback from users who see this flag
                                         </span>
                                         <LemonButton
-                                            className="shrink-0"
                                             onClick={() => onGetFeedback()}
                                             type="secondary"
                                             size="small"
@@ -366,7 +361,6 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                                     id={String(featureFlag.id)}
                                     filters={featureFlag.filters}
                                     isDisabled={!featureFlag.active}
-                                    evaluationRuntime={featureFlag.evaluation_runtime}
                                 />
                             </EditableOverviewSection>
                         </>

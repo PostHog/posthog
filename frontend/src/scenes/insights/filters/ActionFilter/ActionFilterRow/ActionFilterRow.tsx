@@ -59,7 +59,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import {
     COUNT_PER_ACTOR_MATH_DEFINITIONS,
     MathCategory,
-    MathDefinition,
     PROPERTY_MATH_DEFINITIONS,
     apiValueToMathType,
     mathTypeToApiValues,
@@ -107,12 +106,8 @@ const SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN = new Set([
     PropertyMathType.Maximum,
 ])
 
-interface DragHandleProps {
-    listeners: DraggableSyntheticListeners | undefined
-}
-
-const DragHandle = ({ listeners }: DragHandleProps): JSX.Element => (
-    <span className="ActionFilterRowDragHandle" {...listeners}>
+const DragHandle = (props: DraggableSyntheticListeners | undefined): JSX.Element => (
+    <span className="ActionFilterRowDragHandle" key="drag-handle" {...props}>
         <SortableDragIcon />
     </span>
 )
@@ -603,7 +598,7 @@ export function ActionFilterRow({
     )
 
     const rowStartElements = [
-        sortable && filterCount > 1 ? <DragHandle key="drag-handle" listeners={listeners} /> : null,
+        sortable && filterCount > 1 ? <DragHandle {...listeners} /> : null,
         showSeriesIndicator && <div key="series-indicator">{seriesIndicator}</div>,
     ].filter(Boolean)
 
@@ -674,7 +669,7 @@ export function ActionFilterRow({
                                             />
                                         )}
                                         {mathAvailability === MathAvailability.BoxPlotOnly && (
-                                            <div className="flex-auto min-w-0">
+                                            <div className="flex-auto overflow-hidden">
                                                 <TaxonomicStringPopover
                                                     groupType={
                                                         mathPropertyType ||
@@ -706,7 +701,7 @@ export function ActionFilterRow({
                                         {mathAvailability !== MathAvailability.BoxPlotOnly &&
                                             mathDefinitions[math || BaseMathType.TotalCount]?.category ===
                                                 MathCategory.PropertyValue && (
-                                                <div className="flex-auto min-w-0">
+                                                <div className="flex-auto overflow-hidden">
                                                     <TaxonomicStringPopover
                                                         groupType={
                                                             mathPropertyType ||
@@ -742,7 +737,7 @@ export function ActionFilterRow({
                                                                             Calculate{' '}
                                                                             {mathDefinitions[
                                                                                 math ?? ''
-                                                                            ]?.name.toLowerCase()}{' '}
+                                                                            ].name.toLowerCase()}{' '}
                                                                             of the session duration. This is based on
                                                                             the <code>$session_id</code> property
                                                                             associated with events. The duration is
@@ -755,7 +750,7 @@ export function ActionFilterRow({
                                                                             Calculate{' '}
                                                                             {mathDefinitions[
                                                                                 math ?? ''
-                                                                            ]?.name.toLowerCase()}{' '}
+                                                                            ].name.toLowerCase()}{' '}
                                                                             from property <code>{currentValue}</code>.
                                                                             Note that only {name} occurrences where{' '}
                                                                             <code>{currentValue}</code> is set with a
@@ -777,7 +772,7 @@ export function ActionFilterRow({
                                             )}
                                         {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
                                             MathCategory.HogQLExpression && (
-                                            <div className="flex-auto min-w-0">
+                                            <div className="flex-auto overflow-hidden">
                                                 <LemonDropdown
                                                     visible={isHogQLDropdownVisible}
                                                     closeOnClickInside={false}
@@ -1092,7 +1087,6 @@ function useMathSelectorOptions({
     const isGroupsEnabled = !needsUpgradeForGroups && !canStartUsingGroups
 
     const options: LemonSelectOption<string>[] = Object.entries(definitions)
-        .filter((entry): entry is [string, MathDefinition] => !!entry[1])
         .filter(([key]) => {
             const mathTypeKey = key as MathType
             if (isStickiness) {
@@ -1243,13 +1237,11 @@ function useMathSelectorOptions({
                 label: 'users',
                 'data-attr': `math-users-${index}`,
             },
-            ...Object.entries(groupsMathDefinitions)
-                .filter((entry): entry is [string, MathDefinition] => !!entry[1])
-                .map(([key, definition]) => ({
-                    value: key,
-                    label: definition.shortName,
-                    'data-attr': `math-${key}-${index}`,
-                })),
+            ...Object.entries(groupsMathDefinitions).map(([key, definition]) => ({
+                value: key,
+                label: definition.shortName,
+                'data-attr': `math-${key}-${index}`,
+            })),
         ]
 
         const uniqueUsersIndex = options.findIndex(
@@ -1261,7 +1253,7 @@ function useMathSelectorOptions({
             const label = isDau ? 'Unique users' : `Unique ${aggregationLabel(mathGroupTypeIndex).plural}`
             const tooltip = isDau
                 ? options[uniqueUsersIndex].tooltip
-                : groupsMathDefinitions[uniqueActorsShown]?.description
+                : groupsMathDefinitions[uniqueActorsShown].description
             options[uniqueUsersIndex] = {
                 value,
                 label,

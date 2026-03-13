@@ -70,7 +70,7 @@ export const dataWarehouseSourcesTableSyncMethodModalLogic = kea<dataWarehouseSo
     }),
     listeners(({ actions }) => ({
         updateSchemaSuccess: () => {
-            actions.loadSources()
+            actions.loadSources(null)
             actions.resetSchemaIncrementalFields()
             actions.closeSyncMethodModal()
         },

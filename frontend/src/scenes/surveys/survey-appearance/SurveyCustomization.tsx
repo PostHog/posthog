@@ -3,7 +3,9 @@ import { useValues } from 'kea'
 import { LemonCheckbox, LemonDialog, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { defaultSurveyAppearance } from 'scenes/surveys/constants'
 import { SurveyAppearanceModal } from 'scenes/surveys/survey-appearance/SurveyAppearanceModal'
@@ -25,7 +27,6 @@ export function Customization({
     onAppearanceChange,
     deleteBranchingLogic,
     validationErrors,
-    disabledReason,
 }: CustomizationProps): JSX.Element {
     const { surveysStylingAvailable } = useValues(surveysLogic)
     const surveyShufflingQuestionsAvailable = true
@@ -33,6 +34,10 @@ export function Customization({
         ? ''
         : 'Please add more than one question to the survey to enable shuffling questions'
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const surveyAppearance = { ...defaultSurveyAppearance, ...survey.appearance }
 
@@ -50,7 +55,6 @@ export function Customization({
                     hasPlaceholderText={hasPlaceholderText}
                     hasRatingButtons={hasRatingButtons}
                     validationErrors={validationErrors}
-                    disabledReason={disabledReason}
                 />
                 {survey.type !== SurveyType.ExternalSurvey && (
                     <>
@@ -59,7 +63,6 @@ export function Customization({
                             onAppearanceChange={onAppearanceChange}
                             validationErrors={validationErrors}
                             surveyType={survey.type}
-                            disabledReason={disabledReason}
                         />
                         <LemonDivider />
                     </>
@@ -70,7 +73,6 @@ export function Customization({
                     validationErrors={validationErrors}
                     customizeRatingButtons={hasRatingButtons}
                     customizePlaceholderText={hasPlaceholderText}
-                    disabledReason={disabledReason}
                 />
                 <LemonDivider />
                 <div className="flex flex-col gap-1">
@@ -90,11 +92,11 @@ export function Customization({
                             }
                         }}
                         checked={survey.appearance?.whiteLabel}
-                        disabledReason={disabledReason}
+                        disabledReason={restrictedReason}
                     />
                     <div className="flex flex-col gap-2">
                         <LemonCheckbox
-                            disabledReason={disabledReason ?? surveyShufflingQuestionsDisabledReason}
+                            disabledReason={restrictedReason ?? surveyShufflingQuestionsDisabledReason}
                             label={
                                 <div className="flex items-center">
                                     <span>Shuffle questions</span>
@@ -142,7 +144,7 @@ export function Customization({
                                         const surveyPopupDelaySeconds = checked ? 5 : undefined
                                         onAppearanceChange({ surveyPopupDelaySeconds })
                                     }}
-                                    disabledReason={disabledReason}
+                                    disabledReason={restrictedReason}
                                 />
                                 Delay survey popup by at least{' '}
                                 <LemonInput
@@ -156,13 +158,11 @@ export function Customization({
                                         if (newValue && newValue > 0) {
                                             onAppearanceChange({ surveyPopupDelaySeconds: newValue })
                                         } else {
-                                            onAppearanceChange({
-                                                surveyPopupDelaySeconds: undefined,
-                                            })
+                                            onAppearanceChange({ surveyPopupDelaySeconds: undefined })
                                         }
                                     }}
                                     className="w-12 ignore-error-border"
-                                    disabledReason={disabledReason}
+                                    disabledReason={restrictedReason}
                                 />{' '}
                                 seconds once the display conditions are met.
                             </div>

@@ -17,7 +17,7 @@ import { capitalizeFirstLetter, dateFilterToText } from 'lib/utils'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 import { humanizePathsEventTypes } from 'scenes/insights/utils'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
-import { MathCategory, apiValueToMathType, mathsLogic } from 'scenes/trends/mathsLogic'
+import { MathCategory, MathDefinition, apiValueToMathType, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 
 import {
@@ -52,7 +52,7 @@ import {
     isTrendsQuery,
     isValidBreakdown,
 } from '~/queries/utils'
-import { AnyPropertyFilter, BaseMathType, FilterLogicalOperator, PropertyGroupFilter, UserBasicType } from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator, PropertyGroupFilter, UserBasicType } from '~/types'
 
 import { PropertyKeyInfo } from '../../PropertyKeyInfo'
 import { TZLabel } from '../../TZLabel'
@@ -113,12 +113,13 @@ function SeriesDisplay({
 
     const hasBreakdown = isInsightQueryWithBreakdown(query) && isValidBreakdown(query.breakdownFilter)
 
-    const mathKey = isLifecycleQuery(query)
-        ? BaseMathType.UniqueUsers
-        : series.math
-          ? apiValueToMathType(series.math, series.math_group_type_index)
-          : BaseMathType.TotalCount
-    const mathDefinition = mathDefinitions[mathKey]
+    const mathDefinition = mathDefinitions[
+        isLifecycleQuery(query)
+            ? 'dau'
+            : series.math
+              ? apiValueToMathType(series.math, series.math_group_type_index)
+              : 'total'
+    ] as MathDefinition | undefined
 
     const entityDisplay =
         series.kind === 'GroupNode' ? (

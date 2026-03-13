@@ -78,8 +78,6 @@ interface InsightMetaProps extends Pick<
     | 'placement'
     | 'surveyOpportunity'
 > {
-    /** Called when the user mousedowns on the card meta (drag handle) in view mode to enter edit mode. */
-    onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
     tile?: DashboardTile<QueryBasedInsightModel>
     insight: QueryBasedInsightModel
     areDetailsShown?: boolean
@@ -112,7 +110,6 @@ export function InsightMeta({
     moreButtons,
     placement,
     surveyOpportunity,
-    onDragHandleMouseDown,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, dashboards, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
     const { insightProps, insightFeedback } = useValues(insightLogic)
@@ -210,7 +207,6 @@ export function InsightMeta({
                 areDetailsShown={areDetailsShown}
                 detailsTooltip="Show insight details, such as creator, last edit, and applied filters."
                 topHeading={null}
-                onMouseDown={onDragHandleMouseDown}
                 content={
                     <InsightMetaContent
                         link={undefined}
@@ -244,7 +240,6 @@ export function InsightMeta({
             setAreDetailsShown={setAreDetailsShown}
             areDetailsShown={areDetailsShown}
             detailsTooltip="Show insight details, such as creator, last edit, and applied filters."
-            onMouseDown={onDragHandleMouseDown}
             topHeading={
                 showCompactHeading ? <TopHeading {...topHeadingProps} showInsightType={!showCompactTile} /> : null
             }
@@ -290,9 +285,7 @@ export function InsightMeta({
                     : undefined
             }
             metaDetails={
-                showDetailsControls ? (
-                    <InsightDetails query={insight.query} footerInfo={insight} variablesOverride={variablesOverride} />
-                ) : null
+                <InsightDetails query={insight.query} footerInfo={insight} variablesOverride={variablesOverride} />
             }
             samplingFactor={samplingFactor}
             moreButtons={

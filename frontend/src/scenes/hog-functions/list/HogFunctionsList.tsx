@@ -51,7 +51,6 @@ const INTERNAL_DESTINATION_CONTEXT: Partial<
         url: urls.errorTrackingConfiguration() + '#selectedSetting=error-tracking-alerting',
     },
     'insight-alerts': { label: 'Insight alerts' },
-    'experiment-alerts': { label: 'Experiment alerts' },
 }
 
 function NotificationContextTag({ hogFunction }: { hogFunction: HogFunctionType }): JSX.Element | null {

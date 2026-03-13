@@ -1,21 +1,17 @@
 // AUTO-GENERATED from products/workflows/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Schemas } from '@/api/generated'
 import { HogFlowsListQueryParams, HogFlowsRetrieveParams } from '@/generated/workflows/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const WorkflowsListSchema = HogFlowsListQueryParams
 
-const workflowsList = (): ToolBase<
-    typeof WorkflowsListSchema,
-    Schemas.PaginatedHogFlowMinimalList & { _posthogUrl: string }
-> => ({
+const workflowsList = (): ToolBase<typeof WorkflowsListSchema> => ({
     name: 'workflows-list',
     schema: WorkflowsListSchema,
     handler: async (context: Context, params: z.infer<typeof WorkflowsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedHogFlowMinimalList>({
+        const result = await context.api.request({
             method: 'GET',
             path: `/api/projects/${projectId}/hog_flows/`,
             query: {
@@ -29,36 +25,23 @@ const workflowsList = (): ToolBase<
         })
         return {
             ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/pipeline/destinations`,
+            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/workflows`,
         }
-    },
-    _meta: {
-        ui: {
-            resourceUri: 'ui://posthog/workflow-list.html',
-        },
     },
 })
 
 const WorkflowsGetSchema = HogFlowsRetrieveParams.omit({ project_id: true })
 
-const workflowsGet = (): ToolBase<typeof WorkflowsGetSchema, Schemas.HogFlow & { _posthogUrl: string }> => ({
+const workflowsGet = (): ToolBase<typeof WorkflowsGetSchema> => ({
     name: 'workflows-get',
     schema: WorkflowsGetSchema,
     handler: async (context: Context, params: z.infer<typeof WorkflowsGetSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.HogFlow>({
+        const result = await context.api.request({
             method: 'GET',
             path: `/api/projects/${projectId}/hog_flows/${params.id}/`,
         })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/pipeline/destinations/hog-${(result as any).id}`,
-        }
-    },
-    _meta: {
-        ui: {
-            resourceUri: 'ui://posthog/workflow.html',
-        },
+        return result
     },
 })
 

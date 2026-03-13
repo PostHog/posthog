@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { DetectiveHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -111,22 +111,23 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
         },
     ]
 
-    const isEmpty = alertsSortedByState.length === 0 && !alertsLoading
     // TODO: add info here to sign up for alerts early access
     return (
         <>
-            {isEmpty && (
+            {alertsSortedByState.length === 0 && !alertsLoading && (
                 <ProductIntroduction
                     productName="Alerts"
                     productKey={ProductKey.ALERTS}
                     thingName="alert"
                     description="Alerts enable you to monitor your insight and notify you when certain conditions are met."
-                    isEmpty
+                    // TODO: update docs link when ready
+                    // docsURL="https://posthog.com/docs/data/annotations"
+                    isEmpty={alertsSortedByState.length === 0 && !alertsLoading}
                     customHog={DetectiveHog}
                     actionElementOverride={
                         <span className="italic">
-                            To get started, visit a <Link to={urls.insights()}>trends insight</Link>, visit the
-                            'Actions' in the sidebar and click 'Alerts'
+                            To get started, visit a trends insight, expand options in the header and click 'Manage
+                            Alerts'
                         </span>
                     }
                 />
@@ -147,18 +148,16 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
                 />
             )}
 
-            {isEmpty ? null : (
-                <LemonTable
-                    loading={alertsLoading}
-                    columns={columns}
-                    dataSource={alertsSortedByState}
-                    noSortingCancellation
-                    rowKey="id"
-                    loadingSkeletonRows={5}
-                    nouns={['alert', 'alerts']}
-                    rowClassName={(alert) => (alert.state === AlertState.NOT_FIRING ? null : 'highlighted')}
-                />
-            )}
+            <LemonTable
+                loading={alertsLoading}
+                columns={columns}
+                dataSource={alertsSortedByState}
+                noSortingCancellation
+                rowKey="id"
+                loadingSkeletonRows={5}
+                nouns={['alert', 'alerts']}
+                rowClassName={(alert) => (alert.state === AlertState.NOT_FIRING ? null : 'highlighted')}
+            />
         </>
     )
 }

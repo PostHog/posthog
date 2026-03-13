@@ -35,33 +35,21 @@ import { HighlightedXMLViewer } from './HighlightedXMLViewer'
 import { MessageActionsMenu } from './MessageActionsMenu'
 import { XMLViewer } from './XMLViewer'
 
-export type ConversationDisplayOption =
-    | 'expand_all'
-    | 'expand_user_only'
-    | 'collapse_except_output_and_last_input'
-    | 'text_view'
+export type ConversationDisplayOption = 'expand_all' | 'collapse_except_output_and_last_input' | 'text_view'
 type MessageType = 'input' | 'output'
 
 function getInitialMessageShowStates(
-    inputMessages: CompatMessage[],
-    outputMessages: CompatMessage[],
+    inputCount: number,
+    outputCount: number,
     displayOption: ConversationDisplayOption = 'collapse_except_output_and_last_input'
 ): { input: boolean[]; output: boolean[] } {
-    const inputStates = inputMessages.map((message, i) => {
+    const inputStates = new Array(inputCount).fill(false).map((_, i) => {
         if (displayOption === 'expand_all') {
             return true
         }
-        if (displayOption === 'expand_user_only') {
-            return message.role === 'user'
-        }
-        return i === inputMessages.length - 1
+        return i === inputCount - 1
     })
-    const outputStates = outputMessages.map((message) => {
-        if (displayOption === 'expand_user_only') {
-            return message.role === 'user'
-        }
-        return true
-    })
+    const outputStates = new Array(outputCount).fill(true)
     return { input: inputStates, output: outputStates }
 }
 
@@ -92,13 +80,11 @@ export function ConversationMessagesDisplay({
     generationEventId?: string
 }): JSX.Element {
     const [messageShowStates, setMessageShowStates] = React.useState(() =>
-        getInitialMessageShowStates(inputNormalized, outputNormalized, displayOption)
+        getInitialMessageShowStates(inputNormalized.length, outputNormalized.length, displayOption)
     )
     const [isRenderingMarkdown, setIsRenderingMarkdown] = React.useState(true)
     const [isRenderingXml, setIsRenderingXml] = React.useState(false)
     const previousSearchQueryRef = React.useRef('')
-    const inputRolesSignature = inputNormalized.map((message) => message.role).join('|')
-    const outputRolesSignature = outputNormalized.map((message) => message.role).join('|')
     const inputMessageShowStates = messageShowStates.input
     const outputMessageShowStates = messageShowStates.output
     const { getGenerationSentiment } = useValues(llmGenerationSentimentLazyLoaderLogic)
@@ -140,8 +126,10 @@ export function ConversationMessagesDisplay({
 
     // Initialize message states when message counts or display option changes.
     React.useEffect(() => {
-        setMessageShowStates(getInitialMessageShowStates(inputNormalized, outputNormalized, displayOption))
-    }, [inputNormalized.length, outputNormalized.length, inputRolesSignature, outputRolesSignature, displayOption])
+        setMessageShowStates(
+            getInitialMessageShowStates(inputNormalized.length, outputNormalized.length, displayOption)
+        )
+    }, [inputNormalized.length, outputNormalized.length, displayOption])
 
     // Expand only messages matching the current search query.
     React.useEffect(() => {
@@ -157,7 +145,9 @@ export function ConversationMessagesDisplay({
             })
             setMessageShowStates({ input: inputMatches, output: outputMatches })
         } else if (previousSearchQueryRef.current) {
-            setMessageShowStates(getInitialMessageShowStates(inputNormalized, outputNormalized, displayOption))
+            setMessageShowStates(
+                getInitialMessageShowStates(inputNormalized.length, outputNormalized.length, displayOption)
+            )
         }
         previousSearchQueryRef.current = trimmedSearchQuery
     }, [searchQuery, inputNormalized, outputNormalized, inputNormalized.length, outputNormalized.length, displayOption])

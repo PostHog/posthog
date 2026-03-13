@@ -264,7 +264,8 @@ jobs:
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev --directory ..
 
             - name: Install sqlx-cli
-              uses: ./.github/actions/setup-sqlx-cli
+              run: |
+                  cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
 
             - name: Set up databases
               env:
@@ -293,12 +294,7 @@ jobs:
               run: |
                   for pkg in ${{ matrix.packages }}; do
                       echo "::group::Testing $pkg"
-                      extra_args=""
-                      # Limit test threads for packages with sqlx pool exhaustion issues
-                      if [ "$pkg" = "property-defs-rs" ]; then
-                          extra_args="-- --test-threads=4"
-                      fi
-                      cargo test -p "$pkg" $extra_args
+                      cargo test -p "$pkg"
                       echo "::endgroup::"
                   done
 

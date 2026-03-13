@@ -9,10 +9,10 @@ from typing import Any
 
 from django.conf import settings
 
-from posthog.security.outbound_proxy import internal_requests_session
+import requests
 
 # Reusable session for proxying to the flags service with connection pooling
-_FLAGS_SERVICE_SESSION = internal_requests_session()
+_FLAGS_SERVICE_SESSION = requests.Session()
 
 
 def get_flags_from_service(

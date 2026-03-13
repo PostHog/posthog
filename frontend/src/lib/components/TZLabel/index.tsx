@@ -52,7 +52,7 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
     const { reportTimezoneComponentViewed } = useActions(eventUsageLogic)
 
     const copyDateTime = (dateTime: dayjs.Dayjs, label: string): void => {
-        void copyToClipboard(dateTime.format(DATE_OUTPUT_FORMAT), label)
+        void copyToClipboard(dateTime.toDate().toISOString(), label)
     }
 
     const copyUnixTimestamp = (unixTimestamp: number, label: string): void => {

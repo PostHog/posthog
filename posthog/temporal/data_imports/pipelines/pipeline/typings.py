@@ -1,5 +1,5 @@
 import dataclasses
-from collections.abc import AsyncIterable, Callable, Iterable
+from collections.abc import Callable, Iterable
 from typing import Any, ClassVar, Literal, NotRequired, Optional, Protocol, TypedDict, TypeVar
 
 from dlt.common.data_types.typing import TDataType
@@ -22,7 +22,7 @@ ResumableData = TypeVar("ResumableData", bound=_Dataclass)
 @dataclasses.dataclass
 class SourceResponse:
     name: str
-    items: Callable[[], Iterable[Any] | AsyncIterable[Any]]
+    items: Callable[[], Iterable[Any]]
     primary_keys: list[str] | None
     column_hints: dict[str, TDataType | None] | None = None  # Legacy support for DLT sources
     partition_count: Optional[int] = None
@@ -54,7 +54,6 @@ class SourceInputs:
     incremental_field_type: Optional[IncrementalFieldType]
     job_id: str
     logger: FilteringBoundLogger
-    reset_pipeline: bool
 
 
 class PipelineResult(TypedDict):

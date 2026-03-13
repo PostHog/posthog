@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { Counter, Histogram } from 'prom-client'
 
 import { ExecResult, convertHogToJS } from '@posthog/hogvm'
@@ -71,6 +72,8 @@ const cdpHttpRequestTimingRetried = new Histogram({
     buckets: [0, 10, 20, 50, 100, 200, 500, 1000, 2000, 3000, 5000, 10000],
 })
 
+export const shadowFetchContext = new AsyncLocalStorage<boolean>()
+
 // Stale keep-alive connections produce these errors when the server has closed its end before
 // we reuse the socket. A single in-process retry on a fresh connection may resolve them immediately.
 export function isConnectionLevelError(error: any): boolean {
@@ -92,6 +95,20 @@ export async function cdpTrackedFetch({
     fetchParams: FetchOptions
     templateId: string
 }): Promise<{ fetchError: Error | null; fetchResponse: FetchResponse | null; fetchDuration: number }> {
+    if (shadowFetchContext.getStore()) {
+        return {
+            fetchError: null,
+            fetchResponse: {
+                status: 200,
+                headers: {},
+                text: () => Promise.resolve(''),
+                json: () => Promise.resolve(null),
+                dump: () => Promise.resolve(),
+            },
+            fetchDuration: 0,
+        }
+    }
+
     const start = performance.now()
 
     let [fetchError, fetchResponse] = await tryCatch(async () => await fetch(url, fetchParams))
@@ -380,13 +397,7 @@ export class HogExecutorService {
         options: HogExecutorExecuteOptions = {},
         previousResult: Pick<
             Partial<CyclotronJobInvocationResult>,
-            | 'finished'
-            | 'capturedPostHogEvents'
-            | 'warehouseWebhookPayloads'
-            | 'logs'
-            | 'metrics'
-            | 'error'
-            | 'execResult'
+            'finished' | 'capturedPostHogEvents' | 'logs' | 'metrics' | 'error' | 'execResult'
         > = {}
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const loggingContext = {
@@ -742,7 +753,7 @@ export class HogExecutorService {
 
         result.metrics.push({
             team_id: invocation.teamId,
-            app_source_id: invocation.parentRunId ?? invocation.functionId,
+            app_source_id: invocation.functionId,
             metric_kind: 'other',
             metric_name: 'fetch',
             count: 1,

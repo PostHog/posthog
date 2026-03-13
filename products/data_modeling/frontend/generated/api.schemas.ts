@@ -11,8 +11,7 @@ export interface EdgeApi {
     readonly id: string
     readonly source_id: string
     readonly target_id: string
-    /** @nullable */
-    dag_fk?: string | null
+    readonly dag_id_text: string
     properties?: unknown
     readonly created_at: string
     /** @nullable */
@@ -48,10 +47,8 @@ export interface NodeApi {
     /** @maxLength 2048 */
     name: string
     type?: NodeTypeEnumApi
-    /** @nullable */
-    dag_fk?: string | null
-    /** @maxLength 1024 */
-    description?: string
+    /** @maxLength 256 */
+    dag_id_text?: string
     /** @nullable */
     readonly saved_query_id: string | null
     readonly created_at: string

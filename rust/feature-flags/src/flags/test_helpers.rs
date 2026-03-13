@@ -131,7 +131,6 @@ pub async fn get_flags_from_redis(
 
     Ok(FeatureFlagList {
         flags: wrapper.flags,
-        ..Default::default()
     })
 }
 

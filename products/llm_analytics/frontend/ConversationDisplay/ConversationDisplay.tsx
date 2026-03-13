@@ -1,7 +1,7 @@
 import { useActions } from 'kea'
 import React from 'react'
 
-import { IconPlay } from '@posthog/icons'
+import { IconChat } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { EventType } from '~/types'
@@ -21,15 +21,13 @@ export interface ConversationDisplayProps {
 export function ConversationDisplay({ eventProperties, eventId }: ConversationDisplayProps): JSX.Element {
     const { setupPlaygroundFromEvent } = useActions(llmPlaygroundPromptsLogic)
 
-    const rawInput = eventProperties.$ai_input ?? eventProperties.$ai_input_state
-    const rawOutput = eventProperties.$ai_output_choices ?? eventProperties.$ai_output_state
     const { input, output, isLoading } = useAIData({
         uuid: eventId,
-        input: rawInput,
-        output: rawOutput,
+        input: eventProperties.$ai_input,
+        output: eventProperties.$ai_output_choices,
     })
 
-    const handleOpenInPlayground = (): void => {
+    const handleTryInPlayground = (): void => {
         setupPlaygroundFromEvent({
             model: eventProperties.$ai_model,
             provider: eventProperties.$ai_provider,
@@ -76,12 +74,12 @@ export function ConversationDisplay({ eventProperties, eventId }: ConversationDi
                     <LemonButton
                         type="secondary"
                         size="small"
-                        icon={<IconPlay />}
-                        onClick={handleOpenInPlayground}
-                        tooltip="Open in Playground"
-                        data-attr="llma-playground-open-from-conversation"
+                        icon={<IconChat />}
+                        onClick={handleTryInPlayground}
+                        tooltip="Try this prompt in the playground"
+                        data-attr="try-in-playground-conversation"
                     >
-                        Open in Playground
+                        Try in Playground
                     </LemonButton>
                 )}
             </header>

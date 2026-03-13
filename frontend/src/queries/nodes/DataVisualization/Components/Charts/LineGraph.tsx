@@ -27,8 +27,6 @@ import {
     TickOptions,
     TooltipModel,
 } from 'lib/Chart'
-import { resolveVariableColor } from 'lib/charts/utils/color'
-import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -38,6 +36,8 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hexToRGBA, uuid } from 'lib/utils'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
+import { createXAxisTickCallback } from 'scenes/insights/views/LineGraph/formatXAxisTick'
+import { resolveVariableColor } from 'scenes/insights/views/LineGraph/LineGraph'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ChartSettings, GoalLine, YAxisSettings } from '~/queries/schema/schema-general'
@@ -113,7 +113,7 @@ const getYAxisSettings = (
 
 export type LineGraphProps = {
     xData: AxisSeries<string> | null
-    yData: AxisSeries<number | null>[] | AxisBreakdownSeries<number>[]
+    yData: AxisSeries<number>[] | AxisBreakdownSeries<number>[]
     visualizationType: ChartDisplayType
     chartSettings: ChartSettings
     presetChartHeight?: boolean
@@ -133,7 +133,7 @@ export const LineGraph = ({
     goalLines = [],
     className,
 }: LineGraphProps): JSX.Element => {
-    const { tooltipId, getTooltip, showTooltip, hideTooltip, positionTooltip } = useInsightTooltip()
+    const { tooltipId, getTooltip, positionTooltip } = useInsightTooltip()
     const { ref: containerRef, height } = useResizeObserver()
 
     const logicKey = useMemo(() => uuid(), [])
@@ -261,9 +261,7 @@ export const LineGraph = ({
                 datasets,
             }
 
-            const annotations = goalLines.reduce<{
-                annotations: Record<string, LineAnnotationOptions & { type: 'line' }>
-            }>(
+            const annotations = goalLines.reduce(
                 (acc, cur, curIndex) => {
                     const line: LineAnnotationOptions = {
                         borderWidth: 2,
@@ -323,8 +321,8 @@ export const LineGraph = ({
 
                     return acc
                 },
-                { annotations: {} }
-            ) as AnnotationPluginOptions
+                { annotations: {} } as AnnotationPluginOptions
+            )
 
             const tickOptions: Partial<TickOptions> = {
                 color: colors.axisLabel as Color,
@@ -412,13 +410,13 @@ export const LineGraph = ({
 
                             const [tooltipRoot, tooltipEl] = getTooltip()
                             if (tooltip.opacity === 0) {
-                                hideTooltip()
+                                tooltipEl.style.opacity = '0'
                                 return
                             }
 
                             tooltipEl.classList.remove('above', 'below', 'no-transform')
                             tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
-                            showTooltip()
+                            tooltipEl.style.opacity = '1'
 
                             if (tooltip.body) {
                                 const referenceDataPoint = tooltip.dataPoints[0]
@@ -430,14 +428,10 @@ export const LineGraph = ({
                                 const stackedSeriesTotalAtIndex =
                                     isStackedBarChart && chartSettings.stackBars100
                                         ? ySeriesData.reduce(
-                                              (acc, series) => acc + (series.data[referenceDataPoint.dataIndex] ?? 0),
+                                              (acc, series) => acc + series.data[referenceDataPoint.dataIndex],
                                               0
                                           )
                                         : null
-
-                                filteredSeriesData = filteredSeriesData.filter(
-                                    (series) => series.data[referenceDataPoint.dataIndex] !== null
-                                )
 
                                 const isTruncated = filteredSeriesData.length > TOOLTIP_ROW_CUTOFF
                                 if (isTruncated) {
@@ -463,10 +457,8 @@ export const LineGraph = ({
                                     }
                                 })
 
-                                const tooltipTotalData = ySeriesData.filter(
-                                    (n) =>
-                                        n.settings?.formatting?.style !== 'percent' &&
-                                        n.data[referenceDataPoint.dataIndex] !== null
+                                const tooltipTotalData = filteredSeriesData.filter(
+                                    (n) => n.settings?.formatting?.style !== 'percent'
                                 )
 
                                 // Don't show total row when highlighting a single bar
@@ -476,7 +468,7 @@ export const LineGraph = ({
                                     !isHighlightBarMode
                                 ) {
                                     const totalRawData = tooltipTotalData.reduce((acc, cur) => {
-                                        acc += cur.data[referenceDataPoint.dataIndex] ?? 0
+                                        acc += cur.data[referenceDataPoint.dataIndex]
                                         return acc
                                     }, 0)
 
@@ -542,9 +534,8 @@ export const LineGraph = ({
                                                                     </div>
                                                                 )
                                                             }
-                                                            const rawData = record.rawData ?? 0
                                                             const percentageLabel: number = parseFloat(
-                                                                ((rawData / total) * 100).toFixed(1)
+                                                                ((record.rawData / total) * 100).toFixed(1)
                                                             )
 
                                                             return (

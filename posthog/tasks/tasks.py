@@ -7,7 +7,6 @@ from django.conf import settings
 from django.db import connection
 from django.utils import timezone
 
-import requests
 from celery import shared_task
 from prometheus_client import Counter, Gauge
 from redis import Redis
@@ -23,6 +22,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
 from posthog.ph_client import get_regional_ph_client
 from posthog.redis import get_client
+from posthog.security.outbound_proxy import external_requests
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 
@@ -281,7 +281,7 @@ def ingestion_lag() -> None:
         pass
 
     for team in Team.objects.filter(pk__in=team_ids):
-        requests.post(
+        external_requests.post(
             settings.SITE_URL + "/e",
             json={
                 "event": "$heartbeat",

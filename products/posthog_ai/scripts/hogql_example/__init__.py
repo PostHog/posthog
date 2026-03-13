@@ -64,7 +64,10 @@ def render_hogql_example(query_dict: dict[str, Any]) -> str:
 
         hogql_filters = HogQLFilters()
         if isinstance(runner, ErrorTrackingQueryRunner):
-            hogql_filters = runner._builder.hogql_filters()
+            hogql_filters = HogQLFilters(
+                filterTestAccounts=runner.query.filterTestAccounts,
+                properties=runner.hogql_properties,
+            )
         elif isinstance(runner, LogsQueryRunner):
             hogql_filters = HogQLFilters(dateRange=runner.query.dateRange)
         ast_query = replace_filters(ast_query, hogql_filters, _cached_team)

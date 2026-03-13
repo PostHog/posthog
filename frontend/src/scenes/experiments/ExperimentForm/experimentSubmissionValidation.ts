@@ -1,6 +1,5 @@
 import type { Experiment } from '~/types'
 
-import type { FeatureFlagKeyValidation } from './variantsPanelLogic'
 import { getVariantValidationErrors } from './variantsPanelValidation'
 
 export type ExperimentSubmissionValidationResult = {
@@ -15,7 +14,7 @@ export const validateExperimentSubmission = ({
     experimentErrors,
 }: {
     experiment: Experiment
-    featureFlagKeyValidation: FeatureFlagKeyValidation | null
+    featureFlagKeyValidation: { valid: boolean; error: string | null } | null
     mode: 'create' | 'link'
     experimentErrors: Record<string, string>
 }): ExperimentSubmissionValidationResult => {

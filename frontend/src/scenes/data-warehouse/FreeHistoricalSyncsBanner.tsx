@@ -18,8 +18,7 @@ export function FreeHistoricalSyncsBanner({ hideGetStarted }: { hideGetStarted?:
                 <div className="flex flex-col gap-1.5">
                     <div className="flex items-center gap-2">
                         <span className="text-sm">
-                            Sync all your historical data from any new source for free during the first 7 days (100M
-                            rows limit for the free plan)
+                            Sync all your historical data from any new source for free during the first 7 days
                         </span>
 
                         <LemonButton

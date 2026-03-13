@@ -1,7 +1,6 @@
 use crate::{
     api::{
         errors::{ClientFacingError, FlagError},
-        flags_rate_limiter::RateLimitResult,
         types::{
             ConfigResponse, FlagsQueryParams, FlagsResponse, LegacyFlagsResponse, ServiceResponse,
         },
@@ -15,7 +14,7 @@ use crate::{
 };
 // TODO: stream this instead
 use axum::extract::{MatchedPath, Query, State};
-use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
+use axum::http::{HeaderMap, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::{debug_handler, Json};
 use axum_client_ip::InsecureClientIp;
@@ -329,35 +328,21 @@ pub async fn flags(
         // This order ensures that an attacker cannot bypass rate limiting by
         // simply rotating through fake tokens from the same IP address.
 
-        let mut rate_limit_warned = false;
-
         // Check IP-based rate limit first
-        match state.ip_rate_limiter.allow_request(&ip_string) {
-            RateLimitResult::Blocked => {
-                return Err(rate_limit_error(FlagError::ClientFacing(
-                    ClientFacingError::IpRateLimited,
-                )));
-            }
-            RateLimitResult::Warned => rate_limit_warned = true,
-            RateLimitResult::Allowed => {}
+        if !state.ip_rate_limiter.allow_request(&ip_string) {
+            return Err(rate_limit_error(FlagError::ClientFacing(
+                ClientFacingError::IpRateLimited,
+            )));
         }
 
         // Check token-based rate limit
         // Extract token from body, use IP as fallback if extraction fails
         let rate_limit_key =
             decoding::extract_token(&context.body).unwrap_or_else(|| ip_string.clone());
-        match state.flags_rate_limiter.allow_request(&rate_limit_key) {
-            RateLimitResult::Blocked => {
-                return Err(rate_limit_error(FlagError::ClientFacing(
-                    ClientFacingError::TokenRateLimited,
-                )));
-            }
-            RateLimitResult::Warned => rate_limit_warned = true,
-            RateLimitResult::Allowed => {}
-        }
-
-        if rate_limit_warned {
-            with_canonical_log(|l| l.rate_limit_warned = true);
+        if !state.flags_rate_limiter.allow_request(&rate_limit_key) {
+            return Err(rate_limit_error(FlagError::ClientFacing(
+                ClientFacingError::TokenRateLimited,
+            )));
         }
 
         process_request(context).await
@@ -375,14 +360,7 @@ pub async fn flags(
                 Ok((versioned_response, _response_format)) => {
                     log.http_status = 200;
                     log.emit();
-                    let mut response = Json(versioned_response).into_response();
-                    if log.rate_limit_warned {
-                        response.headers_mut().insert(
-                            "X-PostHog-Rate-Limit-Warning",
-                            HeaderValue::from_static("true"),
-                        );
-                    }
-                    Ok(response)
+                    Ok(Json(versioned_response).into_response())
                 }
                 Err(e) => {
                     log.emit_for_error(&e);

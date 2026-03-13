@@ -7,7 +7,6 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
-import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 import { LogsFilterBar } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar/LogsFilterBar'
 import { logsFilterHistoryLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterHistoryLogic'
@@ -19,7 +18,6 @@ import { virtualizedLogsListLogic } from 'products/logs/frontend/components/Virt
 import { LogDetailsModal } from './LogDetailsModal'
 import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
 import { logsViewerLogic } from './logsViewerLogic'
-import { logsViewerModalLogic } from './LogsViewerModal/logsViewerModalLogic'
 import { LogsSparkline } from './LogsViewerSparkline'
 import { LogsViewerToolbar } from './LogsViewerToolbar'
 
@@ -28,20 +26,18 @@ const SCROLL_AMOUNT_PX = 8
 
 export interface LogsViewerProps {
     id: string
-    showFullScreenButton?: boolean
-    initialFilters?: Partial<LogsViewerFilters>
 }
 
-export function LogsViewer({ id, showFullScreenButton = true, initialFilters }: LogsViewerProps): JSX.Element {
+export function LogsViewer({ id }: LogsViewerProps): JSX.Element {
     return (
-        <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters }}>
+        <BindLogic logic={logsViewerFiltersLogic} props={{ id }}>
             <BindLogic logic={logsViewerConfigLogic} props={{ id }}>
                 <BindLogic logic={logsViewerDataLogic} props={{ id }}>
                     <BindLogic logic={logDetailsModalLogic} props={{ id }}>
                         <BindLogic logic={logsViewerLogic} props={{ id }}>
                             <BindLogic logic={logsExportLogic} props={{ id }}>
                                 <BindLogic logic={logsFilterHistoryLogic} props={{ id }}>
-                                    <LogsViewerContent showFullScreenButton={showFullScreenButton} />
+                                    <LogsViewerContent />
                                 </BindLogic>
                             </BindLogic>
                         </BindLogic>
@@ -52,7 +48,7 @@ export function LogsViewer({ id, showFullScreenButton = true, initialFilters }: 
     )
 }
 
-function LogsViewerContent({ showFullScreenButton }: { showFullScreenButton: boolean }): JSX.Element {
+function LogsViewerContent(): JSX.Element {
     const {
         id,
         wrapBody,
@@ -82,7 +78,6 @@ function LogsViewerContent({ showFullScreenButton }: { showFullScreenButton: boo
         useValues(logsViewerDataLogic)
     const { runQuery, fetchNextLogsPage } = useActions(logsViewerDataLogic)
     const { setDateRange, zoomDateRange } = useActions(logsViewerFiltersLogic)
-    const { openLogsViewerModal } = useActions(logsViewerModalLogic)
     const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ id }))
     const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ id }))
     const messageScrollLeft = cellScrollLefts['message'] ?? 0
@@ -268,7 +263,6 @@ function LogsViewerContent({ showFullScreenButton }: { showFullScreenButton: boo
                 totalLogsCount={sparklineLoading ? undefined : totalLogsMatchingFilters}
                 orderBy={orderBy}
                 onChangeOrderBy={(newOrderBy) => setOrderBy(newOrderBy, 'toolbar')}
-                onOpenFullScreen={showFullScreenButton ? () => openLogsViewerModal({ id }) : undefined}
             />
             {pinnedLogsArray.length > 0 && (
                 <VirtualizedLogsList

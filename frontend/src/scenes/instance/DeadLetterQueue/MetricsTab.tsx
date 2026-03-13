@@ -82,10 +82,11 @@ export function MetricsTab(): JSX.Element {
                         }
                         dataSource={
                             rowsPerMetric[row.key].map((rowData) => {
-                                return rowData.reduce<Record<string, string>>((acc, value, index) => {
-                                    acc[`col${index}`] = value
-                                    return acc
-                                }, {})
+                                const rowObject: Record<string, any> = {}
+                                rowData.forEach((value, index) => {
+                                    rowObject[`col${index}`] = value
+                                })
+                                return rowObject
                             }) || []
                         }
                         loading={deadLetterQueueMetricsLoading}

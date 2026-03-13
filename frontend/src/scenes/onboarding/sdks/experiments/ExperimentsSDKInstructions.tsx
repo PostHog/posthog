@@ -9,7 +9,7 @@ import {
     FramerInstallation,
     GoInstallation,
     IOSInstallation,
-    WebInstallation,
+    JSWebInstallation,
     LaravelInstallation,
     NextJSInstallation,
     NodeJSInstallation,
@@ -110,8 +110,8 @@ const JS_FRAMEWORK_SNIPPETS = {
 }
 
 // Wrapped instruction components
-const ExperimentsWebInstructionsWrapper = withOnboardingDocsWrapper({
-    Installation: WebInstallation,
+const ExperimentsJSWebInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: JSWebInstallation,
     snippets: JS_WEB_SNIPPETS,
 })
 const ExperimentsReactInstructionsWrapper = withOnboardingDocsWrapper({
@@ -232,7 +232,7 @@ const ExperimentsLaravelInstructionsWrapper = withOnboardingDocsWrapper({
 })
 
 export const ExperimentsSDKInstructions: SDKInstructionsMap = {
-    [SDKKey.JS_WEB]: ExperimentsWebInstructionsWrapper,
+    [SDKKey.JS_WEB]: ExperimentsJSWebInstructionsWrapper,
     [SDKKey.ANDROID]: ExperimentsAndroidInstructionsWrapper,
     [SDKKey.ANGULAR]: ExperimentsAngularInstructionsWrapper,
     [SDKKey.ASTRO]: ExperimentsAstroInstructionsWrapper,

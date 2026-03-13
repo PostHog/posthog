@@ -14,6 +14,7 @@ import { CdpApi } from './cdp/cdp-api'
 import { CdpConsumerBaseDeps } from './cdp/consumers/cdp-base.consumer'
 import { CdpBatchHogFlowRequestsConsumer } from './cdp/consumers/cdp-batch-hogflow.consumer'
 import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
+import { CdpCyclotronShadowWorker } from './cdp/consumers/cdp-cyclotron-shadow-worker.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpDatawarehouseEventsConsumer } from './cdp/consumers/cdp-data-warehouse-events.consumer'
@@ -26,7 +27,6 @@ import {
     HogTransformerServiceDeps,
     createHogTransformerService,
 } from './cdp/hog-transformations/hog-transformer.service'
-import { CyclotronV2JanitorService } from './cdp/services/cyclotron-v2'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { defaultConfig } from './config/config'
 import {
@@ -37,7 +37,6 @@ import {
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
 import { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { IngestionConsumer, IngestionConsumerDeps } from './ingestion/ingestion-consumer'
-import { IngestionTestingConsumer } from './ingestion/ingestion-testing-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { onShutdown } from './lifecycle'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
@@ -74,7 +73,6 @@ export class PluginServer {
     expressApp: express.Application
     nodeInstrumentation: NodeInstrumentation
     private podTerminationTimer?: NodeJS.Timeout
-    private processListeners: Map<string, (...args: any[]) => void> = new Map()
 
     // Infrastructure resources (tracked for shutdown cleanup)
     private kafkaProducer?: KafkaProducerWrapper
@@ -127,7 +125,6 @@ export class PluginServer {
         const capabilities = getPluginServerCapabilities(this.config)
 
         const needsIngestion = !!(capabilities.ingestionV2Combined || capabilities.ingestionV2)
-
         const needsCdp = !!(
             capabilities.cdpProcessedEvents ||
             capabilities.cdpDataWarehouseEvents ||
@@ -136,6 +133,7 @@ export class PluginServer {
             capabilities.cdpLegacyOnEvent ||
             capabilities.cdpApi ||
             capabilities.cdpCyclotronWorker ||
+            capabilities.cdpCyclotronShadowWorker ||
             capabilities.cdpCyclotronWorkerHogFlow ||
             capabilities.cdpPrecalculatedFilters ||
             capabilities.cdpCohortMembership ||
@@ -260,23 +258,6 @@ export class PluginServer {
                 })
             }
 
-            if (capabilities.ingestionV2Testing) {
-                serviceLoaders.push(async () => {
-                    // All output (events, overflow, DLQ) writes to WarpStream
-                    const kafkaWarpStreamProducer = await KafkaProducerWrapper.create(
-                        this.config.KAFKA_CLIENT_RACK,
-                        'WARPSTREAM_PRODUCER'
-                    )
-
-                    const consumer = new IngestionTestingConsumer(this.config, {
-                        kafkaProducer: kafkaWarpStreamProducer,
-                        teamManager,
-                    })
-                    await consumer.start()
-                    return consumer.service
-                })
-            }
-
             if (capabilities.evaluationScheduler) {
                 serviceLoaders.push(() =>
                     startEvaluationScheduler(this.config, {
@@ -385,28 +366,22 @@ export class PluginServer {
                 })
             }
 
-            if (capabilities.cdpCyclotronV2Janitor) {
-                if (!this.config.CYCLOTRON_NODE_DATABASE_URL) {
-                    throw new Error(
-                        'CYCLOTRON_NODE_DATABASE_URL not configured but required for CyclotronV2JanitorService'
+            if (capabilities.cdpCyclotronShadowWorker) {
+                // Only start the shadow worker if CYCLOTRON_SHADOW_DATABASE_URL is explicitly configured
+                // (not just using the default value). This prevents crashes in hobby/dev deployments
+                // that don't have the shadow database set up.
+                if (process.env.CYCLOTRON_SHADOW_DATABASE_URL) {
+                    serviceLoaders.push(async () => {
+                        const worker = new CdpCyclotronShadowWorker(this.config, cdpDeps!)
+                        await worker.start()
+                        return worker.service
+                    })
+                } else {
+                    logger.info(
+                        '⏭️',
+                        'Skipping CdpCyclotronShadowWorker - CYCLOTRON_SHADOW_DATABASE_URL not configured'
                     )
                 }
-                serviceLoaders.push(async () => {
-                    const janitor = new CyclotronV2JanitorService({
-                        pool: {
-                            dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL!,
-                            maxConnections: this.config.CYCLOTRON_NODE_MAX_CONNECTIONS,
-                            idleTimeoutMs: this.config.CYCLOTRON_NODE_IDLE_TIMEOUT_MS,
-                        },
-                        cleanupBatchSize: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_BATCH_SIZE,
-                        cleanupIntervalMs: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS,
-                        stallTimeoutMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS,
-                        maxTouchCount: this.config.CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT,
-                        cleanupGraceMs: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS,
-                    })
-                    await janitor.start()
-                    return janitor.service
-                })
             }
 
             if (capabilities.cdpCyclotronWorkerHogFlow) {
@@ -627,16 +602,14 @@ export class PluginServer {
 
     private setupListeners(): void {
         for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-            const handler = async () => {
+            process.on(signal, async () => {
                 // This makes async exit possible with the process waiting until jobs are closed
                 logger.info('👋', `process handling ${signal} event. Stopping...`)
                 await this.stop()
-            }
-            this.processListeners.set(signal, handler)
-            process.on(signal, handler)
+            })
         }
 
-        const rejectionHandler = (error: Error | any) => {
+        process.on('unhandledRejection', (error: Error | any) => {
             logger.error('🤮', `Unhandled Promise Rejection`, { error: String(error) })
 
             captureException(error, {
@@ -644,24 +617,14 @@ export class PluginServer {
             })
 
             void this.stop(error)
-        }
-        this.processListeners.set('unhandledRejection', rejectionHandler)
-        process.on('unhandledRejection', rejectionHandler)
+        })
 
-        const exceptionHandler = async (error: Error) => {
+        process.on('uncaughtException', async (error: Error) => {
             await this.stop(error)
-        }
-        this.processListeners.set('uncaughtException', exceptionHandler)
-        process.on('uncaughtException', exceptionHandler)
+        })
     }
 
     async stop(error?: Error): Promise<void> {
-        // Remove process listeners to prevent accumulation across test runs
-        for (const [event, handler] of this.processListeners) {
-            process.removeListener(event, handler)
-        }
-        this.processListeners.clear()
-
         if (error) {
             logger.error('🤮', `Shutting down due to error`, { error: error.stack })
         }

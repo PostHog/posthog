@@ -4,7 +4,7 @@ import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import React, { useState } from 'react'
-import { LayoutItem } from 'react-grid-layout'
+import { Layout } from 'react-grid-layout'
 import { useInView } from 'react-intersection-observer'
 
 import { ApiError } from 'lib/api'
@@ -41,8 +41,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { DashboardResizeHandles } from '../handles'
-import { EditModeEdgeOverlay } from './EditModeEdgeOverlay'
+import { ResizeHandle1D, ResizeHandle2D } from '../handles'
 import { InsightMeta } from './InsightMeta'
 
 const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
@@ -69,7 +68,7 @@ export interface InsightCardProps extends Resizeable {
     /** Whether the  controls for showing details should be enabled or not. */
     showDetailsControls?: boolean
     /** Layout of the card on a grid. */
-    layout?: LayoutItem
+    layout?: Layout
     ribbonColor?: InsightColor | null
     updateColor?: (newColor: DashboardTile['color']) => void
     toggleShowDescription?: () => void
@@ -101,12 +100,6 @@ export interface InsightCardProps extends Resizeable {
     tile?: DashboardTile<QueryBasedInsightModel>
     /** survey opportunity for this insight */
     surveyOpportunity?: boolean
-    /** Whether hovering near the card edge should hint that edit mode is available. */
-    canEnterEditModeFromEdge?: boolean
-    /** Called when the user clicks an edge hint to enter edit mode. */
-    onEnterEditModeFromEdge?: () => void
-    /** Called when the user mousedowns on the card (drag handle) in view mode to enter edit mode. */
-    onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
 }
 
 function InsightCardInternal(
@@ -122,6 +115,7 @@ function InsightCardInternal(
         timedOut,
         highlighted,
         showResizeHandles,
+        canResizeWidth,
         showEditingControls,
         showDetailsControls,
         updateColor,
@@ -145,9 +139,6 @@ function InsightCardInternal(
         breakdownColorOverride: _breakdownColorOverride,
         dataColorThemeId: _dataColorThemeId,
         surveyOpportunity,
-        canEnterEditModeFromEdge,
-        onEnterEditModeFromEdge,
-        onDragHandleMouseDown,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -278,7 +269,6 @@ function InsightCardInternal(
                         variablesOverride={variablesOverride}
                         placement={placement}
                         surveyOpportunity={surveyOpportunity}
-                        onDragHandleMouseDown={onDragHandleMouseDown}
                     />
                     {isVisible ? (
                         <div className="InsightCard__viz">
@@ -301,11 +291,14 @@ function InsightCardInternal(
                         </div>
                     ) : null}
                 </BindLogic>
-                {showResizeHandles && <DashboardResizeHandles />}
-                {canEnterEditModeFromEdge && !showResizeHandles && onEnterEditModeFromEdge && (
-                    <EditModeEdgeOverlay onEnterEditMode={onEnterEditModeFromEdge} />
+                {showResizeHandles && (
+                    <>
+                        {canResizeWidth ? <ResizeHandle1D orientation="vertical" /> : null}
+                        <ResizeHandle1D orientation="horizontal" />
+                        {canResizeWidth ? <ResizeHandle2D /> : null}
+                    </>
                 )}
-                {children /* Extras injected by the parent layout (not ReactGridLayout resize handles) */}
+                {children /* Extras, specifically resize handles injected by ReactGridLayout */}
             </ErrorBoundary>
         </div>
     )

@@ -291,8 +291,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                 </PopoverReferenceContext.Provider>
             )}
             {shouldRenderPortal && (
-                // floating-ui@0.27 changed null to suppress the portal entirely
-                <FloatingPortal root={floatingContainer ?? undefined}>
+                <FloatingPortal root={floatingContainer}>
                     <CSSTransition
                         nodeRef={floatingRef as React.RefObject<HTMLDivElement>}
                         in={visible}

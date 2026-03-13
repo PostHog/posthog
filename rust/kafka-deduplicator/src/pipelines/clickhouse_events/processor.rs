@@ -159,7 +159,6 @@ impl ClickHouseEventsBatchProcessor {
 mod tests {
     use super::*;
     use crate::pipelines::{DeduplicationResult, DuplicateReason};
-    use crate::rocksdb::store::RocksDbConfig;
     use crate::test_utils::create_test_tracker;
     use common_types::PersonMode;
     use tempfile::TempDir;
@@ -170,7 +169,6 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
-            rocksdb: RocksDbConfig::default(),
         };
 
         let config = ClickHouseEventsConfig {

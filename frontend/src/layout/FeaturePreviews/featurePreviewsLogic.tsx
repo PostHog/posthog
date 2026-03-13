@@ -7,7 +7,6 @@ import { FeatureFlagKey } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { createFeaturePreviewSearch } from 'lib/utils/fuseSearch'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -22,8 +21,6 @@ export interface EnrichedEarlyAccessFeature extends Omit<EarlyAccessFeature, 'fl
     payload: Record<string, any> | undefined
 }
 
-const search = createFeaturePreviewSearch<EnrichedEarlyAccessFeature>()
-
 export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
     path(['layout', 'FeaturePreviews', 'featurePreviewsLogic']),
     connect(() => ({
@@ -31,7 +28,6 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
         actions: [supportLogic, ['submitZendeskTicket'], teamLogic, ['addProductIntentForCrossSell']],
     })),
     actions({
-        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         updateEarlyAccessFeatureEnrollment: (flagKey: string, enabled: boolean, stage?: string) => ({
             flagKey,
             enabled,
@@ -78,12 +74,6 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
         ],
     })),
     reducers({
-        searchTerm: [
-            '',
-            {
-                setSearchTerm: (_, { searchTerm }) => searchTerm,
-            },
-        ],
         activeFeedbackFlagKey: {
             beginEarlyAccessFeatureFeedback: (_, { flagKey }) => flagKey,
             cancelEarlyAccessFeatureFeedback: () => null,
@@ -146,13 +136,6 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
                     })
 
                 return result
-            },
-        ],
-
-        filteredEarlyAccessFeatures: [
-            (s) => [s.earlyAccessFeatures, s.searchTerm],
-            (earlyAccessFeatures: EnrichedEarlyAccessFeature[], searchTerm: string): EnrichedEarlyAccessFeature[] => {
-                return search(earlyAccessFeatures, searchTerm)
             },
         ],
     }),

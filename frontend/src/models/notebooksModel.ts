@@ -22,24 +22,6 @@ import { DashboardType, QueryBasedInsightModel } from '~/types'
 
 import type { notebooksModelType } from './notebooksModelType'
 
-// Queue for operations that arrive before the Notebook component mounts its
-// kea logic. `openNotebook` pushes here; `notebookLogic.afterMount` drains.
-const pendingNotebookOperations = new Map<string, ((logic: BuiltLogic<notebookLogicType>) => void)[]>()
-
-export function drainPendingNotebookOperations(shortId: string): void {
-    const ops = pendingNotebookOperations.get(shortId)
-    if (!ops?.length) {
-        return
-    }
-    pendingNotebookOperations.delete(shortId)
-    const logic = notebookLogic.findMounted({ shortId })
-    if (logic) {
-        for (const op of ops) {
-            op(logic)
-        }
-    }
-}
-
 export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     id: 'scratchpad',
     short_id: 'scratchpad',
@@ -52,8 +34,10 @@ export const openNotebook = async (
     notebookId: string,
     target: NotebookTarget,
     autofocus: EditorFocusPosition | undefined = undefined,
-    onOpen?: (logic: BuiltLogic<notebookLogicType>) => void
+    // operations to run against the notebook once it has opened and the editor is ready
+    onOpen: (logic: BuiltLogic<notebookLogicType>) => void = () => {}
 ): Promise<void> => {
+    // TODO: We want a better solution than assuming it will always be mounted
     const thePanelLogic = notebookPanelLogic.findMounted()
 
     if (thePanelLogic && target === NotebookTarget.Popover) {
@@ -66,15 +50,13 @@ export const openNotebook = async (
         }
     }
 
-    if (onOpen) {
-        const mountedLogic = notebookLogic.findMounted({ shortId: notebookId })
-        if (mountedLogic) {
-            onOpen(mountedLogic)
-        } else {
-            const ops = pendingNotebookOperations.get(notebookId) || []
-            ops.push(onOpen)
-            pendingNotebookOperations.set(notebookId, ops)
-        }
+    const theNotebookLogic = notebookLogic({ shortId: notebookId })
+    const unmount = theNotebookLogic.mount()
+
+    try {
+        onOpen(theNotebookLogic)
+    } finally {
+        unmount()
     }
 }
 
@@ -85,14 +67,12 @@ export const notebooksModel = kea<notebooksModelType>([
             location: NotebookTarget,
             title?: string,
             content?: JSONContent[],
-            onCreate?: (notebook: BuiltLogic<notebookLogicType>) => void,
-            shortId?: string
+            onCreate?: (notebook: BuiltLogic<notebookLogicType>) => void
         ) => ({
             title,
             location,
             content,
             onCreate,
-            shortId,
         }),
         receiveNotebookUpdate: (notebook: NotebookListItemType) => ({ notebook }),
         loadNotebooks: true,
@@ -111,12 +91,11 @@ export const notebooksModel = kea<notebooksModelType>([
         notebooks: [
             [] as NotebookListItemType[],
             {
-                createNotebook: async ({ title, location, content, onCreate, shortId }) => {
+                createNotebook: async ({ title, location, content, onCreate }) => {
                     const notebook = await api.notebooks.create({
                         title,
                         content: defaultNotebookContent(title, content),
                         _create_in_folder: getLastNewFolder(),
-                        ...(shortId ? { short_id: shortId } : {}),
                     })
 
                     await openNotebook(notebook.short_id, location, 'end', (logic) => {

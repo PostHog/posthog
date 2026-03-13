@@ -90,12 +90,12 @@ rules:
                               |DataWarehouseTable
                               |DesktopRecording
                               |EarlyAccessFeature
-                              |EvaluationContext
                               |Edge
                               |Endpoint
                               |EnterpriseEventDefinition
                               |EnterprisePropertyDefinition
                               |ErrorTrackingAssignmentRule
+                              |ErrorTrackingAutoCaptureControls
                               |ErrorTrackingGroupingRule
                               |ErrorTrackingIssue
                               |ErrorTrackingIssueFingerprintV2
@@ -127,7 +127,6 @@ rules:
                               |Integration
                               |Link
                               |LiveDebuggerBreakpoint
-                              |LogsAlertConfiguration
                               |LLMModelConfiguration
                               |LLMPrompt
                               |LLMProviderKey
@@ -145,10 +144,8 @@ rules:
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
-                              |Repo
                               |RepoRoutingRule
                               |SandboxEnvironment
-                              |ScoreDefinition
                               |SavedHeatmap
                               |ScheduledChange
                               |SessionGroupSummary
@@ -260,12 +257,12 @@ rules:
                         |DataWarehouseTable
                         |DesktopRecording
                         |EarlyAccessFeature
-                        |EvaluationContext
                         |Edge
                         |Endpoint
                         |EnterpriseEventDefinition
                         |EnterprisePropertyDefinition
                         |ErrorTrackingAssignmentRule
+                        |ErrorTrackingAutoCaptureControls
                         |ErrorTrackingGroupingRule
                         |ErrorTrackingIssue
                         |ErrorTrackingIssueFingerprintV2
@@ -314,10 +311,8 @@ rules:
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext
-                        |Repo
                         |RepoRoutingRule
                         |SandboxEnvironment
-                        |ScoreDefinition
                         |SavedHeatmap
                         |ScheduledChange
                         |SessionGroupSummary
@@ -583,7 +578,6 @@ rules:
                           (?x)(
                               DashboardPrivilege
                               |PersonalAPIKey
-                              |ScoreDefinitionVersion
                               |WebauthnCredential
                           )$
                 - focus-metavariable: $SINK
@@ -633,7 +627,6 @@ rules:
                     (?x)(
                         DashboardPrivilege
                         |PersonalAPIKey
-                        |ScoreDefinitionVersion
                         |WebauthnCredential
                     )$
           - pattern-not: $M.objects. ... .$METHOD2(..., user=$U, ...)

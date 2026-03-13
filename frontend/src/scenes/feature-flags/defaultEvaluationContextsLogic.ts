@@ -7,14 +7,13 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { defaultEvaluationContextsLogicType } from './defaultEvaluationContextsLogicType'
 
-export interface DefaultEvaluationContext {
-    id: number | string
+export interface DefaultEvaluationTag {
+    id: number
     name: string
 }
 
 export interface DefaultEvaluationContextsResponse {
-    default_evaluation_contexts: DefaultEvaluationContext[]
-    available_contexts: string[]
+    default_evaluation_tags: DefaultEvaluationTag[]
     enabled: boolean
 }
 
@@ -28,26 +27,26 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
 
     actions({
         loadDefaultEvaluationContexts: true,
-        addContext: (contextName: string) => ({ contextName }),
-        removeContext: (contextName: string) => ({ contextName }),
+        addTag: (tagName: string) => ({ tagName }),
+        removeTag: (tagName: string) => ({ tagName }),
         toggleEnabled: (enabled: boolean) => ({ enabled }),
-        setNewContextInput: (value: string) => ({ value }),
+        setNewTagInput: (value: string) => ({ value }),
         setIsAdding: (isAdding: boolean) => ({ isAdding }),
     }),
 
     reducers({
-        newContextInput: [
+        newTagInput: [
             '',
             {
-                setNewContextInput: (_, { value }) => value,
-                addContext: () => '',
+                setNewTagInput: (_, { value }) => value,
+                addTag: () => '',
             },
         ],
         isAdding: [
             false,
             {
                 setIsAdding: (_, { isAdding }) => isAdding,
-                addContext: () => false,
+                addTag: () => false,
             },
         ],
     }),
@@ -62,19 +61,19 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
                         return null
                     }
 
-                    const response = await api.get(`/api/environments/${teamId}/default_evaluation_contexts/`)
+                    const response = await api.get(`/api/environments/${teamId}/default_evaluation_tags/`)
                     return response as DefaultEvaluationContextsResponse
                 },
 
-                addContext: async ({ contextName }) => {
+                addTag: async ({ tagName }) => {
                     const teamId = values.currentTeam?.id
                     if (!teamId) {
                         throw new Error('No team selected')
                     }
 
                     try {
-                        const response = await api.create(`/api/environments/${teamId}/default_evaluation_contexts/`, {
-                            context_name: contextName,
+                        const response = await api.create(`/api/environments/${teamId}/default_evaluation_tags/`, {
+                            tag_name: tagName,
                         })
 
                         const currentData = values.defaultEvaluationContexts
@@ -82,25 +81,25 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
                             return null
                         }
 
+                        // Add the new tag if it was created
                         if (response.created) {
                             return {
                                 ...currentData,
-                                default_evaluation_contexts: [
-                                    ...currentData.default_evaluation_contexts,
+                                default_evaluation_tags: [
+                                    ...currentData.default_evaluation_tags,
                                     { id: response.id, name: response.name },
                                 ],
-                                available_contexts: [...currentData.available_contexts, response.name].sort(),
                             }
                         }
 
                         return currentData
                     } catch (error: any) {
-                        lemonToast.error(error.error || error.detail || 'Failed to add context')
+                        lemonToast.error(error.error || error.detail || 'Failed to add tag')
                         throw error
                     }
                 },
 
-                removeContext: async ({ contextName }) => {
+                removeTag: async ({ tagName }) => {
                     const teamId = values.currentTeam?.id
                     if (!teamId) {
                         throw new Error('No team selected')
@@ -108,7 +107,7 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
 
                     try {
                         await api.delete(
-                            `/api/environments/${teamId}/default_evaluation_contexts/?context_name=${encodeURIComponent(contextName)}`
+                            `/api/environments/${teamId}/default_evaluation_tags/?tag_name=${encodeURIComponent(tagName)}`
                         )
 
                         const currentData = values.defaultEvaluationContexts
@@ -118,12 +117,12 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
 
                         return {
                             ...currentData,
-                            default_evaluation_contexts: currentData.default_evaluation_contexts.filter(
-                                (ctx: DefaultEvaluationContext) => ctx.name !== contextName
+                            default_evaluation_tags: currentData.default_evaluation_tags.filter(
+                                (tag: DefaultEvaluationTag) => tag.name !== tagName
                             ),
                         }
                     } catch (error: any) {
-                        lemonToast.error(error.error || error.detail || 'Failed to remove context')
+                        lemonToast.error(error.error || error.detail || 'Failed to remove tag')
                         throw error
                     }
                 },
@@ -138,26 +137,24 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
             })
         },
 
-        addContextSuccess: () => {
-            lemonToast.success('Context added to default evaluation contexts')
+        addTagSuccess: () => {
+            lemonToast.success('Tag added to default evaluation contexts')
         },
 
-        removeContextSuccess: () => {
-            lemonToast.success('Context removed from default evaluation contexts')
+        removeTagSuccess: () => {
+            lemonToast.success('Tag removed from default evaluation contexts')
         },
     })),
 
     selectors({
-        contexts: [
+        tags: [
             (s) => [s.defaultEvaluationContexts],
-            (data): DefaultEvaluationContext[] => data?.default_evaluation_contexts || [],
+            (data): DefaultEvaluationTag[] => data?.default_evaluation_tags || [],
         ],
-
-        availableContexts: [(s) => [s.defaultEvaluationContexts], (data): string[] => data?.available_contexts || []],
 
         isEnabled: [(s) => [s.currentTeam], (team): boolean => team?.default_evaluation_contexts_enabled || false],
 
-        canAddMoreContexts: [(s) => [s.contexts], (contexts): boolean => contexts.length < 10],
+        canAddMoreTags: [(s) => [s.tags], (tags): boolean => tags.length < 10],
     }),
 
     afterMount(({ actions }) => {

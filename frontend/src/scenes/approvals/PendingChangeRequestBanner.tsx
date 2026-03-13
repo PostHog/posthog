@@ -18,7 +18,7 @@ export function PendingChangeRequestBanner(props: ChangeRequestsLogicProps): JSX
         return null
     }
 
-    const actionDescription = getApprovalActionDescription(pendingChangeRequest.action_key, props.context)
+    const actionDescription = getApprovalActionDescription(pendingChangeRequest.action_key)
     const requesterName = pendingChangeRequest.created_by.first_name || pendingChangeRequest.created_by.email
 
     return (

@@ -2,9 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
 import { liveUserCountLogic } from 'lib/components/LiveUserCount/liveUserCountLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { BreakdownLiveCard } from './BreakdownLiveCard'
 import { getBrowserLogo } from './browserLogos'
@@ -45,7 +43,6 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
         liveUserCountLogic({ pollIntervalMs: STATS_POLL_INTERVAL_MS })
     )
 
-    const { featureFlags } = useValues(featureFlagLogic)
     const { isVisible } = usePageVisibility()
     useEffect(() => {
         if (isVisible) {
@@ -106,14 +103,12 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                 />
             </div>
 
-            {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_MAP] && (
-                <LiveChartCard title="Countries" isLoading={isLoading} contentClassName="">
-                    <LiveWorldMap
-                        data={countryBreakdown}
-                        totalEvents={countryBreakdown.reduce((sum, c) => sum + c.count, 0)}
-                    />
-                </LiveChartCard>
-            )}
+            <LiveChartCard title="Countries" isLoading={isLoading} contentClassName="">
+                <LiveWorldMap
+                    data={countryBreakdown}
+                    totalEvents={countryBreakdown.reduce((sum, c) => sum + c.count, 0)}
+                />
+            </LiveChartCard>
         </div>
     )
 }

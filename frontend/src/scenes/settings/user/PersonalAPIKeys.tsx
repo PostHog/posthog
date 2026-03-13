@@ -160,12 +160,6 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                                                         const disabledDueToProjectScope =
                                                             disabledWhenProjectScoped &&
                                                             editingKey.access_type === 'teams'
-                                                        const selectedScopeAction = formScopeRadioValues[key]
-                                                        const warningScopeAction =
-                                                            selectedScopeAction === 'read' ||
-                                                            selectedScopeAction === 'write'
-                                                                ? selectedScopeAction
-                                                                : null
                                                         return (
                                                             <Fragment key={key}>
                                                                 <div className="flex items-center justify-between gap-2 min-h-8 group">
@@ -216,13 +210,14 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                                                                         size="xsmall"
                                                                     />
                                                                 </div>
-                                                                {warningScopeAction &&
-                                                                    warnings?.[warningScopeAction] && (
-                                                                        <div className="flex items-start gap-2 text-xs italic pb-2">
-                                                                            <IconWarning className="text-base text-secondary mt-0.5" />
-                                                                            <span>{warnings[warningScopeAction]}</span>
-                                                                        </div>
-                                                                    )}
+                                                                {warnings?.[formScopeRadioValues[key]] && (
+                                                                    <div className="flex items-start gap-2 text-xs italic pb-2">
+                                                                        <IconWarning className="text-base text-secondary mt-0.5" />
+                                                                        <span>
+                                                                            {warnings[formScopeRadioValues[key]]}
+                                                                        </span>
+                                                                    </div>
+                                                                )}
                                                             </Fragment>
                                                         )
                                                     }

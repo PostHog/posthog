@@ -1,22 +1,12 @@
 import { getUserAgent } from '@/lib/constants'
 
 import type { ApiConfig } from './client'
+import type { createApiClient } from './generated'
 import { globalRateLimiter } from './rate-limiter'
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
-export interface Fetcher {
-    fetch: (input: {
-        method: string
-        url: URL
-        urlSearchParams?: URLSearchParams
-        parameters?: { body?: unknown; header?: Record<string, unknown> }
-        path: string
-        overrides?: RequestInit
-    }) => Promise<Response>
-}
-
-export const buildApiFetcher: (config: ApiConfig) => Fetcher = (config) => {
+export const buildApiFetcher: (config: ApiConfig) => Parameters<typeof createApiClient>[0] = (config) => {
     return {
         fetch: async (input) => {
             const maxRetries = 3
@@ -33,9 +23,6 @@ export const buildApiFetcher: (config: ApiConfig) => Fetcher = (config) => {
                     // Forward the originating client's User-Agent so the PostHog API can
                     // attach it to analytics events for MCP source attribution.
                     headers.set('x-posthog-mcp-user-agent', config.clientUserAgent)
-                }
-                if (config.oauthClientName) {
-                    headers.set('x-posthog-mcp-oauth-client-name', config.oauthClientName)
                 }
 
                 // Handle query parameters

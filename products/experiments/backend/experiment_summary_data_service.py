@@ -27,7 +27,6 @@ from posthog.schema import (
 )
 
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql_queries.experiments.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
@@ -181,10 +180,8 @@ class ExperimentSummaryDataService:
         except Experiment.DoesNotExist:
             raise ValueError(f"Experiment {experiment_id} not found or access denied")
 
-        if experiment.is_draft:
-            raise ValueError(f"Experiment {experiment_id} has not been started yet")
         if not experiment.start_date:
-            raise ValueError(f"Experiment {experiment_id} has no start date")
+            raise ValueError(f"Experiment {experiment_id} has not been started yet")
 
         feature_flag = experiment.feature_flag
         if not feature_flag:
@@ -208,15 +205,12 @@ class ExperimentSummaryDataService:
                     experiment_id=experiment_id,
                     metric=metric_obj,
                 )
-                with tags_context(
-                    product=Product.MAX_AI, team_id=experiment.team.pk, org_id=experiment.team.organization_id
-                ):
-                    query_runner = ExperimentQueryRunner(
-                        query=experiment_query,
-                        team=experiment.team,
-                        workload=Workload.ONLINE,
-                    )
-                    result = query_runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
+                query_runner = ExperimentQueryRunner(
+                    query=experiment_query,
+                    team=experiment.team,
+                    workload=Workload.ONLINE,
+                )
+                result = query_runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
                 refresh_time = getattr(result, "last_refresh", None)
 
                 if is_incomplete_response(result):
@@ -257,16 +251,13 @@ class ExperimentSummaryDataService:
                         exposure_criteria=experiment.exposure_criteria,
                         holdout=experiment.holdout,
                     )
-                    with tags_context(
-                        product=Product.MAX_AI, team_id=experiment.team.pk, org_id=experiment.team.organization_id
-                    ):
-                        exposure_runner = ExperimentExposuresQueryRunner(
-                            query=exposure_query,
-                            team=experiment.team,
-                        )
-                        exposure_result = exposure_runner.run(
-                            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
-                        )
+                    exposure_runner = ExperimentExposuresQueryRunner(
+                        query=exposure_query,
+                        team=experiment.team,
+                    )
+                    exposure_result = exposure_runner.run(
+                        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
+                    )
 
                     if is_incomplete_response(exposure_result):
                         return ExposureQueryResult(exposures=None, refresh_time=None, pending=True)

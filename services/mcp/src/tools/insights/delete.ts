@@ -9,9 +9,7 @@ const schema = InsightDeleteSchema
 
 type Params = z.infer<typeof schema>
 
-type Result = { success: boolean; message: string }
-
-export const deleteHandler: ToolBase<typeof schema, Result>['handler'] = async (context: Context, params: Params) => {
+export const deleteHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
     const { insightId } = params
     const projectId = await context.stateManager.getProjectId()
 
@@ -25,7 +23,7 @@ export const deleteHandler: ToolBase<typeof schema, Result>['handler'] = async (
     return result.data
 }
 
-const tool = (): ToolBase<typeof schema, Result> => ({
+const tool = (): ToolBase<typeof schema> => ({
     name: 'insight-delete',
     schema,
     handler: deleteHandler,

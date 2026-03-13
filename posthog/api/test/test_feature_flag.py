@@ -24,13 +24,12 @@ from rest_framework import status
 from posthog import redis
 from posthog.api.cohort import get_cohort_actors_for_feature_flag
 from posthog.api.feature_flag import FeatureFlagSerializer, extract_etag_from_header
-from posthog.models import Experiment, FeatureFlag, GroupTypeMapping, TaggedItem, User
+from posthog.models import Experiment, FeatureFlag, GroupTypeMapping, Tag, TaggedItem, User
 from posthog.models.cohort import Cohort
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlagDashboards, get_feature_flags_for_team_in_cache
 from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
 from posthog.models.feature_flag.flag_status import FeatureFlagStatus
-from posthog.models.group.group import Group
 from posthog.models.group.util import create_group
 from posthog.models.organization import Organization
 from posthog.models.person import Person
@@ -84,6 +83,53 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         for key in r.scan_iter("*"):
             r.delete(key)
         return super().setUp()
+
+    def test_cant_create_flag_with_more_than_max_values(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": "Beta feature",
+                "key": "beta-x",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 65,
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": [
+                                        "1@gmail.com",
+                                        "2@gmail.com",
+                                        "3@gmail.com",
+                                        "4@gmail.com",
+                                        "5@gmail.com",
+                                        "6@gmail.com",
+                                        "7@gmail.com",
+                                        "8@gmail.com",
+                                        "9@gmail.com",
+                                        "10@gmail.com",
+                                        "11@gmail.com",
+                                        "12@gmail.com",
+                                    ],
+                                    "operator": "exact",
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Property group expressions of type email cannot contain more than 10 values.",
+                "attr": "filters",
+            },
+        )
 
     def test_cant_create_flag_with_duplicate_key(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
@@ -661,7 +707,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # The queryset should be empty (fail safe to prevent IDOR)
         analytics_field = fields["analytics_dashboards"]
-        self.assertEqual(analytics_field.child_relation.get_queryset().count(), 0)
+        self.assertEqual(analytics_field.child_relation.queryset.count(), 0)
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_create_feature_flag_with_evaluation_runtime(self, mock_report_user_action):
@@ -5875,63 +5921,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
-    def test_feature_flag_includes_group_key_names(self):
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
-        )
-        Group.objects.create(
-            team=self.team,
-            group_key="org-uuid-1",
-            group_type_index=0,
-            group_properties={"name": "Acme Corp"},
-            version=0,
-        )
-        Group.objects.create(
-            team=self.team,
-            group_key="org-uuid-2",
-            group_type_index=0,
-            group_properties={"name": "Widget Inc"},
-            version=0,
-        )
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "name": "Group flag",
-                "key": "group-flag",
-                "filters": {
-                    "aggregation_group_type_index": 0,
-                    "groups": [
-                        {
-                            "properties": [
-                                {
-                                    "key": "$group_key",
-                                    "type": "group",
-                                    "value": ["org-uuid-1", "org-uuid-2"],
-                                    "operator": "exact",
-                                    "group_type_index": 0,
-                                }
-                            ]
-                        }
-                    ],
-                },
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/feature_flags/{response.json()['id']}/",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        prop = response.json()["filters"]["groups"][0]["properties"][0]
-        self.assertEqual(prop["key"], "$group_key")
-        self.assertEqual(
-            prop["group_key_names"],
-            {"org-uuid-1": "Acme Corp", "org-uuid-2": "Widget Inc"},
-        )
-
     def test_create_feature_flag_in_specific_folder(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -7074,84 +7063,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 f"Request {i + 1} should return 304",
             )
             self.assertEqual(response.headers["ETag"], etag)
-
-    def test_local_evaluation_secret_key_in_body_counter_not_incremented_for_header_auth(self):
-        from posthog.api.feature_flag import LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER
-
-        self.team.secret_api_token = "phs_testtokenforheaderauth"
-        self.team.save()
-
-        FeatureFlag.objects.filter(team=self.team).delete()
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        self.client.logout()
-        before = LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER._value.get()
-
-        response = self.client.get(
-            f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER._value.get(), before)
-
-    def test_local_evaluation_secret_key_in_body_counter_incremented_for_body_auth(self):
-        from posthog.api.feature_flag import LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER
-
-        self.team.secret_api_token = "phs_testtokenforbodyauth"
-        self.team.save()
-
-        FeatureFlag.objects.filter(team=self.team).delete()
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        self.client.logout()
-        before = LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER._value.get()
-
-        response = self.client.generic(
-            "GET",
-            f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-            data=json.dumps({"secret_api_key": self.team.secret_api_token}),
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER._value.get(), before + 1)
-
-    def test_local_evaluation_secret_key_in_body_counter_not_incremented_when_header_wins(self):
-        from posthog.api.feature_flag import LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER
-
-        self.team.secret_api_token = "phs_testtokenforheaderwins"
-        self.team.save()
-
-        FeatureFlag.objects.filter(team=self.team).delete()
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        self.client.logout()
-        before = LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER._value.get()
-
-        # Both header AND body have the secret token — header wins, body is ignored
-        response = self.client.generic(
-            "GET",
-            f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-            data=json.dumps({"secret_api_key": self.team.secret_api_token}),
-            content_type="application/json",
-            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER._value.get(), before)
 
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
@@ -9096,13 +9007,13 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         tag_names = sorted([item.tag.name for item in tagged_items])
         self.assertEqual(tag_names, ["app", "docs", "marketing"])
 
-        # Check that evaluation contexts are created (using new model)
-        from posthog.models.evaluation_context import FeatureFlagEvaluationContext
+        # Check that evaluation tags are created
+        from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
 
-        eval_contexts = FeatureFlagEvaluationContext.objects.filter(feature_flag=flag)
-        self.assertEqual(eval_contexts.count(), 2)
-        eval_context_names = sorted([ctx.evaluation_context.name for ctx in eval_contexts])
-        self.assertEqual(eval_context_names, ["app", "docs"])
+        eval_tags = FeatureFlagEvaluationTag.objects.filter(feature_flag=flag)
+        self.assertEqual(eval_tags.count(), 2)
+        eval_tag_names = sorted([tag.tag.name for tag in eval_tags])
+        self.assertEqual(eval_tag_names, ["app", "docs"])
 
     @pytest.mark.ee
     def test_update_feature_flag_evaluation_tags(self):
@@ -9125,13 +9036,13 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        from posthog.models.evaluation_context import FeatureFlagEvaluationContext
+        from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
 
-        eval_contexts = FeatureFlagEvaluationContext.objects.filter(feature_flag=flag)
-        self.assertEqual(eval_contexts.count(), 1)
-        first_context = eval_contexts.first()
-        assert first_context is not None
-        self.assertEqual(first_context.evaluation_context.name, "app")
+        eval_tags = FeatureFlagEvaluationTag.objects.filter(feature_flag=flag)
+        self.assertEqual(eval_tags.count(), 1)
+        first_tag = eval_tags.first()
+        assert first_tag is not None
+        self.assertEqual(first_tag.tag.name, "app")
 
         # Update evaluation tags
         response = self.client.patch(
@@ -9144,10 +9055,11 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        eval_contexts = FeatureFlagEvaluationContext.objects.filter(feature_flag=flag)
-        self.assertEqual(eval_contexts.count(), 2)
-        eval_context_names = sorted([ctx.evaluation_context.name for ctx in list(eval_contexts)])
-        self.assertEqual(eval_context_names, ["docs", "marketing"])
+        eval_tags = FeatureFlagEvaluationTag.objects.filter(feature_flag=flag)
+        self.assertEqual(eval_tags.count(), 2)
+        # eval_tags is a QuerySet[FeatureFlagEvaluationTag]; materialize to list for mypy
+        eval_tag_names = sorted([tag.tag.name for tag in list(eval_tags)])
+        self.assertEqual(eval_tag_names, ["docs", "marketing"])
 
     @pytest.mark.ee
     def test_remove_all_evaluation_tags(self):
@@ -9169,9 +9081,9 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
             format="json",
         )
 
-        from posthog.models.evaluation_context import FeatureFlagEvaluationContext
+        from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
 
-        self.assertEqual(FeatureFlagEvaluationContext.objects.filter(feature_flag=flag).count(), 2)
+        self.assertEqual(FeatureFlagEvaluationTag.objects.filter(feature_flag=flag).count(), 2)
 
         # Remove all evaluation tags but keep regular tags
         response = self.client.patch(
@@ -9184,8 +9096,8 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        # Evaluation contexts should be removed
-        self.assertEqual(FeatureFlagEvaluationContext.objects.filter(feature_flag=flag).count(), 0)
+        # Evaluation tags should be removed
+        self.assertEqual(FeatureFlagEvaluationTag.objects.filter(feature_flag=flag).count(), 0)
 
         # Regular tags should still exist
         tagged_items = TaggedItem.objects.filter(feature_flag=flag)
@@ -9194,7 +9106,7 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
     @pytest.mark.ee
     def test_evaluation_tags_in_minimal_serializer(self):
         from posthog.api.feature_flag import MinimalFeatureFlagSerializer
-        from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
+        from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
 
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -9204,12 +9116,12 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
             created_by=self.user,
         )
 
-        # Create evaluation contexts (using new model)
-        app_context = EvaluationContext.objects.create(name="app", team=self.team)
-        docs_context = EvaluationContext.objects.create(name="docs", team=self.team)
+        # Create tags and evaluation tags
+        app_tag = Tag.objects.create(name="app", team_id=self.team.id)
+        docs_tag = Tag.objects.create(name="docs", team_id=self.team.id)
 
-        FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=app_context)
-        FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=docs_context)
+        FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=app_tag)
+        FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=docs_tag)
 
         serializer = MinimalFeatureFlagSerializer(flag)
         data = serializer.data
@@ -9218,38 +9130,52 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         self.assertEqual(sorted(data["evaluation_tags"]), ["app", "docs"])
 
     @pytest.mark.ee
-    def test_evaluation_contexts_independent_from_tags(self):
-        """Evaluation contexts are independent from tags — no subset constraint."""
-        # Contexts and tags can be completely different
+    def test_evaluation_tags_validation(self):
+        """Test that evaluation_tags must be a subset of tags"""
+        # Valid case: evaluation_tags is subset of tags
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
-                "name": "Independent contexts",
-                "key": "independent-contexts",
+                "name": "Valid evaluation tags",
+                "key": "valid-eval-tags",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+                "tags": ["app", "marketing", "docs"],
+                "evaluation_tags": ["app", "docs"],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Invalid case: evaluation_tags contains tag not in tags
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Invalid evaluation tags",
+                "key": "invalid-eval-tags",
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
                 "tags": ["app", "docs"],
-                "evaluation_tags": ["production", "staging"],
+                "evaluation_tags": ["app", "marketing"],  # 'marketing' not in tags
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(sorted(response.json()["evaluation_tags"]), ["production", "staging"])
-        self.assertEqual(sorted(response.json()["evaluation_contexts"]), ["production", "staging"])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Evaluation tags must be a subset of tags", str(response.data))
+        self.assertIn("marketing", str(response.data))
 
-        # Contexts without any tags
+        # Edge case: empty tags but non-empty evaluation_tags
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
-                "name": "Contexts without tags",
-                "key": "contexts-no-tags",
+                "name": "No tags but has evaluation tags",
+                "key": "no-tags-eval-tags",
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
                 "tags": [],
-                "evaluation_tags": ["production"],
+                "evaluation_tags": ["app"],
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["evaluation_contexts"], ["production"])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Evaluation tags must be a subset of tags", str(response.data))
 
     @pytest.mark.ee
     def test_evaluation_tags_hidden_when_feature_flag_disabled(self):
@@ -9305,8 +9231,8 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
 
     @pytest.mark.ee
     def test_evaluation_tags_in_cache(self):
-        from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
         from posthog.models.feature_flag import set_feature_flags_for_team_in_cache
+        from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
 
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -9316,9 +9242,9 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
             created_by=self.user,
         )
 
-        # Create evaluation context
-        ctx = EvaluationContext.objects.create(name="app", team=self.team)
-        FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=ctx)
+        # Create evaluation tags
+        app_tag = Tag.objects.create(name="app", team_id=self.team.id)
+        FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=app_tag)
 
         # Set flags in cache
         set_feature_flags_for_team_in_cache(self.team.project_id)
@@ -9413,9 +9339,8 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
     def test_flag_status_reasons(self):
         FeatureFlag.objects.all().delete()
 
-        # Request status for non-existent flag returns 404
-        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/1/status")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        # Request status for non-existent flag
+        self.assert_expected_response(1, FeatureFlagStatus.UNKNOWN, "Flag could not be found")
 
         # Request status for flag that has been soft deleted
         deleted_flag = FeatureFlag.objects.create(
@@ -9918,20 +9843,6 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
         )
         self.assert_expected_response(new_flag.id, FeatureFlagStatus.ACTIVE)
-
-    def test_flag_status_cross_team_returns_404(self):
-        other_team = Team.objects.create(organization=Organization.objects.create(name="other org"))
-        other_flag = FeatureFlag.objects.create(
-            name="Other team flag",
-            key="other-team-flag",
-            team=other_team,
-            active=True,
-            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
-        )
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/feature_flags/{other_flag.id}/status",
-        )
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_flag_status_recently_called_at_100_rollout_is_active(self):
         """Flag that was recently called at 100% should be ACTIVE (usage data takes precedence)"""

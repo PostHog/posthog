@@ -47,7 +47,6 @@ import {
     MaxEvaluationContext,
     MaxEventContext,
     MaxInsightContext,
-    MaxNotebookContext,
     MaxUIContext,
 } from './maxTypes'
 import { EnhancedToolCall } from './Thread'
@@ -208,15 +207,6 @@ export const errorTrackingIssueToMaxContextPayload = (issue: {
     }
 }
 
-export const notebookToMaxContextPayload = (notebook: {
-    short_id: string
-    title?: string | null
-}): MaxNotebookContext => ({
-    type: MaxContextType.NOTEBOOK,
-    id: notebook.short_id,
-    name: notebook.title,
-})
-
 export const evaluationToMaxContextPayload = (evaluation: {
     id: string
     name?: string | null
@@ -325,9 +315,6 @@ export function getAgentModeForScene(
 export const visualizationTypeToQuery = (
     visualization: VisualizationItem | VisualizationArtifactContent | VisualizationBlock
 ): QuerySchema | null => {
-    if (!visualization) {
-        return null
-    }
     const source = castAssistantQuery('answer' in visualization ? visualization.answer : visualization.query)
     if (isHogQLQuery(source)) {
         return { kind: NodeKind.DataVisualizationNode, source: source } satisfies DataVisualizationNode

@@ -34,8 +34,7 @@ export const displayLogic = kea<displayLogicType>([
             [] as GoalLine[],
             {
                 addGoalLine: (state, { yData }) => {
-                    const yDataFlat =
-                        yData?.flatMap((n) => n.data).filter((value): value is number => value !== null) ?? []
+                    const yDataFlat = yData?.flatMap((n) => n.data) ?? []
                     const yDataAvg = Math.round(d3.mean(yDataFlat) ?? 0)
 
                     return [

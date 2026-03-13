@@ -1,7 +1,6 @@
 package events
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -129,7 +128,6 @@ type PostHogKafkaConsumer struct {
 	outgoingChan chan PostHogEvent
 	statsChan    chan CountEvent
 	parallel     int
-	Broker       *RedisEventBroker
 }
 
 func NewPostHogKafkaConsumer(
@@ -165,7 +163,7 @@ func NewPostHogKafkaConsumer(
 	}, nil
 }
 
-func (c *PostHogKafkaConsumer) Consume(ctx context.Context) {
+func (c *PostHogKafkaConsumer) Consume() {
 	rebalanceCallback := func(consumer *kafka.Consumer, event kafka.Event) error {
 		if _, ok := event.(kafka.AssignedPartitions); ok {
 			log.Printf("✅ Livestream service ready")
@@ -178,7 +176,7 @@ func (c *PostHogKafkaConsumer) Consume(ctx context.Context) {
 	}
 
 	for i := 0; i < c.parallel; i++ {
-		go c.runParsing(ctx)
+		go c.runParsing()
 	}
 
 	for {
@@ -203,22 +201,15 @@ func (c *PostHogKafkaConsumer) Consume(ctx context.Context) {
 	}
 }
 
-func (c *PostHogKafkaConsumer) runParsing(ctx context.Context) {
+func (c *PostHogKafkaConsumer) runParsing() {
 	for {
 		value, ok := <-c.incoming
 		if !ok {
 			return
 		}
 		phEvent := parse(c.geolocator, value)
-		if phEvent.Token == "" {
-			continue
-		}
+		c.outgoingChan <- phEvent
 		c.statsChan <- CountEvent{Token: phEvent.Token, DistinctID: phEvent.DistinctId}
-		if c.Broker != nil {
-			c.Broker.Publish(ctx, phEvent)
-		} else {
-			c.outgoingChan <- phEvent
-		}
 	}
 }
 

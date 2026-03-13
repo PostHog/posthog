@@ -5,25 +5,26 @@ import { LazyLoader } from '~/utils/lazy-loader'
 import { logger } from '~/utils/logger'
 import { PubSub } from '~/utils/pubsub'
 
-// TODO: Make sure we only have fields we truly need
-const HOG_FLOW_FIELDS = [
-    'id',
-    'team_id',
-    'name',
-    'description',
-    'version',
-    'status',
-    'created_at',
-    'updated_at',
-    'trigger',
-    'trigger_masking',
-    'conversion',
-    'exit_condition',
-    'edges',
-    'actions',
-    'abort_action',
-    'billable_action_types',
+// Fields from the HogFlow table (identity/status)
+const HOG_FLOW_IDENTITY_FIELDS = ['hf.id', 'hf.team_id', 'hf.status', 'hf.created_at', 'hf.updated_at']
+
+// Content fields from the revision table
+const HOG_FLOW_REVISION_FIELDS = [
+    'hfr.name',
+    'hfr.description',
+    'hfr.version',
+    'hfr.trigger',
+    'hfr.trigger_masking',
+    'hfr.conversion',
+    'hfr.exit_condition',
+    'hfr.edges',
+    'hfr.actions',
+    'hfr.abort_action',
+    'hfr.billable_action_types',
 ]
+
+// Combined fields for the JOIN query, producing the same shape as before
+const HOG_FLOW_SELECT = [...HOG_FLOW_IDENTITY_FIELDS, ...HOG_FLOW_REVISION_FIELDS].join(', ')
 
 export type HogFlowTeamInfo = Pick<HogFlow, 'id' | 'team_id' | 'version'>
 
@@ -116,7 +117,10 @@ export class HogFlowManagerService {
         logger.debug('[HogFlowManager]', 'Fetching team hog flows', { teamIds })
         const response = await this.postgres.query<HogFlowTeamInfo>(
             PostgresUse.COMMON_READ,
-            `SELECT id, team_id, version FROM posthog_hogflow WHERE status='active' AND team_id = ANY($1)`,
+            `SELECT hf.id, hf.team_id, hfr.version
+             FROM posthog_hogflow hf
+             JOIN posthog_hogflowrevision hfr ON hf.active_revision_id = hfr.id
+             WHERE hf.status = 'active' AND hf.team_id = ANY($1)`,
             [teamIds],
             'fetchAllTeamHogFlows'
         )
@@ -139,7 +143,10 @@ export class HogFlowManagerService {
 
         const response = await this.postgres.query<HogFlow>(
             PostgresUse.COMMON_READ,
-            `SELECT ${HOG_FLOW_FIELDS.join(', ')} FROM posthog_hogflow WHERE id = ANY($1)`,
+            `SELECT ${HOG_FLOW_SELECT}
+             FROM posthog_hogflow hf
+             JOIN posthog_hogflowrevision hfr ON hf.active_revision_id = hfr.id
+             WHERE hf.id = ANY($1)`,
             [ids],
             'fetchHogFlows'
         )

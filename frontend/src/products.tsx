@@ -51,8 +51,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     CustomerAnalytics: () => import('../../products/customer_analytics/frontend/CustomerAnalyticsScene'),
     CustomerAnalyticsConfiguration: () =>
         import('../../products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/CustomerAnalyticsConfigurationScene'),
-    CustomerJourneyBuilder: () =>
-        import('../../products/customer_analytics/frontend/scenes/CustomerJourneyBuilderScene/CustomerJourneyBuilderScene'),
     DataWarehouse: () => import('../../products/data_warehouse/DataWarehouseScene'),
     Models: () => import('../../frontend/src/scenes/models/ModelsScene'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
@@ -92,18 +90,13 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Logs: () => import('../../products/logs/frontend/LogsScene'),
     ManagedMigration: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     ManagedMigrationNew: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
-    Metrics: () => import('../../products/metrics/frontend/MetricsScene'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
     SessionGroupSummariesTable: () => import('../../products/session_summaries/frontend/SessionGroupSummariesTable'),
     SessionGroupSummary: () => import('../../products/session_summaries/frontend/SessionGroupSummaryScene'),
     TaskTracker: () => import('../../products/tasks/frontend/TaskTracker'),
     TaskDetail: () => import('../../products/tasks/frontend/TaskDetailScene'),
-    Tracing: () => import('../../products/tracing/frontend/TracingScene'),
     UserInterviews: () => import('../../products/user_interviews/frontend/UserInterviews'),
     UserInterview: () => import('../../products/user_interviews/frontend/UserInterview'),
-    VisualReviewRuns: () => import('../../products/visual_review/frontend/scenes/VisualReviewRunsScene'),
-    VisualReviewRun: () => import('../../products/visual_review/frontend/scenes/VisualReviewRunScene'),
-    VisualReviewSettings: () => import('../../products/visual_review/frontend/scenes/VisualReviewSettingsScene'),
     Workflows: () => import('../../products/workflows/frontend/WorkflowsScene'),
     Workflow: () => import('../../products/workflows/frontend/Workflows/WorkflowScene'),
     WorkflowsLibraryTemplate: () => import('../../products/workflows/frontend/TemplateLibrary/MessageTemplate'),
@@ -120,7 +113,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
     '/support/settings': ['SupportSettings', 'supportSettings'],
     '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
-    '/customer_analytics/journeys/new': ['CustomerJourneyBuilder', 'customerJourneyBuilder'],
     '/customer_analytics/journeys': ['CustomerAnalytics', 'customerAnalyticsJourneys'],
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     '/data-warehouse': ['DataWarehouse', 'dataWarehouse'],
@@ -144,7 +136,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/live-debugger': ['LiveDebugger', 'liveDebugger'],
     '/llm-analytics/dashboard': ['LLMAnalytics', 'llmAnalyticsDashboard'],
     '/llm-analytics/generations': ['LLMAnalytics', 'llmAnalyticsGenerations'],
-    '/llm-analytics/reviews': ['LLMAnalytics', 'llmAnalyticsReviews'],
     '/llm-analytics/traces': ['LLMAnalytics', 'llmAnalyticsTraces'],
     '/llm-analytics/traces/:id': ['LLMAnalyticsTrace', 'llmAnalytics'],
     '/llm-analytics/users': ['LLMAnalytics', 'llmAnalyticsUsers'],
@@ -171,18 +162,13 @@ export const productRoutes: Record<string, [string, string]> = {
     '/logs': ['Logs', 'logs'],
     '/managed_migrations': ['ManagedMigration', 'managedMigration'],
     '/managed_migrations/new': ['ManagedMigration', 'managedMigration'],
-    '/metrics': ['Metrics', 'metrics'],
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
     '/session-summaries': ['SessionGroupSummariesTable', 'sessionGroupSummariesTable'],
     '/session-summaries/:sessionGroupId': ['SessionGroupSummary', 'sessionGroupSummary'],
     '/tasks': ['TaskTracker', 'taskTracker'],
     '/tasks/:taskId': ['TaskDetail', 'taskDetail'],
-    '/tracing': ['Tracing', 'tracing'],
     '/user_interviews': ['UserInterviews', 'userInterviews'],
     '/user_interviews/:id': ['UserInterview', 'userInterview'],
-    '/visual_review': ['VisualReviewRuns', 'visualReviewRuns'],
-    '/visual_review/settings': ['VisualReviewSettings', 'visualReviewSettings'],
-    '/visual_review/runs/:runId': ['VisualReviewRun', 'visualReviewRun'],
     '/workflows': ['Workflows', 'workflows'],
     '/workflows/:tab': ['Workflows', 'workflows'],
     '/workflows/:id/:tab': ['Workflow', 'workflowTab'],
@@ -212,8 +198,6 @@ export const productRedirects: Record<
         combineUrl(`/llm-analytics/dashboard`, searchParams, hashParams).url,
     '/llm-observability/generations': (_params, searchParams, hashParams) =>
         combineUrl(`/llm-analytics/generations`, searchParams, hashParams).url,
-    '/llm-observability/reviews': (_params, searchParams, hashParams) =>
-        combineUrl(`/llm-analytics/reviews`, searchParams, hashParams).url,
     '/llm-observability/traces': (_params, searchParams, hashParams) =>
         combineUrl(`/llm-analytics/traces`, searchParams, hashParams).url,
     '/llm-observability/traces/:id': (params, searchParams, hashParams) =>
@@ -275,7 +259,6 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         name: 'Customer analytics configuration',
     },
-    CustomerJourneyBuilder: { projectBased: true, name: 'New journey' },
     DataWarehouse: {
         name: 'Data warehouse',
         projectBased: true,
@@ -465,15 +448,6 @@ export const productConfiguration: Record<string, any> = {
     },
     ManagedMigration: { name: 'Managed migrations', projectBased: true },
     ManagedMigrationNew: { name: 'Managed migrations', projectBased: true },
-    Metrics: {
-        name: 'Metrics',
-        projectBased: true,
-        layout: 'app-container',
-        defaultDocsPath: '/docs/metrics',
-        activityScope: 'Metrics',
-        description: 'Monitor and analyze application metrics to understand system performance and health.',
-        iconType: 'metrics',
-    },
     RevenueAnalytics: {
         name: 'Revenue Analytics',
         projectBased: true,
@@ -509,15 +483,6 @@ export const productConfiguration: Record<string, any> = {
         description: 'PostHog toolbar launches PostHog right in your app or website.',
         iconType: 'toolbar',
     },
-    Tracing: {
-        name: 'Tracing',
-        projectBased: true,
-        layout: 'app-container',
-        defaultDocsPath: '/docs/tracing',
-        activityScope: 'Tracing',
-        description: 'Monitor and analyze distributed traces to understand service performance and debug issues.',
-        iconType: 'tracing',
-    },
     UserInterviews: {
         name: 'User interviews',
         projectBased: true,
@@ -526,9 +491,6 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'user_interview',
     },
     UserInterview: { name: 'User interview', projectBased: true, activityScope: 'UserInterview' },
-    VisualReviewRuns: { name: 'Visual review', projectBased: true, iconType: 'visual_review' },
-    VisualReviewRun: { name: 'Visual review run', projectBased: true, iconType: 'visual_review' },
-    VisualReviewSettings: { name: 'Visual review settings', projectBased: true, iconType: 'visual_review' },
     Workflows: {
         name: 'Workflows',
         iconType: 'workflows',
@@ -560,7 +522,6 @@ export const productUrls = {
     customerAnalyticsDashboard: (): string => '/customer_analytics/dashboard',
     customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
     customerAnalyticsConfiguration: (): string => '/customer_analytics/configuration',
-    customerJourneyBuilder: (): string => '/customer_analytics/journeys/new',
     dashboards: (): string => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
@@ -652,12 +613,10 @@ export const productUrls = {
         type,
         sourceId,
         template,
-        intent,
     }: {
         type?: 'boolean' | 'multivariate' | 'remote_config'
         sourceId?: number | string | null
         template?: 'simple' | 'targeted' | 'multivariate' | 'targeted-multivariate'
-        intent?: 'local-eval' | 'first-page-load'
     }): string => {
         const params = new URLSearchParams()
         if (type) {
@@ -668,9 +627,6 @@ export const productUrls = {
         }
         if (template) {
             params.set('template', template)
-        }
-        if (intent) {
-            params.set('intent', intent)
         }
         return `/feature_flags/new?${params.toString()}`
     },
@@ -685,7 +641,6 @@ export const productUrls = {
     liveDebugger: (): string => '/live-debugger',
     llmAnalyticsDashboard: (): string => '/llm-analytics/dashboard',
     llmAnalyticsGenerations: (): string => '/llm-analytics/generations',
-    llmAnalyticsReviews: (): string => '/llm-analytics/reviews',
     llmAnalyticsTraces: (): string => '/llm-analytics/traces',
     llmAnalyticsTrace: (
         id: string,
@@ -739,7 +694,6 @@ export const productUrls = {
     managedMigration: (): string => '/managed_migrations',
     managedMigrationNew: (): string => '/managed_migrations/new',
     marketingAnalyticsApp: (): string => '/marketing',
-    metrics: (): string => '/metrics',
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,
@@ -850,12 +804,8 @@ export const productUrls = {
     taskTracker: (): string => '/tasks',
     taskDetail: (taskId: string | number): string => `/tasks/${taskId}`,
     toolbarLaunch: (): string => '/toolbar',
-    tracing: (): string => '/tracing',
     userInterviews: (): string => '/user_interviews',
     userInterview: (id: string): string => `/user_interviews/${id}`,
-    visualReviewRuns: (): string => '/visual_review',
-    visualReviewSettings: (): string => '/visual_review/settings',
-    visualReviewRun: (runId: string): string => `/visual_review/runs/${runId}`,
     webAnalytics: (): string => `/web`,
     webAnalyticsWebVitals: (): string => `/web/web-vitals`,
     webAnalyticsPageReports: (): string => `/web/page-reports`,
@@ -1176,6 +1126,8 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'llm_clusters' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-clusters-light)'] as FileSystemIconColor,
         href: urls.llmAnalyticsClusters(),
+        flag: FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB,
+        tags: ['beta'],
         sceneKey: 'LLMAnalyticsClusters',
         sceneKeys: [
             'LLMAnalytics',
@@ -1203,7 +1155,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         tags: ['beta'],
         flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS,
         sceneKey: 'CustomerAnalytics',
-        sceneKeys: ['CustomerAnalytics', 'CustomerJourneyBuilder'],
+        sceneKeys: ['CustomerAnalytics', 'CustomerAnalyticsConfiguration'],
     },
     {
         path: 'Dashboards',
@@ -1454,18 +1406,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['MarketingAnalytics'],
     },
     {
-        path: 'Metrics',
-        intents: [ProductKey.METRICS],
-        category: 'Unreleased',
-        iconType: 'metrics',
-        iconColor: ['var(--color-product-metrics-light)', 'var(--color-product-metrics-dark)'] as FileSystemIconColor,
-        href: urls.metrics(),
-        flag: FEATURE_FLAGS.METRICS,
-        tags: ['alpha'],
-        sceneKey: 'Metrics',
-        sceneKeys: ['Metrics'],
-    },
-    {
         path: 'Notebooks',
         intents: [ProductKey.NOTEBOOKS],
         category: 'Tools',
@@ -1483,6 +1423,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'llm_playground' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
         href: urls.llmAnalyticsPlayground(),
+        tags: ['beta'],
         sceneKey: 'LLMAnalyticsPlayground',
         sceneKeys: [
             'LLMAnalytics',
@@ -1533,7 +1474,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
         href: urls.llmAnalyticsPrompts(),
         flag: FEATURE_FLAGS.PROMPT_MANAGEMENT,
-        tags: ['beta'],
+        tags: ['alpha'],
         sceneKey: 'LLMAnalyticsPrompts',
         sceneKeys: [
             'LLMAnalytics',
@@ -1633,18 +1574,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['Toolbar'],
     },
     {
-        path: 'Tracing',
-        intents: [ProductKey.TRACING],
-        category: 'Unreleased',
-        iconType: 'tracing',
-        iconColor: ['var(--color-product-tracing-light)'] as FileSystemIconColor,
-        href: urls.tracing(),
-        flag: FEATURE_FLAGS.TRACING,
-        tags: ['alpha'],
-        sceneKey: 'Tracing',
-        sceneKeys: ['Tracing'],
-    },
-    {
         path: 'User interviews',
         intents: [ProductKey.USER_INTERVIEWS],
         category: 'Unreleased',
@@ -1656,16 +1585,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-user-interviews-light)'] as FileSystemIconColor,
         sceneKey: 'UserInterviews',
         sceneKeys: ['UserInterviews', 'UserInterview'],
-    },
-    {
-        path: 'Visual review',
-        intents: [ProductKey.VISUAL_REVIEW],
-        category: 'Unreleased',
-        href: urls.visualReviewRuns(),
-        iconType: 'visual_review' as FileSystemIconType,
-        tags: ['alpha'],
-        sceneKey: 'VisualReviewRuns',
-        sceneKeys: ['VisualReviewRuns', 'VisualReviewRun', 'VisualReviewSettings'],
     },
     {
         path: 'Web analytics',
@@ -1786,6 +1705,15 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         sceneKeys: ['DataWarehouse', 'Models', 'SQLEditor'],
     },
     {
+        path: 'Marketing settings',
+        category: 'Unreleased',
+        iconType: 'marketing_settings',
+        href: urls.marketingAnalytics(),
+        flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
+        sceneKey: 'WebAnalyticsMarketing',
+        sceneKeys: ['WebAnalyticsMarketing'],
+    },
+    {
         path: 'Models',
         category: 'Tools',
         type: 'sql',
@@ -1828,6 +1756,17 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         href: urls.sources(),
         sceneKey: 'Sources',
         sceneKeys: ['Sources'],
+    },
+    {
+        path: 'Support',
+        category: 'Behavior',
+        iconType: 'conversations' as FileSystemIconType,
+        iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
+        href: urls.supportTickets(),
+        sceneKey: 'SupportTickets',
+        flag: FEATURE_FLAGS.PRODUCT_SUPPORT,
+        tags: ['alpha'],
+        sceneKeys: ['SupportTickets', 'SupportTicketDetail', 'SupportSettings'],
     },
     {
         path: `Transformations`,

@@ -1,20 +1,24 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-types'
 
+import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { makeLogger } from 'scenes/session-recordings/player/rrweb'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { makeLogger } from 'scenes/session-recordings/player/utils/player-logging'
+import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { RecordingSegment } from '~/types'
 
-import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import {
     BLOB_SOURCE_V2,
@@ -24,13 +28,8 @@ import {
 } from './__mocks__/test-setup'
 import { findNewEvents, findSegmentForTimestamp } from './sessionRecordingPlayerLogic'
 import { snapshotDataLogic } from './snapshotDataLogic'
-import { deleteRecording as deleteRecordingMock } from './utils/playerUtils'
 
 jest.mock('./snapshot-processing/DecompressionWorkerManager')
-jest.mock('./utils/playerUtils', () => ({
-    ...jest.requireActual('./utils/playerUtils'),
-    deleteRecording: jest.fn().mockResolvedValue(undefined),
-}))
 
 const makeEvent = (timestamp: number, type: number = EventType.IncrementalSnapshot): eventWithTime =>
     ({ timestamp, type, data: { source: IncrementalSource.MouseMove } }) as unknown as eventWithTime
@@ -329,12 +328,6 @@ describe('sessionRecordingPlayerLogic', () => {
     })
 
     describe('delete session recording', () => {
-        const mockedDeleteRecording = deleteRecordingMock as jest.MockedFunction<typeof deleteRecordingMock>
-
-        beforeEach(() => {
-            mockedDeleteRecording.mockResolvedValue(undefined)
-        })
-
         it('calls onRecordingDeleted callback when provided', async () => {
             silenceKeaLoadersErrors()
             const onRecordingDeleted = jest.fn()
@@ -345,6 +338,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 onRecordingDeleted,
             })
             logic.mount()
+            jest.spyOn(api, 'delete')
 
             await expectLogic(logic, () => {
                 logic.actions.deleteRecording()
@@ -352,12 +346,12 @@ describe('sessionRecordingPlayerLogic', () => {
                 .toDispatchActions(['deleteRecording'])
                 .toFinishAllListeners()
 
-            expect(mockedDeleteRecording).toHaveBeenCalledWith('3')
+            expect(api.delete).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/session_recordings/3`)
             expect(onRecordingDeleted).toHaveBeenCalled()
             resumeKeaLoadersErrors()
         })
 
-        it('does not navigate away after delete', async () => {
+        it('on a single recording page', async () => {
             silenceKeaLoadersErrors()
             logic = sessionRecordingPlayerLogic({
                 sessionRecordingId: '3',
@@ -365,39 +359,46 @@ describe('sessionRecordingPlayerLogic', () => {
                 blobV2PollingDisabled: true,
             })
             logic.mount()
+            jest.spyOn(api, 'delete')
             router.actions.push(urls.replaySingle('3'))
-            const pathBefore = router.values.location.pathname
 
             await expectLogic(logic, () => {
                 logic.actions.deleteRecording()
             })
                 .toDispatchActions(['deleteRecording'])
+                .toNotHaveDispatchedActions([
+                    sessionRecordingsPlaylistLogic({ updateSearchParams: true }).actionTypes.loadAllRecordings,
+                ])
                 .toFinishAllListeners()
 
-            expect(router.values.location.pathname).toEqual(pathBefore)
-            expect(mockedDeleteRecording).toHaveBeenCalledWith('3')
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.replay())
+
+            expect(api.delete).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/session_recordings/3`)
             resumeKeaLoadersErrors()
         })
 
-        it('does not mark recording as deleted when API call fails', async () => {
+        it('on a single recording modal', async () => {
             silenceKeaLoadersErrors()
-            mockedDeleteRecording.mockRejectedValue(new Error('API error'))
-
             logic = sessionRecordingPlayerLogic({
                 sessionRecordingId: '3',
                 playerKey: 'test',
                 blobV2PollingDisabled: true,
             })
             logic.mount()
-            deletedRecordingsLogic.mount()
+            jest.spyOn(api, 'delete')
 
             await expectLogic(logic, () => {
                 logic.actions.deleteRecording()
             })
                 .toDispatchActions(['deleteRecording'])
+                .toNotHaveDispatchedActions([
+                    sessionRecordingsPlaylistLogic({ updateSearchParams: true }).actionTypes.loadAllRecordings,
+                ])
                 .toFinishAllListeners()
 
-            expect(deletedRecordingsLogic.values.deletedRecordingIds.has('3')).toBe(false)
+            expect(router.values.location.pathname).toEqual('/project/997')
+
+            expect(api.delete).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/session_recordings/3`)
             resumeKeaLoadersErrors()
         })
     })

@@ -589,7 +589,6 @@ impl IngestionEventsBatchProcessor {
 mod tests {
     use super::*;
     use crate::pipelines::DuplicateReason;
-    use crate::rocksdb::store::RocksDbConfig;
     use crate::store::DeduplicationStoreConfig;
     use crate::test_utils::create_test_tracker;
     use serde_json::json;
@@ -602,7 +601,6 @@ mod tests {
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
-            rocksdb: RocksDbConfig::default(),
         };
 
         let mut producer_config = rdkafka::ClientConfig::new();

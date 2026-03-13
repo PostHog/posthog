@@ -23,11 +23,11 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { isKeyOf } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 
-import { getCoreFilterDefinition, getFilterLabel, isCoreFilter } from '~/taxonomy/helpers'
+import { getFilterLabel, isCoreFilter } from '~/taxonomy/helpers'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
     ActionType,
     CohortType,
@@ -164,9 +164,9 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         return <></>
     }
 
-    const description =
+    const description: string | JSX.Element | undefined | null =
         (definition && 'description' in definition && definition?.description) ||
-        (definition?.name ? getCoreFilterDefinition(definition.name, group.type)?.description : undefined)
+        (definition?.name && CORE_FILTER_DEFINITIONS_BY_GROUP[group.type]?.[definition.name]?.description)
 
     const sharedComponents = (
         <>
@@ -497,8 +497,8 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                 optional,
                                 type,
                             }: DataWarehousePopoverField) => {
-                                const fieldValue = isKeyOf(key, localDefinition) ? localDefinition[key] : undefined
-                                const isHogQL = isUsingHogQLExpression(fieldValue ?? undefined)
+                                const fieldValue = key in localDefinition ? localDefinition[key] : undefined
+                                const isHogQL = isUsingHogQLExpression(fieldValue)
 
                                 return (
                                     <Fragment key={key}>
@@ -552,7 +552,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                             disabledReason={
                                 dataWarehousePopoverFields.every(
                                     ({ key, optional }: DataWarehousePopoverField) =>
-                                        optional || (isKeyOf(key, localDefinition) && localDefinition[key])
+                                        optional || (key in localDefinition && localDefinition[key])
                                 )
                                     ? null
                                     : 'All required field mappings must be specified'
@@ -721,9 +721,6 @@ export function ControlledDefinitionPopover({
         return null
     }
 
-    const isDataWarehouseFunnelWidePopover =
-        group.type === TaxonomicFilterGroupType.DataWarehouse && !!definitionPopoverRenderer
-
     const defaultView = <DefinitionView group={group} />
     const customView = definitionPopoverRenderer?.({ item, group, defaultView }) ?? defaultView
 
@@ -731,9 +728,7 @@ export function ControlledDefinitionPopover({
         <Popover
             visible={visible}
             referenceElement={highlightedItemElement}
-            className={cn('click-outside-block hotkey-block', {
-                'definition-popover--data-warehouse-funnel-wide': isDataWarehouseFunnelWidePopover,
-            })}
+            className="click-outside-block hotkey-block"
             overlay={
                 <DefinitionPopover.Wrapper>
                     <DefinitionPopover.Header

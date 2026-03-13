@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 
-import type { Insight } from '@/schema/insights'
+import type { Schemas } from '@/api/generated'
 import { InsightGetAllSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -8,9 +8,7 @@ const schema = InsightGetAllSchema
 
 type Params = z.infer<typeof schema>
 
-type Result = (Insight & { url: string })[]
-
-export const getAllHandler: ToolBase<typeof schema, Result>['handler'] = async (context: Context, params: Params) => {
+export const getAllHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
     const { data } = params
     const projectId = await context.stateManager.getProjectId()
     const insightsResult = await context.api.insights({ projectId }).list({ params: { ...data } })
@@ -19,7 +17,7 @@ export const getAllHandler: ToolBase<typeof schema, Result>['handler'] = async (
         throw new Error(`Failed to get insights: ${insightsResult.error.message}`)
     }
 
-    const insightsWithUrls = insightsResult.data.map((insight: Insight) => ({
+    const insightsWithUrls = insightsResult.data.map((insight: Schemas.Insight) => ({
         ...insight,
         url: `${context.api.getProjectBaseUrl(projectId)}/insights/${insight.short_id}`,
     }))
@@ -27,7 +25,7 @@ export const getAllHandler: ToolBase<typeof schema, Result>['handler'] = async (
     return insightsWithUrls
 }
 
-const tool = (): ToolBase<typeof schema, Result> => ({
+const tool = (): ToolBase<typeof schema> => ({
     name: 'insights-get-all',
     schema,
     handler: getAllHandler,

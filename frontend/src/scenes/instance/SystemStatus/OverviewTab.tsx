@@ -4,7 +4,6 @@ import { LemonTable } from '@posthog/lemon-ui'
 
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
-import { isKeyOf } from 'lib/utils'
 
 import { SystemStatusRow, SystemStatusSubrows } from '~/types'
 
@@ -19,7 +18,7 @@ function RenderMetric(_: any, systemStatusRow: SystemStatusRow): JSX.Element {
     return (
         <span>
             {systemStatusRow.metric}{' '}
-            {isKeyOf(systemStatusRow.key, METRIC_KEY_TO_INTERNAL_LINK) ? (
+            {METRIC_KEY_TO_INTERNAL_LINK[systemStatusRow.key] ? (
                 <Link to={METRIC_KEY_TO_INTERNAL_LINK[systemStatusRow.key]}>
                     <IconOpenInNew style={{ verticalAlign: 'middle' }} />
                 </Link>

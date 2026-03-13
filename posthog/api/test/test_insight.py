@@ -200,8 +200,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 event="insight created",
                 properties={
                     "$current_url": "https://posthog.com/my-referer",
-                    "$host": "posthog.com",
-                    "$pathname": "/my-referer",
                     "$session_id": "my-session-id",
                     "source": "web",
                     "was_impersonated": False,
@@ -209,9 +207,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "mcp_client_name": None,
                     "mcp_client_version": None,
                     "mcp_protocol_version": None,
-                    "mcp_oauth_client_name": None,
                     "insight_id": response_1.json()["short_id"],
-                    "$set_once": {"email": self.user.email},
                 },
                 groups=ANY,
             )
@@ -245,8 +241,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 event="insight updated",
                 properties={
                     "$current_url": "https://posthog.com/my-referer",
-                    "$host": "posthog.com",
-                    "$pathname": "/my-referer",
                     "$session_id": "my-session-id",
                     "source": "web",
                     "was_impersonated": False,
@@ -254,9 +248,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "mcp_client_name": None,
                     "mcp_client_version": None,
                     "mcp_protocol_version": None,
-                    "mcp_oauth_client_name": None,
                     "insight_id": insight_short_id,
-                    "$set_once": {"email": self.user.email},
                 },
                 groups=ANY,
             )

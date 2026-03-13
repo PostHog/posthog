@@ -161,16 +161,15 @@ export function PerformanceDuration({
     )
 }
 
-interface PerformanceValues {
+function itemToPerformanceValues(item: PerformanceEvent): {
     cls?: number
     lcp?: number
     fcp?: number
     inp?: number
     domInteractive?: number
     pageLoaded?: number
-}
-
-function itemToPerformanceValues(item: PerformanceEvent): PerformanceValues & { loaded: boolean } {
+    loaded: boolean
+} {
     const webVitals: RecordingEventType[] = item.web_vitals ? Array.from(item.web_vitals) : []
 
     const clsEvent = webVitals.find((event) => event.properties.$web_vitals_CLS_value)
@@ -198,7 +197,6 @@ export function PerformanceCardRow({ item }: { item: PerformanceEvent }): JSX.El
     return (
         <OverviewGrid>
             {Object.entries(summaryMapping)
-                .filter((entry): entry is [keyof PerformanceValues, SummaryCardData] => !!entry)
                 .filter(([key]) => performanceValues[key] !== undefined)
                 .map(([key, summary]) => {
                     return (
@@ -226,7 +224,6 @@ export function PerformanceCardDescriptions({
     return (
         <div className={clsx('p-2 text-xs border-t', !expanded && 'hidden')}>
             {Object.entries(summaryMapping)
-                .filter((entry): entry is [keyof PerformanceValues, SummaryCardData] => !!entry)
                 .filter(([key]) => performanceValues[key] !== undefined)
                 .map(([key, summary]) => (
                     <PerformanceCardDescription

@@ -29,7 +29,6 @@ class Person(_message.Message):
         "version",
         "is_identified",
         "is_user_id",
-        "last_seen_at",
     )
     ID_FIELD_NUMBER: _ClassVar[int]
     UUID_FIELD_NUMBER: _ClassVar[int]
@@ -41,7 +40,6 @@ class Person(_message.Message):
     VERSION_FIELD_NUMBER: _ClassVar[int]
     IS_IDENTIFIED_FIELD_NUMBER: _ClassVar[int]
     IS_USER_ID_FIELD_NUMBER: _ClassVar[int]
-    LAST_SEEN_AT_FIELD_NUMBER: _ClassVar[int]
     id: int
     uuid: str
     team_id: int
@@ -52,7 +50,6 @@ class Person(_message.Message):
     version: int
     is_identified: bool
     is_user_id: bool
-    last_seen_at: int
 
     def __init__(
         self,
@@ -66,7 +63,6 @@ class Person(_message.Message):
         version: _Optional[int] = ...,
         is_identified: bool = ...,
         is_user_id: bool = ...,
-        last_seen_at: _Optional[int] = ...,
     ) -> None: ...
 
 class DistinctIdWithVersion(_message.Message):

@@ -76,9 +76,6 @@ jobs:
               with:
                   node-version: 24.13.0
                   cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-nodejs.yml
 
             - name: Install package.json dependencies with pnpm
               env:
@@ -116,9 +113,6 @@ jobs:
               with:
                   node-version: 24.13.0
                   cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-nodejs.yml
 
             - name: Install package.json dependencies with pnpm
               env:
@@ -233,9 +227,7 @@ jobs:
               with:
                   node-version: 24.13.0
                   cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-nodejs.yml
+                  cache-dependency-path: pnpm-lock.yaml
 
             - name: Download MaxMind Database
               run: |
@@ -253,17 +245,13 @@ jobs:
 
             - name: Fetch base branch for diff
               if: github.event_name == 'pull_request'
-              env:
-                  BASE_REF: ${{ github.base_ref }}
-              run: git fetch origin "$BASE_REF" --depth=1
+              run: git fetch origin ${{ github.base_ref }} --depth=1
 
             - name: Check for migrations in this PR
               id: check_migrations
               if: github.event_name == 'pull_request'
-              env:
-                  BASE_REF: ${{ github.base_ref }}
               run: |
-                  if git diff --name-only "origin/$BASE_REF..HEAD" | grep -E '(migrations/|rust/.*migrate)'; then
+                  if git diff --name-only origin/${{ github.base_ref }}..HEAD | grep -E '(migrations/|rust/.*migrate)'; then
                     echo "has_migrations=true" >> $GITHUB_OUTPUT
                   else
                     echo "has_migrations=false" >> $GITHUB_OUTPUT

@@ -2,7 +2,6 @@ ROOT_UI_CONTEXT_PROMPT = """
 <attached_context>
 {{{ui_context_dashboard}}}
 {{{ui_context_insights}}}
-{{{ui_context_notebooks}}}
 {{{ui_context_events}}}
 {{{ui_context_actions}}}
 {{{ui_context_error_tracking}}}

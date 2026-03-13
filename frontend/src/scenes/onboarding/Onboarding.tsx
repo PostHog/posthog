@@ -31,6 +31,7 @@ import { OnboardingLogicProps, OnboardingStepElement, onboardingLogic } from './
 import { OnboardingMax } from './OnboardingMax'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
 import { ProductConfigOption } from './onboardingProductConfigurationLogic'
+import { OnboardingReverseProxy } from './OnboardingReverseProxy'
 import { OnboardingSessionReplayConfiguration } from './OnboardingSessionReplayConfiguration'
 import { ErrorTrackingSDKInstructions } from './sdks/error-tracking/ErrorTrackingSDKInstructions'
 import { ExperimentsSDKInstructions } from './sdks/experiments/ExperimentsSDKInstructions'
@@ -65,6 +66,7 @@ const OnboardingWrapper = ({
     const {
         currentOnboardingStep,
         shouldShowBillingStep,
+        shouldShowReverseProxyStep,
         shouldShowDataWarehouseStep,
         product,
         billingProduct,
@@ -94,6 +96,11 @@ const OnboardingWrapper = ({
         if (shouldShowDataWarehouseStep) {
             const DataWarehouseStep = <OnboardingDataWarehouseSourcesStep />
             steps = [...steps, DataWarehouseStep]
+        }
+
+        if (shouldShowReverseProxyStep) {
+            const ReverseProxyStep = <OnboardingReverseProxy />
+            steps = [...steps, ReverseProxyStep]
         }
 
         if (shouldShowBillingStep && billingProduct) {

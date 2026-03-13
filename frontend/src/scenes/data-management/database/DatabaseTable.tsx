@@ -32,8 +32,7 @@ const nonEditableSchemaTypes = [
     'materialized_view',
 ] as const
 type NonEditableSchemaTypes = Extract<DatabaseSerializedFieldType, (typeof nonEditableSchemaTypes)[number]>
-type EditableSerializedFieldTypes = Exclude<DatabaseSerializedFieldType, NonEditableSchemaTypes>
-const editSchemaOptions: Record<EditableSerializedFieldTypes, string> = {
+const editSchemaOptions: Record<Exclude<DatabaseSerializedFieldType, NonEditableSchemaTypes>, string> = {
     integer: 'Integer',
     float: 'Float',
     decimal: 'Decimal',
@@ -45,8 +44,7 @@ const editSchemaOptions: Record<EditableSerializedFieldTypes, string> = {
     json: 'JSON',
     unknown: 'Unknown',
 }
-const editSchemaOptionsKeys = Object.keys(editSchemaOptions) as Array<EditableSerializedFieldTypes>
-const editSchemaOptionsAsArray = editSchemaOptionsKeys.map((n) => ({ value: n, label: editSchemaOptions[n] }))
+const editSchemaOptionsAsArray = Object.keys(editSchemaOptions).map((n) => ({ value: n, label: editSchemaOptions[n] }))
 
 const isNonEditableSchemaType = (schemaType: unknown): schemaType is NonEditableSchemaTypes => {
     return typeof schemaType === 'string' && nonEditableSchemaTypes.includes(schemaType as NonEditableSchemaTypes)
@@ -176,15 +174,7 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                         if (type === 'virtual_table' || type === 'view') {
                             return (
                                 <>
-                                    {(field as any).fields ? (
-                                        <>
-                                            Fields: <code>{(field as any).fields.join(', ')}</code>
-                                        </>
-                                    ) : (
-                                        <>
-                                            To table: <code>{String((field as any).table)}</code>
-                                        </>
-                                    )}
+                                    Fields: <code>{(field as any).fields.join(', ')}</code>
                                 </>
                             )
                         } else if (type === 'lazy_table') {

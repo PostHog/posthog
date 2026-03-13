@@ -252,11 +252,7 @@ export function SessionRecordingsPlaylistTopSettings({
     const { autoplayDirection } = useValues(playerSettingsLogic)
     const { setAutoplayDirection } = useActions(playerSettingsLogic)
     const { playlists, playlistsLoading } = useValues(sessionRecordingCollectionsLogic)
-    const {
-        selectedRecordingsIds,
-        otherRecordings,
-        visiblePinnedRecordings: pinnedRecordings,
-    } = useValues(sessionRecordingsPlaylistLogic)
+    const { selectedRecordingsIds, sessionRecordings, pinnedRecordings } = useValues(sessionRecordingsPlaylistLogic)
     const {
         handleBulkAddToPlaylist,
         handleBulkDeleteFromPlaylist,
@@ -267,7 +263,7 @@ export function SessionRecordingsPlaylistTopSettings({
         handleBulkMarkAsNotViewed,
     } = useActions(sessionRecordingsPlaylistLogic)
 
-    const recordings = type === 'filters' ? otherRecordings : pinnedRecordings
+    const recordings = type === 'filters' ? sessionRecordings : pinnedRecordings
     const checked = recordings.length > 0 && selectedRecordingsIds.length === recordings.length
 
     const accessControlDisabledReason = getAccessControlDisabledReason(

@@ -15,19 +15,16 @@ logger = get_logger(__name__)
 @shared_task(ignore_result=True)
 def validate_pending_change_requests() -> dict[str, Any]:
     """
-    Periodic staleness check for pending change requests.
-
-    Compares stored preconditions against the current resource state.
-    Marks CRs as STALE when the underlying resource has been modified,
-    which allows requesters to cancel even after approvals have been given.
+    Checks if:
+    1. The underlying data has changed (staleness)
+    2. The validation is still valid (re-run validation)
     """
-    stale_count = 0
-    checked_count = 0
+
+    validated_count = 0
+    invalidated_count = 0
     errors: list[str] = []
 
-    pending_requests = ChangeRequest.objects.filter(
-        state=ChangeRequestState.PENDING,
-    ).exclude(validation_status=ValidationStatus.STALE)
+    pending_requests = ChangeRequest.objects.filter(state=ChangeRequestState.PENDING)
 
     for change_request in pending_requests:
         try:
@@ -40,8 +37,7 @@ def validate_pending_change_requests() -> dict[str, Any]:
                 )
                 continue
 
-            checked_count += 1
-
+            # Build context for validation
             base_context = {
                 "team": change_request.team,
                 "team_id": change_request.team_id,
@@ -49,18 +45,24 @@ def validate_pending_change_requests() -> dict[str, Any]:
             }
             context = action_class.prepare_context(change_request, base_context)
 
-            if action_class.check_staleness(change_request.intent, context):
-                change_request.validation_status = ValidationStatus.STALE
-                change_request.validation_errors = {
-                    "staleness": "Resource has been modified since this change request was created"
-                }
-                change_request.validated_at = timezone.now()
-                change_request.save(update_fields=["validation_status", "validation_errors", "validated_at"])
-                stale_count += 1
+            is_valid, validation_errors = action_class.validate_intent(change_request.intent, context)
+
+            if is_valid:
+                change_request.validation_status = ValidationStatus.VALID
+                change_request.validation_errors = None
+                validated_count += 1
+            else:
+                change_request.validation_status = ValidationStatus.INVALID
+                change_request.validation_errors = validation_errors
+                invalidated_count += 1
                 logger.info(
-                    "validate_pending_change_requests.stale",
+                    "validate_pending_change_requests.invalidated",
                     change_request_id=str(change_request.id),
+                    errors=validation_errors,
                 )
+
+            change_request.validated_at = timezone.now()
+            change_request.save(update_fields=["validation_status", "validation_errors", "validated_at"])
 
         except Exception as e:
             error_msg = f"Error validating change request {change_request.id}: {str(e)}"
@@ -72,8 +74,8 @@ def validate_pending_change_requests() -> dict[str, Any]:
             )
 
     result = {
-        "checked_count": checked_count,
-        "stale_count": stale_count,
+        "validated_count": validated_count,
+        "invalidated_count": invalidated_count,
         "errors": errors,
     }
 

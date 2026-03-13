@@ -560,8 +560,7 @@ export const maxLogic = kea<maxLogicType>([
                 window.setTimeout(() => {
                     // ensure maxThreadLogic is mounted
                     // Pass context directly to askMax to avoid timing issues
-                    // kea-router coerces numeric-looking URL params to numbers
-                    actions.askMax(String(search.ask), true, uiContext)
+                    actions.askMax(search.ask, true, uiContext)
                 }, 100)
                 return
             }

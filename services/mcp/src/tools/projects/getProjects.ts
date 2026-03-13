@@ -1,12 +1,9 @@
-import type { Schemas } from '@/api/generated'
 import { ProjectGetAllSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
 const schema = ProjectGetAllSchema
 
-export const getProjectsHandler: ToolBase<typeof schema, Schemas.ProjectBackwardCompat[]>['handler'] = async (
-    context: Context
-) => {
+export const getProjectsHandler: ToolBase<typeof schema>['handler'] = async (context: Context) => {
     const orgId = await context.stateManager.getOrgID()
 
     if (!orgId) {
@@ -24,7 +21,7 @@ export const getProjectsHandler: ToolBase<typeof schema, Schemas.ProjectBackward
     return projectsResult.data
 }
 
-const tool = (): ToolBase<typeof schema, Schemas.ProjectBackwardCompat[]> => ({
+const tool = (): ToolBase<typeof schema> => ({
     name: 'projects-get',
     schema,
     handler: getProjectsHandler,

@@ -5,8 +5,10 @@ import { useState } from 'react'
 import { IconPlus } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { ICONS } from 'lib/integrations/utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -28,7 +30,8 @@ import {
     createLinearIssueForm,
 } from './issueFormHelpers'
 
-const SESSION_REPLAY_INTEGRATIONS: IntegrationKind[] = ['linear', 'github', 'gitlab', 'jira']
+const SESSION_REPLAY_INTEGRATIONS: IntegrationKind[] = ['linear', 'github', 'gitlab']
+const SESSION_REPLAY_INTEGRATIONS_WITH_JIRA: IntegrationKind[] = ['linear', 'github', 'gitlab', 'jira']
 
 type IssueConfig = Record<string, string>
 
@@ -42,7 +45,10 @@ export function PlayerSidebarLinkedIssuesTab(): JSX.Element | null {
         useValues(sessionRecordingPlayerLogic)
     const { createExternalReference } = useActions(sessionRecordingPlayerLogic)
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const [creatingIssue, setCreatingIssue] = useState(false)
+
+    const jiraIntegrationEnabled = featureFlags[FEATURE_FLAGS.REPLAY_JIRA_INTEGRATION]
 
     if (sessionPlayerMetaDataLoading || integrationsLoading) {
         return (
@@ -56,7 +62,10 @@ export function PlayerSidebarLinkedIssuesTab(): JSX.Element | null {
         )
     }
 
-    const sessionReplayIntegrations = getIntegrationsByKind(SESSION_REPLAY_INTEGRATIONS)
+    const integrationKinds = jiraIntegrationEnabled
+        ? SESSION_REPLAY_INTEGRATIONS_WITH_JIRA
+        : SESSION_REPLAY_INTEGRATIONS
+    const sessionReplayIntegrations = getIntegrationsByKind(integrationKinds)
     const externalReferences = sessionPlayerMetaData?.external_references ?? []
 
     const onClickCreateIssue = (integration: IntegrationType): void => {
@@ -136,7 +145,7 @@ export function PlayerSidebarLinkedIssuesTab(): JSX.Element | null {
                             {gitlabReferences.map(renderIssueLink)}
                         </div>
                     )}
-                    {jiraReferences.length > 0 && (
+                    {jiraIntegrationEnabled && jiraReferences.length > 0 && (
                         <div className="space-y-2">
                             <h4 className="text-sm font-medium text-muted">Jira</h4>
                             {jiraReferences.map(renderIssueLink)}

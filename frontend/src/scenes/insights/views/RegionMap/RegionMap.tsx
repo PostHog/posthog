@@ -10,7 +10,6 @@ import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisForma
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
-import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -46,7 +45,6 @@ function useRegionMapTooltip(showPersonsModal: boolean): React.RefObject<HTMLDiv
     const { series, trendsFilter, breakdownFilter, isTooltipShown, currentTooltip, tooltipCoordinates } =
         useValues(logic)
     const { aggregationLabel } = useValues(groupsModel)
-    const { baseCurrency } = useValues(teamLogic)
 
     const containerRef = useRef<HTMLDivElement>(null)
     const { getTooltip } = useInsightTooltip()
@@ -86,7 +84,7 @@ function useRegionMapTooltip(showPersonsModal: boolean): React.RefObject<HTMLDiv
                         </div>
                     )
                 }
-                renderCount={(value: number) => <>{formatAggregationAxisValue(trendsFilter, value, baseCurrency)}</>}
+                renderCount={(value: number) => <>{formatAggregationAxisValue(trendsFilter, value)}</>}
                 showHeader={false}
                 hideColorCol
                 hideInspectActorsSection={!showPersonsModal || aggregatedValue === 0}

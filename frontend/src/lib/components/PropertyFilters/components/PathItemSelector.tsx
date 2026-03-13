@@ -37,7 +37,6 @@ export function PathItemSelector({
                     }}
                     taxonomicGroupTypes={taxonomicGroupTypes}
                     optionsFromProp={{ wildcard: wildcardOptions }}
-                    minSearchQueryLength={0}
                 />
             }
         >

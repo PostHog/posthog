@@ -23,7 +23,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { BoxPlotLegend } from 'scenes/insights/views/BoxPlot/BoxPlotLegend'
 import { BoxPlotResultsTable } from 'scenes/insights/views/BoxPlot/BoxPlotResultsTable'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
 import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable'
@@ -110,7 +109,7 @@ export function InsightVizDisplay({
         }
 
         // Insight specific empty states - note order is important here
-        if (display === ChartDisplayType.BoxPlot && (!series?.length || series.some((s) => !s?.math_property))) {
+        if (display === ChartDisplayType.BoxPlot && !series?.[0]?.math_property) {
             return <BoxPlotMissingPropertyState />
         }
 
@@ -127,11 +126,10 @@ export function InsightVizDisplay({
         }
 
         if (activeView === InsightType.FUNNELS) {
-            const isFlowViz = funnelsFilter?.funnelVizType === FunnelVizType.Flow
-            if (!isFunnelWithEnoughSteps && !isFlowViz) {
+            if (!isFunnelWithEnoughSteps) {
                 return <FunnelSingleStepState actionable={!embedded && editMode} />
             }
-            if (!hasFunnelResults && !erroredQueryId && !insightDataLoading && !isFlowViz) {
+            if (!hasFunnelResults && !erroredQueryId && !insightDataLoading) {
                 return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
             }
         }
@@ -220,10 +218,7 @@ export function InsightVizDisplay({
             !disableTable
         ) {
             return (
-                <SceneSection
-                    title={<span className="font-semibold text-lg m-0">Detailed results</span>}
-                    className="mt-4"
-                >
+                <SceneSection title="Detailed results">
                     <FunnelStepsTable />
                 </SceneSection>
             )
@@ -355,7 +350,7 @@ export function InsightVizDisplay({
                                 <>
                                     <div className="InsightVizDisplay__content__left">{renderActiveView()}</div>
                                     <div className="InsightVizDisplay__content__right">
-                                        {display === ChartDisplayType.BoxPlot ? <BoxPlotLegend /> : <InsightLegend />}
+                                        <InsightLegend />
                                     </div>
                                 </>
                             ) : (

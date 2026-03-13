@@ -27,8 +27,6 @@ import {
     TooltipModel,
     TooltipOptions,
 } from 'lib/Chart'
-import { resolveVariableColor } from 'lib/charts/utils/color'
-import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
@@ -44,12 +42,11 @@ import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
+import { createXAxisTickCallback } from 'scenes/insights/views/LineGraph/formatXAxisTick'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
-import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
-import { useChartZoom } from 'scenes/web-analytics/hooks/useChartZoom'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -65,7 +62,30 @@ function truncateString(str: string, num: number): string {
     return str
 }
 
+const RESOLVED_COLOR_MAP = new Map<string, string>()
 const INCOMPLETE_SEGMENT_BORDER_DASH = [10, 10]
+export function resolveVariableColor(color: string | undefined): string | undefined {
+    if (!color) {
+        return color
+    }
+
+    if (RESOLVED_COLOR_MAP.has(color)) {
+        return RESOLVED_COLOR_MAP.get(color)
+    }
+
+    // Cache complex variables to avoid the `getComputedStyle` call on every call
+    if (color.startsWith('var(--')) {
+        const replaced = color.replace('var(', '').replace(')', '')
+        const computedColor = getComputedStyle(document.documentElement).getPropertyValue(replaced)
+        RESOLVED_COLOR_MAP.set(color, computedColor)
+        return computedColor
+    }
+
+    // Optimize to avoid the `startsWith` check on every call
+    RESOLVED_COLOR_MAP.set(color, color)
+
+    return color
+}
 
 export function onChartClick(
     event: ChartEvent,
@@ -220,7 +240,6 @@ export interface LineGraphProps {
     showTrendLines?: boolean
     ignoreActionsInSeriesLabels?: boolean
     datalabelFormatter?: (value: number, datasetIndex: number) => string
-    onDateRangeZoom?: (dateFrom: string, dateTo: string) => void
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -268,7 +287,6 @@ export function LineGraph_({
     showTrendLines = false,
     ignoreActionsInSeriesLabels = false,
     datalabelFormatter,
-    onDateRangeZoom,
 }: LineGraphProps): JSX.Element {
     const originalDatasets = _datasets
     let datasets = _datasets
@@ -276,7 +294,6 @@ export function LineGraph_({
     const { aggregationLabel } = useValues(groupsModel)
     const { isDarkModeOn } = useValues(themeLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { baseCurrency } = useValues(teamLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
     const { timezone, isTrends, isFunnels, breakdownFilter, interval, insightData } = useValues(
@@ -285,7 +302,7 @@ export function LineGraph_({
     const { theme, getTrendsColor, getTrendsHidden, hoveredDatasetIndex } = useValues(trendsDataLogic(insightProps))
     const { setHoveredDatasetIndex } = useActions(trendsDataLogic(insightProps))
 
-    const { tooltipId, hideTooltip, showTooltip, getTooltip, positionTooltip } = useInsightTooltip()
+    const { tooltipId, hideTooltip, getTooltip, positionTooltip } = useInsightTooltip()
 
     const colors = getGraphColors()
     const isHorizontal = type === GraphType.HorizontalBar
@@ -301,12 +318,6 @@ export function LineGraph_({
     const showAnnotations = ((isTrends && !isHorizontal) || isFunnels) && !hideAnnotations
     const isLog10 = yAxisScaleType === 'log10' // Currently log10 is the only logarithmic scale supported
     const isHighlightBarMode = isBar && isStacked && isShiftPressed
-    const effectiveZoomCallback = !isBar && !isHorizontal ? onDateRangeZoom : undefined
-    const zoomPluginOptions = useChartZoom({
-        datasets,
-        onDateRangeZoom: effectiveZoomCallback,
-        enabled: !!effectiveZoomCallback,
-    })
 
     useEffect(() => {
         if (!isShiftPressed) {
@@ -445,7 +456,7 @@ export function LineGraph_({
         if (showPercentView) {
             return `${Number(value).toFixed(1)}%`
         }
-        return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView, baseCurrency)
+        return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
     }
 
     function generateYaxesForLineGraph(
@@ -660,8 +671,7 @@ export function LineGraph_({
                             return formatPercentStackAxisValue(
                                 trendsFilter,
                                 percentageValue || value,
-                                isPercentStackView,
-                                baseCurrency
+                                isPercentStackView
                             )
                         },
                         borderWidth: 2,
@@ -709,11 +719,6 @@ export function LineGraph_({
                                 return
                             }
 
-                            if (effectiveZoomCallback && chart.isZoomingOrPanning?.()) {
-                                hideTooltip()
-                                return
-                            }
-
                             const [tooltipRoot, tooltipEl] = getTooltip()
                             if (tooltip.opacity === 0) {
                                 hideTooltip()
@@ -722,7 +727,7 @@ export function LineGraph_({
 
                             tooltipEl.classList.remove('above', 'below', 'no-transform', 'opacity-0', 'invisible')
                             tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
-                            showTooltip()
+                            tooltipEl.style.opacity = '1'
 
                             if (tooltip.body) {
                                 const referenceDataPoint = tooltip.dataPoints[0]
@@ -805,15 +810,14 @@ export function LineGraph_({
                                                         if (originalValue !== undefined && originalValue !== null) {
                                                             return `${value.toFixed(1)}% (${formatAggregationAxisValue(
                                                                 trendsFilter,
-                                                                originalValue,
-                                                                baseCurrency
+                                                                originalValue
                                                             )})`
                                                         }
                                                     }
                                                 }
 
                                                 if (!isPercentStackView) {
-                                                    return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
+                                                    return formatAggregationAxisValue(trendsFilter, value)
                                                 }
 
                                                 const total = seriesData.reduce((a, b) => a + b.count, 0)
@@ -824,13 +828,12 @@ export function LineGraph_({
                                                 const isNaN = Number.isNaN(percentageLabel)
 
                                                 if (isNaN) {
-                                                    return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
+                                                    return formatAggregationAxisValue(trendsFilter, value)
                                                 }
 
                                                 return `${formatAggregationAxisValue(
                                                     trendsFilter,
-                                                    value,
-                                                    baseCurrency
+                                                    value
                                                 )} (${percentageLabel}%)`
                                             })
                                         }
@@ -876,7 +879,6 @@ export function LineGraph_({
                         : {
                               crosshair: false,
                           }),
-                    ...(zoomPluginOptions ? { zoom: zoomPluginOptions } : {}),
                 },
                 hover: {
                     mode: isBar ? 'point' : 'nearest',
@@ -885,13 +887,6 @@ export function LineGraph_({
                 },
                 onHover(event: ChartEvent, elements: ActiveElement[], chart: Chart) {
                     onChartHover(event, chart, onClick)
-
-                    if (effectiveZoomCallback) {
-                        const target = event.native?.target as HTMLElement | undefined
-                        if (target && target.style.cursor !== 'pointer') {
-                            target.style.cursor = 'crosshair'
-                        }
-                    }
 
                     // For stacked bar charts when shift is pressed, track hovered dataset to highlight only that bar
                     if (isHighlightBarMode) {
@@ -944,12 +939,7 @@ export function LineGraph_({
                             display: !hideYAxis,
                             precision,
                             callback: (value) => {
-                                return formatPercentStackAxisValue(
-                                    trendsFilter,
-                                    value,
-                                    isPercentStackView,
-                                    baseCurrency
-                                )
+                                return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
                             },
                         },
                         grid: gridOptions,
@@ -1006,12 +996,7 @@ export function LineGraph_({
                             ...tickOptions,
                             precision,
                             callback: (value) => {
-                                return formatPercentStackAxisValue(
-                                    trendsFilter,
-                                    value,
-                                    isPercentStackView,
-                                    baseCurrency
-                                )
+                                return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
                             },
                         },
                         grid: gridOptions,
@@ -1110,15 +1095,12 @@ export function LineGraph_({
             showTrendLines,
             labels,
             hideTooltip,
-            showTooltip,
             getTooltip,
             hoveredDatasetIndex,
             setHoveredDatasetIndex,
             isHighlightBarMode,
             interval,
             timezone,
-            effectiveZoomCallback,
-            zoomPluginOptions,
         ],
     })
 

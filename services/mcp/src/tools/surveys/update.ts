@@ -1,17 +1,13 @@
 import type { z } from 'zod'
 
-import { SURVEY_RESOURCE_URI } from '@/resources/ui-apps-constants'
 import { SurveyUpdateSchema } from '@/schema/tool-inputs'
-import { formatSurvey, type FormattedSurvey } from '@/tools/surveys/utils/survey-utils'
+import { formatSurvey } from '@/tools/surveys/utils/survey-utils'
 import type { Context, ToolBase } from '@/tools/types'
 
 const schema = SurveyUpdateSchema
 type Params = z.infer<typeof schema>
 
-export const updateHandler: ToolBase<typeof schema, FormattedSurvey>['handler'] = async (
-    context: Context,
-    params: Params
-) => {
+export const updateHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
     const { surveyId, ...data } = params
 
     const projectId = await context.stateManager.getProjectId()
@@ -48,15 +44,10 @@ export const updateHandler: ToolBase<typeof schema, FormattedSurvey>['handler'] 
     return formattedSurvey
 }
 
-const tool = (): ToolBase<typeof schema, FormattedSurvey> => ({
+const tool = (): ToolBase<typeof schema> => ({
     name: 'survey-update',
     schema,
     handler: updateHandler,
-    _meta: {
-        ui: {
-            resourceUri: SURVEY_RESOURCE_URI,
-        },
-    },
 })
 
 export default tool

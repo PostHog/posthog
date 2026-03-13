@@ -32,11 +32,3 @@ export {
     JoinedIngestionPipelineDeps,
     JoinedIngestionPipelineInput,
 } from './joined-ingestion-pipeline'
-
-export {
-    createTestingJoinedIngestionPipeline,
-    TestingJoinedIngestionPipelineConfig,
-    TestingJoinedIngestionPipelineContext,
-    TestingJoinedIngestionPipelineDeps,
-    TestingJoinedIngestionPipelineInput,
-} from './testing-joined-ingestion-pipeline'

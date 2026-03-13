@@ -4,21 +4,17 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { toParams } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, ChangeRequest, ChangeRequestState } from '~/types'
 
 import type { changeRequestsLogicType } from './changeRequestsLogicType'
-import type { ApprovalContext, ChangeRequestCreatedEventDetail } from './utils'
 
 export interface ChangeRequestsLogicProps {
     resourceType: string
     resourceId: string | number
     actionKey?: string
-    /** Display context — controls banner wording (e.g. "experiment" instead of "feature flag") */
-    context?: ApprovalContext
 }
 
 export interface ChangeRequestButtonVisibility {
@@ -76,9 +72,7 @@ export const changeRequestsLogic = kea<changeRequestsLogicType>([
                         params.action_key = props.actionKey
                     }
 
-                    const response = await api.get(
-                        `api/environments/${values.currentTeamId}/change_requests?${toParams(params)}`
-                    )
+                    const response = await api.get(`api/environments/${values.currentTeamId}/change_requests`, params)
                     return response.results || []
                 },
             },
@@ -144,7 +138,7 @@ export const changeRequestsLogic = kea<changeRequestsLogicType>([
             try {
                 await api.create(`api/environments/${values.currentTeamId}/change_requests/${id}/reject/`, { reason })
                 lemonToast.success('Change request rejected')
-                actions.loadChangeRequestsSuccess(values.changeRequests.filter((cr) => cr.id !== id))
+                actions.loadChangeRequests()
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to reject change request')
             }
@@ -154,8 +148,7 @@ export const changeRequestsLogic = kea<changeRequestsLogicType>([
             try {
                 await api.create(`api/environments/${values.currentTeamId}/change_requests/${id}/cancel/`, { reason })
                 lemonToast.success('Change request canceled')
-                // Optimistically remove the canceled CR so the banner disappears immediately
-                actions.loadChangeRequestsSuccess(values.changeRequests.filter((cr) => cr.id !== id))
+                actions.loadChangeRequests()
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to cancel change request')
             }
@@ -165,7 +158,7 @@ export const changeRequestsLogic = kea<changeRequestsLogicType>([
     afterMount(({ actions, props }) => {
         actions.loadChangeRequests()
 
-        const handleChangeRequestCreated = (event: CustomEvent<ChangeRequestCreatedEventDetail>): void => {
+        const handleChangeRequestCreated = (event: CustomEvent): void => {
             const { resourceType, resourceId } = event.detail
             if (resourceType === props.resourceType && String(resourceId) === String(props.resourceId)) {
                 actions.loadChangeRequests()

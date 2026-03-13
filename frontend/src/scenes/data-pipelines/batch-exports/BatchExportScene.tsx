@@ -248,12 +248,7 @@ function BatchExportSceneContentInner({
                   key: 'logs',
                   content: (
                       <FlaggedFeature flag="batch-export-new-logs" fallback={<PipelineNodeLogs id={id} />}>
-                          <LogsViewer
-                              sourceType="batch_exports"
-                              sourceId={id}
-                              instanceLabel="run"
-                              defaultFilters={{ levels: ['LOG', 'INFO', 'WARN', 'ERROR'] }}
-                          />
+                          <LogsViewer sourceType="batch_exports" sourceId={id} instanceLabel="run" />
                       </FlaggedFeature>
                   ),
               }

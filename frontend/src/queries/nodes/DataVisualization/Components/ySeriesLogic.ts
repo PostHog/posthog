@@ -12,7 +12,7 @@ import {
 import type { ySeriesLogicType } from './ySeriesLogicType'
 
 export interface YSeriesLogicProps {
-    series: AxisSeries<number | null>
+    series: AxisSeries<number>
     seriesIndex: number
     dataVisualizationProps: DataVisualizationLogicProps
 }

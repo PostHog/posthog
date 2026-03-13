@@ -123,10 +123,10 @@ The response format depends on the `v` query parameter and the endpoint:
 
 The goal is for this Rust endpoint to replace the Django local evaluation endpoint. When complete, it will serve flag definitions for SDKs that evaluate flags locally, authenticated via:
 
-- Team secret API token (`Authorization: Bearer phs_...`), or
+- Team secret API token (`Authorization: Bearer phx_...`), or
 - Personal API key with `feature_flag:read` scope
 
-Current implementation returns flag definitions with cohort data from HyperCache, with PostgreSQL fallback on cache miss. Supports ETag-based conditional requests (`If-None-Match` header) to avoid re-transferring unchanged definitions. Rate limited per team (default 600/minute, per-team overrides via `LOCAL_EVAL_RATE_LIMITS`).
+Current implementation returns flag definitions with cohort data from HyperCache. No PostgreSQL fallback -- if cache misses, the endpoint returns an error. Rate limited per team (default 600/minute).
 
 ## Request and response types
 
@@ -173,7 +173,17 @@ pub struct FlagDetails {
 
 ## Rate limiting
 
-Three independent rate limiters (IP, token, definitions), all in-process using the `governor` crate. The `/flags` IP and token limiters support a warn-then-enforce model with `X-PostHog-Rate-Limit-Warning` headers and per-token custom overrides. See [rate-limiting.md](rate-limiting.md) for the full model, configuration modes, and migration path.
+Three independent rate limiters, all implemented in-process using the `governor` crate (token bucket algorithm):
+
+| Limiter     | Scope         | Default config             | Purpose                            |
+| ----------- | ------------- | -------------------------- | ---------------------------------- |
+| IP-based    | Per source IP | 1000 burst / 50 per second | DDoS defense                       |
+| Token-based | Per API token | 500 burst / 10 per second  | Per-project limits                 |
+| Definitions | Per team ID   | 600 per minute             | `/flags/definitions` rate limiting |
+
+All three support a **log-only** mode (`*_LOG_ONLY=true`) for safe rollout -- violations are logged and metered but requests are not blocked.
+
+A background task runs every 60 seconds to clean up stale rate limiter entries.
 
 ## Server initialization
 
@@ -238,7 +248,17 @@ All values come from environment variables via the `envconfig` crate. Defined in
 
 ### Rate limiting
 
-See [rate-limiting.md](rate-limiting.md) for the full configuration reference.
+| Variable                                   | Default | Purpose                               |
+| ------------------------------------------ | ------- | ------------------------------------- |
+| `FLAGS_RATE_LIMIT_ENABLED`                 | `false` | Enable token-based rate limiting      |
+| `FLAGS_BUCKET_CAPACITY`                    | `500`   | Token bucket capacity                 |
+| `FLAGS_BUCKET_REPLENISH_RATE`              | `10.0`  | Tokens per second                     |
+| `FLAGS_IP_RATE_LIMIT_ENABLED`              | `false` | Enable IP-based rate limiting         |
+| `FLAGS_IP_BURST_SIZE`                      | `1000`  | IP bucket capacity                    |
+| `FLAGS_IP_REPLENISH_RATE`                  | `50.0`  | Tokens per second                     |
+| `FLAGS_RATE_LIMIT_LOG_ONLY`                | `true`  | Log violations without blocking       |
+| `FLAG_DEFINITIONS_DEFAULT_RATE_PER_MINUTE` | `600`   | Default rate for `/flags/definitions` |
+| `FLAG_DEFINITIONS_RATE_LIMITS`             | (empty) | Per-team overrides as JSON            |
 
 ### Caching
 
@@ -288,7 +308,7 @@ Applied in order via Axum layers (defined in `router.rs`):
 
 1. **ConcurrencyLimitLayer**: Caps concurrent flag evaluation requests (default 1000)
 2. **TraceLayer**: HTTP request tracing with spans
-3. **CorsLayer**: Permissive CORS (mirrors request origin, allows credentials, exposes `x-posthog-rate-limit-warning`)
+3. **CorsLayer**: Permissive CORS (mirrors request origin, allows credentials)
 4. **track_metrics**: Prometheus HTTP request metrics
 
 ## Related files
@@ -307,7 +327,6 @@ Applied in order via Axum layers (defined in `router.rs`):
 
 ## See also
 
-- [Rate limiting](rate-limiting.md) - Warn-then-enforce model, configuration modes, per-token overrides
 - [Flag evaluation engine](flag-evaluation-engine.md) - How flags are matched and evaluated
 - [Database interaction patterns](database-interaction-patterns.md) - PostgreSQL connection pooling and query routing
 - [HyperCache system](hypercache-system.md) - Multi-tier caching with Redis, S3, and PostgreSQL

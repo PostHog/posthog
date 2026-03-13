@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 
-import { IconInfo } from '@posthog/icons'
-
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 
 import { AnyPropertyFilter, FeatureFlagEvaluationRuntime } from '~/types'
@@ -26,16 +25,12 @@ export function FeatureFlagConditionWarning({
     }
 
     return (
-        <div
-            className={`flex items-center gap-2 text-xs p-2 rounded border border-warning-dark bg-warning-highlight${className ? ` ${className}` : ''}`}
-        >
-            <IconInfo className="text-base shrink-0 text-warning-dark" />
-            <span>
-                Local evaluation unavailable ({warning}).{' '}
-                <Link to="https://posthog.com/docs/feature-flags/local-evaluation#restriction-on-local-evaluation">
-                    Learn more
-                </Link>
-            </span>
-        </div>
+        <LemonBanner type="warning" className={className}>
+            This flag cannot be locally evaluated by server-side SDKs due to unsupported features: {warning}. The flag
+            will still evaluate correctly when not using local evaluation.{' '}
+            <Link to="https://posthog.com/docs/feature-flags/local-evaluation#restriction-on-local-evaluation">
+                Learn more
+            </Link>
+        </LemonBanner>
     )
 }

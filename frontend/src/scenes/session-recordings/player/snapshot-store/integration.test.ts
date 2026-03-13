@@ -1,4 +1,3 @@
-import { LoadBatch, SnapshotStore } from '@posthog/replay-shared'
 import { EventType, IncrementalSource } from '@posthog/rrweb-types'
 
 import { RecordingSegment, RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
@@ -6,6 +5,8 @@ import { RecordingSegment, RecordingSnapshot, SessionRecordingSnapshotSource } f
 import { convertSegmentKinds } from '../utils/segment-kind-conversion'
 import { createSegments, mapSnapshotsToWindowId } from '../utils/segmenter'
 import { LoadingScheduler } from './LoadingScheduler'
+import { SnapshotStore } from './SnapshotStore'
+import { LoadBatch } from './types'
 
 // Each source represents 1 minute of recording
 function makeSources(count: number): SessionRecordingSnapshotSource[] {

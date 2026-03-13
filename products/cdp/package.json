@@ -1,6 +1,3 @@
 {
-    "name": "@posthog/products-cdp",
-    "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/test_max_tools.py -v --tb=short"
-    }
+    "name": "@posthog/products-cdp"
 }

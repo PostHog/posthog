@@ -9,8 +9,8 @@ import {
     IncidentIoAffectedComponent,
     IncidentIoIncident,
     IncidentIoMaintenance,
-    type IncidentIoSummary,
-    type NormalizedStatus,
+    IncidentIoSummary,
+    NormalizedStatus,
     REFRESH_INTERVAL,
     setIncidentStatus,
 } from '~/layout/navigation-3000/incident/incidentStatus'

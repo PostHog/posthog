@@ -11,9 +11,7 @@ pub mod properties;
 pub mod session_recording;
 pub mod types;
 
-pub use canonical_log::{
-    run_with_canonical_log, with_canonical_log, EvalCounters, FlagsCanonicalLogLine,
-};
+pub use canonical_log::{run_with_canonical_log, with_canonical_log, FlagsCanonicalLogLine};
 pub use types::*;
 
 use crate::{
@@ -213,7 +211,7 @@ async fn process_request_inner(
                 request.is_flags_disabled(),
                 request.flag_keys.clone(),
             )
-            .await?;
+            .await;
 
             // Only record billing if flags are not disabled
             if !request.is_flags_disabled() {

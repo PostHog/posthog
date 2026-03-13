@@ -11,6 +11,7 @@ import {
     EntityType,
     EntityTypes,
     FilterType,
+    Optional,
     TemplateVariableStep,
 } from '~/types'
 
@@ -34,7 +35,7 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
     })),
     actions({
         setVariables: (variables: DashboardTemplateVariableType[]) => ({ variables }),
-        setVariable: (variableName: string, filterGroup: FilterType) => ({
+        setVariable: (variableName: string, filterGroup: Optional<FilterType, 'type'>) => ({
             variable_name: variableName,
             filterGroup,
         }),

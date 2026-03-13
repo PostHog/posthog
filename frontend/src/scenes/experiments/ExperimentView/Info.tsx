@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconPencil, IconWarning } from '@posthog/icons'
+import { IconGear, IconPencil, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -12,17 +12,18 @@ import { Label } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
-import { ExperimentStatsMethod, ExperimentStatus } from '~/types'
+import { ExperimentProgressStatus, ExperimentStatsMethod } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
-import { getExperimentStatus, isExperimentPaused } from '../experimentsLogic'
+import { getExperimentStatus } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { StatusTag } from './components'
 import { ExperimentDuration } from './ExperimentDuration'
 import { ExperimentReloadAction } from './ExperimentReloadAction'
 import { RunningTimeNew } from './RunningTimeNew'
+import { StatsMethodModal } from './StatsMethodModal'
 
 export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.Element {
     const {
@@ -34,14 +35,20 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
         primaryMetricsResultsLoading,
         secondaryMetricsResultsLoading,
         statsMethod,
+        usesNewQueryRunner,
         isExperimentDraft,
         isSingleVariantShipped,
         shippedVariantKey,
         autoRefresh,
     } = useValues(experimentLogic)
     const { updateExperiment, refreshExperimentResults, reportExperimentMetricsRefreshed } = useActions(experimentLogic)
-    const { openEditConclusionModal, openDescriptionModal, closeDescriptionModal, openRunningTimeConfigModal } =
-        useActions(modalsLogic)
+    const {
+        openEditConclusionModal,
+        openDescriptionModal,
+        closeDescriptionModal,
+        openStatsEngineModal,
+        openRunningTimeConfigModal,
+    } = useActions(modalsLogic)
     const { isDescriptionModalOpen } = useValues(modalsLogic)
 
     const [tempDescription, setTempDescription] = useState(experiment.description || '')
@@ -65,7 +72,6 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
         secondaryMetricsResults?.[0]?.last_refresh
 
     const status = getExperimentStatus(experiment)
-    const isPaused = isExperimentPaused(experiment)
 
     return (
         <>
@@ -77,12 +83,12 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                         <div className="flex flex-col" data-attr="experiment-status">
                             <Label intent="menu">Status</Label>
                             <div className="flex gap-1">
-                                {isPaused ? (
+                                {status === ExperimentProgressStatus.Paused ? (
                                     <Tooltip
                                         placement="bottom"
                                         title="Your experiment is paused. The linked flag is disabled and no data is being collected."
                                     >
-                                        <StatusTag status={status} isPaused={isPaused} />
+                                        <StatusTag status={status} />
                                     </Tooltip>
                                 ) : (
                                     <StatusTag status={status} />
@@ -102,7 +108,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                             <div className="flex flex-col max-w-[500px]">
                                 <Label intent="menu">Feature flag</Label>
                                 <div className="flex gap-1 items-center">
-                                    {isPaused && (
+                                    {status === ExperimentProgressStatus.Paused && (
                                         <Tooltip
                                             placement="bottom"
                                             title="Your experiment is paused. The linked flag is disabled and no data is being collected."
@@ -137,13 +143,29 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                         )}
                         <div className="flex flex-col">
                             <Label intent="menu">Statistics</Label>
-                            <span>
-                                {statsMethod === ExperimentStatsMethod.Bayesian ? 'Bayesian' : 'Frequentist'}
-                                {' / '}
-                                {statsMethod === ExperimentStatsMethod.Bayesian
-                                    ? `${((experiment.stats_config?.bayesian?.ci_level ?? 0.95) * 100).toFixed(0)}%`
-                                    : `${((1 - (experiment.stats_config?.frequentist?.alpha ?? 0.05)) * 100).toFixed(0)}%`}
-                            </span>
+                            <div className="inline-flex deprecated-space-x-2">
+                                <span>
+                                    {statsMethod === ExperimentStatsMethod.Bayesian ? 'Bayesian' : 'Frequentist'}
+                                    {' / '}
+                                    {statsMethod === ExperimentStatsMethod.Bayesian
+                                        ? `${((experiment.stats_config?.bayesian?.ci_level ?? 0.95) * 100).toFixed(0)}%`
+                                        : `${((1 - (experiment.stats_config?.frequentist?.alpha ?? 0.05)) * 100).toFixed(0)}%`}
+                                </span>
+                                {usesNewQueryRunner && (
+                                    <>
+                                        <LemonButton
+                                            type="secondary"
+                                            size="xsmall"
+                                            onClick={() => {
+                                                openStatsEngineModal()
+                                            }}
+                                            icon={<IconGear />}
+                                            tooltip="Configure statistics"
+                                        />
+                                        <StatsMethodModal />
+                                    </>
+                                )}
+                            </div>
                         </div>
                     </div>
 
@@ -212,7 +234,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                                     isExperimentDraft={isExperimentDraft}
                                 />
                             )}
-                            {status !== ExperimentStatus.Draft && (
+                            {experiment.start_date && (
                                 <ExperimentReloadAction
                                     isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
                                     lastRefresh={lastRefresh}

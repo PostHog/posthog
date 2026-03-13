@@ -42,7 +42,6 @@ function createTestTeam(overrides: Partial<Team> = {}): Team {
         timezone: 'UTC',
         available_features: [],
         drop_events_older_than_seconds: null,
-        extra_settings: null,
         project_id: 1 as any,
         ...overrides,
     }

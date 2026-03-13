@@ -11,9 +11,11 @@ import {
     FramerInstallation,
     GoInstallation,
     GoogleTagManagerInstallation,
+    HTMLSnippetInstallation,
     HeliconeInstallation,
     IOSInstallation,
     JSEventCapture,
+    JSWebInstallation,
     LangfuseInstallation,
     LaravelInstallation,
     MoEngageInstallation,
@@ -42,7 +44,6 @@ import {
     WebflowInstallation,
     WordpressInstallation,
     ZapierInstallation,
-    WebInstallation,
 } from '@posthog/shared-onboarding/product-analytics'
 
 import { SDKInstructionsMap, SDKKey, SDKTag, SDKTagOverrides } from '~/types'
@@ -86,8 +87,12 @@ const ProductAnalyticsRNInstructionsWrapper = withMobileReplay({
 })
 
 // JS Web SDKs
-const ProductAnalyticsWebInstructionsWrapper = withOnboardingDocsWrapper({
-    Installation: WebInstallation,
+const ProductAnalyticsJSWebInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: JSWebInstallation,
+    snippets: JS_WEB_SNIPPETS,
+})
+const ProductAnalyticsHTMLSnippetInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: HTMLSnippetInstallation,
     snippets: JS_WEB_SNIPPETS,
 })
 
@@ -201,7 +206,7 @@ export const ProductAnalyticsSDKTagOverrides: SDKTagOverrides = {
 }
 
 export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
-    [SDKKey.JS_WEB]: ProductAnalyticsWebInstructionsWrapper,
+    [SDKKey.JS_WEB]: ProductAnalyticsJSWebInstructionsWrapper,
     [SDKKey.ANDROID]: ProductAnalyticsAndroidInstructionsWrapper,
     [SDKKey.ANGULAR]: ProductAnalyticsAngularInstructionsWrapper,
     [SDKKey.API]: ProductAnalyticsAPIInstructionsWrapper,
@@ -215,6 +220,7 @@ export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.GO]: ProductAnalyticsGoInstructionsWrapper,
     [SDKKey.GOOGLE_TAG_MANAGER]: ProductAnalyticsGoogleTagManagerInstructionsWrapper,
     [SDKKey.HELICONE]: ProductAnalyticsHeliconeInstructionsWrapper,
+    [SDKKey.HTML_SNIPPET]: ProductAnalyticsHTMLSnippetInstructionsWrapper,
     [SDKKey.IOS]: ProductAnalyticsIOSInstructionsWrapper,
     [SDKKey.LANGFUSE]: ProductAnalyticsLangfuseInstructionsWrapper,
     [SDKKey.LARAVEL]: ProductAnalyticsLaravelInstructionsWrapper,

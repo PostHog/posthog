@@ -246,15 +246,7 @@ class TestGetLowercaseIndexHintClickhouse(ClickhouseTestMixin, APIBaseTest):
             settings=runner.settings,
         )
         clickhouse_sql, _ = executor.generate_clickhouse_sql()
-        context = executor.clickhouse_context
-        values = None
-        if context is not None:
-            values = cast(HogQLContext, executor.clickhouse_context).values
-        index_info = get_index_from_explain(
-            clickhouse_sql,
-            "idx_body_ngram3",
-            placeholder_values=values,
-        )
+        index_info = get_index_from_explain(clickhouse_sql, "idx_body_ngram3")
         assert index_info is not None, (
             f"Expected idx_body_ngram3 to be used in EXPLAIN output for query:\n{clickhouse_sql}"
         )

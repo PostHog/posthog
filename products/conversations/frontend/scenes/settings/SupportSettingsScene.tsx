@@ -208,7 +208,7 @@ function SlackChannelSection(): JSX.Element {
                                 type="secondary"
                                 size="small"
                                 onClick={loadSlackChannelsWithToken}
-                                disabledReason={slackChannelsLoading ? 'Loading channels...' : undefined}
+                                loading={slackChannelsLoading}
                             >
                                 Refresh
                             </LemonButton>

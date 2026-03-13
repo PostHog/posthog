@@ -20,9 +20,10 @@ import { InsightColor } from '~/types'
 
 export interface Resizeable {
     showResizeHandles?: boolean
+    canResizeWidth?: boolean
 }
 
-export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'className' | 'onMouseDown'> {
+export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'className'> {
     compact?: boolean
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
@@ -69,7 +70,6 @@ export function CardMeta({
     setAreDetailsShown,
     detailsTooltip,
     className,
-    onMouseDown,
     samplingFactor,
     extraControls,
     metaDescription,
@@ -110,10 +110,8 @@ export function CardMeta({
                 'CardMeta',
                 className,
                 compact && 'CardMeta--compact',
-                areDetailsShown && 'CardMeta--details-shown',
-                onMouseDown && 'cursor-grab'
+                areDetailsShown && 'CardMeta--details-shown'
             )}
-            onMouseDown={onMouseDown}
         >
             <div className="CardMeta__primary" ref={compact ? undefined : primaryRef}>
                 {ribbonColor &&

@@ -2,32 +2,28 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 
 import { StepDefinition } from '../steps'
 
-export const getIOSSteps = (
-    ctx: OnboardingComponentsContext,
-    options?: {
-        includeExperimentalSpi?: boolean
-        experimentalDescription?: string
-        minVersionPod?: string
-        minVersionSPM?: string
-    }
-): StepDefinition[] => {
-    const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
-
-    const podVersion = options?.minVersionPod || '3.0'
-    const spmVersion = options?.minVersionSPM || '3.0.0'
+export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent } = ctx
 
     return [
         {
-            title: 'Install dependency',
+            title: 'Install via CocoaPods',
             badge: 'required',
             content: (
                 <>
-                    {options?.experimentalDescription && (
-                        <CalloutBox type="fyi" title="Experimental API">
-                            <Markdown>{options.experimentalDescription}</Markdown>
-                        </CalloutBox>
-                    )}
-                    <Markdown>Install via Swift Package Manager:</Markdown>
+                    <Markdown>Add PostHog to your Podfile:</Markdown>
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'ruby',
+                                file: 'Podfile',
+                                code: dedent`
+                                    pod "PostHog", "~> 3.0"
+                                `,
+                            },
+                        ]}
+                    />
+                    <Markdown>Or install via Swift Package Manager:</Markdown>
                     <CodeBlock
                         blocks={[
                             {
@@ -35,20 +31,8 @@ export const getIOSSteps = (
                                 file: 'Package.swift',
                                 code: dedent`
                                     dependencies: [
-                                      .package(url: "https://github.com/PostHog/posthog-ios.git", from: "${spmVersion}")
+                                      .package(url: "https://github.com/PostHog/posthog-ios.git", from: "3.0.0")
                                     ]
-                                `,
-                            },
-                        ]}
-                    />
-                    <Markdown>Or add PostHog to your Podfile:</Markdown>
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'ruby',
-                                file: 'Podfile',
-                                code: dedent`
-                                    pod "PostHog", "~> ${podVersion}"
                                 `,
                             },
                         ]}
@@ -69,7 +53,7 @@ export const getIOSSteps = (
                                 file: 'AppDelegate.swift',
                                 code: dedent`
                                     import Foundation
-                                    ${options?.includeExperimentalSpi ? '@_spi(Experimental) ' : ''}import PostHog
+                                    import PostHog
                                     import UIKit
 
                                     class AppDelegate: NSObject, UIApplicationDelegate {

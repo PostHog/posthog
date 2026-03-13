@@ -221,11 +221,6 @@ export function TaxonomicPropertyFilter({
                     ? (filter?.group_type_index as GroupTypeIndex)
                     : undefined
             }
-            groupKeyNames={
-                isGroupPropertyFilter(filter) && 'group_key_names' in filter
-                    ? (filter as any).group_key_names
-                    : undefined
-            }
             operatorAllowlist={operatorAllowlist}
         />
     )

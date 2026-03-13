@@ -9,7 +9,8 @@ from django.test import override_settings
 import pytest_asyncio
 from psycopg import sql
 
-from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
+from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
+
 from products.batch_exports.backend.temporal.destinations.postgres_batch_export import (
     PostgresInsertInputs,
     insert_into_postgres_activity_from_stage,

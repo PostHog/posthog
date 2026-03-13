@@ -50,7 +50,6 @@ export function QuickFilterSelector({
             size="small"
             placeholder={label}
             dropdownMatchSelectWidth={false}
-            truncateText={{ maxWidthClass: 'max-w-60' }}
         />
     )
 }

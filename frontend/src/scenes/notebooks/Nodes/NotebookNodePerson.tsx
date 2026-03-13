@@ -138,7 +138,6 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
 
 function PersonInfo(): JSX.Element | null {
     const { person } = useValues(personLogic)
-    const { currentTeam } = useValues(teamLogic)
 
     if (!person) {
         return null
@@ -147,7 +146,7 @@ function PersonInfo(): JSX.Element | null {
     return (
         <div className="flex flex-col">
             <FirstSeen person={person} />
-            {currentTeam?.extra_settings?.person_last_seen_at_enabled === true && <LastSeen />}
+            <LastSeen />
             <MRR />
             <LifetimeValue />
             <SessionCount />

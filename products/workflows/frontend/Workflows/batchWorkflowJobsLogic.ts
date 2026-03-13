@@ -49,8 +49,5 @@ export const batchWorkflowJobsLogic = kea<batchWorkflowJobsLogicType>([
         [urls.workflow(props.id || 'new', 'logs')]: () => {
             actions.loadBatchWorkflowJobs()
         },
-        [urls.workflow(props.id || 'new', 'metrics')]: () => {
-            actions.loadBatchWorkflowJobs()
-        },
     })),
 ])

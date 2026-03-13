@@ -14,9 +14,7 @@ use tracing::{error, info, warn};
 use crate::config::CaptureMode;
 
 use super::repository::EventRestrictionsRepository;
-use super::types::{
-    AppliedRestrictions, EventContext, Restriction, RestrictionSet, RestrictionType,
-};
+use super::types::{EventContext, Restriction, RestrictionSet, RestrictionType};
 
 /// Manages restrictions by token.
 #[derive(Debug, Clone, Default)]
@@ -38,21 +36,7 @@ impl RestrictionManager {
         let mut result = RestrictionSet::new();
         for r in restrictions {
             if r.matches(event) {
-                match r.restriction_type {
-                    RestrictionType::RedirectToTopic => {
-                        if let Some(topic) = r
-                            .args
-                            .as_ref()
-                            .and_then(|a| a.get("topic"))
-                            .and_then(|t| t.as_str())
-                        {
-                            if !topic.is_empty() {
-                                result.insert_redirect_to_topic(topic.to_string());
-                            }
-                        }
-                    }
-                    other => result.insert(other),
-                }
+                result.insert(r.restriction_type);
             }
         }
         result
@@ -81,7 +65,7 @@ impl RestrictionManager {
         let mut fetch_error: Option<CustomRedisError> = None;
 
         for (restriction_type, result) in results {
-            let mut entries = match result {
+            let entries = match result {
                 Ok(Some(e)) => e,
                 Ok(None) => continue,
                 Err(e) => {
@@ -95,9 +79,6 @@ impl RestrictionManager {
                 }
             };
 
-            // Sort by index ascending for deterministic ordering
-            entries.sort_by_key(|e| e.index.unwrap_or(0));
-
             for entry in entries {
                 // Skip if this entry doesn't apply to our pipeline
                 if !entry.pipelines.contains(&pipeline_str.to_string()) {
@@ -107,24 +88,6 @@ impl RestrictionManager {
                 // Skip old format entries (version must be 2)
                 if entry.version != Some(2) {
                     continue;
-                }
-
-                // For redirect_to_topic, validate args.topic exists
-                if restriction_type == RestrictionType::RedirectToTopic {
-                    let has_valid_topic = entry
-                        .args
-                        .as_ref()
-                        .and_then(|a| a.get("topic"))
-                        .and_then(|t| t.as_str())
-                        .map(|t| !t.is_empty())
-                        .unwrap_or(false);
-                    if !has_valid_topic {
-                        error!(
-                            token = %entry.token,
-                            "redirect_to_topic restriction missing valid args.topic, skipping"
-                        );
-                        continue;
-                    }
                 }
 
                 let token = entry.token.clone();
@@ -300,24 +263,19 @@ impl EventRestrictionService {
         Duration::from_secs(age_secs) > self.fail_open_after
     }
 
-    /// Get applied restrictions for an event. Returns empty if fail-open is active.
-    pub async fn get_restrictions(
-        &self,
-        token: &str,
-        event: &EventContext<'_>,
-    ) -> AppliedRestrictions {
+    /// Get restrictions for an event. Returns empty set if fail-open is active.
+    pub async fn get_restrictions(&self, token: &str, event: &EventContext<'_>) -> RestrictionSet {
         if self.is_stale_at(event.now_ts) {
             gauge!(
                 "capture_event_restrictions_stale",
                 "pipeline" => self.pipeline.as_pipeline_name().to_string()
             )
             .set(1.0);
-            return AppliedRestrictions::default();
+            return RestrictionSet::new();
         }
 
         let guard = self.manager.read().await;
-        let set = guard.get_restrictions(token, event);
-        AppliedRestrictions::from_restrictions(set, self.pipeline)
+        guard.get_restrictions(token, event)
     }
 }
 
@@ -338,8 +296,6 @@ mod tests {
             session_ids: vec![],
             event_names: vec![],
             event_uuids: vec![],
-            args: None,
-            index: None,
         }
     }
 
@@ -357,8 +313,6 @@ mod tests {
             session_ids: vec![],
             event_names: event_names.into_iter().map(|s| s.to_string()).collect(),
             event_uuids: vec![],
-            args: None,
-            index: None,
         }
     }
 
@@ -592,8 +546,8 @@ mod tests {
     async fn test_service_is_stale_when_never_refreshed() {
         let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
         // last_successful_refresh is 0, so should be stale (fail-open)
-        let applied = service.get_restrictions("token", &event_ctx_now()).await;
-        assert!(applied.is_empty());
+        let restrictions = service.get_restrictions("token", &event_ctx_now()).await;
+        assert!(restrictions.is_empty());
     }
 
     #[tokio::test]
@@ -606,13 +560,12 @@ mod tests {
             vec![Restriction {
                 restriction_type: RestrictionType::DropEvent,
                 scope: RestrictionScope::AllEvents,
-                args: None,
             }],
         );
         service.update(manager).await;
 
-        let applied = service.get_restrictions("token1", &event_ctx_now()).await;
-        assert!(applied.should_drop());
+        let restrictions = service.get_restrictions("token1", &event_ctx_now()).await;
+        assert!(restrictions.contains(RestrictionType::DropEvent));
     }
 
     #[tokio::test]
@@ -628,14 +581,13 @@ mod tests {
             vec![Restriction {
                 restriction_type: RestrictionType::DropEvent,
                 scope: RestrictionScope::AllEvents,
-                args: None,
             }],
         );
         service.update(manager).await;
 
         // Immediately after update, should return restrictions
-        let applied = service.get_restrictions("token1", &event_ctx_now()).await;
-        assert!(applied.should_drop());
+        let restrictions = service.get_restrictions("token1", &event_ctx_now()).await;
+        assert!(restrictions.contains(RestrictionType::DropEvent));
 
         // Manually set last_successful_refresh to 10 seconds ago
         let old_timestamp = chrono::Utc::now().timestamp() - 10;
@@ -644,8 +596,8 @@ mod tests {
             .store(old_timestamp, Ordering::SeqCst);
 
         // Now should be stale (fail-open)
-        let applied_after = service.get_restrictions("token1", &event_ctx_now()).await;
-        assert!(applied_after.is_empty());
+        let restrictions_after = service.get_restrictions("token1", &event_ctx_now()).await;
+        assert!(restrictions_after.is_empty());
     }
 
     // ========================================================================
@@ -685,8 +637,8 @@ mod tests {
 
         handle.await.unwrap();
 
-        let applied = service.get_restrictions("token1", &event_ctx_now()).await;
-        assert!(applied.should_drop());
+        let restrictions = service.get_restrictions("token1", &event_ctx_now()).await;
+        assert!(restrictions.contains(RestrictionType::DropEvent));
 
         let unknown = service.get_restrictions("unknown", &event_ctx_now()).await;
         assert!(unknown.is_empty());
@@ -722,8 +674,8 @@ mod tests {
 
         handle.await.unwrap();
 
-        let applied = service.get_restrictions("token", &event_ctx_now()).await;
-        assert!(applied.is_empty());
+        let restrictions = service.get_restrictions("token", &event_ctx_now()).await;
+        assert!(restrictions.is_empty());
         assert!(
             attempt_count.load(Ordering::SeqCst) >= 2,
             "should have retried"
@@ -773,8 +725,8 @@ mod tests {
             "should have reconnected after refresh failure"
         );
         // Service never got a successful refresh, so it stays fail-open
-        let applied = service.get_restrictions("token", &event_ctx_now()).await;
-        assert!(applied.is_empty());
+        let restrictions = service.get_restrictions("token", &event_ctx_now()).await;
+        assert!(restrictions.is_empty());
     }
 
     #[tokio::test]
@@ -823,9 +775,9 @@ mod tests {
             "should have attempted at least 3 times"
         );
         // After recovery, restrictions should be active
-        let applied = service.get_restrictions("token1", &event_ctx_now()).await;
+        let restrictions = service.get_restrictions("token1", &event_ctx_now()).await;
         assert!(
-            applied.force_overflow(),
+            restrictions.contains(RestrictionType::ForceOverflow),
             "restrictions should be active after recovery"
         );
     }

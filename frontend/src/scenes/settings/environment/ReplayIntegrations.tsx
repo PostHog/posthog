@@ -4,16 +4,19 @@ import { PropsWithChildren, useMemo, useState } from 'react'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { TeamMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
 import { urls } from 'scenes/urls'
 
 import { IntegrationKind, IntegrationType } from '~/types'
 
 export function ReplayIntegrations(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const jiraIntegrationEnabled = featureFlags[FEATURE_FLAGS.REPLAY_JIRA_INTEGRATION]
+
     return (
         <div className="flex flex-col gap-y-6">
             <div>
@@ -28,10 +31,12 @@ export function ReplayIntegrations(): JSX.Element {
                 <h3>GitLab</h3>
                 <GitLabIntegration />
             </div>
-            <div>
-                <h3>Jira</h3>
-                <JiraIntegration />
-            </div>
+            {jiraIntegrationEnabled && (
+                <div>
+                    <h3>Jira</h3>
+                    <JiraIntegration />
+                </div>
+            )}
         </div>
     )
 }
@@ -46,14 +51,9 @@ function GitHubIntegration(): JSX.Element {
 
 function GitLabIntegration(): JSX.Element {
     const [isOpen, setIsOpen] = useState<boolean>(false)
-    const restrictedReason = useRestrictedArea({
-        scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
-    })
-
     return (
         <Integration kind="gitlab">
-            <LemonButton type="secondary" onClick={() => setIsOpen(true)} disabledReason={restrictedReason}>
+            <LemonButton type="secondary" onClick={() => setIsOpen(true)}>
                 Connect project
             </LemonButton>
             <GitLabSetupModal isOpen={isOpen} onComplete={() => setIsOpen(false)} />
@@ -70,19 +70,10 @@ const OAuthIntegration = ({ kind, connectText }: { kind: IntegrationKind; connec
         next: urls.replaySettings('replay-integrations'),
         kind,
     })
-    const restrictedReason = useRestrictedArea({
-        scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
-    })
 
     return (
         <Integration kind={kind}>
-            <LemonButton
-                type="secondary"
-                disableClientSideRouting
-                to={authorizationUrl}
-                disabledReason={restrictedReason}
-            >
+            <LemonButton type="secondary" disableClientSideRouting to={authorizationUrl}>
                 {connectText}
             </LemonButton>
         </Integration>

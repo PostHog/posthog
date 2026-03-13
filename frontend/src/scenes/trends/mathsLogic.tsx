@@ -418,12 +418,12 @@ export function mathTypeToApiValues(mathType: string): {
     return !isNaN(mathGroupTypeIndex) ? { math, math_group_type_index: mathGroupTypeIndex } : { math }
 }
 /** Serialize a math selector value. Inverse of mathTypeToApiValues. */
-export function apiValueToMathType(math: string | undefined, groupTypeIndex: number | null | undefined): MathType {
-    const assembledMath = math || BaseMathType.TotalCount
+export function apiValueToMathType(math: string | undefined, groupTypeIndex: number | null | undefined): string {
+    let assembledMath = math || BaseMathType.TotalCount
     if (math === 'unique_group') {
-        return `${assembledMath}::${groupTypeIndex}` as MathType
+        assembledMath += `::${groupTypeIndex}`
     }
-    return assembledMath as MathType
+    return assembledMath
 }
 
 export const mathsLogic = kea<mathsLogicType>([
@@ -441,8 +441,8 @@ export const mathsLogic = kea<mathsLogicType>([
     selectors({
         mathDefinitions: [
             (s) => [s.groupsMathDefinitions],
-            (groupsMathDefinitions): Partial<Record<string, MathDefinition>> => {
-                const allMathDefinitions: Partial<Record<string, MathDefinition>> = {
+            (groupsMathDefinitions): Partial<Record<MathType, MathDefinition>> => {
+                const allMathDefinitions: Partial<Record<MathType, MathDefinition>> = {
                     ...BASE_MATH_DEFINITIONS,
                     ...groupsMathDefinitions,
                     ...PROPERTY_MATH_DEFINITIONS,
@@ -454,34 +454,38 @@ export const mathsLogic = kea<mathsLogicType>([
         ],
         calendarHeatmapMathDefinitions: [
             () => [],
-            (): Partial<Record<string, MathDefinition>> =>
-                Object.fromEntries(Object.entries(CALENDAR_HEATMAP_MATH_DEFINITIONS)),
+            (): Partial<Record<MathType, MathDefinition>> => {
+                const calendarHeatmapMathDefinitions: Partial<Record<MathType, MathDefinition>> = Object.fromEntries(
+                    Object.entries(CALENDAR_HEATMAP_MATH_DEFINITIONS) as [MathType, MathDefinition][]
+                )
+                return calendarHeatmapMathDefinitions
+            },
         ],
         funnelMathDefinitions: [
             () => [],
-            (): Partial<Record<string, MathDefinition>> => {
-                const funnelMathDefinitions: Partial<Record<string, MathDefinition>> = {
+            (): Partial<Record<MathType, MathDefinition>> => {
+                const funnelMathDefinitions: Partial<Record<MathType, MathDefinition>> = {
                     ...FUNNEL_MATH_DEFINITIONS,
                 }
                 return funnelMathDefinitions
             },
         ],
         // Static means the options do not have nested selectors (like math function)
-        staticMathDefinitions: [() => [], (): Partial<Record<string, MathDefinition>> => BASE_MATH_DEFINITIONS],
+        staticMathDefinitions: [() => [], (): Partial<Record<MathType, MathDefinition>> => BASE_MATH_DEFINITIONS],
         staticActorsOnlyMathDefinitions: [
             (s) => [s.staticMathDefinitions],
-            (staticMathDefinitions): Partial<Record<string, MathDefinition>> => {
+            (staticMathDefinitions): Partial<Record<MathType, MathDefinition>> => {
                 return Object.fromEntries(
                     Object.entries(staticMathDefinitions).filter(
-                        ([, mathDefinition]) => mathDefinition?.category === MathCategory.ActorCount
+                        ([, mathDefinition]) => mathDefinition.category === MathCategory.ActorCount
                     )
-                )
+                ) as Partial<Record<MathType, MathDefinition>>
             },
         ],
         // Definitions based on group types present in the project
         groupsMathDefinitions: [
             (s) => [s.groupTypes, s.aggregationLabel],
-            (groupTypes, aggregationLabel): Partial<Record<string, MathDefinition>> =>
+            (groupTypes, aggregationLabel): Partial<Record<MathType, MathDefinition>> =>
                 Object.fromEntries(
                     Array.from(groupTypes.values())
                         .map((groupType) => [

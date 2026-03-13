@@ -1,4 +1,5 @@
-import { LoadBatch, Mode, SnapshotStore } from '@posthog/replay-shared'
+import { SnapshotStore } from './SnapshotStore'
+import { LoadBatch, Mode } from './types'
 
 const DEFAULT_BATCH_SIZE = 10
 const BUFFER_AHEAD_SOURCES = 30

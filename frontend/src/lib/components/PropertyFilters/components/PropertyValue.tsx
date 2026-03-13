@@ -12,13 +12,11 @@ import { AssigneeSelect } from '@posthog/products-error-tracking/frontend/compon
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
-import { GroupKeySelect } from 'lib/components/PropertyFilters/components/GroupKeySelect'
 import { PropertyFilterBetween } from 'lib/components/PropertyFilters/components/PropertyFilterBetween'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { propertyValueLogic } from 'lib/components/PropertyFilters/components/propertyValueLogic'
 import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
-import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { formatDate, isOperatorBetween, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
 
@@ -43,13 +41,11 @@ export interface PropertyValueProps {
     addRelativeDateTimeOptions?: boolean
     inputClassName?: string
     groupTypeIndex?: GroupTypeIndex
-    groupKeyNames?: Record<string, string>
     size?: 'xsmall' | 'small' | 'medium'
     editable?: boolean
     preloadValues?: boolean
     forceSingleSelect?: boolean
     validationError?: string | null
-    showInlineValidationErrors?: boolean
 }
 
 export function PropertyValue({
@@ -66,12 +62,10 @@ export function PropertyValue({
     addRelativeDateTimeOptions = false,
     inputClassName = undefined,
     groupTypeIndex = undefined,
-    groupKeyNames,
     editable = true,
     preloadValues = false,
     forceSingleSelect = false,
     validationError = null,
-    showInlineValidationErrors = false,
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
@@ -89,11 +83,6 @@ export function PropertyValue({
 
     const isAssigneeProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Assignee
-
-    const isNumericProperty =
-        propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Numeric
-
-    const isGroupKeyProperty = propertyKey === '$group_key' && groupTypeIndex != null
 
     // TODO: Add semver input validation when a semver operator is selected.
     // This will require detecting isOperatorSemver(operator) and validating the input
@@ -127,27 +116,17 @@ export function PropertyValue({
 
     // preload values if preloadValues prop is set
     useEffect(() => {
-        if (
-            !isGroupKeyProperty &&
-            preloadValues &&
-            propertyOptions?.status !== 'loading' &&
-            propertyOptions?.status !== 'loaded'
-        ) {
+        if (preloadValues && propertyOptions?.status !== 'loading' && propertyOptions?.status !== 'loaded') {
             load('')
         }
-    }, [preloadValues, load, propertyOptions?.status, isGroupKeyProperty])
+    }, [preloadValues, load, propertyOptions?.status])
 
     // load options when propertyKey changes, unless it's a date/time property (since those don't have options to load)
     useEffect(() => {
-        if (
-            !isGroupKeyProperty &&
-            !isDateTimeProperty &&
-            propertyOptions?.status !== 'loading' &&
-            propertyOptions?.status !== 'loaded'
-        ) {
+        if (!isDateTimeProperty && propertyOptions?.status !== 'loading' && propertyOptions?.status !== 'loaded') {
             load('')
         }
-    }, [propertyKey, isDateTimeProperty, isGroupKeyProperty, load, propertyOptions?.status])
+    }, [propertyKey, isDateTimeProperty, load, propertyOptions?.status])
 
     // set initial suggested values when options are loaded, but only if there is no search input
     // (to avoid overwriting suggestions based on search input)
@@ -249,32 +228,11 @@ export function PropertyValue({
         )
     }
 
-    if (isGroupKeyProperty && editable) {
-        return (
-            <GroupKeySelect
-                value={value ?? null}
-                groupTypeIndex={groupTypeIndex}
-                operator={operator}
-                onChange={setValue}
-                size={size}
-                autoFocus={autoFocus}
-                forceSingleSelect={forceSingleSelect}
-            />
-        )
-    }
-
     const formattedValues = (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(
         (label) => String(formatPropertyValueForDisplay(propertyKey, label, propertyDefinitionType, groupTypeIndex))
     )
 
     if (!editable) {
-        if (isGroupKeyProperty && groupKeyNames) {
-            const rawValues = (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(
-                String
-            )
-            const displayValues = rawValues.map((key) => groupKeyNames[key] || key)
-            return <>{displayValues.join(' or ')}</>
-        }
         return <>{formattedValues.join(' or ')}</>
     }
 
@@ -381,61 +339,46 @@ export function PropertyValue({
     ) : undefined
 
     return (
-        <div>
-            <LemonInputSelect
-                className={inputClassName}
-                data-attr="prop-val"
-                loading={propertyOptions?.status === 'loading' || isRefreshing}
-                value={formattedValues}
-                mode={isMultiSelect ? 'multiple' : 'single'}
-                singleValueAsSnack
-                allowCustomValues={propertyOptions?.allowCustomValues ?? true}
-                inputTransform={
-                    isNumericProperty
-                        ? (input: string) => {
-                              // Only allow numeric characters, decimal point, and +/- signs
-                              return input.replace(/[^0-9+\-.]/g, '')
-                          }
-                        : undefined
+        <LemonInputSelect
+            className={inputClassName}
+            data-attr="prop-val"
+            loading={propertyOptions?.status === 'loading' || isRefreshing}
+            value={formattedValues}
+            mode={isMultiSelect ? 'multiple' : 'single'}
+            singleValueAsSnack
+            allowCustomValues={propertyOptions?.allowCustomValues ?? true}
+            onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
+            onInputChange={onSearchTextChange}
+            placeholder={placeholder}
+            size={size}
+            disableCommaSplitting={isUserAgentProperty}
+            status={validationError ? 'danger' : 'default'}
+            title={titleNode}
+            popoverClassName="max-w-200"
+            options={displayOptions.map(({ name: _name }, index) => {
+                const name = toString(_name)
+                const isSuggested = initialSuggestedValues.set.has(name)
+                return {
+                    key: name,
+                    label: name,
+                    value: isFlagDependencyProperty ? _name : undefined, // Preserve original type for flags
+                    labelComponent: (
+                        <span
+                            key={name}
+                            data-attr={'prop-val-' + index}
+                            className="ph-no-capture flex items-center gap-1.5"
+                            title={name}
+                        >
+                            {formatLabelContent(isFlagDependencyProperty ? _name : name)}
+                            {isSuggested && currentSearchInput.current && (
+                                <Tooltip title="Suggested value">
+                                    <IconFeatures className="text-muted shrink-0 w-4 h-4" />
+                                </Tooltip>
+                            )}
+                        </span>
+                    ),
                 }
-                onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
-                onInputChange={onSearchTextChange}
-                placeholder={placeholder}
-                size={size}
-                disableCommaSplitting={isUserAgentProperty}
-                status={validationError ? 'danger' : 'default'}
-                title={titleNode}
-                popoverClassName="max-w-200"
-                options={displayOptions.map(({ name: _name }, index) => {
-                    const name = toString(_name)
-                    const isSuggested = initialSuggestedValues.set.has(name)
-                    return {
-                        key: name,
-                        label: name,
-                        value: isFlagDependencyProperty ? _name : undefined, // Preserve original type for flags
-                        labelComponent: (
-                            <span
-                                key={name}
-                                data-attr={'prop-val-' + index}
-                                className="ph-no-capture flex items-center gap-1.5"
-                                title={name}
-                            >
-                                {formatLabelContent(isFlagDependencyProperty ? _name : name)}
-                                {isSuggested && currentSearchInput.current && (
-                                    <Tooltip title="Suggested value">
-                                        <IconFeatures className="text-muted shrink-0 w-4 h-4" />
-                                    </Tooltip>
-                                )}
-                            </span>
-                        ),
-                    }
-                })}
-            />
-            {showInlineValidationErrors && validationError && (
-                <div className="text-danger flex items-center gap-1 text-sm mt-1">
-                    <IconErrorOutline className="text-xl shrink-0" /> {validationError}
-                </div>
-            )}
-        </div>
+            })}
+        />
     )
 }
