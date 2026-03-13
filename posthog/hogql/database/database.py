@@ -82,6 +82,7 @@ from posthog.hogql.database.schema.log_entries import (
     ReplayConsoleLogsLogEntriesTable,
 )
 from posthog.hogql.database.schema.logs import LogAttributesTable, LogsKafkaMetricsTable, LogsTable
+from posthog.hogql.database.schema.metrics import MetricAttributesTable, MetricsKafkaMetricsTable, MetricsTable
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.schema.person_distinct_id_overrides import (
     PersonDistinctIdOverridesTable,
@@ -202,6 +203,9 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
     "logs": TableNode(name="logs", table=LogsTable()),
     "log_attributes": TableNode(name="log_attributes", table=LogAttributesTable()),
     "logs_kafka_metrics": TableNode(name="logs_kafka_metrics", table=LogsKafkaMetricsTable()),
+    "metrics": TableNode(name="metrics", table=MetricsTable()),
+    "metric_attributes": TableNode(name="metric_attributes", table=MetricAttributesTable()),
+    "metrics_kafka_metrics": TableNode(name="metrics_kafka_metrics", table=MetricsKafkaMetricsTable()),
     # Web analytics pre-aggregated tables (internal use only)
     "web_pre_aggregated_stats": TableNode(name="web_pre_aggregated_stats", table=WebPreAggregatedStatsTable()),
     "web_pre_aggregated_bounces": TableNode(name="web_pre_aggregated_bounces", table=WebPreAggregatedBouncesTable()),
@@ -345,6 +349,7 @@ class Database(BaseModel):
             "persons",
             "sessions",
             "logs",
+            "metrics",
             *self.get_system_table_names(),
         ]
 
