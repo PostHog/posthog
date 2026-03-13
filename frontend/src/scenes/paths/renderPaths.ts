@@ -1,7 +1,7 @@
 import * as d3 from 'd3'
 import { Dispatch, RefObject, SetStateAction } from 'react'
 
-import * as Sankey from 'lib/d3/sankey'
+import sankey, { sankeyJustify, sankeyLinkHorizontal, type SankeyLink, type SankeyLayout } from 'lib/d3/sankey'
 import { D3Selector } from 'lib/hooks/useD3'
 import { stripHTTP } from 'lib/utils'
 
@@ -22,10 +22,10 @@ const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, heigh
         .style('height', `${height}px`)
 }
 
-const createSankeyGenerator = (width: number, height: number): Sankey.SankeyLayout<any, PathNodeData, {}> => {
-    return Sankey.sankey<any, PathNodeData, {}>()
+const createSankeyGenerator = (width: number, height: number): SankeyLayout<any, PathNodeData, {}> => {
+    return sankey<any, PathNodeData, {}>()
         .nodeId((d) => d.name)
-        .nodeAlign(Sankey.sankeyJustify)
+        .nodeAlign(sankeyJustify)
         .nodeSort(null)
         .nodeWidth(15)
         .size([width, height])
@@ -100,7 +100,7 @@ const appendDropoffs = (svg: D3Selector): void => {
 
 const appendPathLinks = (
     svg: any,
-    links: Sankey.SankeyLink<PathNodeData, {}>[],
+    links: SankeyLink<PathNodeData, {}>[],
     nodes: PathNodeData[],
     setNodeCards: Dispatch<SetStateAction<PathNodeData[]>>
 ): void => {
@@ -114,7 +114,7 @@ const appendPathLinks = (
         .attr('opacity', 0.35)
 
     link.append('path')
-        .attr('d', Sankey.sankeyLinkHorizontal())
+        .attr('d', sankeyLinkHorizontal())
         .attr('id', (d: PathNodeData) => `path-${d.index}`)
         .attr('stroke-width', (d: PathNodeData) => {
             return Math.max(1, d.width)

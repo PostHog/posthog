@@ -1,7 +1,7 @@
 import * as d3 from 'd3'
 import { Dispatch, RefObject, SetStateAction } from 'react'
 
-import * as Sankey from 'lib/d3/sankey'
+import sankey, { sankeyLeft, sankeyLinkHorizontal, SankeyLink, type SankeyLayout } from 'lib/d3/sankey'
 import { D3Selector } from 'lib/hooks/useD3'
 
 import { FunnelPathsFilter, PathsFilter } from '~/queries/schema/schema-general'
@@ -61,7 +61,7 @@ const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, heigh
         .style('height', `${height}px`)
 }
 
-const createSankeyGenerator = (width: number, height: number): Sankey.SankeyLayout<any, PathNodeData, {}> => {
+const createSankeyGenerator = (width: number, height: number): SankeyLayout<any, PathNodeData, {}> => {
     /** **Left canvas margin**
      * - Expanded by the border radius to make sure the nodes are not cut off.
      */
@@ -83,9 +83,9 @@ const createSankeyGenerator = (width: number, height: number): Sankey.SankeyLayo
     /** **Bottom canvas margin** */
     const marginBottom = CANVAS_PADDING_VERTICAL
 
-    return Sankey.sankey<any, PathNodeData, {}>()
+    return sankey<any, PathNodeData, {}>()
         .nodeId((d) => d.name)
-        .nodeAlign(Sankey.sankeyLeft)
+        .nodeAlign(sankeyLeft)
         .nodeSort(null)
         .nodeWidth(NODE_WIDTH)
         .nodePadding(NODE_PADDING)
@@ -162,11 +162,11 @@ const appendNodes = (
         })
 }
 
-const appendLinks = (svg: D3Selector, links: Sankey.SankeyLink<PathNodeData, {}>[]): void => {
+const appendLinks = (svg: D3Selector, links: SankeyLink<PathNodeData, {}>[]): void => {
     svg.selectAll('path')
         .data(links)
         .join('path')
-        .attr('d', Sankey.sankeyLinkHorizontal())
+        .attr('d', sankeyLinkHorizontal())
         .attr('id', (link) => `link-${link.index}`)
         .attr('fill', 'none')
         .attr('stroke', 'var(--paths-link)')
