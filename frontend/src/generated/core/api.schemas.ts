@@ -1039,9 +1039,9 @@ export interface SharingConfigurationApi {
  * `jira` - Jira
  * `pinterest-ads` - Pinterest Ads
  */
-export type Kind439EnumApi = (typeof Kind439EnumApi)[keyof typeof Kind439EnumApi]
+export type KindBfbEnumApi = (typeof KindBfbEnumApi)[keyof typeof KindBfbEnumApi]
 
-export const Kind439EnumApi = {
+export const KindBfbEnumApi = {
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',
     Salesforce: 'salesforce',
@@ -1076,7 +1076,7 @@ export const Kind439EnumApi = {
  */
 export interface IntegrationApi {
     readonly id: number
-    kind: Kind439EnumApi
+    kind: KindBfbEnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -1098,7 +1098,7 @@ export interface PaginatedIntegrationListApi {
  */
 export interface PatchedIntegrationApi {
     readonly id?: number
-    kind?: Kind439EnumApi
+    kind?: KindBfbEnumApi
     config?: unknown
     readonly created_at?: string
     readonly created_by?: UserBasicApi

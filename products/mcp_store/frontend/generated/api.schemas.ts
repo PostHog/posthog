@@ -139,16 +139,12 @@ export type McpServerInstallationsListParams = {
 export type McpServerInstallationsAuthorizeRetrieveParams = {
     /**
      * * `posthog` - posthog
-<<<<<<< HEAD
-     * `twig` - twig
-=======
->>>>>>> 21fcd37687b (anchor)
      * `posthog-code` - posthog-code
      * @minLength 1
      */
     install_source?: McpServerInstallationsAuthorizeRetrieveInstallSource
-    server_id: string
     posthog_code_callback_url?: string
+    server_id: string
 }
 
 export type McpServerInstallationsAuthorizeRetrieveInstallSource =

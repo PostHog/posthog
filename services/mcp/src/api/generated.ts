@@ -7949,7 +7949,7 @@ export namespace Schemas {
 
     export const IntegrationKind = {
       Slack: 'slack',
-      SlackTwig: 'slack-twig',
+      SlackPosthogCode: 'slack-posthog-code',
       Salesforce: 'salesforce',
       Hubspot: 'hubspot',
       GooglePubsub: 'google-pubsub',
@@ -15758,7 +15758,7 @@ export namespace Schemas {
 
     /**
      * * `slack` - Slack
-    * `slack-twig` - Slack Twig
+    * `slack-posthog-code` - Slack Posthog Code
     * `salesforce` - Salesforce
     * `hubspot` - Hubspot
     * `google-pubsub` - Google Pubsub
@@ -15785,12 +15785,12 @@ export namespace Schemas {
     * `jira` - Jira
     * `pinterest-ads` - Pinterest Ads
      */
-    export type Kind439Enum = typeof Kind439Enum[keyof typeof Kind439Enum];
+    export type KindBfbEnum = typeof KindBfbEnum[keyof typeof KindBfbEnum];
 
 
-    export const Kind439Enum = {
+    export const KindBfbEnum = {
       Slack: 'slack',
-      SlackTwig: 'slack-twig',
+      SlackPosthogCode: 'slack-posthog-code',
       Salesforce: 'salesforce',
       Hubspot: 'hubspot',
       GooglePubsub: 'google-pubsub',
@@ -15823,7 +15823,7 @@ export namespace Schemas {
      */
     export interface Integration {
       readonly id: number;
-      kind: Kind439Enum;
+      kind: KindBfbEnum;
       config?: unknown;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -16532,7 +16532,6 @@ export namespace Schemas {
 
     /**
      * * `posthog` - posthog
-    * `twig` - twig
     * `posthog-code` - posthog-code
      */
     export type InstallSourceEnum = typeof InstallSourceEnum[keyof typeof InstallSourceEnum];
@@ -16540,7 +16539,6 @@ export namespace Schemas {
 
     export const InstallSourceEnum = {
       Posthog: 'posthog',
-      Twig: 'twig',
       PosthogCode: 'posthog-code',
     } as const;
 
@@ -16554,7 +16552,7 @@ export namespace Schemas {
       description?: string;
       oauth_provider_kind?: string;
       install_source?: InstallSourceEnum;
-      twig_callback_url?: string;
+      posthog_code_callback_url?: string;
     }
 
     export interface InterestingNote {
@@ -21237,7 +21235,7 @@ export namespace Schemas {
      */
     export interface PatchedIntegration {
       readonly id?: number;
-      kind?: Kind439Enum;
+      kind?: KindBfbEnum;
       config?: unknown;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -21991,7 +21989,7 @@ export namespace Schemas {
      */
     export interface SessionRecordingExternalReferenceIntegration {
       readonly id: number;
-      readonly kind: Kind439Enum;
+      readonly kind: KindBfbEnum;
       readonly display_name: string;
     }
 
@@ -28784,13 +28782,12 @@ export namespace Schemas {
     export type McpServerInstallationsAuthorizeRetrieveParams = {
     /**
      * * `posthog` - posthog
-    * `twig` - twig
     * `posthog-code` - posthog-code
      * @minLength 1
      */
     install_source?: McpServerInstallationsAuthorizeRetrieveInstallSource;
+    posthog_code_callback_url?: string;
     server_id: string;
-    twig_callback_url?: string;
     };
 
     export type McpServerInstallationsAuthorizeRetrieveInstallSource = typeof McpServerInstallationsAuthorizeRetrieveInstallSource[keyof typeof McpServerInstallationsAuthorizeRetrieveInstallSource];
@@ -28798,7 +28795,6 @@ export namespace Schemas {
 
     export const McpServerInstallationsAuthorizeRetrieveInstallSource = {
       Posthog: 'posthog',
-      Twig: 'twig',
       PosthogCode: 'posthog-code',
     } as const;
 
