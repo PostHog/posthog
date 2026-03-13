@@ -13,7 +13,7 @@ describe('renderInsightPage', () => {
     })
 
     it('breakdown naps by hedgehogs', async () => {
-        renderInsightPage({ showFilters: true })
+        renderInsightPage()
         await waitForChart()
 
         await series.select('Napped')
