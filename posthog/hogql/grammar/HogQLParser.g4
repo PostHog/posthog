@@ -83,7 +83,13 @@ arrayJoinClause: (LEFT | INNER)? ARRAY JOIN columnExprList;
 windowClause: WINDOW identifier AS LPAREN windowExpr RPAREN (COMMA identifier AS LPAREN windowExpr RPAREN)*;
 prewhereClause: PREWHERE columnExpr;
 whereClause: WHERE columnExpr;
-groupByClause: GROUP BY ((CUBE | ROLLUP) LPAREN columnExprList RPAREN | columnExprList);
+groupByClause: GROUP BY (
+    (CUBE | ROLLUP) LPAREN columnExprList RPAREN
+    | GROUPING SETS LPAREN groupingSetList RPAREN
+    | columnExprList
+    );
+groupingSetList: groupingSet (COMMA groupingSet)*;
+groupingSet: LPAREN columnExprList? RPAREN;
 havingClause: HAVING columnExpr;
 qualifyClause: QUALIFY columnExpr;
 orderByClause: ORDER BY orderExprList;
@@ -301,11 +307,11 @@ keyword
     | CAST | COHORT | COLLATE | CROSS | CUBE | CURRENT | DATE | DESC | DESCENDING
     | DISTINCT | ELSE | END | EXTRACT | FINAL | FIRST
     | FOR | FOLLOWING | FROM | FULL | GROUP | HAVING | ID | IS
-    | IF | ILIKE | IN | INNER | INTERVAL | JOIN | KEY
+    | GROUPING | IF | ILIKE | IN | INNER | INTERVAL | JOIN | KEY
     | LAST | LEADING | LEFT | LIKE | LIMIT
     | NAME | NOT | NULLS | OFFSET | ON | OR | ORDER | OUTER | OVER | PARTITION
     | PRECEDING | PREWHERE | QUALIFY | RANGE | RECURSIVE | RETURN | RIGHT | ROLLUP | ROW
-    | ROWS | SAMPLE | SELECT | SEMI | SETTINGS | SUBSTRING
+    | ROWS | SAMPLE | SELECT | SEMI | SETS | SETTINGS | SUBSTRING
     | THEN | TIES | TIMESTAMP | TOTALS | TRAILING | TRIM | TRUNCATE | TO | TOP
     | UNBOUNDED | UNION | USING | WHEN | WHERE | WINDOW | WITH
     ;

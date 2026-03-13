@@ -623,6 +623,15 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     json["having"] = visitAsJSONOrNull(ctx->havingClause());
     json["qualify"] = visitAsJSONOrNull(ctx->qualifyClause());
     json["group_by"] = visitAsJSONOrNull(ctx->groupByClause());
+    if (const auto group_by_ctx = ctx->groupByClause()) {
+      if (group_by_ctx->GROUPING()) {
+        json["group_by_mode"] = "grouping_sets";
+      } else if (group_by_ctx->CUBE()) {
+        json["group_by_mode"] = "cube";
+      } else if (group_by_ctx->ROLLUP()) {
+        json["group_by_mode"] = "rollup";
+      }
+    }
     json["order_by"] = visitAsJSONOrNull(ctx->orderByClause());
 
     // Handle window clause
@@ -736,7 +745,32 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
   VISIT(WhereClause) { return visit(ctx->columnExpr()); }
 
-  VISIT(GroupByClause) { return visit(ctx->columnExprList()); }
+  VISIT(GroupByClause) {
+    if (ctx->GROUPING()) {
+      return visit(ctx->groupingSetList());
+    }
+    return visit(ctx->columnExprList());
+  }
+
+  VISIT(GroupingSetList) {
+    Json json = Json::array();
+    for (const auto& gs : ctx->groupingSet()) {
+      json.getArrayMut().push_back(visitAsJSON(gs));
+    }
+    return json;
+  }
+
+  VISIT(GroupingSet) {
+    Json json = Json::object();
+    json["node"] = "GroupingSet";
+    if (!is_internal) addPositionInfo(json, ctx);
+    if (ctx->columnExprList()) {
+      json["exprs"] = visitAsJSON(ctx->columnExprList());
+    } else {
+      json["exprs"] = Json::array();
+    }
+    return json;
+  }
 
   VISIT(HavingClause) { return visit(ctx->columnExpr()); }
 

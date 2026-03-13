@@ -119,6 +119,10 @@ class HogQLPrinter(Visitor[str]):
             return f"{self._print_identifier(node.name)} AS {self.visit(node.expr)}"
         return f"{self.visit(node.expr)} AS {self._print_identifier(node.name)}"
 
+    def visit_grouping_set(self, node: ast.GroupingSet):
+        inner = ", ".join(self.visit(e) for e in node.exprs)
+        return f"({inner})"
+
     def visit_select_set_query(self, node: ast.SelectSetQuery):
         self._indent -= 1
         ret = self.visit(node.initial_select_query)
@@ -202,7 +206,12 @@ class HogQLPrinter(Visitor[str]):
         )
         prewhere = self.visit(node.prewhere) if node.prewhere else None
         where = self.visit(where) if where else None
-        group_by = [self.visit(column) for column in node.group_by] if node.group_by else None
+        group_by: list[str] | None = None
+        if node.group_by:
+            if node.group_by_mode == "grouping_sets":
+                group_by = [self.visit(gs) for gs in node.group_by]
+            else:
+                group_by = [self.visit(column) for column in node.group_by]
         having = self.visit(node.having) if node.having else None
         if node.qualify is not None and self.dialect != "postgres":
             raise QueryError("QUALIFY is not supported in the '{}' dialect".format(self.dialect))
@@ -232,7 +241,17 @@ class HogQLPrinter(Visitor[str]):
             array_join if array_join else None,
             f"PREWHERE{space}" + prewhere if prewhere else None,
             f"WHERE{space}" + where if where else None,
-            f"GROUP BY{space}{comma.join(group_by)}" if group_by and len(group_by) > 0 else None,
+            (
+                f"GROUP BY{space}GROUPING SETS ({comma.join(group_by)})"
+                if node.group_by_mode == "grouping_sets"
+                else f"GROUP BY{space}CUBE({comma.join(group_by)})"
+                if node.group_by_mode == "cube"
+                else f"GROUP BY{space}ROLLUP({comma.join(group_by)})"
+                if node.group_by_mode == "rollup"
+                else f"GROUP BY{space}{comma.join(group_by)}"
+            )
+            if group_by and len(group_by) > 0
+            else None,
             f"HAVING{space}" + having if having else None,
             f"QUALIFY{space}" + qualify if qualify else None,
             f"WINDOW{space}" + window if window else None,

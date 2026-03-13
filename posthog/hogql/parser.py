@@ -434,6 +434,14 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
                             end=expr.end,
                         )
 
+        if group_by_clause := ctx.groupByClause():
+            if group_by_clause.GROUPING():
+                select_query.group_by_mode = "grouping_sets"
+            elif group_by_clause.CUBE():
+                select_query.group_by_mode = "cube"
+            elif group_by_clause.ROLLUP():
+                select_query.group_by_mode = "rollup"
+
         if ctx.topClause():
             raise NotImplementedError(f"Unsupported: SelectStmt.topClause()")
         if ctx.settingsClause():
@@ -467,7 +475,16 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.columnExpr())
 
     def visitGroupByClause(self, ctx: HogQLParser.GroupByClauseContext):
+        if ctx.GROUPING():
+            return self.visit(ctx.groupingSetList())
         return self.visit(ctx.columnExprList())
+
+    def visitGroupingSetList(self, ctx: HogQLParser.GroupingSetListContext):
+        return [self.visit(s) for s in ctx.groupingSet()]
+
+    def visitGroupingSet(self, ctx: HogQLParser.GroupingSetContext):
+        exprs = self.visit(ctx.columnExprList()) if ctx.columnExprList() else []
+        return ast.GroupingSet(exprs=exprs)
 
     def visitHavingClause(self, ctx: HogQLParser.HavingClauseContext):
         return self.visit(ctx.columnExpr())

@@ -917,6 +917,11 @@ class LimitByExpr(Expr):
 
 
 @dataclass(kw_only=True)
+class GroupingSet(Expr):
+    exprs: list[Expr]
+
+
+@dataclass(kw_only=True)
 class SelectQuery(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[SelectQueryType] = None
@@ -932,6 +937,7 @@ class SelectQuery(Expr):
     having: Optional[Expr] = None
     qualify: Optional[Expr] = None
     group_by: Optional[list[Expr]] = None
+    group_by_mode: Optional[str] = None  # None, "grouping_sets", "cube", "rollup"
     order_by: Optional[list[OrderExpr]] = None
     limit: Optional[Expr] = None
     limit_by: Optional[LimitByExpr] = None
