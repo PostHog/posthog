@@ -173,16 +173,16 @@ class TestGetJsContent(SimpleTestCase):
 
 class TestValidateArtifacts(SimpleTestCase):
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
-    @patch("posthog.models.snippet_versioning.object_storage.read")
-    def test_returns_true_when_array_js_exists(self, mock_read):
-        mock_read.return_value = "js-content"
+    @patch("posthog.models.snippet_versioning.object_storage.head_object")
+    def test_returns_true_when_array_js_exists(self, mock_head):
+        mock_head.return_value = {"ContentLength": 12345}
         assert validate_version_artifacts("1.358.0") is True
-        mock_read.assert_called_once_with("1.358.0/array.js", bucket="test-bucket", missing_ok=True)
+        mock_head.assert_called_once_with("1.358.0/array.js", bucket="test-bucket")
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
-    @patch("posthog.models.snippet_versioning.object_storage.read")
-    def test_returns_false_when_array_js_missing(self, mock_read):
-        mock_read.return_value = None
+    @patch("posthog.models.snippet_versioning.object_storage.head_object")
+    def test_returns_false_when_array_js_missing(self, mock_head):
+        mock_head.return_value = None
         assert validate_version_artifacts("99.99.99") is False
 
 

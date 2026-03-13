@@ -202,16 +202,8 @@ def validate_version_artifacts(version: str) -> bool:
     """Check that the required artifacts exist in S3 for a given version."""
     if not settings.POSTHOG_JS_S3_BUCKET:
         return False
-    try:
-        content = object_storage.read(
-            array_js_path(version),
-            bucket=settings.POSTHOG_JS_S3_BUCKET,
-            missing_ok=True,
-        )
-        return content is not None
-    except ObjectStorageError:
-        logger.exception("Failed to validate artifacts", version=version)
-        return False
+    result = object_storage.head_object(array_js_path(version), bucket=settings.POSTHOG_JS_S3_BUCKET)
+    return result is not None
 
 
 class ManifestSyncError(Exception):
