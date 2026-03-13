@@ -36,10 +36,14 @@ export function confirmArchiveExperiment(onConfirm: () => void): void {
 }
 
 export function confirmDeleteExperiment(opts: {
-    projectId: number
+    projectId: number | null
     experiment: Pick<Experiment, 'id' | 'name'>
     onDelete: () => void
 }): void {
+    if (!opts.projectId) {
+        return
+    }
+    const projectId = opts.projectId
     LemonDialog.open({
         title: 'Delete this experiment?',
         content: (
@@ -52,7 +56,7 @@ export function confirmDeleteExperiment(opts: {
             type: 'primary',
             onClick: () => {
                 void deleteWithUndo({
-                    endpoint: `projects/${opts.projectId}/experiments`,
+                    endpoint: `projects/${projectId}/experiments`,
                     object: { name: opts.experiment.name, id: opts.experiment.id },
                     callback: opts.onDelete,
                 })
