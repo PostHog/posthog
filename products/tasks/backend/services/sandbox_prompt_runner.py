@@ -20,8 +20,6 @@ logger = logging.getLogger(__name__)
 # Type for an optional output callback (e.g. management command's self.stdout.write)
 OutputFn = Callable[[str], object] | None
 
-ORIGIN_PRODUCT = "user_created"
-
 # Sandbox logs polling from S3
 POLL_INTERVAL_SECONDS = 10
 MAX_POLL_SECONDS = 30 * 60  # 30 minutes (matches sandbox TTL)
@@ -33,12 +31,15 @@ class SandboxContext:
 
     team_id: int
     user_id: int
-    github_integration_id: int
     repository: str
 
 
 def resolve_sandbox_context_for_local_dev(repository: str) -> SandboxContext:
-    """Build a SandboxContext from the first team/user/GitHub integration in the local database."""
+    """Build a SandboxContext from the first team/user in the local database.
+
+    Requires a GitHub integration to exist for the team (Task.create_and_run
+    resolves it automatically).
+    """
     from posthog.models.integration import Integration
     from posthog.models.team.team import Team
     from posthog.models.user import User
@@ -51,6 +52,7 @@ def resolve_sandbox_context_for_local_dev(repository: str) -> SandboxContext:
     if not user:
         raise RuntimeError("No user found in local database")
 
+    # Validate the integration exists upfront so we fail early with a clear message.
     gh = Integration.objects.filter(team=team, kind="github").first()
     if not gh:
         raise RuntimeError(
@@ -62,7 +64,6 @@ def resolve_sandbox_context_for_local_dev(repository: str) -> SandboxContext:
     return SandboxContext(
         team_id=team.id,  # type: ignore
         user_id=user.id,  # type: ignore
-        github_integration_id=gh.id,
         repository=repository,
     )
 
@@ -92,29 +93,28 @@ async def _create_task_and_trigger(
     branch: str = "master",
     step_name: str = "",
 ):
+    from posthog.models.team.team import Team
+
     from products.tasks.backend.models import Task
-    from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
-    task = await sync_to_async(Task.objects.create)(
-        team_id=context.team_id,
-        created_by_id=context.user_id,
+    team = await sync_to_async(Team.objects.get)(id=context.team_id)
+    task = await sync_to_async(Task.create_and_run)(
+        team=team,
         title=title,
         description=description,
-        origin_product=ORIGIN_PRODUCT,
-        github_integration_id=context.github_integration_id,
+        origin_product=Task.OriginProduct.USER_CREATED,
+        user_id=context.user_id,
         repository=context.repository,
+        create_pr=False,
+        mode="background",
     )
-    task_run = await sync_to_async(task.create_run)(mode="background")
+    task_run = await sync_to_async(lambda: task.latest_run)()
+    if not task_run:
+        raise RuntimeError("Task.create_and_run did not produce a TaskRun")
     if branch and branch != "master":
         task_run.branch = branch
         await sync_to_async(task_run.save)(update_fields=["branch"])
-    await sync_to_async(execute_task_processing_workflow)(
-        task_id=str(task.id),
-        run_id=str(task_run.id),
-        team_id=context.team_id,
-        user_id=context.user_id,
-    )
     return task, task_run
 
 
