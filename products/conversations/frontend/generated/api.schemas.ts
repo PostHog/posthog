@@ -131,6 +131,7 @@ export interface ConversationApi {
     readonly has_unsupported_content: boolean
     /** @nullable */
     readonly agent_mode: string | null
+    readonly is_sandbox: boolean
     /** Return pending approval cards as structured data.
 
 Combines metadata from conversation.approval_decisions with payload from checkpoint
@@ -196,6 +197,7 @@ export interface MessageApi {
     trace_id: string
     session_id?: string
     agent_mode?: AgentModeEnumApi
+    is_sandbox?: boolean
     resume_payload?: unknown | null
 }
 
@@ -244,6 +246,7 @@ export interface PatchedConversationApi {
     readonly has_unsupported_content?: boolean
     /** @nullable */
     readonly agent_mode?: string | null
+    readonly is_sandbox?: boolean
     /** Return pending approval cards as structured data.
 
 Combines metadata from conversation.approval_decisions with payload from checkpoint
