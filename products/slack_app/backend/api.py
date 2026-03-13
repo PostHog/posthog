@@ -29,7 +29,6 @@ from posthog.models.integration import (
 )
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.security.outbound_proxy import external_requests
 from posthog.temporal.ai.slack_conversation import (
     THINKING_MESSAGES,
     SlackConversationRunnerWorkflow,
@@ -348,7 +347,7 @@ def _proxy_to_secondary(request: HttpRequest) -> requests.Response | None:
     headers = {key: value for key, value in request.headers.items() if key.lower() != "host"}
 
     try:
-        response = external_requests.request(
+        response = requests.request(
             method=request.method or "POST",
             url=target_url,
             headers=headers,
@@ -514,7 +513,7 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
             {
                 "type": "section",
                 "text": {"type": "mrkdwn", "text": thinking_message},
-            },
+            }
         ]
         if conversation_id:
             conversation_url = f"{settings.SITE_URL}/project/{integration.team_id}/ai?chat={conversation_id}"
@@ -528,6 +527,14 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
                             "url": conversation_url,
                         }
                     ],
+                }
+            )
+        if not conversation_id:
+            # First mention in this thread: include disclaimer so users know messages will be visible in PostHog
+            initial_blocks.append(
+                {
+                    "type": "context",
+                    "elements": [{"type": "mrkdwn", "text": "_Messages in this thread will be visible in PostHog._"}],
                 }
             )
 
@@ -555,6 +562,7 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
             slack_thread_key=slack_thread_key,
             conversation_id=conversation_id,
             user_id=posthog_user.id,
+            is_new_conversation=not conversation_id,
         )
 
         # Deterministic workflow ID ensures only one workflow runs per Slack thread at a time
@@ -842,13 +850,13 @@ def _get_full_repo_names(integration: Integration) -> list[str]:
 
     for record in github_records:
         github = GitHubIntegration(record)
-        org = github.organization()
 
         page = 1
         while True:
-            repo_names = github.list_repositories(page=page)
-            for name in repo_names:
-                all_repos.add(f"{org}/{name}")
+            repo_entries = github.list_repositories(page=page)
+            for repo in repo_entries:
+                full_name = repo["full_name"]
+                all_repos.add(full_name)
                 if len(all_repos) >= _MAX_GITHUB_REPOS:
                     logger.warning(
                         "github_repo_list_capped",
@@ -859,7 +867,7 @@ def _get_full_repo_names(integration: Integration) -> list[str]:
                     cache.set(cache_key, result, timeout=REPO_LIST_CACHE_TTL_SECONDS)
                     return result
 
-            if len(repo_names) < _GITHUB_REPOS_PER_PAGE:
+            if len(repo_entries) < _GITHUB_REPOS_PER_PAGE:
                 break
             page += 1
 
@@ -1239,7 +1247,12 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
         logger.info("twig_repo_picker_options_no_integration", context_token=context_token)
         return JsonResponse({"options": []})
 
-    all_repos = _get_full_repo_names(integration)
+    try:
+        all_repos = _get_full_repo_names(integration)
+    except Exception:
+        logger.exception("twig_repo_picker_options_repo_fetch_error", integration_id=integration.id)
+        return JsonResponse({"options": []})
+
     if not all_repos:
         logger.info("twig_repo_picker_options_no_repos", context_token=context_token, integration_id=integration.id)
         return JsonResponse({"options": []})

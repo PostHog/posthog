@@ -63,7 +63,10 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
 
     connect(() => ({
         values: [llmProviderKeysLogic, ['providerKeys', 'providerKeysLoading']],
-        actions: [llmProviderKeysLogic, ['loadProviderKeysSuccess']],
+        actions: [
+            llmProviderKeysLogic,
+            ['loadProviderKeysSuccess', 'createProviderKeySuccess', 'updateProviderKeySuccess'],
+        ],
     })),
 
     loaders(({ values }) => ({
@@ -125,7 +128,15 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
     })),
 
     listeners(({ actions }) => ({
+        // Refresh BYOK models whenever provider keys change so the
+        // model picker immediately reflects newly valid options.
         loadProviderKeysSuccess: () => {
+            actions.loadByokModels()
+        },
+        createProviderKeySuccess: () => {
+            actions.loadByokModels()
+        },
+        updateProviderKeySuccess: () => {
             actions.loadByokModels()
         },
     })),

@@ -3,6 +3,7 @@ import {
     IconBook,
     IconBrain,
     IconCheckbox,
+    IconCloud,
     IconCreditCard,
     IconDocument,
     IconGlobe,
@@ -61,6 +62,8 @@ export interface ToolDefinition<N extends string = string> {
     flag?: (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
     /** If the tool is in beta, set this to true to display a beta badge */
     beta?: boolean
+    /** If the tool is in alpha, set this to true to display an alpha badge */
+    alpha?: boolean
     /** Agent modes this tool is available in (defined in backend presets) */
     modes?: AgentMode[]
 }
@@ -120,6 +123,7 @@ export interface ModeDefinition {
     /** Scenes that should trigger this agent mode */
     scenes?: Set<Scene>
     beta?: boolean
+    alpha?: boolean
     /** Feature flag key that gates this mode. When set, the mode is only available if the flag is enabled. */
     flag?: keyof typeof FEATURE_FLAGS
 }
@@ -1022,7 +1026,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
 }
 
 export const MODE_DEFINITIONS: Record<
-    Exclude<AgentMode, AgentMode.Plan | AgentMode.Execution | AgentMode.Research>,
+    Exclude<AgentMode, AgentMode.Plan | AgentMode.Execution | AgentMode.Research | AgentMode.Sandbox>,
     ModeDefinition
 > = {
     [AgentMode.ProductAnalytics]: {
@@ -1054,14 +1058,12 @@ export const MODE_DEFINITIONS: Record<
         description: 'Searches and analyzes error tracking issues to help you understand and fix bugs.',
         icon: iconForType('error_tracking'),
         scenes: new Set([Scene.ErrorTracking]),
-        flag: 'PHAI_ERROR_TRACKING_MODE',
     },
     [AgentMode.Survey]: {
         name: 'Surveys',
         description: 'Creates and analyzes surveys to collect user feedback.',
         icon: iconForType('survey'),
         scenes: new Set([Scene.Surveys, Scene.Survey]),
-        flag: 'PHAI_SURVEY_MODE',
     },
     [AgentMode.Onboarding]: {
         name: 'Onboarding',
@@ -1083,7 +1085,6 @@ export const MODE_DEFINITIONS: Record<
             Scene.ExperimentsSharedMetric,
             Scene.ExperimentsSharedMetrics,
         ]),
-        flag: 'POSTHOG_AI_FLAGS_MODE',
     },
     [AgentMode.LLMAnalytics]: {
         name: 'LLM analytics',
@@ -1099,7 +1100,6 @@ export const MODE_DEFINITIONS: Record<
             Scene.LLMAnalyticsPlayground,
             Scene.LLMAnalyticsUsers,
         ]),
-        flag: 'PHAI_LLM_ANALYTICS_MODE',
     },
 }
 
@@ -1123,6 +1123,13 @@ export const SPECIAL_MODES: Record<string, ModeDefinition> = {
             'Answers complex questions using advanced reasoning models and more resources, taking more time to provide deeper insights.',
         icon: <IconBrain />,
         beta: true,
+    },
+    sandbox: {
+        name: 'Sandbox',
+        description: 'Spawns a cloud coding agent to work on the PostHog codebase.',
+        icon: <IconCloud />,
+        flag: 'PHAI_SANDBOX_MODE',
+        alpha: true,
     },
 }
 

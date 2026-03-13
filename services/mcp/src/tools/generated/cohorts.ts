@@ -1,4 +1,4 @@
-// AUTO-GENERATED from definitions/cohorts.yaml + OpenAPI — do not edit
+// AUTO-GENERATED from products/cohorts/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
@@ -40,14 +40,14 @@ const cohortsList = (): ToolBase<typeof CohortsListSchema, unknown> => ({
             _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts`,
         }
     },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/cohort-list.html',
+        },
+    },
 })
 
-const CohortsCreateSchema = CohortsCreateBody.omit({
-    groups: true,
-    deleted: true,
-    _create_in_folder: true,
-    _create_static_person_ids: true,
-})
+const CohortsCreateSchema = CohortsCreateBody.omit({ _create_in_folder: true, _create_static_person_ids: true })
 
 const cohortsCreate = (): ToolBase<typeof CohortsCreateSchema, Schemas.Cohort & { _posthogUrl: string }> => ({
     name: 'cohorts-create',
@@ -83,6 +83,11 @@ const cohortsCreate = (): ToolBase<typeof CohortsCreateSchema, Schemas.Cohort & 
             _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
         }
     },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/cohort.html',
+        },
+    },
 })
 
 const CohortsRetrieveSchema = CohortsRetrieveParams.omit({ project_id: true })
@@ -101,10 +106,15 @@ const cohortsRetrieve = (): ToolBase<typeof CohortsRetrieveSchema, Schemas.Cohor
             _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
         }
     },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/cohort.html',
+        },
+    },
 })
 
 const CohortsPartialUpdateSchema = CohortsPartialUpdateParams.omit({ project_id: true }).extend(
-    CohortsPartialUpdateBody.omit({ groups: true, _create_in_folder: true, _create_static_person_ids: true }).shape
+    CohortsPartialUpdateBody.omit({ _create_in_folder: true, _create_static_person_ids: true }).shape
 )
 
 const cohortsPartialUpdate = (): ToolBase<
@@ -146,6 +156,11 @@ const cohortsPartialUpdate = (): ToolBase<
             ...(result as any),
             _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
         }
+    },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/cohort.html',
+        },
     },
 })
 

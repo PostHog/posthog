@@ -10,6 +10,7 @@ import temporalio.activity
 
 from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQuery, ExperimentRatioMetric
 
+from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
@@ -35,6 +36,75 @@ from products.experiments.stats.shared.statistics import StatisticError
 logger = structlog.get_logger(__name__)
 
 
+def _get_significant_variant_keys(result_dict: dict) -> set[str]:
+    variant_results = result_dict.get("variant_results") or []
+    return {v["key"] for v in variant_results if v.get("significant")}
+
+
+def _check_significance_transition(
+    experiment: Experiment,
+    metric_uuid: str,
+    fingerprint: str,
+    result_dict: dict,
+    query_to_utc: datetime,
+) -> None:
+    try:
+        new_significant_keys = _get_significant_variant_keys(result_dict)
+        if not new_significant_keys:
+            return
+
+        previous = (
+            ExperimentMetricResultModel.objects.filter(
+                experiment=experiment,
+                metric_uuid=metric_uuid,
+                fingerprint=fingerprint,
+                status=ExperimentMetricResultModel.Status.COMPLETED,
+                query_to__lt=query_to_utc,
+            )
+            .order_by("-query_to")
+            .first()
+        )
+
+        prev_significant_keys = (
+            _get_significant_variant_keys(previous.result) if previous and previous.result else set()
+        )
+        newly_significant = new_significant_keys - prev_significant_keys
+
+        if not newly_significant:
+            return
+
+        experiment_url = f"/project/{experiment.team_id}/experiments/{experiment.id}"
+
+        for variant_key in newly_significant:
+            logger.info(
+                "Producing internal event for experiment significance transition",
+                experiment_id=experiment.id,
+                metric_uuid=metric_uuid,
+                variant_key=variant_key,
+            )
+
+            produce_internal_event(
+                team_id=experiment.team_id,
+                event=InternalEventEvent(
+                    event="$experiment_metric_significant",
+                    distinct_id=f"team_{experiment.team_id}",
+                    properties={
+                        "experiment_id": experiment.id,
+                        "experiment_name": experiment.name,
+                        "metric_uuid": metric_uuid,
+                        "variant_key": variant_key,
+                        "experiment_url": experiment_url,
+                    },
+                ),
+            )
+    except Exception:
+        logger.warning(
+            "Significance transition check failed, skipping notification",
+            experiment_id=experiment.id,
+            metric_uuid=metric_uuid,
+        )
+
+
 @database_sync_to_async
 def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentRegularMetricInput]:
     close_old_connections()
@@ -53,9 +123,8 @@ def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentR
         time_filter,
         deleted=False,
         scheduling_config__timeseries=True,
-        start_date__isnull=False,
+        status=Experiment.Status.RUNNING,
         start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=30),
-        end_date__isnull=True,
     ).exclude(
         Q(metrics__isnull=True) | Q(metrics=[]),
         Q(metrics_secondary__isnull=True) | Q(metrics_secondary=[]),
@@ -206,6 +275,8 @@ def _calculate_experiment_regular_metric_sync(
             },
         )
 
+        _check_significance_transition(experiment, metric_uuid, fingerprint, result_dict, query_to_utc)
+
         logger.info(
             "Successfully calculated experiment metric",
             experiment_id=experiment_id,
@@ -302,9 +373,8 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
         time_filter,
         deleted=False,
         scheduling_config__timeseries=True,
-        start_date__isnull=False,
+        status=Experiment.Status.RUNNING,
         start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=30),
-        end_date__isnull=True,
     ).prefetch_related("experimenttosavedmetric_set__saved_metric")
 
     for experiment in experiments:
@@ -452,6 +522,8 @@ def _calculate_experiment_saved_metric_sync(
                 "error_message": None,
             },
         )
+
+        _check_significance_transition(experiment, metric_uuid, fingerprint, result_dict, query_to_utc)
 
         logger.info(
             "Successfully calculated experiment saved metric",

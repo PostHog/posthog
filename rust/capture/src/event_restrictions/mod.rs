@@ -7,7 +7,7 @@ pub use manager::{EventRestrictionService, RestrictionManager};
 pub use repository::{EventRestrictionsRepository, RedisRestrictionsRepository, RestrictionEntry};
 pub use types::{
     AppliedRestrictions, EventContext, Restriction, RestrictionFilters, RestrictionScope,
-    RestrictionSet, RestrictionType,
+    RestrictionType,
 };
 
 #[cfg(test)]

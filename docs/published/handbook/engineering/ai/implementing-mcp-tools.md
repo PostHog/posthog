@@ -19,7 +19,7 @@ pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
     --output ../../products/your_product/mcp/tools.yaml
 
 # 2. Configure the YAML – enable tools, add scopes, annotations, descriptions
-#    Place in products/<product>/mcp/*.yaml (preferred) or services/mcp/definitions/*.yaml
+#    Place in products/<product>/mcp/*.yaml (preferred, e.g. actions, cohorts)
 
 # 3. Add a HogQL system table in posthog/hogql/database/schema/system.py
 #    and a model reference in products/posthog_ai/skills/query-examples/references/
@@ -156,10 +156,10 @@ build:openapi-mcp-tools  YAML definitions + Zod schemas → TypeScript tool hand
 ### YAML definitions
 
 YAML definitions are the configuration layer.
-They can live in two locations:
+They live in **`products/<product>/mcp/*.yaml`**, keeping config close to the owning product's code.
 
-- **`products/<product>/mcp/*.yaml`** – preferred for product-owned definitions, keeps config close to the code.
-- **`services/mcp/definitions/*.yaml`** – shared location.
+> **Fallback path:** `services/mcp/definitions/*.yaml` is available for functionality that doesn't have a product folder.
+> When a product folder exists, always place definitions there.
 
 The build pipeline discovers YAML files from both paths.
 Product teams own their definitions and control which operations are exposed as MCP tools.
@@ -167,12 +167,16 @@ Product teams own their definitions and control which operations are exposed as 
 **Workflow: scaffold, configure, generate.**
 
 1. **Scaffold** a starter YAML with all operations disabled.
-   `--product` is a **substring match** on URL paths —
-   it selects every endpoint whose path contains `/<name>/`
-   (hyphens are normalized to underscores before matching).
-   The value doesn't have to be an exact product name;
-   any string that appears as a path segment will work
-   (e.g., `--product actions` matches `/api/projects/{project_id}/actions/`).
+   `--product` discovers endpoints in two ways (same priority as frontend type generation):
+   1. **`x-explicit-tags`** — matches endpoints whose OpenAPI tag equals the product name.
+      ViewSets in `products/<name>/backend/` are auto-tagged.
+      ViewSets elsewhere (e.g. `posthog/api/`) need `@extend_schema(tags=["<product>"])`.
+   2. **URL substring fallback** — selects endpoints whose path contains `/<name>/`
+      (hyphens normalized to underscores).
+
+   If your product's API routes use a different slug than the product folder name
+   (e.g. `workflows` product with `/hog_flows/` routes),
+   add `@extend_schema(tags=["workflows"])` to the ViewSet so the scaffold can find them.
 
    ```sh
    pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product
@@ -212,12 +216,30 @@ Product teams own their definitions and control which operations are exposed as 
        enrich_url: '{id}' # appended to url_prefix for result URLs
        exclude_params: [field] # hide params from tool input
        include_params: [field] # whitelist params (excludes all others)
-       param_overrides: # override Orval-generated param descriptions
+       input_schema: ActionCreateSchema # use a hand-crafted schema from tool-inputs (optional)
+       param_overrides: # override Orval-generated param descriptions or schemas
          name:
            description: Custom description for the LLM
+           input_schema: NameSchema # replace this param's type with a schema from tool-inputs
    ```
 
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
+
+   #### Custom input schemas
+
+   By default, tool input schemas are auto-derived from OpenAPI via Orval.
+   When the auto-derived schema isn't ideal for an LLM tool interface,
+   you can override it at two levels:
+
+   **Whole-tool override** — set `input_schema` on the tool to a named export from `src/schema/tool-inputs.ts`.
+   The generated handler imports that schema instead of composing Orval imports.
+   The `operation` is still used for the HTTP method and path.
+   Path parameters are extracted from the URL pattern;
+   remaining parameters are forwarded as body (POST/PATCH/PUT) or query (GET/DELETE).
+
+   **Per-param override** — set `input_schema` inside `param_overrides` to replace a single field's Zod type
+   while keeping the rest of the Orval-derived schema.
+   The generated code uses `.extend()` to replace just that field.
    See [supported annotations](https://modelcontextprotocol.io/specification/2025-06-18/schema#toolannotations) for the full list.
 
 3. **Generate** handlers and schemas:
@@ -239,7 +261,7 @@ it only adds newly discovered operations (with `enabled: false`) and removes sta
 All hand-authored configuration is preserved.
 CI runs this as a drift check.
 
-See [`services/mcp/definitions/README.md`](https://github.com/PostHog/posthog/blob/master/services/mcp/definitions/README.md) for the full YAML schema reference
+See [`services/mcp/definitions/README.md`](https://github.com/PostHog/posthog/blob/master/services/mcp/definitions/README.md) for the full YAML schema reference (note: YAML definitions themselves now live in product folders)
 and [`services/mcp/scripts/yaml-config-schema.ts`](https://github.com/PostHog/posthog/blob/master/services/mcp/scripts/yaml-config-schema.ts) for the Zod validation source.
 
 ## Testing
@@ -261,6 +283,8 @@ vague or missing descriptions lead to worse agent behavior.
 
 See the [type system guide](/handbook/engineering/type-system) for the full backend → frontend pipeline,
 including how to set up viewsets, serializers, and `@extend_schema` correctly.
+For a comprehensive audit checklist, before/after examples, and detailed serializer/viewset patterns,
+see the [`improving-drf-endpoints` skill](https://github.com/PostHog/posthog/blob/master/.agents/skills/improving-drf-endpoints/SKILL.md).
 
 **Tips:**
 
@@ -301,3 +325,7 @@ A `schema.json` integration into the codegen pipeline is planned.
 - **`query-examples`** – HogQL query patterns, system model schemas, and available functions.
   Extend this skill to explain how agents should use your HogQL-exposed tables and queries.
   See [`products/posthog_ai/skills/query-examples/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/query-examples/SKILL.md).
+- **`improving-drf-endpoints`** – Audit checklist and patterns for DRF serializers and viewsets.
+  Use when editing or reviewing endpoints to ensure `help_text`, field types, and `@extend_schema` annotations
+  flow correctly through the type pipeline.
+  See [`.agents/skills/improving-drf-endpoints/SKILL.md`](https://github.com/PostHog/posthog/blob/master/.agents/skills/improving-drf-endpoints/SKILL.md).
