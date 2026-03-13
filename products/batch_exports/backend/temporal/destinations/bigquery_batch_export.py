@@ -314,6 +314,11 @@ class BigQueryTable(Table[BigQueryField]):
         return self.parents[1]
 
 
+class AWSCredentialsMissingError(Exception):
+    def __init__(self, missing: collections.abc.Sequence[str]):
+        super().__init__(f"One or more required credentials are missing: {', '.join(missing)}")
+
+
 class Aioboto3CredentialsSupplier(google.auth.aws.AwsSecurityCredentialsSupplier):
     """Implementation of credential supplier for `google.auth` using `aioboto3`.
 
@@ -341,13 +346,21 @@ class Aioboto3CredentialsSupplier(google.auth.aws.AwsSecurityCredentialsSupplier
         if env_aws_region is not None:
             return env_aws_region
 
-        raise ValueError("No AWS region found")
+        raise AWSCredentialsMissingError("region_name")
 
     async def _get_credentials(self) -> google.auth.aws.AwsSecurityCredentials:
         session_credentials = self.session.get_credentials()
-        assert session_credentials
+        if session_credentials is None:
+            raise AWSCredentialsMissingError("session")
 
         credentials = await session_credentials.get_frozen_credentials()
+
+        if credentials.access_key is None:
+            raise AWSCredentialsMissingError("access_key")
+
+        if credentials.secret_key is None:
+            raise AWSCredentialsMissingError("access_key")
+
         return google.auth.aws.AwsSecurityCredentials(
             credentials.access_key,
             credentials.secret_key,
