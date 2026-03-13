@@ -117,18 +117,39 @@ async def _create_task_and_trigger(
     return task, task_run
 
 
+MAX_CONSECUTIVE_STORAGE_ERRORS = 3
+
+
 async def _poll_until_done(
     task_run, *, verbose: bool = False, output_fn: OutputFn = None
 ) -> tuple[str, str | None, str | None]:
     """Poll logs for agent completion, fall back to TaskRun status."""
+    from posthog.storage.object_storage import ObjectStorageError
+
     from products.tasks.backend.models import TaskRun
 
     printed_lines = 0
     elapsed = 0
+    consecutive_storage_errors = 0
     while elapsed < MAX_POLL_SECONDS:
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
         elapsed += POLL_INTERVAL_SECONDS
-        finished, last_message, full_log = await sync_to_async(_check_logs)(task_run)
+
+        try:
+            finished, last_message, full_log = await sync_to_async(_check_logs)(task_run)
+        except ObjectStorageError:
+            consecutive_storage_errors += 1
+            logger.warning(
+                "custom_prompt: transient storage error reading logs (%d/%d)",
+                consecutive_storage_errors,
+                MAX_CONSECUTIVE_STORAGE_ERRORS,
+                exc_info=True,
+            )
+            if consecutive_storage_errors >= MAX_CONSECUTIVE_STORAGE_ERRORS:
+                raise
+            continue
+        consecutive_storage_errors = 0
+
         printed_lines = _stream_new_lines(full_log, printed_lines, verbose=verbose, output_fn=output_fn)
         if finished:
             return "completed", last_message, full_log
@@ -138,9 +159,25 @@ async def _poll_until_done(
             TaskRun.Status.FAILED,
             TaskRun.Status.CANCELLED,
         }:
-            _, last_message, full_log = await sync_to_async(_check_logs)(task_run)
-            printed_lines = _stream_new_lines(full_log, printed_lines, verbose=verbose, output_fn=output_fn)
-            return refreshed.status, last_message, full_log
+            # Terminal status — retry the final log read since it carries the actual agent output.
+            final_last_message = None
+            final_full_log = None
+            for attempt in range(MAX_CONSECUTIVE_STORAGE_ERRORS):
+                try:
+                    _, final_last_message, final_full_log = await sync_to_async(_check_logs)(task_run)
+                    break
+                except ObjectStorageError:
+                    logger.warning(
+                        "custom_prompt: storage error on final log read (%d/%d)",
+                        attempt + 1,
+                        MAX_CONSECUTIVE_STORAGE_ERRORS,
+                        exc_info=True,
+                    )
+                    if attempt + 1 >= MAX_CONSECUTIVE_STORAGE_ERRORS:
+                        raise
+                    await asyncio.sleep(POLL_INTERVAL_SECONDS)
+            printed_lines = _stream_new_lines(final_full_log, printed_lines, verbose=verbose, output_fn=output_fn)
+            return refreshed.status, final_last_message, final_full_log
     return "timeout", None, None
 
 
