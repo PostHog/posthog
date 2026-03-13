@@ -249,7 +249,14 @@ def sync_manifest_from_s3() -> VersionManifest:
     """
     # Snapshot old pointers before overwriting
     old_raw = cache.get(REDIS_POINTER_MAP_KEY)
-    old_pointers: dict[str, str] = json.loads(old_raw)["pointers"] if old_raw else {}
+    old_pointers: dict[str, str] = {}
+    if old_raw:
+        try:
+            old_pointers = json.loads(old_raw).get("pointers", {})
+        except (json.JSONDecodeError, TypeError) as e:
+            capture_exception(
+                e, additional_properties={"tag": "snippet_versioning", "redis_key": REDIS_POINTER_MAP_KEY}
+            )
 
     raw = object_storage.read(
         S3_VERSIONS_KEY,
