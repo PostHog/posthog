@@ -226,7 +226,9 @@ fn rocksdb_options(config: &RocksDbConfig) -> Options {
     }
     if let Some(bottommost) = config.bottommost_compression_type {
         opts.set_bottommost_compression_type(bottommost);
-        opts.set_bottommost_zstd_max_train_bytes(0, true);
+        if bottommost == DBCompressionType::Zstd {
+            opts.set_bottommost_zstd_max_train_bytes(0, true);
+        }
     }
 
     // Limit background jobs to reduce I/O contention when many partitions share a disk

@@ -68,6 +68,9 @@ impl DeduplicationStore {
         } else {
             ts_cf_opts.set_compression_type(rocksdb_config.compression_type);
         }
+        if let Some(bottommost) = rocksdb_config.bottommost_compression_type {
+            ts_cf_opts.set_bottommost_compression_type(bottommost);
+        }
 
         vec![ColumnFamilyDescriptor::new(Self::TIMESTAMP_CF, ts_cf_opts)]
     }
