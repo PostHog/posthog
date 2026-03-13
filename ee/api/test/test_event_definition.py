@@ -149,10 +149,11 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             ["entered_free_trial", "enterprise event"],
         )
 
-        self.assertEqual(response_data["results"][1]["name"], "enterprise event")
-        self.assertEqual(response_data["results"][1]["description"], "")
-        self.assertEqual(response_data["results"][1]["tags"], ["deprecated"])
-        self.assertEqual(response_data["results"][1]["owner"]["id"], self.user.id)
+        enterprise_event = next((r for r in response_data["results"] if r["name"] == "enterprise event"), None)
+        assert enterprise_event is not None
+        assert enterprise_event["description"] == ""
+        assert enterprise_event["tags"] == ["deprecated"]
+        assert enterprise_event["owner"]["id"] == self.user.id
 
         response = self.client.get(f"/api/projects/@current/event_definitions/?search=enterprise")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -385,9 +386,9 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         EnterpriseEventDefinition.objects.create(team=self.demo_team, name="installed_app")
 
         response = self.client.get("/api/projects/@current/event_definitions/?search=app&event_type=event")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)
-        self.assertEqual(response.json()["results"][0]["name"], "installed_app")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 2
+        assert [row["name"] for row in response.json()["results"]] == ["rated_app", "installed_app"]
 
     def test_create_event_definition_with_description(self):
         """Test creating an event definition with enterprise fields"""

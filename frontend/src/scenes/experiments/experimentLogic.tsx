@@ -1474,6 +1474,13 @@ export const experimentLogic = kea<experimentLogicType>([
                         triggered_by: triggeredBy ?? 'manual',
                         force_refresh: !!forceRefresh,
                         refresh_id: refreshId,
+                        experiment_duration_hours: values.experiment?.start_date
+                            ? Math.round(
+                                  (Date.now() - new Date(values.experiment.start_date).getTime()) / (1000 * 60 * 60)
+                              )
+                            : null,
+                        experiment_status: values.experiment?.status ?? null,
+                        total_metrics_count: primaryCount + secondaryCount,
                     }
                 )
 

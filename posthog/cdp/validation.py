@@ -2,6 +2,7 @@ import json
 import logging
 from typing import Any, Optional
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
@@ -166,6 +167,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
     # TODO Validate choices if type=choice
 
 
+@extend_schema_field({})
 class AnyInputField(serializers.Field):
     def to_internal_value(self, data):
         return data

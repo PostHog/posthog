@@ -141,4 +141,26 @@ var (
 		},
 		[]string{"operation"},
 	)
+
+	// Redis pub/sub metrics
+	RedisPublishTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_redis_publish_total",
+		Help: "Total number of events published to Redis pub/sub",
+	})
+	RedisPublishErrorsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_redis_publish_errors_total",
+		Help: "Total number of Redis pub/sub publish errors",
+	})
+	RedisSubscribeTotal = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "livestream_redis_subscribe_total",
+		Help: "Current number of active Redis channel subscriptions",
+	})
+	RedisMessagesReceivedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_redis_messages_received_total",
+		Help: "Total number of messages received from Redis pub/sub",
+	})
+	RedisReceiveDropsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_redis_receive_drops_total",
+		Help: "Messages dropped at the Redis receive layer due to full message channel",
+	})
 )

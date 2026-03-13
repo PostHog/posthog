@@ -33,7 +33,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     connect(() => ({
         values: [
             databaseTableListLogic,
-            ['dataWarehouseTables', 'databaseLoading'],
+            ['database', 'dataWarehouseTables', 'databaseLoading'],
             externalDataSourcesLogic,
             ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
             billingLogic,
@@ -305,7 +305,10 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values }) => {
+        if (!values.database && !values.databaseLoading) {
+            actions.loadDatabase()
+        }
         actions.loadSources()
         actions.loadRunningActivityResponse()
         actions.loadCompletedActivityResponse()

@@ -240,14 +240,14 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             try:
                 return int(body_version)
             except (ValueError, TypeError):
-                raise ValidationError(f"Invalid version parameter: {body_version}")
+                raise ValidationError({"version": f"Must be an integer, got: {body_version}"})
 
         query_version = request.query_params.get("version")
         if query_version is not None:
             try:
                 return int(query_version)
             except (ValueError, TypeError):
-                raise ValidationError(f"Invalid version parameter: {query_version}")
+                raise ValidationError({"version": f"Must be an integer, got: {query_version}"})
 
         return None
 
@@ -498,17 +498,19 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     def validate_request(self, data: EndpointRequest, strict: bool = True) -> None:
         query = data.query
         if not query and strict:
-            raise ValidationError("Must specify query")
+            raise ValidationError({"query": "This field is required."})
 
         name = data.name
         if not name:
             if name is not None or strict:
-                raise ValidationError("Endpoint must have a name.")
+                raise ValidationError({"name": "This field is required."})
             return
         if not isinstance(name, str) or not re.fullmatch(ENDPOINT_NAME_REGEX, name):
             raise ValidationError(
-                "Endpoint name must start with a letter, contain only alphanumeric characters, hyphens, or underscores, "
-                "and be between 1 and 128 characters long."
+                {
+                    "name": f"Invalid name '{name}'. Must start with a letter, contain only alphanumeric characters, "
+                    "hyphens, or underscores, and be between 1 and 128 characters long."
+                }
             )
 
         if query and isinstance(query, HogQLQuery) and query.query:
@@ -657,7 +659,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             try:
                 target_version_override = endpoint.get_version(version_number)
             except EndpointVersion.DoesNotExist:
-                raise ValidationError(f"Version {version_number} not found")
+                raise ValidationError({"version": f"Version {version_number} not found for this endpoint."})
             if data.query is not None:
                 raise ValidationError(
                     {
@@ -1212,7 +1214,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         tag_queries(product=Product.ENDPOINTS)
 
         if execution_mode not in BLOCKING_EXECUTION_MODES:
-            raise ValidationError("Only sync modes are supported (refresh param)")
+            raise ValidationError({"refresh": f"Only sync modes are supported, got: {execution_mode}"})
 
         result = process_query_model(
             self.team,
@@ -1248,6 +1250,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         if pagination and "results" in result:
             pagination.process_results(result)
+        elif "results" in result:
+            result["hasMore"] = False
 
         if "results" in result:
             results_value = result.pop("results")
@@ -1473,7 +1477,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             query["query"] = _PlaceholderPreservingPrinter(context=ctx, dialect="hogql").visit(parsed)
             return query, pagination
 
-        raise ValidationError(f"Limit/offset parameters are only supported for HogQLQuery, not {query_kind}")
+        raise ValidationError({"limit": f"Limit/offset parameters are only supported for HogQLQuery, not {query_kind}"})
 
     def _parse_variables(
         self, query: dict[str, dict], variables: dict[str, str]
@@ -1490,7 +1494,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     variable_id = query_variable_id
 
             if variable_id is None:
-                raise ValidationError(f"Variable '{request_variable_code_name}' not found in query")
+                raise ValidationError({"variables": f"Variable '{request_variable_code_name}' not found in query"})
 
             variables_override.append(
                 HogQLVariable(
@@ -1855,19 +1859,21 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         # Reject query_override (always)
         if hasattr(data, "query_override") and data.query_override is not None:
-            raise ValidationError("query_override is not allowed. Use variables instead.")
+            raise ValidationError({"query_override": "Not allowed. Use variables instead."})
 
         # Allow filters_override for insight endpoints (deprecated but backwards compatible)
         # Reject for HogQL endpoints
         if data.filters_override is not None:
             if query_kind == "HogQLQuery":
-                raise ValidationError("filters_override is not allowed for HogQL endpoints. Use variables instead.")
+                raise ValidationError({"filters_override": "Not allowed for HogQL endpoints. Use variables instead."})
 
         # Validate refresh mode
         if data.refresh == EndpointRefreshMode.DIRECT and not is_materialized:
             raise ValidationError(
-                "'direct' refresh mode is only valid for materialized endpoints. "
-                "Use 'cache' or 'force' instead, or enable materialization on this endpoint."
+                {
+                    "refresh": "'direct' refresh mode is only valid for materialized endpoints. "
+                    "Use 'cache' or 'force' instead, or enable materialization on this endpoint."
+                }
             )
 
         # Validate variables
@@ -1875,7 +1881,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             allowed_vars = self._get_allowed_variables(query, is_materialized, version)
             unknown_vars = set(data.variables.keys()) - allowed_vars
             if unknown_vars:
-                raise ValidationError(f"Unknown variable(s): {', '.join(sorted(unknown_vars))}")
+                raise ValidationError({"variables": f"Unknown variable(s): {', '.join(sorted(unknown_vars))}"})
 
         # SECURITY: For materialized endpoints with required variables, ALL must be provided.
         # Without this check, omitting variables would return ALL data instead of filtered data.
@@ -1886,7 +1892,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 provided = set(data.variables.keys()) if data.variables else set()
                 missing = sorted(required_vars - provided)
                 if missing:
-                    raise ValidationError(f"Required variable(s) {', '.join(repr(v) for v in missing)} not provided")
+                    raise ValidationError(
+                        {"variables": f"Required variable(s) {', '.join(repr(v) for v in missing)} not provided"}
+                    )
 
     @extend_schema(
         description="Get the last execution times in the past 6 months for multiple endpoints.",
@@ -1910,7 +1918,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             validated_names = []
             for name in names:
                 if not isinstance(name, str) or not re.fullmatch(ENDPOINT_NAME_REGEX, name):
-                    raise ValidationError(f"Invalid endpoint name: {name}")
+                    raise ValidationError({"names": f"Invalid endpoint name: {name}"})
                 validated_names.append(f"'{name}'")
             names_list = ",".join(validated_names)
 

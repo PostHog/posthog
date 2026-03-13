@@ -8,12 +8,12 @@ from django.conf import settings
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
+import requests
 import structlog
 from requests import RequestException
 
 from posthog.models.integration import SlackIntegrationError
 from posthog.models.team import Team
-from posthog.security.outbound_proxy import external_requests
 
 from products.conversations.backend.models import TeamConversationsSlackConfig
 from products.conversations.backend.support_slack import validate_support_request
@@ -75,7 +75,7 @@ def _proxy_to_secondary_region(request: HttpRequest) -> None:
     headers = {key: value for key, value in request.headers.items() if key.lower() != "host"}
 
     try:
-        response = external_requests.request(
+        response = requests.request(
             method=request.method or "POST",
             url=target_url,
             headers=headers,

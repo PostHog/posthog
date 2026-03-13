@@ -49,6 +49,7 @@ import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
+import { useChartZoom } from 'scenes/web-analytics/hooks/useChartZoom'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -219,6 +220,7 @@ export interface LineGraphProps {
     showTrendLines?: boolean
     ignoreActionsInSeriesLabels?: boolean
     datalabelFormatter?: (value: number, datasetIndex: number) => string
+    onDateRangeZoom?: (dateFrom: string, dateTo: string) => void
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -266,6 +268,7 @@ export function LineGraph_({
     showTrendLines = false,
     ignoreActionsInSeriesLabels = false,
     datalabelFormatter,
+    onDateRangeZoom,
 }: LineGraphProps): JSX.Element {
     const originalDatasets = _datasets
     let datasets = _datasets
@@ -298,6 +301,12 @@ export function LineGraph_({
     const showAnnotations = ((isTrends && !isHorizontal) || isFunnels) && !hideAnnotations
     const isLog10 = yAxisScaleType === 'log10' // Currently log10 is the only logarithmic scale supported
     const isHighlightBarMode = isBar && isStacked && isShiftPressed
+    const effectiveZoomCallback = !isBar && !isHorizontal ? onDateRangeZoom : undefined
+    const zoomPluginOptions = useChartZoom({
+        datasets,
+        onDateRangeZoom: effectiveZoomCallback,
+        enabled: !!effectiveZoomCallback,
+    })
 
     useEffect(() => {
         if (!isShiftPressed) {
@@ -700,6 +709,11 @@ export function LineGraph_({
                                 return
                             }
 
+                            if (effectiveZoomCallback && chart.isZoomingOrPanning?.()) {
+                                hideTooltip()
+                                return
+                            }
+
                             const [tooltipRoot, tooltipEl] = getTooltip()
                             if (tooltip.opacity === 0) {
                                 hideTooltip()
@@ -862,6 +876,7 @@ export function LineGraph_({
                         : {
                               crosshair: false,
                           }),
+                    ...(zoomPluginOptions ? { zoom: zoomPluginOptions } : {}),
                 },
                 hover: {
                     mode: isBar ? 'point' : 'nearest',
@@ -870,6 +885,13 @@ export function LineGraph_({
                 },
                 onHover(event: ChartEvent, elements: ActiveElement[], chart: Chart) {
                     onChartHover(event, chart, onClick)
+
+                    if (effectiveZoomCallback) {
+                        const target = event.native?.target as HTMLElement | undefined
+                        if (target && target.style.cursor !== 'pointer') {
+                            target.style.cursor = 'crosshair'
+                        }
+                    }
 
                     // For stacked bar charts when shift is pressed, track hovered dataset to highlight only that bar
                     if (isHighlightBarMode) {
@@ -1094,6 +1116,8 @@ export function LineGraph_({
             isHighlightBarMode,
             interval,
             timezone,
+            effectiveZoomCallback,
+            zoomPluginOptions,
         ],
     })
 
