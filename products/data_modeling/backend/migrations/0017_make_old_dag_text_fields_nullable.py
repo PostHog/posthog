@@ -11,15 +11,9 @@ class Migration(migrations.Migration):
         # migration 0018 removes them from Django state. These columns will be
         # fully dropped in a follow-up PR.
         migrations.RunSQL(
-            "ALTER TABLE posthog_datamodelingnode ALTER COLUMN dag_id DROP NOT NULL,"
-            " ALTER COLUMN dag_id_text DROP NOT NULL;",
-            "ALTER TABLE posthog_datamodelingnode ALTER COLUMN dag_id SET NOT NULL,"
-            " ALTER COLUMN dag_id_text SET NOT NULL;",
-        ),
-        migrations.RunSQL(
-            "ALTER TABLE posthog_datamodelingedge ALTER COLUMN dag_id DROP NOT NULL,"
-            " ALTER COLUMN dag_id_text DROP NOT NULL;",
-            "ALTER TABLE posthog_datamodelingedge ALTER COLUMN dag_id SET NOT NULL,"
-            " ALTER COLUMN dag_id_text SET NOT NULL;",
+            "ALTER TABLE posthog_datamodelingnode ALTER COLUMN dag_id DROP NOT NULL, ALTER COLUMN dag_id_text DROP NOT NULL;"
+            " ALTER TABLE posthog_datamodelingedge ALTER COLUMN dag_id DROP NOT NULL, ALTER COLUMN dag_id_text DROP NOT NULL;",
+            "ALTER TABLE posthog_datamodelingnode ALTER COLUMN dag_id SET NOT NULL, ALTER COLUMN dag_id_text SET NOT NULL;"
+            " ALTER TABLE posthog_datamodelingedge ALTER COLUMN dag_id SET NOT NULL, ALTER COLUMN dag_id_text SET NOT NULL;",
         ),
     ]
