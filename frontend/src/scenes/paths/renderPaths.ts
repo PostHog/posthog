@@ -1,7 +1,7 @@
 import * as d3 from 'd3'
-import * as Sankey from 'd3-sankey'
 import { Dispatch, RefObject, SetStateAction } from 'react'
 
+import * as Sankey from 'lib/d3/sankey'
 import { D3Selector } from 'lib/hooks/useD3'
 import { stripHTTP } from 'lib/utils'
 
@@ -22,10 +22,9 @@ const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, heigh
         .style('height', `${height}px`)
 }
 
-const createSankeyGenerator = (width: number, height: number): Sankey.SankeyLayout<any, any, any> => {
-    // @ts-expect-error - d3 sankey typing things
-    return new Sankey.sankey()
-        .nodeId((d: PathNodeData) => d.name)
+const createSankeyGenerator = (width: number, height: number): Sankey.SankeyLayout<any, PathNodeData, {}> => {
+    return Sankey.sankey<any, PathNodeData, {}>()
+        .nodeId((d) => d.name)
         .nodeAlign(Sankey.sankeyJustify)
         .nodeSort(null)
         .nodeWidth(15)
@@ -101,7 +100,7 @@ const appendDropoffs = (svg: D3Selector): void => {
 
 const appendPathLinks = (
     svg: any,
-    links: PathNodeData[],
+    links: Sankey.SankeyLink<PathNodeData, {}>[],
     nodes: PathNodeData[],
     setNodeCards: Dispatch<SetStateAction<PathNodeData[]>>
 ): void => {
