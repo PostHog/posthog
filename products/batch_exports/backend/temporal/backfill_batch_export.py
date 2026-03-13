@@ -325,7 +325,7 @@ async def _get_backfill_info_for_events(
     }
 
     query_id = str(uuid.uuid4())
-    async with log_query_duration(
+    with log_query_duration(
         logger=logger,
         query_id=query_id,
         query_type="backfill_info:events",
@@ -403,7 +403,7 @@ async def _get_backfill_info_for_persons(
     """
 
     min_timestamp_query_id = str(uuid.uuid4())
-    async with log_query_duration(
+    with log_query_duration(
         logger=logger,
         query_id=min_timestamp_query_id,
         query_type="backfill_info:persons_min_timestamp",
@@ -469,7 +469,7 @@ async def _get_backfill_info_for_persons(
     """
 
     count_query_id = str(uuid.uuid4())
-    async with log_query_duration(
+    with log_query_duration(
         logger=logger,
         query_id=count_query_id,
         query_type="backfill_info:persons_count",

@@ -552,7 +552,7 @@ async def _execute_query(client: ClickHouseClient, query: str, query_parameters:
     """
     query_id = str(uuid.uuid4())
     logger = LOGGER.bind(query_id=query_id)
-    async with log_query_duration(logger=logger, query_id=query_id, query_type="insert_into_internal_stage"):
+    with log_query_duration(logger=logger, query_id=query_id, query_type="insert_into_internal_stage"):
         try:
             await client.execute_query(query, query_parameters=query_parameters, query_id=query_id, timeout=300)
         except ClickHouseClientTimeoutError:

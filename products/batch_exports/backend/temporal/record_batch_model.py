@@ -276,7 +276,7 @@ INSERT INTO FUNCTION {s3_function}
         query_id = str(uuid.uuid4())
         logger = LOGGER.bind(query_id=query_id)
 
-        async with log_query_duration(
+        with log_query_duration(
             logger=logger,
             query_id=query_id,
             query_type="backfill_info:sessions",

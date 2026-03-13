@@ -2,7 +2,7 @@ import time
 import typing
 import asyncio
 import datetime as dt
-from contextlib import asynccontextmanager
+from contextlib import contextmanager
 
 from django.conf import settings
 
@@ -344,13 +344,13 @@ def log_execution_time(
         )
 
 
-@asynccontextmanager
-async def log_query_duration(
+@contextmanager
+def log_query_duration(
     logger: structlog.stdlib.BoundLogger,
     query_id: str,
     query_type: str,
-) -> typing.AsyncIterator[None]:
-    """Async context manager to log query duration."""
+) -> typing.Iterator[None]:
+    """Context manager to log query duration."""
     logger.info(f"Executing query: {query_type}", query_id=query_id, query_type=query_type)
     start_time = time.monotonic()
 
