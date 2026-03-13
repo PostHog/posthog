@@ -29,8 +29,10 @@ pub async fn check_quota(
 
     match limiter.check_and_filter(token, refs).await {
         Ok(filtered) if filtered.len() == count => Ok(()),
-        Ok(_) => {
-            report_dropped_events("otel_quota_drop", count as u64);
+        Ok(filtered) => {
+            let dropped = count - filtered.len();
+            report_dropped_events("otel_quota_drop", dropped as u64);
+            report_dropped_events("otel_all_or_nothing_drop", filtered.len() as u64);
             Err(QuotaOutcome::Dropped)
         }
         Err(CaptureError::BillingLimit) => {
@@ -62,13 +64,12 @@ pub async fn check_restrictions(
             ..Default::default()
         };
         let applied = service.get_restrictions(token, &ctx).await;
-
-        if applied.should_drop() {
-            report_dropped_events("otel_restriction_drop", span_events.len() as u64);
-            return None;
-        }
-
         merged = merged.merge(applied);
+    }
+
+    if merged.should_drop() {
+        report_dropped_events("otel_restriction_drop", span_events.len() as u64);
+        return None;
     }
 
     Some(merged)

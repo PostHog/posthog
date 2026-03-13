@@ -777,140 +777,80 @@ async fn test_partial_quota_drop_rejects_entire_batch() {
 // ----------------------------------------------------------------------------
 
 #[tokio::test]
-async fn test_drop_event_restriction_returns_400() {
-    let service = make_restriction_service(vec![Restriction {
-        restriction_type: RestrictionType::DropEvent,
-        scope: RestrictionScope::AllEvents,
-        args: None,
-    }])
-    .await;
+async fn test_restriction_types() {
+    struct Case {
+        name: &'static str,
+        restriction_type: RestrictionType,
+        args: Option<serde_json::Value>,
+        expected_status: u16,
+        check: fn(&[ProcessedEvent]) -> bool,
+    }
 
-    let sink = CapturingSink::new();
-    let client = make_test_client_with_options(
-        &sink,
-        TestClientOptions {
-            event_restriction_service: Some(service),
-            ..Default::default()
+    let cases = [
+        Case {
+            name: "drop",
+            restriction_type: RestrictionType::DropEvent,
+            args: None,
+            expected_status: 400,
+            check: |events| events.is_empty(),
         },
-    );
-
-    let request = make_single_span_request();
-    let status = send_request_with_client(&client, &request).await;
-    assert_eq!(status, 400);
-
-    let events = sink.get_events().await;
-    assert!(events.is_empty());
-}
-
-#[tokio::test]
-async fn test_force_overflow_restriction_sets_flag() {
-    let service = make_restriction_service(vec![Restriction {
-        restriction_type: RestrictionType::ForceOverflow,
-        scope: RestrictionScope::AllEvents,
-        args: None,
-    }])
-    .await;
-
-    let sink = CapturingSink::new();
-    let client = make_test_client_with_options(
-        &sink,
-        TestClientOptions {
-            event_restriction_service: Some(service),
-            ..Default::default()
+        Case {
+            name: "force_overflow",
+            restriction_type: RestrictionType::ForceOverflow,
+            args: None,
+            expected_status: 200,
+            check: |events| events.len() == 1 && events[0].metadata.force_overflow,
         },
-    );
-
-    let request = make_single_span_request();
-    let status = send_request_with_client(&client, &request).await;
-    assert_eq!(status, 200);
-
-    let events = sink.get_events().await;
-    assert_eq!(events.len(), 1);
-    assert!(events[0].metadata.force_overflow);
-}
-
-#[tokio::test]
-async fn test_skip_person_processing_restriction_sets_flag() {
-    let service = make_restriction_service(vec![Restriction {
-        restriction_type: RestrictionType::SkipPersonProcessing,
-        scope: RestrictionScope::AllEvents,
-        args: None,
-    }])
-    .await;
-
-    let sink = CapturingSink::new();
-    let client = make_test_client_with_options(
-        &sink,
-        TestClientOptions {
-            event_restriction_service: Some(service),
-            ..Default::default()
+        Case {
+            name: "skip_person_processing",
+            restriction_type: RestrictionType::SkipPersonProcessing,
+            args: None,
+            expected_status: 200,
+            check: |events| events.len() == 1 && events[0].metadata.skip_person_processing,
         },
-    );
-
-    let request = make_single_span_request();
-    let status = send_request_with_client(&client, &request).await;
-    assert_eq!(status, 200);
-
-    let events = sink.get_events().await;
-    assert_eq!(events.len(), 1);
-    assert!(events[0].metadata.skip_person_processing);
-}
-
-#[tokio::test]
-async fn test_redirect_to_dlq_restriction_sets_flag() {
-    let service = make_restriction_service(vec![Restriction {
-        restriction_type: RestrictionType::RedirectToDlq,
-        scope: RestrictionScope::AllEvents,
-        args: None,
-    }])
-    .await;
-
-    let sink = CapturingSink::new();
-    let client = make_test_client_with_options(
-        &sink,
-        TestClientOptions {
-            event_restriction_service: Some(service),
-            ..Default::default()
+        Case {
+            name: "redirect_to_dlq",
+            restriction_type: RestrictionType::RedirectToDlq,
+            args: None,
+            expected_status: 200,
+            check: |events| events.len() == 1 && events[0].metadata.redirect_to_dlq,
         },
-    );
-
-    let request = make_single_span_request();
-    let status = send_request_with_client(&client, &request).await;
-    assert_eq!(status, 200);
-
-    let events = sink.get_events().await;
-    assert_eq!(events.len(), 1);
-    assert!(events[0].metadata.redirect_to_dlq);
-}
-
-#[tokio::test]
-async fn test_redirect_to_topic_restriction_sets_topic() {
-    let service = make_restriction_service(vec![Restriction {
-        restriction_type: RestrictionType::RedirectToTopic,
-        scope: RestrictionScope::AllEvents,
-        args: Some(json!({"topic": "custom_topic"})),
-    }])
-    .await;
-
-    let sink = CapturingSink::new();
-    let client = make_test_client_with_options(
-        &sink,
-        TestClientOptions {
-            event_restriction_service: Some(service),
-            ..Default::default()
+        Case {
+            name: "redirect_to_topic",
+            restriction_type: RestrictionType::RedirectToTopic,
+            args: Some(json!({"topic": "custom_topic"})),
+            expected_status: 200,
+            check: |events| {
+                events.len() == 1
+                    && events[0].metadata.redirect_to_topic == Some("custom_topic".to_string())
+            },
         },
-    );
+    ];
 
-    let request = make_single_span_request();
-    let status = send_request_with_client(&client, &request).await;
-    assert_eq!(status, 200);
+    for case in &cases {
+        let service = make_restriction_service(vec![Restriction {
+            restriction_type: case.restriction_type,
+            scope: RestrictionScope::AllEvents,
+            args: case.args.clone(),
+        }])
+        .await;
 
-    let events = sink.get_events().await;
-    assert_eq!(events.len(), 1);
-    assert_eq!(
-        events[0].metadata.redirect_to_topic,
-        Some("custom_topic".to_string())
-    );
+        let sink = CapturingSink::new();
+        let client = make_test_client_with_options(
+            &sink,
+            TestClientOptions {
+                event_restriction_service: Some(service),
+                ..Default::default()
+            },
+        );
+
+        let request = make_single_span_request();
+        let status = send_request_with_client(&client, &request).await;
+        assert_eq!(status, case.expected_status, "failed for: {}", case.name);
+
+        let events = sink.get_events().await;
+        assert!((case.check)(&events), "check failed for: {}", case.name);
+    }
 }
 
 #[tokio::test]
