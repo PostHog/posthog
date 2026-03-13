@@ -1,5 +1,9 @@
-import re
 from typing import Any
+
+import re2
+
+_CASE_INSENSITIVE_OPTS = re2.Options()
+_CASE_INSENSITIVE_OPTS.case_sensitive = False
 
 COST_PER_UNIT = 8
 
@@ -42,9 +46,9 @@ class HogVMMemoryExceededException(HogVMException):
         super().__init__(f"Memory limit of {memory_limit} bytes exceeded. Attempted to use {attempted_memory} bytes")
 
 
-def like(string, pattern, flags=0):
-    pattern = re.escape(pattern).replace("%", ".*").replace("_", ".")
-    re_pattern = re.compile(pattern, flags)
+def like(string, pattern, case_insensitive: bool = False):
+    pattern = re2.escape(pattern).replace("%", ".*").replace("_", ".")
+    re_pattern = re2.compile(pattern, options=_CASE_INSENSITIVE_OPTS) if case_insensitive else re2.compile(pattern)
     return re_pattern.search(string) is not None
 
 
