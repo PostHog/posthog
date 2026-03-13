@@ -110,7 +110,7 @@
     {
       "id": "action_delay_c1379cb0-114e-40e5-b1b7-c3be6db041e1",
       "name": "Delay",
-      "description": "Wait for 5  minutes.",
+      "description": "Wait for 10  minutes.",
       "on_error": null,
       "created_at": 1772801050715,
       "updated_at": 1772801050715,
