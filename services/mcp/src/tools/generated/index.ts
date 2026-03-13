@@ -1,7 +1,7 @@
 import type { ToolBase, ZodObjectAny } from '@/tools/types'
 
-import { GENERATED_TOOLS as actions } from './actions'
 // AUTO-GENERATED — do not edit
+import { GENERATED_TOOLS as actions } from './actions'
 import { GENERATED_TOOLS as activity_logs } from './activity_logs'
 import { GENERATED_TOOLS as annotations } from './annotations'
 import { GENERATED_TOOLS as cdp_function_templates } from './cdp_function_templates'
@@ -14,8 +14,8 @@ import { GENERATED_TOOLS as prompts } from './prompts'
 import { GENERATED_TOOLS as workflows } from './workflows'
 
 export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
-    ...activity_logs,
     ...actions,
+    ...activity_logs,
     ...annotations,
     ...cdp_function_templates,
     ...cdp_functions,

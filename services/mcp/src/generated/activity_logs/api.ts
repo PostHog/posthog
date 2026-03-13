@@ -182,16 +182,16 @@ export const activityLogListResponseItemIdMax = 72
 export const activityLogListResponseScopeMax = 79
 
 export const ActivityLogListResponseItem = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     user: zod.object({
-        id: zod.number(),
-        uuid: zod.string(),
+        id: zod.number().optional(),
+        uuid: zod.string().optional(),
         distinct_id: zod.string().max(activityLogListResponseUserDistinctIdMax).nullish(),
         first_name: zod.string().max(activityLogListResponseUserFirstNameMax).optional(),
         last_name: zod.string().max(activityLogListResponseUserLastNameMax).optional(),
         email: zod.string().email().max(activityLogListResponseUserEmailMax),
         is_email_verified: zod.boolean().nullish(),
-        hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
+        hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
         role_at_organization: zod
             .union([
                 zod
@@ -204,7 +204,7 @@ export const ActivityLogListResponseItem = zod.object({
             ])
             .nullish(),
     }),
-    unread: zod.boolean().describe("is the date of this log item newer than the user's bookmark"),
+    unread: zod.boolean().optional().describe("is the date of this log item newer than the user's bookmark"),
     organization_id: zod.string().nullish(),
     was_impersonated: zod.boolean().nullish(),
     is_system: zod.boolean().nullish(),
