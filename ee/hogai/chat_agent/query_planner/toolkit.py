@@ -15,6 +15,7 @@ from posthog.schema import (
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
 
 from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.event_usage import EventSource
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -208,7 +209,10 @@ class TaxonomyAgentToolkit:
             verbose_name = f"action with ID {event_name_or_action_id}"
         runner = EventTaxonomyQueryRunner(query, self._team)
         with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
-            response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
+            response = runner.run(
+                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+                analytics_props={"source": EventSource.POSTHOG_AI},
+            )
         return response, verbose_name
 
     def retrieve_event_or_action_properties(self, event_name_or_action_id: str | int) -> str:
@@ -365,7 +369,8 @@ class TaxonomyAgentToolkit:
 
         with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
             response = ActorsPropertyTaxonomyQueryRunner(query, self._team).run(
-                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+                analytics_props={"source": EventSource.POSTHOG_AI},
             )
 
         if not isinstance(response, CachedActorsPropertyTaxonomyQueryResponse):

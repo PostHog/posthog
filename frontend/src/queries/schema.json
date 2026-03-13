@@ -15912,6 +15912,7 @@
                 "live_debugger",
                 "logs",
                 "tracing",
+                "metrics",
                 "workflows",
                 "notebook",
                 "action",
@@ -15971,6 +15972,10 @@
                 },
                 "created_at": {
                     "description": "Timestamp when file was added. Used to check persistence",
+                    "type": "string"
+                },
+                "displayLabel": {
+                    "description": "Display label override — when set, shown in the nav instead of the last segment of `path`",
                     "type": "string"
                 },
                 "flag": {
@@ -18859,7 +18864,7 @@
         "IntegrationKind": {
             "enum": [
                 "slack",
-                "slack-twig",
+                "slack-posthog-code",
                 "salesforce",
                 "hubspot",
                 "google-pubsub",
@@ -23548,6 +23553,7 @@
                 "teams",
                 "toolbar",
                 "tracing",
+                "metrics",
                 "user_interviews",
                 "visual_review",
                 "web_analytics",

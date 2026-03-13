@@ -12,6 +12,7 @@ from posthog.schema import (
     OrderDirection,
 )
 
+from posthog.event_usage import EventSource
 from posthog.hogql_queries.document_embeddings_query_runner import DocumentEmbeddingsQueryRunner
 from posthog.models.team.team import Team
 
@@ -66,7 +67,7 @@ class LLMTracesSummarizerFinder:
             ),
         )
         runner = DocumentEmbeddingsQueryRunner(query=similarity_query, team=self._team)
-        response = runner.run()
+        response = runner.run(analytics_props={"source": EventSource.POSTHOG_AI})
         if not isinstance(response, CachedDocumentSimilarityQueryResponse):
             raise ValueError(
                 f'Failed to get similarity results for query "{query}" ({request_id}) '

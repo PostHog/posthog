@@ -1815,6 +1815,7 @@ class FileSystemIconType(StrEnum):
     LIVE_DEBUGGER = "live_debugger"
     LOGS = "logs"
     TRACING = "tracing"
+    METRICS = "metrics"
     WORKFLOWS = "workflows"
     NOTEBOOK = "notebook"
     ACTION = "action"
@@ -2258,7 +2259,7 @@ class IntegrationFilter(BaseModel):
 
 class IntegrationKind(StrEnum):
     SLACK = "slack"
-    SLACK_TWIG = "slack-twig"
+    SLACK_POSTHOG_CODE = "slack-posthog-code"
     SALESFORCE = "salesforce"
     HUBSPOT = "hubspot"
     GOOGLE_PUBSUB = "google-pubsub"
@@ -3297,6 +3298,7 @@ class ProductKey(StrEnum):
     TEAMS = "teams"
     TOOLBAR = "toolbar"
     TRACING = "tracing"
+    METRICS = "metrics"
     USER_INTERVIEWS = "user_interviews"
     VISUAL_REVIEW = "visual_review"
     WEB_ANALYTICS = "web_analytics"
@@ -5583,6 +5585,10 @@ class FileSystemImport(BaseModel):
     created_at: str | None = Field(
         default=None,
         description="Timestamp when file was added. Used to check persistence",
+    )
+    displayLabel: str | None = Field(
+        default=None,
+        description=("Display label override — when set, shown in the nav instead of the last segment of `path`"),
     )
     flag: str | None = None
     href: str | None = Field(default=None, description="Object's URL")

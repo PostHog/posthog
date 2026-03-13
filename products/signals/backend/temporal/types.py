@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Optional
 
 
@@ -165,7 +166,7 @@ class SignalData:
     source_type: str
     source_id: str
     weight: float
-    timestamp: str
+    timestamp: datetime
     extra: dict = field(default_factory=dict)
 
 
@@ -177,7 +178,7 @@ def render_signal_to_text(
     lines = [f"Signal {index}:" if index is not None else "Signal:"]
     lines.append(f"- Source: {signal.source_product} / {signal.source_type}")
     lines.append(f"- Weight: {signal.weight}")
-    lines.append(f"- Timestamp: {signal.timestamp}")
+    lines.append(f"- Timestamp: {signal.timestamp.isoformat()}")
     lines.append(f"- Description: {signal.content}")
     return "\n".join(lines)
 

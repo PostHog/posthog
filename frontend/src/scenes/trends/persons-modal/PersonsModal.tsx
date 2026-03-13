@@ -254,8 +254,13 @@ export function PersonsModal({
                                     <ActorRow
                                         key={actor.id}
                                         actor={actor}
+                                        // created_at is null for actors without a PostgreSQL Person record
+                                        // (personless mode, merged, or deleted persons) — skip the
+                                        // timeline which would 404, and show static properties instead.
                                         propertiesTimelineFilter={
-                                            actor.type == 'person' && currentTeam?.person_on_events_querying_enabled
+                                            actor.type == 'person' &&
+                                            actor.created_at &&
+                                            currentTeam?.person_on_events_querying_enabled
                                                 ? propertiesTimelineFilterFromUrl
                                                 : undefined
                                         }

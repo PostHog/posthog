@@ -687,7 +687,6 @@ export const redirects: Record<
     '/data-management': urls.eventDefinitions(),
     '/data-management/database': urls.sources(),
     '/data-pipelines': urls.sources(),
-    '/data-warehouse': urls.dataWarehouse(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) =>
         urls.dataWarehouseSource(id, tab as DataWarehouseSourceSceneTab),
@@ -946,7 +945,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
     [`${urls.oauthAuthorize()}/`]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
     [urls.dataPipelinesNew(':kind' as any)]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
-    [urls.dataWarehouse()]: [Scene.DataWarehouse, 'dataWarehouse'],
+    [urls.dataOps()]: [Scene.DataOps, 'dataOps'],
     [urls.dataWarehouseSourceNew()]: [Scene.DataWarehouseSourceNew, 'dataWarehouseSourceNew'],
     [urls.dataWarehouseSource(':id', ':tab' as any)]: [Scene.DataWarehouseSource, 'dataWarehouseSource'],
     [urls.batchExportNew(':service')]: [Scene.BatchExportNew, 'batchExportNew'],

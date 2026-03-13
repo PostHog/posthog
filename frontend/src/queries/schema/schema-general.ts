@@ -2924,6 +2924,7 @@ export type FileSystemIconType =
     | 'live_debugger'
     | 'logs'
     | 'tracing'
+    | 'metrics'
     | 'workflows'
     | 'notebook'
     | 'action'
@@ -2992,6 +2993,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     reason?: UserProductListReason
     /** Custom reason text for custom product suggestion (from UserProductList) */
     reasonText?: string | null
+    /** Display label override — when set, shown in the nav instead of the last segment of `path` */
+    displayLabel?: string
 }
 
 export interface FileSystemViewLogEntry {
@@ -5485,6 +5488,7 @@ export enum ProductKey {
     TEAMS = 'teams',
     TOOLBAR = 'toolbar',
     TRACING = 'tracing',
+    METRICS = 'metrics',
     USER_INTERVIEWS = 'user_interviews',
     VISUAL_REVIEW = 'visual_review',
     WEB_ANALYTICS = 'web_analytics',
