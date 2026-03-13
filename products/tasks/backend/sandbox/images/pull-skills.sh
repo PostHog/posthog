@@ -2,12 +2,14 @@
 # Downloads and installs PostHog agent skills from GitHub releases.
 # Used inside sandbox containers to dynamically inject skills before the agent starts.
 #
-# Skills are extracted to /scripts/plugins/posthog/skills/ which the @posthog/agent
-# package discovers via its plugin directory convention.
+# Skills are copied to two locations:
+#   /scripts/plugins/posthog/skills/  — Claude Code (@posthog/agent plugin discovery)
+#   ~/.agents/skills/                 — Codex agent discovery
 
 set -euo pipefail
 
-SKILLS_DIR="/scripts/plugins/posthog/skills"
+PLUGIN_SKILLS_DIR="/scripts/plugins/posthog/skills"
+CODEX_SKILLS_DIR="$HOME/.agents/skills"
 RELEASE_URL="https://github.com/PostHog/posthog/releases/download/agent-skills-latest/skills.zip"
 TMP_DIR=$(mktemp -d)
 
@@ -60,8 +62,9 @@ if [ -z "$EXTRACTED_SKILLS" ]; then
     exit 0
 fi
 
-# Set up the plugin directory structure
-mkdir -p "$SKILLS_DIR"
+# Set up directory structure
+mkdir -p "$PLUGIN_SKILLS_DIR"
+mkdir -p "$CODEX_SKILLS_DIR"
 
 # Create plugin.json if it doesn't exist
 PLUGIN_JSON="/scripts/plugins/posthog/plugin.json"
@@ -75,9 +78,12 @@ if [ ! -f "$PLUGIN_JSON" ]; then
 EOF
 fi
 
-# Copy skills, replacing any existing ones
-rm -rf "$SKILLS_DIR"/*
-cp -r "$EXTRACTED_SKILLS"/* "$SKILLS_DIR/"
+# Copy skills to both locations
+rm -rf "$PLUGIN_SKILLS_DIR"/*
+cp -r "$EXTRACTED_SKILLS"/* "$PLUGIN_SKILLS_DIR/"
 
-skill_count=$(find "$SKILLS_DIR" -name "SKILL.md" | wc -l)
-echo "Installed ${skill_count} skills to ${SKILLS_DIR}"
+rm -rf "$CODEX_SKILLS_DIR"/*
+cp -r "$EXTRACTED_SKILLS"/* "$CODEX_SKILLS_DIR/"
+
+skill_count=$(find "$PLUGIN_SKILLS_DIR" -name "SKILL.md" | wc -l)
+echo "Installed ${skill_count} skills to ${PLUGIN_SKILLS_DIR} and ${CODEX_SKILLS_DIR}"
