@@ -4,8 +4,9 @@ import { BuiltLogic, Logic, kea, path } from 'kea'
 import { initKeaTests } from '~/test/init'
 
 import { useAttachedLogic } from './useAttachedLogic'
+import type { parentLogicType } from './useAttachedLogic.testType'
 
-const parentLogic = kea([path(['lib', 'logic', 'scenes', 'useAttachedLogicTestParentLogic'])])
+const parentLogic = kea<parentLogicType>([path(['lib', 'logic', 'scenes', 'useAttachedLogicTestParentLogic'])])
 
 describe('useAttachedLogic', () => {
     beforeEach(() => {
