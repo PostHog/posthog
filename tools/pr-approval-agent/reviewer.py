@@ -122,6 +122,9 @@ REVIEWER_SYSTEM = textwrap.dedent(
       - ESCALATE: behavioral changes to business logic, API contracts, data models
 
     Review comments (inline feedback only, approval states are hidden):
+    - If there are ZERO review comments, ESCALATE — the author should
+      request reviews (Codex, Claude, Copilot, Greptile, or a human)
+      before requesting stamphog approval
     - Substantive comments unresolved by the current diff → REFUSE
     - Bot comments with valid concerns that were ignored → ESCALATE
 
@@ -138,11 +141,15 @@ REVIEWER_SYSTEM = textwrap.dedent(
     - ESCALATE: not confident, or needs domain expertise
     When in doubt, ESCALATE rather than APPROVE.
 
-    IMPORTANT: The "reasoning" field is 1 sentence — your judgment call, not a
-    code review. Do NOT describe what the code does. Examples:
+    IMPORTANT: The "reasoning" field is 1-2 sentences — your judgment call, not a
+    code review. Do NOT describe what the code does. Do NOT mention internal
+    gate codes (T0, T1, T2, etc.). When gates denied the PR, explain the
+    reason in plain language so the author understands without checking logs.
+    Examples:
     - "No showstoppers, low-risk frontend fix."
     - "Missing tests for new error handling path."
     - "Touches shared query builder — needs team review."
+    - "Gates denied: touches CI workflows and migration files."
 
     Your output is constrained to a JSON schema with verdict, reasoning,
     risk, and issues fields. Fill them according to the rules above.
@@ -165,15 +172,21 @@ class Reviewer:
         diff_path = self._write_diff_file(pr)
         prompt = self._build_review_prompt(pr, classification, gate_context, diff_path)
 
+        # Gate denials and trivial PRs don't need deep exploration —
+        # just read the diff and produce a verdict.
+        quick = gate_context["gate_verdict"] == "DENIED" or classification.get("t1_subclass") == "T1a-trivial"
+
         options = ClaudeAgentOptions(
             system_prompt=REVIEWER_SYSTEM,
             allowed_tools=["Read", "Grep", "Glob"],
             disallowed_tools=["Write", "Edit", "NotebookEdit", "Bash", "Agent", "WebFetch", "WebSearch"],
             cwd=str(self.repo_root),
-            max_turns=20,
+            max_turns=3 if quick else 20,
             model=MODEL,
             permission_mode="dontAsk",
             output_format=VERDICT_SCHEMA,
+            effort="low" if quick else "high",
+            extra_args={"no-session-persistence": None},
         )
 
         structured_output = None
