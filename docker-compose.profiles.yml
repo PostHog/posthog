@@ -26,8 +26,6 @@ services:
         profiles: [observability]
     jaeger:
         profiles: [observability]
-    capture-logs:
-        profiles: [observability]
 
     # Dev tools - debugging and monitoring UIs
     kafka_ui:

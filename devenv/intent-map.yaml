@@ -124,6 +124,21 @@ capabilities:
         requires: [event_ingestion]
         docker_profiles: [observability]
 
+    logs_ingestion:
+        description: 'OTEL logs capture service'
+        requires: [event_ingestion]
+        docker_profiles: [observability]
+
+    nodejs_metrics:
+        description: 'Node.js Metrics - metric ingestion'
+        requires: [event_ingestion]
+        docker_profiles: [observability]
+
+    metrics_ingestion:
+        description: 'OTEL metrics capture service'
+        requires: [event_ingestion]
+        docker_profiles: [observability]
+
     nodejs_feature_flags:
         description: 'Node.js Feature Flags - evaluation scheduler'
         requires: [flag_evaluation]
@@ -236,7 +251,11 @@ intents:
 
     logs:
         description: 'Log aggregation and viewing'
-        capabilities: [event_ingestion, property_definitions, nodejs_logs]
+        capabilities: [event_ingestion, property_definitions, logs_ingestion, nodejs_logs]
+
+    metrics:
+        description: 'Metric ingestion and viewing'
+        capabilities: [event_ingestion, property_definitions, metrics_ingestion, nodejs_metrics]
 
     workflows:
         description: 'Workflow automation and orchestration'
