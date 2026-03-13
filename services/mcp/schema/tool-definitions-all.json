@@ -164,81 +164,6 @@
             "readOnlyHint": false
         }
     },
-    "create-feature-flag": {
-        "description": "Creates a new feature flag in the project. Once you have created a feature flag, you should: Ask the user if they want to add it to their codebase, Use the \"search-docs\" tool to find documentation on how to add feature flags to the codebase (search for the right language / framework), Clarify where it should be added and then add it.",
-        "category": "Feature flags",
-        "feature": "flags",
-        "summary": "Creates a new feature flag in the project.",
-        "title": "Create feature flag",
-        "required_scopes": ["feature_flag:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "delete-feature-flag": {
-        "description": "Delete a feature flag in the project.",
-        "category": "Feature flags",
-        "feature": "flags",
-        "summary": "Delete a feature flag in the project.",
-        "title": "Delete feature flag",
-        "required_scopes": ["feature_flag:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "feature-flag-get-all": {
-        "description": "Get all feature flags in the project.",
-        "category": "Feature flags",
-        "feature": "flags",
-        "summary": "Get all feature flags in the project.",
-        "title": "Get all feature flags",
-        "required_scopes": ["feature_flag:read"],
-        "new_mcp": false,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "feature-flag-get-definition": {
-        "description": "Get the definition of a feature flag. You can provide either the flagId or the flagKey. If you provide both, the flagId will be used.",
-        "category": "Feature flags",
-        "feature": "flags",
-        "summary": "Get the definition of a feature flag.",
-        "title": "Get feature flag definition",
-        "required_scopes": ["feature_flag:read"],
-        "new_mcp": false,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "update-feature-flag": {
-        "description": "Update a new feature flag in the project. To enable a feature flag, you should make sure it is active and the rollout percentage is set to 100 for the group you want to target. To disable a feature flag, you should make sure it is inactive, you can keep the rollout percentage as it is.",
-        "category": "Feature flags",
-        "feature": "flags",
-        "summary": "Update a feature flag in the project.",
-        "title": "Update feature flag",
-        "required_scopes": ["feature_flag:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "experiment-get-all": {
         "description": "Get all experiments in the project.",
         "category": "Experiments",
@@ -1252,6 +1177,81 @@
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "feature-flag-get-all": {
+        "description": "Get feature flags in the current project. Supports list filters including search by feature flag key or name (case-insensitive), then use the returned ID for get/update/delete tools.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get all feature flags",
+        "title": "Get all feature flags",
+        "required_scopes": ["feature_flag:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "feature-flag-get-definition": {
+        "description": "Get a feature flag by ID.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get feature flag definition",
+        "title": "Get feature flag definition",
+        "required_scopes": ["feature_flag:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "create-feature-flag": {
+        "description": "Create a feature flag in the current project.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Create feature flag",
+        "title": "Create feature flag",
+        "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "update-feature-flag": {
+        "description": "Update a feature flag by ID in the current project.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Update feature flag",
+        "title": "Update feature flag",
+        "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "delete-feature-flag": {
+        "description": "Soft-delete a feature flag by ID in the current project.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Delete feature flag",
+        "title": "Delete feature flag",
+        "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false

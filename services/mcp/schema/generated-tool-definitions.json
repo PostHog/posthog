@@ -344,6 +344,81 @@
             "readOnlyHint": false
         }
     },
+    "feature-flag-get-all": {
+        "description": "Get feature flags in the current project. Supports list filters including search by feature flag key or name (case-insensitive), then use the returned ID for get/update/delete tools.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get all feature flags",
+        "title": "Get all feature flags",
+        "required_scopes": ["feature_flag:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "feature-flag-get-definition": {
+        "description": "Get a feature flag by ID.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get feature flag definition",
+        "title": "Get feature flag definition",
+        "required_scopes": ["feature_flag:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "create-feature-flag": {
+        "description": "Create a feature flag in the current project.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Create feature flag",
+        "title": "Create feature flag",
+        "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "update-feature-flag": {
+        "description": "Update a feature flag by ID in the current project.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Update feature flag",
+        "title": "Update feature flag",
+        "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "delete-feature-flag": {
+        "description": "Soft-delete a feature flag by ID in the current project.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Delete feature flag",
+        "title": "Delete feature flag",
+        "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "prompt-list": {
         "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt summaries.",
         "category": "Prompts",
