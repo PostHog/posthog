@@ -1,7 +1,7 @@
 import re
 import json
 import logging
-from typing import Any
+from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
@@ -9,17 +9,19 @@ from products.tasks.backend.services.custom_prompt_runner import CustomPromptSan
 
 logger = logging.getLogger(__name__)
 
+_ModelT = TypeVar("_ModelT", bound=BaseModel)
+
 
 async def run_sandbox_agent_get_structured_output(
     prompt: str,
     context: CustomPromptSandboxContext,
-    model_to_validate: type[BaseModel],
+    model_to_validate: type[_ModelT],
     *,
     branch: str = "master",
     step_name: str = "",
     verbose: bool = False,
     output_fn: OutputFn = None,
-) -> BaseModel:
+) -> _ModelT:
     """Run an agent with a custom prompt in a sandbox and return validated Pydantic output."""
     try:
         last_message, _ = await run_prompt(

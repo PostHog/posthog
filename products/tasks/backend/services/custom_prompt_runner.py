@@ -54,8 +54,8 @@ def resolve_sandbox_context_for_local_dev(repository: str) -> CustomPromptSandbo
         )
 
     return CustomPromptSandboxContext(
-        team_id=team.id,  # type: ignore
-        user_id=user.id,  # type: ignore
+        team_id=team.id,
+        user_id=user.id,
         repository=repository,
     )
 
