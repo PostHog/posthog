@@ -683,16 +683,16 @@ export const searchLogic = kea<searchLogicType>([
 
                 const categoryItems: Record<string, SearchItem[]> = {}
 
+                // Safely extract a string field from extra_fields — the API may return
+                // non-string values (objects, arrays) which would crash React if rendered.
+                const safeField = (field: unknown): string | undefined =>
+                    typeof field === 'string' ? field : undefined
+
                 for (const result of unifiedSearchResults.results) {
                     const category = result.type
                     if (!categoryItems[category]) {
                         categoryItems[category] = []
                     }
-
-                    // Safely extract a string field from extra_fields — the API may return
-                    // non-string values (objects, arrays) which would crash React if rendered.
-                    const safeField = (field: unknown): string | undefined =>
-                        typeof field === 'string' ? field : undefined
 
                     let name = result.result_id
                     let href = ''
