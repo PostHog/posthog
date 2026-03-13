@@ -280,6 +280,14 @@ class EventSource(StrEnum):
     SUBSCRIPTION = "subscription"
 
 
+class McpProps(TypedDict):
+    mcp_user_agent: str | None
+    mcp_client_name: str | None
+    mcp_client_version: str | None
+    mcp_protocol_version: str | None
+    mcp_oauth_client_name: str | None
+
+
 AnalyticsProps = TypedDict(
     "AnalyticsProps",
     {
@@ -303,7 +311,9 @@ _POSTHOG_CODE_UA_RE = re.compile(r"posthog/(code|[\w.-]+\.hog\.dev)")
 
 def get_event_source(request) -> EventSource:
     """Determine the source of an API request for analytics."""
-    user_agent = request.META.get("HTTP_USER_AGENT", "")
+    user_agent = request.META.get("HTTP_USER_AGENT", "") or ""
+    if not isinstance(user_agent, str):
+        user_agent = ""
     if "posthog/terraform-provider" in user_agent:
         return EventSource.TERRAFORM
     if "posthog/wizard" in user_agent:
@@ -331,7 +341,7 @@ def sanitize_header_value(value: str | None) -> str | None:
     return re.sub(r"[\x00-\x1f\x7f]", "", value).strip()[:MAX_HEADER_VALUE_LENGTH] or None
 
 
-def get_mcp_properties(request) -> dict[str, str | None]:
+def get_mcp_properties(request) -> McpProps:
     """Extract MCP client metadata from request headers."""
     return {
         "mcp_user_agent": sanitize_header_value(request.headers.get("X-Posthog-Mcp-User-Agent")),
