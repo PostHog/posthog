@@ -193,7 +193,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "ssh_tunnel",
             "using_ssl",
             # vitally
-            "region"
+            "region",
             # chargebee
             "site_name",
             # zendesk
@@ -208,7 +208,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             # bigquery
             "dataset_id",
             "temporary_dataset",
-            "dataset_project"
+            "dataset_project",
             # google ads
             "customer_id",
             "google_ads_integration_id",
@@ -228,6 +228,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "repository",
             # shopify
             "shopify_store_id",
+            # slack
+            "slack_integration_id",
             # temporal
             "namespace",
         }
@@ -576,6 +578,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             source_schema = next(
                 (source_schema for source_schema in source_schemas if source_schema.name == schema_name), None
             )
+
             schema_metadata = (
                 postgres_schema_metadata(
                     source_schema.columns if source_schema else [],
