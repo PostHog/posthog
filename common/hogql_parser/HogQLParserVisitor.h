@@ -199,6 +199,8 @@ public:
 
     virtual std::any visitColumnExprTypeCast(HogQLParser::ColumnExprTypeCastContext *context) = 0;
 
+    virtual std::any visitColumnExprSpreadColumnsList(HogQLParser::ColumnExprSpreadColumnsListContext *context) = 0;
+
     virtual std::any visitColumnExprPrecedence1(HogQLParser::ColumnExprPrecedence1Context *context) = 0;
 
     virtual std::any visitColumnExprPrecedence2(HogQLParser::ColumnExprPrecedence2Context *context) = 0;
@@ -232,6 +234,8 @@ public:
     virtual std::any visitColumnExprBetween(HogQLParser::ColumnExprBetweenContext *context) = 0;
 
     virtual std::any visitColumnExprColumnsList(HogQLParser::ColumnExprColumnsListContext *context) = 0;
+
+    virtual std::any visitColumnExprSpreadColumnsRegex(HogQLParser::ColumnExprSpreadColumnsRegexContext *context) = 0;
 
     virtual std::any visitColumnExprPropertyAccess(HogQLParser::ColumnExprPropertyAccessContext *context) = 0;
 

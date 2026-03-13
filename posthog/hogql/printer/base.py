@@ -581,6 +581,12 @@ class HogQLPrinter(Visitor[str]):
     def visit_columns_expr(self, node: ast.ColumnsExpr):
         raise ImpossibleASTError("Unexpected ast.ColumnsExpr. This should have been expanded by the resolver.")
 
+    def visit_spread_expr(self, node: ast.SpreadExpr):
+        raise ImpossibleASTError(
+            "*COLUMNS(...) can only be used to unpack columns inside function call arguments. "
+            "Use COLUMNS(...) for top-level column selection."
+        )
+
     def visit_call(self, node: ast.Call):
         func_meta = (
             find_hogql_aggregation(node.name)

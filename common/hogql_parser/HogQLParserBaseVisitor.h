@@ -375,6 +375,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitColumnExprSpreadColumnsList(HogQLParser::ColumnExprSpreadColumnsListContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitColumnExprPrecedence1(HogQLParser::ColumnExprPrecedence1Context *ctx) override {
     return visitChildren(ctx);
   }
@@ -440,6 +444,10 @@ public:
   }
 
   virtual std::any visitColumnExprColumnsList(HogQLParser::ColumnExprColumnsListContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitColumnExprSpreadColumnsRegex(HogQLParser::ColumnExprSpreadColumnsRegexContext *ctx) override {
     return visitChildren(ctx);
   }
 

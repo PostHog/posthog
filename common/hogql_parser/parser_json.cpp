@@ -1828,6 +1828,28 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     return json;
   }
 
+  VISIT(ColumnExprSpreadColumnsRegex) {
+    Json json = Json::object();
+    json["node"] = "SpreadExpr";
+    if (!is_internal) addPositionInfo(json, ctx);
+    Json inner = Json::object();
+    inner["node"] = "ColumnsExpr";
+    inner["regex"] = parse_string_literal_ctx(ctx->STRING_LITERAL());
+    json["expr"] = inner;
+    return json;
+  }
+
+  VISIT(ColumnExprSpreadColumnsList) {
+    Json json = Json::object();
+    json["node"] = "SpreadExpr";
+    if (!is_internal) addPositionInfo(json, ctx);
+    Json inner = Json::object();
+    inner["node"] = "ColumnsExpr";
+    inner["columns"] = visitAsJSONOrEmptyArray(ctx->columnExprList());
+    json["expr"] = inner;
+    return json;
+  }
+
   VISIT(ColumnExprTagElement) { return visit(ctx->hogqlxTagElement()); }
 
   VISIT(ColumnLambdaExpr) {

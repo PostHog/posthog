@@ -326,6 +326,8 @@ class Resolver(CloningVisitor):
         # Visit all the "SELECT a,b,c" columns. Mark each for export in "columns".
         select_nodes = []
         for expr in node.select or []:
+            if isinstance(expr, ast.SpreadExpr):
+                raise QueryError("*COLUMNS(...) is not valid as a top-level SELECT item. Use COLUMNS(...) instead.")
             if isinstance(expr, ast.ColumnsExpr):
                 expanded = self._columns_expr_exprs(expr)
                 for col in expanded:
@@ -699,6 +701,25 @@ class Resolver(CloningVisitor):
 
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
+
+        # Expand *COLUMNS(...) in function arguments
+        expanded_args: list[ast.Expr] = []
+        has_spread = False
+        for arg in node.args:
+            if isinstance(arg, ast.SpreadExpr) and isinstance(arg.expr, ast.ColumnsExpr):
+                expanded_args.extend(self._columns_expr_exprs(arg.expr))
+                has_spread = True
+            else:
+                expanded_args.append(arg)
+        if has_spread:
+            node = ast.Call(
+                name=node.name,
+                args=expanded_args,
+                params=node.params,
+                distinct=node.distinct,
+                start=node.start,
+                end=node.end,
+            )
 
         if func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
