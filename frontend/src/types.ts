@@ -4799,6 +4799,7 @@ export const INTEGRATION_KINDS = [
     'salesforce',
     'hubspot',
     'google-pubsub',
+    'google-cloud-service-account',
     'google-cloud-storage',
     'google-ads',
     'google-sheets',
@@ -5565,6 +5566,7 @@ export type BatchExportServiceSnowflake = {
 
 export type BatchExportServiceBigQuery = {
     type: 'BigQuery'
+    integration?: number
     config: {
         project_id: string
         private_key: string

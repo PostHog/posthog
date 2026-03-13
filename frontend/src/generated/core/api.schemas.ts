@@ -1019,6 +1019,7 @@ export interface SharingConfigurationApi {
  * `google-cloud-storage` - Google Cloud Storage
  * `google-ads` - Google Ads
  * `google-sheets` - Google Sheets
+ * `google-cloud-service-account` - Google Cloud Service Account
  * `snapchat` - Snapchat
  * `linkedin-ads` - Linkedin Ads
  * `reddit-ads` - Reddit Ads
@@ -1039,9 +1040,9 @@ export interface SharingConfigurationApi {
  * `jira` - Jira
  * `pinterest-ads` - Pinterest Ads
  */
-export type Kind439EnumApi = (typeof Kind439EnumApi)[keyof typeof Kind439EnumApi]
+export type Kind25bEnumApi = (typeof Kind25bEnumApi)[keyof typeof Kind25bEnumApi]
 
-export const Kind439EnumApi = {
+export const Kind25bEnumApi = {
     Slack: 'slack',
     SlackTwig: 'slack-twig',
     Salesforce: 'salesforce',
@@ -1050,6 +1051,7 @@ export const Kind439EnumApi = {
     GoogleCloudStorage: 'google-cloud-storage',
     GoogleAds: 'google-ads',
     GoogleSheets: 'google-sheets',
+    GoogleCloudServiceAccount: 'google-cloud-service-account',
     Snapchat: 'snapchat',
     LinkedinAds: 'linkedin-ads',
     RedditAds: 'reddit-ads',
@@ -1076,7 +1078,7 @@ export const Kind439EnumApi = {
  */
 export interface IntegrationApi {
     readonly id: number
-    kind: Kind439EnumApi
+    kind: Kind25bEnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -1098,7 +1100,7 @@ export interface PaginatedIntegrationListApi {
  */
 export interface PatchedIntegrationApi {
     readonly id?: number
-    kind?: Kind439EnumApi
+    kind?: Kind25bEnumApi
     config?: unknown
     readonly created_at?: string
     readonly created_by?: UserBasicApi

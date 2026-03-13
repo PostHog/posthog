@@ -1,4 +1,5 @@
 import io
+import os
 import json
 import time
 import typing
@@ -10,8 +11,12 @@ import collections.abc
 
 from django.conf import settings
 
+import boto3
 import pyarrow as pa
 import requests
+import google.auth
+import google.auth.aws
+import google.auth.impersonated_credentials
 from google.api_core.exceptions import (
     Forbidden,
     GatewayTimeout,
@@ -28,6 +33,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.models.integration import GoogleCloudServiceAccountIntegration, Integration
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -308,6 +314,59 @@ class BigQueryTable(Table[BigQueryField]):
         return self.parents[1]
 
 
+class AWSCredentialsMissingError(Exception):
+    def __init__(self, missing: collections.abc.Sequence[str] | str):
+        if isinstance(missing, str):
+            missing = (missing,)
+        super().__init__(f"One or more required credentials are missing: {', '.join(missing)}")
+
+
+class Boto3CredentialsSupplier(google.auth.aws.AwsSecurityCredentialsSupplier):
+    """Implementation of credential supplier for `google.auth` using `boto3`.
+
+    The default credential supplier provided by `google.auth` tries to manually execute
+    requests, but it's more straight forward for us to rely on `boto3` to resolve
+    credentials.
+
+    The interface requires all methods to be blocking, but we assume credentials are
+    lazily loaded, and only fetched within some method wrapped by `asyncio.to_thread`.
+    """
+
+    def __init__(self, session: boto3.Session | None = None) -> None:
+        self.session = session or boto3.Session()
+
+    def get_aws_security_credentials(self, context, request) -> google.auth.aws.AwsSecurityCredentials:
+        session_credentials = self.session.get_credentials()
+        if session_credentials is None:
+            raise AWSCredentialsMissingError("session")
+
+        credentials = session_credentials.get_frozen_credentials()
+
+        if credentials.access_key is None:
+            raise AWSCredentialsMissingError("access_key")
+
+        if credentials.secret_key is None:
+            raise AWSCredentialsMissingError("secret_key")
+
+        return google.auth.aws.AwsSecurityCredentials(
+            credentials.access_key,
+            credentials.secret_key,
+            credentials.token,
+        )
+
+    def get_aws_region(self, context, request) -> str:
+        """Similar to the default implementation, but without a fallback request."""
+        env_aws_region = os.environ.get("AWS_REGION")
+        if env_aws_region is not None:
+            return env_aws_region
+
+        env_aws_region = os.environ.get("AWS_DEFAULT_REGION")
+        if env_aws_region is not None:
+            return env_aws_region
+
+        raise AWSCredentialsMissingError("region_name")
+
+
 class BigQueryClient:
     """Async client to interact with BigQuery.
 
@@ -327,6 +386,46 @@ class BigQueryClient:
     async def __aexit__(self, exc_type, exc_value, traceback) -> None:
         await asyncio.to_thread(self.sync_client.close)
         return None
+
+    @classmethod
+    def from_service_account_integration(cls, integration: GoogleCloudServiceAccountIntegration) -> typing.Self:
+        """Initialize a client from a service account integration.
+
+        The integration can contain the keys of the service account we are meant to use,
+        in which case we just use it. If no keys are present, then we are meant to
+        impersonate the service account using our own.
+        """
+        if not integration.has_key():
+            our_credentials = google.auth.impersonated_credentials.Credentials(
+                source_credentials=google.auth.aws.Credentials(
+                    audience=settings.BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD,
+                    subject_token_type="urn:ietf:params:aws:token-type:aws4_request",  # Only possible value
+                    token_url="https://sts.googleapis.com/v1/token",  # Default
+                    aws_security_credentials_supplier=Boto3CredentialsSupplier(),
+                    scopes=["https://www.googleapis.com/auth/cloud-platform"],
+                ),
+                target_principal=settings.BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT,
+                target_scopes=["https://www.googleapis.com/auth/cloud-platform"],
+                lifetime=3600,
+            )
+
+            their_credentials = google.auth.impersonated_credentials.Credentials(
+                source_credentials=our_credentials,
+                target_principal=integration.service_account_email,
+                target_scopes=["https://www.googleapis.com/auth/bigquery"],
+                lifetime=3600,
+            )
+        else:
+            their_credentials = service_account.Credentials.from_service_account_info(
+                integration.service_account_info,
+                scopes=["https://www.googleapis.com/auth/cloud-platform"],
+            )
+
+        client = bigquery.Client(
+            project=integration.project_id,
+            credentials=their_credentials,
+        )
+        return cls(client)
 
     @classmethod
     def from_service_account_inputs(
@@ -957,6 +1056,21 @@ class BigQueryInsertInputs(BatchExportInsertInputs):
     token_uri: str
     client_email: str
     use_json_type: bool = False
+    integration_id: int | None = None
+
+
+async def _get_google_cloud_service_account_integration(
+    inputs: BigQueryInsertInputs,
+) -> GoogleCloudServiceAccountIntegration | None:
+    """Get the Google Cloud impersonated service account integration."""
+    if inputs.integration_id is None:
+        return None
+
+    try:
+        integration = await Integration.objects.aget(id=inputs.integration_id, team_id=inputs.team_id)
+    except Integration.DoesNotExist:
+        return None
+    return GoogleCloudServiceAccountIntegration(integration)
 
 
 @activity.defn
@@ -1044,9 +1158,15 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
         attempt = activity.info().attempt
         stage_table_id = f"stage_{inputs.table_id}_{data_interval_end_str}_{inputs.team_id}_{attempt}"
 
-        async with BigQueryClient.from_service_account_inputs(
-            inputs.private_key, inputs.private_key_id, inputs.token_uri, inputs.client_email, inputs.project_id
-        ) as bq_client:
+        google_cloud_integration = await _get_google_cloud_service_account_integration(inputs)
+        if google_cloud_integration is not None:
+            bq_client = BigQueryClient.from_service_account_integration(google_cloud_integration)
+        else:
+            bq_client = BigQueryClient.from_service_account_inputs(
+                inputs.private_key, inputs.private_key_id, inputs.token_uri, inputs.client_email, inputs.project_id
+            )
+
+        async with bq_client:
             bigquery_target_table = await bq_client.get_or_create_table(target_table)
 
             can_perform_merge = await bq_client.check_for_query_permissions(bigquery_target_table)
