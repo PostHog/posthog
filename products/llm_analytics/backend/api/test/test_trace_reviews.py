@@ -289,7 +289,9 @@ class TestTraceReviewsApi(APIBaseTest):
         response = self.client.post(self._endpoint(), payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(field, response.data["scores"][0])
+        self.assertEqual(response.data["type"], "validation_error")
+        self.assertEqual(response.data["attr"], "scores")
+        self.assertIn(field, str(response.data["detail"]))
 
     def test_duplicate_active_review_is_rejected(self):
         self._create_review(trace_id="trace_123")
@@ -297,7 +299,13 @@ class TestTraceReviewsApi(APIBaseTest):
         response = self.client.post(self._endpoint(), {"trace_id": "trace_123"}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("trace_id", response.data)
+        self.assertEqual(
+            response.data,
+            self.validation_error_response(
+                message="An active review already exists for this trace.",
+                attr="trace_id",
+            ),
+        )
 
     def test_can_list_reviews_filtered_by_trace_id_in(self):
         self._create_review(trace_id="trace_a")
