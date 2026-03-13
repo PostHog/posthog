@@ -589,9 +589,9 @@ class TestDataWarehouseAPI(APIBaseTest):
     def test_data_ops_dashboard_creates_dashboard_on_first_call(self):
         endpoint = f"/api/projects/{self.team.pk}/data_warehouse/data_ops_dashboard"
 
-        # Config is auto-created by the team extension signal, but starts with no dashboard
+        # Config is auto-created by the team extension signal, but starts with no dashboards
         config = TeamDataWarehouseConfig.objects.get(team=self.team)
-        self.assertIsNone(config.overview_dashboard_id)
+        self.assertEqual(config.overview_dashboards.count(), 0)
 
         response = self.client.get(endpoint)
         self.assertEqual(response.status_code, 200)
@@ -606,7 +606,7 @@ class TestDataWarehouseAPI(APIBaseTest):
         self.assertEqual(dashboard.creation_mode, "template")
 
         config = TeamDataWarehouseConfig.objects.get(team=self.team)
-        self.assertEqual(config.overview_dashboard_id, data["dashboard_id"])
+        self.assertEqual(config.overview_dashboards.filter(id=data["dashboard_id"]).count(), 1)
 
     def test_data_ops_dashboard_returns_existing_dashboard_on_subsequent_calls(self):
         endpoint = f"/api/projects/{self.team.pk}/data_warehouse/data_ops_dashboard"
@@ -645,9 +645,8 @@ class TestDataWarehouseAPI(APIBaseTest):
         first_response = self.client.get(endpoint)
         first_id = first_response.json()["dashboard_id"]
 
+        # Deleting the dashboard cascades and removes it from the M2M relationship automatically
         Dashboard.objects.filter(id=first_id).delete()
-        # overview_dashboard_id is SET NULL on delete
-        TeamDataWarehouseConfig.objects.filter(team=self.team).update(overview_dashboard=None)
 
         second_response = self.client.get(endpoint)
         self.assertEqual(second_response.status_code, 200)

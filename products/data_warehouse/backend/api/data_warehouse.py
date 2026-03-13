@@ -760,12 +760,14 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         config = get_or_create_team_extension(self.team, TeamDataWarehouseConfig)
 
-        if config.overview_dashboard_id is None:
+        if not config.overview_dashboards.exists():
             with transaction.atomic():
                 config = TeamDataWarehouseConfig.objects.select_for_update().get(team=self.team)
-                if config.overview_dashboard_id is None:
+                if not config.overview_dashboards.exists():
                     dashboard = create_data_ops_dashboard(self.team, request.user)
-                    config.overview_dashboard = dashboard
-                    config.save(update_fields=["overview_dashboard"])
+                    config.overview_dashboards.add(dashboard)
 
-        return Response({"dashboard_id": config.overview_dashboard_id})
+        # TODO: In the future this endpoint will return multiple dashboards (one per use-case).
+        # For now we only expose the first one (by creation order) to keep the UI simple.
+        first_dashboard = config.overview_dashboards.order_by("id").first()
+        return Response({"dashboard_id": first_dashboard.id if first_dashboard else None})
