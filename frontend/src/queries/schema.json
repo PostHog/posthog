@@ -15968,6 +15968,10 @@
                     "description": "Timestamp when file was added. Used to check persistence",
                     "type": "string"
                 },
+                "displayLabel": {
+                    "description": "Display label override — when set, shown in the nav instead of the last segment of `path`",
+                    "type": "string"
+                },
                 "flag": {
                     "type": "string"
                 },
