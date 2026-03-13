@@ -104,6 +104,12 @@ def _create_data_modeling_job(team: Team, label: str) -> DataModelingJob:
     return DataModelingJob.objects.create(team=team, saved_query=saved_query)
 
 
+def _create_data_warehouse_saved_query(team: Team, label: str) -> DataWarehouseSavedQuery:
+    return DataWarehouseSavedQuery.objects.create(
+        team=team, name=f"view_{label}", query={"kind": "HogQLQuery", "query": "SELECT 1"}
+    )
+
+
 def _create_data_warehouse_source(team: Team, label: str) -> ExternalDataSource:
     return ExternalDataSource.objects.create(
         team=team,
@@ -187,6 +193,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("cohort_calculation_history", _create_cohort_calculation_history),
     ("dashboards", _create_dashboard),
     ("data_modeling_jobs", _create_data_modeling_job),
+    ("data_warehouse_saved_queries", _create_data_warehouse_saved_query),
     ("data_warehouse_sources", _create_data_warehouse_source),
     ("data_warehouse_tables", _create_data_warehouse_table),
     ("error_tracking_issues", _create_error_tracking_issue),
