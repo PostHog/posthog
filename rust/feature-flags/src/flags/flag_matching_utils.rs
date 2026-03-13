@@ -240,9 +240,9 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     let person_query_start = Instant::now();
     let person_query_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &query_labels);
     let person = Person::from_distinct_id(&mut conn, team_id, &distinct_id).await?;
-    let (person_id, person_props) = person
-        .map(|p| (Some(p.id), Some(p.properties)))
-        .unwrap_or((None, None));
+    let (person_id, person_uuid, person_props) = person
+        .map(|p| (Some(p.id), Some(p.uuid), Some(p.properties)))
+        .unwrap_or((None, None, None));
     person_query_timer.fin();
     let person_query_duration = person_query_start.elapsed();
     with_canonical_log(|log| {
@@ -269,8 +269,11 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     }
     let person_processing_timer = common_metrics::timing_guard(FLAG_PERSON_PROCESSING_TIME, &[]);
     if let Some(person_id) = person_id {
-        // NB: this is where we actually set our person ID in the flag evaluation state.
+        // NB: this is where we actually set our person ID and UUID in the flag evaluation state.
         flag_evaluation_state.set_person_id(person_id);
+        if let Some(uuid) = person_uuid {
+            flag_evaluation_state.set_person_uuid(uuid);
+        }
         // If we have static cohort IDs to check and a valid person_id, do the cohort query
         if !static_cohort_ids.is_empty() {
             let cohort_query = r#"
@@ -329,7 +332,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
                 })
                 .collect();
 
-            flag_evaluation_state.set_static_cohort_matches(cohort_results);
+            flag_evaluation_state.set_cohort_matches(cohort_results);
             cohort_processing_timer.fin();
         } else {
             // TRICKY: if there are no static cohorts to check, we want to return an empty map to show that
@@ -337,7 +340,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             // would indicate that that we had an error doing this evaluation in the first place.
             // i.e.: if there are no static cohort ID matches, it means we checked, and if there's None, it means something
             // went wrong.  This is handled in the caller.
-            flag_evaluation_state.set_static_cohort_matches(HashMap::new());
+            flag_evaluation_state.set_cohort_matches(HashMap::new());
         }
     }
 

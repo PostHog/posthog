@@ -8,6 +8,7 @@ use crate::{
         },
     },
     cohorts::cohort_cache_manager::CohortCacheManager,
+    cohorts::membership::NoOpCohortMembershipProvider,
     config::Config,
     flags::{
         flag_analytics::SURVEY_TARGETING_FLAG_PREFIX,
@@ -198,6 +199,7 @@ async fn test_evaluate_feature_flags() {
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
+        cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
     };
 
     let request_id = Uuid::new_v4();
@@ -297,6 +299,7 @@ async fn test_evaluate_feature_flags_with_errors() {
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
+        cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
     };
 
     let request_id = Uuid::new_v4();
@@ -710,6 +713,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
+        cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
     };
 
     let request_id = Uuid::new_v4();
@@ -822,6 +826,7 @@ async fn test_evaluate_feature_flags_details() {
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
+        cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
     };
 
     let request_id = Uuid::new_v4();
@@ -986,6 +991,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
+        cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
     };
 
     let request_id = Uuid::new_v4();
@@ -1085,6 +1091,7 @@ async fn test_long_distinct_id() {
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
+        cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
     };
 
     let request_id = Uuid::new_v4();
@@ -1621,6 +1628,7 @@ async fn test_parallel_path_matches_sequential_results() {
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
+        cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
     };
     let sequential_result = evaluate_feature_flags(sequential_context, Uuid::new_v4())
         .await
@@ -1649,6 +1657,7 @@ async fn test_parallel_path_matches_sequential_results() {
         parallel_eval_threshold: 1,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
+        cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
     };
     let parallel_result = evaluate_feature_flags(parallel_context, Uuid::new_v4())
         .await
