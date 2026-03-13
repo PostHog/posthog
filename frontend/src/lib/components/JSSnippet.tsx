@@ -1,6 +1,8 @@
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
 
+import { buildJsHtmlSnippet, SnippetOption } from '@posthog/shared-onboarding/product-analytics'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -10,7 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { SDK_DEFAULTS_DATE } from '~/loadPostHogJS'
 
-function snippetFunctions(arrayJs = '/static/array.js'): string {
+function getPosthogMethods(): string[] {
     const methods: string[] = []
     const posthogPrototype = Object.getPrototypeOf(posthog)
     for (const key of Object.getOwnPropertyNames(posthogPrototype)) {
@@ -22,18 +24,16 @@ function snippetFunctions(arrayJs = '/static/array.js'): string {
             methods.push(key)
         }
     }
-    const snippetMethods = methods.join(' ')
-
-    return `!function(t,e){var o,n,p,r;e.__SV||(window.posthog && window.posthog.__loaded)||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host.replace(".i.posthog.com","-assets.i.posthog.com")+"${arrayJs}",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="${snippetMethods}".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);`
+    return methods
 }
 
-type SnippetOption = {
-    content: string
-    enabled: boolean
-    comment?: string
+export interface JsSnippetConfig {
+    projectToken: string
+    methods: string[]
+    options: Record<string, SnippetOption>
 }
 
-export function useJsSnippet(indent = 0, arrayJs?: string, scriptAttributes?: string): string {
+export function useJsSnippetConfig(): JsSnippetConfig {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
@@ -43,46 +43,44 @@ export function useJsSnippet(indent = 0, arrayJs?: string, scriptAttributes?: st
 
     const isPersonProfilesDisabled = featureFlags[FEATURE_FLAGS.PERSONLESS_EVENTS_NOT_SUPPORTED]
 
-    const options: Record<string, SnippetOption> = {
-        api_host: {
-            content: domainFor(proxyRecord),
-            comment: proxyRecord ? 'your managed reverse proxy domain' : undefined,
-            enabled: true,
-        },
-        ui_host: {
-            content: preflight?.site_url || window.location.origin,
-            comment: "necessary because you're using a proxy, this way links will point back to PostHog properly",
-            enabled: !!proxyRecord,
-        },
-        defaults: {
-            content: SDK_DEFAULTS_DATE,
-            enabled: true,
-        },
-        person_profiles: {
-            content: 'identified_only',
-            comment: "or 'always' to create profiles for anonymous users as well",
-            enabled: !isPersonProfilesDisabled,
+    return {
+        projectToken: currentTeam?.api_token ?? '',
+        methods: getPosthogMethods(),
+        options: {
+            api_host: {
+                content: domainFor(proxyRecord),
+                comment: proxyRecord ? 'your managed reverse proxy domain' : undefined,
+                enabled: true,
+            },
+            ui_host: {
+                content: preflight?.site_url || window.location.origin,
+                comment: "necessary because you're using a proxy, this way links will point back to PostHog properly",
+                enabled: !!proxyRecord,
+            },
+            defaults: {
+                content: SDK_DEFAULTS_DATE,
+                enabled: true,
+            },
+            person_profiles: {
+                content: 'identified_only',
+                comment: "or 'always' to create profiles for anonymous users as well",
+                enabled: !isPersonProfilesDisabled,
+            },
         },
     }
+}
 
-    const scriptTag = scriptAttributes ? `<script ${scriptAttributes}>` : '<script>'
+export function useJsSnippet(indent = 0, arrayJs?: string, scriptAttributes?: string): string {
+    const { projectToken, methods, options } = useJsSnippetConfig()
 
-    return [
-        scriptTag,
-        `    ${snippetFunctions(arrayJs)}`,
-        `    posthog.init('${currentTeam?.api_token}', {`,
-        ...Object.entries(options)
-            .map(([key, value]) => {
-                if (value.enabled) {
-                    return `        ${key}: '${value.content}',${value.comment ? ` // ${value.comment}` : ''}`
-                }
-            })
-            .filter(Boolean),
-        `    })`,
-        '</script>',
-    ]
-        .map((x) => ' '.repeat(indent) + x)
-        .join('\n')
+    return buildJsHtmlSnippet({
+        projectToken,
+        methods,
+        options,
+        indent,
+        arrayJs,
+        scriptAttributes,
+    })
 }
 
 export function JSSnippet(): JSX.Element {
