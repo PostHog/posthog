@@ -3,10 +3,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta
 from math import ceil
 from operator import itemgetter
-from typing import TYPE_CHECKING, Any, Optional, Union
-
-if TYPE_CHECKING:
-    from rest_framework.request import Request
+from typing import Any, Optional, Union
 
 from django.conf import settings
 from django.db import models
@@ -96,7 +93,6 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
-        request: Optional["Request"] = None,
     ):
         from posthog.hogql_queries.insights.utils.utils import convert_active_user_math_based_on_interval
 
@@ -120,9 +116,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         # Use the new function to handle WAU/MAU conversions
         query = convert_active_user_math_based_on_interval(query)
 
-        super().__init__(
-            query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, request=request
-        )
+        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
 
     def __post_init__(self):
         self.update_hogql_modifiers()
