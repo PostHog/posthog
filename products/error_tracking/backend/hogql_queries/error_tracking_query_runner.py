@@ -85,6 +85,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
                 filters=self._builder.hogql_filters(),
+                user=self.user,
             )
 
         columns: list[str] = query_result.columns or []

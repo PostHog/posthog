@@ -144,18 +144,12 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             actions.setSelectedIssueIds([])
 
             const mergedFilterGroup = values.mergedFilterGroup.values[0] as UniversalFiltersGroup
-            const eventName =
-                values.forceQueryV2 || values.useQueryV2
-                    ? 'error_tracking_issues_loaded_v2'
-                    : 'error_tracking_issues_loaded'
-            posthog.capture(eventName, {
+            posthog.capture('error_tracking_query_executed', {
                 filter_count: mergedFilterGroup.values.length,
                 has_search_query: !!values.searchQuery,
                 filter_test_accounts: values.filterTestAccounts,
                 sort_by: values.orderBy,
                 sort_direction: values.orderDirection,
-                assignee_filter: !!values.assignee,
-                status_filter: values.status ?? '',
             })
         },
     })),
