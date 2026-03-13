@@ -369,11 +369,14 @@ function TypeSwitcher({
     disabledReason?: string
 }): JSX.Element {
     const handleChange = (type: string): void => {
+        // URL and url_matching are preserved when switching between types.
+        // They're only shown in the UI for pageview/autocapture, and stripped
+        // on submission for other event types (see actionEditLogic).
         const overrides: Record<string, Partial<ActionStepType>> = {
             $autocapture: { event: '$autocapture' },
             event: { event: null },
             $pageview: { event: '$pageview' },
-            $screen: { event: '$screen', url: null, url_matching: null },
+            $screen: { event: '$screen' },
         }
         if (type in overrides) {
             sendStep({ ...step, ...overrides[type] })
