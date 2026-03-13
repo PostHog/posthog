@@ -20,6 +20,8 @@ class Migration(migrations.Migration):
             fields=[
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True, null=True)),
+                ("deleted", models.BooleanField(blank=True, default=False, null=True)),
+                ("deleted_at", models.DateTimeField(blank=True, null=True)),
                 (
                     "id",
                     models.UUIDField(
@@ -44,6 +46,8 @@ class Migration(migrations.Migration):
             fields=[
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True, null=True)),
+                ("deleted", models.BooleanField(blank=True, default=False, null=True)),
+                ("deleted_at", models.DateTimeField(blank=True, null=True)),
                 (
                     "id",
                     models.UUIDField(
@@ -77,7 +81,11 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name="reviewqueueitem",
-            constraint=models.UniqueConstraint(fields=("team", "trace_id"), name="llma_rev_q_item_trace_uniq"),
+            constraint=models.UniqueConstraint(
+                condition=models.Q(("deleted", False)),
+                fields=("team", "trace_id"),
+                name="llma_rev_q_item_trace_uniq",
+            ),
         ),
         migrations.AddIndex(
             model_name="reviewqueue",
@@ -85,6 +93,10 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name="reviewqueue",
-            constraint=models.UniqueConstraint(fields=("team", "name"), name="llma_rev_queue_name_uniq"),
+            constraint=models.UniqueConstraint(
+                condition=models.Q(("deleted", False)),
+                fields=("team", "name"),
+                name="llma_rev_queue_name_uniq",
+            ),
         ),
     ]
