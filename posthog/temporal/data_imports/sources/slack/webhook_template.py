@@ -88,7 +88,6 @@ if (body.type = 'event_callback') {
             "key": "schema_id",
             "label": "Schema ID",
             "required": True,
-            "hidden": True,
             "description": "The ExternalDataSchema ID to link webhook data to.",
         },
         {
@@ -96,7 +95,6 @@ if (body.type = 'event_callback') {
             "key": "source_type",
             "label": "Source type",
             "required": True,
-            "hidden": True,
             "description": "The source type for this webhook.",
         },
     ],
