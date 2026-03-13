@@ -1,6 +1,7 @@
 import time
 import asyncio
 import hashlib
+import logging
 
 from django.conf import settings
 
@@ -20,6 +21,8 @@ from posthog.models.organization import Organization
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.proxy_service import CreateManagedProxyInputs, DeleteManagedProxyInputs
+
+logger = logging.getLogger(__name__)
 
 
 def generate_target_cname(organization_id, domain) -> str:
@@ -92,12 +95,20 @@ class ProxyRecordSerializer(serializers.ModelSerializer):
     )
 
 
+class ProxyRecordListResponseSerializer(serializers.Serializer):
+    results = ProxyRecordSerializer(many=True)
+    max_proxy_records = serializers.IntegerField(
+        help_text="Maximum number of proxy records allowed for this organization's current plan."
+    )
+
+
 @extend_schema(tags=["reverse_proxy"])
 class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     scope_object = "organization"
     serializer_class = ProxyRecordSerializer
     permission_classes = [OrganizationAdminWritePermissions, TimeSensitiveActionPermission]
     queryset = ProxyRecord.objects.order_by("-created_at")
+    pagination_class = None
     http_method_names = ["get", "post", "delete"]
 
     DEFAULT_MAX_PROXY_RECORDS = 2
@@ -115,6 +126,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     @extend_schema(
         description="List all reverse proxies configured for the organization. "
         "Returns proxy records along with the maximum number allowed by the current plan.",
+        responses={200: ProxyRecordListResponseSerializer},
     )
     def list(self, request, *args, **kwargs):
         queryset = self.organization.proxy_records.order_by("-created_at")
@@ -183,6 +195,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                 )
             )
         except Exception:
+            logger.exception("Failed to start proxy provisioning workflow for domain %s", record.domain)
             record.delete()
             return Response(
                 {"detail": "Failed to start provisioning workflow."},
@@ -237,6 +250,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                 )
             )
         except Exception:
+            logger.exception("Failed to start proxy retry workflow for domain %s", record.domain)
             record.status = ProxyRecord.Status.ERRORING
             record.save()
             return Response(
@@ -289,6 +303,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                     )
                 )
             except Exception:
+                logger.exception("Failed to start proxy deletion workflow for domain %s", record.domain)
                 record.status = previous_status
                 record.save()
                 return Response(
