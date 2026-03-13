@@ -276,18 +276,26 @@ def sync_manifest_from_s3() -> VersionManifest:
         if validate_version_artifacts(version):
             continue
         major = int(pin)
+        missing_artifacts: list[str] = []
         for candidate in sorted_versions:
-            if _parse_version(candidate)[0] == major and validate_version_artifacts(candidate):
+            if _parse_version(candidate)[0] != major:
+                continue
+            if validate_version_artifacts(candidate):
                 logger.warning("Major pin %s: %s missing artifacts, fell back to %s", pin, version, candidate)
                 manifest["pointers"][pin] = candidate
                 break
-            else:
-                capture_exception(
-                    Exception(f"Major version {pin}: candidate {candidate} missing artifacts"),
-                    additional_properties={"tag": "snippet_versioning"},
-                )
+            missing_artifacts.append(candidate)
         else:
             raise ManifestSyncError(f"No viable version for major pin {pin}")
+        if missing_artifacts:
+            capture_exception(
+                Exception(f"Major pin {pin}: {len(missing_artifacts)} version(s) missing artifacts"),
+                additional_properties={
+                    "tag": "snippet_versioning",
+                    "missing_versions": missing_artifacts,
+                    "fell_back_to": manifest["pointers"][pin],
+                },
+            )
 
     cache.set(REDIS_POINTER_MAP_KEY, json.dumps(manifest), timeout=None)
     _purge_changed_pointers(old_pointers, manifest["pointers"])
