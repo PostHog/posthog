@@ -1389,93 +1389,134 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
                     return results
 
-            last_refresh = datetime.now(UTC)
-            target_age = self.cache_target_age(last_refresh=last_refresh)
-
-            # Avoid affecting cache key
-            # Add user based modifiers here, primarily for user specific feature flagging
-            if user:
-                self.modifiers = create_default_modifiers_for_user(user, self.team, self.modifiers)
-                self.modifiers.useMaterializedViews = True
-
-            query_type = getattr(self.query, "kind", "Other")
-            query_start = perf_counter()
-            try:
-                query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=dashboard_id)
-                QUERY_EXECUTION_TOTAL.labels(query_type=query_type, status="success", error_type="none").inc()
-            except Exception as e:
-                QUERY_EXECUTION_TOTAL.labels(
-                    query_type=query_type, status="failure", error_type=clickhouse_error_type(e)
-                ).inc()
-                raise
-            finally:
-                QUERY_EXECUTION_DURATION.labels(query_type=query_type).observe(perf_counter() - query_start)
-
-            fresh_response_dict = {
-                **query_result.model_dump(),
-                "is_cached": False,
-                "last_refresh": last_refresh,
-                "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
-                "cache_key": cache_key,
-                "timezone": self.team.timezone,
-                "cache_target_age": target_age,
-            }
-
-            try:
-                query_metadata = extract_query_metadata(query=self.query, team=self.team).model_dump()
-                fresh_response_dict["query_metadata"] = query_metadata
-
-                # Don't log usage for warming queries
-                if not trigger or not trigger.startswith("warming"):
-                    log_event_usage_from_query_metadata(
-                        query_metadata,
-                        team_id=self.team.id,
-                        user_id=user.id if user else None,
-                    )
-            except Exception as e:
-                # fail silently if we can't extract query metadata
-                capture_exception(
-                    e, {"query": self.query, "team_id": self.team.pk, "context": "query_metadata_extract"}
+            def execute_blocking():
+                return self._execute_and_cache_blocking(
+                    cache_key=cache_key,
+                    cache_manager=cache_manager,
+                    execution_mode=execution_mode,
+                    insight_id=insight_id,
+                    dashboard_id=dashboard_id,
+                    trigger=trigger,
+                    user=user,
+                    start_time=start_time,
                 )
 
-            if trigger:
-                fresh_response_dict["calculation_trigger"] = trigger
+            if execution_mode == ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE:
+                from posthog.hogql_queries.query_coalescer import QueryCoalescer
 
-            # Don't cache debug queries with errors and export queries
-            errors: Optional[list] = fresh_response_dict.get("error", None)
-            has_error = errors is not None and len(errors) > 0
-
-            if not has_error and self.limit_context != LimitContext.EXPORT:
-                cache_manager.set_cache_data(
-                    response=fresh_response_dict,
-                    # This would be a possible place to decide to not ever keep this cache warm
-                    # Example: Not for super quickly calculated insights
-                    # Set target_age to None in that case
-                    target_age=target_age,
+                CachedResponse = self.cached_response_type
+                dry_run = not posthoganalytics.feature_enabled(
+                    "query-coalescing",
+                    str(self.team.pk),
+                )
+                coalescer = QueryCoalescer(cache_key, self.query_id, dry_run=dry_run)
+                return coalescer.run_coalesced(
+                    execute=execute_blocking,
+                    get_cache_data=cache_manager.get_cache_data,
+                    build_response=lambda data: CachedResponse(**{**data, "is_cached": True}),
+                    max_wait=settings.QUERY_COALESCING_MAX_WAIT_SECONDS,
                 )
 
-            query_executed_props = {
-                "insight_id": insight_id,
-                "dashboard_id": dashboard_id,
-                "cache_hit": False,
-                "cache_key": cache_key,
-                "calculation_trigger": trigger,
-                "execution_mode": execution_mode.value,
-                "query_type": getattr(self.query, "kind", "Other"),
-                "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
-                "query_duration_ms": query_duration_ms,
-                "has_error": has_error,
-            }
-            report_user_or_team_action(
-                "query executed",
-                query_executed_props,
-                user=user,
-                team=self.team,
-                organization=self.team.organization,
-                request=self.request,
+            return execute_blocking()
+
+    def _execute_and_cache_blocking(
+        self,
+        *,
+        cache_key: str,
+        cache_manager: QueryCacheManagerBase,
+        execution_mode: ExecutionMode,
+        insight_id: Optional[int],
+        dashboard_id: Optional[int],
+        trigger: Optional[str],
+        user: Optional[User],
+        start_time: float,
+    ) -> CR:
+        CachedResponse: type[CR] = self.cached_response_type
+
+        last_refresh = datetime.now(UTC)
+        target_age = self.cache_target_age(last_refresh=last_refresh)
+
+        # Avoid affecting cache key
+        # Add user based modifiers here, primarily for user specific feature flagging
+        if user:
+            self.modifiers = create_default_modifiers_for_user(user, self.team, self.modifiers)
+            self.modifiers.useMaterializedViews = True
+
+        query_type = getattr(self.query, "kind", "Other")
+        query_start = perf_counter()
+        try:
+            query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=dashboard_id)
+            QUERY_EXECUTION_TOTAL.labels(query_type=query_type, status="success", error_type="none").inc()
+        except Exception as e:
+            QUERY_EXECUTION_TOTAL.labels(
+                query_type=query_type, status="failure", error_type=clickhouse_error_type(e)
+            ).inc()
+            raise
+        finally:
+            QUERY_EXECUTION_DURATION.labels(query_type=query_type).observe(perf_counter() - query_start)
+
+        fresh_response_dict = {
+            **query_result.model_dump(),
+            "is_cached": False,
+            "last_refresh": last_refresh,
+            "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
+            "cache_key": cache_key,
+            "timezone": self.team.timezone,
+            "cache_target_age": target_age,
+        }
+
+        try:
+            query_metadata = extract_query_metadata(query=self.query, team=self.team).model_dump()
+            fresh_response_dict["query_metadata"] = query_metadata
+
+            # Don't log usage for warming queries
+            if not trigger or not trigger.startswith("warming"):
+                log_event_usage_from_query_metadata(
+                    query_metadata,
+                    team_id=self.team.id,
+                    user_id=user.id if user else None,
+                )
+        except Exception as e:
+            # fail silently if we can't extract query metadata
+            capture_exception(e, {"query": self.query, "team_id": self.team.pk, "context": "query_metadata_extract"})
+
+        if trigger:
+            fresh_response_dict["calculation_trigger"] = trigger
+
+        # Don't cache debug queries with errors and export queries
+        errors: Optional[list] = fresh_response_dict.get("error", None)
+        has_error = errors is not None and len(errors) > 0
+        if not has_error and self.limit_context != LimitContext.EXPORT:
+            cache_manager.set_cache_data(
+                response=fresh_response_dict,
+                # This would be a possible place to decide to not ever keep this cache warm
+                # Example: Not for super quickly calculated insights
+                # Set target_age to None in that case
+                target_age=target_age,
             )
 
-            return CachedResponse(**fresh_response_dict)
+        query_executed_props = {
+            "insight_id": insight_id,
+            "dashboard_id": dashboard_id,
+            "cache_hit": False,
+            "cache_key": cache_key,
+            "calculation_trigger": trigger,
+            "execution_mode": execution_mode.value,
+            "query_type": query_type,
+            "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
+            "query_duration_ms": query_duration_ms,
+            "has_error": has_error,
+        }
+        report_user_or_team_action(
+            "query executed",
+            query_executed_props,
+            user=user,
+            team=self.team,
+            organization=self.team.organization,
+            request=self.request,
+        )
+
+        return CachedResponse(**fresh_response_dict)
 
     def get_api_queries_concurrency_limit(self):
         """

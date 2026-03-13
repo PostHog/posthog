@@ -7,6 +7,37 @@ from ee.api.test.base import APILicensedTest
 from ee.models.rbac.role import Role, RoleMembership
 
 
+class TestRoleMembershipCrossOrgAuthorization(APILicensedTest):
+    """Tests for cross-organization authorization bypass on role membership endpoints."""
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self):
+        super().setUp()
+        self.org_a = self.organization
+        self.org_b = Organization.objects.create(name="Org B")
+        self.org_b.update_available_product_features()
+        self.org_b.save()
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.org_b_membership = OrganizationMembership.objects.create(
+            user=self.user, organization=self.org_b, level=OrganizationMembership.Level.MEMBER
+        )
+        self.org_b_role = Role.objects.create(name="Engineering", organization=self.org_b)
+        self.org_b_user = User.objects.create_and_join(self.org_b, "orgb_user@example.com", None)
+
+    def test_cross_org_admin_cannot_add_role_membership_in_other_org(self):
+        self.user.current_organization = self.org_a
+        self.user.save()
+        res = self.client.post(
+            f"/api/organizations/{self.org_b.id}/roles/{self.org_b_role.id}/role_memberships",
+            {"user_uuid": self.org_b_user.uuid},
+        )
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(RoleMembership.objects.filter(role=self.org_b_role, user=self.org_b_user).exists())
+
+
 class TestRoleMembershipAPI(APILicensedTest):
     def setUp(self):
         super().setUp()
