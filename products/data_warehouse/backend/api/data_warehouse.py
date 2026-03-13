@@ -756,11 +756,16 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         """
         Returns the data ops overview dashboard ID for this team, creating it if it doesn't exist yet.
         """
+        from django.db import transaction
+
         config = get_or_create_team_extension(self.team, TeamDataWarehouseConfig)
 
         if config.overview_dashboard_id is None:
-            dashboard = create_data_ops_dashboard(self.team, request.user)
-            config.overview_dashboard = dashboard
-            config.save(update_fields=["overview_dashboard"])
+            with transaction.atomic():
+                config = TeamDataWarehouseConfig.objects.select_for_update().get(team=self.team)
+                if config.overview_dashboard_id is None:
+                    dashboard = create_data_ops_dashboard(self.team, request.user)
+                    config.overview_dashboard = dashboard
+                    config.save(update_fields=["overview_dashboard"])
 
         return Response({"dashboard_id": config.overview_dashboard_id})
