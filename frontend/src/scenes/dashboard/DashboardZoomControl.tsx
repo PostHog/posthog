@@ -1,6 +1,5 @@
 import { useValues } from 'kea'
 
-import { IconMinus, IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -44,10 +43,9 @@ export function DashboardZoomControl({ layoutZoom, setLayoutZoom }: DashboardZoo
                         eventUsageLogic.actions.reportDashboardLayoutZoomChanged(dashboard ?? null, nextZoom, 'button')
                     }}
                     disabledReason={isSmallLayout ? 'Layout editing is disabled on smaller screens.' : undefined}
-                    tooltip="Toggle zoom level. Makes it easier to edit the layout for busier dashboards."
+                    tooltip="Collapse/Expand view. Makes it easier to edit the layout for busier dashboards."
                 >
-                    {layoutZoom < 1 ? <IconPlus className="size-4 mr-1" /> : <IconMinus className="size-4 mr-1" />}
-                    {layoutZoom < 1 ? 'Zoom in' : 'Zoom out'}
+                    {layoutZoom < 1 ? 'Expand view' : 'Collapse view'}
                 </LemonButton>
             </AppShortcut>
         </div>
