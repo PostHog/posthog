@@ -89,7 +89,6 @@ export function NavTabBrowse(): JSX.Element {
             <Collapsible
                 open={expandedNavSections.project || isLayoutNavCollapsed ? true : false}
                 onOpenChange={() => toggleNavSection('project')}
-                className="mt-1"
             >
                 {!isLayoutNavCollapsed && (
                     <SectionTrigger icon={<IconFolder />} label="Project" isCollapsed={isLayoutNavCollapsed} />
@@ -133,7 +132,7 @@ export function NavTabBrowse(): JSX.Element {
                                 <ButtonPrimitive
                                     key={item.identifier}
                                     active={isActive}
-                                    className="group"
+                                    className="group -outline-offset-2"
                                     menuItem={!isLayoutNavCollapsed}
                                     iconOnly={isLayoutNavCollapsed}
                                     tooltip={tooltip}
@@ -173,7 +172,7 @@ export function NavTabBrowse(): JSX.Element {
                     <SectionTrigger icon={<IconApps />} label="Apps" isCollapsed={isLayoutNavCollapsed} />
                     <Collapsible.Panel
                         className={cn(
-                            '-ml-2 pl-3 w-[calc(100%+(var(--spacing)*4))]',
+                            '-ml-2 pl-3 pr-1 w-[calc(100%+(var(--spacing)*4))]',
                             isLayoutNavCollapsed ? 'items-center' : ''
                         )}
                     >

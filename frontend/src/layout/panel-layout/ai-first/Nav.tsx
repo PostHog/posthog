@@ -3,7 +3,7 @@ import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { lazy, Suspense, useRef } from 'react'
 
-import { IconApps, IconChat, IconSearch, IconSparkles } from '@posthog/icons'
+import { IconApps, IconChat, IconSearch } from '@posthog/icons'
 
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
@@ -51,7 +51,7 @@ export function SectionTrigger({
     return (
         <Collapsible.Trigger
             className={cn(
-                'flex items-center py-1 cursor-pointer group pl-2 sticky top-0 bg-surface-tertiary z-10 -mx-1 px-2 w-[calc(100%+(var(--spacing)*2))]',
+                'flex items-center py-1 cursor-pointer group pl-2 sticky top-0 bg-surface-tertiary z-4 -mx-1 px-2 w-[calc(100%+(var(--spacing)*2))] -outline-offset-2',
                 isCollapsed && 'mx-0 w-full px-px'
             )}
         >
@@ -119,7 +119,7 @@ export function Nav(): JSX.Element {
                 >
                     <div
                         className={cn('flex gap-1 rounded-md w-full px-2 pt-2 pb-1', {
-                            'flex-col items-center pt-2': isLayoutNavCollapsed,
+                            'flex-col items-center pt-2 pb-0': isLayoutNavCollapsed,
                         })}
                     >
                         <NewAccountMenu isLayoutNavCollapsed={isLayoutNavCollapsed} />
@@ -135,6 +135,22 @@ export function Nav(): JSX.Element {
                         >
                             <IconSearch className="size-4 text-secondary" />
                         </ButtonPrimitive>
+
+                        {isLayoutNavCollapsed && (
+                            <ButtonPrimitive
+                                className="group w-full justify-center"
+                                data-attr="nav-tab-chat-collapsed"
+                                iconOnly
+                                tooltip="Chat"
+                                tooltipPlacement="right"
+                                active={activePanelIdentifier === 'Chat'}
+                                onClick={() => handlePanelTriggerClick('Chat')}
+                            >
+                                <span className="flex size-4 text-tertiary group-hover:text-primary">
+                                    <IconChat className="text-ai" />
+                                </span>
+                            </ButtonPrimitive>
+                        )}
                     </div>
                 </div>
 
@@ -187,24 +203,6 @@ export function Nav(): JSX.Element {
                         </>
                     )}
 
-                    {isLayoutNavCollapsed && (
-                        <div className="flex flex-col gap-1 px-2 pb-2 pt-1">
-                            <ButtonPrimitive
-                                className="group w-full justify-center"
-                                data-attr="nav-tab-chat-collapsed"
-                                iconOnly
-                                tooltip="Chat"
-                                tooltipPlacement="right"
-                                active={activePanelIdentifier === 'Chat'}
-                                onClick={() => handlePanelTriggerClick('Chat')}
-                            >
-                                <span className="flex size-4 text-tertiary group-hover:text-primary">
-                                    <IconSparkles className="text-ai" />
-                                </span>
-                            </ButtonPrimitive>
-                        </div>
-                    )}
-
                     <div className="flex-1 overflow-hidden relative">
                         <Tabs.Panel value="home" className="absolute inset-0 flex flex-col" keepMounted>
                             <NavTabBrowse />
@@ -243,7 +241,7 @@ export function Nav(): JSX.Element {
                         onToggleClosed={(shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed)}
                         onDoubleClick={() => toggleLayoutNavCollapsed()}
                         data-attr="tree-navbar-resizer"
-                        className={cn('top-[calc(var(--scene-layout-header-height)+7px)] right-[-1px] bottom-4', {
+                        className={cn('top-[calc(var(--scene-layout-header-height)+7px)] right-[-1px] bottom-4 z-2', {
                             'top-[var(--scene-layout-header-height)]': firstTabIsActive,
                             'top-0': isLayoutPanelVisible,
                         })}
@@ -280,7 +278,7 @@ export function Nav(): JSX.Element {
                             </div>
                         }
                     >
-                        <NavTabChat />
+                        <NavTabChat inPanel onItemClick={() => handlePanelTriggerClick('Chat')} />
                     </Suspense>
                 </div>
             )}

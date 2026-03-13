@@ -34,7 +34,7 @@ export function NavLink({ to, label, icon, isCollapsed }: NavLinkProps): JSX.Ele
                 buttonProps={{
                     menuItem: !isCollapsed,
                     iconOnly: isCollapsed,
-                    className: 'group',
+                    className: 'group  -outline-offset-2',
                     active: isActive,
                     hasSideActionRight: isHomePage && !isCollapsed,
                 }}
