@@ -59,6 +59,15 @@ const MOCK_BACKFILLS: RawBatchExportBackfill[] = [
 
 const MOCK_RUNS: RawBatchExportRun[] = [
     {
+        id: 'run-002',
+        status: 'Running',
+        created_at: '2024-01-15T14:01:00Z',
+        data_interval_start: '2024-01-15T13:00:00Z',
+        data_interval_end: '2024-01-15T14:00:00Z',
+        last_updated_at: '2024-01-15T14:02:00Z',
+        records_completed: 1200,
+    },
+    {
         id: 'run-001',
         status: 'Completed',
         created_at: '2024-01-15T13:01:00Z',
@@ -67,15 +76,6 @@ const MOCK_RUNS: RawBatchExportRun[] = [
         last_updated_at: '2024-01-15T13:05:00Z',
         records_completed: 4820,
         bytes_exported: 1245000,
-    },
-    {
-        id: 'run-002',
-        status: 'Running',
-        created_at: '2024-01-15T14:01:00Z',
-        data_interval_start: '2024-01-15T13:00:00Z',
-        data_interval_end: '2024-01-15T14:00:00Z',
-        last_updated_at: '2024-01-15T14:02:00Z',
-        records_completed: 1200,
     },
     {
         id: 'run-003',
