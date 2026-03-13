@@ -292,6 +292,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                                 id: typeof id === 'undefined' ? filter.id : id,
                                 name: typeof name === 'undefined' ? filter.name : name,
                                 type: typeof type === 'undefined' ? filter.type : type,
+                                custom_name: typeof custom_name === 'undefined' ? filter.custom_name : custom_name,
                                 ...fieldValues,
                             } as LocalFilter
 

@@ -92,6 +92,7 @@ export const actionFilterGroupLogic = kea<actionFilterGroupLogicType>([
                 nestedFilters,
                 name: nestedFilters.map((v) => v.name).join(', '),
                 index: props.groupIndex,
+                ...(groupFilter.custom_name !== undefined && { custom_name: groupFilter.custom_name }),
                 ...getMathProps(groupFilter),
                 ...extras,
             } as any)
