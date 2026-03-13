@@ -193,9 +193,7 @@ export class StateManager {
                 await this._cache.set('aiConsentFetchedAt', Date.now())
                 return consent
             }
-        } catch {
-            // Default to allowing tools if we can't determine consent
-        }
+        } catch {}
 
         return undefined
     }
