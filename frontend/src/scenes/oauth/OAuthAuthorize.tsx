@@ -11,7 +11,6 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import ScopeAccessSelector from 'scenes/settings/user/scopes/ScopeAccessSelector'
@@ -314,20 +313,18 @@ export const OAuthAuthorize = (): JSX.Element => {
                                                     }
                                                 />
                                             </div>
-                                            <Tooltip title={projectCreationForbiddenReason}>
-                                                <LemonButton
-                                                    className="shrink-0"
-                                                    type="secondary"
-                                                    size="small"
-                                                    icon={<IconPlus />}
-                                                    disabledReason={
-                                                        !selectedOrganization
-                                                            ? 'Select an organization first'
-                                                            : (projectCreationForbiddenReason ?? undefined)
-                                                    }
-                                                    onClick={handleShowCreateProject}
-                                                />
-                                            </Tooltip>
+                                            <LemonButton
+                                                className="shrink-0"
+                                                type="secondary"
+                                                size="small"
+                                                icon={<IconPlus />}
+                                                disabledReason={
+                                                    !selectedOrganization
+                                                        ? 'Select an organization first'
+                                                        : (projectCreationForbiddenReason ?? undefined)
+                                                }
+                                                onClick={handleShowCreateProject}
+                                            />
                                         </div>
                                     )}
                                 </div>
