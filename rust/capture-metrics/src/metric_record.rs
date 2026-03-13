@@ -161,8 +161,12 @@ pub fn flatten_metric(
                 let count = dp.count as i64;
 
                 // Flatten exponential histogram buckets into explicit bounds/counts
-                let (bounds, counts) =
-                    flatten_exponential_buckets(dp.scale, dp.zero_count, &dp.positive, &dp.negative);
+                let (bounds, counts) = flatten_exponential_buckets(
+                    dp.scale,
+                    dp.zero_count,
+                    &dp.positive,
+                    &dp.negative,
+                );
 
                 let (mut row, overridden) = build_number_row(
                     &metric_name,
@@ -226,7 +230,11 @@ pub fn flatten_metric(
         }
     }
 
-    debug!("Flattened metric '{}' into {} rows", metric_name, rows.len());
+    debug!(
+        "Flattened metric '{}' into {} rows",
+        metric_name,
+        rows.len()
+    );
     Ok((rows, timestamps_overridden))
 }
 

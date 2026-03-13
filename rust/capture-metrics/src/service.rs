@@ -168,12 +168,12 @@ pub async fn export_metrics_http(
         Err(proto_err) => match parse_otel_message(&body) {
             Ok(request) => request,
             Err(json_err) => {
-                if let Err(e) = File::create("/tmp/last_failed_metric_event.txt").and_then(
-                    |mut file| {
+                if let Err(e) =
+                    File::create("/tmp/last_failed_metric_event.txt").and_then(|mut file| {
                         file.write_all(token.as_bytes())
                             .and_then(|_| file.write_all(&body))
-                    },
-                ) {
+                    })
+                {
                     error!("Failed to write last failed event to file: {}", e);
                 }
                 error!(
@@ -228,7 +228,10 @@ pub async fn export_metrics_http(
             Json(json!({"error": "Internal server error"})),
         ));
     } else {
-        debug!("Successfully sent {} metric data points to Kafka", row_count);
+        debug!(
+            "Successfully sent {} metric data points to Kafka",
+            row_count
+        );
     }
 
     Ok(Json(json!({})))
