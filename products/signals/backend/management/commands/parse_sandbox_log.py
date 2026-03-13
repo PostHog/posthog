@@ -1,7 +1,34 @@
+"""Parse a verbose sandbox log file into a concise, colorized timeline of agent actions.
+
+Usage:
+    python manage.py parse_sandbox_log /tmp/analyze_report_output.txt
+    python manage.py parse_sandbox_log /tmp/analyze_report_output.txt --no-thoughts
+"""
+
 import sys
 import json
 
 from django.core.management.base import BaseCommand
+
+# ANSI color codes
+_RESET = "\033[0m"
+_BOLD = "\033[1m"
+_DIM = "\033[2m"
+_ITALIC = "\033[3m"
+
+_CYAN = "\033[36m"
+_GREEN = "\033[32m"
+_YELLOW = "\033[33m"
+_BLUE = "\033[34m"
+_MAGENTA = "\033[35m"
+_RED = "\033[31m"
+_WHITE = "\033[37m"
+_GRAY = "\033[90m"
+
+_BG_BLUE = "\033[44m"
+_BG_GREEN = "\033[42m"
+_BG_YELLOW = "\033[43m"
+_BG_MAGENTA = "\033[45m"
 
 
 def _ts_short(ts: str) -> str:
@@ -9,7 +36,6 @@ def _ts_short(ts: str) -> str:
     if "T" not in ts:
         return ts[:19]
     time_part = ts.split("T")[1]
-    # Strip timezone / fractional seconds for brevity
     for sep in ("Z", "+", "."):
         if sep in time_part:
             time_part = time_part.split(sep)[0]
@@ -23,6 +49,11 @@ def _truncate(text: str | list | dict, length: int = 120) -> str:
     if len(text) <= length:
         return text
     return text[:length] + "..."
+
+
+def _c(color: str, text: str) -> str:
+    """Wrap text in ANSI color."""
+    return f"{color}{text}{_RESET}"
 
 
 class Command(BaseCommand):
@@ -55,9 +86,8 @@ class Command(BaseCommand):
             if not line:
                 continue
 
-            # Non-JSON lines (Django startup, our progress messages, result output)
+            # Non-JSON lines (Django startup, orchestrator messages, result output)
             if not line.startswith("{"):
-                # Skip Django boot noise
                 if any(
                     kw in line
                     for kw in [
@@ -70,8 +100,7 @@ class Command(BaseCommand):
                     ]
                 ):
                     continue
-                # Our orchestrator messages or result output
-                self.stdout.write(f"         --- {line}")
+                self.stdout.write(f"  {_c(_WHITE + _BOLD, line)}")
                 continue
 
             try:
@@ -86,10 +115,10 @@ class Command(BaseCommand):
             result = notification.get("result", {})
             update = params.get("update", {}) if isinstance(params, dict) else {}
 
-            ts_str = _ts_short(ts) if ts else "        "
+            ts_str = _c(_GRAY, _ts_short(ts)) if ts else "        "
             session_update = update.get("sessionUpdate", "") if isinstance(update, dict) else ""
 
-            # --- Console messages (setup, server start, etc.) ---
+            # --- Console messages (setup, sandbox lifecycle) ---
             if method == "_posthog/console":
                 msg = params.get("message", "")
                 level = params.get("level", "info")
@@ -97,10 +126,16 @@ class Command(BaseCommand):
                     self._flush_thoughts(thought_buffer, thought_ts, show_thoughts)
                     thought_buffer.clear()
                     thought_ts = None
-                    self.stdout.write(f"{ts_str}  [{level}] {_truncate(msg, 150)}")
+                    level_color = {
+                        "debug": _GRAY,
+                        "info": _CYAN,
+                        "warn": _YELLOW,
+                        "error": _RED,
+                    }.get(level, _GRAY)
+                    self.stdout.write(f"  {ts_str}  {_c(level_color, f'[{level}]')} {_c(_DIM, _truncate(msg, 150))}")
                 continue
 
-            # --- Turn completion (stopReason in result) ---
+            # --- Turn completion ---
             if isinstance(result, dict) and result.get("stopReason"):
                 self._flush_thoughts(thought_buffer, thought_ts, show_thoughts)
                 thought_buffer.clear()
@@ -110,36 +145,38 @@ class Command(BaseCommand):
                 out_tok = usage.get("outputTokens", 0)
                 cached_r = usage.get("cachedReadTokens", 0)
                 total = usage.get("totalTokens", 0)
-                self.stdout.write(f"{ts_str}  TURN END  (in={in_tok}, out={out_tok}, cached={cached_r}, total={total})")
+                tokens_str = _c(_GRAY, f"in={in_tok} out={out_tok} cached={cached_r} total={total}")
+                self.stdout.write(f"  {ts_str}  {_c(_BG_BLUE + _WHITE + _BOLD, ' TURN END ')} {tokens_str}")
+                self.stdout.write("")
                 continue
 
-            # --- Session/update events ---
+            # --- Non session/update methods ---
             if method != "session/update":
-                # session/new, session/prompt — skip the huge payloads, we'll catch the console message
                 if method == "session/prompt":
                     prompt_parts = params.get("prompt", [])
                     text = ""
                     if isinstance(prompt_parts, list) and prompt_parts:
                         text = prompt_parts[0].get("text", "")
-                    # Show first line of the prompt to identify which turn
                     first_line = text.split("\n")[0] if text else "(empty)"
                     self._flush_thoughts(thought_buffer, thought_ts, show_thoughts)
                     thought_buffer.clear()
                     thought_ts = None
-                    self.stdout.write(f"{ts_str}  PROMPT >> {_truncate(first_line, 130)}")
+                    self.stdout.write(
+                        f"  {ts_str}  {_c(_BG_MAGENTA + _WHITE + _BOLD, ' PROMPT ')} {_c(_MAGENTA, _truncate(first_line, 120))}"
+                    )
                 continue
 
-            # --- Agent thought chunks (accumulate and flush as one) ---
+            # --- Agent thought chunks ---
             if session_update == "agent_thought_chunk":
                 content = update.get("content", {})
                 text = content.get("text", "") if isinstance(content, dict) else ""
                 if text:
                     thought_buffer.append(text)
                     if thought_ts is None:
-                        thought_ts = ts_str
+                        thought_ts = _c(_GRAY, _ts_short(ts)) if ts else "        "
                 continue
 
-            # --- Agent message (actual visible response) ---
+            # --- Agent message ---
             if session_update == "agent_message":
                 self._flush_thoughts(thought_buffer, thought_ts, show_thoughts)
                 thought_buffer.clear()
@@ -147,10 +184,10 @@ class Command(BaseCommand):
                 content = update.get("content", {})
                 text = content.get("text", "") if isinstance(content, dict) else ""
                 if text:
-                    self.stdout.write(f"{ts_str}  AGENT: {_truncate(text, 200)}")
+                    self.stdout.write(f"  {ts_str}  {_c(_GREEN + _BOLD, 'AGENT:')} {_c(_GREEN, _truncate(text, 180))}")
                 continue
 
-            # --- Tool call (start) ---
+            # --- Tool call start ---
             if session_update == "tool_call":
                 self._flush_thoughts(thought_buffer, thought_ts, show_thoughts)
                 thought_buffer.clear()
@@ -158,10 +195,10 @@ class Command(BaseCommand):
                 meta = update.get("_meta", {})
                 cc = meta.get("claudeCode", {}) if isinstance(meta, dict) else {}
                 tool_name = cc.get("toolName", update.get("title", "?"))
-                self.stdout.write(f"{ts_str}  TOOL >> {tool_name}")
+                self.stdout.write(f"  {ts_str}  {_c(_YELLOW + _BOLD, 'TOOL')} {_c(_YELLOW, tool_name)}")
                 continue
 
-            # --- Tool call update (input revealed or completed) ---
+            # --- Tool call update (args or completion) ---
             if session_update == "tool_call_update":
                 meta = update.get("_meta", {})
                 cc = meta.get("claudeCode", {}) if isinstance(meta, dict) else {}
@@ -171,27 +208,19 @@ class Command(BaseCommand):
                 title = update.get("title", "")
 
                 if raw_input and isinstance(raw_input, dict) and raw_input:
-                    # Input revealed — show the tool call details
                     detail = title or json.dumps(raw_input)
-                    self.stdout.write(f"{ts_str}    {tool_name}: {_truncate(detail, 160)}")
+                    self.stdout.write(f"  {ts_str}    {_c(_YELLOW, '  >')} {_c(_DIM, _truncate(detail, 150))}")
                 elif status == "completed":
-                    # Tool completed — show brief output
                     tool_resp = cc.get("toolResponse", {})
                     raw_output = update.get("rawOutput", "")
                     if tool_resp:
                         summary = json.dumps(tool_resp)
-                        self.stdout.write(f"{ts_str}    {tool_name} DONE: {_truncate(summary, 160)}")
+                        self.stdout.write(f"  {ts_str}    {_c(_BLUE, '  <')} {_c(_DIM, _truncate(summary, 150))}")
                     elif raw_output:
-                        self.stdout.write(f"{ts_str}    {tool_name} DONE: {_truncate(raw_output, 160)}")
+                        self.stdout.write(f"  {ts_str}    {_c(_BLUE, '  <')} {_c(_DIM, _truncate(raw_output, 150))}")
                 continue
 
-            # --- User message chunk (followup prompt sent) ---
-            if session_update == "user_message_chunk":
-                # Skip — we already show the session/prompt
-                continue
-
-            # --- Usage update ---
-            if session_update == "usage_update":
+            if session_update in ("user_message_chunk", "usage_update", "available_commands_update"):
                 continue
 
         # Final flush
@@ -203,4 +232,4 @@ class Command(BaseCommand):
         full = "".join(buffer).strip()
         if full:
             ts_str = ts or "        "
-            self.stdout.write(f"{ts_str}  THINK: {_truncate(full, 200)}")
+            self.stdout.write(f"  {ts_str}  {_c(_ITALIC + _GRAY, 'THINK:')} {_c(_GRAY, _truncate(full, 180))}")
