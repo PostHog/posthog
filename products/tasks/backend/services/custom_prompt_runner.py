@@ -288,6 +288,12 @@ def _check_logs(task_run, skip_lines: int = 0) -> tuple[bool, str | None, str | 
             trailing_parts.append(text)
     trailing_parts.reverse()
     latest_text = "".join(trailing_parts) if trailing_parts else None
+
+    # If we found end_turn but no agent message in the new lines, the agent
+    # message was in an earlier S3 chunk (before skip_lines). Re-scan all lines.
+    if agent_finished and latest_text is None and skip_lines > 0:
+        return _check_logs(task_run, skip_lines=0)
+
     return agent_finished, latest_text, log_content, total_lines
 
 
