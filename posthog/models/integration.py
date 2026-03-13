@@ -1189,30 +1189,30 @@ class GoogleCloudServiceAccountIntegration:
         token_uri: str | None = None,
         created_by: User | None = None,
     ) -> Integration:
-        sensitive_config = {
-            "service_account_email": service_account_email,
-        }
+        sensitive_config = {}
         if isinstance(private_key, str) and isinstance(private_key_id, str) and isinstance(token_uri, str):
             sensitive_config["private_key"] = private_key
             sensitive_config["private_key_id"] = private_key_id
             sensitive_config["token_uri"] = token_uri
 
         # Do not allow the same project_id in multiple organizations
-        same_project_id_integrations = Integration.objects.filter(
-            kind="google-cloud-service-account", config__project_id=project_id
+        same_service_account_integrations = Integration.objects.filter(
+            kind="google-cloud-service-account", config__service_account_email=service_account_email
         )
-        for integration in same_project_id_integrations:
+        for integration in same_service_account_integrations:
             if str(integration.team.organization.id) != str(organization_id):
-                raise ValidationError("Cannot create Google Cloud service account integration: Invalid project")
+                raise ValidationError("Cannot create Google Cloud service account integration: Invalid service account")
 
         integration, _ = Integration.objects.update_or_create(
             team_id=team_id,
             kind=Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT.value,
-            # Including team_id to allow teams from the same organization to export to the same project
-            integration_id=f"{team_id}-{project_id}",
+            # Including team_id to allow teams from the same organization to use the
+            # same service account. Otherwise different teams would overwrite each other.
+            integration_id=f"{team_id}-{service_account_email}",
             defaults={
                 "config": {
                     "project_id": project_id,
+                    "service_account_email": service_account_email,
                 },
                 "sensitive_config": sensitive_config,
                 "created_by": created_by,
@@ -1241,7 +1241,7 @@ class GoogleCloudServiceAccountIntegration:
 
     @property
     def service_account_email(self) -> str:
-        return self.integration.sensitive_config["service_account_email"]
+        return self.integration.config["service_account_email"]
 
     @property
     def service_account_info(self) -> dict[str, str]:
@@ -1249,8 +1249,8 @@ class GoogleCloudServiceAccountIntegration:
             "private_key": self.integration.sensitive_config["private_key"],
             "private_key_id": self.integration.sensitive_config["private_key_id"],
             "token_uri": self.integration.sensitive_config["token_uri"],
-            "client_email": self.integration.sensitive_config["service_account_email"],
-            "project_id": self.integration.config["project_id"],
+            "client_email": self.service_account_email,
+            "project_id": self.project_id,
         }
 
 
