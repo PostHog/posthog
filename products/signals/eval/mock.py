@@ -160,17 +160,24 @@ def _fake_database_sync_to_async(fn=None, *, thread_sensitive=True, executor=Non
 
 @pytest.fixture
 def mock_temporal():
-    """Mock Temporal infrastructure so _process_signal_batch runs as plain async code."""
+    """Mock Temporal infrastructure so _process_signal_batch runs as plain async code.
+
+    Bypasses the full Temporal chain (SignalEmitterWorkflow → BufferSignalsWorkflow →
+    S3 flush → TeamSignalGroupingV2Workflow) by intercepting emit_signal's workflow
+    calls and feeding signals directly into _process_signal_batch one at a time.
+    """
 
     async def mock_execute_activity(fn, *args, **kwargs):
         return await fn(*args)
 
-    async def fake_start_workflow(workflow_fn, workflow_input, *, start_signal_args=None, **kwargs):
+    # Collect signals from emit_signal's start_workflow calls and process them immediately
+    async def fake_start_workflow(workflow_fn, workflow_input, **kwargs):
         from products.signals.backend.temporal.grouping import _process_signal_batch
+        from products.signals.backend.temporal.types import EmitSignalInputs
 
-        if start_signal_args:
-            signal_input = start_signal_args[0]
-            await _process_signal_batch([signal_input])
+        # The emitter workflow carries the actual signal — process it directly
+        if hasattr(workflow_input, "signal") and isinstance(workflow_input.signal, EmitSignalInputs):
+            await _process_signal_batch([workflow_input.signal])
 
     fake_client = AsyncMock()
     fake_client.start_workflow = fake_start_workflow
