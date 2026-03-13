@@ -87,7 +87,7 @@ def _get_metric_name(metric_dict: dict) -> str:
         return _get_source_name(source) or "Untitled metric"
     elif metric_type == "funnel":
         series = metric_dict.get("series", [])
-        return _get_source_name(series[0]) if series else "Untitled funnel"
+        return (_get_source_name(series[0]) or "Untitled funnel") if series else "Untitled funnel"
     elif metric_type == "ratio":
         num = _get_source_name(metric_dict.get("numerator", {})) or "Numerator"
         den = _get_source_name(metric_dict.get("denominator", {})) or "Denominator"
