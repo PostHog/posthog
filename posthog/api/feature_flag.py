@@ -2854,10 +2854,10 @@ class FeatureFlagViewSet(
 
     @action(methods=["GET"], detail=True, required_scopes=["feature_flag:read"])
     def status(self, request: request.Request, **kwargs):
-        feature_flag_id = kwargs["pk"]
+        feature_flag = self.get_object()
 
         checker = FeatureFlagStatusChecker(
-            feature_flag_id=feature_flag_id,
+            feature_flag=feature_flag,
         )
         flag_status, reason = checker.get_status()
 
