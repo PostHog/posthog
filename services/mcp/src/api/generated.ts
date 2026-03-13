@@ -4065,6 +4065,7 @@ export namespace Schemas {
     * `research` - research
     * `flags` - flags
     * `llm_analytics` - llm_analytics
+    * `sandbox` - sandbox
      */
     export type AgentModeEnum = typeof AgentModeEnum[keyof typeof AgentModeEnum];
 
@@ -4081,6 +4082,7 @@ export namespace Schemas {
       Research: 'research',
       Flags: 'flags',
       LlmAnalytics: 'llm_analytics',
+      Sandbox: 'sandbox',
     } as const;
 
     export interface InsightsThresholdBounds {
@@ -6409,6 +6411,7 @@ export namespace Schemas {
       readonly has_unsupported_content: boolean;
       /** @nullable */
       readonly agent_mode: string | null;
+      readonly is_sandbox: boolean;
       /** Return pending approval cards as structured data.
 
     Combines metadata from conversation.approval_decisions with payload from checkpoint
@@ -16886,6 +16889,7 @@ export namespace Schemas {
       trace_id: string;
       session_id?: string;
       agent_mode?: AgentModeEnum;
+      is_sandbox?: boolean;
       resume_payload?: unknown | null;
     }
 
@@ -20040,6 +20044,7 @@ export namespace Schemas {
       readonly has_unsupported_content?: boolean;
       /** @nullable */
       readonly agent_mode?: string | null;
+      readonly is_sandbox?: boolean;
       /** Return pending approval cards as structured data.
 
     Combines metadata from conversation.approval_decisions with payload from checkpoint
