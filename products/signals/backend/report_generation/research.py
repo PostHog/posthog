@@ -189,6 +189,8 @@ def build_signal_investigation_prompt(signal: SignalData, index: int, total: int
 
 ---
 
+If this signal substantially overlaps with one you already investigated, reference your earlier finding and focus only on what's new or different — don't re-investigate the same code paths and data.
+
 Investigate this signal using the same protocol, then respond with a JSON object matching this schema:
 
 <jsonschema>
