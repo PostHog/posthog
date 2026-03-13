@@ -95,6 +95,11 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=frozenset({"gpt-5-mini"}),
         allow_api_keys=True,
     ),
+    "archetype_classification": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"gpt-5-mini"}),
+        allow_api_keys=True,
+    ),
 }
 
 
