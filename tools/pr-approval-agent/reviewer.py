@@ -122,9 +122,9 @@ REVIEWER_SYSTEM = textwrap.dedent(
       - ESCALATE: behavioral changes to business logic, API contracts, data models
 
     Review comments (inline feedback only, approval states are hidden):
-    - If there are ZERO reviews (no inline comments AND no top-level
-      reviews), ESCALATE — the author should request reviews (Codex,
-      Claude, Copilot, Greptile, or a human) before requesting stamphog
+    - Zero reviews is fine for low-risk changes (trivial fixes, typos,
+      test updates, config tweaks). For anything higher-risk, note the
+      lack of reviews as a concern but use your judgment
     - Substantive comments unresolved by the current diff → REFUSE
     - Bot comments with valid concerns that were ignored → ESCALATE
 
