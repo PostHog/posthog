@@ -635,68 +635,51 @@ class TestResourceTransferProjectAccessControl(APIBaseTest):
     def _search_url(self) -> str:
         return f"/api/organizations/{self.organization.id}/resource_transfers/search/"
 
-    @patch("posthog.rbac.user_access_control.UserAccessControl.access_controls_supported", True)
-    def test_preview_blocked_for_user_without_project_access(self) -> None:
-        self.client.force_login(self.other_user)
-        response = self.client.post(
-            self._preview_url(),
-            {
+    def _endpoint_params(self, endpoint: str) -> tuple[str, dict]:
+        if endpoint == "preview":
+            return self._preview_url(), {
                 "source_team_id": self.private_team.pk,
                 "destination_team_id": self.dest_team.pk,
                 "resource_kind": "Insight",
                 "resource_id": str(self.insight.pk),
-            },
-        )
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-
-    @patch("posthog.rbac.user_access_control.UserAccessControl.access_controls_supported", True)
-    def test_transfer_blocked_for_user_without_project_access(self) -> None:
-        self.client.force_login(self.other_user)
-        response = self.client.post(
-            self._transfer_url(),
-            {
+            }
+        elif endpoint == "transfer":
+            return self._transfer_url(), {
                 "source_team_id": self.private_team.pk,
                 "destination_team_id": self.dest_team.pk,
                 "resource_kind": "Insight",
                 "resource_id": str(self.insight.pk),
-            },
-        )
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-
-    @patch("posthog.rbac.user_access_control.UserAccessControl.access_controls_supported", True)
-    def test_search_blocked_for_user_without_project_access(self) -> None:
-        self.client.force_login(self.other_user)
-        response = self.client.post(
-            self._search_url(),
-            {
+            }
+        elif endpoint == "search":
+            return self._search_url(), {
                 "team_id": self.private_team.pk,
                 "resource_kind": "Insight",
-            },
-        )
+            }
+        raise ValueError(f"Unknown endpoint: {endpoint}")
+
+    @parameterized.expand(
+        [
+            ("preview",),
+            ("transfer",),
+            ("search",),
+        ]
+    )
+    @patch("posthog.rbac.user_access_control.UserAccessControl.access_controls_supported", True)
+    def test_blocked_for_user_without_project_access(self, endpoint: str) -> None:
+        self.client.force_login(self.other_user)
+        url, payload = self._endpoint_params(endpoint)
+        response = self.client.post(url, payload)
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    @parameterized.expand(
+        [
+            ("preview", status.HTTP_200_OK),
+            ("transfer", status.HTTP_201_CREATED),
+            ("search", status.HTTP_200_OK),
+        ]
+    )
     @patch("posthog.rbac.user_access_control.UserAccessControl.access_controls_supported", True)
-    def test_preview_allowed_for_user_with_project_access(self) -> None:
-        response = self.client.post(
-            self._preview_url(),
-            {
-                "source_team_id": self.private_team.pk,
-                "destination_team_id": self.dest_team.pk,
-                "resource_kind": "Insight",
-                "resource_id": str(self.insight.pk),
-            },
-        )
-        assert response.status_code == status.HTTP_200_OK
-
-    @patch("posthog.rbac.user_access_control.UserAccessControl.access_controls_supported", True)
-    def test_transfer_allowed_for_user_with_project_access(self) -> None:
-        response = self.client.post(
-            self._transfer_url(),
-            {
-                "source_team_id": self.private_team.pk,
-                "destination_team_id": self.dest_team.pk,
-                "resource_kind": "Insight",
-                "resource_id": str(self.insight.pk),
-            },
-        )
-        assert response.status_code == status.HTTP_201_CREATED
+    def test_allowed_for_user_with_project_access(self, endpoint: str, expected_status: int) -> None:
+        url, payload = self._endpoint_params(endpoint)
+        response = self.client.post(url, payload)
+        assert response.status_code == expected_status
