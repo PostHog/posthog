@@ -18,6 +18,8 @@ class GetDAGStructureInputs:
     dag_id: str
 
 
+# TODO(andrew): make this a property / function on the actual DAG record
+# maybe DAG().orchestration_plan() or similar
 @dataclasses.dataclass
 class DAG:
     """Structure of a DAG for orchestration.
@@ -38,12 +40,12 @@ class DAG:
 @database_sync_to_async
 def _get_dag_structure_async(team_id: int, dag_id: str) -> DAG:
     """Retrieve all nodes and edges for a DAG from the database."""
-    nodes = Node.objects.filter(team_id=team_id, dag_id_text=dag_id)
+    nodes = Node.objects.filter(team_id=team_id, dag_fk_id=dag_id)
     executable_nodes = nodes.filter(type__in=[NodeType.VIEW, NodeType.MAT_VIEW])
     ephemeral_nodes = executable_nodes.filter(type=NodeType.VIEW)
     edges = (
         Edge.objects.prefetch_related("source", "target")
-        .filter(team_id=team_id, dag_id_text=dag_id)
+        .filter(team_id=team_id, dag_fk_id=dag_id)
         .exclude(source__type=NodeType.TABLE)
     )
     # ids are uuid objects by default. primitives are probably better

@@ -2487,6 +2487,8 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     personId?: string
     groupKey?: string
     groupTypeIndex?: integer
+    /** Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries) */
+    useQueryV2?: boolean
 }
 
 export interface ErrorTrackingSimilarIssuesQuery extends DataNode<ErrorTrackingSimilarIssuesQueryResponse> {
@@ -2569,6 +2571,7 @@ export interface ErrorTrackingIssueCohort {
 export type QuickFilterType = 'manual-options' | 'auto-discovery'
 
 export enum QuickFilterContext {
+    Dashboards = 'dashboards',
     ErrorTrackingIssueFilters = 'error-tracking-issue-filters',
     LogsFilters = 'logs-filters',
 }
@@ -2920,6 +2923,8 @@ export type FileSystemIconType =
     | 'link'
     | 'live_debugger'
     | 'logs'
+    | 'tracing'
+    | 'metrics'
     | 'workflows'
     | 'notebook'
     | 'action'
@@ -5090,20 +5095,16 @@ export const MARKETING_INTEGRATION_CONFIGS = {
                 'omni_app_install',
                 'omni_subscribe',
             ] as const,
-            fallback: [
-                'purchase',
+            fallback: ['purchase', 'lead', 'complete_registration', 'app_install', 'subscribe'] as const,
+            specific: [
                 'offsite_conversion.fb_pixel_purchase',
                 'app_custom_event.fb_mobile_purchase',
-                'lead',
                 'offsite_conversion.fb_pixel_lead',
                 'onsite_conversion.lead_grouped',
-                'complete_registration',
                 'offsite_conversion.fb_pixel_complete_registration',
                 'app_custom_event.fb_mobile_complete_registration',
                 'offsite_complete_registration_add_meta_leads',
-                'app_install',
                 'mobile_app_install',
-                'subscribe',
                 'offsite_conversion.fb_pixel_subscribe',
             ] as const,
         },
@@ -5215,6 +5216,8 @@ export type MetaAdsConversionOmniActionTypes =
     (typeof MARKETING_INTEGRATION_CONFIGS)['MetaAds']['conversionActionTypes']['omni'][number]
 export type MetaAdsConversionFallbackActionTypes =
     (typeof MARKETING_INTEGRATION_CONFIGS)['MetaAds']['conversionActionTypes']['fallback'][number]
+export type MetaAdsConversionSpecificActionTypes =
+    (typeof MARKETING_INTEGRATION_CONFIGS)['MetaAds']['conversionActionTypes']['specific'][number]
 
 export const MARKETING_INTEGRATION_FIELD_MAP = Object.fromEntries(
     VALID_NATIVE_MARKETING_SOURCES.map((source) => [
@@ -5482,6 +5485,8 @@ export enum ProductKey {
     TASKS = 'tasks',
     TEAMS = 'teams',
     TOOLBAR = 'toolbar',
+    TRACING = 'tracing',
+    METRICS = 'metrics',
     USER_INTERVIEWS = 'user_interviews',
     VISUAL_REVIEW = 'visual_review',
     WEB_ANALYTICS = 'web_analytics',

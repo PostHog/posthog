@@ -338,6 +338,9 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         organization_id = organization.pk
         organization_name = organization.name
 
+        # the memberships need to be deleted synchronously so that the requesting user can delete their account if they want to
+        organization.memberships.all().delete()
+
         # Queue background task to handle all deletion
         # bulky postgres, batch exports, org/team records, ClickHouse, email
         delete_organization_data_and_notify_task.delay(

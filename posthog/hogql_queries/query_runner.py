@@ -652,6 +652,7 @@ def get_query_runner(
             modifiers=modifiers,
             limit_context=limit_context,
             request=request,
+            user=request.user if request is not None else None,
         )
 
     if kind == "DocumentSimilarityQuery":

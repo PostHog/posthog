@@ -228,8 +228,8 @@ export class CompactDashboardPage extends DashboardPage {
     }
 
     async hoverFirstCard(): Promise<void> {
-        const title = this.insightCards.first().locator('[data-attr="insight-card-title"]')
-        await title.hover()
+        const infoButton = this.insightCards.first().locator('[data-attr="card-meta-info"]')
+        await infoButton.click()
     }
 
     get tilePopover(): Locator {

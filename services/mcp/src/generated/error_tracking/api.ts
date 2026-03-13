@@ -30,9 +30,9 @@ export const ErrorTrackingAssignmentRulesListResponse = zod.object({
     previous: zod.string().url().nullish(),
     results: zod.array(
         zod.object({
-            id: zod.string(),
+            id: zod.string().optional(),
             filters: zod.unknown(),
-            assignee: zod.string(),
+            assignee: zod.string().optional(),
             order_key: zod
                 .number()
                 .min(errorTrackingAssignmentRulesListResponseResultsItemOrderKeyMin)
@@ -75,9 +75,9 @@ export const errorTrackingAssignmentRulesRetrieveResponseOrderKeyMin = -21474836
 export const errorTrackingAssignmentRulesRetrieveResponseOrderKeyMax = 2147483647
 
 export const ErrorTrackingAssignmentRulesRetrieveResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     filters: zod.unknown(),
-    assignee: zod.string(),
+    assignee: zod.string().optional(),
     order_key: zod
         .number()
         .min(errorTrackingAssignmentRulesRetrieveResponseOrderKeyMin)
@@ -110,9 +110,9 @@ export const errorTrackingAssignmentRulesUpdateResponseOrderKeyMin = -2147483648
 export const errorTrackingAssignmentRulesUpdateResponseOrderKeyMax = 2147483647
 
 export const ErrorTrackingAssignmentRulesUpdateResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     filters: zod.unknown(),
-    assignee: zod.string(),
+    assignee: zod.string().optional(),
     order_key: zod
         .number()
         .min(errorTrackingAssignmentRulesUpdateResponseOrderKeyMin)
@@ -146,9 +146,9 @@ export const errorTrackingAssignmentRulesPartialUpdateResponseOrderKeyMin = -214
 export const errorTrackingAssignmentRulesPartialUpdateResponseOrderKeyMax = 2147483647
 
 export const ErrorTrackingAssignmentRulesPartialUpdateResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     filters: zod.unknown(),
-    assignee: zod.string(),
+    assignee: zod.string().optional(),
     order_key: zod
         .number()
         .min(errorTrackingAssignmentRulesPartialUpdateResponseOrderKeyMin)
@@ -507,8 +507,8 @@ export const ErrorTrackingFingerprintsListResponse = zod.object({
     results: zod.array(
         zod.object({
             fingerprint: zod.string(),
-            issue_id: zod.string(),
-            created_at: zod.string().datetime({}),
+            issue_id: zod.string().optional(),
+            created_at: zod.string().datetime({}).optional(),
         })
     ),
 })
@@ -524,8 +524,8 @@ export const ErrorTrackingFingerprintsRetrieveParams = zod.object({
 
 export const ErrorTrackingFingerprintsRetrieveResponse = zod.object({
     fingerprint: zod.string(),
-    issue_id: zod.string(),
-    created_at: zod.string().datetime({}),
+    issue_id: zod.string().optional(),
+    created_at: zod.string().datetime({}).optional(),
 })
 
 /**
@@ -578,9 +578,9 @@ export const ErrorTrackingGroupingRulesListResponse = zod.object({
     previous: zod.string().url().nullish(),
     results: zod.array(
         zod.object({
-            id: zod.string(),
+            id: zod.string().optional(),
             filters: zod.unknown(),
-            assignee: zod.string(),
+            assignee: zod.string().optional(),
             order_key: zod
                 .number()
                 .min(errorTrackingGroupingRulesListResponseResultsItemOrderKeyMin)
@@ -623,9 +623,9 @@ export const errorTrackingGroupingRulesRetrieveResponseOrderKeyMin = -2147483648
 export const errorTrackingGroupingRulesRetrieveResponseOrderKeyMax = 2147483647
 
 export const ErrorTrackingGroupingRulesRetrieveResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     filters: zod.unknown(),
-    assignee: zod.string(),
+    assignee: zod.string().optional(),
     order_key: zod
         .number()
         .min(errorTrackingGroupingRulesRetrieveResponseOrderKeyMin)
@@ -658,9 +658,9 @@ export const errorTrackingGroupingRulesUpdateResponseOrderKeyMin = -2147483648
 export const errorTrackingGroupingRulesUpdateResponseOrderKeyMax = 2147483647
 
 export const ErrorTrackingGroupingRulesUpdateResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     filters: zod.unknown(),
-    assignee: zod.string(),
+    assignee: zod.string().optional(),
     order_key: zod
         .number()
         .min(errorTrackingGroupingRulesUpdateResponseOrderKeyMin)
@@ -694,9 +694,9 @@ export const errorTrackingGroupingRulesPartialUpdateResponseOrderKeyMin = -21474
 export const errorTrackingGroupingRulesPartialUpdateResponseOrderKeyMax = 2147483647
 
 export const ErrorTrackingGroupingRulesPartialUpdateResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     filters: zod.unknown(),
-    assignee: zod.string(),
+    assignee: zod.string().optional(),
     order_key: zod
         .number()
         .min(errorTrackingGroupingRulesPartialUpdateResponseOrderKeyMin)
@@ -753,7 +753,7 @@ export const ErrorTrackingIssuesListResponse = zod.object({
     previous: zod.string().url().nullish(),
     results: zod.array(
         zod.object({
-            id: zod.string(),
+            id: zod.string().optional(),
             status: zod
                 .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
                 .optional()
@@ -764,8 +764,8 @@ export const ErrorTrackingIssuesListResponse = zod.object({
             description: zod.string().nullish(),
             first_seen: zod.string().datetime({}),
             assignee: zod.object({
-                id: zod.string(),
-                type: zod.string(),
+                id: zod.string().optional(),
+                type: zod.string().optional(),
             }),
             external_issues: zod.array(
                 zod.object({
@@ -806,7 +806,7 @@ export const ErrorTrackingIssuesListResponse = zod.object({
                     }),
                 })
             ),
-            cohort: zod.string(),
+            cohort: zod.string().optional(),
         })
     ),
 })
@@ -830,8 +830,8 @@ export const ErrorTrackingIssuesCreateBody = zod.object({
     description: zod.string().nullish(),
     first_seen: zod.string().datetime({}),
     assignee: zod.object({
-        id: zod.string(),
-        type: zod.string(),
+        id: zod.string().optional(),
+        type: zod.string().optional(),
     }),
     external_issues: zod.array(
         zod.object({
@@ -884,7 +884,7 @@ export const ErrorTrackingIssuesRetrieveParams = zod.object({
 })
 
 export const ErrorTrackingIssuesRetrieveResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     status: zod
         .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
         .optional()
@@ -895,8 +895,8 @@ export const ErrorTrackingIssuesRetrieveResponse = zod.object({
     description: zod.string().nullish(),
     first_seen: zod.string().datetime({}),
     assignee: zod.object({
-        id: zod.string(),
-        type: zod.string(),
+        id: zod.string().optional(),
+        type: zod.string().optional(),
     }),
     external_issues: zod.array(
         zod.object({
@@ -937,7 +937,7 @@ export const ErrorTrackingIssuesRetrieveResponse = zod.object({
             }),
         })
     ),
-    cohort: zod.string(),
+    cohort: zod.string().optional(),
 })
 
 export const ErrorTrackingIssuesUpdateParams = zod.object({
@@ -960,8 +960,8 @@ export const ErrorTrackingIssuesUpdateBody = zod.object({
     description: zod.string().nullish(),
     first_seen: zod.string().datetime({}),
     assignee: zod.object({
-        id: zod.string(),
-        type: zod.string(),
+        id: zod.string().optional(),
+        type: zod.string().optional(),
     }),
     external_issues: zod.array(
         zod.object({
@@ -1005,7 +1005,7 @@ export const ErrorTrackingIssuesUpdateBody = zod.object({
 })
 
 export const ErrorTrackingIssuesUpdateResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     status: zod
         .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
         .optional()
@@ -1016,8 +1016,8 @@ export const ErrorTrackingIssuesUpdateResponse = zod.object({
     description: zod.string().nullish(),
     first_seen: zod.string().datetime({}),
     assignee: zod.object({
-        id: zod.string(),
-        type: zod.string(),
+        id: zod.string().optional(),
+        type: zod.string().optional(),
     }),
     external_issues: zod.array(
         zod.object({
@@ -1058,7 +1058,7 @@ export const ErrorTrackingIssuesUpdateResponse = zod.object({
             }),
         })
     ),
-    cohort: zod.string(),
+    cohort: zod.string().optional(),
 })
 
 export const ErrorTrackingIssuesPartialUpdateParams = zod.object({
@@ -1082,8 +1082,8 @@ export const ErrorTrackingIssuesPartialUpdateBody = zod.object({
     first_seen: zod.string().datetime({}).optional(),
     assignee: zod
         .object({
-            id: zod.string(),
-            type: zod.string(),
+            id: zod.string().optional(),
+            type: zod.string().optional(),
         })
         .optional(),
     external_issues: zod
@@ -1130,7 +1130,7 @@ export const ErrorTrackingIssuesPartialUpdateBody = zod.object({
 })
 
 export const ErrorTrackingIssuesPartialUpdateResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     status: zod
         .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
         .optional()
@@ -1141,8 +1141,8 @@ export const ErrorTrackingIssuesPartialUpdateResponse = zod.object({
     description: zod.string().nullish(),
     first_seen: zod.string().datetime({}),
     assignee: zod.object({
-        id: zod.string(),
-        type: zod.string(),
+        id: zod.string().optional(),
+        type: zod.string().optional(),
     }),
     external_issues: zod.array(
         zod.object({
@@ -1183,7 +1183,7 @@ export const ErrorTrackingIssuesPartialUpdateResponse = zod.object({
             }),
         })
     ),
-    cohort: zod.string(),
+    cohort: zod.string().optional(),
 })
 
 /**
@@ -1219,8 +1219,8 @@ export const ErrorTrackingIssuesAssignPartialUpdateBody = zod.object({
     first_seen: zod.string().datetime({}).optional(),
     assignee: zod
         .object({
-            id: zod.string(),
-            type: zod.string(),
+            id: zod.string().optional(),
+            type: zod.string().optional(),
         })
         .optional(),
     external_issues: zod
@@ -1286,8 +1286,8 @@ export const ErrorTrackingIssuesCohortUpdateBody = zod.object({
     description: zod.string().nullish(),
     first_seen: zod.string().datetime({}),
     assignee: zod.object({
-        id: zod.string(),
-        type: zod.string(),
+        id: zod.string().optional(),
+        type: zod.string().optional(),
     }),
     external_issues: zod.array(
         zod.object({
@@ -1350,8 +1350,8 @@ export const ErrorTrackingIssuesMergeCreateBody = zod.object({
     description: zod.string().nullish(),
     first_seen: zod.string().datetime({}),
     assignee: zod.object({
-        id: zod.string(),
-        type: zod.string(),
+        id: zod.string().optional(),
+        type: zod.string().optional(),
     }),
     external_issues: zod.array(
         zod.object({
@@ -1414,8 +1414,8 @@ export const ErrorTrackingIssuesSplitCreateBody = zod.object({
     description: zod.string().nullish(),
     first_seen: zod.string().datetime({}),
     assignee: zod.object({
-        id: zod.string(),
-        type: zod.string(),
+        id: zod.string().optional(),
+        type: zod.string().optional(),
     }),
     external_issues: zod.array(
         zod.object({
@@ -1485,8 +1485,8 @@ export const ErrorTrackingIssuesBulkCreateBody = zod.object({
     description: zod.string().nullish(),
     first_seen: zod.string().datetime({}),
     assignee: zod.object({
-        id: zod.string(),
-        type: zod.string(),
+        id: zod.string().optional(),
+        type: zod.string().optional(),
     }),
     external_issues: zod.array(
         zod.object({
@@ -1556,10 +1556,10 @@ export const ErrorTrackingReleasesListResponse = zod.object({
     previous: zod.string().url().nullish(),
     results: zod.array(
         zod.object({
-            id: zod.string(),
+            id: zod.string().optional(),
             hash_id: zod.string(),
-            team_id: zod.number(),
-            created_at: zod.string().datetime({}),
+            team_id: zod.number().optional(),
+            created_at: zod.string().datetime({}).optional(),
             metadata: zod.unknown().nullish(),
             version: zod.string(),
             project: zod.string(),
@@ -1592,10 +1592,10 @@ export const ErrorTrackingReleasesRetrieveParams = zod.object({
 })
 
 export const ErrorTrackingReleasesRetrieveResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     hash_id: zod.string(),
-    team_id: zod.number(),
-    created_at: zod.string().datetime({}),
+    team_id: zod.number().optional(),
+    created_at: zod.string().datetime({}).optional(),
     metadata: zod.unknown().nullish(),
     version: zod.string(),
     project: zod.string(),
@@ -1618,10 +1618,10 @@ export const ErrorTrackingReleasesUpdateBody = zod.object({
 })
 
 export const ErrorTrackingReleasesUpdateResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     hash_id: zod.string(),
-    team_id: zod.number(),
-    created_at: zod.string().datetime({}),
+    team_id: zod.number().optional(),
+    created_at: zod.string().datetime({}).optional(),
     metadata: zod.unknown().nullish(),
     version: zod.string(),
     project: zod.string(),
@@ -1644,10 +1644,10 @@ export const ErrorTrackingReleasesPartialUpdateBody = zod.object({
 })
 
 export const ErrorTrackingReleasesPartialUpdateResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     hash_id: zod.string(),
-    team_id: zod.number(),
-    created_at: zod.string().datetime({}),
+    team_id: zod.number().optional(),
+    created_at: zod.string().datetime({}).optional(),
     metadata: zod.unknown().nullish(),
     version: zod.string(),
     project: zod.string(),
@@ -1706,22 +1706,24 @@ export const ErrorTrackingStackFramesListResponse = zod.object({
     previous: zod.string().url().nullish(),
     results: zod.array(
         zod.object({
-            id: zod.string(),
-            raw_id: zod.string(),
-            created_at: zod.string().datetime({}),
+            id: zod.string().optional(),
+            raw_id: zod.string().optional(),
+            created_at: zod.string().datetime({}).optional(),
             contents: zod.unknown(),
             resolved: zod.boolean(),
             context: zod.unknown().nullish(),
             symbol_set_ref: zod.string().optional(),
-            release: zod.object({
-                id: zod.string(),
-                hash_id: zod.string(),
-                team_id: zod.number(),
-                created_at: zod.string().datetime({}),
-                metadata: zod.unknown().nullish(),
-                version: zod.string(),
-                project: zod.string(),
-            }),
+            release: zod
+                .object({
+                    id: zod.string().optional(),
+                    hash_id: zod.string(),
+                    team_id: zod.number().optional(),
+                    created_at: zod.string().datetime({}).optional(),
+                    metadata: zod.unknown().nullish(),
+                    version: zod.string(),
+                    project: zod.string(),
+                })
+                .optional(),
         })
     ),
 })
@@ -1736,22 +1738,24 @@ export const ErrorTrackingStackFramesRetrieveParams = zod.object({
 })
 
 export const ErrorTrackingStackFramesRetrieveResponse = zod.object({
-    id: zod.string(),
-    raw_id: zod.string(),
-    created_at: zod.string().datetime({}),
+    id: zod.string().optional(),
+    raw_id: zod.string().optional(),
+    created_at: zod.string().datetime({}).optional(),
     contents: zod.unknown(),
     resolved: zod.boolean(),
     context: zod.unknown().nullish(),
     symbol_set_ref: zod.string().optional(),
-    release: zod.object({
-        id: zod.string(),
-        hash_id: zod.string(),
-        team_id: zod.number(),
-        created_at: zod.string().datetime({}),
-        metadata: zod.unknown().nullish(),
-        version: zod.string(),
-        project: zod.string(),
-    }),
+    release: zod
+        .object({
+            id: zod.string().optional(),
+            hash_id: zod.string(),
+            team_id: zod.number().optional(),
+            created_at: zod.string().datetime({}).optional(),
+            metadata: zod.unknown().nullish(),
+            version: zod.string(),
+            project: zod.string(),
+        })
+        .optional(),
 })
 
 /**
@@ -1803,7 +1807,7 @@ export const ErrorTrackingSuppressionRulesListResponse = zod.object({
     previous: zod.string().url().nullish(),
     results: zod.array(
         zod.object({
-            id: zod.string(),
+            id: zod.string().optional(),
             filters: zod.unknown(),
             order_key: zod
                 .number()
@@ -1845,7 +1849,7 @@ export const errorTrackingSuppressionRulesRetrieveResponseOrderKeyMin = -2147483
 export const errorTrackingSuppressionRulesRetrieveResponseOrderKeyMax = 2147483647
 
 export const ErrorTrackingSuppressionRulesRetrieveResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     filters: zod.unknown(),
     order_key: zod
         .number()
@@ -1877,7 +1881,7 @@ export const errorTrackingSuppressionRulesUpdateResponseOrderKeyMin = -214748364
 export const errorTrackingSuppressionRulesUpdateResponseOrderKeyMax = 2147483647
 
 export const ErrorTrackingSuppressionRulesUpdateResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     filters: zod.unknown(),
     order_key: zod
         .number()
@@ -1910,7 +1914,7 @@ export const errorTrackingSuppressionRulesPartialUpdateResponseOrderKeyMin = -21
 export const errorTrackingSuppressionRulesPartialUpdateResponseOrderKeyMax = 2147483647
 
 export const ErrorTrackingSuppressionRulesPartialUpdateResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     filters: zod.unknown(),
     order_key: zod
         .number()
@@ -1966,14 +1970,14 @@ export const ErrorTrackingSymbolSetsListResponse = zod.object({
     previous: zod.string().url().nullish(),
     results: zod.array(
         zod.object({
-            id: zod.string(),
+            id: zod.string().optional(),
             ref: zod.string(),
-            team_id: zod.number(),
-            created_at: zod.string().datetime({}),
+            team_id: zod.number().optional(),
+            created_at: zod.string().datetime({}).optional(),
             last_used: zod.string().datetime({}).nullish(),
             storage_ptr: zod.string().nullish(),
             failure_reason: zod.string().nullish(),
-            release: zod.string(),
+            release: zod.string().optional(),
         })
     ),
 })
@@ -2003,14 +2007,14 @@ export const ErrorTrackingSymbolSetsRetrieveParams = zod.object({
 })
 
 export const ErrorTrackingSymbolSetsRetrieveResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     ref: zod.string(),
-    team_id: zod.number(),
-    created_at: zod.string().datetime({}),
+    team_id: zod.number().optional(),
+    created_at: zod.string().datetime({}).optional(),
     last_used: zod.string().datetime({}).nullish(),
     storage_ptr: zod.string().nullish(),
     failure_reason: zod.string().nullish(),
-    release: zod.string(),
+    release: zod.string().optional(),
 })
 
 export const ErrorTrackingSymbolSetsUpdateParams = zod.object({
@@ -2030,14 +2034,14 @@ export const ErrorTrackingSymbolSetsUpdateBody = zod.object({
 })
 
 export const ErrorTrackingSymbolSetsUpdateResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     ref: zod.string(),
-    team_id: zod.number(),
-    created_at: zod.string().datetime({}),
+    team_id: zod.number().optional(),
+    created_at: zod.string().datetime({}).optional(),
     last_used: zod.string().datetime({}).nullish(),
     storage_ptr: zod.string().nullish(),
     failure_reason: zod.string().nullish(),
-    release: zod.string(),
+    release: zod.string().optional(),
 })
 
 export const ErrorTrackingSymbolSetsPartialUpdateParams = zod.object({
@@ -2057,14 +2061,14 @@ export const ErrorTrackingSymbolSetsPartialUpdateBody = zod.object({
 })
 
 export const ErrorTrackingSymbolSetsPartialUpdateResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     ref: zod.string(),
-    team_id: zod.number(),
-    created_at: zod.string().datetime({}),
+    team_id: zod.number().optional(),
+    created_at: zod.string().datetime({}).optional(),
     last_used: zod.string().datetime({}).nullish(),
     storage_ptr: zod.string().nullish(),
     failure_reason: zod.string().nullish(),
-    release: zod.string(),
+    release: zod.string().optional(),
 })
 
 export const ErrorTrackingSymbolSetsDestroyParams = zod.object({

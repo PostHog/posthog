@@ -1250,6 +1250,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         if pagination and "results" in result:
             pagination.process_results(result)
+        elif "results" in result:
+            result["hasMore"] = False
 
         if "results" in result:
             results_value = result.pop("results")
