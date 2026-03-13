@@ -9,6 +9,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { BulkActionToolbar } from 'lib/components/BulkActions/BulkActionToolbar'
 import { SelectionCheckbox } from 'lib/components/BulkActions/SelectionCheckbox'
 import { FeatureFlagHog } from 'lib/components/hedgehogs'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -342,7 +343,7 @@ export function OverViewTab({
         allMatchingSelected,
         matchingFlagIdsLoading,
     } = useValues(flagSelectionLogic)
-    const { selectAllOnPage, selectAllMatching, clearSelection, bulkDeleteFlags } = useActions(flagSelectionLogic)
+    const { selectAllOnPage, selectAllMatching, bulkDeleteFlags } = useActions(flagSelectionLogic)
 
     const allPageItems = displayedFlags
         .filter((f: FeatureFlagType) => f.id !== null)
@@ -551,13 +552,23 @@ export function OverViewTab({
             {!isProductIntroVisible && <ApprovalsPromoBanner />}
             <PendingApprovalsBanner />
             <div>{filtersSection}</div>
-            {selectedCount > 0 && (
-                <div className="flex items-center justify-end gap-2 min-h-9">
-                    <span className="text-muted text-sm">
-                        {allMatchingSelected
-                            ? `All ${selectedCount} matching flags selected`
-                            : `${selectedCount} flag${selectedCount !== 1 ? 's' : ''} selected`}
-                    </span>
+            <LemonDivider className="my-0" />
+            <div className="flex items-center justify-between min-h-9">
+                <span
+                    className={cn('text-secondary transition-opacity', filtersChanged && 'opacity-50')}
+                    aria-busy={filtersChanged}
+                    aria-live="polite"
+                >
+                    {filtersChanged ? (
+                        <WrappingLoadingSkeleton>{flagCountText}</WrappingLoadingSkeleton>
+                    ) : effectiveCount > 0 ? (
+                        flagCountText
+                    ) : null}
+                </span>
+                <BulkActionToolbar resource="feature_flags">
+                    {allMatchingSelected && (
+                        <span className="text-muted text-sm">All {selectedCount} matching flags selected</span>
+                    )}
                     {showSelectAllMatchingBanner && (
                         <LemonButton
                             type="secondary"
@@ -568,9 +579,6 @@ export function OverViewTab({
                             Select all {totalMatchingCount} matching flags
                         </LemonButton>
                     )}
-                    <LemonButton type="secondary" size="small" onClick={clearSelection}>
-                        Clear
-                    </LemonButton>
                     <LemonButton
                         type="primary"
                         status="danger"
@@ -598,8 +606,8 @@ export function OverViewTab({
                     >
                         {bulkDeleteResponseLoading ? 'Deleting…' : 'Delete selected'}
                     </LemonButton>
-                </div>
-            )}
+                </BulkActionToolbar>
+            </div>
             <BulkDeleteResultsModal />
 
             <LemonTable
