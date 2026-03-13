@@ -2,7 +2,6 @@ from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     ARRAY_APP_CLIENT_ID_EU,
     ARRAY_APP_CLIENT_ID_US,
-    PosthogMcpScopes,
     create_oauth_access_token_for_user as _create_oauth_access_token_for_user,
 )
 
@@ -18,7 +17,7 @@ __all__ = [
 ]
 
 
-def create_oauth_access_token(task: Task, *, scopes: PosthogMcpScopes = "read_only") -> str:
+def create_oauth_access_token(task: Task) -> str:
     """Create an OAuth access token for the Array app, scoped to the task's team.
 
     OAuth tokens auto-expire after 6 hours, so no cleanup is needed.
@@ -30,12 +29,12 @@ def create_oauth_access_token(task: Task, *, scopes: PosthogMcpScopes = "read_on
             cause=RuntimeError(f"Task {task.id} missing created_by field"),
         )
 
-    return create_oauth_access_token_for_user(task.created_by, task.team_id, scopes=scopes)
+    return create_oauth_access_token_for_user(task.created_by, task.team_id)
 
 
-def create_oauth_access_token_for_user(user, team_id: int, *, scopes: PosthogMcpScopes = "read_only") -> str:
+def create_oauth_access_token_for_user(user, team_id: int) -> str:
     """Create an OAuth access token for the Array app, scoped to a specific team."""
     try:
-        return _create_oauth_access_token_for_user(user, team_id, scopes=scopes)
+        return _create_oauth_access_token_for_user(user, team_id)
     except RuntimeError as err:
         raise OAuthTokenError(str(err), {"team_id": team_id}, cause=err) from err

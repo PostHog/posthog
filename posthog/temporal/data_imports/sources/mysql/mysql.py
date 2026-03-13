@@ -51,14 +51,7 @@ def filter_mysql_incremental_fields(
 
 
 def get_schemas(
-    host: str,
-    user: str,
-    password: str,
-    database: str,
-    schema: str,
-    port: int,
-    using_ssl: bool = True,
-    names: list[str] | None = None,
+    host: str, user: str, password: str, database: str, schema: str, port: int, using_ssl: bool = True
 ) -> dict[str, list[tuple[str, str, bool]]]:
     """Get all tables from MySQL source schemas to sync."""
 
@@ -78,18 +71,9 @@ def get_schemas(
     )
 
     with connection.cursor() as cursor:
-        params: dict = {"schema": schema}
-        names_filter = ""
-        if names:
-            params["names"] = tuple(names)
-            names_filter = "AND table_name IN %(names)s"
-
         cursor.execute(
-            "SELECT table_name, column_name, data_type, is_nullable"
-            " FROM information_schema.columns"
-            f" WHERE table_schema = %(schema)s {names_filter}"
-            " ORDER BY table_name ASC",
-            params,
+            "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
+            {"schema": schema},
         )
         result = cursor.fetchall()
 

@@ -1,12 +1,12 @@
-import type { Schemas } from '@/api/generated'
+import type { SurveyListItemOutput, SurveyOutput } from '@/schema/surveys'
 import type { Context } from '@/tools/types'
 
-type SurveyData = Schemas.Survey
+type SurveyData = SurveyOutput | SurveyListItemOutput
 
 export interface FormattedSurvey extends Omit<SurveyData, 'end_date'> {
     status: 'draft' | 'active' | 'completed' | 'archived'
     end_date?: string | undefined
-    _posthogUrl?: string
+    url?: string
 }
 
 /**
@@ -30,7 +30,7 @@ export function formatSurvey(survey: SurveyData, context: Context, projectId: st
     // Add URL if we have context and survey ID
     if (context && survey.id && projectId) {
         const baseUrl = context.api.getProjectBaseUrl(projectId)
-        formatted._posthogUrl = `${baseUrl}/surveys/${survey.id}`
+        formatted.url = `${baseUrl}/surveys/${survey.id}`
     }
 
     return formatted

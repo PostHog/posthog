@@ -12,8 +12,6 @@ import {
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 
-import { getContextSourceQuery } from './sourceQueryUtils'
-
 const convertCompletionItemKind = (kind: AutocompleteCompletionItemKind): languages.CompletionItemKind => {
     switch (kind) {
         case 'Method':
@@ -106,23 +104,15 @@ export const hogQLAutocompleteProvider = (type: HogLanguage): languages.Completi
             lineNumber: position.lineNumber,
             column: word.endColumn,
         })
-        const connectionId =
-            logic.isMounted() && logic.props.sourceQuery?.kind === NodeKind.HogQLQuery
-                ? (logic.props.sourceQuery.connectionId ?? undefined)
-                : undefined
-        const queryText = model.getValue()
-        const sourceQuery = logic.isMounted() ? getContextSourceQuery(logic.props.sourceQuery, queryText) : undefined
-
         const query: HogQLAutocomplete = setLatestVersionsOnQuery(
             {
                 kind: NodeKind.HogQLAutocomplete,
                 language: type,
                 // Use the text from the model instead of logic due to a race condition on the logic values updating quick enough
-                query: queryText,
+                query: model.getValue(),
                 filters: logic.isMounted() ? logic.props.metadataFilters : undefined,
                 globals: logic.isMounted() ? logic.props.globals : undefined,
-                sourceQuery,
-                connectionId,
+                sourceQuery: logic.isMounted() ? logic.props.sourceQuery : undefined,
                 startPosition: startOffset,
                 endPosition: endOffset,
             },

@@ -35,7 +35,6 @@ import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { formatDate } from 'lib/utils'
-import { ValueOf } from 'lib/utils/types'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { Customization } from 'scenes/surveys/survey-appearance/SurveyCustomization'
@@ -992,14 +991,8 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                       })
                                                                                   }}
                                                                                   data-attr="survey-url-matching-type"
-                                                                                  options={(
-                                                                                      Object.keys(
-                                                                                          SurveyMatchTypeLabels
-                                                                                      ) as Array<
-                                                                                          ValueOf<
-                                                                                              typeof SurveyMatchType
-                                                                                          >
-                                                                                      >
+                                                                                  options={Object.keys(
+                                                                                      SurveyMatchTypeLabels
                                                                                   ).map((key) => ({
                                                                                       label: SurveyMatchTypeLabels[key],
                                                                                       value: key,
@@ -1050,14 +1043,8 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                       })
                                                                                   }}
                                                                                   data-attr="survey-device-types-matching-type"
-                                                                                  options={(
-                                                                                      Object.keys(
-                                                                                          SurveyMatchTypeLabels
-                                                                                      ) as Array<
-                                                                                          ValueOf<
-                                                                                              typeof SurveyMatchType
-                                                                                          >
-                                                                                      >
+                                                                                  options={Object.keys(
+                                                                                      SurveyMatchTypeLabels
                                                                                   ).map((key) => ({
                                                                                       label: SurveyMatchTypeLabels[key],
                                                                                       value: key,

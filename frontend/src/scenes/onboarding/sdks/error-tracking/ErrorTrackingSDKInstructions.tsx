@@ -3,9 +3,8 @@ import {
     AndroidInstallation,
     AngularInstallation,
     FlutterInstallation,
-    IOSInstallation,
     HonoInstallation,
-    WebInstallation,
+    JSWebInstallation,
     NextJSInstallation,
     NodeJSInstallation,
     Nuxt36Installation,
@@ -36,8 +35,8 @@ const ErrorTrackingAngularInstructionsWrapper = withOnboardingDocsWrapper({
     snippets: JS_WEB_SNIPPETS,
     wizardIntegrationName: 'Angular',
 })
-const ErrorTrackingWebInstructionsWrapper = withOnboardingDocsWrapper({
-    Installation: WebInstallation,
+const ErrorTrackingJSWebInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: JSWebInstallation,
     snippets: JS_WEB_SNIPPETS,
     wizardIntegrationName: 'JavaScript Web',
 })
@@ -91,9 +90,6 @@ const ErrorTrackingHonoInstructionsWrapper = withOnboardingDocsWrapper({
 const ErrorTrackingAndroidInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: AndroidInstallation,
 })
-const ErrorTrackingIOSInstructionsWrapper = withOnboardingDocsWrapper({
-    Installation: IOSInstallation,
-})
 const ErrorTrackingFlutterInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: FlutterInstallation,
 })
@@ -105,7 +101,7 @@ const ErrorTrackingAPIInstructionsWrapper = withOnboardingDocsWrapper({
 })
 export const ErrorTrackingSDKInstructions: SDKInstructionsMap = {
     [SDKKey.ANGULAR]: ErrorTrackingAngularInstructionsWrapper,
-    [SDKKey.JS_WEB]: ErrorTrackingWebInstructionsWrapper,
+    [SDKKey.JS_WEB]: ErrorTrackingJSWebInstructionsWrapper,
     [SDKKey.NEXT_JS]: ErrorTrackingNextJSInstructionsWrapper,
     [SDKKey.NODE_JS]: ErrorTrackingNodeInstructionsWrapper,
     [SDKKey.NUXT_JS]: ErrorTrackingNuxt37InstructionsWrapper,
@@ -121,6 +117,5 @@ export const ErrorTrackingSDKInstructions: SDKInstructionsMap = {
     [SDKKey.ANDROID]: ErrorTrackingAndroidInstructionsWrapper,
     [SDKKey.FLUTTER]: ErrorTrackingFlutterInstructionsWrapper,
     [SDKKey.REACT_NATIVE]: ErrorTrackingReactNativeInstructionsWrapper,
-    [SDKKey.IOS]: ErrorTrackingIOSInstructionsWrapper,
     [SDKKey.API]: ErrorTrackingAPIInstructionsWrapper,
 }

@@ -10,10 +10,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     PaginatedSurveyListApi,
-    PatchedSurveySerializerCreateUpdateOnlySchemaApi,
+    PatchedSurveySerializerCreateUpdateOnlyApi,
     SurveyApi,
     SurveySerializerCreateUpdateOnlyApi,
-    SurveySerializerCreateUpdateOnlySchemaApi,
     SurveysListParams,
 } from './api.schemas'
 
@@ -67,14 +66,14 @@ export const getSurveysCreateUrl = (projectId: string) => {
 
 export const surveysCreate = async (
     projectId: string,
-    surveySerializerCreateUpdateOnlySchemaApi: NonReadonly<SurveySerializerCreateUpdateOnlySchemaApi>,
+    surveySerializerCreateUpdateOnlyApi: NonReadonly<SurveySerializerCreateUpdateOnlyApi>,
     options?: RequestInit
 ): Promise<SurveySerializerCreateUpdateOnlyApi> => {
     return apiMutator<SurveySerializerCreateUpdateOnlyApi>(getSurveysCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(surveySerializerCreateUpdateOnlySchemaApi),
+        body: JSON.stringify(surveySerializerCreateUpdateOnlyApi),
     })
 }
 
@@ -114,14 +113,14 @@ export const getSurveysPartialUpdateUrl = (projectId: string, id: string) => {
 export const surveysPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedSurveySerializerCreateUpdateOnlySchemaApi: NonReadonly<PatchedSurveySerializerCreateUpdateOnlySchemaApi>,
+    patchedSurveySerializerCreateUpdateOnlyApi: NonReadonly<PatchedSurveySerializerCreateUpdateOnlyApi>,
     options?: RequestInit
 ): Promise<SurveySerializerCreateUpdateOnlyApi> => {
     return apiMutator<SurveySerializerCreateUpdateOnlyApi>(getSurveysPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedSurveySerializerCreateUpdateOnlySchemaApi),
+        body: JSON.stringify(patchedSurveySerializerCreateUpdateOnlyApi),
     })
 }
 

@@ -2,7 +2,7 @@ import sys
 import time
 import asyncio
 import threading
-from collections.abc import AsyncIterable, AsyncIterator, Iterable
+from collections.abc import AsyncIterator, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Generic, Literal, TypeVar
 
@@ -43,7 +43,6 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     setup_partitioning,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_sync import (
-    set_initial_sync_complete,
     update_last_synced_at,
     validate_schema_and_update_table,
 )
@@ -66,19 +65,13 @@ T = TypeVar("T")
 _SOURCE_ITERATOR_EXECUTOR = ThreadPoolExecutor(max_workers=32, thread_name_prefix="source-iter")
 
 
-async def async_iterate(iterable: Iterable[T] | AsyncIterable[T]) -> AsyncIterator[T]:
+async def async_iterate(iterable: Iterable[T]) -> AsyncIterator[T]:
     """
-    Normalize a sync or async iterable into an async iterator.
+    Wrap a sync iterable to be used with `async for`.
 
-    Async iterables are yielded directly. Sync iterables are wrapped so that
-    each call to `next()` runs in a dedicated thread pool, preventing
-    blocking source HTTP calls from exhausting the default executor.
+    Each call to `next()` is run in a dedicated thread pool so that
+    blocking source HTTP calls can't exhaust the default executor.
     """
-    if isinstance(iterable, AsyncIterable):
-        async for item in iterable:
-            yield item
-        return
-
     iterator = iter(iterable)
     lock = threading.Lock()
     loop = asyncio.get_running_loop()
@@ -97,11 +90,10 @@ async def async_iterate(iterable: Iterable[T] | AsyncIterable[T]) -> AsyncIterat
 
     try:
         while True:
-            has_value, item = await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, _next)  # type: ignore
+            has_value, item = await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, _next)
             if not has_value:
                 break
-
-            yield item
+            yield item  # type: ignore[misc]
     finally:
         await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, _close)
 
@@ -391,10 +383,6 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         await self._logger.adebug("Updating last synced at timestamp on schema")
         await update_last_synced_at(job_id=self._job.id, schema_id=self._schema.id, team_id=self._job.team_id)
-
-        if not self._schema.initial_sync_complete:
-            await self._logger.adebug("Setting initial_sync_complete on schema")
-            await set_initial_sync_complete(schema_id=self._schema.id, team_id=self._job.team_id)
 
         await self._logger.adebug("Notifying revenue analytics that sync has completed")
         await notify_revenue_analytics_that_sync_has_completed(self._schema, self._source, self._logger)

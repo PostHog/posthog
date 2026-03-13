@@ -102,10 +102,6 @@ export function PersonsModal({
     const { startExport } = useActions(exportsLogic)
 
     const totalActorsCount = missingActorsCount + actors.length
-    type ActorsQuery = NonNullable<typeof query>
-
-    const asLemonSelectValue = (value: unknown): string | number | boolean | null =>
-        typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? value : null
 
     const getTitle = useCallback(() => {
         if (typeof title === 'function') {
@@ -142,20 +138,21 @@ export function PersonsModal({
                         <MissingPersonsAlert actorLabel={actorLabel} missingActorsCount={missingActorsCount} />
                     )}
 
-                    <LemonInput
-                        type="search"
-                        placeholder={
-                            hasGroups
-                                ? 'Search for groups by name or ID'
-                                : hasSessions
-                                  ? 'Search for sessions by person email or name'
-                                  : 'Search for persons by email, name, or ID'
-                        }
-                        fullWidth
-                        value={searchTerm}
-                        onChange={setSearchTerm}
-                        className="my-2"
-                    />
+                    {/* TODO: Support search for sessions */}
+                    {!hasSessions && (
+                        <LemonInput
+                            type="search"
+                            placeholder={
+                                hasGroups
+                                    ? 'Search for groups by name or ID'
+                                    : 'Search for persons by email, name, or ID'
+                            }
+                            fullWidth
+                            value={searchTerm}
+                            onChange={setSearchTerm}
+                            className="my-2"
+                        />
+                    )}
 
                     {urls ? (
                         <LemonSelect
@@ -182,15 +179,12 @@ export function PersonsModal({
                                           <LemonSelect
                                               fullWidth
                                               className="mb-2"
-                                              value={Array.isArray(query.breakdown) ? query.breakdown[index] : null}
+                                              value={query?.breakdown?.[index] ?? null}
                                               onChange={(v) => {
-                                                  if (!v) {
-                                                      return
-                                                  }
                                                   const breakdown = Array.isArray(query.breakdown)
                                                       ? [...query.breakdown]
                                                       : []
-                                                  breakdown[index] = v.toString()
+                                                  breakdown[index] = v
                                                   updateActorsQuery({ breakdown })
                                               }}
                                               options={values}
@@ -202,7 +196,7 @@ export function PersonsModal({
                                           <LemonSelect
                                               fullWidth
                                               className="mb-2"
-                                              value={asLemonSelectValue(query[key as keyof ActorsQuery])}
+                                              value={query?.[key] ?? null}
                                               onChange={(v) => updateActorsQuery({ [key]: v })}
                                               options={options}
                                           />

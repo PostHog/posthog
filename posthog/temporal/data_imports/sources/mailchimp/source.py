@@ -62,10 +62,8 @@ The API key format is: `key-dc` (e.g., `abc123def456-us6`), where `dc` is the da
             "Invalid Mailchimp API key format": "Invalid API key format. Expected format: key-dc (e.g., abc123-us6)",
         }
 
-    def get_schemas(
-        self, config: MailchimpSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
-    ) -> list[SourceSchema]:
-        schemas = [
+    def get_schemas(self, config: MailchimpSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+        return [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
@@ -74,10 +72,6 @@ The API key format is: `key-dc` (e.g., `abc123def456-us6`), where `dc` is the da
             )
             for endpoint in list(ENDPOINTS)
         ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
 
     def validate_credentials(
         self, config: MailchimpSourceConfig, team_id: int, schema_name: Optional[str] = None

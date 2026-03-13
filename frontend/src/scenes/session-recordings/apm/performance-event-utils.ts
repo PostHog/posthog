@@ -3,7 +3,7 @@ import { CapturedNetworkRequest } from 'posthog-js'
 import { eventWithTime } from '@posthog/rrweb-types'
 
 import { getSeriesBackgroundColor, getSeriesColor } from 'lib/colors'
-import { assignField, humanizeBytes, isKeyOf } from 'lib/utils'
+import { humanizeBytes } from 'lib/utils'
 
 import { PerformanceEvent } from '~/types'
 
@@ -212,8 +212,8 @@ export function mapRRWebNetworkRequest(
     }
 
     Object.entries(RRWebPerformanceEventReverseMapping).forEach(([key, value]) => {
-        if (isKeyOf(key, capturedRequest)) {
-            assignField(data, value, capturedRequest[key])
+        if (key in capturedRequest) {
+            data[value] = capturedRequest[key]
         }
     })
 
@@ -248,7 +248,7 @@ export function getPerformanceEvents(snapshotsByWindowId: Record<string, eventWi
 
                 Object.entries(PerformanceEventReverseMapping).forEach(([key, value]) => {
                     if (key in properties) {
-                        assignField(data, value, properties[key])
+                        data[value] = properties[key]
                     }
                 })
 

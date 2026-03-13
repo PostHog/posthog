@@ -25,37 +25,25 @@ export function useAttachedLogic(logic: BuiltLogic<Logic>, attachTo?: BuiltLogic
             if (!('attachments' in attachTo)) {
                 ;(attachTo as any).attachments = {} as Record<string, () => void>
             }
-            const attachments = (attachTo as any).attachments as Record<string, () => void>
 
             const currentLogicPath = logic.pathString
             const previousLogicPath = previousLogicPathRef.current
 
             // If the logic changed (different pathString), clean up the old attachment
             if (previousLogicPath && previousLogicPath !== currentLogicPath) {
-                attachments[previousLogicPath]?.()
+                const oldUnmount = (attachTo as any).attachments[previousLogicPath]
+                if (oldUnmount) {
+                    oldUnmount()
+                    delete (attachTo as any).attachments[previousLogicPath]
+                }
             }
 
             // Create new attachment if it doesn't exist
-            if (!attachments[currentLogicPath]) {
+            if (!(attachTo as any).attachments[currentLogicPath]) {
                 const unmount = logic.mount()
-                let mounted = true
-                const detach = (): void => {
-                    if (!mounted) {
-                        return
-                    }
-
-                    mounted = false
-                    if (attachments[currentLogicPath] === detach) {
-                        delete attachments[currentLogicPath]
-                    }
-                    unmount()
-                }
-
-                attachments[currentLogicPath] = detach
+                ;(attachTo as any).attachments[currentLogicPath] = unmount
                 beforeUnmount(() => {
-                    if (attachments[currentLogicPath] === detach) {
-                        detach()
-                    }
+                    unmount()
                 })(builtAttachTo)
             }
 

@@ -16,12 +16,11 @@ import { config as dotenvConfig } from 'dotenv'
 import { existsSync, readdirSync, rmSync, statSync } from 'fs'
 import { join, resolve } from 'path'
 
-const MCP_ROOT_DIR = resolve(__dirname, '..')
-const ROOT_DIR = resolve(MCP_ROOT_DIR, '..', '..')
-const APPS_DIR = resolve(MCP_ROOT_DIR, 'src/ui-apps/apps')
+const ROOT_DIR = resolve(__dirname, '..')
+const APPS_DIR = resolve(ROOT_DIR, 'src/ui-apps/apps')
 
 // Load environment variables from .dev.vars (Cloudflare convention)
-const devVarsPath = resolve(MCP_ROOT_DIR, '.dev.vars')
+const devVarsPath = resolve(ROOT_DIR, '.dev.vars')
 if (existsSync(devVarsPath)) {
     const output = dotenvConfig({ path: devVarsPath })
     const loadedKeys = Object.keys(output.parsed || {})
@@ -52,7 +51,7 @@ function buildAppAsync(appName: string): Promise<void> {
     return new Promise((resolve, reject) => {
         // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
         const child = exec('vite build --config vite.ui-apps.config.ts', {
-            cwd: MCP_ROOT_DIR,
+            cwd: ROOT_DIR,
             env: {
                 ...process.env,
                 UI_APP: appName,
@@ -85,7 +84,7 @@ function buildAppSync(appName: string): void {
 
     // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
     execSync(`UI_APP=${appName} vite build --config vite.ui-apps.config.ts`, {
-        cwd: MCP_ROOT_DIR,
+        cwd: ROOT_DIR,
         stdio: 'inherit',
         env: {
             ...process.env,
@@ -97,30 +96,8 @@ function buildAppSync(appName: string): void {
 }
 
 async function buildAllAppsParallel(apps: string[]): Promise<void> {
-    // CI environments have limited memory — limit concurrency to avoid OOM kills
-    const concurrency = process.env.CI ? 4 : apps.length
-
-    if (concurrency < apps.length) {
-        console.info(`\n📦 Building ${apps.length} apps (concurrency: ${concurrency})...`)
-        const remaining = [...apps]
-        const workers: Promise<void>[] = []
-
-        async function next(): Promise<void> {
-            while (remaining.length > 0) {
-                const app = remaining.shift()!
-                await buildAppAsync(app)
-            }
-        }
-
-        for (let i = 0; i < concurrency; i++) {
-            workers.push(next())
-        }
-
-        await Promise.all(workers)
-    } else {
-        console.info(`\n📦 Building ${apps.length} apps in parallel...`)
-        await Promise.all(apps.map((app) => buildAppAsync(app)))
-    }
+    console.info(`\n📦 Building ${apps.length} apps in parallel...`)
+    await Promise.all(apps.map((app) => buildAppAsync(app)))
 }
 
 function watchApps(apps: string[]): void {
@@ -163,9 +140,8 @@ function watchApps(apps: string[]): void {
 
         const watcher = chokidar.watch(
             [
-                join(MCP_ROOT_DIR, 'src/ui-apps/**/*.{ts,tsx,css,html}'),
-                join(ROOT_DIR, 'products/**/mcp-apps/**/*.{ts,tsx,css}'),
-                join(ROOT_DIR, 'common/mosaic/src/**/*.{ts,tsx,css}'),
+                join(ROOT_DIR, 'src/ui-apps/**/*.{ts,tsx,css,html}'),
+                resolve(ROOT_DIR, '../../common/mosaic/src/**/*.{ts,tsx,css}'),
             ],
             {
                 ignoreInitial: true,

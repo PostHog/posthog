@@ -1,14 +1,7 @@
-type QueryKind =
-    | 'TrendsQuery'
-    | 'FunnelsQuery'
-    | 'PathsQuery'
-    | 'HogQLQuery'
-    | 'InsightVizNode'
-    | 'DataVisualizationNode'
-    | string
+type QueryKind = 'TrendsQuery' | 'FunnelsQuery' | 'HogQLQuery' | 'InsightVizNode' | 'DataVisualizationNode' | string
 
 interface QueryInfo {
-    visualization: 'trends' | 'funnel' | 'paths' | 'table'
+    visualization: 'trends' | 'funnel' | 'table'
     /** The inner query kind (e.g., TrendsQuery inside InsightVizNode) */
     innerKind: QueryKind
     /** The inner query object for insight queries */
@@ -32,9 +25,6 @@ export function analyzeQuery(query: unknown): QueryInfo {
     if (q.kind === 'FunnelsQuery') {
         return { visualization: 'funnel', innerKind: 'FunnelsQuery', innerQuery: q }
     }
-    if (q.kind === 'PathsQuery') {
-        return { visualization: 'paths', innerKind: 'PathsQuery', innerQuery: q }
-    }
     if (q.kind === 'HogQLQuery') {
         return { visualization: 'table', innerKind: 'HogQLQuery' }
     }
@@ -47,9 +37,6 @@ export function analyzeQuery(query: unknown): QueryInfo {
         }
         if (source.kind === 'FunnelsQuery') {
             return { visualization: 'funnel', innerKind: 'FunnelsQuery', innerQuery: source }
-        }
-        if (source.kind === 'PathsQuery') {
-            return { visualization: 'paths', innerKind: 'PathsQuery', innerQuery: source }
         }
     }
 

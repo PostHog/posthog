@@ -35,6 +35,8 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
 
         const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(item.type)
 
+        const closable = onClose !== undefined
+        const clickable = onClick !== undefined
         const label =
             children ||
             formatPropertyLabel(
@@ -48,14 +50,6 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
                         (item as GroupPropertyFilter).group_type_index as GroupTypeIndex | undefined
                     )?.toString() || '?'
             )
-
-        // Don't render empty buttons
-        if (!label) {
-            return <></>
-        }
-
-        const closable = onClose !== undefined
-        const clickable = onClick !== undefined
 
         const ButtonComponent = clickable ? 'button' : 'div'
 

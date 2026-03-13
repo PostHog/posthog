@@ -1,4 +1,5 @@
-import { useActions, useAsyncActions, useValues } from 'kea'
+import { useAsyncActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconArrowRight, IconLock } from '@posthog/icons'
 import { LemonButton, Popover, PopoverProps, Tooltip } from '@posthog/lemon-ui'
@@ -10,27 +11,21 @@ import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 export function AIConsentPopoverWrapper({
     hidden,
     children,
-    ignoreDismissal,
     onApprove,
     onDismiss,
     ...popoverProps
 }: Pick<PopoverProps, 'placement' | 'fallbackPlacements' | 'middleware' | 'showArrow'> & {
     children: JSX.Element
     hidden?: boolean
-    /** Always show popover regardless of prior dismissal. */
-    ignoreDismissal?: boolean
     onApprove?: () => void
     onDismiss?: () => void
 }): JSX.Element {
     const { acceptDataProcessing } = useAsyncActions(maxGlobalLogic)
-    const { dataProcessingApprovalDisabledReason, dataProcessingAccepted, dataProcessingDismissed } =
-        useValues(maxGlobalLogic)
-    const { dismissDataProcessing } = useActions(maxGlobalLogic)
+    const { dataProcessingApprovalDisabledReason, dataProcessingAccepted } = useValues(maxGlobalLogic)
+    const [dismissed, setDismissed] = useState(false)
 
     const handleDismiss = (): void => {
-        if (!ignoreDismissal) {
-            dismissDataProcessing()
-        }
+        setDismissed(true)
         onDismiss?.()
     }
 
@@ -86,7 +81,7 @@ export function AIConsentPopoverWrapper({
                 </div>
             }
             style={{ zIndex: 'var(--z-modal)' }} // Don't show above the re-authentication modal
-            visible={!hidden && !dataProcessingAccepted && (ignoreDismissal || !dataProcessingDismissed)}
+            visible={!hidden && !dataProcessingAccepted && !dismissed}
             onClickOutside={handleDismiss}
             {...popoverProps}
         >

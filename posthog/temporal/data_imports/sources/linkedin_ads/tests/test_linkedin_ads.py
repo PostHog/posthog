@@ -1,6 +1,5 @@
 import typing
 import datetime as dt
-from collections.abc import Iterable
 
 import pytest
 from unittest import mock
@@ -258,9 +257,7 @@ class TestLinkedinAdsSource:
         )
 
         # Process the rows to trigger the client call
-        items = result.items()
-        assert isinstance(items, Iterable)
-        rows = list(items)
+        rows = list(result.items())
         assert len(rows) == 1
 
         # Verify client was called with correct date parameters

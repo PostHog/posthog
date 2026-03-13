@@ -33,7 +33,7 @@ export const deadLetterQueueLogic = kea<deadLetterQueueLogicType>([
     actions({
         setActiveTab: (tabKey: DeadLetterQueueTab) => ({ tabKey }),
         loadMoreRows: (key: string) => ({ key }),
-        addRowsToMetric: (key: string, rows: string[][]) => ({ key, rows }),
+        addRowsToMetric: (key: string, rows: string[][][]) => ({ key, rows }),
         setFilters: (filters: Partial<MetricsFilters>) => ({ filters }),
     }),
 
@@ -45,18 +45,19 @@ export const deadLetterQueueLogic = kea<deadLetterQueueLogicType>([
             },
         ],
         rowsPerMetric: [
-            {} as Record<string, string[][]>,
+            {} as Record<string, string[][][]>,
             {
-                addRowsToMetric: (state: Record<string, string[][]>, { key, rows }) => {
+                addRowsToMetric: (state: Record<string, string[][][]>, { key, rows }) => {
                     return { ...state, [key]: [...(state[key] || []), ...rows] }
                 },
                 loadDeadLetterQueueMetricsSuccess: (_, { deadLetterQueueMetrics }) => {
-                    return deadLetterQueueMetrics.reduce<Record<string, string[][]>>((acc, metric) => {
-                        if (metric?.subrows?.rows !== undefined && metric?.key != null) {
-                            acc[metric.key] = metric.subrows.rows
+                    const rowsPerMetric = {}
+                    for (const metric of deadLetterQueueMetrics) {
+                        if (metric.subrows) {
+                            rowsPerMetric[metric.key] = metric.subrows.rows
                         }
-                        return acc
-                    }, {})
+                    }
+                    return rowsPerMetric
                 },
             },
         ],

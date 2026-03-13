@@ -17,6 +17,7 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
+from posthog.models import User
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.llm_analytics.trace_clustering.constants import (
     DEFAULT_HDBSCAN_MIN_SAMPLES,
@@ -288,7 +289,7 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
 
             # Track workflow triggered
             report_user_action(
-                request.user,
+                cast(User, request.user),
                 "llma clustering workflow triggered",
                 {
                     "workflow_id": workflow_id,

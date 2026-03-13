@@ -124,7 +124,7 @@ func TestSessionStats_Count(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			go ss.KeepStats(ctx, statsChan, 500*time.Millisecond)
+			go ss.KeepStats(ctx, statsChan)
 
 			for _, event := range tt.events {
 				statsChan <- event
@@ -147,7 +147,7 @@ func TestSessionStats_Concurrency(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go ss.KeepStats(ctx, statsChan, 500*time.Millisecond)
+	go ss.KeepStats(ctx, statsChan)
 
 	iterations := 100
 	var wg sync.WaitGroup

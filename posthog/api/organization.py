@@ -14,7 +14,6 @@ from rest_framework.response import Response
 
 from posthog import settings
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.scoped_related_fields import OrgScopedPrimaryKeyRelatedField
 from posthog.api.shared import ProjectBasicSerializer, TeamBasicSerializer
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
@@ -84,7 +83,7 @@ class OrganizationSerializer(
     projects = serializers.SerializerMethodField()
     metadata = serializers.SerializerMethodField()
     member_count = serializers.SerializerMethodField()
-    logo_media_id = OrgScopedPrimaryKeyRelatedField(
+    logo_media_id = serializers.PrimaryKeyRelatedField(
         queryset=UploadedMedia.objects.all(), required=False, allow_null=True
     )
     default_role_id = serializers.CharField(
@@ -337,9 +336,6 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         project_names = [team.name for team in teams]
         organization_id = organization.pk
         organization_name = organization.name
-
-        # the memberships need to be deleted synchronously so that the requesting user can delete their account if they want to
-        organization.memberships.all().delete()
 
         # Queue background task to handle all deletion
         # bulky postgres, batch exports, org/team records, ClickHouse, email

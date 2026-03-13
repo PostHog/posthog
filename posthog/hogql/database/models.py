@@ -166,7 +166,6 @@ class FieldTraverser(FieldOrTable):
 
 
 class Table(FieldOrTable):
-    name: str | None = None
     fields: dict[str, FieldOrTable]
     top_level_settings: Optional[HogQLQuerySettings] = None
     workload: Optional[Workload] = None

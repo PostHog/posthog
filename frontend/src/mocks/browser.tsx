@@ -2,10 +2,10 @@ import { DecoratorFunction } from '@storybook/types'
 import { rest, setupWorker } from 'msw'
 
 import { handlers } from '~/mocks/handlers'
-import { MockSignature, Mocks, mocksToHandlers } from '~/mocks/utils'
+import { Mocks, mocksToHandlers } from '~/mocks/utils'
 
 // Default handlers ensure no request is unhandled by msw
-export const worker: ReturnType<typeof setupWorker> = setupWorker(...handlers)
+export const worker = setupWorker(...handlers)
 
 export const useStorybookMocks = (mocks: Mocks): void => worker.use(...mocksToHandlers(mocks))
 
@@ -14,12 +14,10 @@ export const mswDecorator = (mocks: Mocks): DecoratorFunction<any> => {
         // merge the default mocks provided in `preview.tsx` with any provided by the story
         // allow the story to override defaults
         const mergedMocks: Mocks = {}
-        const restKeys = Object.keys(rest) as Array<keyof typeof rest>
-        for (const restMethod of restKeys) {
+        for (const restMethod of Object.keys(rest)) {
             mergedMocks[restMethod] = {}
-            const storyMethodMocks = (parameters.msw?.mocks?.[restMethod] || {}) as Record<string, MockSignature>
             // Ensure trailing slashes to avoid default handlers accidentally overshadowing story mocks
-            for (const [path, handler] of Object.entries(storyMethodMocks)) {
+            for (const [path, handler] of Object.entries(parameters.msw?.mocks?.[restMethod] || {})) {
                 const cleanedPath = path.replace(/\/?$/, '/')
                 mergedMocks[restMethod][cleanedPath] = handler
             }

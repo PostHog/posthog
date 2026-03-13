@@ -4,9 +4,7 @@ import { router } from 'kea-router'
 import { LemonButton, LemonDialog, LemonInput, LemonSelect, LemonTable, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
-import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
@@ -184,10 +182,6 @@ function ChangeRequestTableActions({
     onApprove: (id: string) => void
     onReject: (id: string, reason: string) => void
 }): JSX.Element {
-    const restrictedReason = useRestrictedArea({
-        scope: RestrictionScope.Organization,
-        minimumAccessLevel: OrganizationMembershipLevel.Admin,
-    })
     const { showApproveButton, showRejectButton } = getChangeRequestButtonVisibility(changeRequest)
 
     return (
@@ -201,7 +195,6 @@ function ChangeRequestTableActions({
                         <LemonButton
                             fullWidth
                             type="primary"
-                            disabledReason={restrictedReason}
                             onClick={() => {
                                 LemonDialog.open({
                                     title: 'Approve this change request?',
@@ -234,7 +227,6 @@ function ChangeRequestTableActions({
                         <LemonButton
                             fullWidth
                             status="danger"
-                            disabledReason={restrictedReason}
                             onClick={() => {
                                 LemonDialog.open({
                                     title: 'Reject this change request?',

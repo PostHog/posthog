@@ -1,6 +1,5 @@
 import type { z } from 'zod'
 
-import type { Insight } from '@/schema/insights'
 import { InsightGetSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -8,9 +7,7 @@ const schema = InsightGetSchema
 
 type Params = z.infer<typeof schema>
 
-type Result = Insight & { url: string }
-
-export const getHandler: ToolBase<typeof schema, Result>['handler'] = async (context: Context, params: Params) => {
+export const getHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
     const { insightId } = params
     const projectId = await context.stateManager.getProjectId()
     const insightResult = await context.api.insights({ projectId }).get({ insightId })
@@ -24,7 +21,7 @@ export const getHandler: ToolBase<typeof schema, Result>['handler'] = async (con
     }
 }
 
-const tool = (): ToolBase<typeof schema, Result> => ({
+const tool = (): ToolBase<typeof schema> => ({
     name: 'insight-get',
     schema,
     handler: getHandler,

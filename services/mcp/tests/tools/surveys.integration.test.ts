@@ -206,7 +206,7 @@ describe('Surveys', { concurrent: false }, () => {
                                     key: 'subscription',
                                     value: 'premium',
                                     operator: 'exact' as const,
-                                    type: 'person' as const,
+                                    type: 'person',
                                 },
                             ],
                             rollout_percentage: 100,
@@ -642,25 +642,28 @@ describe('Surveys', { concurrent: false }, () => {
         it('should update feature flag conditions', async () => {
             // First create a simple feature flag
             const flagParams = {
-                key: `survey-test-flag-${Date.now()}`,
-                name: 'Survey test flag',
-                filters: {
-                    groups: [
-                        {
-                            properties: [],
-                            rollout_percentage: 100,
-                        },
-                    ],
+                data: {
+                    key: `survey-test-flag-${Date.now()}`,
+                    name: 'Survey Test Flag',
+                    description: 'Test flag for survey conditions',
+                    filters: {
+                        groups: [
+                            {
+                                properties: [],
+                                rollout_percentage: 100,
+                            },
+                        ],
+                    },
+                    active: true,
                 },
-                active: true,
             }
 
             const projectId = await context.stateManager.getProjectId()
-            const createdFlag = await context.api.request<{ id: number }>({
-                method: 'POST',
-                path: `/api/projects/${projectId}/feature_flags/`,
-                body: flagParams,
-            })
+            const flagResult = await context.api.featureFlags({ projectId }).create(flagParams)
+            if (!flagResult.success) {
+                throw new Error(`Failed to create feature flag: ${flagResult.error.message}`)
+            }
+            const createdFlag = flagResult.data
             createdResources.featureFlags.push(createdFlag.id)
 
             // Create a survey
@@ -733,13 +736,13 @@ describe('Surveys', { concurrent: false }, () => {
                         {
                             properties: [
                                 {
-                                    type: 'person' as const,
+                                    type: 'person',
                                     key: 'email',
                                     value: '@company.com',
                                     operator: 'icontains' as const,
                                 },
                                 {
-                                    type: 'person' as const,
+                                    type: 'person',
                                     key: 'plan',
                                     value: ['premium', 'enterprise'],
                                     operator: 'exact' as const,
@@ -926,7 +929,7 @@ describe('Surveys', { concurrent: false }, () => {
                                     key: 'email',
                                     value: ['test@example.com'],
                                     operator: 'exact' as const,
-                                    type: 'person' as const,
+                                    type: 'person',
                                 },
                             ],
                             rollout_percentage: 50,

@@ -65,13 +65,9 @@ class HubspotSource(SimpleSource[HubspotSourceConfig | HubspotSourceOldConfig], 
         return HubspotSourceOldConfig.from_dict(job_inputs)
 
     def get_schemas(
-        self,
-        config: HubspotSourceConfig | HubspotSourceOldConfig,
-        team_id: int,
-        with_counts: bool = False,
-        names: list[str] | None = None,
+        self, config: HubspotSourceConfig | HubspotSourceOldConfig, team_id: int, with_counts: bool = False
     ) -> list[SourceSchema]:
-        schemas = [
+        return [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=False,
@@ -80,12 +76,6 @@ class HubspotSource(SimpleSource[HubspotSourceConfig | HubspotSourceOldConfig], 
             )
             for endpoint in HUBSPOT_ENDPOINTS
         ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
 
     def source_for_pipeline(
         self, config: HubspotSourceConfig | HubspotSourceOldConfig, inputs: SourceInputs

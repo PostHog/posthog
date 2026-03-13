@@ -26,7 +26,6 @@ import {
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 import type { codeEditorLogicType } from './codeEditorLogicType'
-import { getContextSourceQuery } from './sourceQueryUtils'
 
 const METADATA_LANGUAGES = [HogLanguage.hog, HogLanguage.hogQL, HogLanguage.hogQLExpr, HogLanguage.hogTemplate]
 const VIM_COMMAND_HISTORY_LIMIT = 50
@@ -83,11 +82,6 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                         props.sourceQuery?.kind === NodeKind.HogQLQuery
                             ? (props.sourceQuery.variables ?? undefined)
                             : undefined
-                    const connectionId =
-                        props.sourceQuery?.kind === NodeKind.HogQLQuery
-                            ? (props.sourceQuery.connectionId ?? undefined)
-                            : undefined
-                    const sourceQuery = getContextSourceQuery(props.sourceQuery, query)
 
                     const response = await performQuery<HogQLMetadata>(
                         setLatestVersionsOnQuery(
@@ -97,9 +91,8 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                                 query: query,
                                 filters: props.metadataFilters,
                                 globals: props.globals,
-                                sourceQuery,
+                                sourceQuery: props.sourceQuery,
                                 variables,
-                                connectionId,
                             },
                             { recursion: false }
                         )
@@ -192,16 +185,10 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
         },
     })),
     propsChanged(({ actions, props }, oldProps) => {
-        const previousConnectionId =
-            oldProps.sourceQuery?.kind === NodeKind.HogQLQuery ? (oldProps.sourceQuery.connectionId ?? null) : null
-        const nextConnectionId =
-            props.sourceQuery?.kind === NodeKind.HogQLQuery ? (props.sourceQuery.connectionId ?? null) : null
-
         if (
             props.query !== oldProps.query ||
             props.language !== oldProps.language ||
-            props.editor !== oldProps.editor ||
-            nextConnectionId !== previousConnectionId
+            props.editor !== oldProps.editor
         ) {
             actions.reloadMetadata()
         }

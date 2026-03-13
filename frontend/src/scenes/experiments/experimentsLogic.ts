@@ -6,6 +6,7 @@ import { LemonTagType, PaginationManual } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual, toParams } from 'lib/utils'
@@ -20,7 +21,7 @@ import {
     ActivityScope,
     Breadcrumb,
     Experiment,
-    ExperimentStatus,
+    ExperimentProgressStatus,
     ExperimentVelocityStats,
     ExperimentsTabs,
     FeatureFlagType,
@@ -37,7 +38,7 @@ export interface ExperimentsResult extends CountedPaginatedResponse<Experiment> 
 
 export interface ExperimentsFilters {
     search?: string
-    status?: ExperimentStatus | 'all'
+    status?: ExperimentProgressStatus | 'all'
     created_by_id?: number
     archived?: boolean
     page?: number
@@ -71,45 +72,26 @@ const DEFAULT_MODAL_FILTERS: FeatureFlagModalFilters = {
     evaluation_runtime: undefined,
 }
 
-type ExperimentStatusInput = Pick<Experiment, 'status' | 'start_date' | 'end_date'> | null | undefined
-type ExperimentStatusDisplayInput =
-    | Pick<Experiment, 'status' | 'start_date' | 'end_date' | 'feature_flag'>
-    | null
-    | undefined
-
-export function getExperimentStatus(experiment: ExperimentStatusInput): ExperimentStatus {
-    if (!experiment) {
-        return ExperimentStatus.Draft
-    }
-
-    if (experiment.status) {
-        return experiment.status
-    }
-
-    // Fallback for stale fixtures and older mocked data during the transition.
-    if (experiment.end_date) {
-        return ExperimentStatus.Stopped
-    }
-    if (experiment.start_date) {
-        return ExperimentStatus.Running
-    }
-    return ExperimentStatus.Draft
+export function isLaunched(experiment: Experiment): boolean {
+    return !!experiment?.start_date
 }
 
-export function isExperimentPaused(experiment: ExperimentStatusDisplayInput): boolean {
-    return (
-        getExperimentStatus(experiment) === ExperimentStatus.Running &&
-        !!experiment?.feature_flag &&
-        !experiment.feature_flag.active
-    )
+export function hasEnded(experiment: Experiment): boolean {
+    return !!experiment?.end_date && dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day')
 }
 
-export function isLaunched(experiment: ExperimentStatusInput): boolean {
-    return getExperimentStatus(experiment) !== ExperimentStatus.Draft
-}
-
-export function hasEnded(experiment: ExperimentStatusInput): boolean {
-    return getExperimentStatus(experiment) === ExperimentStatus.Stopped
+export function getExperimentStatus(experiment: Experiment): ExperimentProgressStatus {
+    if (!isLaunched(experiment)) {
+        return ExperimentProgressStatus.Draft
+    } else if (!hasEnded(experiment)) {
+        // When the feature flag is disabled, we show "Paused" to the user for better UX.
+        // This is just a virtual status, the backend still considers the experiment "running".
+        if (experiment.feature_flag && !experiment.feature_flag.active) {
+            return ExperimentProgressStatus.Paused
+        }
+        return ExperimentProgressStatus.Running
+    }
+    return ExperimentProgressStatus.Complete
 }
 
 export function isSingleVariantShipped(experiment: Experiment): boolean {
@@ -135,56 +117,17 @@ export function getShippedVariantKey(experiment: Experiment): string | null {
     )
 }
 
-export function getExperimentStatusLabel(status: ExperimentStatus, isPaused: boolean = false): string {
-    if (isPaused) {
-        return 'Paused'
-    }
-
+export function getExperimentStatusColor(status: ExperimentProgressStatus): LemonTagType {
     switch (status) {
-        case ExperimentStatus.Draft:
-            return 'Draft'
-        case ExperimentStatus.Running:
-            return 'Running'
-        case ExperimentStatus.Stopped:
-            return 'Complete'
-    }
-
-    return 'Draft'
-}
-
-export function getExperimentStatusColor(status: ExperimentStatus, isPaused: boolean = false): LemonTagType {
-    if (isPaused) {
-        return 'warning'
-    }
-
-    switch (status) {
-        case ExperimentStatus.Draft:
+        case ExperimentProgressStatus.Draft:
             return 'default'
-        case ExperimentStatus.Running:
+        case ExperimentProgressStatus.Running:
             return 'success'
-        case ExperimentStatus.Stopped:
+        case ExperimentProgressStatus.Paused:
+            return 'warning'
+        case ExperimentProgressStatus.Complete:
             return 'completion'
     }
-
-    return 'default'
-}
-
-function normalizeExperimentFilterStatus(status: string | undefined): ExperimentStatus | 'all' {
-    if (!status) {
-        return 'all'
-    }
-
-    const normalizedStatus = status.toLowerCase()
-
-    if (normalizedStatus === 'complete') {
-        return ExperimentStatus.Stopped
-    }
-
-    if (Object.values(ExperimentStatus).includes(normalizedStatus as ExperimentStatus)) {
-        return normalizedStatus as ExperimentStatus
-    }
-
-    return 'all'
 }
 
 export const experimentsLogic = kea<experimentsLogicType>([
@@ -246,21 +189,13 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 setExperimentsTab: (state, { tabKey }) => tabKey ?? state,
             },
         ],
-        hasLoadedExperiments: [
-            false,
-            {
-                loadExperimentsSuccess: () => true,
-                loadExperimentsFailure: () => true,
-            },
-        ],
     }),
     listeners(({ actions, values }) => ({
         setExperimentsFilters: async (_, breakpoint) => {
-            // Only debounce after the first load — the debounce is for search input,
-            // but the initial load from urlToAction should fire immediately.
-            if (values.hasLoadedExperiments || values.experimentsLoading) {
-                await breakpoint(300)
-            }
+            /**
+             * this debounces the search input. Yeah, I know.
+             */
+            await breakpoint(300)
             actions.loadExperiments()
         },
         setFeatureFlagModalFilters: async (_, breakpoint) => {
@@ -482,6 +417,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
         ],
     }),
     afterMount(({ actions, values }) => {
+        actions.loadExperiments()
         actions.loadExperimentsStats()
         // Sync modal page with URL on mount
         const urlPage = values.featureFlagModalPageFromURL
@@ -566,7 +502,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 order,
             }
 
-            pageFiltersFromUrl.status = normalizeExperimentFilterStatus(status)
+            pageFiltersFromUrl.status = status || 'all'
             pageFiltersFromUrl.page = page !== undefined ? parseInt(page) : 1
             pageFiltersFromUrl.archived = String(archived) === 'true'
 

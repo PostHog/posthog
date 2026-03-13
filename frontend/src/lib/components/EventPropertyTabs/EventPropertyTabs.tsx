@@ -7,7 +7,6 @@ import { eventPropertyFilteringLogic } from 'lib/components/EventPropertyTabs/ev
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { dayjs } from 'lib/dayjs'
 import { LemonTab, LemonTabs, LemonTabsProps } from 'lib/lemon-ui/LemonTabs'
-import { isKeyOf } from 'lib/utils'
 import { AutocaptureImageTab, autocaptureToImage } from 'lib/utils/autocapture-previews'
 
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, POSTHOG_EVENT_PROMOTED_PROPERTIES } from '~/taxonomy/taxonomy'
@@ -72,16 +71,14 @@ export const EventPropertyTabs = ({
                   : 'properties'
     )
 
-    const promotedKeys = isKeyOf(event.event, POSTHOG_EVENT_PROMOTED_PROPERTIES)
-        ? POSTHOG_EVENT_PROMOTED_PROPERTIES[event.event]
-        : []
+    const promotedKeys = POSTHOG_EVENT_PROMOTED_PROPERTIES[event.event]
 
-    let properties: Record<string, any> = {}
-    const featureFlagProperties: Record<string, any> = {}
-    const errorProperties: Record<string, any> = {}
-    const debugProperties: Record<string, any> = {}
-    let setProperties: Record<string, any> = {}
-    let setOnceProperties: Record<string, any> = {}
+    let properties = {}
+    const featureFlagProperties = {}
+    const errorProperties = {}
+    const debugProperties = {}
+    let setProperties = {}
+    let setOnceProperties = {}
 
     for (const key of Object.keys(event.properties)) {
         if (!CORE_FILTER_DEFINITIONS_BY_GROUP.events[key] || !CORE_FILTER_DEFINITIONS_BY_GROUP.events[key].system) {

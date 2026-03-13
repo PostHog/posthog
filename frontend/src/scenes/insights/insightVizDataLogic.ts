@@ -35,11 +35,9 @@ import {
     FunnelsFilter,
     FunnelsQuery,
     InsightFilter,
-    InsightFilterProperty,
     InsightQueryNode,
     Node,
     NodeKind,
-    ProductAnalyticsInsightQueryNode,
     TrendsFilter,
     TrendsFormulaNode,
     TrendsQuery,
@@ -371,12 +369,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 )
             },
         ],
-        hasOnlyDataWarehouseSeries: [
-            (s) => [s.series],
-            (series): boolean => {
-                return !!series && series.length > 0 && series.every((node) => isDataWarehouseNode(node))
-            },
-        ],
 
         currentDataWarehouseSchemaColumns: [
             (s) => [
@@ -633,9 +625,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             // Reset selectedInterval for retention insights when date range changes
             if (values.isRetention && !isWebAnalyticsInsightQuery(values.localQuerySource)) {
                 const filterProperty = filterKeyForQuery(values.localQuerySource)
-                Object.assign(updates, {
-                    [filterProperty]: { ...filterForQuery(values.localQuerySource), selectedInterval: null },
-                })
+                updates[filterProperty as keyof QuerySourceUpdate] = {
+                    ...values.localQuerySource[filterProperty],
+                    selectedInterval: null,
+                }
             }
 
             actions.updateQuerySource(updates)
@@ -669,7 +662,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
             const filterProperty = filterKeyForQuery(values.localQuerySource)
             actions.updateQuerySource({
-                [filterProperty]: { ...filterForQuery(values.localQuerySource), ...insightFilter },
+                [filterProperty]: { ...values.localQuerySource[filterProperty], ...insightFilter },
             })
         },
 
@@ -765,10 +758,8 @@ const handleQuerySourceUpdateSideEffects = (
     const maybeChangedSeries = (update as TrendsQuery).series || null
     const maybeChangedActiveUsersMath = maybeChangedSeries ? getActiveUsersMath(maybeChangedSeries) : null
     const kind = (update as Partial<InsightQueryNode>).kind || currentState.kind
-    const insightFilter = filterForQuery(currentState as ProductAnalyticsInsightQueryNode) as Partial<InsightFilter>
-    const maybeChangedInsightFilter = (update as Record<string, InsightFilter | undefined>)[
-        (nodeKindToFilterProperty as Record<string, InsightFilterProperty>)[kind]
-    ] as Partial<InsightFilter>
+    const insightFilter = currentState[nodeKindToFilterProperty[currentState.kind]] as Partial<InsightFilter>
+    const maybeChangedInsightFilter = update[nodeKindToFilterProperty[kind]] as Partial<InsightFilter>
 
     const interval = (currentState as TrendsQuery).interval
 
@@ -874,7 +865,7 @@ const handleQuerySourceUpdateSideEffects = (
     ) {
         const math = (maybeChangedSeries || (currentState as TrendsQuery).series)?.[0]?.math
 
-        ;(mergedUpdate as TrendsQuery).breakdownFilter = {
+        mergedUpdate['breakdownFilter'] = {
             breakdown: '$geoip_country_code',
             breakdown_type: ['dau', 'weekly_active', 'monthly_active'].includes(math || '') ? 'person' : 'event',
         }
@@ -887,23 +878,23 @@ const handleQuerySourceUpdateSideEffects = (
         (mergedUpdate as TrendsQuery).series.some((series) => isDataWarehouseNode(series)) &&
         (mergedUpdate as TrendsQuery).series.some((series) => isActionsNode(series) || isEventsNode(series))
     ) {
-        ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
+        mergedUpdate['breakdownFilter'] = null
         mergedUpdate['properties'] = []
     }
 
     // Remove breakdown filter if display type is BoldNumber because it is not supported
     if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.BoldNumber) {
-        ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
+        mergedUpdate['breakdownFilter'] = null
     }
 
     // Remove breakdown filter if display type is Heatmap because it is not supported
     if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.CalendarHeatmap) {
-        ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
+        mergedUpdate['breakdownFilter'] = null
     }
 
-    // Remove formulas for box plot (formulas don't apply to statistical distributions)
+    // Remove breakdown filter and formulas for box plot
     if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.BoxPlot) {
-        ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
+        mergedUpdate['breakdownFilter'] = null
         ;(mergedUpdate as TrendsQuery).trendsFilter = {
             ...(mergedUpdate as TrendsQuery).trendsFilter,
             formula: undefined,

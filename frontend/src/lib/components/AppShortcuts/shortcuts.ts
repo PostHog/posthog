@@ -19,7 +19,6 @@ export const keyBinds: Record<string, string[]> = {
     search: ['command', 'k'],
     new: [...baseModifier, 'n'],
     edit: ['e'],
-    escape: ['escape'],
     save: [...baseModifier, 's'],
     dashboardAddTextTile: [...baseModifier, 'a'],
     filter: [...baseModifier, 'f'],

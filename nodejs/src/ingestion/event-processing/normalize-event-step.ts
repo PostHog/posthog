@@ -3,8 +3,7 @@ import { DateTime } from 'luxon'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { EventHeaders } from '../../types'
-import { normalizeEvent, normalizeProcessPerson } from '../../utils/event'
-import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
+import { normalizeEventStep } from '../../worker/ingestion/event-pipeline/normalizeEventStep'
 import { PipelineResult, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
@@ -23,21 +22,16 @@ export function createNormalizeEventStep<TInput extends NormalizeEventInput>(): 
     TInput,
     Omit<TInput, 'event'> & NormalizeEventOutput
 > {
-    return function normalizeEventStepWrapper(
+    return async function normalizeEventStepWrapper(
         input: TInput
     ): Promise<PipelineResult<Omit<TInput, 'event'> & NormalizeEventOutput>> {
         const { event, ...restInput } = input
-        const normalizedEvent = normalizeEvent(event)
-        normalizeProcessPerson(normalizedEvent, input.processPerson)
+        const [normalizedEvent, timestamp] = await normalizeEventStep(input.event, input.processPerson)
 
-        const timestamp = parseEventTimestamp(normalizedEvent)
-
-        return Promise.resolve(
-            ok({
-                ...restInput,
-                normalizedEvent,
-                timestamp,
-            })
-        )
+        return ok({
+            ...restInput,
+            normalizedEvent,
+            timestamp,
+        })
     }
 }

@@ -178,17 +178,8 @@ export function PersonScene(): JSX.Element | null {
         exceptionsQuery,
         surveyResponsesQuery,
     } = useValues(mountedPersonsLogic)
-    const {
-        loadPersons,
-        editProperty,
-        deleteProperty,
-        navigateToTab,
-        setSplitMergeModalShown,
-        setDistinctId,
-        setEventsQuery,
-        setExceptionsQuery,
-        setSurveyResponsesQuery,
-    } = useActions(mountedPersonsLogic)
+    const { loadPersons, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, setDistinctId } =
+        useActions(mountedPersonsLogic)
     const { showPersonDeleteModal } = useActions(personDeleteModalLogic)
     const { deletedPersonLoading } = useValues(personDeleteModalLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
@@ -197,7 +188,7 @@ export function PersonScene(): JSX.Element | null {
     const { user } = useValues(userLogic)
 
     if (personError) {
-        return <NotFound object="person" meta={{ urlId }} />
+        throw new Error(personError)
     }
     if (!person) {
         return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="person" meta={{ urlId }} />
@@ -290,13 +281,7 @@ export function PersonScene(): JSX.Element | null {
                     {
                         key: PersonsTabType.EVENTS,
                         label: <span data-attr="persons-events-tab">Events</span>,
-                        content: (
-                            <Query
-                                uniqueKey="person-profile-events"
-                                query={eventsQuery}
-                                setQuery={(q) => setEventsQuery(q)}
-                            />
-                        ),
+                        content: <Query uniqueKey="person-profile-events" query={eventsQuery} />,
                     },
                     {
                         key: PersonsTabType.SESSION_RECORDINGS,
@@ -338,12 +323,12 @@ export function PersonScene(): JSX.Element | null {
                     {
                         key: PersonsTabType.EXCEPTIONS,
                         label: <span data-attr="persons-exceptions-tab">Exceptions</span>,
-                        content: <Query query={exceptionsQuery} setQuery={(q) => setExceptionsQuery(q)} />,
+                        content: <Query query={exceptionsQuery} />,
                     },
                     {
                         key: PersonsTabType.SURVEY_RESPONSES,
                         label: <span data-attr="persons-survey-responses-tab">Surveys</span>,
-                        content: <Query query={surveyResponsesQuery} setQuery={(q) => setSurveyResponsesQuery(q)} />,
+                        content: <Query query={surveyResponsesQuery} />,
                     },
                     {
                         key: PersonsTabType.COHORTS,

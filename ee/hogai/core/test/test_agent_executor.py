@@ -280,7 +280,6 @@ class TestAgentExecutor(BaseTest):
             patch("ee.hogai.core.executor.async_connect") as mock_connect,
             patch.object(self.manager._redis_stream, "delete_stream") as mock_delete,
             patch.object(self.conversation, "asave") as mock_save,
-            patch("ee.hogai.core.executor.ConversationQueueStore") as mock_queue_store_cls,
         ):
             # Setup client and handle mocks
             mock_client = Mock()
@@ -295,11 +294,6 @@ class TestAgentExecutor(BaseTest):
             mock_handle.cancel = cancel_mock
             mock_delete.return_value = True
 
-            # Setup queue store mock
-            mock_queue_store = Mock()
-            mock_queue_store.clear_async = AsyncMock(return_value=[])
-            mock_queue_store_cls.return_value = mock_queue_store
-
             # Call the method - should not raise exception
             await self.manager.cancel_workflow()
 
@@ -308,9 +302,6 @@ class TestAgentExecutor(BaseTest):
 
             # Verify Redis stream cleanup
             mock_delete.assert_called_once()
-
-            # Verify cache queue was cleared
-            mock_queue_store.clear_async.assert_called_once()
 
             # Verify conversation status update
             self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
@@ -326,60 +317,30 @@ class TestAgentExecutor(BaseTest):
         with self.assertRaises(Exception):
             await self.manager.cancel_workflow()
 
-    async def test_cancel_continues_when_main_workflow_already_completed(self):
-        """Test that cancellation proceeds even if the main workflow cancel fails
-        (e.g. when the main workflow already completed after spawning a queued workflow).
-        Verifies subagent and queue workflow cancellation are still attempted."""
-        with (
-            patch("ee.hogai.core.executor.async_connect") as mock_connect,
-            patch.object(self.manager._redis_stream, "delete_stream") as mock_delete,
-            patch.object(self.conversation, "asave") as mock_save,
-            patch.object(self.manager, "_cancel_subagent_workflows") as mock_cancel_subagents,
-            patch.object(self.manager, "_cancel_queue_workflows") as mock_cancel_queue,
-            patch("ee.hogai.core.executor.ConversationQueueStore") as mock_queue_store_cls,
-        ):
+    async def test_cancel_conversation_workflow_cancel_error(self):
+        """Test conversation cancellation when workflow cancel fails."""
+        with patch("ee.hogai.core.executor.async_connect") as mock_connect:
+            # Setup mocks
             mock_client = Mock()
             mock_handle = Mock()
             mock_connect.return_value = mock_client
             mock_client.get_workflow_handle.return_value = mock_handle
 
-            # Main workflow cancel fails (already completed)
+            # Create an async function that raises exception
             async def cancel_error():
                 raise Exception("Workflow cancel failed")
 
             mock_handle.cancel = cancel_error
-            mock_delete.return_value = True
-            mock_cancel_subagents.return_value = None
-            mock_cancel_queue.return_value = None
 
-            mock_queue_store = Mock()
-            mock_queue_store.clear_async = AsyncMock(return_value=[])
-            mock_queue_store_cls.return_value = mock_queue_store
-
-            # Should NOT raise — cancellation continues despite main workflow failure
-            await self.manager.cancel_workflow()
-
-            # Verify subagent and queue workflow cancellation were still attempted
-            mock_cancel_subagents.assert_called_once_with(mock_client)
-            mock_cancel_queue.assert_called_once_with(mock_client)
-
-            # Verify cache queue was still cleared
-            mock_queue_store.clear_async.assert_called_once()
-
-            # Verify Redis stream was still cleaned up
-            mock_delete.assert_called_once()
-
-            # Verify conversation status was reset to IDLE
-            self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
-            mock_save.assert_called()
+            # Call the method - should raise exception
+            with self.assertRaises(Exception):
+                await self.manager.cancel_workflow()
 
     async def test_cancel_conversation_redis_cleanup_error(self):
-        """Test conversation cancellation when Redis cleanup fails.
-        Status should still be reset to IDLE via the finally block."""
+        """Test conversation cancellation when Redis cleanup fails."""
         with (
             patch("ee.hogai.core.executor.async_connect") as mock_connect,
             patch.object(self.manager._redis_stream, "delete_stream") as mock_delete,
-            patch("ee.hogai.core.executor.ConversationQueueStore") as mock_queue_store_cls,
         ):
             # Setup mocks
             mock_client = Mock()
@@ -393,16 +354,9 @@ class TestAgentExecutor(BaseTest):
             mock_handle.cancel = cancel_mock
             mock_delete.side_effect = Exception("Redis cleanup failed")
 
-            mock_queue_store = Mock()
-            mock_queue_store.clear_async = AsyncMock(return_value=[])
-            mock_queue_store_cls.return_value = mock_queue_store
-
-            # Should raise exception from delete_stream
+            # Call the method - should raise exception
             with self.assertRaises(Exception):
                 await self.manager.cancel_workflow()
-
-            # Status should still be reset to IDLE via finally
-            self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
 
     async def test_cancel_conversation_save_error(self):
         """Test conversation cancellation when conversation save fails."""
@@ -605,7 +559,6 @@ class TestAgentExecutor(BaseTest):
             patch.object(self.manager._redis_stream, "delete_stream") as mock_delete,
             patch.object(self.conversation, "asave"),
             patch.object(self.manager, "_cancel_subagent_workflows") as mock_cancel_subagents,
-            patch("ee.hogai.core.executor.ConversationQueueStore") as mock_queue_store_cls,
         ):
             mock_client = Mock()
             mock_handle = Mock()
@@ -618,10 +571,6 @@ class TestAgentExecutor(BaseTest):
             mock_handle.cancel = cancel_mock
             mock_delete.return_value = True
             mock_cancel_subagents.return_value = None
-
-            mock_queue_store = Mock()
-            mock_queue_store.clear_async = AsyncMock(return_value=[])
-            mock_queue_store_cls.return_value = mock_queue_store
 
             await self.manager.cancel_workflow()
 

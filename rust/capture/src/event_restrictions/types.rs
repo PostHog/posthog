@@ -11,7 +11,6 @@ pub enum RestrictionType {
     ForceOverflow,
     RedirectToDlq,
     SkipPersonProcessing,
-    RedirectToTopic,
 }
 
 impl RestrictionType {
@@ -21,7 +20,6 @@ impl RestrictionType {
             "force_overflow_from_ingestion" => Some(Self::ForceOverflow),
             "redirect_to_dlq" => Some(Self::RedirectToDlq),
             "skip_person_processing" => Some(Self::SkipPersonProcessing),
-            "redirect_to_topic" => Some(Self::RedirectToTopic),
             _ => None,
         }
     }
@@ -32,7 +30,6 @@ impl RestrictionType {
             Self::ForceOverflow => "force_overflow",
             Self::RedirectToDlq => "redirect_to_dlq",
             Self::SkipPersonProcessing => "skip_person_processing",
-            Self::RedirectToTopic => "redirect_to_topic",
         }
     }
 
@@ -42,94 +39,74 @@ impl RestrictionType {
             Self::ForceOverflow => "force_overflow_from_ingestion",
             Self::RedirectToDlq => "redirect_to_dlq",
             Self::SkipPersonProcessing => "skip_person_processing",
-            Self::RedirectToTopic => "redirect_to_topic",
         }
     }
 
-    pub fn all() -> [Self; 5] {
+    pub fn all() -> [Self; 4] {
         [
             Self::DropEvent,
             Self::ForceOverflow,
             Self::SkipPersonProcessing,
             Self::RedirectToDlq,
-            Self::RedirectToTopic,
         ]
     }
 
-    /// Bit position for this restriction type (0-4).
+    /// Bit position for this restriction type (0-3).
     const fn bit_pos(self) -> u8 {
         match self {
             Self::DropEvent => 0,
             Self::ForceOverflow => 1,
             Self::RedirectToDlq => 2,
             Self::SkipPersonProcessing => 3,
-            Self::RedirectToTopic => 4,
         }
     }
 }
 
-/// A compact set of restriction types using a bitfield, with optional topic for redirect.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct RestrictionSet {
-    bits: u8,
-    redirect_topic: Option<String>,
-}
+/// A compact set of restriction types using a bitfield.
+/// Avoids heap allocation - just a u8 on the stack.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RestrictionSet(u8);
 
 impl RestrictionSet {
     /// Create an empty set.
-    pub fn new() -> Self {
-        Self {
-            bits: 0,
-            redirect_topic: None,
-        }
+    pub const fn new() -> Self {
+        Self(0)
     }
 
     /// Insert a restriction type into the set.
     pub fn insert(&mut self, t: RestrictionType) {
-        self.bits |= 1 << t.bit_pos();
-    }
-
-    /// Insert a RedirectToTopic restriction with the target topic.
-    pub fn insert_redirect_to_topic(&mut self, topic: String) {
-        self.bits |= 1 << RestrictionType::RedirectToTopic.bit_pos();
-        self.redirect_topic = Some(topic);
-    }
-
-    /// Get the redirect topic, if set.
-    pub fn redirect_topic(&self) -> Option<&str> {
-        self.redirect_topic.as_deref()
+        self.0 |= 1 << t.bit_pos();
     }
 
     /// Check if the set contains a restriction type.
-    pub fn contains(&self, t: RestrictionType) -> bool {
-        (self.bits & (1 << t.bit_pos())) != 0
+    pub const fn contains(self, t: RestrictionType) -> bool {
+        (self.0 & (1 << t.bit_pos())) != 0
     }
 
     /// Check if the set is empty.
-    pub fn is_empty(&self) -> bool {
-        self.bits == 0
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
     }
 
     /// Count the number of restrictions in the set.
-    pub fn len(&self) -> usize {
-        self.bits.count_ones() as usize
+    pub const fn len(self) -> usize {
+        self.0.count_ones() as usize
     }
 }
 
 /// Result of applying restrictions to an event.
-/// Immutable — constructed from a RestrictionSet with metrics emission.
+/// Contains flags indicating what actions to take.
 #[derive(Debug, Default)]
 pub struct AppliedRestrictions {
-    should_drop: bool,
-    force_overflow: bool,
-    skip_person_processing: bool,
-    redirect_to_dlq: bool,
-    redirect_to_topic: Option<String>,
+    pub should_drop: bool,
+    pub force_overflow: bool,
+    pub skip_person_processing: bool,
+    pub redirect_to_dlq: bool,
 }
 
 impl AppliedRestrictions {
-    /// Build from a RestrictionSet and emit per-type metrics.
-    pub(crate) fn from_restrictions(restrictions: RestrictionSet, pipeline: CaptureMode) -> Self {
+    /// Apply restrictions and emit metrics.
+    pub fn from_restrictions(restrictions: RestrictionSet, pipeline: CaptureMode) -> Self {
         let mut result = Self::default();
         let pipeline_str = pipeline.as_pipeline_name();
 
@@ -147,43 +124,11 @@ impl AppliedRestrictions {
                     RestrictionType::ForceOverflow => result.force_overflow = true,
                     RestrictionType::SkipPersonProcessing => result.skip_person_processing = true,
                     RestrictionType::RedirectToDlq => result.redirect_to_dlq = true,
-                    RestrictionType::RedirectToTopic => {
-                        result.redirect_to_topic =
-                            restrictions.redirect_topic().map(|s| s.to_string());
-                    }
                 }
             }
         }
 
         result
-    }
-
-    pub fn is_empty(&self) -> bool {
-        !self.should_drop
-            && !self.force_overflow
-            && !self.skip_person_processing
-            && !self.redirect_to_dlq
-            && self.redirect_to_topic.is_none()
-    }
-
-    pub fn should_drop(&self) -> bool {
-        self.should_drop
-    }
-
-    pub fn force_overflow(&self) -> bool {
-        self.force_overflow
-    }
-
-    pub fn skip_person_processing(&self) -> bool {
-        self.skip_person_processing
-    }
-
-    pub fn redirect_to_dlq(&self) -> bool {
-        self.redirect_to_dlq
-    }
-
-    pub fn redirect_to_topic(&self) -> Option<&str> {
-        self.redirect_to_topic.as_deref()
     }
 }
 
@@ -245,7 +190,6 @@ pub enum RestrictionScope {
 pub struct Restriction {
     pub restriction_type: RestrictionType,
     pub scope: RestrictionScope,
-    pub args: Option<serde_json::Value>,
 }
 
 impl Restriction {
@@ -279,10 +223,6 @@ mod tests {
             RestrictionType::from_redis_key("skip_person_processing"),
             Some(RestrictionType::SkipPersonProcessing)
         );
-        assert_eq!(
-            RestrictionType::from_redis_key("redirect_to_topic"),
-            Some(RestrictionType::RedirectToTopic)
-        );
         assert_eq!(RestrictionType::from_redis_key("unknown_type"), None);
     }
 
@@ -308,7 +248,6 @@ mod tests {
         let restriction = Restriction {
             restriction_type: RestrictionType::DropEvent,
             scope: RestrictionScope::AllEvents,
-            args: None,
         };
         let event = EventContext::default();
         assert!(restriction.matches(&event));
@@ -418,7 +357,7 @@ mod tests {
             set.insert(t);
         }
 
-        assert_eq!(set.len(), 5);
+        assert_eq!(set.len(), 4);
         for t in RestrictionType::all() {
             assert!(set.contains(t));
         }
@@ -444,35 +383,14 @@ mod tests {
     }
 
     #[test]
-    fn test_restriction_set_clone() {
+    fn test_restriction_set_copy() {
         let mut set1 = RestrictionSet::new();
         set1.insert(RestrictionType::DropEvent);
 
-        let set2 = set1.clone();
+        let set2 = set1; // Copy
         assert!(set2.contains(RestrictionType::DropEvent));
 
-        // set1 is still valid after clone
+        // set1 is still valid (Copy, not Move)
         assert!(set1.contains(RestrictionType::DropEvent));
-    }
-
-    #[test]
-    fn test_restriction_set_insert_redirect_to_topic() {
-        let mut set = RestrictionSet::new();
-        set.insert_redirect_to_topic("custom_topic".to_string());
-
-        assert!(set.contains(RestrictionType::RedirectToTopic));
-        assert_eq!(set.redirect_topic(), Some("custom_topic"));
-        assert_eq!(set.len(), 1);
-    }
-
-    #[test]
-    fn test_restriction_set_redirect_topic_last_wins() {
-        let mut set = RestrictionSet::new();
-        set.insert_redirect_to_topic("first_topic".to_string());
-        set.insert_redirect_to_topic("second_topic".to_string());
-
-        assert!(set.contains(RestrictionType::RedirectToTopic));
-        assert_eq!(set.redirect_topic(), Some("second_topic"));
-        assert_eq!(set.len(), 1);
     }
 }

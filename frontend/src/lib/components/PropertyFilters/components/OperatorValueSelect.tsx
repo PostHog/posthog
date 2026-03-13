@@ -48,7 +48,6 @@ export interface OperatorValueSelectProps {
     propertyDefinitions: PropertyDefinition[]
     addRelativeDateTimeOptions?: boolean
     groupTypeIndex?: GroupTypeIndex
-    groupKeyNames?: Record<string, string>
     size?: 'xsmall' | 'small' | 'medium'
     startVisible?: LemonDropdownProps['startVisible']
     /**
@@ -110,7 +109,6 @@ export function OperatorValueSelect({
     eventNames = [],
     addRelativeDateTimeOptions,
     groupTypeIndex = undefined,
-    groupKeyNames,
     size,
     editable,
     startVisible,
@@ -273,7 +271,6 @@ export function OperatorValueSelect({
                         autoFocus={!isMobile() && value === null}
                         addRelativeDateTimeOptions={addRelativeDateTimeOptions}
                         groupTypeIndex={groupTypeIndex}
-                        groupKeyNames={groupKeyNames}
                         editable={editable}
                         size={size}
                         forceSingleSelect={forceSingleSelect}

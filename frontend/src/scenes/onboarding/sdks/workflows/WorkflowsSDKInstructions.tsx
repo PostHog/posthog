@@ -11,8 +11,10 @@ import {
     FramerInstallation,
     GoInstallation,
     GoogleTagManagerInstallation,
+    HTMLSnippetInstallation,
     HeliconeInstallation,
     IOSInstallation,
+    JSWebInstallation,
     LangfuseInstallation,
     LaravelInstallation,
     MoEngageInstallation,
@@ -37,7 +39,6 @@ import {
     VueInstallation,
     WebflowInstallation,
     WordpressInstallation,
-    WebInstallation,
     ZapierInstallation,
 } from '@posthog/shared-onboarding/product-analytics'
 import { StepDefinition } from '@posthog/shared-onboarding/steps'
@@ -76,8 +77,12 @@ function workflowsModifySteps(steps: StepDefinition[]): StepDefinition[] {
 }
 
 // JS Web SDKs
-const WorkflowsWebInstructionsWrapper = withOnboardingDocsWrapper({
-    Installation: WebInstallation,
+const WorkflowsJSWebInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: JSWebInstallation,
+    modifySteps: workflowsModifySteps,
+})
+const WorkflowsHTMLSnippetInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: HTMLSnippetInstallation,
     modifySteps: workflowsModifySteps,
 })
 
@@ -256,7 +261,7 @@ export const WorkflowsSDKTagOverrides: SDKTagOverrides = {
 }
 
 export const WorkflowsSDKInstructions: SDKInstructionsMap = {
-    [SDKKey.JS_WEB]: WorkflowsWebInstructionsWrapper,
+    [SDKKey.JS_WEB]: WorkflowsJSWebInstructionsWrapper,
     [SDKKey.ANDROID]: WorkflowsAndroidInstructionsWrapper,
     [SDKKey.ANGULAR]: WorkflowsAngularInstructionsWrapper,
     [SDKKey.API]: WorkflowsAPIInstructionsWrapper,
@@ -270,6 +275,7 @@ export const WorkflowsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.GO]: WorkflowsGoInstructionsWrapper,
     [SDKKey.GOOGLE_TAG_MANAGER]: WorkflowsGoogleTagManagerInstructionsWrapper,
     [SDKKey.HELICONE]: WorkflowsHeliconeInstructionsWrapper,
+    [SDKKey.HTML_SNIPPET]: WorkflowsHTMLSnippetInstructionsWrapper,
     [SDKKey.IOS]: WorkflowsIOSInstructionsWrapper,
     [SDKKey.LANGFUSE]: WorkflowsLangfuseInstructionsWrapper,
     [SDKKey.LARAVEL]: WorkflowsLaravelInstructionsWrapper,

@@ -131,7 +131,8 @@ class ProductCostThrottle(CostThrottle):
 class _UserCostThrottleBase(CostThrottle):
     """Base for per-product user cost throttles (burst/sustained pattern).
 
-    end_user_id is always the authenticated user's ID, set at context creation.
+    - OAuth: end_user_id is the token holder (set at context creation)
+    - Personal API key: end_user_id is the 'user' param from the request (set in callback)
 
     If no end_user_id is set, user rate limiting is skipped.
     If a product is not in user_cost_limits config, default limits are used ($100/24h burst, $1000/30d sustained).

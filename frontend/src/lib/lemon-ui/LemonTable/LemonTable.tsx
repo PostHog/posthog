@@ -88,10 +88,6 @@ export interface LemonTableProps<T extends Record<string, any>> {
     maxHeaderWidth?: string
     /** Whether to hide the scrollbar. */
     hideScrollbar?: boolean
-    /**
-     * Whether the table content is allowed to scroll inside its container.
-     */
-    allowContentScroll?: boolean
     /** Row actions to display in a "More" menu at the end of each row. Return null to hide actions for specific rows. */
     rowActions?: (record: T, recordIndex: number) => React.ReactNode | null
     /** Whether to hide the sorting indicator when no sort is active. Defaults to false. */
@@ -133,7 +129,6 @@ export function LemonTable<T extends Record<string, any>>({
     pinnedColumns,
     maxHeaderWidth,
     hideScrollbar,
-    allowContentScroll = false,
     rowActions,
     hideSortingIndicatorWhenInactive = false,
 }: LemonTableProps<T>): JSX.Element {
@@ -167,18 +162,16 @@ export function LemonTable<T extends Record<string, any>>({
         [location, searchParams, hashParams, push, useURLForSorting, onSort, currentSortingParam]
     )
 
-    const columnGroups = useMemo(
-        () =>
-            (rawColumns.length > 0 && 'children' in rawColumns[0]
-                ? rawColumns
-                : [
-                      {
-                          children: rawColumns,
-                      },
-                  ]) as LemonTableColumnGroup<T>[],
-        [rawColumns]
-    )
-    const columns = useMemo(() => columnGroups.flatMap((group) => group.children), [columnGroups])
+    const columnGroups = (
+        rawColumns.length > 0 && 'children' in rawColumns[0]
+            ? rawColumns
+            : [
+                  {
+                      children: rawColumns,
+                  },
+              ]
+    ) as LemonTableColumnGroup<T>[]
+    const columns = columnGroups.flatMap((group) => group.children)
 
     const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -274,7 +267,6 @@ export function LemonTable<T extends Record<string, any>>({
             <ScrollableShadows
                 innerClassName={hideScrollbar ? 'hide-scrollbar' : undefined}
                 direction="horizontal"
-                constrainToDirection={!allowContentScroll}
                 scrollRef={scrollRef}
             >
                 <div className="LemonTable__content">

@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconExpand45 } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils'
 
@@ -17,14 +16,12 @@ export interface LogsViewerToolbarProps {
     totalLogsCount?: number
     orderBy: LogsOrderBy
     onChangeOrderBy: (orderBy: LogsOrderBy) => void
-    onOpenFullScreen?: () => void
 }
 
 export const LogsViewerToolbar = ({
     totalLogsCount,
     orderBy,
     onChangeOrderBy,
-    onOpenFullScreen,
 }: LogsViewerToolbarProps): JSX.Element => {
     const { wrapBody, prettifyJson, timezone } = useValues(logsViewerLogic)
     const { setWrapBody, setPrettifyJson, setTimezone } = useActions(logsViewerLogic)
@@ -57,14 +54,6 @@ export const LogsViewerToolbar = ({
                 />
                 <TimezoneSelect value={timezone} onChange={setTimezone} size="small" />
                 <LogsExportMenu totalLogsCount={totalLogsCount} />
-                {onOpenFullScreen && (
-                    <LemonButton
-                        size="small"
-                        icon={<IconExpand45 />}
-                        onClick={onOpenFullScreen}
-                        tooltip="Full screen"
-                    />
-                )}
             </div>
             <div className="flex items-center gap-4 flex-wrap">
                 {totalLogsCount !== undefined && totalLogsCount > 0 && (

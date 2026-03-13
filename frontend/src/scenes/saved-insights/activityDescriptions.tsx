@@ -333,15 +333,14 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
 
         try {
             for (const change of logItem.detail.changes || []) {
-                const insightAction = insightActionsMapping[change.field as keyof InsightModel]
-                if (!change?.field || !insightAction) {
+                if (!change?.field || !insightActionsMapping[change.field]) {
                     continue // insight updates have to have a "field" to be described
                 }
 
-                const actionHandler = insightAction
+                const actionHandler = insightActionsMapping[change.field]
                 const processedChange = actionHandler(change, logItem, asNotification)
                 if (processedChange === null) {
-                    continue // unexpected log from backend is indescribable
+                    continue // // unexpected log from backend is indescribable
                 }
 
                 const { description, extendedDescription: _extendedDescription, suffix } = processedChange

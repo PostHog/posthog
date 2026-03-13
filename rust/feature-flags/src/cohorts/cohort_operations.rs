@@ -46,8 +46,7 @@ impl Cohort {
                   c.is_static,
                   c.errors_calculating,
                   c.groups,
-                  c.created_by_id,
-                  c.cohort_type
+                  c.created_by_id
               FROM posthog_cohort AS c
               JOIN posthog_team AS t ON (c.team_id = t.id)
             WHERE t.id = $1
@@ -564,7 +563,6 @@ mod tests {
             errors_calculating: 0,
             groups: json!({}),
             created_by_id: None,
-            cohort_type: None,
         };
 
         // This should not fail even though the filters are malformed
@@ -590,7 +588,6 @@ mod tests {
             errors_calculating: 0,
             groups: json!({}),
             created_by_id: None,
-            cohort_type: None,
         };
 
         let dependencies = static_cohort_empty_filters.extract_dependencies().unwrap();
@@ -613,7 +610,6 @@ mod tests {
             errors_calculating: 0,
             groups: json!({}),
             created_by_id: None,
-            cohort_type: None,
         };
 
         // This should fail because it's dynamic and the filters are malformed
@@ -657,7 +653,6 @@ mod tests {
             errors_calculating: 0,
             groups: json!({}),
             created_by_id: None,
-            cohort_type: None,
         }
     }
 
@@ -703,7 +698,6 @@ mod tests {
             errors_calculating: 0,
             groups: json!({}),
             created_by_id: None,
-            cohort_type: None,
         };
 
         // Create a dynamic cohort (cohort 20) that depends on the static cohort
@@ -736,7 +730,6 @@ mod tests {
             errors_calculating: 0,
             groups: json!({}),
             created_by_id: None,
-            cohort_type: None,
         };
 
         let cohorts = vec![static_cohort, dynamic_cohort];
@@ -822,7 +815,6 @@ mod tests {
             errors_calculating: 0,
             groups: json!({}),
             created_by_id: None,
-            cohort_type: None,
         };
 
         let cohorts = vec![cohort_with_negation];

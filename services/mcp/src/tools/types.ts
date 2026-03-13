@@ -45,16 +45,6 @@ export type Env = {
      * PostHog API token for MCP Apps analytics (used for CSP and analytics ingestion).
      */
     POSTHOG_UI_APPS_TOKEN: string | undefined
-    /**
-     * PostHog API key for dev/self-hosted analytics.
-     * Falls back to the production US key if not set.
-     */
-    POSTHOG_ANALYTICS_API_KEY: string | undefined
-    /**
-     * PostHog host for dev/self-hosted analytics.
-     * Falls back to the production US host if not set.
-     */
-    POSTHOG_ANALYTICS_HOST: string | undefined
 }
 
 export type Context = {
@@ -65,12 +55,12 @@ export type Context = {
     sessionManager: SessionManager
 }
 
-export type Tool<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = {
+export type Tool<TSchema extends z.ZodType = z.ZodType> = {
     name: string
     title: string
     description: string
     schema: TSchema
-    handler: (context: Context, params: z.infer<TSchema>) => Promise<TResult>
+    handler: (context: Context, params: z.infer<TSchema>) => Promise<any>
     scopes: string[]
     annotations: {
         destructiveHint: boolean
@@ -81,8 +71,8 @@ export type Tool<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = {
     _meta?: ToolMeta
 }
 
-export type ToolBase<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = Omit<
-    Tool<TSchema, TResult>,
+export type ToolBase<TSchema extends z.ZodType = z.ZodType> = Omit<
+    Tool<TSchema>,
     'title' | 'description' | 'scopes' | 'annotations'
 > & {
     _meta?: ToolMeta

@@ -29,7 +29,7 @@ import {
     isNonIntegratedConversionsTableQuery,
     isPersonsNode,
 } from '~/queries/utils'
-import { ExportContext, ExporterFormat } from '~/types'
+import { ExporterFormat } from '~/types'
 
 import { dataTableLogic } from './dataTableLogic'
 
@@ -57,7 +57,7 @@ export async function startDownload(
         exportSource = transformQuerySourceForExport(query.source, personDisplayNameProperties)
     }
 
-    const exportContext: ExportContext = isPersonsNode(query.source)
+    const exportContext = isPersonsNode(query.source)
         ? { path: getPersonsEndpoint(query.source) }
         : { source: exportSource }
 

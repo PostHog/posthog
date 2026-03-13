@@ -1,5 +1,3 @@
-import './JSONViewer.scss'
-
 import ReactJson, { ReactJsonViewProps } from '@microlink/react-json-view'
 import { useValues } from 'kea'
 

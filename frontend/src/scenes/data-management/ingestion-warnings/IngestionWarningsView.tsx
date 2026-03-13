@@ -316,10 +316,7 @@ export function IngestionWarningsView(): JSX.Element {
                             title: 'Warning',
                             dataIndex: 'type',
                             render: function Render(_, summary: IngestionWarningSummary) {
-                                const type =
-                                    WARNING_TYPE_TO_DESCRIPTION[
-                                        summary.type as keyof typeof WARNING_TYPE_TO_DESCRIPTION
-                                    ] || summary.type
+                                const type = WARNING_TYPE_TO_DESCRIPTION[summary.type] || summary.type
                                 return (
                                     <>
                                         {type} (
@@ -392,7 +389,7 @@ function RenderNestedWarnings(warningSummary: IngestionWarningSummary): JSX.Elem
                     title: 'Description',
                     key: 'description',
                     render: function Render(_, warning: IngestionWarning) {
-                        const renderer = WARNING_TYPE_RENDERER[warning.type as keyof typeof WARNING_TYPE_RENDERER]
+                        const renderer = WARNING_TYPE_RENDERER[warning.type]
                         return renderer ? renderer(warning) : <pre>{JSON.stringify(warning.details, null, 2)}</pre>
                     },
                 },

@@ -17,8 +17,7 @@ import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFi
 import {
     DataWarehousePopoverField,
     DefinitionPopoverRenderer,
-    isSkeletonItem,
-    SkeletonItem,
+    ListStorage,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
@@ -210,7 +209,7 @@ const canSelectItem = (
 }
 
 interface InfiniteListRowProps {
-    results: (TaxonomicDefinitionTypes | SkeletonItem)[]
+    results: TaxonomicDefinitionTypes[]
     taxonomicGroups: TaxonomicFilterGroup[]
     group: TaxonomicFilterGroup
     listGroupType: TaxonomicFilterGroupType
@@ -227,6 +226,7 @@ interface InfiniteListRowProps {
     expandedCount: number
     isExpandable: boolean
     isLoading: boolean
+    items: ListStorage
     showNonCapturedEventOption: boolean
     trimmedSearchQuery: string
     dataWarehousePopoverFields: DataWarehousePopoverField[] | undefined
@@ -239,33 +239,6 @@ interface InfiniteListRowProps {
         item: TaxonomicDefinitionTypes | { name: string; isNonCaptured: true }
     ) => void
     setHighlightedItemElement: (element: HTMLDivElement | null) => void
-}
-
-function InfiniteListSkeletonItem({
-    style,
-    listGroupType,
-    rowIndex,
-    groupName,
-}: {
-    style: CSSProperties
-    listGroupType: TaxonomicFilterGroupType
-    rowIndex: number
-    groupName: string
-}): JSX.Element {
-    return (
-        <div
-            className={clsx('taxonomic-list-row', 'skeleton-row')}
-            style={style}
-            data-attr={`prop-skeleton-${listGroupType}-${rowIndex}`}
-        >
-            <div className="taxonomic-list-row-contents w-full">
-                <LemonSkeleton className="h-4 flex-1" />
-                <LemonTag size="small" type="highlight" className="ml-2 shrink-0">
-                    {groupName}
-                </LemonTag>
-            </div>
-        </div>
-    )
 }
 
 const InfiniteListRow = ({
@@ -302,18 +275,6 @@ const InfiniteListRow = ({
     style: CSSProperties
 } & InfiniteListRowProps): JSX.Element | null => {
     const item = results[rowIndex]
-
-    if (isSkeletonItem(item)) {
-        return (
-            <InfiniteListSkeletonItem
-                style={style}
-                listGroupType={listGroupType}
-                rowIndex={rowIndex}
-                groupName={item.groupName}
-            />
-        )
-    }
-
     const itemGroup = getItemGroup(item, taxonomicGroups, group)
     const itemValue = item ? itemGroup?.getValue?.(item) : null
 
@@ -510,7 +471,6 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
         value,
         taxonomicGroups,
         selectedProperties,
-        selectedItemMeta,
         dataWarehousePopoverFields,
     } = useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
@@ -527,6 +487,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
         totalListCount,
         expandedCount,
         showPopover,
+        items,
         showNonCapturedEventOption,
         showEmptyState,
         showLoadingState,
@@ -594,6 +555,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                                     expandedCount,
                                     isExpandable,
                                     isLoading,
+                                    items,
                                     showNonCapturedEventOption,
                                     trimmedSearchQuery,
                                     dataWarehousePopoverFields,
@@ -623,7 +585,6 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                     logic={definitionPopoverLogic}
                     props={{
                         type: selectedItemGroup.type,
-                        selectedItemMeta,
                         updateRemoteItem,
                     }}
                 >

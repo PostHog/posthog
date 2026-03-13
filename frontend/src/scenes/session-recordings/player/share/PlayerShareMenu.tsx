@@ -63,6 +63,18 @@ export function PlayerShareMenu(): JSX.Element {
                     onClick: () => onShare('public'),
                     'data-attr': 'share-public-link',
                 },
+                {
+                    label: 'Share to Linear',
+                    icon: <IconExternal />,
+                    onClick: () => onShare('linear'),
+                    'data-attr': 'share-to-linear',
+                },
+                {
+                    label: 'Share to Github Issues',
+                    icon: <IconExternal />,
+                    onClick: () => onShare('github'),
+                    'data-attr': 'share-to-github',
+                },
             ]}
             buttonSize="xsmall"
         >

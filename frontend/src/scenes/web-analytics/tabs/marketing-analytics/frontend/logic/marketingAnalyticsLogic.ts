@@ -873,7 +873,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             actions.syncFromUrl(params)
         }
 
-        actions.loadSources()
+        actions.loadSources(null)
         actions.loadDatabase()
     }),
 ])

@@ -5,7 +5,6 @@ import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isKeyOf } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { liveEventsLogic } from 'scenes/activity/live/liveEventsLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -241,13 +240,11 @@ export const sdksLogic = kea<sdksLogicType>([
         filterSDKs: () => {
             const availableSDKKeys = Object.keys(values.availableSDKInstructionsMap)
             const availableSDKs = ALL_SDKS.filter((sdk) => availableSDKKeys.includes(sdk.key)).map((sdk) =>
-                isKeyOf(sdk.key, values.sdkTagOverrides)
-                    ? { ...sdk, tags: values.sdkTagOverrides[sdk.key] as SDKTag[] }
-                    : sdk
+                values.sdkTagOverrides[sdk.key] ? { ...sdk, tags: values.sdkTagOverrides[sdk.key] } : sdk
             )
 
             const filteredSDks = values.sourceFilter
-                ? availableSDKs.filter((sdk) => sdk.tags?.includes(values.sourceFilter as SDKTag))
+                ? availableSDKs.filter((sdk) => sdk.tags.includes(values.sourceFilter as SDKTag))
                 : availableSDKs
 
             actions.setSDKs(filteredSDks)

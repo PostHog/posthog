@@ -7,8 +7,6 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -221,8 +219,6 @@ const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField |
 export interface SourceWizardLogicProps {
     onComplete?: () => void
     availableSources: Record<string, SourceConfig>
-    /** When set, only these tables will be pre-selected and they cannot be deselected */
-    requiredTables?: string[]
 }
 
 export const sourceWizardLogic = kea<sourceWizardLogicType>([
@@ -272,8 +268,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             ['dataWarehouseSources'],
             preflightLogic,
             ['preflight'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
         actions: [
             dataWarehouseTableLogic,
@@ -338,10 +332,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         source: [
-            { payload: {}, prefix: '', description: '', access_method: 'warehouse' } as {
+            { payload: {}, prefix: '', description: '' } as {
                 prefix: string
                 description: string
-                access_method: 'warehouse' | 'direct'
                 payload: Record<string, any>
             },
             {
@@ -349,14 +342,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     return {
                         prefix: source.prefix ?? state.prefix,
                         description: source.description ?? state.description,
-                        access_method: source.access_method ?? state.access_method,
                         payload: {
                             ...state.payload,
                             ...source.payload,
                         },
                     }
                 },
-                clearSource: () => ({ payload: {}, prefix: '', description: '', access_method: 'warehouse' }),
+                clearSource: () => ({ payload: {}, prefix: '', description: '' }),
             },
         ],
         isLoading: [
@@ -395,7 +387,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     }),
     selectors({
         availableSources: [() => [(_, p) => p.availableSources], (availableSources) => availableSources],
-        requiredTables: [() => [(_, p) => p.requiredTables], (requiredTables) => requiredTables ?? null],
         suggestedTablesMap: [
             (s) => [s.selectedConnector],
             (selectedConnector: SourceConfig | null): Record<string, string | null> => {
@@ -436,13 +427,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
 
         isManualLinkingSelected: [(s) => [s.selectedConnector], (selectedConnector): boolean => !selectedConnector],
-        isDirectQueryMode: [
-            (s) => [s.source, s.selectedConnector, s.featureFlags],
-            (source, selectedConnector, featureFlags): boolean =>
-                source.access_method === 'direct' &&
-                selectedConnector?.name === 'Postgres' &&
-                !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY],
-        ],
         canGoBack: [
             (s) => [s.currentStep],
             (currentStep): boolean => {
@@ -450,8 +434,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         canGoNext: [
-            (s) => [s.currentStep, s.isManualLinkingSelected, s.databaseSchema, s.isDirectQueryMode],
-            (currentStep, isManualLinkingSelected, databaseSchema, isDirectQueryMode): boolean => {
+            (s) => [s.currentStep, s.isManualLinkingSelected, s.databaseSchema],
+            (currentStep, isManualLinkingSelected, databaseSchema): boolean => {
                 if (isManualLinkingSelected && currentStep === 1) {
                     return false
                 }
@@ -459,10 +443,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 if (!isManualLinkingSelected && currentStep === 3) {
                     if (databaseSchema.filter((n) => n.should_sync).length === 0) {
                         return false
-                    }
-
-                    if (isDirectQueryMode) {
-                        return true
                     }
 
                     return databaseSchema.filter((n) => n.should_sync && !n.sync_type).length === 0
@@ -478,16 +458,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         nextButtonText: [
-            (s) => [s.currentStep, s.isManualLinkingSelected, s.isDirectQueryMode, (_, props) => props.onComplete],
-            (currentStep, isManualLinkingSelected, isDirectQueryMode, onComplete): string => {
+            (s) => [s.currentStep, s.isManualLinkingSelected, (_, props) => props.onComplete],
+            (currentStep, isManualLinkingSelected, onComplete): string => {
                 if (currentStep === 3 && isManualLinkingSelected) {
                     return 'Link'
                 }
 
                 if (currentStep === 3) {
-                    if (isDirectQueryMode) {
-                        return 'Save tables'
-                    }
                     return 'Import'
                 }
 
@@ -545,8 +522,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         modalTitle: [
-            (s) => [s.currentStep, s.isDirectQueryMode],
-            (currentStep, isDirectQueryMode) => {
+            (s) => [s.currentStep],
+            (currentStep) => {
                 if (currentStep === 1) {
                     return ''
                 }
@@ -555,11 +532,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }
 
                 if (currentStep === 3) {
-                    return isDirectQueryMode ? 'Select tables to query' : 'Select tables to import'
+                    return 'Select tables to import'
                 }
 
                 if (currentStep === 4) {
-                    return isDirectQueryMode ? 'Tables ready to query' : 'Importing your data...'
+                    return 'Importing your data...'
                 }
 
                 return ''
@@ -596,27 +573,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             if (values.currentStep === 3 && values.selectedConnector?.name) {
-                if (values.isDirectQueryMode) {
-                    actions.updateSource({
-                        payload: {
-                            schemas: values.databaseSchema.map((schema) => ({
-                                name: schema.table,
-                                should_sync: schema.should_sync,
-                                sync_type: null,
-                                incremental_field: null,
-                                incremental_field_type: null,
-                                sync_time_of_day: null,
-                            })),
-                        },
-                    })
-                    actions.setIsLoading(true)
-                    actions.createSource()
-                    if (values.selectedConnector) {
-                        posthog.capture('source created', { sourceType: values.selectedConnector.name })
-                    }
-                    return
-                }
-
                 const ignoredTables = values.databaseSchema.filter(
                     (schema) => !schema.should_sync || schema.sync_type === null
                 )
@@ -723,7 +679,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         cancelWizard: () => {
             actions.onClear()
             actions.clearSource()
-            actions.loadSources()
+            actions.loadSources(null)
             actions.resetSourceConnectionDetails()
         },
         createSource: async () => {
@@ -738,18 +694,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     source_type: values.selectedConnector.name,
                 })
 
+                lemonToast.success('New data resource created')
+
                 actions.setSourceId(id)
                 actions.resetSourceConnectionDetails()
-                actions.loadSources()
+                actions.loadSources(null)
                 actions.markTaskAsCompleted(SetupTaskId.ConnectSource)
-
-                // When requiredTables is set (e.g. signals setup), skip step 4 and complete directly
-                if (values.requiredTables && props.onComplete) {
-                    props.onComplete()
-                } else {
-                    lemonToast.success('New data resource created')
-                    actions.onNext()
-                }
+                actions.onNext()
             } catch (e: any) {
                 lemonToast.error(e.data?.message ?? e.message)
             } finally {
@@ -785,12 +736,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 let showToast = false
 
                 for (const schema of schemas) {
-                    if (values.isDirectQueryMode) {
-                        schema.should_sync = true
-                        schema.sync_type = null
-                        continue
-                    }
-
                     if (schema.sync_type === null) {
                         showToast = true
                         schema.should_sync = true
@@ -812,42 +757,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     }
                 }
 
-                if (showToast && !values.requiredTables) {
+                if (showToast) {
                     lemonToast.info(
                         "We've setup some defaults for you! Please take a look to make sure you're happy with the results."
                     )
-                }
-
-                // If required tables are specified (e.g. signals setup), skip the schema selection step
-                // entirely and create the source with only those tables, using their default sync settings
-                if (values.requiredTables) {
-                    const requiredSchemas = schemas.filter((schema) => values.requiredTables!.includes(schema.table))
-                    if (requiredSchemas.length !== values.requiredTables.length) {
-                        const missingTables = values.requiredTables.filter(
-                            (table: string) => !requiredSchemas.some((schema) => schema.table === table)
-                        )
-                        lemonToast.error(`Required tables not found in source: ${missingTables.join(', ')}`)
-                        actions.setIsLoading(false)
-                        return
-                    }
-
-                    actions.updateSource({
-                        payload: {
-                            schemas: requiredSchemas.map((schema) => ({
-                                name: schema.table,
-                                should_sync: true,
-                                sync_type: schema.sync_type,
-                                incremental_field: schema.incremental_field,
-                                incremental_field_type: schema.incremental_field_type,
-                                sync_time_of_day: schema.sync_time_of_day ?? null,
-                            })),
-                        },
-                    })
-                    // Jump to step 3 so that createSource's onNext() advances to step 4 (sync progress)
-                    actions.setStep(3)
-                    actions.setIsLoading(true)
-                    actions.createSource()
-                    return
                 }
 
                 actions.setDatabaseSchemas(schemas)
@@ -941,13 +854,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         sourceConnectionDetails: {
             defaults: buildKeaFormDefaultFromSourceDetails(props.availableSources),
             errors: (sourceValues) => {
-                const selectedAccessMethod =
-                    (sourceValues as Record<string, any>)?.access_method === 'direct' ? 'direct' : 'warehouse'
-                const normalizedValues = {
-                    ...(sourceValues as Record<string, any>),
-                    access_method: selectedAccessMethod,
-                }
-                const errors = getErrorsForFields(values.selectedConnector?.fields ?? [], normalizedValues as any)
+                const errors = getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues as any)
 
                 if (values.sourceConnectionDetailsManualErrors.prefix && sourceValues.prefix) {
                     actions.setSourceConnectionDetailsManualErrors({
@@ -959,21 +866,14 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
             submit: async (sourceValues) => {
                 if (values.selectedConnector) {
-                    const isDirectQueryMode =
-                        !!values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
-                        values.selectedConnector.name === 'Postgres' &&
-                        sourceValues.access_method === 'direct'
                     const payload: Record<string, any> = {
                         ...sourceValues,
-                        access_method: isDirectQueryMode ? 'direct' : 'warehouse',
                         source_type: values.selectedConnector.name,
                     }
                     actions.setIsLoading(true)
 
                     try {
-                        if (!isDirectQueryMode) {
-                            await api.externalDataSources.source_prefix(payload.source_type, sourceValues.prefix)
-                        }
+                        await api.externalDataSources.source_prefix(payload.source_type, sourceValues.prefix)
 
                         const payloadKeys = (values.selectedConnector?.fields ?? []).map((n) => ({
                             name: n.name,
@@ -1029,20 +929,14 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
 export const getErrorsForFields = (
     fields: SourceFieldConfig[],
-    values: { prefix: string; payload: Record<string, any>; access_method?: 'warehouse' | 'direct' } | undefined,
-    options?: { allowBlankSensitiveFields?: boolean }
+    values: { prefix: string; payload: Record<string, any> } | undefined
 ): Record<string, any> => {
     const errors: Record<string, any> = {
         payload: {},
     }
 
-    const isDirectMode = values?.access_method === 'direct'
-
-    if (isDirectMode) {
-        if (!values?.prefix?.trim()) {
-            errors['prefix'] = 'Please enter a name for this direct query source.'
-        }
-    } else if (!/^[a-zA-Z0-9_-]*$/.test(values?.prefix ?? '')) {
+    // Prefix errors
+    if (!/^[a-zA-Z0-9_-]*$/.test(values?.prefix ?? '')) {
         errors['prefix'] = "Please enter a valid prefix (only letters, numbers, and '_' or '-')."
     }
 
@@ -1080,19 +974,6 @@ export const getErrorsForFields = (
         }
 
         // All other types - check if required property exists on this field type
-        if (
-            options?.allowBlankSensitiveFields &&
-            'type' in field &&
-            field.type === 'password' &&
-            !valueObj[field.name]
-        ) {
-            return
-        }
-
-        if (options?.allowBlankSensitiveFields && field.name === 'private_key' && !valueObj[field.name]) {
-            return
-        }
-
         if ('required' in field && field.required && !valueObj[field.name]) {
             errorsObj[field.name] = `Please enter a ${field.label.toLowerCase()}`
         }

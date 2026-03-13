@@ -23,7 +23,7 @@ import {
 import type { productSelectionLogicType } from './productSelectionLogicType'
 
 export type OnboardingStep = 'choose_path' | 'product_selection'
-export type RecommendationSource = 'use_case' | 'ai' | 'browsing_history' | 'manual' | 'simplified'
+export type RecommendationSource = 'use_case' | 'ai' | 'browsing_history' | 'manual'
 
 export const productSelectionLogic = kea<productSelectionLogicType>([
     path(['scenes', 'onboarding', 'productSelection', 'productSelectionLogic']),
@@ -64,9 +64,6 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
 
         // Pick myself path
         selectPickMyself: true,
-
-        // Simplified single-select (picks one product and starts onboarding immediately)
-        selectSingleProduct: (productKey: ProductKey) => ({ productKey }),
 
         // Continue to onboarding
         handleStartOnboarding: true,
@@ -312,13 +309,6 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
             }
 
             actions.reportOnboardingProductToggled(productKey, isNowSelected, values.recommendationSource)
-        },
-
-        selectSingleProduct: ({ productKey }) => {
-            actions.setSelectedProducts([productKey])
-            actions.setFirstProductOnboarding(productKey)
-            actions.setRecommendationSource('simplified')
-            actions.handleStartOnboarding()
         },
 
         handleStartOnboarding: () => {

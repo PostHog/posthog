@@ -125,8 +125,6 @@ pub enum FlagError {
     DataParsingError,
     #[error("Parallel batch evaluation task panicked")]
     BatchEvaluationPanicked,
-    #[error("Rayon semaphore acquisition timed out after {0}ms")]
-    RayonSemaphoreTimeout(u64),
     #[error(transparent)]
     CookielessError(#[from] CookielessManagerError),
 }
@@ -176,7 +174,6 @@ impl FlagError {
             FlagError::DataParsingError => ("data_parsing_error", 500),
             FlagError::BatchEvaluationPanicked => ("batch_evaluation_panicked", 500),
             FlagError::HashKeyOverrideError => ("hash_key_override_error", 500),
-            FlagError::RayonSemaphoreTimeout(_) => ("rayon_semaphore_timeout", 504),
 
             // Data parsing errors (500) - internal errors, not service unavailability
             FlagError::DataParsingErrorWithContext(_) => ("flag_data_parsing_error", 500),
@@ -320,8 +317,6 @@ impl FlagError {
             | FlagError::DataParsingErrorWithContext(_)
             | FlagError::HashKeyOverrideError => StatusCode::INTERNAL_SERVER_ERROR,
 
-            FlagError::RayonSemaphoreTimeout(_) => StatusCode::GATEWAY_TIMEOUT,
-
             FlagError::RedisUnavailable
             | FlagError::DatabaseUnavailable
             | FlagError::TimeoutError(_)
@@ -350,15 +345,7 @@ impl IntoResponse for FlagError {
             FlagError::ClientFacing(err) => match err {
                 ClientFacingError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
                 ClientFacingError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg),
-                ClientFacingError::BillingLimit => {
-                    let response = AuthenticationErrorResponse {
-                        error_type: "quota_limited".to_string(),
-                        code: "payment_required".to_string(),
-                        detail: "You have exceeded your feature flag request quota".to_string(),
-                        attr: None,
-                    };
-                    return (StatusCode::PAYMENT_REQUIRED, Json(response)).into_response();
-                }
+                ClientFacingError::BillingLimit => (StatusCode::PAYMENT_REQUIRED, "Billing limit reached. Please upgrade your plan.".to_string()),
                 ClientFacingError::RateLimited
                 | ClientFacingError::IpRateLimited
                 | ClientFacingError::TokenRateLimited => {
@@ -522,10 +509,6 @@ impl IntoResponse for FlagError {
                 tracing::error!("Parallel batch evaluation task panicked");
                 (StatusCode::INTERNAL_SERVER_ERROR, "An internal error occurred during flag evaluation. Please try again later.".to_string())
             }
-            FlagError::RayonSemaphoreTimeout(ms) => {
-                tracing::warn!("Rayon semaphore acquisition timed out after {}ms", ms);
-                (StatusCode::GATEWAY_TIMEOUT, format!("Evaluation pool busy, timed out after {ms}ms. Please retry."))
-            }
             FlagError::CookielessError(err) => {
                 match err {
                     // 400 Bad Request errors - client-side issues
@@ -639,7 +622,6 @@ mod tests {
         assert!(FlagError::RedisUnavailable.is_5xx());
         assert!(FlagError::TimeoutError(None).is_5xx());
         assert!(FlagError::BatchEvaluationPanicked.is_5xx());
-        assert!(FlagError::RayonSemaphoreTimeout(800).is_5xx());
         assert!(FlagError::ClientFacing(ClientFacingError::ServiceUnavailable).is_5xx());
 
         // Test 4XX errors
@@ -758,7 +740,6 @@ mod tests {
             FlagError::CacheMiss,
             FlagError::DataParsingError,
             FlagError::BatchEvaluationPanicked,
-            FlagError::RayonSemaphoreTimeout(800),
             CookielessManagerError::MissingProperty("test".to_string()).into(), // CookielessError
         ];
 
@@ -812,8 +793,6 @@ mod tests {
         assert_eq!(FlagError::PersonNotFound.status_code(), 503);
         assert_eq!(FlagError::PropertiesNotInCache.status_code(), 503);
         assert_eq!(FlagError::StaticCohortMatchesNotCached.status_code(), 503);
-        // Semaphore timeout is 504 (gateway timeout for ingress retry)
-        assert_eq!(FlagError::RayonSemaphoreTimeout(800).status_code(), 504);
     }
 
     #[test]
@@ -862,7 +841,6 @@ mod tests {
             FlagError::DependencyCycle(DependencyType::Cohort, 2),
             FlagError::DataParsingError,
             FlagError::BatchEvaluationPanicked,
-            FlagError::RayonSemaphoreTimeout(800),
             FlagError::DataParsingErrorWithContext("test".to_string()),
             FlagError::RedisUnavailable,
             FlagError::DatabaseUnavailable,
@@ -976,7 +954,6 @@ mod tests {
             FlagError::CacheMiss,
             FlagError::DataParsingError,
             FlagError::BatchEvaluationPanicked,
-            FlagError::RayonSemaphoreTimeout(800),
             CookielessManagerError::MissingProperty("test".to_string()).into(),
         ];
 

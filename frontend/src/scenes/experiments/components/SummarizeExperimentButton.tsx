@@ -12,7 +12,6 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { experimentLogic } from '../experimentLogic'
-import { isLaunched } from '../experimentsLogic'
 
 /**
  * Minimal context sent to the backend for experiment summarization.
@@ -53,9 +52,9 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
 
     const shouldShowMaxSummaryTool = useMemo(() => {
         const hasResults = orderedPrimaryMetricsWithResults.length > 0
-        const hasStarted = isLaunched(experiment)
+        const hasStarted = !!experiment.start_date
         return hasResults && hasStarted
-    }, [orderedPrimaryMetricsWithResults, experiment.status, experiment.start_date, experiment.end_date])
+    }, [orderedPrimaryMetricsWithResults, experiment.start_date])
 
     const maxToolResult = useMaxTool({
         identifier: 'experiment_results_summary',

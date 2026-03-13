@@ -1,6 +1,8 @@
-import { keyForSource, processAllSnapshots } from '@posthog/replay-shared'
-
-import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
+import {
+    parseEncodedSnapshots,
+    processAllSnapshots,
+} from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
+import { keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 
 import { encodedWebSnapshotData } from './__mocks__/encoded-snapshot-data'
 

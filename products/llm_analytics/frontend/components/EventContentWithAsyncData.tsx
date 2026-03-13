@@ -3,10 +3,7 @@ import React from 'react'
 import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
 import { isObject } from 'lib/utils'
 
-import {
-    ConversationDisplayOption,
-    ConversationMessagesDisplay,
-} from '../ConversationDisplay/ConversationMessagesDisplay'
+import { ConversationMessagesDisplay } from '../ConversationDisplay/ConversationMessagesDisplay'
 import { useAIData } from '../hooks/useAIData'
 import { normalizeMessage, normalizeMessages } from '../utils'
 import { AIDataLoading } from './AIDataLoading'
@@ -21,7 +18,7 @@ interface EventContentGenerationProps {
     httpStatus: unknown
     raisedError: boolean
     searchQuery?: string
-    displayOption?: ConversationDisplayOption
+    displayOption?: 'expand_all' | 'collapse_except_output_and_last_input' | 'text_view'
 }
 
 export function EventContentGeneration({

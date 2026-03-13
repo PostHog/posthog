@@ -8,7 +8,6 @@ import { Label } from 'lib/ui/Label/Label'
 
 import { Experiment } from '~/types'
 
-import { isLaunched } from '../experimentsLogic'
 import { ManualCalculatorMetricType } from './calculations'
 import { runningTimeLogic } from './runningTimeLogic'
 
@@ -59,7 +58,7 @@ export function RunningTimeConfigModal({ experimentId, tabId }: RunningTimeConfi
     const { setConfig, save, cancel } = useActions(runningTimeLogic({ experimentId, tabId }))
 
     const hasAutomaticData = remainingDays !== null
-    const isPreLaunch = !isLaunched(experiment)
+    const isPreLaunch = !experiment?.start_date
 
     return (
         <LemonModal isOpen={isRunningTimeConfigModalOpen} onClose={cancel} width={480} simple>

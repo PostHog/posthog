@@ -9,7 +9,6 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.event_usage import groups
 from posthog.models.integration import (
     GitHubIntegration,
@@ -42,7 +41,7 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
     config = serializers.JSONField(write_only=True)
     session_recording_id = serializers.CharField(write_only=True)
     integration = SessionRecordingExternalReferenceIntegrationSerializer(read_only=True)
-    integration_id = TeamScopedPrimaryKeyRelatedField(
+    integration_id = serializers.PrimaryKeyRelatedField(
         write_only=True, queryset=Integration.objects.all(), source="integration"
     )
     external_url = serializers.SerializerMethodField()

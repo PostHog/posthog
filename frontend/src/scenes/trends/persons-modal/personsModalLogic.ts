@@ -5,10 +5,9 @@ import { router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { assignField, isGroupType, isSessionType } from 'lib/utils'
+import { isGroupType, isSessionType } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -86,8 +85,8 @@ export const personsModalLogic = kea<personsModalLogicType>([
         loadActorsQueryOptions: (query: InsightActorsQuery) => ({ query }),
     }),
     connect(() => ({
-        values: [groupsModel, ['groupTypes', 'aggregationLabel'], teamLogic, ['currentTeamId']],
-        actions: [eventUsageLogic, ['reportPersonsModalViewed', 'reportPersonsModalSearched']],
+        values: [groupsModel, ['groupTypes', 'aggregationLabel']],
+        actions: [eventUsageLogic, ['reportPersonsModalViewed']],
     })),
 
     loaders(({ values, actions, props }) => ({
@@ -125,9 +124,9 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         breakpoint()
 
                         const assembledSelectFields = values.selectFields
-                        const fieldKeys = Object.keys(props.additionalSelect || {}) as Array<keyof CommonActorType>
-                        const fieldValues = Object.values(props.additionalSelect || {}) as Array<keyof CommonActorType>
-                        const additionalFieldIndices = fieldValues.map((field) => assembledSelectFields.indexOf(field))
+                        const additionalFieldIndices = Object.values(props.additionalSelect || {}).map((field) =>
+                            assembledSelectFields.indexOf(field)
+                        )
                         const personColumnIndex = (response.columns || []).indexOf('person')
                         const newResponse: ListActorsResponse = {
                             results: [
@@ -145,12 +144,11 @@ export const personsModalLogic = kea<personsModalLogicType>([
                                                 matched_recordings: [],
                                                 value_at_data_point: null,
                                             }
-                                            fieldKeys.forEach((field, index) => {
-                                                assignField(group, field, result[additionalFieldIndices[index]])
+                                            Object.keys(props.additionalSelect || {}).forEach((field, index) => {
+                                                group[field] = result[additionalFieldIndices[index]]
                                             })
                                             return group
                                         }
-
                                         if (result[0].session_id !== undefined) {
                                             const session: SessionActorType = {
                                                 type: 'session',
@@ -161,8 +159,8 @@ export const personsModalLogic = kea<personsModalLogicType>([
                                                 value_at_data_point: null,
                                                 person: personColumnIndex >= 0 ? result[personColumnIndex] : undefined,
                                             }
-                                            fieldKeys.forEach((field, index) => {
-                                                assignField(session, field, result[additionalFieldIndices[index]])
+                                            Object.keys(props.additionalSelect || {}).forEach((field, index) => {
+                                                session[field] = result[additionalFieldIndices[index]]
                                             })
                                             return session
                                         }
@@ -176,9 +174,11 @@ export const personsModalLogic = kea<personsModalLogicType>([
                                             matched_recordings: [],
                                             value_at_data_point: null,
                                         }
-                                        fieldKeys.forEach((field, index) => {
-                                            assignField(person, field, result[additionalFieldIndices[index]])
+
+                                        Object.keys(props.additionalSelect || {}).forEach((field, index) => {
+                                            person[field] = result[additionalFieldIndices[index]]
                                         })
+
                                         return person
                                     }),
                                 },
@@ -275,16 +275,9 @@ export const personsModalLogic = kea<personsModalLogicType>([
     })),
 
     listeners(({ actions, values, props }) => ({
-        setSearchTerm: async ({ search }, breakpoint) => {
+        setSearchTerm: async (_, breakpoint) => {
             await breakpoint(500)
             actions.loadActors({ url: props.url, clear: true })
-
-            if (search) {
-                actions.reportPersonsModalSearched({
-                    teamId: values.currentTeamId,
-                    actorType: values.actorLabel.singular,
-                })
-            }
         },
         saveAsCohort: async ({ cohortName }) => {
             const cohortParams = {

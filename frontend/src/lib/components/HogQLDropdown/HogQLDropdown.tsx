@@ -23,7 +23,7 @@ export const HogQLDropdown = ({
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
 
     return (
-        <div className={clsx('flex-auto min-w-0', className)}>
+        <div className={clsx('flex-auto overflow-hidden', className)}>
             <LemonDropdown
                 visible={isHogQLDropdownVisible}
                 closeOnClickInside={false}

@@ -26,7 +26,6 @@ export {
  */
 export type RecordingApiConfig = Pick<
     PluginsServerConfig,
-    | 'SITE_URL'
     | 'KAFKA_CLIENT_RACK'
     | 'REDIS_POOL_MIN_SIZE'
     | 'REDIS_POOL_MAX_SIZE'

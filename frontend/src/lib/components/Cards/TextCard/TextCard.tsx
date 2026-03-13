@@ -4,8 +4,7 @@ import clsx from 'clsx'
 import React from 'react'
 
 import { Resizeable } from 'lib/components/Cards/CardMeta'
-import { DashboardResizeHandles } from 'lib/components/Cards/handles'
-import { EditModeEdgeOverlay } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
+import { ResizeHandle1D, ResizeHandle2D } from 'lib/components/Cards/handles'
 import { More, MoreProps } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
@@ -15,13 +14,7 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
     textTile: DashboardTile<QueryBasedInsightModel>
     placement: DashboardPlacement
     children?: JSX.Element
-    /** Whether hovering near the card edge should hint that edit mode is available. */
-    canEnterEditModeFromEdge?: boolean
-    /** Called when the user clicks an edge hint to enter edit mode. */
-    onEnterEditModeFromEdge?: () => void
     moreButtonOverlay?: MoreProps['overlay']
-    /** Called when the user mousedowns on the card body (drag handle) in view mode to enter edit mode. */
-    onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
 }
 
 interface TextCardBodyProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'className'> {
@@ -37,17 +30,15 @@ export function TextContent({ text, closeDetails, className }: TextCardBodyProps
     )
 }
 
-function TextCardInternal(
+export function TextCardInternal(
     {
         textTile,
         showResizeHandles,
+        canResizeWidth,
         children,
         className,
         moreButtonOverlay,
         placement,
-        canEnterEditModeFromEdge,
-        onEnterEditModeFromEdge,
-        onDragHandleMouseDown,
         ...divProps
     }: TextCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -62,7 +53,11 @@ function TextCardInternal(
 
     return (
         <div
-            className={clsx('TextCard bg-surface-primary border rounded flex flex-col', className)}
+            className={clsx(
+                'TextCard bg-surface-primary border rounded flex flex-col',
+                className,
+                showResizeHandles && 'border'
+            )}
             data-attr="text-card"
             {...divProps}
             ref={ref}
@@ -73,20 +68,20 @@ function TextCardInternal(
                 </div>
             )}
 
-            <div
-                className={clsx('TextCard__body w-full', onDragHandleMouseDown && 'cursor-grab')}
-                onMouseDown={onDragHandleMouseDown}
-            >
+            <div className="TextCard__body w-full">
                 <TextContent text={text.body} className="p-4 pr-14" />
             </div>
 
-            {canEnterEditModeFromEdge && !showResizeHandles && onEnterEditModeFromEdge && (
-                <EditModeEdgeOverlay onEnterEditMode={onEnterEditModeFromEdge} />
+            {showResizeHandles && (
+                <>
+                    {canResizeWidth ? <ResizeHandle1D orientation="vertical" /> : null}
+                    <ResizeHandle1D orientation="horizontal" />
+                    {canResizeWidth ? <ResizeHandle2D /> : null}
+                </>
             )}
-            {showResizeHandles && <DashboardResizeHandles />}
             {children /* Extras, such as resize handles */}
         </div>
     )
 }
 
-export const TextCard = React.forwardRef<HTMLDivElement, TextCardProps>(TextCardInternal)
+export const TextCard = React.forwardRef(TextCardInternal) as typeof TextCardInternal

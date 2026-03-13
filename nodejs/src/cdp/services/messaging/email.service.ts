@@ -1,5 +1,4 @@
 import { MessageHeader, SESv2Client, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
-import { SendMailOptions } from 'nodemailer'
 
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
@@ -19,17 +18,6 @@ export interface EmailServiceConfig {
     sesSecretAccessKey: string
     sesRegion: string
     sesEndpoint: string
-}
-
-export function parseAddressList(value?: string): string[] | undefined {
-    if (!value || !value.trim()) {
-        return undefined
-    }
-    const result = value
-        .split(',')
-        .map((addr) => addr.trim())
-        .filter((addr) => addr.length > 0)
-    return result.length > 0 ? result : undefined
 }
 
 export class EmailService {
@@ -108,8 +96,8 @@ export class EmailService {
 
         result.metrics.push({
             team_id: invocation.teamId,
-            app_source_id: invocation.parentRunId ?? invocation.functionId,
-            instance_id: invocation.state.actionId || invocation.id,
+            app_source_id: invocation.functionId,
+            instance_id: invocation.id,
             metric_kind: 'email',
             metric_name: success ? 'email_sent' : 'email_failed',
             count: 1,
@@ -142,25 +130,13 @@ export class EmailService {
         params: CyclotronInvocationQueueParametersEmailType
     ): Promise<void> {
         // This can timeout but there is no native timeout so we do our own one
-        const mailOptions: SendMailOptions = {
+        const response = await mailDevTransport!.sendMail({
             from: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
             to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
             subject: params.subject,
             text: params.text,
             html: addTrackingToEmail(params.html, result.invocation),
-        }
-
-        const ccAddresses = parseAddressList(params.cc)
-        const bccAddresses = parseAddressList(params.bcc)
-
-        if (ccAddresses) {
-            mailOptions.cc = ccAddresses
-        }
-        if (bccAddresses) {
-            mailOptions.bcc = bccAddresses
-        }
-
-        const response = await mailDevTransport!.sendMail(mailOptions)
+        })
 
         if (!response.accepted) {
             throw new Error(`Failed to send email to maildev: ${JSON.stringify(response)}`)
@@ -217,18 +193,11 @@ export class EmailService {
             })
         }
 
-        const replyToAddresses = parseAddressList(params.replyTo)
-        const ccAddresses = parseAddressList(params.cc)
-        const bccAddresses = parseAddressList(params.bcc)
-
-        if (replyToAddresses) {
-            sendEmailParams.ReplyToAddresses = replyToAddresses
-        }
-        if (ccAddresses) {
-            sendEmailParams.Destination!.CcAddresses = ccAddresses
-        }
-        if (bccAddresses) {
-            sendEmailParams.Destination!.BccAddresses = bccAddresses
+        if (params.replyTo && params.replyTo.trim()) {
+            sendEmailParams.ReplyToAddresses = params.replyTo
+                .split(',')
+                .map((addr) => addr.trim())
+                .filter((addr) => addr.length > 0)
         }
 
         try {

@@ -3,7 +3,6 @@ import { useValues } from 'kea'
 import { LemonBanner, LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
@@ -57,8 +56,6 @@ function PowerUsersTable(): JSX.Element {
     const { businessType, customerLabel, dauSeries, selectedGroupType, tabId, filterTestAccounts } =
         useValues(customerAnalyticsSceneLogic)
     const { isRevenueAnalyticsEnabled, baseCurrency } = useValues(revenueAnalyticsLogic)
-    const { currentTeam } = useValues(teamLogic)
-    const lastSeenEnabled = currentTeam?.extra_settings?.person_last_seen_at_enabled === true
     const revenueFieldsEnabled = useFeatureFlag('REVENUE_FIELDS_IN_POWER_USERS_TABLE')
     const uniqueKey = `power-users-${tabId}`
     const insightProps: InsightLogicProps<InsightVizNode> = {
@@ -78,12 +75,7 @@ function PowerUsersTable(): JSX.Element {
         source: {
             kind: NodeKind.ActorsQuery,
             select: isB2c
-                ? [
-                      'person_display_name -- Person',
-                      'event_count',
-                      ...revenueFields,
-                      ...(lastSeenEnabled ? ['last_seen_at'] : []),
-                  ]
+                ? ['person_display_name -- Person', 'event_count', ...revenueFields, 'last_seen_at']
                 : ['group', 'event_count', ...revenueFields, 'last_seen'],
             source: {
                 kind: NodeKind.InsightActorsQuery,

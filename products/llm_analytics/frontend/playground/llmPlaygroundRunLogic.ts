@@ -1,5 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
-import posthog from 'posthog-js'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -22,13 +21,13 @@ interface ToolCallChunk {
     }
 }
 
-export interface AggregatedToolCall {
+interface AggregatedToolCall {
     id: string
     name: string
     arguments: string
 }
 
-export interface UsageSummary {
+interface UsageSummary {
     prompt_tokens?: number | null
     completion_tokens?: number | null
     total_tokens?: number | null
@@ -36,7 +35,7 @@ export interface UsageSummary {
     cache_write_tokens?: number | null
 }
 
-export function appendToolCallChunk(state: AggregatedToolCall[], toolCall: ToolCallChunk): AggregatedToolCall[] {
+function appendToolCallChunk(state: AggregatedToolCall[], toolCall: ToolCallChunk): AggregatedToolCall[] {
     if (toolCall.id && toolCall.id !== 'null') {
         const existingIndex = state.findIndex((tc) => tc.id === toolCall.id)
         if (existingIndex >= 0) {
@@ -100,7 +99,7 @@ function normalizeUsageFromStreamChunk(data: Record<string, unknown>): UsageSumm
 /** Merge a new usage chunk into existing usage, keeping non-zero values from prior chunks.
  * Anthropic sends input_tokens in message_start and output_tokens in message_delta,
  * so a simple replace would zero out the input_tokens. */
-export function mergeUsage(prev: UsageSummary, next: UsageSummary): UsageSummary {
+function mergeUsage(prev: UsageSummary, next: UsageSummary): UsageSummary {
     const pick = (a: number | null | undefined, b: number | null | undefined): number | null => {
         if (typeof b === 'number' && b > 0) {
             return b
@@ -124,46 +123,29 @@ export interface ComparisonItem {
     systemPrompt: string
     requestMessages: Message[]
     response: string
-    reasoning?: string
-    toolCalls?: AggregatedToolCall[]
-    provider?: string
-    providerKeyId?: string | null
     error?: boolean
     usage?: UsageSummary
     ttftMs?: number | null
     latencyMs?: number | null
 }
 
-// Per-key abort controllers so each tab can independently cancel its own in-flight run
-// without affecting other tabs. Using a Map instead of Kea state avoids storing
-// non-serializable objects in reducers.
-const abortControllersByKey = new Map<string, AbortController>()
-
-export interface LLMPlaygroundRunLogicProps {
-    tabId?: string
-}
-
 export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'playground', 'llmPlaygroundRunLogic']),
-    props({} as LLMPlaygroundRunLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
-    connect(({ tabId }: LLMPlaygroundRunLogicProps) => ({
+    connect(() => ({
         values: [
-            llmPlaygroundPromptsLogic({ tabId }),
+            llmPlaygroundPromptsLogic,
             ['promptConfigs'],
-            llmPlaygroundModelLogic({ tabId }),
+            llmPlaygroundModelLogic,
             ['effectiveModelOptions', 'activeProviderKeyId'],
             llmProviderKeysLogic,
             ['providerKeys'],
         ],
-        actions: [llmPlaygroundPromptsLogic({ tabId }), ['resetPlayground']],
     })),
 
     actions({
         submitPrompt: true,
         finishSubmitPrompt: true,
-        abortRun: true,
         addToComparison: (item: ComparisonItem) => ({ item }),
         updateComparisonItem: (id: string, payload: Partial<ComparisonItem>) => ({ id, payload }),
         setRateLimited: (retryAfterSeconds: number) => ({ retryAfterSeconds }),
@@ -181,7 +163,6 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
         comparisonItems: [
             [] as ComparisonItem[],
             {
-                resetPlayground: () => [],
                 submitPrompt: () => [],
                 addToComparison: (state: ComparisonItem[], { item }: { item: ComparisonItem }) => [...state, item],
                 updateComparisonItem: (
@@ -205,21 +186,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, props }) => ({
-        abortRun: () => {
-            posthog.capture('llma playground prompt aborted')
-            const key = props.tabId ?? 'default'
-            abortControllersByKey.get(key)?.abort()
-        },
-        setRateLimited: ({ retryAfterSeconds }) => {
-            posthog.capture('llma playground rate limited', { retry_after_seconds: retryAfterSeconds })
-        },
-        setSubscriptionRequired: ({ required }) => {
-            if (required) {
-                posthog.capture('llma playground subscription required')
-            }
-        },
-
+    listeners(({ actions, values }) => ({
         submitPrompt: async (_: unknown, breakpoint: () => void) => {
             const runnablePrompts = values.promptConfigs
                 .map((prompt: PromptConfig, index: number) => ({
@@ -235,19 +202,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                 return
             }
 
-            posthog.capture('llma playground prompt submitted', {
-                prompt_count: runnablePrompts.length,
-                models: runnablePrompts.map(({ prompt }) => prompt.model),
-                has_tools: runnablePrompts.some(({ prompt }) => !!prompt.tools?.length),
-                total_message_count: runnablePrompts.reduce(
-                    (sum, { messagesToSend }) => sum + messagesToSend.length,
-                    0
-                ),
-            })
-
-            const key = props.tabId ?? 'default'
             const abortController = new AbortController()
-            abortControllersByKey.set(key, abortController)
             try {
                 const runs = runnablePrompts.map(async ({ prompt, index, messagesToSend }) => {
                     const liveItemId = uuid()
@@ -257,11 +212,8 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                     let firstTokenTime: number | null = null
                     let startTime: number | null = null
                     let responseText = ''
-                    let responseReasoning = ''
                     let responseHasError = false
-                    let toolCalls: AggregatedToolCall[] = []
-                    let providerKeyId: string | null = null
-                    let selectedModelProvider = ''
+                    let toolCalls: Array<{ id: string; name: string; arguments: string }> = []
                     let itemAdded = false
 
                     const upsertLiveItem = (): void => {
@@ -273,10 +225,6 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                             systemPrompt: prompt.systemPrompt,
                             requestMessages: messagesToSend,
                             response: responseText,
-                            reasoning: responseReasoning,
-                            toolCalls,
-                            provider: selectedModelProvider,
-                            providerKeyId,
                             error: responseHasError,
                             usage: responseUsage,
                             ttftMs,
@@ -306,26 +254,23 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                             return
                         }
 
-                        providerKeyId =
+                        const providerKeyId =
                             resolveProviderKeyForPrompt(prompt, values.effectiveModelOptions, values.providerKeys)
                                 ?.id ?? values.activeProviderKeyId
-                        selectedModelProvider = selectedModel.provider.toLowerCase()
 
                         const requestData: Record<string, unknown> = {
                             system: prompt.systemPrompt,
-                            messages: messagesToSend
-                                .filter((m: Message) => m.role === 'user' || m.role === 'assistant')
-                                .map((m: Message) => ({ role: m.role, content: m.content })),
+                            messages: messagesToSend.filter(
+                                (m: Message) => m.role === 'user' || m.role === 'assistant'
+                            ),
                             model: selectedModel.id,
-                            provider: selectedModelProvider,
+                            provider: selectedModel.provider.toLowerCase(),
                             thinking: prompt.thinking,
                             ...(providerKeyId ? { provider_key_id: providerKeyId } : {}),
                             ...(prompt.tools ? { tools: prompt.tools } : {}),
                             ...(prompt.maxTokens !== null && prompt.maxTokens > 0
                                 ? { max_tokens: prompt.maxTokens }
                                 : {}),
-                            ...(typeof prompt.temperature === 'number' ? { temperature: prompt.temperature } : {}),
-                            ...(typeof prompt.topP === 'number' ? { top_p: prompt.topP } : {}),
                             ...(prompt.reasoningLevel ? { reasoning_level: prompt.reasoningLevel } : {}),
                         }
 
@@ -359,19 +304,6 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                                         const separator = responseText.trim() && toolCallsText ? '\n\n' : ''
                                         actions.updateComparisonItem(liveItemId, {
                                             response: responseText + separator + toolCallsText,
-                                            toolCalls,
-                                            ttftMs,
-                                        })
-                                    } else if (data.type === 'reasoning') {
-                                        const reasoningChunk =
-                                            typeof data.reasoning === 'string'
-                                                ? data.reasoning
-                                                : typeof data.text === 'string'
-                                                  ? data.text
-                                                  : ''
-                                        responseReasoning += reasoningChunk
-                                        actions.updateComparisonItem(liveItemId, {
-                                            reasoning: responseReasoning,
                                             ttftMs,
                                         })
                                     } else if (data.type === 'usage') {
@@ -390,9 +322,6 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                                 }
                             },
                             onError: (err) => {
-                                if (abortController.signal.aborted) {
-                                    return
-                                }
                                 if (err instanceof RateLimitError) {
                                     actions.setRateLimited(err.retryAfterSeconds)
                                     responseHasError = true
@@ -413,9 +342,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
 
                         globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunAiPlayground)
                     } catch (error) {
-                        if (abortController.signal.aborted) {
-                            responseText += `${responseText ? '\n\n' : ''}*Generation stopped.*`
-                        } else if (error instanceof RateLimitError) {
+                        if (error instanceof RateLimitError) {
                             actions.setRateLimited(error.retryAfterSeconds)
                             responseHasError = true
                         } else if (error instanceof ApiError && error.status === 402) {
@@ -438,24 +365,12 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                         const separator = responseText.trim() ? '\n\n' : ''
                         responseText += separator + toolCallsText
                     }
-                    upsertLiveItem()
 
-                    posthog.capture('llma playground prompt completed', {
-                        model: prompt.model,
-                        provider: selectedModelProvider,
-                        latency_ms: latencyMs,
-                        ttft_ms: ttftMs,
-                        prompt_tokens: responseUsage.prompt_tokens,
-                        completion_tokens: responseUsage.completion_tokens,
-                        success: !responseHasError,
-                        has_tools: !!prompt.tools?.length,
-                        aborted: abortController.signal.aborted,
-                    })
+                    upsertLiveItem()
                 })
 
                 await Promise.allSettled(runs)
             } finally {
-                abortControllersByKey.delete(key)
                 abortController.abort()
                 actions.finishSubmitPrompt()
             }

@@ -116,7 +116,6 @@ class TestTikTokAdsSource:
             incremental_field_type=IncrementalFieldType.DateTime,
             job_id=self.job_id,
             logger=structlog.get_logger(),
-            reset_pipeline=False,
         )
 
         mock_response = Mock()
@@ -151,7 +150,6 @@ class TestTikTokAdsSource:
             incremental_field_type=None,
             job_id=self.job_id,
             logger=structlog.get_logger(),
-            reset_pipeline=False,
         )
 
         self.mock_integration.access_token = None

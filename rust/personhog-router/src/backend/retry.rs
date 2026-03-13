@@ -9,7 +9,10 @@ use tracing::warn;
 use crate::config::RetryConfig;
 
 fn is_retryable(code: Code) -> bool {
-    matches!(code, Code::Unavailable | Code::DeadlineExceeded)
+    matches!(
+        code,
+        Code::Unavailable | Code::DeadlineExceeded | Code::Internal
+    )
 }
 
 fn code_as_str(code: Code) -> &'static str {
@@ -36,8 +39,8 @@ fn code_as_str(code: Code) -> &'static str {
 
 /// Executes an async operation with exponential backoff and jitter on transient gRPC errors.
 ///
-/// Only retries on `Unavailable` and `DeadlineExceeded` status codes.
-/// All other errors (e.g. `Internal`, `InvalidArgument`, `NotFound`) are returned immediately.
+/// Only retries on `Unavailable`, `DeadlineExceeded`, and `Internal` status codes.
+/// Permanent errors (e.g. `InvalidArgument`, `NotFound`) are returned immediately.
 pub async fn with_retry<F, Fut, T>(
     config: &RetryConfig,
     method: &'static str,
@@ -111,7 +114,7 @@ mod tests {
 
     #[tokio::test]
     async fn retries_transient_then_succeeds() {
-        let transient_codes = vec![Code::Unavailable, Code::DeadlineExceeded];
+        let transient_codes = vec![Code::Unavailable, Code::DeadlineExceeded, Code::Internal];
         for code in transient_codes {
             let calls = AtomicU32::new(0);
             let result = with_retry(&test_config(), "test", || {
@@ -186,6 +189,7 @@ mod tests {
         let cases = vec![
             (Code::Unavailable, "unavailable"),
             (Code::DeadlineExceeded, "deadline_exceeded"),
+            (Code::Internal, "internal"),
         ];
         for (code, msg) in cases {
             let calls = AtomicU32::new(0);

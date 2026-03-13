@@ -1,17 +1,5 @@
 import { Monaco } from '@monaco-editor/react'
-import {
-    actions,
-    afterMount,
-    beforeUnmount,
-    connect,
-    kea,
-    listeners,
-    path,
-    props,
-    propsChanged,
-    reducers,
-    selectors,
-} from 'kea'
+import { actions, beforeUnmount, connect, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -23,19 +11,15 @@ import { LemonDialog, LemonInput, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
-import { objectsEqual, removeUndefinedAndNull, slugify } from 'lib/utils'
+import { objectsEqual, removeUndefinedAndNull } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { parseQueryTablesAndColumns } from 'scenes/data-warehouse/editor/sql-utils'
-import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { Scene } from 'scenes/sceneTypes'
@@ -59,13 +43,10 @@ import {
     ChartDisplayType,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
-    ExternalDataSource,
     ExportContext,
     LineageGraph,
     QueryBasedInsightModel,
 } from '~/types'
-
-import { validateEndpointName } from 'products/endpoints/frontend/common'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from './draftsLogic'
@@ -142,10 +123,6 @@ function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
     const hash: Record<string, any> = {
         q: values.queryInput ?? '',
     }
-    const connectionId = values.sourceQuery?.source.connectionId
-    if (values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && connectionId) {
-        hash['c'] = connectionId
-    }
     if (values.activeTab?.view) {
         hash['view'] = values.activeTab.view.id
     }
@@ -187,12 +164,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ['user'],
             draftsLogic,
             ['drafts'],
-            featureFlagLogic,
-            ['featureFlags'],
-            externalDataSourcesLogic,
-            ['dataWarehouseSources'],
-            databaseTableListLogic,
-            ['database', 'databaseLoading'],
             outputPaneLogic({ tabId: props.tabId }),
             ['activeTab as outputActiveTab'],
         ],
@@ -216,8 +187,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ['fixErrors', 'fixErrorsSuccess', 'fixErrorsFailure'],
             draftsLogic,
             ['saveAsDraft', 'deleteDraft', 'saveAsDraftSuccess', 'deleteDraftSuccess'],
-            databaseTableListLogic,
-            ['setConnection', 'loadDatabase'],
         ],
     })),
     actions(() => ({
@@ -958,7 +927,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     </>
                 ),
                 errors: {
-                    name: (name) => validateEndpointName(name?.trim() || ''),
+                    name: (name) => (!name ? 'You must enter a name' : undefined),
                 },
                 onSubmit: async ({ name, description }) => actions.saveAsEndpointSubmit(name, description),
             })
@@ -966,7 +935,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         saveAsEndpointSubmit: async ({ name, description }) => {
             try {
                 const endpoint = await api.endpoint.create({
-                    name: slugify(name),
+                    name,
                     description: description || undefined,
                     query: {
                         ...(values.sourceQuery.source as HogQLQuery),
@@ -976,8 +945,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 lemonToast.success('Endpoint created')
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateFirstEndpoint)
                 router.actions.push(urls.endpoint(endpoint.name))
-            } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to create endpoint')
+            } catch {
+                lemonToast.error('Failed to create endpoint')
             }
         },
         updateInsight: async () => {
@@ -1087,7 +1056,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
         },
     })),
-    subscriptions(({ actions, values, cache }) => ({
+    subscriptions(({ actions, values }) => ({
         showLegacyFilters: (showLegacyFilters: boolean) => {
             if (showLegacyFilters) {
                 if (typeof values.sourceQuery.source.filters !== 'object') {
@@ -1129,15 +1098,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     })
                 }
             }
-        },
-        selectedConnectionId: (selectedConnectionId) => {
-            if (cache.lastSelectedConnectionId === selectedConnectionId) {
-                return
-            }
-
-            cache.lastSelectedConnectionId = selectedConnectionId
-            actions.setConnection(selectedConnectionId ?? null)
-            actions.loadDatabase()
         },
     })),
     selectors({
@@ -1210,21 +1170,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     ...queryExportContext(sourceQuery.source, undefined, undefined),
                     filename,
                 } as ExportContext
-            },
-        ],
-        selectedConnectionId: [
-            (s) => [s.sourceQuery, s.featureFlags],
-            (sourceQuery, featureFlags) => {
-                if (!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]) {
-                    return undefined
-                }
-                return sourceQuery.source.connectionId
-            },
-        ],
-        selectedDirectSource: [
-            (s) => [s.dataWarehouseSources, s.selectedConnectionId],
-            (dataWarehouseSources, selectedConnectionId): ExternalDataSource | undefined => {
-                return dataWarehouseSources?.results.find((source) => source.id === selectedConnectionId)
             },
         ],
         isEditingMaterializedView: [
@@ -1471,33 +1416,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 !searchParams.open_draft &&
                 !searchParams.output_tab &&
                 !hashParams.q &&
-                !hashParams.c &&
                 !hashParams.view &&
                 !hashParams.insight &&
                 values.queryInput !== null
             ) {
                 return
-            }
-
-            const connectionIdFromHash =
-                values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
-                typeof hashParams.c === 'string' &&
-                hashParams.c !== ''
-                    ? hashParams.c
-                    : undefined
-            const currentConnectionId = values.sourceQuery.source.connectionId || undefined
-
-            if (connectionIdFromHash !== currentConnectionId) {
-                const { connectionId: _legacyConnectionId, ...sourceQueryWithoutLegacyConnectionId } =
-                    values.sourceQuery as typeof values.sourceQuery & { connectionId?: string }
-
-                actions.setSourceQuery({
-                    ...sourceQueryWithoutLegacyConnectionId,
-                    source: {
-                        ...values.sourceQuery.source,
-                        connectionId: connectionIdFromHash,
-                    },
-                })
             }
 
             let tabAdded = false
@@ -1662,25 +1585,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     await createQueryTab()
                 })
             }
-
-            if (!values.database && !values.databaseLoading && connectionIdFromHash === undefined) {
-                actions.setConnection(values.selectedConnectionId ?? null)
-                actions.loadDatabase()
-            }
         },
     })),
-    afterMount(({ actions, props, values, cache }) => {
-        cache.lastSelectedConnectionId = values.selectedConnectionId
-
-        if (
-            isEmbeddedSQLEditorMode(props.mode ?? SQLEditorMode.FullScene) &&
-            !values.database &&
-            !values.databaseLoading
-        ) {
-            actions.setConnection(values.selectedConnectionId ?? null)
-            actions.loadDatabase()
-        }
-    }),
     beforeUnmount(({ cache }) => {
         cache.umountDataNode?.()
 

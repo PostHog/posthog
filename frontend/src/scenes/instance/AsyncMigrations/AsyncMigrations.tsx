@@ -220,26 +220,21 @@ export function AsyncMigrations(): JSX.Element {
         },
     }
 
-    const columns = {
-        [AsyncMigrationsTab.FutureMigrations]: [nameColumn, statusColumn, minVersionColumn, maxVersionColumn],
-        [AsyncMigrationsTab.Management]: [
-            nameColumn,
-            progressColumn,
-            statusColumn,
-            lastOpColumn,
-            queryIdColumn,
-            startedAtColumn,
-            finishedAtColumn,
-            ActionsColumn,
-        ],
-        [AsyncMigrationsTab.Settings]: [],
-    }
-
-    const migrations = {
-        [AsyncMigrationsTab.FutureMigrations]: futureMigrations,
-        [AsyncMigrationsTab.Management]: actionableMigrations,
-        [AsyncMigrationsTab.Settings]: [],
-    }
+    const columns = {}
+    columns[AsyncMigrationsTab.FutureMigrations] = [nameColumn, statusColumn, minVersionColumn, maxVersionColumn]
+    columns[AsyncMigrationsTab.Management] = [
+        nameColumn,
+        progressColumn,
+        statusColumn,
+        lastOpColumn,
+        queryIdColumn,
+        startedAtColumn,
+        finishedAtColumn,
+        ActionsColumn,
+    ]
+    const migrations = {}
+    migrations[AsyncMigrationsTab.FutureMigrations] = futureMigrations
+    migrations[AsyncMigrationsTab.Management] = actionableMigrations
 
     const rowExpansion = {
         expandedRowRender: function renderExpand(asyncMigration: AsyncMigration) {

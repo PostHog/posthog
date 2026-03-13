@@ -22,7 +22,6 @@ import { marketingAnalyticsTableLogic } from './marketingAnalyticsTableLogic'
 import type { marketingAnalyticsTilesLogicType } from './marketingAnalyticsTilesLogicType'
 import {
     getOrderBy,
-    rawColumnsForTiles,
     getSortedColumnsByArray,
     isDraftConversionGoalColumn,
     orderArrayByPreference,
@@ -30,9 +29,6 @@ import {
 } from './utils'
 
 export const MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID = 'marketing-analytics'
-
-const isSchemaBackedMarketingColumn = (column: validColumnsForTiles): column is rawColumnsForTiles =>
-    column !== 'roas' && column !== 'cost_per_reported_conversion'
 
 export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType>([
     path(['scenes', 'webAnalytics', 'marketingAnalyticsTilesLogic']),
@@ -88,7 +84,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 }
 
                 const isCurrency =
-                    tileColumnSelection && isSchemaBackedMarketingColumn(tileColumnSelection)
+                    tileColumnSelection && MARKETING_ANALYTICS_SCHEMA[tileColumnSelection]
                         ? MARKETING_ANALYTICS_SCHEMA[tileColumnSelection].isCurrency
                         : false
 

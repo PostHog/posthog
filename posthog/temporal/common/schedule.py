@@ -1,12 +1,5 @@
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
-
 from asgiref.sync import async_to_sync
 from temporalio.client import Client, Schedule, ScheduleOverlapPolicy, ScheduleUpdate, ScheduleUpdateInput
-
-if TYPE_CHECKING:
-    from temporalio.common import TypedSearchAttributes
 
 
 @async_to_sync
@@ -24,46 +17,26 @@ async def a_trigger_schedule_buffer_one(temporal: Client, schedule_id: str):
 
 
 @async_to_sync
-async def create_schedule(
-    temporal: Client,
-    id: str,
-    schedule: Schedule,
-    trigger_immediately: bool = False,
-    search_attributes: TypedSearchAttributes | None = None,
-):
+async def create_schedule(temporal: Client, id: str, schedule: Schedule, trigger_immediately: bool = False):
     """Create a Temporal Schedule."""
     return await temporal.create_schedule(
         id=id,
         schedule=schedule,
         trigger_immediately=trigger_immediately,
-        search_attributes=search_attributes,
     )
 
 
-async def a_create_schedule(
-    temporal: Client,
-    id: str,
-    schedule: Schedule,
-    trigger_immediately: bool = False,
-    search_attributes: TypedSearchAttributes | None = None,
-):
+async def a_create_schedule(temporal: Client, id: str, schedule: Schedule, trigger_immediately: bool = False):
     """Async create a Temporal Schedule."""
     return await temporal.create_schedule(
         id=id,
         schedule=schedule,
         trigger_immediately=trigger_immediately,
-        search_attributes=search_attributes,
     )
 
 
 @async_to_sync
-async def update_schedule(
-    temporal: Client,
-    id: str,
-    schedule: Schedule,
-    keep_tz: bool = False,
-    search_attributes: TypedSearchAttributes | None = None,
-) -> None:
+async def update_schedule(temporal: Client, id: str, schedule: Schedule, keep_tz: bool = False) -> None:
     """Update a Temporal Schedule."""
     handle = temporal.get_schedule_handle(id)
 
@@ -72,24 +45,19 @@ async def update_schedule(
         schedule.spec.time_zone_name = desc.schedule.spec.time_zone_name
 
     async def updater(_: ScheduleUpdateInput) -> ScheduleUpdate:
-        return ScheduleUpdate(schedule=schedule, search_attributes=search_attributes)
+        return ScheduleUpdate(schedule=schedule)
 
     return await handle.update(
         updater=updater,
     )
 
 
-async def a_update_schedule(
-    temporal: Client,
-    id: str,
-    schedule: Schedule,
-    search_attributes: TypedSearchAttributes | None = None,
-) -> None:
+async def a_update_schedule(temporal: Client, id: str, schedule: Schedule) -> None:
     """Async update a Temporal Schedule."""
     handle = temporal.get_schedule_handle(id)
 
     async def updater(_: ScheduleUpdateInput) -> ScheduleUpdate:
-        return ScheduleUpdate(schedule=schedule, search_attributes=search_attributes)
+        return ScheduleUpdate(schedule=schedule)
 
     return await handle.update(
         updater=updater,

@@ -1,6 +1,5 @@
 import type { z } from 'zod'
 
-import { ERROR_DETAILS_RESOURCE_URI } from '@/resources/ui-apps-constants'
 import { ErrorTrackingDetailsSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -8,10 +7,7 @@ const schema = ErrorTrackingDetailsSchema
 
 type Params = z.infer<typeof schema>
 
-export const errorDetailsHandler: ToolBase<typeof schema, unknown>['handler'] = async (
-    context: Context,
-    params: Params
-) => {
+export const errorDetailsHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
     const { issueId, dateFrom, dateTo } = params
     const projectId = await context.stateManager.getProjectId()
 
@@ -31,21 +27,13 @@ export const errorDetailsHandler: ToolBase<typeof schema, unknown>['handler'] = 
         throw new Error(`Failed to get error details: ${errorsResult.error.message}`)
     }
 
-    return {
-        results: errorsResult.data.results,
-        _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/error_tracking/${issueId}`,
-    }
+    return errorsResult.data.results
 }
 
 const tool = (): ToolBase<typeof schema> => ({
     name: 'error-details',
     schema,
     handler: errorDetailsHandler,
-    _meta: {
-        ui: {
-            resourceUri: ERROR_DETAILS_RESOURCE_URI,
-        },
-    },
 })
 
 export default tool

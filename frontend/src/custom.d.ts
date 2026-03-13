@@ -56,8 +56,3 @@ declare module '*.sql?raw' {
 declare module '@tiptap/react/menus' {
     export * from '@tiptap/react/dist/menus/index.d.ts'
 }
-
-// This fixes a TS error where react-grid-layout/extras cannot be found because of our moduleResolution
-declare module 'react-grid-layout/extras' {
-    export * from 'react-grid-layout/dist/extras'
-}

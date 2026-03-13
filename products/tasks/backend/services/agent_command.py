@@ -75,28 +75,24 @@ def _get_sandbox_url_and_token(task_run: Any) -> tuple[str | None, str | None]:
     return state.get("sandbox_url"), state.get("sandbox_connect_token")
 
 
-def _build_request_args(
+def _build_headers(
     connect_token: str | None,
     auth_token: str | None,
-) -> tuple[dict[str, str], dict[str, str]]:
-    """Build request headers and query params with appropriate auth scheme.
+) -> dict[str, str]:
+    """Build request headers with appropriate auth scheme.
 
-    When auth_token is provided (external callers going through Modal tunnel):
-    JWT goes as Authorization header, Modal connect token as query param.
-    Otherwise (internal callers on same network): connect_token as Authorization header.
-
-    Returns:
-        Tuple of (headers, query_params).
+    When auth_token is provided (API callers): dual-header auth with
+    Authorization: Bearer {auth_token} and modal-token: {connect_token}.
+    Otherwise (internal callers like Slack): single Authorization: Bearer {connect_token}.
     """
     headers: dict[str, str] = {"Content-Type": "application/json"}
-    query_params: dict[str, str] = {}
     if auth_token:
         headers["Authorization"] = f"Bearer {auth_token}"
         if connect_token:
-            query_params["_modal_connect_token"] = connect_token
+            headers["modal-token"] = connect_token
     elif connect_token:
         headers["Authorization"] = f"Bearer {connect_token}"
-    return headers, query_params
+    return headers
 
 
 def send_agent_command(
@@ -111,10 +107,9 @@ def send_agent_command(
     Uses the sandbox_url and connect_token stored in task_run.state.
 
     Args:
-        auth_token: Optional JWT connection token for external callers.
+        auth_token: Optional JWT connection token for API callers.
             When provided, sent as Authorization header with connect_token
-            as ``_modal_connect_token`` query param for Modal tunnel auth.
-            When omitted, connect_token is used directly as Authorization.
+            as modal-token. When omitted, connect_token is used as Authorization.
     """
     sandbox_url, connect_token = _get_sandbox_url_and_token(task_run)
     if not sandbox_url:
@@ -140,7 +135,7 @@ def send_agent_command(
             retryable=False,
         )
 
-    headers, query_params = _build_request_args(connect_token, auth_token)
+    headers = _build_headers(connect_token, auth_token)
     command_url = f"{sandbox_url.rstrip('/')}/command"
 
     payload: dict[str, Any] = {
@@ -157,7 +152,6 @@ def send_agent_command(
             json=payload,
             headers=headers,
             timeout=timeout,
-            params=query_params or None,
         )
     except requests.ConnectionError:
         return CommandResult(

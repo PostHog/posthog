@@ -7,9 +7,6 @@ on:
         paths:
             - 'posthog/user_scripts/**'
 
-permissions:
-    contents: read
-
 jobs:
     trigger_udfs_workflow:
         runs-on: ubuntu-24.04

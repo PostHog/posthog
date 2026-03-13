@@ -1,7 +1,5 @@
 import type { MultivariateFlagVariant } from '~/types'
 
-import type { FeatureFlagKeyValidation } from './variantsPanelLogic'
-
 export type VariantValidationRules = {
     hasFlagKey: boolean
     hasFlagKeyError: boolean
@@ -26,7 +24,7 @@ export const validateVariants = ({
 }: {
     flagKey: string | null
     variants: MultivariateFlagVariant[]
-    featureFlagKeyValidation: FeatureFlagKeyValidation | null
+    featureFlagKeyValidation: { valid: boolean; error: string | null } | null
     mode?: 'create' | 'link'
 }): VariantValidationResult => {
     const hasFlagKey = !!flagKey
@@ -80,7 +78,7 @@ export const getVariantValidationErrors = ({
 }: {
     flagKey: string | null
     variants: MultivariateFlagVariant[]
-    featureFlagKeyValidation: FeatureFlagKeyValidation | null
+    featureFlagKeyValidation: { valid: boolean; error: string | null } | null
     mode?: 'create' | 'link'
 }): string[] => {
     const errors: string[] = []

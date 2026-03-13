@@ -1,5 +1,4 @@
 import datetime as dt
-from collections.abc import Iterable
 
 import pytest
 from unittest.mock import Mock, patch
@@ -150,9 +149,7 @@ class TestBingAdsSource:
         assert result.primary_keys == ["Id"]
         assert result.partition_mode is None
 
-        items = result.items()
-        assert isinstance(items, Iterable)
-        data = list(items)
+        data = list(result.items())
         assert len(data) == 1
         assert data[0][0]["Id"] == "123"
 
@@ -180,9 +177,7 @@ class TestBingAdsSource:
         assert result.primary_keys == ["CampaignId", "TimePeriod"]
         assert result.partition_mode == "datetime"
 
-        items = result.items()
-        assert isinstance(items, Iterable)
-        data = list(items)
+        data = list(result.items())
         assert len(data) == 1
 
     @parameterized.expand(
@@ -218,9 +213,7 @@ class TestBingAdsSource:
         )
 
         assert result.name == "campaign_performance_report"
-        items = result.items()
-        assert isinstance(items, Iterable)
-        data = list(items)
+        data = list(result.items())
         assert len(data) == 1
 
         mock_fetch_chunks.assert_called_once()
@@ -240,9 +233,7 @@ class TestBingAdsSource:
         )
 
         with pytest.raises(ValueError, match="Bing Ads developer token not configured"):
-            items = result.items()
-            assert isinstance(items, Iterable)
-            list(items)
+            list(result.items())
 
     @patch("posthog.temporal.data_imports.sources.bing_ads.bing_ads.BingAdsClient")
     @patch("posthog.temporal.data_imports.sources.bing_ads.bing_ads.integrations")
@@ -262,6 +253,4 @@ class TestBingAdsSource:
         with pytest.raises(
             ValueError, match="incremental_field and incremental_field_type required for incremental sync"
         ):
-            items = result.items()
-            assert isinstance(items, Iterable)
-            list(items)
+            list(result.items())

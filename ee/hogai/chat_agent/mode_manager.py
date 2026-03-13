@@ -26,10 +26,16 @@ from ee.hogai.core.agent_modes.presets.product_analytics import (
 )
 from ee.hogai.core.agent_modes.presets.session_replay import chat_agent_plan_session_replay_agent, session_replay_agent
 from ee.hogai.core.agent_modes.presets.sql import chat_agent_plan_sql_agent, sql_agent
-from ee.hogai.core.agent_modes.presets.survey import chat_agent_plan_survey_agent, subagent_survey_agent, survey_agent
+from ee.hogai.core.agent_modes.presets.survey import subagent_survey_agent, survey_agent
 from ee.hogai.core.agent_modes.prompt_builder import AgentPromptBuilder
 from ee.hogai.core.agent_modes.toolkit import AgentToolkit, AgentToolkitManager
-from ee.hogai.utils.feature_flags import has_plan_mode_feature_flag
+from ee.hogai.utils.feature_flags import (
+    has_error_tracking_mode_feature_flag,
+    has_flags_mode_feature_flag,
+    has_llm_analytics_mode_feature_flag,
+    has_plan_mode_feature_flag,
+    has_survey_mode_feature_flag,
+)
 from ee.hogai.utils.types.base import AssistantState, NodePath
 
 # Execution and plan mode definitions - fictitious modes used to trigger transition in and out of plan mode
@@ -50,10 +56,6 @@ DEFAULT_CHAT_AGENT_MODE_REGISTRY: dict[AgentMode, AgentModeDefinition] = {
     AgentMode.PRODUCT_ANALYTICS: product_analytics_agent,
     AgentMode.SQL: sql_agent,
     AgentMode.SESSION_REPLAY: session_replay_agent,
-    AgentMode.ERROR_TRACKING: error_tracking_agent,
-    AgentMode.FLAGS: flags_agent,
-    AgentMode.SURVEY: survey_agent,
-    AgentMode.LLM_ANALYTICS: llm_analytics_agent,
 }
 
 DEFAULT_CHAT_AGENT_PLAN_MODE_REGISTRY: dict[AgentMode, AgentModeDefinition] = {
@@ -61,25 +63,26 @@ DEFAULT_CHAT_AGENT_PLAN_MODE_REGISTRY: dict[AgentMode, AgentModeDefinition] = {
     AgentMode.SQL: chat_agent_plan_sql_agent,
     AgentMode.SESSION_REPLAY: chat_agent_plan_session_replay_agent,
     AgentMode.EXECUTION: execution_agent,
-    AgentMode.ERROR_TRACKING: chat_agent_plan_error_tracking_agent,
-    AgentMode.FLAGS: chat_agent_plan_flags_agent,
-    AgentMode.SURVEY: chat_agent_plan_survey_agent,
-    AgentMode.LLM_ANALYTICS: chat_agent_plan_llm_analytics_agent,
 }
 
 SUBAGENT_CHAT_AGENT_MODE_REGISTRY: dict[AgentMode, AgentModeDefinition] = {
     AgentMode.PRODUCT_ANALYTICS: subagent_product_analytics_agent,
     AgentMode.SQL: sql_agent,
     AgentMode.SESSION_REPLAY: session_replay_agent,
-    AgentMode.ERROR_TRACKING: error_tracking_agent,
-    AgentMode.FLAGS: chat_agent_plan_flags_agent,
-    AgentMode.SURVEY: subagent_survey_agent,
-    AgentMode.LLM_ANALYTICS: chat_agent_plan_llm_analytics_agent,
 }
 
 
 def get_plan_mode_registry(team: Team, user: User) -> dict[AgentMode, AgentModeDefinition]:
-    return dict(DEFAULT_CHAT_AGENT_PLAN_MODE_REGISTRY)
+    registry = dict(DEFAULT_CHAT_AGENT_PLAN_MODE_REGISTRY)
+    if has_error_tracking_mode_feature_flag(team, user):
+        registry[AgentMode.ERROR_TRACKING] = chat_agent_plan_error_tracking_agent
+    if has_flags_mode_feature_flag(team, user):
+        registry[AgentMode.FLAGS] = chat_agent_plan_flags_agent
+    if has_survey_mode_feature_flag(team, user):
+        registry[AgentMode.SURVEY] = survey_agent
+    if has_llm_analytics_mode_feature_flag(team, user):
+        registry[AgentMode.LLM_ANALYTICS] = chat_agent_plan_llm_analytics_agent
+    return registry
 
 
 def get_execution_mode_registry(team: Team, user: User) -> dict[AgentMode, AgentModeDefinition]:
@@ -87,7 +90,16 @@ def get_execution_mode_registry(team: Team, user: User) -> dict[AgentMode, Agent
 
     This is the registry that will be available after transitioning out of plan mode.
     """
-    return dict(DEFAULT_CHAT_AGENT_MODE_REGISTRY)
+    registry = dict(DEFAULT_CHAT_AGENT_MODE_REGISTRY)
+    if has_error_tracking_mode_feature_flag(team, user):
+        registry[AgentMode.ERROR_TRACKING] = error_tracking_agent
+    if has_survey_mode_feature_flag(team, user):
+        registry[AgentMode.SURVEY] = survey_agent
+    if has_flags_mode_feature_flag(team, user):
+        registry[AgentMode.FLAGS] = flags_agent
+    if has_llm_analytics_mode_feature_flag(team, user):
+        registry[AgentMode.LLM_ANALYTICS] = llm_analytics_agent
+    return registry
 
 
 class ChatAgentModeManager(AgentModeManager):
@@ -140,7 +152,14 @@ class ChatAgentModeManager(AgentModeManager):
 
     @property
     def _subagent_mode_registry(self) -> dict[AgentMode, AgentModeDefinition]:
-        return dict(SUBAGENT_CHAT_AGENT_MODE_REGISTRY)
+        registry = dict(SUBAGENT_CHAT_AGENT_MODE_REGISTRY)
+        if has_error_tracking_mode_feature_flag(self._team, self._user):
+            registry[AgentMode.ERROR_TRACKING] = error_tracking_agent
+        if has_survey_mode_feature_flag(self._team, self._user):
+            registry[AgentMode.SURVEY] = subagent_survey_agent
+        if has_llm_analytics_mode_feature_flag(self._team, self._user):
+            registry[AgentMode.LLM_ANALYTICS] = llm_analytics_agent
+        return registry
 
     @property
     def prompt_builder_class(self) -> type[AgentPromptBuilder]:

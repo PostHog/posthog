@@ -115,19 +115,14 @@ impl FeatureFlag {
     }
 }
 
-/// Returns the set of non-filtered flags that require DB preparation.
-/// Filtered-out flags (inactive, deleted, runtime/tag mismatches) are skipped
-/// since they won't be evaluated.
+/// Returns the set of flags that require DB preparation
 pub fn flags_require_db_preparation<'a>(
     flags: &[&'a FeatureFlag],
     overrides: &HashMap<String, Value>,
-    filtered_out_flag_ids: &HashSet<i32>,
 ) -> Vec<&'a FeatureFlag> {
     flags
         .iter()
-        .filter(|flag| {
-            !filtered_out_flag_ids.contains(&flag.id) && flag.requires_db_preparation(overrides)
-        })
+        .filter(|flag| flag.requires_db_preparation(overrides))
         .copied()
         .collect()
 }
@@ -141,10 +136,9 @@ impl DependencyProvider for FeatureFlag {
     }
 
     fn extract_dependencies(&self) -> Result<HashSet<Self::Id>, Self::Error> {
-        // User-disabled or deleted flags don't need dependency extraction. Since
-        // runtime/tag filtering uses `filtered_out_flag_ids` (not `active`), this
-        // check only applies to genuinely user-disabled flags in the DB.
-        if !self.active || self.deleted {
+        // Inactive flags evaluate to false regardless of their dependencies,
+        // so skip extraction to avoid MissingDependency errors for stale references.
+        if !self.active {
             return Ok(HashSet::new());
         }
 
@@ -455,27 +449,19 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_dependencies_respects_active_and_deleted_state() {
+    fn test_extract_dependencies_respects_active_state() {
         use crate::utils::graph_utils::DependencyProvider;
 
-        for (active, deleted, expected_deps, label) in [
+        for (active, expected_deps, label) in [
             (
-                false,
                 false,
                 HashSet::new(),
                 "inactive flags should return no dependencies",
             ),
             (
                 true,
-                false,
                 HashSet::from([999]),
                 "active flags should still extract dependencies",
-            ),
-            (
-                true,
-                true,
-                HashSet::new(),
-                "deleted flags should return no dependencies even if active",
             ),
         ] {
             let mut flag = create_test_flag(
@@ -484,7 +470,7 @@ mod tests {
                 None,
                 Some("test_flag".to_string()),
                 None,
-                Some(deleted),
+                None,
                 Some(active),
                 None,
             );
@@ -1508,13 +1494,7 @@ mod tests {
             .expect("Failed to fetch flags from Postgres");
 
         // Verify rollout percentages
-        for flags in &[
-            redis_flags,
-            FeatureFlagList {
-                flags: pg_flags,
-                ..Default::default()
-            },
-        ] {
+        for flags in &[redis_flags, FeatureFlagList { flags: pg_flags }] {
             assert!(flags
                 .flags
                 .iter()
@@ -1920,35 +1900,5 @@ mod tests {
         });
         // Both conditions satisfied -> needs lookup
         assert!(flag.needs_hash_key_override());
-    }
-
-    #[test]
-    fn test_flags_require_db_preparation_skips_filtered_out() {
-        let person_property =
-            create_simple_property_filter("email", PropertyType::Person, OperatorType::Exact);
-        let mut flag_a = create_simple_flag(vec![person_property.clone()], 100.0);
-        flag_a.id = 1;
-        flag_a.key = "flag_a".to_string();
-        let mut flag_b = create_simple_flag(vec![person_property], 100.0);
-        flag_b.id = 2;
-        flag_b.key = "flag_b".to_string();
-
-        let flags: Vec<&FeatureFlag> = vec![&flag_a, &flag_b];
-        let overrides = HashMap::new();
-
-        // Without filtering, both flags require DB preparation
-        let result = flags_require_db_preparation(&flags, &overrides, &HashSet::new());
-        assert_eq!(result.len(), 2);
-
-        // With flag_a filtered out, only flag_b requires preparation
-        let filtered = HashSet::from([1]);
-        let result = flags_require_db_preparation(&flags, &overrides, &filtered);
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].key, "flag_b");
-
-        // With both filtered, none require preparation
-        let filtered = HashSet::from([1, 2]);
-        let result = flags_require_db_preparation(&flags, &overrides, &filtered);
-        assert!(result.is_empty());
     }
 }

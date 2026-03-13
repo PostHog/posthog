@@ -15,6 +15,7 @@ Endpoint:
 import json
 import time
 import hashlib
+from typing import cast
 
 from django.core.cache import cache
 
@@ -29,6 +30,7 @@ from rest_framework.response import Response
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
+from posthog.models import User
 from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import LLMAnalyticsTextReprBurstThrottle, LLMAnalyticsTextReprSustainedThrottle
 
@@ -364,7 +366,7 @@ The response includes the formatted text and metadata about the rendering.
 
             # Track user action
             report_user_action(
-                self.request.user,
+                cast(User, self.request.user),
                 "llma text repr generated",
                 {
                     "event_type": event_type,

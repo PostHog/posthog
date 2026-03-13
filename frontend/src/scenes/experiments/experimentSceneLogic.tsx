@@ -20,7 +20,6 @@ import {
 } from './experimentLogic'
 import type { experimentLogicType } from './experimentLogicType'
 import type { experimentSceneLogicType } from './experimentSceneLogicType'
-import { stepStorageKey } from './ExperimentWizard/experimentWizardLogic'
 
 export interface ExperimentSceneLogicProps extends ExperimentLogicProps {
     tabId?: string
@@ -50,7 +49,6 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
             'metrics' as string,
             {
                 setActiveTabKey: (_, { activeTabKey }) => activeTabKey,
-                setSceneState: () => 'metrics',
             },
         ],
         experimentId: [
@@ -268,12 +266,6 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                     const shouldReset = currentLocation.initial || values.experimentId !== 'new'
 
                     if (shouldReset) {
-                        // Clear wizard step before the wizard mounts so it starts on 'about'
-                        try {
-                            sessionStorage.removeItem(stepStorageKey(values.tabId!))
-                        } catch {
-                            // ignore
-                        }
                         actions.resetExperimentState({
                             ...NEW_EXPERIMENT,
                             metrics: query.metric ? [query.metric] : [],

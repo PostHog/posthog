@@ -104,7 +104,6 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         selectedConnector,
         connectors,
         isSelfManagedSource,
-        source,
     } = useValues(sourceWizardLogic)
     const { onBack, onSubmit, setInitialConnector } = useActions(sourceWizardLogic)
     const { tableLoading: manualLinkIsLoading } = useValues(dataWarehouseTableLogic)
@@ -191,17 +190,13 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                         <div>
                             <h4 className="text-lg font-semibold mb-0">{modalTitle}</h4>
                             <p className="text-sm text-muted-alt mb-0">
-                                {source.access_method === 'direct'
-                                    ? `Query ${selectedConnector.label ?? selectedConnector.name} directly from PostHog without warehouse syncs.`
-                                    : `Sync data from ${selectedConnector.label ?? selectedConnector.name} into the PostHog data warehouse.`}
+                                Import data directly from {selectedConnector.label ?? selectedConnector.name}
                             </p>
                         </div>
                     </div>
                 )}
 
-                {selectedConnector && source.access_method !== 'direct' && (
-                    <FreeHistoricalSyncsBanner hideGetStarted={true} />
-                )}
+                {selectedConnector && <FreeHistoricalSyncsBanner hideGetStarted={true} />}
 
                 {currentStep === 1 ? (
                     <FirstStep allowedSources={props.allowedSources} />

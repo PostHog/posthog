@@ -8,7 +8,7 @@ import {
     IconCircleDashed,
     IconClock,
     IconCode,
-    IconEndpoints,
+    IconCode2,
     IconDashboard,
     IconDatabase,
     IconDecisionTree,
@@ -26,7 +26,6 @@ import {
     IconHome,
     IconLifecycle,
     IconListCheck,
-    IconListTree,
     IconLive,
     IconLlmAnalytics,
     IconLlmPromptManagement,
@@ -110,7 +109,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         iconColor: ['var(--color-product-web-analytics-light)', 'var(--color-product-web-analytics-dark)'],
     },
     endpoints: {
-        icon: <IconEndpoints />,
+        icon: <IconCode2 />,
         iconColor: ['var(--color-product-endpoints-light)', 'var(--color-product-endpoints-dark)'],
     },
     sql_editor: {
@@ -153,14 +152,6 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     logs: {
         icon: <IconLive />,
         iconColor: ['var(--color-product-logs-light)'],
-    },
-    tracing: {
-        icon: <IconListTree />,
-        iconColor: ['var(--color-product-tracing-light)'],
-    },
-    metrics: {
-        icon: <IconGraph />,
-        iconColor: ['var(--color-product-metrics-light)', 'var(--color-product-metrics-dark)'],
     },
     early_access_feature: {
         icon: <IconRocket />,
@@ -333,9 +324,6 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     llm_playground: {
         icon: <IconPlaylist />,
         iconColor: ['var(--color-product-llm-analytics-light)'],
-    },
-    visual_review: {
-        icon: <IconApp />,
     },
     exports: {
         icon: <IconDownload />,

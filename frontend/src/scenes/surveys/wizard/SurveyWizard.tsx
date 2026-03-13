@@ -17,7 +17,6 @@ import { urls } from 'scenes/urls'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SurveyQuestionBranchingType } from '~/types'
 
-import { SdkVersionWarnings } from '../components/SdkVersionWarnings'
 import { NewSurvey } from '../constants'
 import { SurveyAppearancePreview } from '../SurveyAppearancePreview'
 import { surveyLogic } from '../surveyLogic'
@@ -60,7 +59,7 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     const isEditing = id !== 'new'
     const { nextStep, setStep, launchSurvey, saveDraft, updateSurvey } = useActions(surveyWizardLogic)
 
-    const { survey, surveyWarnings } = useValues(surveyLogic)
+    const { survey } = useValues(surveyLogic)
     const { setSurveyValue, loadSurvey } = useActions(surveyLogic)
 
     // register tool so edits from AI will always reload the survey data on-page
@@ -157,7 +156,6 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
             title: 'Launch this survey?',
             content: (
                 <div className="space-y-2">
-                    <SdkVersionWarnings warnings={surveyWarnings} />
                     {hasConditions && conditionsSummary.length > 0 ? (
                         <>
                             <p className="text-secondary">

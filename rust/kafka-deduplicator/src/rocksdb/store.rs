@@ -1,9 +1,10 @@
 use std::{
     path::{Path, PathBuf},
-    sync::{Arc, OnceLock},
+    sync::Arc,
 };
 
 use anyhow::{Context, Result};
+use once_cell::sync::Lazy;
 use rocksdb::{
     checkpoint::Checkpoint, BlockBasedOptions, BoundColumnFamily, Cache, ColumnFamilyDescriptor,
     DBWithThreadMode, MultiThreaded, Options, SliceTransform, WriteBatch, WriteBufferManager,
@@ -15,84 +16,6 @@ use tracing::error;
 use crate::metrics::MetricsHelper;
 use crate::rocksdb::metrics_consts::*;
 
-// ── RocksDbConfig defaults (env-overridable via Config) ─────────────────────
-
-const DEFAULT_SHARED_CACHE_SIZE_BYTES: usize = 2048 * 1024 * 1024; // 2 GB
-const DEFAULT_TOTAL_WRITE_BUFFER_SIZE_BYTES: usize = 2048 * 1024 * 1024; // 2 GB across ALL stores
-const DEFAULT_MAX_BACKGROUND_JOBS_CAP: i32 = 2;
-const DEFAULT_PARALLELISM_FALLBACK: usize = 2;
-const DEFAULT_WRITE_BUFFER_SIZE_BYTES: usize = 64 * 1024 * 1024; // 64 MB per memtable
-const DEFAULT_TARGET_FILE_SIZE_BASE_BYTES: u64 = 256 * 1024 * 1024; // 256 MB SST files
-const DEFAULT_MAX_OPEN_FILES: i32 = 1024;
-// L0 compaction thresholds — higher values batch more L0 files before compaction,
-// reducing compaction frequency at the cost of higher read amplification.
-const DEFAULT_L0_COMPACTION_TRIGGER: i32 = 8; // RocksDB default: 4
-const DEFAULT_L0_SLOWDOWN_WRITES_TRIGGER: i32 = 20;
-const DEFAULT_L0_STOP_WRITES_TRIGGER: i32 = 36;
-
-// ── rocksdb_options() fixed settings (not env-overridable) ──────────────────
-
-/// Bloom filter bits per key — 10 bits ≈ 1% false-positive rate.
-const BLOOM_FILTER_BITS_PER_KEY: f64 = 10.0;
-/// Timestamp key prefix length for SliceTransform (8-byte epoch seconds).
-const TIMESTAMP_PREFIX_LEN: usize = 8;
-/// 2 write buffers: one active for writes, one flushing to disk.
-const MAX_WRITE_BUFFER_NUMBER: i32 = 2;
-/// Merge every buffer immediately — avoids batching delay before flush.
-const MIN_WRITE_BUFFER_NUMBER_TO_MERGE: i32 = 1;
-/// Periodic fsync interval for SST and WAL data.
-const BYTES_PER_SYNC: u64 = 1024 * 1024; // 1 MB
-/// Readahead buffer for compaction I/O.
-const COMPACTION_READAHEAD_SIZE: usize = 2 * 1024 * 1024; // 2 MB
-
-// Universal compaction tuning — we don't call optimize_universal_style_compaction()
-// because it forces Snappy compression. Instead, manual config with relaxed triggers
-// to reduce compaction frequency on slow PVC storage.
-const UNIVERSAL_SIZE_RATIO: i32 = 10; // Allow 10% size difference before compacting (default: 1)
-const UNIVERSAL_MIN_MERGE_WIDTH: i32 = 2;
-const UNIVERSAL_MAX_MERGE_WIDTH: i32 = 16;
-const UNIVERSAL_MAX_SIZE_AMPLIFICATION_PERCENT: i32 = 200; // Allow 2x space amplification
-const UNIVERSAL_COMPRESSION_SIZE_PERCENT: i32 = -1; // Compress all levels
-
-/// RocksDB tuning knobs exposed as env vars for per-deploy overrides.
-/// Concrete types — all values fully resolved at construction time.
-/// Tests use `RocksDbConfig::default()` which mirrors the constants above.
-#[derive(Debug, Clone)]
-pub struct RocksDbConfig {
-    pub shared_cache_size_bytes: usize,
-    pub total_write_buffer_size_bytes: usize,
-    pub max_background_jobs: i32,
-    pub write_buffer_size_bytes: usize,
-    pub target_file_size_base_bytes: u64,
-    pub max_open_files: i32,
-    pub l0_compaction_trigger: i32,
-    pub l0_slowdown_writes_trigger: i32,
-    pub l0_stop_writes_trigger: i32,
-    /// Whether the write buffer manager should stall writes when memory is full.
-    /// false = backpressure handled at Kafka level instead.
-    pub write_buffer_manager_allow_stall: bool,
-}
-
-impl Default for RocksDbConfig {
-    fn default() -> Self {
-        let num_threads = std::thread::available_parallelism()
-            .map(|p| p.get())
-            .unwrap_or(DEFAULT_PARALLELISM_FALLBACK);
-        Self {
-            shared_cache_size_bytes: DEFAULT_SHARED_CACHE_SIZE_BYTES,
-            total_write_buffer_size_bytes: DEFAULT_TOTAL_WRITE_BUFFER_SIZE_BYTES,
-            max_background_jobs: std::cmp::min(num_threads as i32, DEFAULT_MAX_BACKGROUND_JOBS_CAP),
-            write_buffer_size_bytes: DEFAULT_WRITE_BUFFER_SIZE_BYTES,
-            target_file_size_base_bytes: DEFAULT_TARGET_FILE_SIZE_BASE_BYTES,
-            max_open_files: DEFAULT_MAX_OPEN_FILES,
-            l0_compaction_trigger: DEFAULT_L0_COMPACTION_TRIGGER,
-            l0_slowdown_writes_trigger: DEFAULT_L0_SLOWDOWN_WRITES_TRIGGER,
-            l0_stop_writes_trigger: DEFAULT_L0_STOP_WRITES_TRIGGER,
-            write_buffer_manager_allow_stall: false,
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct RocksDbStore {
     pub(crate) db: Arc<DBWithThreadMode<MultiThreaded>>,
@@ -100,31 +23,41 @@ pub struct RocksDbStore {
     metrics: MetricsHelper,
 }
 
-// Shared block cache for all RocksDB instances — initialized via init_shared_resources()
-static SHARED_BLOCK_CACHE: OnceLock<Arc<Cache>> = OnceLock::new();
+// Shared block cache for all RocksDB instances (1GB default)
+static SHARED_BLOCK_CACHE: Lazy<Arc<Cache>> = Lazy::new(|| {
+    let cache_size = std::env::var("ROCKSDB_SHARED_CACHE_SIZE")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(2048 * 1024 * 1024); // 2GB default
+
+    Arc::new(Cache::new_lru_cache(cache_size))
+});
 
 // Shared write buffer manager to limit total memory used for write buffers
-static SHARED_WRITE_BUFFER_MANAGER: OnceLock<Arc<WriteBufferManager>> = OnceLock::new();
+static SHARED_WRITE_BUFFER_MANAGER: Lazy<Arc<WriteBufferManager>> = Lazy::new(|| {
+    let total_write_buffer_size = std::env::var("ROCKSDB_TOTAL_WRITE_BUFFER_SIZE")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(2048 * 1024 * 1024); // 2GB total for ALL stores
 
-/// Initialize shared RocksDB resources (block cache, write buffer manager).
-/// Idempotent — safe to call multiple times; first call wins.
-/// Called explicitly in Service::new() and as a fallback in rocksdb_options().
-pub fn init_shared_resources(config: &RocksDbConfig) {
-    SHARED_BLOCK_CACHE
-        .get_or_init(|| Arc::new(Cache::new_lru_cache(config.shared_cache_size_bytes)));
+    // false = don't allow stall (we'll handle backpressure at Kafka level)
+    Arc::new(WriteBufferManager::new_write_buffer_manager(
+        total_write_buffer_size,
+        false,
+    ))
+});
 
-    SHARED_WRITE_BUFFER_MANAGER.get_or_init(|| {
-        Arc::new(WriteBufferManager::new_write_buffer_manager(
-            config.total_write_buffer_size_bytes,
-            config.write_buffer_manager_allow_stall,
-        ))
-    });
-}
+const WRITE_BUFFER_SIZE: usize = 64 * 1024 * 1024; // 64MB
+const TARGET_FILE_SIZE_BASE: u64 = 256 * 1024 * 1024; // 256MB
 
 pub fn block_based_table_factory() -> BlockBasedOptions {
+    // Optimize for point lookups (dedup check)
     let mut block_opts = BlockBasedOptions::default();
-    // Bloom filter reduces full-key lookups during dedup checks
-    block_opts.set_bloom_filter(BLOOM_FILTER_BITS_PER_KEY, false);
+    // Set bloom filter to 10 bits per key, not approximate
+    // Bloom filter is a probabilistic data structure that allows for fast lookups
+    // but with a small probability of false positives, we will use this
+    // to avoid full lookups
+    block_opts.set_bloom_filter(10.0, false);
     block_opts.set_cache_index_and_filter_blocks(true);
     block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
     block_opts.set_whole_key_filtering(true);
@@ -133,77 +66,89 @@ pub fn block_based_table_factory() -> BlockBasedOptions {
     block_opts
 }
 
-fn rocksdb_options(config: &RocksDbConfig) -> Options {
-    // Ensure shared resources are initialized (idempotent fallback for tests)
-    init_shared_resources(config);
+fn rocksdb_options() -> Options {
+    // Use std::thread::available_parallelism() which is cgroup-aware (respects container CPU limits)
+    let num_threads = std::thread::available_parallelism()
+        .map(|p| p.get())
+        .unwrap_or(2);
 
     let mut opts = Options::default();
     opts.create_if_missing(true);
+    // Enable atomic flush to ensure consistency between column families
     opts.set_atomic_flush(true);
     opts.create_missing_column_families(true);
 
-    // Universal compaction: lower write amplification for write-heavy workloads
-    // at the cost of higher space amplification — good for batch writes on slow PVC storage
+    // Universal compaction reduces write amplification for write-heavy workloads
+    // Trade-off: higher space amplification, but better for batch writes on slow storage
     opts.set_compaction_style(rocksdb::DBCompactionStyle::Universal);
+
+    // NOTE: We don't call optimize_universal_style_compaction() because it sets Snappy compression.
+    // Instead, we manually configure universal compaction for reduced CPU usage:
+    // - Higher size_ratio (10% vs 1% default) means less aggressive compaction
+    // - This reduces compaction frequency at the cost of slightly higher space amplification
     let mut universal_opts = rocksdb::UniversalCompactOptions::default();
-    universal_opts.set_size_ratio(UNIVERSAL_SIZE_RATIO);
-    universal_opts.set_min_merge_width(UNIVERSAL_MIN_MERGE_WIDTH);
-    universal_opts.set_max_merge_width(UNIVERSAL_MAX_MERGE_WIDTH);
-    universal_opts.set_max_size_amplification_percent(UNIVERSAL_MAX_SIZE_AMPLIFICATION_PERCENT);
-    universal_opts.set_compression_size_percent(UNIVERSAL_COMPRESSION_SIZE_PERCENT);
+    universal_opts.set_size_ratio(10); // Allow 10% size difference before compacting (default: 1)
+    universal_opts.set_min_merge_width(2); // Minimum files to merge (default: 2)
+    universal_opts.set_max_merge_width(16); // Maximum files to merge at once (default: UINT_MAX)
+    universal_opts.set_max_size_amplification_percent(200); // Allow 2x space amp (default: 200)
+    universal_opts.set_compression_size_percent(-1); // Compress all levels (default: -1)
     opts.set_universal_compaction_options(&universal_opts);
 
     let mut block_opts = block_based_table_factory();
-
-    // Timestamp column family uses prefix extractor for 8-byte epoch-second keys
+    // Timestamp CF
     let mut ts_cf = Options::default();
     ts_cf.set_block_based_table_factory(&block_opts);
-    ts_cf.set_prefix_extractor(SliceTransform::create_fixed_prefix(TIMESTAMP_PREFIX_LEN));
+    ts_cf.set_prefix_extractor(SliceTransform::create_fixed_prefix(8));
 
     // CRITICAL: Use shared block cache across all stores
-    block_opts.set_block_cache(
-        SHARED_BLOCK_CACHE
-            .get()
-            .expect("shared block cache not initialized"),
-    );
+    block_opts.set_block_cache(&SHARED_BLOCK_CACHE);
+
     opts.set_block_based_table_factory(&block_opts);
 
     // CRITICAL: Use shared write buffer manager to limit total memory
-    opts.set_write_buffer_manager(
-        SHARED_WRITE_BUFFER_MANAGER
-            .get()
-            .expect("shared write buffer manager not initialized"),
-    );
+    opts.set_write_buffer_manager(&SHARED_WRITE_BUFFER_MANAGER);
 
-    // Write buffer tuning — larger buffers = fewer flushes = less I/O on PVC storage.
-    // The shared write buffer manager caps total memory across all partition stores.
-    opts.set_write_buffer_size(config.write_buffer_size_bytes);
-    opts.set_max_write_buffer_number(MAX_WRITE_BUFFER_NUMBER);
-    opts.set_min_write_buffer_number_to_merge(MIN_WRITE_BUFFER_NUMBER_TO_MERGE);
+    // Write buffer tuning for batch workloads:
+    // - Larger buffers = fewer flushes = less I/O pressure on PVC storage
+    // - With 64 partitions and shared write buffer manager (2GB), each partition
+    //   can use up to 64MB per memtable, but the shared manager limits total usage
+    opts.set_write_buffer_size(WRITE_BUFFER_SIZE); // 64MB per memtable (up from 32MB)
+    opts.set_max_write_buffer_number(2); // 2 buffers to allow writes during flush
+    opts.set_min_write_buffer_number_to_merge(1); // Merge 1 buffer before flush (faster)
 
-    opts.set_target_file_size_base(config.target_file_size_base_bytes);
+    // SST file size should be proportional to write buffer for efficient compaction
+    opts.set_target_file_size_base(TARGET_FILE_SIZE_BASE); // 256MB SST files
 
-    opts.set_level_zero_file_num_compaction_trigger(config.l0_compaction_trigger);
-    opts.set_level_zero_slowdown_writes_trigger(config.l0_slowdown_writes_trigger);
-    opts.set_level_zero_stop_writes_trigger(config.l0_stop_writes_trigger);
+    // L0 tuning to reduce write stalls:
+    // - Higher trigger = batch more L0 files before compaction
+    // - Reduces compaction frequency on slow storage
+    opts.set_level_zero_file_num_compaction_trigger(8); // Default is 4
+    opts.set_level_zero_slowdown_writes_trigger(20); // Slow down at 20 L0 files
+    opts.set_level_zero_stop_writes_trigger(36); // Stop at 36 L0 files
 
+    // Compression: LZ4 is fast and reduces I/O significantly
     opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
 
-    // Limit background jobs to reduce I/O contention when many partitions share a disk
-    opts.increase_parallelism(config.max_background_jobs);
-    opts.set_max_background_jobs(config.max_background_jobs);
+    // Parallelism - limit background jobs to reduce I/O contention
+    // With many partitions, too many background jobs can overwhelm disk
+    let max_bg_jobs = std::cmp::min(num_threads as i32, 2);
+    opts.increase_parallelism(max_bg_jobs);
+    opts.set_max_background_jobs(max_bg_jobs);
 
+    // IO & safety
     opts.set_paranoid_checks(true);
-    opts.set_bytes_per_sync(BYTES_PER_SYNC);
-    opts.set_wal_bytes_per_sync(BYTES_PER_SYNC);
+    opts.set_bytes_per_sync(1024 * 1024);
+    opts.set_wal_bytes_per_sync(1024 * 1024);
 
-    // Let OS page cache buffer writes — critical for PVC storage
+    // Disable direct I/O to allow OS page cache buffering
+    // Critical for PVC storage where the OS cache helps batch writes
     opts.set_use_direct_reads(false);
     opts.set_use_direct_io_for_flush_and_compaction(false);
-    opts.set_compaction_readahead_size(COMPACTION_READAHEAD_SIZE);
+    opts.set_compaction_readahead_size(2 * 1024 * 1024);
 
+    // Compaction settings
     opts.set_disable_auto_compactions(false);
-    opts.set_max_open_files(config.max_open_files);
+    opts.set_max_open_files(1024);
 
     // CRITICAL: Disable mmap with many partitions to avoid virtual memory explosion
     opts.set_allow_mmap_reads(false);
@@ -217,10 +162,9 @@ impl RocksDbStore {
         path: P,
         cf_descriptors: Vec<ColumnFamilyDescriptor>,
         metrics: MetricsHelper,
-        rocksdb_config: &RocksDbConfig,
     ) -> Result<Self> {
         let path_ref = path.as_ref();
-        let opts = rocksdb_options(rocksdb_config);
+        let opts = rocksdb_options();
 
         let db =
             DBWithThreadMode::<MultiThreaded>::open_cf_descriptors(&opts, path_ref, cf_descriptors)
@@ -603,13 +547,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let cf_descriptor = ColumnFamilyDescriptor::new(TEST_CF, Options::default());
         let metrics = MetricsHelper::new().with_label("test", "true");
-        let store = RocksDbStore::new(
-            temp_dir.path(),
-            vec![cf_descriptor],
-            metrics,
-            &RocksDbConfig::default(),
-        )
-        .unwrap();
+        let store = RocksDbStore::new(temp_dir.path(), vec![cf_descriptor], metrics).unwrap();
         (store, temp_dir)
     }
 
@@ -773,13 +711,9 @@ mod tests {
         // Create original store and add data
         {
             let cf_descriptor = ColumnFamilyDescriptor::new(TEST_CF, Options::default());
-            let original_store = RocksDbStore::new(
-                &original_path,
-                vec![cf_descriptor],
-                MetricsHelper::new(),
-                &RocksDbConfig::default(),
-            )
-            .unwrap();
+            let original_store =
+                RocksDbStore::new(&original_path, vec![cf_descriptor], MetricsHelper::new())
+                    .unwrap();
 
             original_store.put(TEST_CF, b"key1", b"value1").unwrap();
             original_store.put(TEST_CF, b"key2", b"value2").unwrap();
@@ -790,13 +724,8 @@ mod tests {
 
         // Open new store from checkpoint
         let cf_descriptor = ColumnFamilyDescriptor::new(TEST_CF, Options::default());
-        let recovered_store = RocksDbStore::new(
-            &checkpoint_path,
-            vec![cf_descriptor],
-            MetricsHelper::new(),
-            &RocksDbConfig::default(),
-        )
-        .unwrap();
+        let recovered_store =
+            RocksDbStore::new(&checkpoint_path, vec![cf_descriptor], MetricsHelper::new()).unwrap();
 
         // Verify data is recovered
         let keys = vec![b"key1".as_slice(), b"key2".as_slice()];
@@ -867,13 +796,7 @@ mod tests {
         let checkpoint2_path = temp_dir.path().join("checkpoint2");
 
         let cf_descriptor = ColumnFamilyDescriptor::new(TEST_CF, Options::default());
-        let store = RocksDbStore::new(
-            &db_path,
-            vec![cf_descriptor],
-            MetricsHelper::new(),
-            &RocksDbConfig::default(),
-        )
-        .unwrap();
+        let store = RocksDbStore::new(&db_path, vec![cf_descriptor], MetricsHelper::new()).unwrap();
 
         // Phase 1: Add initial data
         store.put(TEST_CF, b"key1", b"value1").unwrap();

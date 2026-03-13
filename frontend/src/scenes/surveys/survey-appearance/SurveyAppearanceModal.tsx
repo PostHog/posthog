@@ -7,6 +7,8 @@ import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonModal, LemonSelect, LemonSwitch, LemonTabs } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { defaultSurveyAppearance } from 'scenes/surveys/constants'
 import {
@@ -146,10 +148,13 @@ export function SurveyAppearanceModal({
     survey,
     selectedPageIndex,
     setSelectedPageIndex,
-    disabledReason,
 }: CommonProps): JSX.Element | null {
     const { setIsAppearanceModalOpen } = useActions(surveysLogic)
     const { surveysStylingAvailable, isAppearanceModalOpen } = useValues(surveysLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     if (survey.type === SurveyType.API || survey.type === SurveyType.ExternalSurvey) {
         return null
@@ -168,7 +173,7 @@ export function SurveyAppearanceModal({
                 onClick={() => {
                     setIsAppearanceModalOpen(true)
                 }}
-                disabledReason={disabledReason || undefined}
+                disabledReason={restrictedReason}
             >
                 Full-screen survey editor
             </LemonButton>
@@ -186,7 +191,6 @@ export function SurveyAppearanceModal({
                             onAppearanceChange={onAppearanceChange}
                             validationErrors={validationErrors}
                             surveyType={survey.type}
-                            disabledReason={disabledReason}
                         />
                         <LemonDivider />
                         <SurveyColorsAppearance
@@ -195,7 +199,6 @@ export function SurveyAppearanceModal({
                             validationErrors={validationErrors}
                             customizeRatingButtons={hasRatingButtons}
                             customizePlaceholderText={hasPlaceholderText}
-                            disabledReason={disabledReason}
                         />
                     </div>
                     <SurveyPreview

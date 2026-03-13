@@ -253,7 +253,6 @@ pub fn batch_write_timestamp_records(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rocksdb::store::RocksDbConfig;
     use crate::store::DeduplicationStoreConfig;
     use crate::test_utils::create_test_tracker;
     use std::sync::Arc;
@@ -264,7 +263,6 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
-            rocksdb: RocksDbConfig::default(),
         };
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
         (manager, temp_dir)
@@ -328,7 +326,6 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
-            rocksdb: RocksDbConfig::default(),
         };
         let store = DeduplicationStore::new(config, "test-topic".to_string(), 0).unwrap();
 

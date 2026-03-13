@@ -17,7 +17,6 @@ from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import FieldOrTable
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
@@ -73,7 +72,6 @@ ExtractErrors = {
     "S3 exception: `NoSuchBucket`, message: 'The specified bucket does not exist.'": "The provided bucket doesn't exist",
     "Either the file is corrupted or this is not a parquet file": "The provided file is not in Parquet format",
     "Rows have different amount of values": "The provided file has rows with different amount of values",
-    "The operation is not valid for the object's storage class": "Some files in the bucket are archived (e.g. Glacier or S3 Intelligent-Tiering archive). Restore them to Standard storage or narrow the URL pattern to exclude archived files.",
 }
 
 type DataWarehouseTableColumns = dict[str, dict[str, str | bool]] | dict[str, str]
@@ -370,9 +368,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             raise
         return s3_table_func, placeholder_context
 
-    def hogql_definition(
-        self, modifiers: Optional[HogQLQueryModifiers] = None
-    ) -> HogQLDataWarehouseTable | DirectPostgresTable:
+    def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> HogQLDataWarehouseTable:
         columns = self.columns or {}
 
         fields: dict[str, FieldOrTable] = {}
@@ -413,16 +409,6 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 hogql_type = STR_TO_HOGQL_MAPPING.get(type["hogql"], STR_TO_HOGQL_MAPPING["UnknownDatabaseField"])
 
             fields[column] = hogql_type(name=column, nullable=is_nullable)
-
-        if self.external_data_source and self.external_data_source.is_direct_postgres:
-            postgres_schema = (self.external_data_source.job_inputs or {}).get("schema", "public")
-            return DirectPostgresTable(
-                name=self.name,
-                fields=fields,
-                postgres_schema=postgres_schema,
-                postgres_table_name=self.name,
-                external_data_source_id=str(self.external_data_source_id),
-            )
 
         # Replace fields with any redefined fields if they exist
         external_table_fields = external_tables.get(self.table_name_without_prefix())

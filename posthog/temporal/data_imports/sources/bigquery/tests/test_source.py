@@ -74,7 +74,6 @@ def test_bigquery_destination_table_default():
                 incremental_field_type=None,
                 job_id="job-id",
                 logger=mock.MagicMock(),
-                reset_pipeline=False,
             ),
         )
 
@@ -163,7 +162,6 @@ def test_bigquery_destination_table_with_dataset_project_set():
                 incremental_field_type=None,
                 job_id="job-id",
                 logger=mock.MagicMock(),
-                reset_pipeline=False,
             ),
         )
 
@@ -252,7 +250,6 @@ def test_bigquery_destination_table_with_temporary_dataset_set():
                 incremental_field_type=None,
                 job_id="job-id",
                 logger=mock.MagicMock(),
-                reset_pipeline=False,
             ),
         )
 
@@ -344,7 +341,6 @@ def test_bigquery_destination_table_with_both_temporary_dataset_and_dataset_proj
                 incremental_field_type=None,
                 job_id="job-id",
                 logger=mock.MagicMock(),
-                reset_pipeline=False,
             ),
         )
 

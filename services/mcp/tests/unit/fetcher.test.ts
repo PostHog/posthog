@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { buildApiFetcher, type Fetcher } from '@/api/fetcher'
+import { buildApiFetcher } from '@/api/fetcher'
+import type { Fetcher } from '@/api/generated'
 import { globalRateLimiter } from '@/api/rate-limiter'
 
 // Mock the global rate limiter

@@ -12,8 +12,6 @@ pub const EMBEDDING_FAILED: &str = "embedding_worker_embedding_failed";
 pub const EMBEDDING_TOTAL_TIME: &str = "embedding_worker_embedding_total_time";
 pub const EMBEDDING_REQUEST_TIME: &str = "embedding_worker_embedding_request_time";
 pub const EMBEDDING_TOTAL_TOKENS: &str = "embedding_worker_embedding_total_tokens";
-pub const REQUESTS_SENT: &str = "embedding_worker_requests_sent";
-pub const RESPONSES_RECEIVED: &str = "embedding_worker_responses_received";
 
 #[derive(Debug, Clone, Default)]
 pub struct RequestLabels {
@@ -36,7 +34,7 @@ impl RequestLabels {
     }
 
     pub fn and_model(self, model: EmbeddingModel) -> Self {
-        self.and([("model", model.name()), ("provider", model.provider())])
+        self.and([("model", model.name())])
     }
 
     pub fn render(&self) -> &[(String, String)] {

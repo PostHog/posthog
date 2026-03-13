@@ -3,8 +3,6 @@ import typing
 import asyncio
 import datetime as dt
 
-from django.conf import settings
-
 import structlog
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricMeter
@@ -80,8 +78,6 @@ Attributes = dict[str, str | int | float | bool]
 
 class BatchExportsMetricsInterceptor(Interceptor):
     """Interceptor to emit Prometheus metrics for batch exports."""
-
-    task_queue = (settings.BATCH_EXPORTS_TASK_QUEUE, settings.SYNC_BATCH_EXPORTS_TASK_QUEUE)
 
     def intercept_activity(self, next: ActivityInboundInterceptor) -> ActivityInboundInterceptor:
         return _BatchExportsMetricsActivityInboundInterceptor(super().intercept_activity(next))

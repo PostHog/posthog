@@ -21,9 +21,9 @@ export function NavLink({ to, label, icon, isCollapsed }: NavLinkProps): JSX.Ele
     const { showConfigurePinnedTabsModal } = useActions(navigationLogic)
     const { pathname } = useValues(panelLayoutLogic)
 
-    const isHomePage = to === urls.projectRoot()
+    const isHomePage = to === urls.projectHomepage()
     const currentPath = removeProjectIdIfPresent(pathname)
-    const isActive = currentPath === to || (isHomePage && currentPath === urls.projectHomepage())
+    const isActive = currentPath === to
 
     return (
         <ButtonGroupPrimitive
@@ -36,7 +36,7 @@ export function NavLink({ to, label, icon, isCollapsed }: NavLinkProps): JSX.Ele
                     iconOnly: isCollapsed,
                     className: 'group',
                     active: isActive,
-                    hasSideActionRight: isHomePage && !isCollapsed,
+                    hasSideActionRight: isHomePage,
                 }}
                 to={to}
                 tooltip={isCollapsed ? label : undefined}
@@ -47,7 +47,7 @@ export function NavLink({ to, label, icon, isCollapsed }: NavLinkProps): JSX.Ele
                 </span>
                 {!isCollapsed && <span className="flex-1 text-left">{label}</span>}
             </Link>
-            {isHomePage && !isCollapsed && (
+            {isHomePage && (
                 <ButtonPrimitive
                     className="opacity-0 group-hover/wrapper:opacity-50 hover:!opacity-100 transition-all duration-50"
                     iconOnly
@@ -59,7 +59,7 @@ export function NavLink({ to, label, icon, isCollapsed }: NavLinkProps): JSX.Ele
                     tooltip="Configure tabs & home"
                     tooltipPlacement="right"
                 >
-                    <IconGear className="size-3 text-tertiary" />
+                    <IconGear className="text-tertiary" />
                 </ButtonPrimitive>
             )}
         </ButtonGroupPrimitive>

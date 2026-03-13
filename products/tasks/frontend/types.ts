@@ -1,4 +1,4 @@
-import { Optional } from 'lib/utils/types'
+import { Optional } from '~/types'
 
 export enum OriginProduct {
     ERROR_TRACKING = 'error_tracking',

@@ -42,9 +42,6 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
             return
         }
 
-        setSourceConfigValue(['access_method'], source.access_method ?? 'warehouse')
-        setSourceConfigValue(['prefix'], source.prefix ?? '')
-        setSourceConfigValue(['description'], source.description ?? '')
         setJobInputs({
             ...buildKeaFormDefaultFromSourceDetails({ [source.source_type]: sourceFieldConfig })['payload'],
             ...source.job_inputs,
@@ -52,10 +49,6 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
         // `source` is updating via a poll, and so we dont't want this updating when the object reference updates but not the actual data
         // It's also the reason why it can't live in the kea logic - the selector will update on object reference changes
     }, [
-        source?.access_method,
-        source?.prefix,
-        source?.description,
-        setSourceConfigValue,
         // oxlint-disable-next-line exhaustive-deps
         JSON.stringify(source?.job_inputs ?? {}),
         // oxlint-disable-next-line exhaustive-deps
@@ -75,7 +68,6 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
                     showDescription={true}
                     sourceConfig={sourceFieldConfig}
                     jobInputs={jobInputs}
-                    initialAccessMethod={source.access_method ?? 'warehouse'}
                     setSourceConfigValue={setSourceConfigValue}
                 />
                 <div className="mt-4 flex flex-row justify-end gap-2">

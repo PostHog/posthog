@@ -129,9 +129,7 @@ function RNSetupSurveysProvider(): JSX.Element {
 </YourAppRoot>`}
             </CodeSnippet>
             <p>You can also pass your client instance to the PostHogSurveyProvider.</p>
-            <CodeSnippet
-                language={Language.JSX}
-            >{`<PostHogSurveyProvider client={posthog}>{children}</PostHogSurveyProvider>`}</CodeSnippet>
+            <CodeSnippet language={Language.JSX}>{`<PostHogSurveyProvider client={posthog}>`}</CodeSnippet>
         </>
     )
 }

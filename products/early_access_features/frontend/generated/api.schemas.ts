@@ -74,7 +74,6 @@ export interface MinimalFeatureFlagApi {
 * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
     readonly evaluation_tags: readonly string[]
-    readonly evaluation_contexts: readonly string[]
 }
 
 /**

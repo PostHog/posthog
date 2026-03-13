@@ -1,5 +1,5 @@
 use crate::{
-    api::{errors::FlagError, types::FlagsResponse},
+    api::types::FlagsResponse,
     database::PostgresRouter,
     flags::{flag_group_type_mapping::GroupTypeMappingCache, flag_matching::FeatureFlagMatcher},
 };
@@ -11,7 +11,7 @@ use super::types::FeatureFlagEvaluationContext;
 pub async fn evaluate_feature_flags(
     context: FeatureFlagEvaluationContext,
     request_id: Uuid,
-) -> Result<FlagsResponse, FlagError> {
+) -> FlagsResponse {
     let group_type_mapping_cache = GroupTypeMappingCache::new(context.team_id);
 
     // Create router from the context

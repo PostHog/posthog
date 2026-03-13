@@ -22,55 +22,47 @@ export const PKCE_STORAGE_KEY = '_postHogToolbarPKCE'
 export interface ToolbarAuthParams {
     code: string
     clientId: string
+    redirectUri?: string
+    tokenEndpoint?: string
 }
 
 /**
- * Read `__posthog_toolbar=code:…,client_id:…` from the URL hash without modifying the URL.
+ * Clean `__posthog_toolbar=code:…,client_id:…[,redirect_uri:…][,token_endpoint:…]` from the URL hash.
  * Returns the matched params if found, or null.
+ *
+ * The server may include redirect_uri and token_endpoint so the frontend
+ * doesn't need to derive them from uiHost (fixes reverse proxy mismatches).
  */
-export function readToolbarAuthHash(): ToolbarAuthParams | null {
+export function cleanToolbarAuthHash(): ToolbarAuthParams | null {
     let hash: string
     try {
         hash = decodeURIComponent(window.location.hash)
     } catch {
         hash = window.location.hash
     }
-    const codeMatch = hash.match(/__posthog_toolbar=code:([^,]+),client_id:([^,&]+)/)
+    const codeMatch = hash.match(/__posthog_toolbar=code:([^,]+),client_id:([^,&#]+)/)
     if (!codeMatch) {
         return null
     }
-    return {
-        code: codeMatch[1],
-        clientId: codeMatch[2],
-    }
-}
 
-/**
- * Remove `__posthog_toolbar=code:…,client_id:…` from the URL hash.
- *
- * Separated from reading so that the URL modification (history.replaceState)
- * can be deferred — some SPAs watch for URL changes and re-render the page,
- * which can destroy the toolbar mid-initialization if the hash is cleaned
- * synchronously during mount.
- */
-export function cleanToolbarAuthHash(): void {
-    let hash: string
-    try {
-        hash = decodeURIComponent(window.location.hash)
-    } catch {
-        hash = window.location.hash
-    }
-    if (!hash.includes('__posthog_toolbar=')) {
-        return
-    }
+    // Extract the full toolbar param value for optional fields
+    const fullMatch = hash.match(/__posthog_toolbar=([^&#]+)/)
+    const paramStr = fullMatch ? fullMatch[1] : ''
+    const redirectUriMatch = paramStr.match(/redirect_uri:([^,&#]+)/)
+    const tokenEndpointMatch = paramStr.match(/token_endpoint:([^,&#]+)/)
 
     const cleanHash = hash
-        .replace(/__posthog_toolbar=[^&]*/g, '')
-        .replace(/&&+/g, '&')
+        .replace(/__posthog_toolbar=[^&#]*/, '')
         .replace(/&$/, '')
         .replace(/^#&/, '#')
         .replace(/^#$/, '')
     history.replaceState(null, '', location.pathname + location.search + (cleanHash || ''))
+    return {
+        code: codeMatch[1],
+        clientId: codeMatch[2],
+        redirectUri: redirectUriMatch ? decodeURIComponent(redirectUriMatch[1]) : undefined,
+        tokenEndpoint: tokenEndpointMatch ? decodeURIComponent(tokenEndpointMatch[1]) : undefined,
+    }
 }
 
 export async function generatePKCE(): Promise<{ verifier: string; challenge: string }> {
@@ -188,12 +180,8 @@ export function getParent(element: HTMLElement): HTMLElement | null {
     return null
 }
 
-export function trimElement(
-    element: HTMLElement,
-    options?: { selector?: string; cursorPointerCache?: WeakMap<HTMLElement, boolean> }
-): HTMLElement | null {
-    const target_selector = options?.selector || CLICK_TARGET_SELECTOR
-    const cursorPointerCache = options?.cursorPointerCache
+export function trimElement(element: HTMLElement, selector?: string): HTMLElement | null {
+    const target_selector = selector || CLICK_TARGET_SELECTOR
     if (!element) {
         return null
     }
@@ -204,6 +192,8 @@ export function trimElement(
 
     let loopElement = element
 
+    // if it's an element with only one child, go down to the lowest node as far as we can
+    // we'll come back up later
     while (true) {
         if (loopElement.children.length === 1) {
             loopElement = loopElement.children[0] as HTMLElement
@@ -212,31 +202,23 @@ export function trimElement(
         }
     }
 
-    const hasCachedPointer = (el: HTMLElement): boolean => {
-        if (!cursorPointerCache) {
-            return window.getComputedStyle(el).getPropertyValue('cursor') === 'pointer'
-        }
-        const cached = cursorPointerCache.get(el)
-        if (cached !== undefined) {
-            return cached
-        }
-        const result = window.getComputedStyle(el).getPropertyValue('cursor') === 'pointer'
-        cursorPointerCache.set(el, result)
-        return result
-    }
-
     while (loopElement) {
         const parent = getParent(loopElement)
         if (!parent) {
             return null
         }
 
+        // return when we find a click target
         if (loopElement.matches?.(target_selector)) {
             return loopElement
         }
 
-        if (hasCachedPointer(loopElement) && !hasCachedPointer(parent)) {
-            return loopElement
+        const compStyles = window.getComputedStyle(loopElement)
+        if (compStyles.getPropertyValue('cursor') === 'pointer') {
+            const parentStyles = parent ? window.getComputedStyle(parent) : null
+            if (!parentStyles || parentStyles.getPropertyValue('cursor') !== 'pointer') {
+                return loopElement
+            }
         }
 
         loopElement = parent
@@ -338,7 +320,7 @@ export function getAllClickTargets(
             return a
         }, [] as HTMLElement[])
     const selectedElements = [...elements, ...pointerElements, ...shadowElements]
-        .map((e) => trimElement(e, { selector: targetSelector }))
+        .map((e) => trimElement(e, targetSelector))
         .filter((e) => e)
     const uniqueElements = Array.from(new Set(selectedElements)) as HTMLElement[]
 
@@ -504,18 +486,6 @@ export function stepToDatabaseFormat(step: ActionStepForm): ActionStepType {
     }
 }
 
-export function rectEqual(a?: ElementRect, b?: ElementRect): boolean {
-    if (a === b) {
-        return true
-    }
-    if (!a || !b) {
-        return false
-    }
-    return a.top === b.top && a.left === b.left && a.right === b.right && a.bottom === b.bottom
-}
-
-export const EMPTY_STYLE: Record<string, any> = {}
-
 export function getRectForElement(element: HTMLElement): ElementRect {
     const elements = [elementToAreaRect(element)]
 
@@ -538,43 +508,20 @@ export function getRectForElement(element: HTMLElement): ElementRect {
     return maxRect
 }
 
-let zoomCache = new WeakMap<HTMLElement, number[]>()
-let pageUsesZoom: boolean | undefined
-
-export function invalidateZoomCache(): void {
-    pageUsesZoom = undefined
-    zoomCache = new WeakMap()
-}
-
 export const getZoomLevel = (el: HTMLElement): number[] => {
-    if (pageUsesZoom === false) {
-        return []
-    }
-
-    const cached = zoomCache.get(el)
-    if (cached !== undefined) {
-        return cached
-    }
-
     const zooms: number[] = []
-    const getZoom = (current: HTMLElement): void => {
-        const zoom = window.getComputedStyle(current).getPropertyValue('zoom')
+    const getZoom = (el: HTMLElement): void => {
+        const zoom = window.getComputedStyle(el).getPropertyValue('zoom')
         const rzoom = zoom ? parseFloat(zoom) : 1
         if (rzoom !== 1) {
             zooms.push(rzoom)
         }
-        if (current.parentElement?.parentElement) {
-            getZoom(current.parentElement)
+        if (el.parentElement?.parentElement) {
+            getZoom(el.parentElement)
         }
     }
     getZoom(el)
     zooms.reverse()
-
-    if (zooms.length > 0) {
-        pageUsesZoom = true
-    }
-
-    zoomCache.set(el, zooms)
     return zooms
 }
 export const getRect = (el: HTMLElement): ElementRect => {

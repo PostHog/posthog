@@ -144,8 +144,6 @@ class QueryContext:
     is_feature_flag_filter: str = ""
     excluded_properties_filter: str = ""
 
-    order_by_search_relevance: bool = False
-
     event_property_join_type: str = ""
     event_property_field: str = "NULL"
 
@@ -260,11 +258,10 @@ class QueryContext:
             params={**self.params, "event_names": list(map(str, event_names or []))},
         )
 
-    def with_search(self, search_query: str, search_kwargs: dict, order_by_search_relevance: bool = False) -> Self:
+    def with_search(self, search_query: str, search_kwargs: dict) -> Self:
         return dataclasses.replace(
             self,
             search_query=search_query,
-            order_by_search_relevance=order_by_search_relevance,
             params={**self.params, "project_id": self.project_id, **search_kwargs},
         )
 
@@ -327,9 +324,6 @@ class QueryContext:
 
     def as_sql(self, order_by_verified: bool):
         verified_ordering = "verified DESC NULLS LAST," if order_by_verified else ""
-        length_ordering = (
-            f"length({self.property_definition_table}.name) ASC," if self.order_by_search_relevance else ""
-        )
         query = f"""
             SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events
             FROM {self.table}
@@ -340,7 +334,7 @@ class QueryContext:
               {self.excluded_properties_filter}
              {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
              {self.event_name_filter}
-            ORDER BY is_seen_on_filtered_events DESC, {length_ordering} {verified_ordering} {self.property_definition_table}.name ASC
+            ORDER BY is_seen_on_filtered_events DESC, {verified_ordering} {self.property_definition_table}.name ASC
             LIMIT %(limit)s OFFSET %(offset)s
             """
 
@@ -653,11 +647,7 @@ class PropertyDefinitionViewSet(
                     event_names=event_names,
                     filter_by_event_names=filter_by_event_names,
                 )
-                .with_search(
-                    search_query,
-                    search_kwargs,
-                    order_by_search_relevance=bool(search and search.strip()),
-                )
+                .with_search(search_query, search_kwargs)
                 .with_excluded_properties(query.validated_data.get("excluded_properties"))
                 .with_excluded_core_properties(
                     query.validated_data.get("exclude_core_properties", False),
@@ -834,8 +824,9 @@ class PropertyDefinitionViewSet(
         instance: PropertyDefinition = self.get_object()
         instance_id = str(instance.id)
         self.perform_destroy(instance)
+        # Casting, since an anonymous use CANNOT access this endpoint
         report_user_action(
-            request.user,
+            cast(User, request.user),
             "property definition deleted",
             {"name": instance.name, "type": instance.get_type_display()},
             team=self.team,

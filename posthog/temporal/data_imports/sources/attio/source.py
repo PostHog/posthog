@@ -67,11 +67,9 @@ You can generate an API key in your Attio workspace settings. Check out [this gu
             featureFlag="dwh_attio",
         )
 
-    def get_schemas(
-        self, config: AttioSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
-    ) -> list[SourceSchema]:
+    def get_schemas(self, config: AttioSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         # Attio API doesn't support updatedAt filtering, so only full refresh is supported
-        schemas = [
+        return [
             SourceSchema(
                 name=endpoint_config.name,
                 supports_incremental=False,
@@ -80,10 +78,6 @@ You can generate an API key in your Attio workspace settings. Check out [this gu
             )
             for endpoint_config in ATTIO_ENDPOINTS.values()
         ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
 
     def validate_credentials(
         self, config: AttioSourceConfig, team_id: int, schema_name: str | None = None

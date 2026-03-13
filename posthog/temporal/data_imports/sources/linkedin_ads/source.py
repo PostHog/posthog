@@ -82,16 +82,12 @@ class LinkedInAdsSource(SimpleSource[LinkedinAdsSourceConfig]):
             return False, f"Failed to validate LinkedIn Ads credentials: {str(e)}"
 
     def get_schemas(
-        self,
-        config: LinkedinAdsSourceConfig,
-        team_id: int,
-        with_counts: bool = False,
-        names: list[str] | None = None,
+        self, config: LinkedinAdsSourceConfig, team_id: int, with_counts: bool = False
     ) -> list[SourceSchema]:
         linkedin_ads_schemas = get_linkedin_ads_schemas()
         ads_incremental_fields = get_linkedin_ads_incremental_fields()
 
-        schemas = [
+        return [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=ads_incremental_fields.get(endpoint, None) is not None,
@@ -103,12 +99,6 @@ class LinkedInAdsSource(SimpleSource[LinkedinAdsSourceConfig]):
             )
             for endpoint in linkedin_ads_schemas.keys()
         ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
 
     def source_for_pipeline(self, config: LinkedinAdsSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return linkedin_ads_source(

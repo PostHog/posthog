@@ -20,7 +20,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { onboardingLogic } from './onboardingLogic'
 import { USE_CASE_OPTIONS } from './productRecommendations'
-import { availableOnboardingProducts, getProductIcon } from './utils'
+import { getProductIcon } from './productSelection/ProductSelection'
+import { availableOnboardingProducts } from './utils'
 
 const ONBOARDING_TAB_ID = 'onboarding'
 
@@ -165,7 +166,7 @@ export function OnboardingMax(): JSX.Element {
     return (
         <BindLogic logic={maxLogic} props={{ tabId: ONBOARDING_TAB_ID }}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>
-                <AIConsentPopoverWrapper ignoreDismissal>
+                <AIConsentPopoverWrapper>
                     <div className="flex flex-col items-center min-h-[calc(100vh-var(--scene-layout-header-height))]">
                         {!threadVisible ? (
                             <OnboardingWelcome />

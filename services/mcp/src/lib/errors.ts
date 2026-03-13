@@ -1,7 +1,6 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 
 import { getPostHogClient } from '@/lib/analytics'
-import { CUSTOM_API_BASE_URL } from '@/lib/constants'
 
 export enum ErrorCode {
     INVALID_API_KEY = 'INVALID_API_KEY',
@@ -53,7 +52,7 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
         properties.$session_id = sessionUuid
     }
 
-    getPostHogClient(!!CUSTOM_API_BASE_URL).captureException(mcpError, distinctId, properties)
+    getPostHogClient().captureException(mcpError, distinctId, properties)
 
     return {
         content: [

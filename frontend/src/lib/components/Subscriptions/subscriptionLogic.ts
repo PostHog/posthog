@@ -22,16 +22,14 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     target_type: 'email',
     byweekday: ['monday'],
     bysetpos: 1,
-    dashboard_export_insights: [],
-    integration_id: null,
 }
 
-export interface SubscriptionLogicProps extends SubscriptionBaseProps {
+export interface SubscriptionsLogicProps extends SubscriptionBaseProps {
     id: number | 'new'
 }
 export const subscriptionLogic = kea<subscriptionLogicType>([
     path(['lib', 'components', 'Subscriptions', 'subscriptionLogic']),
-    props({} as SubscriptionLogicProps),
+    props({} as SubscriptionsLogicProps),
     key(({ id, insightShortId, dashboardId }) => `${insightShortId || dashboardId}-${id ?? 'new'}`),
 
     actions({
@@ -84,15 +82,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
     forms(({ props, actions }) => ({
         subscription: {
             defaults: {} as unknown as SubscriptionType,
-            errors: ({
-                frequency,
-                interval,
-                target_value,
-                target_type,
-                title,
-                start_date,
-                dashboard_export_insights,
-            }) => ({
+            errors: ({ frequency, interval, target_value, target_type, title, start_date }) => ({
                 frequency: !frequency ? 'You need to set a schedule frequency' : undefined,
                 title: !title ? 'You need to give your subscription a name' : undefined,
                 interval: !interval ? 'You need to set an interval' : undefined,
@@ -117,10 +107,6 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                               ? 'Must be a valid URL'
                               : undefined
                           : undefined,
-                dashboard_export_insights:
-                    props.dashboardId && (!dashboard_export_insights || dashboard_export_insights.length === 0)
-                        ? ('Select at least one insight' as any)
-                        : undefined,
             }),
             submit: async (subscription, breakpoint) => {
                 const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined
@@ -175,7 +161,6 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             if (key === 'target_type') {
                 actions.setSubscriptionValues({
                     target_value: '',
-                    integration_id: null,
                 })
             }
         },

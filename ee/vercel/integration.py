@@ -406,20 +406,7 @@ class VercelIntegration:
         if not license:
             raise RuntimeError("No license available to deauthorize billing")
 
-        org_membership = (
-            OrganizationMembership.objects.filter(
-                organization=organization, level__gte=OrganizationMembership.Level.ADMIN
-            )
-            .select_related("user")
-            .order_by("-level")
-            .first()
-        )
-        if not org_membership:
-            raise RuntimeError(
-                f"No admin or owner found for organization {organization.id} — cannot deauthorize billing"
-            )
-
-        billing_manager = BillingManager(license, user=org_membership.user)
+        billing_manager = BillingManager(license)
         billing_manager.deauthorize(organization, billing_provider=BillingProvider.VERCEL)
         logger.info(
             "Deauthorized billing for Vercel installation",

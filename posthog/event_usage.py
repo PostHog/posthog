@@ -5,12 +5,9 @@ Module to centralize event reporting on the server-side.
 import re
 from enum import StrEnum
 from typing import TYPE_CHECKING, Optional
-from urllib.parse import urlparse
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
-
-from django.contrib.auth.models import AnonymousUser
 
 import posthoganalytics
 from rest_framework.authentication import SessionAuthentication
@@ -290,12 +287,7 @@ def get_event_source(request) -> EventSource:
         return EventSource.POSTHOG_CODE
     if "posthog/mcp-server" in user_agent:
         return EventSource.MCP
-    # DRF sets successful_authenticator during view dispatch; before that
-    # (e.g. in middleware), fall back to checking the Django session cookie
-    # which is available after Django's AuthenticationMiddleware runs.
     if isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication):
-        return EventSource.WEB
-    if getattr(getattr(request, "session", None), "session_key", None) is not None:
         return EventSource.WEB
     return EventSource.API
 
@@ -303,45 +295,28 @@ def get_event_source(request) -> EventSource:
 MAX_HEADER_VALUE_LENGTH = 1000
 
 
-def sanitize_header_value(value: str | None) -> str | None:
+def _sanitize_header_value(value: str | None) -> str | None:
     if not value:
         return None
     return re.sub(r"[\x00-\x1f\x7f]", "", value).strip()[:MAX_HEADER_VALUE_LENGTH] or None
 
 
-def get_mcp_properties(request) -> dict[str, str | None]:
-    """Extract MCP client metadata from request headers."""
-    return {
-        "mcp_user_agent": sanitize_header_value(request.headers.get("X-Posthog-Mcp-User-Agent")),
-        "mcp_client_name": sanitize_header_value(request.headers.get("X-Posthog-Mcp-Client-Name")),
-        "mcp_client_version": sanitize_header_value(request.headers.get("X-Posthog-Mcp-Client-Version")),
-        "mcp_protocol_version": sanitize_header_value(request.headers.get("X-Posthog-Mcp-Protocol-Version")),
-        "mcp_oauth_client_name": sanitize_header_value(request.headers.get("X-Posthog-Mcp-Oauth-Client-Name")),
-    }
-
-
 def get_request_analytics_properties(request) -> dict[str, str | bool | None]:
     """Extract standard analytics properties from a request."""
-    current_url = request.headers.get("Referer")
-    host: str | None = None
-    pathname: str | None = None
-    if current_url:
-        parsed = urlparse(current_url)
-        host = parsed.netloc or None
-        pathname = parsed.path or None
     return {
         "source": get_event_source(request),
-        "$current_url": current_url,
-        "$host": host,
-        "$pathname": pathname,
+        "$current_url": request.headers.get("Referer"),
         "$session_id": request.headers.get("X-Posthog-Session-Id"),
         "was_impersonated": is_impersonated_session(request),
-        **get_mcp_properties(request),
+        "mcp_user_agent": _sanitize_header_value(request.headers.get("X-Posthog-Mcp-User-Agent")),
+        "mcp_client_name": _sanitize_header_value(request.headers.get("X-Posthog-Mcp-Client-Name")),
+        "mcp_client_version": _sanitize_header_value(request.headers.get("X-Posthog-Mcp-Client-Version")),
+        "mcp_protocol_version": _sanitize_header_value(request.headers.get("X-Posthog-Mcp-Protocol-Version")),
     }
 
 
 def report_user_action(
-    user: User | AnonymousUser,
+    user: User,
     event: str,
     properties: Optional[dict] = None,
     *,
@@ -349,15 +324,12 @@ def report_user_action(
     organization: Optional[Organization] = None,
     request: Optional["Request"] = None,
 ):
-    # isinstance works through Django's SimpleLazyObject because it proxies __class__
-    if not isinstance(user, User) or not user.distinct_id:
+    if user is None or not user.distinct_id:
         return
     if properties is None:
         properties = {}
     if request is not None:
         properties = {**get_request_analytics_properties(request), **properties}
-    if user.email:
-        properties["$set_once"] = {"email": user.email}
     posthoganalytics.capture(
         distinct_id=user.distinct_id,
         event=event,
@@ -370,7 +342,7 @@ def report_user_or_team_action(
     event: str,
     properties: Optional[dict] = None,
     *,
-    user: Optional[User | AnonymousUser] = None,
+    user: Optional[User] = None,
     team: Optional[Team] = None,
     organization: Optional[Organization] = None,
     request: Optional["Request"] = None,
@@ -380,20 +352,17 @@ def report_user_or_team_action(
     if request is not None:
         properties = {**get_request_analytics_properties(request), **properties}
 
-    # isinstance works through Django's SimpleLazyObject because it proxies __class__
-    real_user = user if isinstance(user, User) else None
-
     distinct_id = None
-    if real_user and real_user.distinct_id:
-        distinct_id = real_user.distinct_id
+    if user and user.distinct_id:
+        distinct_id = user.distinct_id
     elif team:
         distinct_id = str(team.uuid)
 
     if not distinct_id:
         return
 
-    org = organization or (real_user.current_organization if real_user else None)
-    tm = team or (real_user.current_team if real_user else None)
+    org = organization or (user.current_organization if user else None)
+    tm = team or (user.current_team if user else None)
 
     posthoganalytics.capture(
         distinct_id=distinct_id,

@@ -22,7 +22,6 @@ from structlog import get_logger
 from temporalio import common
 from temporalio.client import WorkflowExecutionStatus
 
-from posthog.admin.inlines.organization_member_for_related_inline import OrganizationMemberForRelatedInline
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
 from posthog.admin.inlines.user_product_list_inline import UserProductListInline
 from posthog.cloud_utils import is_cloud
@@ -92,7 +91,7 @@ class TeamAdmin(admin.ModelAdmin):
     ]
 
     exclude = DEPRECATED_ATTRS
-    inlines = [OrganizationMemberForRelatedInline, TeamMarketingAnalyticsConfigInline, UserProductListInline]
+    inlines = [TeamMarketingAnalyticsConfigInline, UserProductListInline]
 
     def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
         self._current_request = request

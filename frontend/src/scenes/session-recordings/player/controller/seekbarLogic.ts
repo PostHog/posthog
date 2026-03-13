@@ -84,6 +84,20 @@ export const seekbarLogic = kea<seekbarLogicType>([
             },
         ],
 
+        bufferPercent: [
+            (selectors) => [selectors.sessionPlayerData],
+            (sessionPlayerData) => {
+                if (sessionPlayerData?.bufferedToTime && sessionPlayerData?.segments && sessionPlayerData?.durationMs) {
+                    // we calculate this number to many decimal places, so we round it to 1 decimal place
+                    // since otherwise we render dependent components
+                    // thousands of times more than we need to
+                    return parseFloat(
+                        (100 * (sessionPlayerData?.bufferedToTime / sessionPlayerData.durationMs)).toFixed(1)
+                    )
+                }
+                return 0
+            },
+        ],
         scrubbingTime: [
             (selectors) => [selectors.thumbLeftPos, selectors.slider, selectors.sessionPlayerData],
             (thumbLeftPos, slider, sessionPlayerData) => {
@@ -174,7 +188,7 @@ export const seekbarLogic = kea<seekbarLogicType>([
             actions.setCursorDiff(diffFromThumb)
 
             cache.disposables.add(() => {
-                document.addEventListener('touchmove', actions.handleMove, { passive: true })
+                document.addEventListener('touchmove', actions.handleMove)
                 document.addEventListener('touchend', actions.handleUp)
                 document.addEventListener('mousemove', actions.handleMove)
                 document.addEventListener('mouseup', actions.handleUp)

@@ -1,12 +1,112 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { hasAnyWireframes, keyForSource, processAllSnapshots } from '@posthog/replay-shared'
-
 import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
 import { getDecompressionWorkerManager } from './DecompressionWorkerManager'
-import { parseEncodedSnapshots } from './process-all-snapshots'
+import { hasAnyWireframes, parseEncodedSnapshots, processAllSnapshots } from './process-all-snapshots'
+import { keyForSource } from './source-key'
+
+jest.mock('scenes/session-recordings/mobile-replay', () => ({
+    transformEventToWeb: jest.fn((event: any) => {
+        if (event?.type === 2 && event?.data?.wireframes !== undefined) {
+            const firstWireframe = event.data.wireframes[0]
+            const width = firstWireframe?.width || 400
+            const height = firstWireframe?.height || 800
+            return {
+                ...event,
+                data: {
+                    node: {
+                        type: 0,
+                        childNodes: [
+                            {
+                                type: 1,
+                                name: 'html',
+                                id: 2,
+                            },
+                            {
+                                type: 2,
+                                tagName: 'html',
+                                id: 3,
+                                childNodes: [
+                                    {
+                                        type: 2,
+                                        tagName: 'head',
+                                        id: 4,
+                                        childNodes: [],
+                                    },
+                                    {
+                                        type: 2,
+                                        tagName: 'body',
+                                        id: 5,
+                                        attributes: { 'data-rrweb-id': 5 },
+                                        childNodes: [
+                                            {
+                                                type: 2,
+                                                tagName: 'img',
+                                                id: 100,
+                                                attributes: {
+                                                    'data-rrweb-id': 100,
+                                                    width,
+                                                    height,
+                                                    src: 'data:image/png;base64,test',
+                                                },
+                                                childNodes: [],
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        ],
+                        id: 1,
+                    },
+                    initialOffset: { top: 0, left: 0 },
+                    href: 'https://example.com',
+                },
+            }
+        }
+
+        if (event?.type === 3 && event?.data?.updates && Array.isArray(event.data.updates)) {
+            const updates = event.data.updates
+            if (updates.some((u: any) => u.wireframe)) {
+                const firstUpdate = updates.find((u: any) => u.wireframe)
+                const wireframe = firstUpdate?.wireframe
+                const width = wireframe?.width || 400
+                const height = wireframe?.height || 800
+
+                return {
+                    ...event,
+                    data: {
+                        source: 0,
+                        adds: [
+                            {
+                                parentId: 5,
+                                nextId: null,
+                                node: {
+                                    type: 2,
+                                    tagName: 'img',
+                                    id: 100,
+                                    attributes: {
+                                        'data-rrweb-id': 100,
+                                        width,
+                                        height,
+                                        src: 'data:image/png;base64,test',
+                                    },
+                                    childNodes: [],
+                                },
+                            },
+                        ],
+                        removes: [],
+                        texts: [],
+                        attributes: [],
+                    },
+                }
+            }
+        }
+
+        return event
+    }),
+}))
 
 // Mock the decompression worker manager
 jest.mock('./DecompressionWorkerManager', () => ({
@@ -282,7 +382,7 @@ describe('process all snapshots', () => {
 
             const result = await parseEncodedSnapshots(convertInput(mockCompressedData), sessionId)
 
-            expect(mockWorkerManager.decompress).toHaveBeenCalledWith(fakeCompressedBlock)
+            expect(mockWorkerManager.decompress).toHaveBeenCalledWith(fakeCompressedBlock, { isParallel: false })
             expect(result).toHaveLength(1)
             expect(result[0].windowId).toBe(1)
             expect(result[0].timestamp).toBe(1234567890)
@@ -366,7 +466,7 @@ describe('process all snapshots', () => {
 
             const result = await parseEncodedSnapshots(fakeRawSnappyData, sessionId)
 
-            expect(mockWorkerManager.decompress).toHaveBeenCalledWith(fakeRawSnappyData)
+            expect(mockWorkerManager.decompress).toHaveBeenCalledWith(fakeRawSnappyData, { isParallel: false })
             expect(result).toHaveLength(1)
             expect(result[0].windowId).toBe(1)
             expect(result[0].timestamp).toBe(1234567890)
@@ -450,7 +550,6 @@ describe('process all snapshots', () => {
                             updates: [
                                 {
                                     wireframe: {
-                                        id: 12345,
                                         type: 'screenshot',
                                         base64: 'data:image/webp;base64,test',
                                         width: 400,
@@ -552,7 +651,6 @@ describe('process all snapshots', () => {
                         data: {
                             wireframes: [
                                 {
-                                    id: 12345,
                                     type: 'screenshot',
                                     base64: 'data:image/webp;base64,test',
                                     width: 375,
@@ -588,7 +686,7 @@ describe('process all snapshots', () => {
             expect(firstMeta.data).toEqual({
                 width: 375,
                 height: 667,
-                href: 'unknown',
+                href: 'https://example.com', // From the mock transformer
             })
             expect(firstMeta.windowId).toBe(1)
         })
@@ -605,7 +703,6 @@ describe('process all snapshots', () => {
                         data: {
                             wireframes: [
                                 {
-                                    id: 12345,
                                     type: 'screenshot',
                                     base64: 'data:image/webp;base64,test',
                                     width: 375,
@@ -639,7 +736,7 @@ describe('process all snapshots', () => {
             expect(firstMeta.data).toEqual({
                 width: 375,
                 height: 667,
-                href: 'unknown',
+                href: 'https://example.com', // From the mock transformer
             })
         })
 
@@ -696,11 +793,8 @@ describe('process all snapshots', () => {
                             updates: [
                                 {
                                     wireframe: {
-                                        id: 12345,
                                         type: 'screenshot',
                                         base64: 'data:image/webp;base64,test',
-                                        width: 400,
-                                        height: 800,
                                     },
                                 },
                             ],
@@ -739,17 +833,7 @@ describe('process all snapshots', () => {
                         timestamp: 1000,
                         data: {
                             source: 0,
-                            updates: [
-                                {
-                                    wireframe: {
-                                        id: 12345,
-                                        type: 'screenshot',
-                                        base64: 'data:image/webp;base64,test',
-                                        width: 400,
-                                        height: 800,
-                                    },
-                                },
-                            ],
+                            updates: [{ wireframe: { type: 'screenshot' } }],
                         },
                     },
                     {
@@ -757,17 +841,7 @@ describe('process all snapshots', () => {
                         timestamp: 2000,
                         data: {
                             source: 0,
-                            updates: [
-                                {
-                                    wireframe: {
-                                        id: 12346,
-                                        type: 'screenshot',
-                                        base64: 'data:image/webp;base64,test',
-                                        width: 400,
-                                        height: 800,
-                                    },
-                                },
-                            ],
+                            updates: [{ wireframe: { type: 'screenshot' } }],
                         },
                     },
                 ],
@@ -803,7 +877,6 @@ describe('process all snapshots', () => {
                 updates: [
                     {
                         wireframe: {
-                            id: 12345,
                             type: 'screenshot',
                             base64: 'data:image/webp;base64,original-data',
                             width: 400,
@@ -836,7 +909,7 @@ describe('process all snapshots', () => {
                         node: expect.objectContaining({
                             tagName: 'img',
                             attributes: expect.objectContaining({
-                                'data-rrweb-id': 12345,
+                                'data-rrweb-id': expect.any(Number),
                                 width: 400,
                                 height: 800,
                             }),
@@ -860,9 +933,7 @@ describe('process all snapshots', () => {
                             updates: [
                                 {
                                     wireframe: {
-                                        id: 12345,
                                         type: 'screenshot',
-                                        base64: 'data:image/webp;base64,test',
                                         width: 414,
                                         height: 896,
                                     },
@@ -936,11 +1007,8 @@ describe('process all snapshots', () => {
                 sessionId
             )
 
-            // Edge case wireframes (empty base64, zero dimensions) produce placeholder divs,
-            // not img nodes, so no synthetic full snapshot is created — but processing doesn't crash
-            expect(result.length).toBeGreaterThan(0)
             const hasFullSnapshot = result.some((r) => r.type === 2)
-            expect(hasFullSnapshot).toBe(false)
+            expect(hasFullSnapshot).toBe(true)
         })
 
         it('handles missing windowId gracefully', async () => {

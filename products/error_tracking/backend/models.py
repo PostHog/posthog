@@ -55,34 +55,20 @@ class ErrorTrackingIssue(UUIDTModel):
             ErrorTrackingIssue.objects.filter(team=self.team, id__in=issue_ids).delete()
             update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
 
-    def split(self, fingerprints: list[dict]) -> list["ErrorTrackingIssue"]:
-        own_fingerprints = set(
-            ErrorTrackingIssueFingerprintV2.objects.filter(team_id=self.team.pk, issue_id=self.id).values_list(
-                "fingerprint", flat=True
-            )
-        )
-
+    def split(self, fingerprints: list[str], exclusive: bool) -> None:
         overrides: list[ErrorTrackingIssueFingerprintV2] = []
-        new_issues: list[ErrorTrackingIssue] = []
 
         with transaction.atomic():
-            for entry in fingerprints:
-                fp = entry["fingerprint"]
-                if fp not in own_fingerprints:
-                    continue
-                new_issue = ErrorTrackingIssue.objects.create(
-                    team=self.team,
-                    name=entry.get("name") or "Untitled issue",
-                    description=entry.get("description"),
-                )
-                new_issues.append(new_issue)
+            common_issue = ErrorTrackingIssue.objects.create(team=self.team) if not exclusive else None
+            for fingerprint in fingerprints:
+                new_issue = common_issue if common_issue else ErrorTrackingIssue.objects.create(team=self.team)
                 overrides.extend(
                     update_error_tracking_issue_fingerprints(
-                        team_id=self.team.pk, issue_id=new_issue.id, fingerprints=[fp]
+                        team_id=self.team.pk, issue_id=new_issue.id, fingerprints=[fingerprint]
                     )
                 )
-            update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
-        return new_issues
+
+        update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
 
 
 class ErrorTrackingExternalReference(UUIDTModel):
@@ -127,7 +113,6 @@ class ErrorTrackingIssueCohort(UUIDTModel):
 
 class ErrorTrackingIssueAssignment(UUIDTModel):
     issue = models.OneToOneField(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="assignment")
-    team = models.ForeignKey("posthog.Team", null=True, on_delete=models.CASCADE, db_index=False)
     user = models.ForeignKey("posthog.User", null=True, on_delete=models.CASCADE)
     # DEPRECATED: issues can only be assigned to users or roles
     user_group = deprecate_field(models.ForeignKey("posthog.UserGroup", null=True, on_delete=models.CASCADE))
@@ -136,9 +121,6 @@ class ErrorTrackingIssueAssignment(UUIDTModel):
 
     class Meta:
         db_table = "posthog_errortrackingissueassignment"
-        indexes = [
-            models.Index(fields=["team_id"], name="posthog_et_assignment_team_idx"),
-        ]
 
 
 class ErrorTrackingIssueFingerprintV2(UUIDTModel):
@@ -367,6 +349,32 @@ class ErrorTrackingAutoCaptureControls(UUIDTModel):
         constraints = [
             models.UniqueConstraint(fields=["team", "library"], name="unique_controls_per_team_library"),
         ]
+
+
+def get_autocapture_controls(team_id: int, library: str = "web") -> dict | None:
+    """Get the autocapture controls for a team and library, formatted for API responses."""
+    result = ErrorTrackingAutoCaptureControls.objects.filter(team_id=team_id, library=library).values().first()
+    if result:
+        if result.get("sample_rate") is not None:
+            result["sample_rate"] = float(result["sample_rate"])
+        if result.get("id") is not None:
+            result["id"] = str(result["id"])
+    return result
+
+
+def get_autocapture_triggers(team_id: int) -> dict | None:
+    controls = ErrorTrackingAutoCaptureControls.objects.filter(team_id=team_id).values().first()
+    if not controls:
+        return None
+    return {
+        "library": controls.get("library"),
+        "matchType": controls.get("match_type"),
+        "sampleRate": float(controls["sample_rate"]) if controls.get("sample_rate") is not None else None,
+        "linkedFeatureFlag": controls.get("linked_feature_flag"),
+        "eventTriggers": controls.get("event_triggers"),
+        "urlTriggers": controls.get("url_triggers"),
+        "urlBlocklist": controls.get("url_blocklist"),
+    }
 
 
 class ErrorTrackingStackFrame(UUIDTModel):

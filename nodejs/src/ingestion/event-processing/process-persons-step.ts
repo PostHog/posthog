@@ -44,8 +44,6 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
             return ok({ ...input, person: personlessPerson })
         }
 
-        const shouldUpdateLastSeenAt = team.extra_settings?.person_last_seen_at_enabled === true
-
         const context = new PersonContext(
             normalizedEvent,
             team,
@@ -56,8 +54,7 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
             personsStore,
             options.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
             mergeMode,
-            options.PERSON_PROPERTIES_UPDATE_ALL,
-            shouldUpdateLastSeenAt
+            options.PERSON_PROPERTIES_UPDATE_ALL
         )
 
         const processor = new PersonEventProcessor(

@@ -54,44 +54,30 @@ export const pathsTitle = (props: { mode: pathModes; label: string }): React.Rea
     )
 }
 
-type InsightActorsQueryOptionKey = keyof InsightActorsQueryOptionsResponse
-type InsightActorsQueryOptionTuple = {
-    [K in InsightActorsQueryOptionKey]: [K, NonNullable<InsightActorsQueryOptionsResponse[K]>]
-}[InsightActorsQueryOptionKey]
-
 export const cleanedInsightActorsQueryOptions = (
     insightActorsQueryOptions: InsightActorsQueryOptionsResponse | null,
     query: InsightActorsQuery
-): InsightActorsQueryOptionTuple[] => {
-    const cleanedOptions: InsightActorsQueryOptionTuple[] = []
-    for (const key of Object.keys(insightActorsQueryOptions ?? {}) as InsightActorsQueryOptionKey[]) {
-        const value = insightActorsQueryOptions?.[key]
-        if (Array.isArray(value) && value.length > 0) {
-            cleanedOptions.push([key, value] as InsightActorsQueryOptionTuple)
-        }
-    }
-
+): [string, any[]][] => {
+    const cleanedOptions = Object.entries(insightActorsQueryOptions ?? {}).filter(([, value]) => {
+        return Array.isArray(value) && !!value.length
+    })
     const source = query?.source
     const seriesNames = isTrendsQuery(source) ? source.series.map((s: any) => s.custom_name) : []
-
-    const transformed: InsightActorsQueryOptionTuple[] = []
-    for (const option of cleanedOptions) {
-        const [key, value] = option
+    const cleanedOptionsWithAdjustedSeriesNames: [string, any[]][] = cleanedOptions.map(([key, value]) => {
         if (key === 'series') {
-            transformed.push([
-                'series',
-                value.map((v, index) => ({
+            return [
+                key,
+                value.map((v: any, index: number) => ({
                     ...v,
                     label:
                         seriesNames[index] ??
                         getCoreFilterDefinition(v.label, TaxonomicFilterGroupType.Events)?.label ??
                         v.label,
                 })),
-            ])
-            continue
+            ]
         }
-        transformed.push(option)
-    }
+        return [key, value]
+    })
 
-    return transformed
+    return cleanedOptionsWithAdjustedSeriesNames
 }

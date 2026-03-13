@@ -20,7 +20,6 @@ import {
     ProductIntentContext,
     ProductKey,
     SourceMap,
-    VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
 import { ExternalDataSource } from '~/types'
 
@@ -52,9 +51,6 @@ const createEmptyConfig = (): MarketingAnalyticsConfig => ({
     custom_source_mappings: {},
     campaign_field_preferences: {},
 })
-
-const isNativeMarketingSource = (value: string): value is NativeMarketingSource =>
-    VALID_NATIVE_MARKETING_SOURCES.includes(value as NativeMarketingSource)
 
 export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLogicType>([
     path(['scenes', 'web-analytics', 'marketingAnalyticsSettingsLogic']),
@@ -329,9 +325,6 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                 // For each native source, find its campaign table
                 for (const source of sources) {
                     const sourceType = source.source_type
-                    if (!isNativeMarketingSource(sourceType)) {
-                        continue
-                    }
                     const patterns = MARKETING_CAMPAIGN_TABLE_PATTERNS[sourceType]
                     if (!patterns) {
                         continue
@@ -422,11 +415,6 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                 }
             },
             loadIntegrationCampaigns: async ({ integration }) => {
-                if (!isNativeMarketingSource(integration)) {
-                    actions.setIntegrationCampaigns(integration, [])
-                    return
-                }
-
                 const fieldInfo = MARKETING_INTEGRATION_FIELD_MAP[integration]
                 if (!fieldInfo) {
                     actions.setIntegrationCampaigns(integration, [])

@@ -1,12 +1,9 @@
-import type { Schemas } from '@/api/generated'
 import { OrganizationGetAllSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
 const schema = OrganizationGetAllSchema
 
-export const getOrganizationsHandler: ToolBase<typeof schema, Schemas.OrganizationBasic[]>['handler'] = async (
-    context: Context
-) => {
+export const getOrganizationsHandler: ToolBase<typeof schema>['handler'] = async (context: Context) => {
     const orgsResult = await context.api.organizations().list()
     if (!orgsResult.success) {
         throw new Error(`Failed to get organizations: ${orgsResult.error.message}`)
@@ -15,7 +12,7 @@ export const getOrganizationsHandler: ToolBase<typeof schema, Schemas.Organizati
     return orgsResult.data
 }
 
-const tool = (): ToolBase<typeof schema, Schemas.OrganizationBasic[]> => ({
+const tool = (): ToolBase<typeof schema> => ({
     name: 'organizations-get',
     schema,
     handler: getOrganizationsHandler,

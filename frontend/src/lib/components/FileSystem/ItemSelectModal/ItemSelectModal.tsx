@@ -214,6 +214,7 @@ export function ItemSelectModal({ className, includeProtocol, includeRoot }: Ite
                                         selectMode="all"
                                         className="px-0 py-1"
                                         data={fullFileSystemFiltered}
+                                        mode="tree"
                                         defaultSelectedFolderOrNodeId=""
                                         isItemActive={() => false}
                                         isItemEditing={(item) => {

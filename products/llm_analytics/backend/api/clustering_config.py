@@ -1,3 +1,5 @@
+from typing import cast
+
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -7,6 +9,7 @@ from rest_framework.response import Response
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
+from posthog.models import User
 
 from ..models.clustering_config import ClusteringConfig
 from .metrics import llma_track_latency
@@ -62,7 +65,7 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         config.save(update_fields=["event_filters", "updated_at"])
 
         report_user_action(
-            request.user,
+            cast(User, request.user),
             "llma clustering config event filters set",
             {
                 "filter_count": len(event_filters),

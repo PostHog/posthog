@@ -4,7 +4,6 @@ import { useEffect } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
-import { approvalsGateLogic } from 'lib/approvals/approvalsGateLogic'
 import { JudgeHog } from 'lib/components/hedgehogs'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -19,17 +18,11 @@ const DISMISS_KEY = 'feature-flags-approvals-promo'
 export function ApprovalsPromoBanner(): JSX.Element | null {
     const { hasAvailableFeature } = useValues(userLogic)
     const { isAdminOrOwner } = useValues(organizationLogic)
-    const { activePolicies, activePoliciesLoading } = useValues(approvalsGateLogic)
     const bannerLogic = lemonBannerLogic({ dismissKey: DISMISS_KEY })
     const { isDismissed } = useValues(bannerLogic)
     const { dismiss } = useActions(bannerLogic)
 
-    const hasActivePolicies = activePolicies.length > 0
-    const shouldShow =
-        isAdminOrOwner &&
-        hasAvailableFeature(AvailableFeature.APPROVALS) &&
-        !hasActivePolicies &&
-        !activePoliciesLoading
+    const shouldShow = isAdminOrOwner && hasAvailableFeature(AvailableFeature.APPROVALS)
 
     useEffect(() => {
         if (shouldShow && !isDismissed) {

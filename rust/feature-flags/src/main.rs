@@ -171,18 +171,11 @@ fn main() {
     } else {
         config.max_concurrent_batch_evals
     };
-    let semaphore_timeout = if config.rayon_semaphore_timeout_ms == 0 {
-        None
-    } else {
-        Some(std::time::Duration::from_millis(
-            config.rayon_semaphore_timeout_ms,
-        ))
-    };
-    let rayon_dispatcher = RayonDispatcher::new(max_concurrent_batch_evals, semaphore_timeout);
+    let rayon_dispatcher = RayonDispatcher::new(max_concurrent_batch_evals);
 
     eprintln!(
-        "Initialized thread pools: tokio_workers={}, rayon_threads={}, max_concurrent_batch_evals={}, semaphore_timeout_ms={}",
-        threads.tokio_workers, threads.rayon_threads, max_concurrent_batch_evals, config.rayon_semaphore_timeout_ms,
+        "Initialized thread pools: tokio_workers={}, rayon_threads={}, max_concurrent_batch_evals={}",
+        threads.tokio_workers, threads.rayon_threads, max_concurrent_batch_evals,
     );
 
     tokio_runtime.block_on(async_main(config, rayon_dispatcher))

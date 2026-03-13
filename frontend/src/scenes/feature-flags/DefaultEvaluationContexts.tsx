@@ -14,32 +14,32 @@ import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic
 
 export function DefaultEvaluationContexts(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { contexts, isEnabled, canAddMoreContexts, newContextInput, defaultEvaluationContextsLoading, isAdding } =
+    const { tags, isEnabled, canAddMoreTags, newTagInput, defaultEvaluationContextsLoading, isAdding } =
         useValues(defaultEvaluationContextsLogic)
-    const { addContext, removeContext, toggleEnabled, setNewContextInput, setIsAdding } =
-        useActions(defaultEvaluationContextsLogic)
+    const { addTag, removeTag, toggleEnabled, setNewTagInput, setIsAdding } = useActions(defaultEvaluationContextsLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
+    // Check if feature flag is enabled
     if (!featureFlags[FEATURE_FLAGS.DEFAULT_EVALUATION_ENVIRONMENTS]) {
         return null
     }
 
-    const handleAddContext = (): void => {
-        const trimmed = newContextInput.trim().toLowerCase()
-        if (trimmed && !contexts.some((c: { name: string }) => c.name === trimmed)) {
-            addContext(trimmed)
+    const handleAddTag = (): void => {
+        const trimmedTag = newTagInput.trim().toLowerCase()
+        if (trimmedTag && !tags.some((t: { name: string }) => t.name === trimmedTag)) {
+            addTag(trimmedTag)
         }
     }
 
     const handleKeyDown = (e: React.KeyboardEvent): void => {
         if (e.key === 'Enter') {
-            handleAddContext()
+            handleAddTag()
         } else if (e.key === 'Escape') {
             setIsAdding(false)
-            setNewContextInput('')
+            setNewTagInput('')
         }
     }
 
@@ -58,15 +58,15 @@ export function DefaultEvaluationContexts(): JSX.Element | null {
             {isEnabled && (
                 <div className="space-y-3">
                     <div className="flex flex-wrap gap-2 items-center">
-                        {contexts.map((ctx: { id: number | string; name: string }) => (
+                        {tags.map((tag: { id: number; name: string }) => (
                             <LemonTag
-                                key={ctx.id}
+                                key={tag.id}
                                 type="success"
                                 icon={<IconBolt />}
                                 closable
-                                onClose={() => removeContext(ctx.name)}
+                                onClose={() => removeTag(tag.name)}
                             >
-                                {ctx.name}
+                                {tag.name}
                             </LemonTag>
                         ))}
 
@@ -74,10 +74,10 @@ export function DefaultEvaluationContexts(): JSX.Element | null {
                             <div className="inline-flex items-center gap-1">
                                 <LemonInput
                                     size="small"
-                                    value={newContextInput}
-                                    onChange={setNewContextInput}
+                                    value={newTagInput}
+                                    onChange={setNewTagInput}
                                     onKeyDown={handleKeyDown}
-                                    placeholder="e.g., main-app"
+                                    placeholder="e.g., production"
                                     autoFocus
                                     className="w-32"
                                     disabledReason={restrictedReason}
@@ -85,8 +85,8 @@ export function DefaultEvaluationContexts(): JSX.Element | null {
                                 <LemonButton
                                     size="small"
                                     type="primary"
-                                    onClick={handleAddContext}
-                                    disabled={!newContextInput.trim()}
+                                    onClick={handleAddTag}
+                                    disabled={!newTagInput.trim()}
                                     icon={<IconPlusSmall />}
                                     disabledReason={restrictedReason}
                                 />
@@ -94,14 +94,14 @@ export function DefaultEvaluationContexts(): JSX.Element | null {
                                     size="small"
                                     onClick={() => {
                                         setIsAdding(false)
-                                        setNewContextInput('')
+                                        setNewTagInput('')
                                     }}
                                     icon={<IconX />}
                                     disabledReason={restrictedReason}
                                 />
                             </div>
                         ) : (
-                            canAddMoreContexts && (
+                            canAddMoreTags && (
                                 <LemonButton
                                     size="small"
                                     type="secondary"
@@ -109,21 +109,20 @@ export function DefaultEvaluationContexts(): JSX.Element | null {
                                     icon={<IconPlus />}
                                     disabledReason={restrictedReason}
                                 >
-                                    Add context
+                                    Add tag
                                 </LemonButton>
                             )
                         )}
                     </div>
 
-                    {contexts.length === 0 && !isAdding && (
+                    {tags.length === 0 && !isAdding && (
                         <div className="text-sm text-muted italic">
-                            No default evaluation contexts configured. Add contexts to automatically apply them to new
-                            flags.
+                            No default evaluation tags configured. Add tags to automatically apply them to new flags.
                         </div>
                     )}
 
-                    {contexts.length >= 10 && (
-                        <div className="text-xs text-warning">Maximum of 10 default evaluation contexts allowed.</div>
+                    {tags.length >= 10 && (
+                        <div className="text-xs text-warning">Maximum of 10 default evaluation tags allowed.</div>
                     )}
                 </div>
             )}

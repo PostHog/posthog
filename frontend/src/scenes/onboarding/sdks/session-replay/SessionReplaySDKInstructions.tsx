@@ -5,7 +5,9 @@ import {
     BubbleInstallation,
     FlutterInstallation,
     FramerInstallation,
+    HTMLSnippetInstallation,
     IOSInstallation,
+    JSWebInstallation,
     NextJSInstallation,
     NuxtInstallation,
     ReactInstallation,
@@ -15,7 +17,6 @@ import {
     SvelteInstallation,
     VueInstallation,
     WebflowInstallation,
-    WebInstallation,
 } from '@posthog/shared-onboarding/session-replay'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -33,8 +34,12 @@ const SNIPPETS = {
 }
 
 // JS Web SDKs
-const SessionReplayWebInstructionsWrapper = withOnboardingDocsWrapper({
-    Installation: WebInstallation,
+const SessionReplayJSWebInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: JSWebInstallation,
+    snippets: SNIPPETS,
+})
+const SessionReplayHTMLSnippetInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: HTMLSnippetInstallation,
     snippets: SNIPPETS,
 })
 
@@ -105,7 +110,8 @@ const SessionReplayRNInstructionsWrapper = withOnboardingDocsWrapper({
 })
 
 export const SessionReplaySDKInstructions: SDKInstructionsMap = {
-    [SDKKey.JS_WEB]: SessionReplayWebInstructionsWrapper,
+    [SDKKey.JS_WEB]: SessionReplayJSWebInstructionsWrapper,
+    [SDKKey.HTML_SNIPPET]: SessionReplayHTMLSnippetInstructionsWrapper,
     [SDKKey.ANGULAR]: SessionReplayAngularInstructionsWrapper,
     [SDKKey.ASTRO]: SessionReplayAstroInstructionsWrapper,
     [SDKKey.BUBBLE]: SessionReplayBubbleInstructionsWrapper,

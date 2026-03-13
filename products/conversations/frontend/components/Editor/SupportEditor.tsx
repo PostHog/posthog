@@ -7,19 +7,12 @@ import { Image } from '@tiptap/extension-image'
 import { Link } from '@tiptap/extension-link'
 import { Underline } from '@tiptap/extension-underline'
 import { Placeholder } from '@tiptap/extensions'
-import {
-    EditorContent,
-    Extension,
-    NodeViewContent,
-    NodeViewProps,
-    NodeViewWrapper,
-    ReactNodeViewRenderer,
-} from '@tiptap/react'
+import { EditorContent, NodeViewContent, NodeViewProps, NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useActions, useValues } from 'kea'
 import { common, createLowlight } from 'lowlight'
 import posthog from 'posthog-js'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconCode, IconCopy, IconImage, IconTerminal } from '@posthog/icons'
 
@@ -91,29 +84,6 @@ const SupportCodeBlockExtension = CodeBlockLowlight.extend({
         }
     },
 }).configure({ lowlight })
-
-type LinkShortcutExtensionOptions = {
-    onLinkShortcut: () => void
-}
-
-const LinkShortcutExtension = Extension.create<LinkShortcutExtensionOptions>({
-    name: 'link-shortcut',
-
-    addOptions() {
-        return {
-            onLinkShortcut: () => {},
-        }
-    },
-
-    addKeyboardShortcuts() {
-        return {
-            'Mod-Shift-u': () => {
-                this.options.onLinkShortcut()
-                return true
-            },
-        }
-    },
-})
 
 // Underline icon (not in @posthog/icons)
 function IconUnderline(): JSX.Element {
@@ -345,25 +315,11 @@ export function SupportEditor({
     const [linkUrl, setLinkUrl] = useState('')
     const { objectStorageAvailable } = useValues(preflightLogic)
     const { emojiUsed } = useActions(emojiUsageLogic)
-
-    const openLinkPopover = useCallback(() => {
-        const existingHref = ttEditor?.getAttributes('link').href
-        setLinkUrl(existingHref || '')
-        setLinkPopoverOpen(true)
-    }, [ttEditor])
-
-    // Use ref to hold the link shortcut callback so it can access latest state
-    const linkShortcutCallbackRef = useRef<() => void>(() => {})
-    const handleLinkShortcut = useCallback(() => {
-        linkShortcutCallbackRef.current()
-    }, [])
-
     const editor = useRichContentEditor({
         extensions: [
             ...SUPPORT_EXTENSIONS,
             Placeholder.configure({ placeholder }),
             CommandEnterExtension.configure({ onPressCmdEnter }),
-            LinkShortcutExtension.configure({ onLinkShortcut: handleLinkShortcut }),
         ],
         disabled,
         initialContent: initialContent ?? DEFAULT_INITIAL_CONTENT,
@@ -398,11 +354,6 @@ export function SupportEditor({
             lemonToast.error(`Error uploading image: ${detail}`)
         },
     })
-
-    // Update the link shortcut callback ref when ttEditor changes
-    useEffect(() => {
-        linkShortcutCallbackRef.current = openLinkPopover
-    }, [openLinkPopover])
 
     // Notify parent of upload state changes
     useEffect(() => {
@@ -549,9 +500,14 @@ export function SupportEditor({
                         <LemonButton
                             size="small"
                             active={ttEditor?.isActive('link')}
-                            onClick={openLinkPopover}
+                            onClick={() => {
+                                // Pre-fill with existing link URL if editing
+                                const existingHref = ttEditor?.getAttributes('link').href
+                                setLinkUrl(existingHref || '')
+                                setLinkPopoverOpen(true)
+                            }}
                             icon={<IconLink />}
-                            tooltip="Add link (Cmd+Shift+U)"
+                            tooltip="Add link (Cmd+K)"
                         />
                     </Popover>
                     <div className="w-px h-4 bg-border mx-1" />

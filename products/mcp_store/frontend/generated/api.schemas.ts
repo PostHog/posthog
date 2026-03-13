@@ -30,7 +30,6 @@ export interface MCPServerInstallationApi {
     url?: string
     description?: string
     auth_type?: MCPServerInstallationAuthTypeEnumApi
-    is_enabled?: boolean
     readonly needs_reauth: boolean
     readonly pending_oauth: boolean
     readonly proxy_url: string
@@ -51,7 +50,6 @@ export interface PaginatedMCPServerInstallationListApi {
 export interface PatchedMCPServerInstallationUpdateApi {
     display_name?: string
     description?: string
-    is_enabled?: boolean
 }
 
 /**
@@ -66,19 +64,6 @@ export const InstallCustomAuthTypeEnumApi = {
     Oauth: 'oauth',
 } as const
 
-/**
- * * `posthog` - posthog
- * `twig` - twig
- * `posthog-code` - posthog-code
- */
-export type InstallSourceEnumApi = (typeof InstallSourceEnumApi)[keyof typeof InstallSourceEnumApi]
-
-export const InstallSourceEnumApi = {
-    Posthog: 'posthog',
-    Twig: 'twig',
-    PosthogCode: 'posthog-code',
-} as const
-
 export interface InstallCustomApi {
     /** @maxLength 200 */
     name: string
@@ -88,12 +73,16 @@ export interface InstallCustomApi {
     api_key?: string
     description?: string
     oauth_provider_kind?: string
-    install_source?: InstallSourceEnumApi
-    twig_callback_url?: string
 }
 
 export interface OAuthRedirectResponseApi {
     redirect_url: string
+}
+
+export interface OAuthCallbackRequestApi {
+    code: string
+    server_id: string
+    state_token: string
 }
 
 /**
@@ -114,6 +103,7 @@ export interface RecommendedServerApi {
     name: string
     url: string
     description: string
+    icon_url: string
     auth_type: RecommendedServerAuthTypeEnumApi
     oauth_provider_kind?: string
 }
@@ -139,25 +129,8 @@ export type McpServerInstallationsListParams = {
 }
 
 export type McpServerInstallationsAuthorizeRetrieveParams = {
-    /**
-     * * `posthog` - posthog
-     * `twig` - twig
-     * `posthog-code` - posthog-code
-     * @minLength 1
-     */
-    install_source?: McpServerInstallationsAuthorizeRetrieveInstallSource
     server_id: string
-    twig_callback_url?: string
 }
-
-export type McpServerInstallationsAuthorizeRetrieveInstallSource =
-    (typeof McpServerInstallationsAuthorizeRetrieveInstallSource)[keyof typeof McpServerInstallationsAuthorizeRetrieveInstallSource]
-
-export const McpServerInstallationsAuthorizeRetrieveInstallSource = {
-    Posthog: 'posthog',
-    Twig: 'twig',
-    PosthogCode: 'posthog-code',
-} as const
 
 export type McpServersListParams = {
     /**

@@ -433,17 +433,6 @@ export const SourceTypeE09EnumApi = {
     BuildBetter: 'BuildBetter',
 } as const
 
-/**
- * * `warehouse` - warehouse
- * `direct` - direct
- */
-export type AccessMethodEnumApi = (typeof AccessMethodEnumApi)[keyof typeof AccessMethodEnumApi]
-
-export const AccessMethodEnumApi = {
-    Warehouse: 'warehouse',
-    Direct: 'direct',
-} as const
-
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
     enabled?: boolean
     include_invoiceless_charges?: boolean
@@ -462,17 +451,13 @@ export interface ExternalDataSourceSerializersApi {
     account_id: string
     readonly source_type: SourceTypeE09EnumApi
     readonly latest_error: string
-    /**
-     * @maxLength 100
-     * @nullable
-     */
-    prefix?: string | null
+    /** @nullable */
+    readonly prefix: string | null
     /**
      * @maxLength 400
      * @nullable
      */
     description?: string | null
-    readonly access_method: AccessMethodEnumApi
     readonly last_run_at: string
     readonly schemas: string
     job_inputs?: unknown | null
@@ -506,17 +491,13 @@ export interface PatchedExternalDataSourceSerializersApi {
     account_id?: string
     readonly source_type?: SourceTypeE09EnumApi
     readonly latest_error?: string
-    /**
-     * @maxLength 100
-     * @nullable
-     */
-    prefix?: string | null
+    /** @nullable */
+    readonly prefix?: string | null
     /**
      * @maxLength 400
      * @nullable
      */
     description?: string | null
-    readonly access_method?: AccessMethodEnumApi
     readonly last_run_at?: string
     readonly schemas?: string
     job_inputs?: unknown | null

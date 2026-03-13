@@ -299,6 +299,8 @@ export class HogWatcherService {
         changes: [HogFunctionType, HogWatcherState][],
         forceReset: boolean = false
     ): Promise<void> {
+        logger.info('[HogWatcherService] Performing state changes', { changes, forceReset })
+
         const res = await this.redis.usePipeline({ name: 'forceStateChange' }, (pipeline) => {
             for (const [hogFunction, state] of changes) {
                 hogFunctionStateChange.inc({

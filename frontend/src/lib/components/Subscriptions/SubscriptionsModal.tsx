@@ -1,34 +1,31 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
+import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
+
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, DashboardType, InsightShortId } from '~/types'
+import { AvailableFeature } from '~/types'
 
 import { PayGateMini } from '../PayGateMini/PayGateMini'
 import { SubscriptionBaseProps, urlForSubscription, urlForSubscriptions } from './utils'
 import { EditSubscription } from './views/EditSubscription'
 import { ManageSubscriptions } from './views/ManageSubscriptions'
 
-export interface SubscriptionsModalProps {
+export interface SubscriptionsModalProps extends SubscriptionBaseProps {
     isOpen: boolean
     closeModal: () => void
     subscriptionId: number | 'new' | null
     inline?: boolean
-    insightShortId?: InsightShortId
-    dashboard?: DashboardType<any> | null
     'data-attr'?: string
 }
 
 export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element {
-    const { closeModal, dashboard, insightShortId, subscriptionId, isOpen, inline, 'data-attr': dataAttr } = props
+    const { closeModal, dashboardId, insightShortId, subscriptionId, isOpen, inline, 'data-attr': dataAttr } = props
     const { push } = useActions(router)
     const { userLoading } = useValues(userLogic)
-
-    const dashboardId = dashboard?.id
-    const baseProps: SubscriptionBaseProps = { insightShortId, dashboardId }
 
     if (userLoading) {
         return <Spinner className="text-2xl" />
@@ -52,20 +49,48 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
             >
                 {!subscriptionId ? (
                     <ManageSubscriptions
-                        {...baseProps}
+                        insightShortId={insightShortId}
+                        dashboardId={dashboardId}
                         onCancel={closeModal}
-                        onSelect={(id) => push(urlForSubscription(id, baseProps))}
+                        onSelect={(id) => push(urlForSubscription(id, props))}
                     />
                 ) : (
                     <EditSubscription
                         id={subscriptionId}
                         insightShortId={insightShortId}
-                        dashboard={dashboard}
-                        onCancel={() => push(urlForSubscriptions(baseProps))}
-                        onDelete={() => push(urlForSubscriptions(baseProps))}
+                        dashboardId={dashboardId}
+                        onCancel={() => push(urlForSubscriptions(props))}
+                        onDelete={() => push(urlForSubscriptions(props))}
                     />
                 )}
             </PayGateMini>
         </LemonModal>
+    )
+}
+
+export function SubscribeButton(props: SubscriptionBaseProps): JSX.Element {
+    const { push } = useActions(router)
+
+    return (
+        <LemonButtonWithDropdown
+            fullWidth
+            dropdown={{
+                actionable: true,
+                closeParentPopoverOnClickInside: true,
+                placement: 'right-start',
+                overlay: (
+                    <>
+                        <LemonButton onClick={() => push(urlForSubscription('new', props))} fullWidth>
+                            New subscription
+                        </LemonButton>
+                        <LemonButton onClick={() => push(urlForSubscriptions(props))} fullWidth>
+                            Manage subscriptions
+                        </LemonButton>
+                    </>
+                ),
+            }}
+        >
+            Subscribe
+        </LemonButtonWithDropdown>
     )
 }

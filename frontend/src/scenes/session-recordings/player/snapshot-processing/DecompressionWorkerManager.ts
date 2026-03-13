@@ -99,11 +99,11 @@ export class DecompressionWorkerManager {
         this.snappyInitialized = true
     }
 
-    async decompress(compressedData: Uint8Array): Promise<Uint8Array> {
+    async decompress(compressedData: Uint8Array, metadata?: { isParallel?: boolean }): Promise<Uint8Array> {
         await this.readyPromise
 
         if (this.shouldUseWorker()) {
-            return this.decompressWithFallback(compressedData)
+            return this.decompressWithFallback(compressedData, metadata)
         }
         return this.decompressMainThread(compressedData)
     }
@@ -112,26 +112,33 @@ export class DecompressionWorkerManager {
         return this.worker !== null && !this.workerInitFailed
     }
 
-    private async decompressWithFallback(compressedData: Uint8Array): Promise<Uint8Array> {
+    private async decompressWithFallback(
+        compressedData: Uint8Array,
+        metadata?: { isParallel?: boolean }
+    ): Promise<Uint8Array> {
         try {
-            return await this.decompressWithWorker(compressedData)
+            return await this.decompressWithWorker(compressedData, metadata)
         } catch (error) {
-            this.reportWorkerFailure(error, compressedData.length)
+            this.reportWorkerFailure(error, compressedData.length, metadata?.isParallel)
             return await this.decompressMainThread(compressedData)
         }
     }
 
-    private reportWorkerFailure(error: unknown, dataSize: number): void {
+    private reportWorkerFailure(error: unknown, dataSize: number, isParallel?: boolean): void {
         console.warn('[DecompressionWorkerManager] Worker decompression failed, falling back to main thread:', error)
         if (this.posthog) {
             this.posthog.capture('replay_worker_decompression_failed', {
                 error: this.getErrorMessage(error),
                 dataSize,
+                isParallel,
             })
         }
     }
 
-    private async decompressWithWorker(compressedData: Uint8Array): Promise<Uint8Array> {
+    private async decompressWithWorker(
+        compressedData: Uint8Array,
+        metadata?: { isParallel?: boolean }
+    ): Promise<Uint8Array> {
         const id = this.messageId++
 
         return new Promise<Uint8Array>((resolve, reject) => {
@@ -144,6 +151,7 @@ export class DecompressionWorkerManager {
                     console.error('[DecompressionWorkerManager] Worker decompression timeout', {
                         id,
                         dataSize: compressedData.length,
+                        isParallel: metadata?.isParallel,
                         timeoutMs: DECOMPRESSION_TIMEOUT_MS,
                     })
                     reject(new Error('Worker decompression timeout'))
