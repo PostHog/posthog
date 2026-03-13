@@ -71,11 +71,13 @@ async def run_prompt(
 ) -> tuple[str, str]:
     """Spawn a sandbox agent with the given prompt and return (last_message, full_log)."""
     task, task_run = await _create_task_and_trigger(prompt, context, branch, step_name)
-    logger.info("sandbox_prompt: started task=%s run=%s step=%s", task.id, task_run.id, step_name or "unknown")
-    final_status, last_message, full_log = await _poll_until_done(task_run, verbose=verbose, output_fn=output_fn)
-    logger.info("sandbox_prompt: finished run=%s status=%s", task_run.id, final_status)
-    if not last_message:
-        last_message = f"[sandbox_prompt] Run completed with status={final_status} but no agent message found."
+    logger.info("custom_prompt: started task=%s run=%s step=%s", task.id, task_run.id, step_name or "unknown")
+    try:
+        last_message, full_log, _, _ = await _poll_for_turn(task_run, verbose=verbose, output_fn=output_fn)
+    except RuntimeError as e:
+        logger.warning("custom_prompt: run=%s error=%s", task_run.id, e)
+        return str(e), ""
+    logger.info("custom_prompt: finished run=%s", task_run.id)
     return last_message, full_log or ""
 
 
@@ -111,30 +113,35 @@ async def _create_task_and_trigger(
 MAX_CONSECUTIVE_STORAGE_ERRORS = 3
 
 
-async def _poll_until_done(
-    task_run, *, verbose: bool = False, output_fn: OutputFn = None
-) -> tuple[str, str | None, str | None]:
-    """Poll logs for agent completion, fall back to TaskRun status."""
+async def _poll_for_turn(
+    task_run,
+    *,
+    skip_lines: int = 0,
+    printed_lines: int = 0,
+    verbose: bool = False,
+    output_fn: OutputFn = None,
+) -> tuple[str, str | None, int, int]:
+    """Poll S3 logs until the agent finishes a turn.
+
+    Returns (last_message, full_log, new_skip_lines, new_printed_lines).
+    Raises RuntimeError on timeout or terminal status without a message.
+    """
     from posthog.storage.object_storage import ObjectStorageError
 
     from products.tasks.backend.models import TaskRun
 
-    printed_lines = 0
-    log_lines_seen = 0
     elapsed = 0
     consecutive_storage_errors = 0
-    last_seen_message: str | None = None
-    last_seen_log: str | None = None
     while elapsed < MAX_POLL_SECONDS:
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
         elapsed += POLL_INTERVAL_SECONDS
 
         try:
-            finished, last_message, full_log, total_lines = await sync_to_async(_check_logs)(task_run, log_lines_seen)
+            finished, last_message, full_log, total_lines = await sync_to_async(_check_logs)(task_run, skip_lines)
         except ObjectStorageError:
             consecutive_storage_errors += 1
             logger.warning(
-                "custom_prompt: transient storage error reading logs (%d/%d)",
+                "custom_prompt - poll_for_turn: transient storage error reading logs (%d/%d)",
                 consecutive_storage_errors,
                 MAX_CONSECUTIVE_STORAGE_ERRORS,
                 exc_info=True,
@@ -144,33 +151,28 @@ async def _poll_until_done(
             continue
         consecutive_storage_errors = 0
 
-        if last_message:
-            last_seen_message = last_message
-        if full_log:
-            last_seen_log = full_log
-
         printed_lines = _stream_new_lines(full_log, printed_lines, verbose=verbose, output_fn=output_fn)
         if finished and last_message:
-            return "completed", last_message, full_log
-        log_lines_seen = total_lines
+            return last_message, full_log, total_lines, printed_lines
+
+        skip_lines = total_lines
         refreshed = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
         if refreshed.status in {
             TaskRun.Status.COMPLETED,
             TaskRun.Status.FAILED,
             TaskRun.Status.CANCELLED,
         }:
-            # Terminal status — retry the final log read since it carries the actual agent output.
-            final_last_message = None
-            final_full_log = None
+            # Terminal status — one final log read with retries.
+            final_message = None
+            final_log = None
+            final_lines = skip_lines
             for attempt in range(MAX_CONSECUTIVE_STORAGE_ERRORS):
                 try:
-                    _, final_last_message, final_full_log, _ = await sync_to_async(_check_logs)(
-                        task_run, log_lines_seen
-                    )
+                    _, final_message, final_log, final_lines = await sync_to_async(_check_logs)(task_run, skip_lines)
                     break
                 except ObjectStorageError:
                     logger.warning(
-                        "custom_prompt: storage error on final log read (%d/%d)",
+                        "custom_prompt - poll_for_turn: storage error on final log read (%d/%d)",
                         attempt + 1,
                         MAX_CONSECUTIVE_STORAGE_ERRORS,
                         exc_info=True,
@@ -178,11 +180,14 @@ async def _poll_until_done(
                     if attempt + 1 >= MAX_CONSECUTIVE_STORAGE_ERRORS:
                         raise
                     await asyncio.sleep(POLL_INTERVAL_SECONDS)
-            printed_lines = _stream_new_lines(final_full_log, printed_lines, verbose=verbose, output_fn=output_fn)
-            return refreshed.status, final_last_message, final_full_log
+            printed_lines = _stream_new_lines(final_log, printed_lines, verbose=verbose, output_fn=output_fn)
+            if final_message:
+                return final_message, final_log, final_lines, printed_lines
+            raise RuntimeError(
+                f"custom_prompt - poll_for_turn: TaskRun reached terminal status={refreshed.status} with no agent message"
+            )
 
-    logger.warning("custom_prompt: polling timed out run=%s elapsed=%ds", task_run.id, elapsed)
-    return "timeout", last_seen_message, last_seen_log
+    raise RuntimeError(f"custom_prompt - poll_for_turn: timed out after {elapsed}s")
 
 
 def _stream_new_lines(
