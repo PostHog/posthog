@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { DataVizChartSettings, DataVizTableSettings } from './query'
 
 import type { Schemas } from '@/api/generated'
 
@@ -51,6 +52,12 @@ export const CreateInsightInputSchema = z.object({
             .describe(
                 'For new insights, use the query from your successful query-run tool call. For updates, the existing query can optionally be reused.'
             ), // NOTE: This is intentionally z.any() to avoid populating the context with the complicated query schema, but we prompt the LLM to use 'query-run' to check queries, before creating insights.
+        chartSettings: DataVizChartSettings.optional().describe(
+            'Chart settings for DataVisualizationNode (HogQL) insights. Use xAxis to set X-axis column, yAxis to set Y-axis columns with display type (line/bar/auto).'
+        ),
+        tableSettings: DataVizTableSettings.optional().describe(
+            'Table settings for DataVisualizationNode (HogQL) insights.'
+        ),
     }),
     description: z.string().optional(),
     favorited: z.boolean(),
@@ -68,6 +75,12 @@ export const UpdateInsightInputSchema = z.object({
             .describe(
                 'For new insights, use the query from your successful query-run tool call. For updates, the existing query can optionally be reused'
             ), // NOTE: This is intentionally z.any() to avoid populating the context with the complicated query schema, and to allow the LLM to make a change to an existing insight whose schema we do not support in our simplified subset of the full insight schema.
+        chartSettings: DataVizChartSettings.optional().describe(
+            'Chart settings for DataVisualizationNode (HogQL) insights. Use xAxis to set X-axis column, yAxis to set Y-axis columns with display type (line/bar/auto).'
+        ),
+        tableSettings: DataVizTableSettings.optional().describe(
+            'Table settings for DataVisualizationNode (HogQL) insights.'
+        ),
     }),
     favorited: z.boolean().optional(),
     dashboard: z.number().optional(),
