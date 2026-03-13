@@ -118,13 +118,14 @@ export function ScimLogsModal(): JSX.Element {
                         options={[
                             { value: 'all', label: 'All' },
                             { value: 'success', label: 'Success' },
-                            { value: 'error', label: 'Errors' },
+                            { value: '4xx', label: '4xx' },
+                            { value: '5xx', label: '5xx' },
                         ]}
                         size="small"
                     />
                     <LemonInput
                         type="search"
-                        placeholder="Search by path..."
+                        placeholder="Search by path or email..."
                         value={scimLogsSearch}
                         onChange={setScimLogsSearch}
                         className="max-w-60"

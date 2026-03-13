@@ -206,10 +206,11 @@ class TestNormalizeScimOperations:
 class TestMaskHeaders:
     @parameterized.expand(
         [
-            ("bearer_token", {"Authorization": "Bearer phx_abc123def456"}, {"Authorization": "Bearer ...f456"}),
-            ("basic_auth", {"Authorization": "Basic dXNlcjpwYXNz"}, {"Authorization": "Basic ...YXNz"}),
-            ("short_token", {"Authorization": "Bearer ab"}, {"Authorization": "Bearer ..."}),
+            ("bearer_token", {"Authorization": "Bearer phx_abc123def456"}, {"Authorization": "***"}),
+            ("basic_auth", {"Authorization": "Basic dXNlcjpwYXNz"}, {"Authorization": "***"}),
+            ("short_token", {"Authorization": "Bearer ab"}, {"Authorization": "***"}),
             ("cookie_stripped", {"Cookie": "session=abc123"}, {}),
+            ("set_cookie_stripped", {"Set-Cookie": "session=abc123"}, {}),
             (
                 "safe_header_passthrough",
                 {"Content-Type": "application/json", "User-Agent": "Okta"},
@@ -218,9 +219,14 @@ class TestMaskHeaders:
             (
                 "mixed",
                 {"Authorization": "Bearer tok123", "Cookie": "x=1", "Accept": "application/json"},
-                {"Authorization": "Bearer ...k123", "Accept": "application/json"},
+                {"Authorization": "***", "Accept": "application/json"},
             ),
             ("empty", {}, {}),
+            (
+                "case_insensitive",
+                {"AUTHORIZATION": "Bearer tok123", "COOKIE": "x=1"},
+                {"AUTHORIZATION": "***"},
+            ),
         ]
     )
     def test_mask_headers(self, _name, input_headers, expected):

@@ -1,6 +1,8 @@
 import re
 from typing import Any, cast
 
+from django.db.models import Q, QuerySet
+
 import django_filters
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
@@ -14,11 +16,18 @@ from posthog.api.utils import action
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.event_usage import groups
-from posthog.models import OrganizationDomain
-from posthog.models.organization import Organization
+from posthog.models import OrganizationDomain, User
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 
-from ee.api.scim.utils import disable_scim_for_domain, enable_scim_for_domain, get_scim_base_url, regenerate_scim_token
+from ee.api.scim.utils import (
+    disable_scim_for_domain,
+    enable_scim_for_domain,
+    get_scim_base_url,
+    mask_email,
+    mask_string,
+    regenerate_scim_token,
+)
 from ee.models.scim_request_log import SCIMRequestLog
 
 DOMAIN_REGEX = r"^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
@@ -189,16 +198,35 @@ class SCIMRequestLogPagination(PageNumberPagination):
     max_page_size = 100
 
 
+def _looks_like_email(value: str) -> bool:
+    return "@" in value and "." in value.rpartition("@")[2]
+
+
+def _search_scim_logs(queryset: QuerySet, _name: str, value: str) -> QuerySet:
+    q = Q(request_path__icontains=value) | Q(request_body__icontains=value)
+    if _looks_like_email(value):
+        masked = mask_email(value)
+        q = q | Q(request_body__icontains=masked)
+    else:
+        masked = mask_string(value)
+        if masked != value:
+            q = q | Q(request_body__icontains=masked)
+    return queryset.filter(q)
+
+
 class SCIMRequestLogFilter(django_filters.FilterSet):
     status_min = django_filters.NumberFilter(field_name="response_status", lookup_expr="gte")
     status_max = django_filters.NumberFilter(field_name="response_status", lookup_expr="lte")
-    search = django_filters.CharFilter(field_name="request_path", lookup_expr="icontains")
+    search = django_filters.CharFilter(method="filter_search")
     after = django_filters.IsoDateTimeFilter(field_name="created_at", lookup_expr="gte")
     before = django_filters.IsoDateTimeFilter(field_name="created_at", lookup_expr="lte")
 
     class Meta:
         model = SCIMRequestLog
         fields: list[str] = []
+
+    def filter_search(self, queryset: QuerySet, name: str, value: str) -> QuerySet:
+        return _search_scim_logs(queryset, name, value)
 
 
 @extend_schema(tags=["core"])
@@ -283,6 +311,12 @@ class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
 
     @action(methods=["GET"], detail=True, url_path="scim/logs")
     def scim_logs(self, request: Request, **kwargs) -> response.Response:
+        membership = OrganizationMembership.objects.filter(
+            user=cast("User", request.user), organization=self.organization
+        ).first()
+        if not membership or membership.level < OrganizationMembership.Level.ADMIN:
+            raise exceptions.PermissionDenied("Only organization admins can view SCIM logs.")
+
         domain: OrganizationDomain = self.get_object()
         queryset = SCIMRequestLog.objects.filter(organization_domain=domain)
         queryset = SCIMRequestLogFilter(request.query_params, queryset=queryset).qs

@@ -10,7 +10,8 @@ from .auth import generate_scim_token
 
 PII_FIELDS = {"userName", "displayName", "givenName", "familyName", "value", "display", "formatted"}
 
-STRIPPED_HEADERS = {"cookie", "set-cookie"}
+REDACTED_HEADERS = {"cookie", "set-cookie"}
+MASKED_HEADERS = {"authorization"}
 
 
 def _looks_like_email(value: str) -> bool:
@@ -76,16 +77,11 @@ def mask_scim_payload(data: Any, depth: int = 0) -> Any:
 def mask_headers(headers: dict[str, str]) -> dict[str, str]:
     result = {}
     for key, value in headers.items():
-        if key.lower() in STRIPPED_HEADERS:
+        normalized = key.lower().strip()
+        if normalized in REDACTED_HEADERS:
             continue
-        if key.lower() == "authorization":
-            parts = value.split(" ", 1)
-            if len(parts) == 2:
-                scheme, token = parts
-                suffix = token[-4:] if len(token) > 4 else ""
-                result[key] = f"{scheme} ...{suffix}"
-            else:
-                result[key] = "..."
+        if normalized in MASKED_HEADERS:
+            result[key] = "***"
         else:
             result[key] = value
     return result

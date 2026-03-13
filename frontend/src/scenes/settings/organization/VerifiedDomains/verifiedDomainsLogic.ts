@@ -45,7 +45,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
         setConfigureSAMLModalId: (id: string | null) => ({ id }),
         setConfigureSCIMModalId: (id: string | null) => ({ id }),
         setScimLogsModalId: (id: string | null) => ({ id }),
-        setScimLogsStatusFilter: (filter: 'all' | 'success' | 'error') => ({ filter }),
+        setScimLogsStatusFilter: (filter: 'all' | 'success' | '4xx' | '5xx') => ({ filter }),
         setScimLogsSearch: (search: string) => ({ search }),
         setScimLogsPage: (page: number) => ({ page }),
         setVerifyModal: (id: string | null) => ({ id }),
@@ -87,7 +87,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             },
         ],
         scimLogsStatusFilter: [
-            'all' as 'all' | 'success' | 'error',
+            'all' as 'all' | 'success' | '4xx' | '5xx',
             {
                 setScimLogsStatusFilter: (_, { filter }) => filter,
                 setScimLogsModalId: () => 'all',
@@ -224,8 +224,11 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                     if (values.scimLogsStatusFilter === 'success') {
                         params.status_min = '200'
                         params.status_max = '299'
-                    } else if (values.scimLogsStatusFilter === 'error') {
+                    } else if (values.scimLogsStatusFilter === '4xx') {
                         params.status_min = '400'
+                        params.status_max = '499'
+                    } else if (values.scimLogsStatusFilter === '5xx') {
+                        params.status_min = '500'
                     }
                     if (values.scimLogsSearch) {
                         params.search = values.scimLogsSearch
