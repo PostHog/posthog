@@ -21,7 +21,7 @@ import {
     MaxErrorTrackingSearchResponse,
 } from '~/queries/schema/schema-assistant-error-tracking'
 import { AssistantTool } from '~/queries/schema/schema-assistant-messages'
-import { RecordingUniversalFilters } from '~/types'
+import { RecordingUniversalFilters, ReplayTabs } from '~/types'
 
 import { issueFiltersLogic } from 'products/error_tracking/frontend/components/IssueFilters/issueFiltersLogic'
 import {
@@ -99,6 +99,8 @@ export function RecordingsWidget({
     filters: RecordingUniversalFilters
 }): JSX.Element {
     const { onAcceptSessionFilters } = useValues(maxLogic)
+    const { activeSceneId } = useValues(sceneLogic)
+    const isOnReplayPage = activeSceneId === Scene.Replay
     const logicProps: SessionRecordingPlaylistLogicProps = {
         logicKey: `ai-recordings-widget-${toolCallId}`,
         filters,
@@ -109,6 +111,17 @@ export function RecordingsWidget({
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
             <MessageTemplate type="ai" wrapperClassName="w-full" boxClassName="p-0 overflow-hidden">
+                {!isOnReplayPage && (
+                    <div className="flex items-center justify-between px-2 pt-2">
+                        <span className="text-xs font-semibold text-secondary">Session replay</span>
+                        <LemonButton
+                            to={urls.replay(ReplayTabs.Home, filters)}
+                            icon={<IconOpenInNew />}
+                            size="xsmall"
+                            tooltip="Open in new tab"
+                        />
+                    </div>
+                )}
                 <RecordingsFiltersSummary filters={filters} />
                 <RecordingsListContent />
                 {onAcceptSessionFilters && <AcceptFiltersBar filters={filters} onAccept={onAcceptSessionFilters} />}
