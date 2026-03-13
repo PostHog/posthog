@@ -480,14 +480,15 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                             {
                                 key: 'properties',
                                 label: 'Properties',
-                                content: propertiesTimelineFilter ? (
-                                    <PropertiesTimeline actor={actor} filter={propertiesTimelineFilter} />
-                                ) : (
-                                    <PropertiesTable
-                                        type={actor.type as PropertyDefinitionType}
-                                        properties={actor.properties}
-                                    />
-                                ),
+                                content:
+                                    propertiesTimelineFilter && actor.created_at ? (
+                                        <PropertiesTimeline actor={actor} filter={propertiesTimelineFilter} />
+                                    ) : (
+                                        <PropertiesTable
+                                            type={actor.type as PropertyDefinitionType}
+                                            properties={actor.properties}
+                                        />
+                                    ),
                             },
                             ...(isSession && actor.person
                                 ? [
