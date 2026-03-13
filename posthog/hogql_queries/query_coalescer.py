@@ -171,6 +171,8 @@ class QueryCoalescer:
             coalesce_counter.labels(outcome="leader").inc()
         elif self.dry_run:
             coalesce_counter.labels(outcome="follower_dry_run").inc()
+        else:
+            coalesce_counter.labels(outcome="follower").inc()
         return self._is_leader
 
     def _release(self) -> None:
@@ -219,7 +221,7 @@ class QueryCoalescer:
                     return data
 
             if self._redis.get(self._error_key):
-                coalesce_counter.labels(outcome="follower_leader_gone").inc()
+                coalesce_counter.labels(outcome="follower_leader_error").inc()
                 return None
 
             if self._redis.get(self._lock_key) is None:
