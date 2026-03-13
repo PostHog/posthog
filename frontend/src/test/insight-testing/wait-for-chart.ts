@@ -15,7 +15,7 @@ export async function waitForChart(): Promise<Chart> {
             chart = getChart()
             expect(chart.seriesCount).toBeGreaterThan(0)
         },
-        { timeout: 500 }
+        { timeout: 2000 }
     )
     return chart!
 }

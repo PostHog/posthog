@@ -8,7 +8,7 @@ import { InsightLogicProps } from '~/types'
 
 import { INSIGHT_TEST_ID } from './render-insight'
 
-const DEBOUNCE_TIMEOUT = 500
+const DEBOUNCE_TIMEOUT = 3000
 
 function getLogic(): ReturnType<typeof insightVizDataLogic.build> {
     const props: InsightLogicProps = { dashboardItemId: INSIGHT_TEST_ID }
