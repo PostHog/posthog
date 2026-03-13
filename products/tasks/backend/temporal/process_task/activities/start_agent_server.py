@@ -84,6 +84,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 interaction_origin=ctx.interaction_origin,
                 branch=ctx.branch,
                 mcp_configs=mcp_configs or None,
+                output_schema=ctx.output_schema,
             )
         except Exception as e:
             raise SandboxExecutionError(

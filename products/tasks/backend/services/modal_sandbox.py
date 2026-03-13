@@ -438,13 +438,14 @@ class ModalSandbox:
 
     def start_agent_server(
         self,
-        repository: str,
+        repository: str | None,
         task_id: str,
         run_id: str,
         mode: str = "background",
         interaction_origin: str | None = None,
         branch: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
+        output_schema: dict | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -455,21 +456,30 @@ class ModalSandbox:
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
 
-        org, repo = repository.lower().split("/")
-        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+        # Build repository path only if repository is provided
+        if repository:
+            org, repo = repository.lower().split("/")
+            repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+            repo_path_arg = f" --repositoryPath {shlex.quote(repo_path)}"
+        else:
+            repo_path_arg = ""
 
         mcp_servers_arg = ""
         if mcp_configs:
             mcp_json = json.dumps([c.to_dict() for c in mcp_configs])
             mcp_servers_arg = f" --mcpServers {shlex.quote(mcp_json)}"
 
+        output_schema_arg = ""
+        if output_schema:
+            output_schema_arg = f" --outputSchema {shlex.quote(json.dumps(output_schema))}"
+
         env_prefix = f"env TWIG_INTERACTION_ORIGIN={shlex.quote(interaction_origin)} " if interaction_origin else ""
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         command = (
             f"cd /scripts && "
-            f"nohup {env_prefix}npx agent-server --port {AGENT_SERVER_PORT} --repositoryPath {shlex.quote(repo_path)} "
+            f"nohup {env_prefix}npx agent-server --port {AGENT_SERVER_PORT}{repo_path_arg} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{branch_flag}{mcp_servers_arg} "
+            f"{branch_flag}{mcp_servers_arg}{output_schema_arg} "
             f"> /tmp/agent-server.log 2>&1 &"
         )
 

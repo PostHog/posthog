@@ -27,12 +27,13 @@ class TaskProcessingContext:
     task_id: str
     run_id: str
     team_id: int
-    github_integration_id: int
-    repository: str
     distinct_id: str
+    github_integration_id: int | None = None
+    repository: str | None = None
     create_pr: bool = True
     state: dict | None = None
     _branch: str | None = None
+    output_schema: dict | None = None
 
     @property
     def mode(self) -> str:
@@ -79,27 +80,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
 
     task = task_run.task
 
-    if not task.github_integration_id:
-        raise TaskInvalidStateError(
-            f"Task {task.id} has no GitHub integration",
-            {"task_id": str(task.id), "run_id": run_id},
-            cause=RuntimeError(f"Task {task.id} missing github_integration_id"),
-        )
-
-    if not task.repository:
-        raise TaskInvalidStateError(
-            f"Task {task.id} has no repository configured",
-            {"task_id": str(task.id), "run_id": run_id},
-            cause=RuntimeError(f"Task {task.id} missing repository"),
-        )
-
-    repository_full_name = task.repository
-    if not repository_full_name:
-        raise TaskInvalidStateError(
-            f"Task {task.id} repository missing value",
-            {"task_id": str(task.id), "run_id": run_id},
-            cause=RuntimeError(f"Task {task.id} repository field is empty"),
-        )
+    github_integration_id = task.github_integration_id or None
+    repository_full_name = task.repository or None
 
     if not task.created_by:
         raise TaskInvalidStateError(
@@ -125,10 +107,11 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         task_id=str(task.id),
         run_id=run_id,
         team_id=task.team_id,
-        github_integration_id=task.github_integration_id,
+        github_integration_id=github_integration_id,
         repository=repository_full_name,
         distinct_id=distinct_id,
         create_pr=input.create_pr,
         state=task_run.state,
         _branch=task_run.branch,
+        output_schema=task.json_schema,
     )
