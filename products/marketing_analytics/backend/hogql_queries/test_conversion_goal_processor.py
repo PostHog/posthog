@@ -5525,7 +5525,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
-        date_conditions = [
+        date_conditions: list[ast.Expr] = [
             ast.CompareOperation(
                 left=ast.Field(chain=["events", "timestamp"]),
                 op=ast.CompareOperationOp.GtEq,
