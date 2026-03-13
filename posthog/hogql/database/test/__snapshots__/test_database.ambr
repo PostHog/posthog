@@ -561,46 +561,6 @@
   WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
   '''
 # ---
-# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.20
-  '''
-  SELECT "posthog_datawarehousejoin"."created_by_id",
-         "posthog_datawarehousejoin"."created_at",
-         "posthog_datawarehousejoin"."deleted",
-         "posthog_datawarehousejoin"."deleted_at",
-         "posthog_datawarehousejoin"."id",
-         "posthog_datawarehousejoin"."team_id",
-         "posthog_datawarehousejoin"."source_table_name",
-         "posthog_datawarehousejoin"."source_table_key",
-         "posthog_datawarehousejoin"."joining_table_name",
-         "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name",
-         "posthog_datawarehousejoin"."configuration"
-  FROM "posthog_datawarehousejoin"
-  WHERE ("posthog_datawarehousejoin"."team_id" = 99999
-         AND NOT ("posthog_datawarehousejoin"."deleted"
-                  AND "posthog_datawarehousejoin"."deleted" IS NOT NULL))
-  '''
-# ---
-# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.21
-  '''
-  SELECT "posthog_datawarehousejoin"."created_by_id",
-         "posthog_datawarehousejoin"."created_at",
-         "posthog_datawarehousejoin"."deleted",
-         "posthog_datawarehousejoin"."deleted_at",
-         "posthog_datawarehousejoin"."id",
-         "posthog_datawarehousejoin"."team_id",
-         "posthog_datawarehousejoin"."source_table_name",
-         "posthog_datawarehousejoin"."source_table_key",
-         "posthog_datawarehousejoin"."joining_table_name",
-         "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name",
-         "posthog_datawarehousejoin"."configuration"
-  FROM "posthog_datawarehousejoin"
-  WHERE ("posthog_datawarehousejoin"."team_id" = 99999
-         AND NOT ("posthog_datawarehousejoin"."deleted"
-                  AND "posthog_datawarehousejoin"."deleted" IS NOT NULL))
-  '''
-# ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.3
   '''
   SELECT "posthog_datamodelingnode"."created_by_id",
@@ -2976,12 +2936,12 @@
                   "table": null,
                   "type": "string"
               },
-              "saved_query_id": {
+              "data_modeling_view_id": {
                   "chain": null,
                   "fields": null,
-                  "hogql_value": "saved_query_id",
+                  "hogql_value": "data_modeling_view_id",
                   "id": null,
-                  "name": "saved_query_id",
+                  "name": "data_modeling_view_id",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
@@ -3022,26 +2982,6 @@
                   "hogql_value": "error",
                   "id": null,
                   "name": "error",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "workflow_id": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "workflow_id",
-                  "id": null,
-                  "name": "workflow_id",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "workflow_run_id": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "workflow_run_id",
-                  "id": null,
-                  "name": "workflow_run_id",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
@@ -3092,7 +3032,7 @@
           "row_count": null,
           "type": "system"
       },
-      "system.data_warehouse_saved_queries": {
+      "system.data_modeling_views": {
           "fields": {
               "id": {
                   "chain": null,
@@ -3174,6 +3114,16 @@
                   "table": null,
                   "type": "expression"
               },
+              "deleted_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted_at",
+                  "id": null,
+                  "name": "deleted_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
               "created_at": {
                   "chain": null,
                   "fields": null,
@@ -3195,8 +3145,8 @@
                   "type": "datetime"
               }
           },
-          "id": "system.data_warehouse_saved_queries",
-          "name": "system.data_warehouse_saved_queries",
+          "id": "system.data_modeling_views",
+          "name": "system.data_modeling_views",
           "row_count": null,
           "type": "system"
       },
@@ -6582,12 +6532,12 @@
                   "table": null,
                   "type": "string"
               },
-              "saved_query_id": {
+              "data_modeling_view_id": {
                   "chain": null,
                   "fields": null,
-                  "hogql_value": "saved_query_id",
+                  "hogql_value": "data_modeling_view_id",
                   "id": null,
-                  "name": "saved_query_id",
+                  "name": "data_modeling_view_id",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
@@ -6628,26 +6578,6 @@
                   "hogql_value": "error",
                   "id": null,
                   "name": "error",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "workflow_id": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "workflow_id",
-                  "id": null,
-                  "name": "workflow_id",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "workflow_run_id": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "workflow_run_id",
-                  "id": null,
-                  "name": "workflow_run_id",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
@@ -6698,7 +6628,7 @@
           "row_count": null,
           "type": "system"
       },
-      "system.data_warehouse_saved_queries": {
+      "system.data_modeling_views": {
           "fields": {
               "id": {
                   "chain": null,
@@ -6780,6 +6710,16 @@
                   "table": null,
                   "type": "expression"
               },
+              "deleted_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted_at",
+                  "id": null,
+                  "name": "deleted_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
               "created_at": {
                   "chain": null,
                   "fields": null,
@@ -6801,8 +6741,8 @@
                   "type": "datetime"
               }
           },
-          "id": "system.data_warehouse_saved_queries",
-          "name": "system.data_warehouse_saved_queries",
+          "id": "system.data_modeling_views",
+          "name": "system.data_modeling_views",
           "row_count": null,
           "type": "system"
       },
