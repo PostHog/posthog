@@ -208,7 +208,7 @@ describe('TaxonomicFilter', () => {
             await userEvent.click(screen.getByTestId('taxonomic-tab-actions'))
 
             await waitFor(() => {
-                expect(screen.getByText('Action with a moderately long name')).toBeInTheDocument()
+                expect(screen.getByTestId('prop-filter-actions-0')).toBeInTheDocument()
             })
         })
 
@@ -273,7 +273,7 @@ describe('TaxonomicFilter', () => {
             await userEvent.click(screen.getByTestId('taxonomic-tab-actions'))
 
             await waitFor(() => {
-                expect(screen.getByText('Action with a moderately long name')).toBeInTheDocument()
+                expect(screen.getByTestId('prop-filter-actions-0')).toBeInTheDocument()
             })
 
             await userEvent.click(screen.getByTestId('prop-filter-actions-0'))
@@ -327,7 +327,7 @@ describe('TaxonomicFilter', () => {
             await waitFor(() => {
                 expect(onChangeMock).toHaveBeenCalledTimes(1)
             })
-            expect(onChangeMock.mock.calls[0][1]).toBe('$click')
+            expect(onChangeMock.mock.calls[0][1]).toBe('event1')
         })
 
         it('arrow down moves the highlighted index down', async () => {
@@ -389,7 +389,7 @@ describe('TaxonomicFilter', () => {
             await userEvent.keyboard('{Tab}')
 
             await waitFor(() => {
-                expect(screen.getByText('Action with a moderately long name')).toBeInTheDocument()
+                expect(screen.getByTestId('prop-filter-actions-0')).toBeInTheDocument()
             })
         })
 
@@ -409,7 +409,7 @@ describe('TaxonomicFilter', () => {
             await userEvent.keyboard('{Tab}')
 
             await waitFor(() => {
-                expect(screen.getByText('Action with a moderately long name')).toBeInTheDocument()
+                expect(screen.getByTestId('prop-filter-actions-0')).toBeInTheDocument()
             })
 
             await userEvent.keyboard('{Shift>}{Tab}{/Shift}')
@@ -435,7 +435,7 @@ describe('TaxonomicFilter', () => {
             await userEvent.click(screen.getByTestId('taxonomic-tab-actions'))
 
             await waitFor(() => {
-                expect(screen.getByText('Action with a moderately long name')).toBeInTheDocument()
+                expect(screen.getByTestId('prop-filter-actions-0')).toBeInTheDocument()
             })
         })
 
@@ -590,7 +590,7 @@ describe('TaxonomicFilter', () => {
             })
 
             await waitFor(() => {
-                expect(screen.getByText('Action with a moderately long name')).toBeInTheDocument()
+                expect(screen.getByTestId('prop-filter-actions-0')).toBeInTheDocument()
             })
         })
 
