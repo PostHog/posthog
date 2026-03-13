@@ -49,6 +49,11 @@ export function getNextRetryMs(baseMs: number, multiplier: number, attempt: numb
 
 /**
  * Retry a function, respecting `error.isRetriable`.
+ *
+ * Kafka ERR_UNKNOWN (code -1) gets special treatment: rdkafka marks these as
+ * non-retriable, but they are transient errors (e.g. RejectedExecutionException
+ * when reading from tiered storage). We retry them more aggressively with a
+ * higher base sleep and more attempts.
  */
 export async function retryIfRetriable<T>(fn: () => Promise<T>, tries = 3, sleepMs = 100): Promise<T> {
     let currentSleepMs = sleepMs
@@ -56,17 +61,18 @@ export async function retryIfRetriable<T>(fn: () => Promise<T>, tries = 3, sleep
         try {
             return await fn()
         } catch (error) {
-            // rdkafka marks ERR_UNKNOWN (code -1) as non-retriable, but these are
-            // transient errors that occur.
-            // We have hit RejectedExecutionException when reading from tiered storage
-            // and not handling this led to pods being constantly restarted.
             const isKafkaUnknownError = (error as any)?.code === -1
-            if ((error?.isRetriable === false && !isKafkaUnknownError) || i === tries - 1) {
-                // Throw if the error is not retryable or if we're out of tries.
+
+            if (isKafkaUnknownError) {
+                // Switch to the kafka unknown error retry path with more
+                // aggressive retries (5 tries, 500ms base sleep).
+                return retryKafkaUnknownError(fn, error, 5, 500, i)
+            }
+
+            if (error?.isRetriable === false || i === tries - 1) {
                 throw error
             }
 
-            // Fall through, `fn` will retry after sleep.
             await sleep(currentSleepMs)
             currentSleepMs = Math.min(
                 currentSleepMs * defaultRetryConfig.BACKOFF_FACTOR,
@@ -77,4 +83,32 @@ export async function retryIfRetriable<T>(fn: () => Promise<T>, tries = 3, sleep
 
     // This should never happen, but TypeScript doesn't know that.
     throw new Error('Unreachable error in retry')
+}
+
+async function retryKafkaUnknownError<T>(
+    fn: () => Promise<T>,
+    lastError: any,
+    maxTries: number,
+    sleepMs: number,
+    alreadyAttempted: number
+): Promise<T> {
+    let currentSleepMs = sleepMs
+    // Start from alreadyAttempted since those tries already happened in the caller.
+    for (let i = alreadyAttempted; i < maxTries; i++) {
+        logger.warn('🔁', `Kafka ERR_UNKNOWN (code -1) retry ${i + 1}/${maxTries}`, {
+            error: lastError.message,
+            sleepMs: currentSleepMs,
+        })
+
+        await sleep(currentSleepMs)
+        currentSleepMs = Math.min(currentSleepMs * defaultRetryConfig.BACKOFF_FACTOR, defaultRetryConfig.MAX_INTERVAL)
+
+        try {
+            return await fn()
+        } catch (error) {
+            lastError = error
+        }
+    }
+
+    throw lastError
 }

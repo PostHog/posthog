@@ -1,3 +1,4 @@
+import { logger } from '../../src/utils/logger'
 import { getNextRetryMs, retryIfRetriable } from '../../src/utils/retries'
 
 jest.mock('../../src/utils/utils', () => ({
@@ -30,8 +31,9 @@ describe('retryIfRetriable', () => {
         error.code = -1
         const fn = jest.fn().mockRejectedValueOnce(error).mockResolvedValue('ok')
 
-        const result = await retryIfRetriable(fn, 3, 0)
+        const result = await retryIfRetriable(fn)
         expect(result).toBe('ok')
+        // 1 initial attempt + 1 retry in kafka unknown path
         expect(fn).toHaveBeenCalledTimes(2)
     })
 
@@ -40,19 +42,36 @@ describe('retryIfRetriable', () => {
         error.code = -1
         const fn = jest.fn().mockRejectedValueOnce(error).mockResolvedValue('ok')
 
-        const result = await retryIfRetriable(fn, 3, 0)
+        const result = await retryIfRetriable(fn)
         expect(result).toBe('ok')
         expect(fn).toHaveBeenCalledTimes(2)
     })
 
-    it('throws kafka ERR_UNKNOWN (code -1) after exhausting retries', async () => {
+    it('throws kafka ERR_UNKNOWN (code -1) after exhausting 5 retries', async () => {
         const error = new Error('Unknown broker error') as any
         error.isRetriable = false
         error.code = -1
         const fn = jest.fn().mockRejectedValue(error)
 
-        await expect(retryIfRetriable(fn, 3, 0)).rejects.toThrow('Unknown broker error')
-        expect(fn).toHaveBeenCalledTimes(3)
+        await expect(retryIfRetriable(fn)).rejects.toThrow('Unknown broker error')
+        // 1 initial attempt in retryIfRetriable + 5 retries in kafka unknown error path
+        expect(fn).toHaveBeenCalledTimes(6)
+    })
+
+    it('logs on each kafka ERR_UNKNOWN (code -1) retry', async () => {
+        const warnSpy = jest.spyOn(logger, 'warn')
+        const error = new Error('Unknown broker error') as any
+        error.isRetriable = false
+        error.code = -1
+        const fn = jest.fn().mockRejectedValue(error)
+
+        await expect(retryIfRetriable(fn)).rejects.toThrow('Unknown broker error')
+        const kafkaRetryCalls = warnSpy.mock.calls.filter(
+            (call) => typeof call[1] === 'string' && call[1].includes('Kafka ERR_UNKNOWN')
+        )
+        // 5 retries logged (attempts 1/5 through 5/5)
+        expect(kafkaRetryCalls).toHaveLength(5)
+        warnSpy.mockRestore()
     })
 })
 
