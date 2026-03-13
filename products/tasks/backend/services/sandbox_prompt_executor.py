@@ -49,19 +49,40 @@ async def run_sandbox_agent_get_structured_output(
 
 
 def extract_json_from_text(text: str | None, label: str) -> Any:
-    """Extract JSON from text that might contain markdown formatting."""
+    """Extract JSON from text that might contain markdown formatting or surrounding commentary."""
     if text is None:
         raise ValueError(f"Text to extract JSON from ({label}) is None")
-    # Expect ```json...``` pattern first
-    pattern = r"```json(?:\n|\s)*(.*)(?:\n|\s)*```"
-    match = re.search(pattern, text, re.DOTALL | re.MULTILINE)
+
+    # 1. ```json ... ``` fenced code block (non-greedy to stop at first closing fence)
+    match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
     if match:
-        json_text = match.group(1).strip()
-        return json.loads(json_text)
-    # Try to get dict-ish object from text
-    pattern = r"\n(\{(?:\n|\s)*\"(?:.|\n|\s)*\})"
-    match = re.search(pattern, text, re.DOTALL | re.MULTILINE)
+        candidate = match.group(1).strip()
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+
+    # 2. ``` ... ``` generic code block that happens to contain JSON
+    match = re.search(r"```\s*(.*?)\s*```", text, re.DOTALL)
     if match:
-        return json.loads(match.group(0))
-    # Try to parse the text directly as JSON
+        candidate = match.group(1).strip()
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+
+    # 3. Bare JSON object in surrounding text — try each { from the left paired with the last }
+    last_brace = text.rfind("}")
+    if last_brace != -1:
+        start = 0
+        while True:
+            brace_pos = text.find("{", start)
+            if brace_pos == -1 or brace_pos >= last_brace:
+                break
+            try:
+                return json.loads(text[brace_pos : last_brace + 1])
+            except json.JSONDecodeError:
+                start = brace_pos + 1
+
+    # 4. Last resort — try the whole text as-is
     return json.loads(text)
