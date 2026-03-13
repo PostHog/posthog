@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconPlusSmall, IconTrash, IconUndo } from '@posthog/icons'
+import { IconPencil, IconPlusSmall, IconTrash, IconUndo } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
@@ -47,6 +47,7 @@ interface ActionFilterGroupProps {
     disabled?: boolean
     readOnly?: boolean
     hideDeleteBtn?: boolean
+    hideRename?: boolean
     hasBreakdown: boolean
     showSeriesIndicator?: boolean
     seriesIndicatorType?: 'alpha' | 'numeric'
@@ -69,6 +70,7 @@ export function ActionFilterGroup({
     sortable,
     disabled = false,
     readOnly = false,
+    hideRename = false,
     hasBreakdown,
     showSeriesIndicator,
     seriesIndicatorType = 'alpha',
@@ -88,12 +90,12 @@ export function ActionFilterGroup({
     ].filter((groupType) => groupType !== TaxonomicFilterGroupType.DataWarehouse)
 
     const { currentTeamId } = useValues(teamLogic)
-    const { removeLocalFilter, splitLocalFilter } = useActions(entityFilterLogic({ typeKey }))
+    const { removeLocalFilter, splitLocalFilter, showModal, selectFilter } = useActions(entityFilterLogic({ typeKey }))
     const { mathDefinitions } = useValues(mathsLogic)
     const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({ id: filter.uuid })
 
     const groupLogic = actionFilterGroupLogic({ filterUuid: filter.uuid, typeKey, groupIndex: index })
-    const { nestedFilters, operator, isHogQLDropdownVisible } = useValues(groupLogic)
+    const { nestedFilters, operator, isHogQLDropdownVisible, groupFilter } = useValues(groupLogic)
     const {
         addNestedFilter,
         updateNestedFilterProperties,
@@ -254,6 +256,21 @@ export function ActionFilterGroup({
 
                     {!readOnly && (
                         <div className="flex shrink-0 gap-1">
+                            {!hideRename && (
+                                <Tooltip title="Rename group series">
+                                    <LemonButton
+                                        size="small"
+                                        icon={<IconPencil />}
+                                        onClick={() => {
+                                            if (groupFilter) {
+                                                selectFilter(groupFilter)
+                                                showModal()
+                                            }
+                                        }}
+                                        data-attr={`group-filter-rename-${index}`}
+                                    />
+                                </Tooltip>
+                            )}
                             <Tooltip title="Remove group">
                                 <LemonButton
                                     size="small"
