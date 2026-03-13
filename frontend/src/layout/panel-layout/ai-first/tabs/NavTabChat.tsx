@@ -96,7 +96,7 @@ export function NavTabChat({
                                 inPanel && 'bg-fill-input'
                             )}
                         >
-                            <IconSearch className="size-3 text-tertiary group-focus-within:text-primary w-4 shrink-0" />
+                            <IconSearch className="size-4 text-tertiary group-focus-within:text-primary w-4 shrink-0" />
                             <Combobox.Input
                                 id="nav-search-chats"
                                 placeholder="Chat history"
