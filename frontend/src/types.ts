@@ -4068,6 +4068,7 @@ export enum DashboardPlacement {
     Person = 'person', // When the dashboard is being viewed on a person page
     Group = 'group', // When the dashboard is being viewed on a group page
     Builtin = 'builtin', // Dashboard built into product UI with external controls provided by parent context
+    DataOps = 'data-ops', // When embedded on the data ops scene dashboard tab
 }
 
 // Default mode is null
