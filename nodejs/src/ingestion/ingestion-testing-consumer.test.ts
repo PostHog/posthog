@@ -168,8 +168,8 @@ describe('IngestionTestingConsumer', () => {
             expect(producedMessages).toHaveLength(3)
         })
 
-        it('should not produce person-related kafka messages', async () => {
-            // Send an event with $set properties that would normally trigger person updates
+        it('should produce person kafka messages for events with $set properties', async () => {
+            // The testing pipeline does readonly person processing and publishes person updates to Kafka
             const events = [
                 createEvent({
                     properties: {
@@ -183,14 +183,15 @@ describe('IngestionTestingConsumer', () => {
 
             const allMessages = mockProducerObserver.getProducedKafkaMessages()
 
-            // Should have event messages but NO person messages
+            // Should produce person messages (readonly person processing publishes updates to Kafka)
             const personMessages = allMessages.filter(
                 (m) =>
                     m.topic === 'clickhouse_person_test' ||
                     m.topic === 'clickhouse_person_distinct_id2_test' ||
                     m.topic === 'clickhouse_person_unique_id_test'
             )
-            expect(personMessages).toHaveLength(0)
+            expect(personMessages).toHaveLength(1)
+            expect(personMessages[0].topic).toBe('clickhouse_person_test')
 
             // Should still produce the event itself
             const eventMessages = allMessages.filter((m) => m.topic === 'clickhouse_events_json_test')
@@ -221,14 +222,14 @@ describe('IngestionTestingConsumer', () => {
             expect(eventMessages).toHaveLength(1)
         })
 
-        it('should set processPerson to false in produced events', async () => {
+        it('should set person_mode to full in produced events', async () => {
             await ingester.handleKafkaBatch(createKafkaMessages([createEvent()]))
 
             const eventMessages = mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
             expect(eventMessages).toHaveLength(1)
 
             const eventData = eventMessages[0].value
-            expect(eventData.person_mode).toBe('propertyless')
+            expect(eventData.person_mode).toBe('full')
         })
 
         it('should use a deterministic fake person uuid', async () => {
@@ -430,11 +431,12 @@ describe('IngestionTestingConsumer', () => {
             const warningMessages = allMessages.filter((m) => m.topic === 'clickhouse_ingestion_warnings_test')
             expect(warningMessages).toHaveLength(1)
 
-            // No person messages from any subpipeline
+            // Person messages only from the regular event subpipeline (readonly person processing)
             const personMessages = allMessages.filter(
                 (m) => m.topic === 'clickhouse_person_test' || m.topic === 'clickhouse_person_distinct_id2_test'
             )
-            expect(personMessages).toHaveLength(0)
+            expect(personMessages).toHaveLength(1)
+            expect(personMessages[0].topic).toBe('clickhouse_person_test')
         })
     })
 })

@@ -3,10 +3,25 @@
 exports[`IngestionTestingConsumer general should process a standard event 1`] = `
 [
   {
+    "headers": undefined,
+    "key": null,
+    "topic": "clickhouse_person_test",
+    "value": {
+      "created_at": "1970-01-01 00:00:05",
+      "id": "<REPLACED-UUID-0>",
+      "is_deleted": 0,
+      "is_identified": 0,
+      "last_seen_at": null,
+      "properties": "{"$initial_current_url":"http://localhost:8000","$current_url":"http://localhost:8000"}",
+      "team_id": 2,
+      "version": 0,
+    },
+  },
+  {
     "headers": {
       "productTrack": "general",
     },
-    "key": "<REPLACED-UUID-0>",
+    "key": "<REPLACED-UUID-1>",
     "topic": "clickhouse_events_json_test",
     "value": {
       "captured_at": "2025-01-01 00:00:00.000",
@@ -15,14 +30,14 @@ exports[`IngestionTestingConsumer general should process a standard event 1`] = 
       "elements_chain": "",
       "event": "$pageview",
       "person_created_at": "1970-01-01 00:00:05",
-      "person_id": "<REPLACED-UUID-1>",
-      "person_mode": "propertyless",
-      "person_properties": "{}",
+      "person_id": "<REPLACED-UUID-0>",
+      "person_mode": "full",
+      "person_properties": "{"$initial_current_url":"http://localhost:8000","$current_url":"http://localhost:8000"}",
       "project_id": 2,
-      "properties": "{"$current_url":"http://localhost:8000","$ip":"127.0.0.1","$process_person_profile":false}",
+      "properties": "{"$current_url":"http://localhost:8000","$ip":"127.0.0.1","$set":{"$current_url":"http://localhost:8000"},"$set_once":{"$initial_current_url":"http://localhost:8000"}}",
       "team_id": 2,
       "timestamp": "2025-01-01 00:00:00.000",
-      "uuid": "<REPLACED-UUID-0>",
+      "uuid": "<REPLACED-UUID-1>",
     },
   },
 ]
