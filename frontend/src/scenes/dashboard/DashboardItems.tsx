@@ -111,7 +111,7 @@ export function DashboardItems(): JSX.Element {
 
     const effectiveZoom = dashboardMode === DashboardMode.Edit && showLayoutZoom ? layoutZoom : 1
     const rowHeight = BASE_ROW_HEIGHT * effectiveZoom
-    const spacingFactor = 1
+    const spacingFactor = effectiveZoom < 1 ? 0.9 : 1
     const margin = BASE_MARGIN.map((m) => m * spacingFactor) as [number, number]
 
     return (
