@@ -3,9 +3,8 @@ import logging
 
 from django.core.management.base import BaseCommand
 
-from products.signals.backend.report_generation.research import ReportResearchOutput, build_research_prompt
+from products.signals.backend.report_generation.research import run_multi_turn_research
 from products.signals.backend.temporal.types import SignalData
-from products.tasks.backend.services.custom_prompt_executor import run_sandbox_agent_get_structured_output
 from products.tasks.backend.services.custom_prompt_runner import resolve_sandbox_context_for_local_dev
 
 logger = logging.getLogger(__name__)
@@ -114,23 +113,17 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(str(e)))
             return
 
-        prompt = build_research_prompt(
-            title=TEST_TITLE,
-            summary=TEST_SUMMARY,
-            signals=TEST_SIGNALS,
-        )
-
         self.stdout.write(f"Report title: {TEST_TITLE}")
         self.stdout.write(f"Signals: {len(TEST_SIGNALS)}")
         self.stdout.write("")
 
         result = asyncio.run(
-            run_sandbox_agent_get_structured_output(
-                prompt=prompt,
+            run_multi_turn_research(
+                title=TEST_TITLE,
+                summary=TEST_SUMMARY,
+                signals=TEST_SIGNALS,
                 context=context,
-                model_to_validate=ReportResearchOutput,
                 branch="master",
-                step_name="report_research",
                 verbose=verbose,
                 output_fn=self._flushing_write,
             )
@@ -138,10 +131,10 @@ class Command(BaseCommand):
 
         self.stdout.write("")
         self.stdout.write(self.style.SUCCESS("=== Research Result ==="))
-        self.stdout.write(f"Actionability: {result.actionability}")
-        self.stdout.write(f"Priority: {result.priority}")
-        self.stdout.write(f"Already addressed: {result.already_addressed}")
-        self.stdout.write(f"Explanation: {result.explanation}")
+        self.stdout.write(f"Actionability: {result.summary.actionability}")
+        self.stdout.write(f"Priority: {result.summary.priority}")
+        self.stdout.write(f"Already addressed: {result.summary.already_addressed}")
+        self.stdout.write(f"Explanation: {result.summary.explanation}")
         self.stdout.write("")
         for finding in result.findings:
             self.stdout.write(self.style.WARNING(f"--- Signal: {finding.signal_id} ---"))
