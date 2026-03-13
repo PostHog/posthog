@@ -313,15 +313,7 @@ class RemoteConfig(UUIDTModel):
         from posthog.models.team.snippet_config import TeamSnippetConfig
 
         snippet_config = get_or_create_team_extension(team, TeamSnippetConfig)
-        config["_snippetVersion"] = snippet_config.snippet_version_pin
-
-        # MARK: SDK version info
-
-        resolved_version = resolve_version(snippet_config.snippet_version_pin)
-        if resolved_version:
-            config["sdkVersion"] = resolved_version
-            if settings.POSTHOG_JS_SCRIPTS_BASE_URL:
-                config["scriptsBaseUrl"] = f"{settings.POSTHOG_JS_SCRIPTS_BASE_URL.rstrip('/')}/v{resolved_version}"
+        config["_requestedSdkVersion"] = snippet_config.snippet_version_pin
 
         return config
 
@@ -392,12 +384,28 @@ class RemoteConfig(UUIDTModel):
             REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss").inc()
         return data
 
+    @staticmethod
+    def _enrich_with_version_info(config: dict) -> dict:
+        """Resolve version info at request time so it reflects the live manifest."""
+        requested = config.get("_requestedSdkVersion") or DEFAULT_SNIPPET_VERSION
+        resolved = resolve_version(requested)
+        if resolved:
+            version_info: dict[str, str] = {
+                "requested": requested,
+                "resolved": resolved,
+            }
+            if settings.POSTHOG_JS_SCRIPTS_BASE_URL:
+                version_info["scriptBaseUrl"] = f"{settings.POSTHOG_JS_SCRIPTS_BASE_URL.rstrip('/')}/{resolved}"
+            config["sdkVersion"] = version_info
+        return config
+
     @classmethod
     @tracer.start_as_current_span("RemoteConfig.get_config_via_token")
     def get_config_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> dict:
         config = cls._get_config_via_cache(token)
+        config = cls._enrich_with_version_info(config)
         config = sanitize_config_for_public_cdn(config, request=request)
-        config.pop("_snippetVersion", None)
+        config.pop("_requestedSdkVersion", None)
 
         return config
 
@@ -405,11 +413,12 @@ class RemoteConfig(UUIDTModel):
     @tracer.start_as_current_span("RemoteConfig.get_config_js_via_token")
     def get_config_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
         config = cls._get_config_via_cache(token)
+        config = cls._enrich_with_version_info(config)
         # Get the site apps JS so we can render it in the JS
         site_apps_js = config.pop("siteAppsJS", None)
         # We don't want to include the minimal site apps content as we have the JS now
         config.pop("siteApps", None)
-        config.pop("_snippetVersion", None)
+        config.pop("_requestedSdkVersion", None)
         config = sanitize_config_for_public_cdn(config, request=request)
 
         js_content = f"""(function() {{
@@ -428,7 +437,7 @@ class RemoteConfig(UUIDTModel):
     def get_array_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
         # NOTE: Unlike the other methods we dont store this in the cache as it is cheap to build at runtime
         config = cls._get_config_via_cache(token)
-        array_js = get_js_content(config.get("_snippetVersion"))
+        array_js = get_js_content(config.get("_requestedSdkVersion"))
         js_content = cls.get_config_js_via_token(token, request=request)
 
         return f"""{array_js}\n\n{js_content}"""
@@ -439,7 +448,7 @@ class RemoteConfig(UUIDTModel):
 
         try:
             config = cls._get_config_via_cache(token)
-            return config.get("_snippetVersion") or DEFAULT_SNIPPET_VERSION
+            return config.get("_requestedSdkVersion") or DEFAULT_SNIPPET_VERSION
         except cls.DoesNotExist:
             return DEFAULT_SNIPPET_VERSION
 

@@ -240,6 +240,76 @@ class TestRemoteConfig(_RemoteConfigBase):
             assert self.remote_config.config["sessionRecording"]["scriptConfig"] == expected_script_config
 
 
+class TestRemoteConfigSdkVersion(_RemoteConfigBase):
+    def _reset_snippet_caches(self):
+        import posthog.models.snippet_versioning as sv
+
+        sv._cached_manifest = None
+
+    def setUp(self):
+        super().setUp()
+        self._reset_snippet_caches()
+
+    def tearDown(self):
+        from django.core.cache import cache
+
+        from posthog.models.snippet_versioning import REDIS_POINTER_MAP_KEY
+
+        cache.delete(REDIS_POINTER_MAP_KEY)
+        self._reset_snippet_caches()
+        super().tearDown()
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="")
+    def test_sdk_version_absent_when_versioning_disabled(self):
+        config = RemoteConfig.get_config_via_token(self.team.api_token)
+        assert "sdkVersion" not in config
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    def test_sdk_version_present_when_versioning_enabled(self):
+        import json
+
+        from django.core.cache import cache
+
+        from posthog.models.snippet_versioning import REDIS_POINTER_MAP_KEY
+
+        manifest = {"versions": ["1.360.0", "1.360.1"], "pointers": {"1": "1.360.1", "1.360": "1.360.1"}}
+        cache.set(REDIS_POINTER_MAP_KEY, json.dumps(manifest), timeout=None)
+
+        config = RemoteConfig.get_config_via_token(self.team.api_token)
+        assert "sdkVersion" in config
+        assert config["sdkVersion"]["requested"] == "1"
+        assert config["sdkVersion"]["resolved"] == "1.360.1"
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket", POSTHOG_JS_SCRIPTS_BASE_URL="https://cdn.example.com/js")
+    def test_sdk_version_includes_script_base_url(self):
+        import json
+
+        from django.core.cache import cache
+
+        from posthog.models.snippet_versioning import REDIS_POINTER_MAP_KEY
+
+        manifest = {"versions": ["1.360.1"], "pointers": {"1": "1.360.1", "1.360": "1.360.1"}}
+        cache.set(REDIS_POINTER_MAP_KEY, json.dumps(manifest), timeout=None)
+
+        config = RemoteConfig.get_config_via_token(self.team.api_token)
+        assert config["sdkVersion"]["scriptBaseUrl"] == "https://cdn.example.com/js/1.360.1"
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket", POSTHOG_JS_SCRIPTS_BASE_URL="")
+    def test_sdk_version_omits_script_base_url_when_not_configured(self):
+        import json
+
+        from django.core.cache import cache
+
+        from posthog.models.snippet_versioning import REDIS_POINTER_MAP_KEY
+
+        manifest = {"versions": ["1.360.1"], "pointers": {"1": "1.360.1", "1.360": "1.360.1"}}
+        cache.set(REDIS_POINTER_MAP_KEY, json.dumps(manifest), timeout=None)
+
+        config = RemoteConfig.get_config_via_token(self.team.api_token)
+        assert "sdkVersion" in config
+        assert "scriptBaseUrl" not in config["sdkVersion"]
+
+
 class TestRemoteConfigSurveys(_RemoteConfigBase):
     # Largely copied from TestSurveysAPIList
     def setUp(self):

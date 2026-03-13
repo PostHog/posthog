@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: TestRemoteConfig.test_creates_remote_config_immediately
   dict({
-    '_snippetVersion': None,
+    '_requestedSdkVersion': None,
     'analytics': dict({
       'endpoint': '/i/v0/e/',
     }),
