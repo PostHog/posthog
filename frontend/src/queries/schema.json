@@ -31758,6 +31758,9 @@
                 "required": {
                     "type": "boolean"
                 },
+                "requiredScopes": {
+                    "type": "string"
+                },
                 "type": {
                     "const": "oauth",
                     "type": "string"
