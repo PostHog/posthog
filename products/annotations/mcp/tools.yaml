@@ -1,0 +1,91 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Annotations
+feature: annotations
+url_prefix: /annotations
+tools:
+    annotations-list:
+        operation: annotations_list
+        enabled: true
+        mcp_version: 1
+        scopes:
+            - annotation:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List annotations
+        description: >
+            List annotations in the current project, newest first. Use this to review existing deployment markers and
+            analysis notes before adding new annotations.
+    annotation-create:
+        operation: annotations_create
+        enabled: true
+        scopes:
+            - annotation:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        include_params:
+            - content
+            - date_marker
+            - scope
+        title: Create annotation
+        description: >
+            Create an annotation to mark an important change (for example, a deployment) on charts and trends. Provide
+            a note in `content`, when it happened in `date_marker` (ISO 8601), and whether it is scoped to the current
+            `project` or the whole `organization`.
+    annotation-retrieve:
+        operation: annotations_retrieve
+        enabled: true
+        mcp_version: 1
+        scopes:
+            - annotation:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Retrieve annotation
+        description: >
+            Retrieve a single annotation by ID from the current project. Use this when you already know the annotation
+            ID and want complete details.
+    annotations-update:
+        operation: annotations_update
+        enabled: false
+    annotations-partial-update:
+        operation: annotations_partial_update
+        enabled: true
+        scopes:
+            - annotation:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        include_params:
+            - content
+            - date_marker
+            - scope
+        title: Update annotation
+        description: >
+            Update an existing annotation by ID. You can change its text (`content`), when it happened (`date_marker`,
+            ISO 8601), or its visibility scope (`project` or `organization`). Only the fields you provide are updated.
+    annotation-delete:
+        operation: annotations_destroy
+        enabled: true
+        scopes:
+            - annotation:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        soft_delete: true
+        title: Delete annotation
+        description: >
+            Soft-delete an annotation by ID. This hides the annotation from normal lists while preserving historical
+            records.

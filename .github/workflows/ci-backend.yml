@@ -361,6 +361,11 @@ jobs:
             - name: Wait for Docker services
               run: bin/wait-for-docker
 
+            - name: Register Temporal search attributes
+              run: |
+                  bin/wait-for-docker temporal
+                  python manage.py register_temporal_search_attributes
+
             - name: Run product tests
               # --force: discover already decided this product needs testing, skip turbo cache
               # --log-order=stream: stream pytest output live instead of buffering until completion
