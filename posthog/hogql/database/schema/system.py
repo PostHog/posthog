@@ -358,6 +358,32 @@ error_tracking_issues: PostgresTable = PostgresTable(
     },
 )
 
+error_tracking_issue_assignments: PostgresTable = PostgresTable(
+    name="error_tracking_issue_assignments",
+    postgres_table_name="posthog_errortrackingissueassignment",
+    access_scope="error_tracking",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "issue_id": StringDatabaseField(name="issue_id"),
+        "user_id": IntegerDatabaseField(name="user_id"),
+        "role_id": StringDatabaseField(name="role_id"),
+    },
+)
+
+error_tracking_issue_fingerprints: PostgresTable = PostgresTable(
+    name="error_tracking_issue_fingerprints",
+    postgres_table_name="posthog_errortrackingissuefingerprintv2",
+    access_scope="error_tracking",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "issue_id": StringDatabaseField(name="issue_id"),
+        "fingerprint": StringDatabaseField(name="fingerprint"),
+        "first_seen": DateTimeDatabaseField(name="first_seen"),
+    },
+)
+
 
 class SystemTables(TableNode):
     name: str = "system"
@@ -368,6 +394,12 @@ class SystemTables(TableNode):
         "dashboards": TableNode(name="dashboards", table=dashboards),
         "data_warehouse_sources": TableNode(name="data_warehouse_sources", table=data_warehouse_sources),
         "data_warehouse_tables": TableNode(name="data_warehouse_tables", table=data_warehouse_tables),
+        "error_tracking_issue_assignments": TableNode(
+            name="error_tracking_issue_assignments", table=error_tracking_issue_assignments
+        ),
+        "error_tracking_issue_fingerprints": TableNode(
+            name="error_tracking_issue_fingerprints", table=error_tracking_issue_fingerprints
+        ),
         "error_tracking_issues": TableNode(name="error_tracking_issues", table=error_tracking_issues),
         "experiments": TableNode(name="experiments", table=experiments),
         "exports": TableNode(name="exports", table=exports),

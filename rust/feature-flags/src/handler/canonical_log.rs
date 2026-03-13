@@ -239,6 +239,8 @@ pub struct FlagsCanonicalLogLine {
 
     // Rate limiting
     pub rate_limited: bool,
+    /// True when a rate limit warn threshold was exceeded but the request was still allowed.
+    pub rate_limit_warned: bool,
 
     // Cache sources (populated during data fetching)
     /// Where team metadata was fetched from: "redis", "s3", "fallback", or None if not fetched
@@ -282,6 +284,7 @@ impl Default for FlagsCanonicalLogLine {
             hash_key_override_status: None,
             evaluation_type: None,
             rate_limited: false,
+            rate_limit_warned: false,
             team_cache_source: None,
             http_status: 200,
             error_code: None,
@@ -342,6 +345,7 @@ impl FlagsCanonicalLogLine {
             hash_key_override_status = self.hash_key_override_status,
             evaluation_type = self.evaluation_type.map(|t| t.as_str()),
             rate_limited = self.rate_limited,
+            rate_limit_warned = self.rate_limit_warned,
             team_cache_source = self.team_cache_source,
             error_code = self.error_code,
             "canonical_log_line"
@@ -459,6 +463,7 @@ mod tests {
         assert_eq!(log.dependency_graph_errors, 0);
         assert!(log.hash_key_override_status.is_none());
         assert!(!log.rate_limited);
+        assert!(!log.rate_limit_warned);
         assert!(log.team_cache_source.is_none());
         assert_eq!(log.http_status, 200);
         assert!(log.error_code.is_none());

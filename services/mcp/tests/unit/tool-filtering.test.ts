@@ -32,13 +32,7 @@ describe('Tool Filtering - Features', () => {
         {
             features: ['dashboards', 'insights'],
             description: 'dashboard and insight tools',
-            expectedTools: [
-                'dashboard-create',
-                'dashboards-get-all',
-                'add-insight-to-dashboard',
-                'insights-get-all',
-                'insight-create-from-query',
-            ],
+            expectedTools: ['dashboard-create', 'dashboards-get-all', 'insights-get-all', 'insight-create-from-query'],
         },
         {
             features: ['workspace'],
@@ -131,7 +125,6 @@ describe('Tool Filtering - API Scopes', () => {
         expect(toolNames).toContain('dashboard-create')
         expect(toolNames).toContain('dashboard-get')
         expect(toolNames).toContain('dashboards-get-all')
-        expect(toolNames).toContain('add-insight-to-dashboard')
         expect(toolNames).toContain('dashboard-reorder-tiles')
 
         expect(toolNames).not.toContain('create-feature-flag')
