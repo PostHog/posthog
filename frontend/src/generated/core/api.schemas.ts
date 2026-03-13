@@ -1012,7 +1012,7 @@ export interface SharingConfigurationApi {
 
 /**
  * * `slack` - Slack
- * `slack-twig` - Slack Twig
+ * `slack-posthog-code` - Slack Posthog Code
  * `salesforce` - Salesforce
  * `hubspot` - Hubspot
  * `google-pubsub` - Google Pubsub
@@ -1043,7 +1043,7 @@ export type Kind439EnumApi = (typeof Kind439EnumApi)[keyof typeof Kind439EnumApi
 
 export const Kind439EnumApi = {
     Slack: 'slack',
-    SlackTwig: 'slack-twig',
+    SlackPosthogCode: 'slack-posthog-code',
     Salesforce: 'salesforce',
     Hubspot: 'hubspot',
     GooglePubsub: 'google-pubsub',

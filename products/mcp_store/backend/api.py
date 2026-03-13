@@ -102,7 +102,7 @@ def _is_https(url: str) -> bool:
 
 
 def _is_valid_twig_callback_url(url: str) -> bool:
-    """Validate that a Twig callback URL is safe to redirect to (prevents open redirect)."""
+    """Validate that a PostHog Code callback URL is safe to redirect to (prevents open redirect)."""
     parsed = urlparse(url)
     if parsed.scheme in ("array", "twig", "posthog-code"):
         return True
@@ -708,7 +708,7 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
 
     OAuth providers redirect here after authorization. This endpoint
     validates the state token, exchanges the code for tokens, and
-    redirects to the originating client (PostHog web or Twig).
+    redirects to the originating client (PostHog web or PostHog Code).
     """
 
     permission_classes: list = []
@@ -741,7 +741,10 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
         code = request.query_params.get("code")
         if not code:
             return self._build_oauth_redirect(
-                install_source, installation, error="Missing authorization code", twig_callback_url=twig_callback_url
+                install_source,
+                installation,
+                error="Missing authorization code",
+                twig_callback_url=twig_callback_url,
             )
 
         try:
@@ -838,7 +841,7 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
         error: str | None = None,
         twig_callback_url: str = "",
     ) -> HttpResponse:
-        if install_source in ["twig", "posthog-code"] and twig_callback_url:
+        if install_source in ("twig", "posthog-code") and twig_callback_url:
             params = {"status": "error", "error": error} if error else {"status": "success"}
             separator = "&" if "?" in twig_callback_url else "?"
             redirect_url = f"{twig_callback_url}{separator}{urlencode(params)}"

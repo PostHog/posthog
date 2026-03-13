@@ -41,17 +41,17 @@ Results are strong — multi-signal groups are coherent with zero weak chaining 
 
 Two valid grouping perspectives exist:
 
-**Task generation** (current, for Twig):
+**Task generation** (current, for PostHog Code):
 signals grouped by actionable work item — one group = one PR / one set of tests.
 3 HubSpot feature requests (junction tables, incremental sync, OAuth scope)
 are 3 separate groups because they produce 3 different PRs.
-Including all HubSpot issues in 1 report leads to a useless report for Twig.
+Including all HubSpot issues in 1 report leads to a useless report for PostHog Code.
 
 **Knowledge base** (future, for UI/UX):
 signals grouped by product area or owner — "HubSpot" label on all 3.
 Useful for browsing, but not for task execution.
 Implementable as a labeling/tagging layer on top of task-generation groups.
-Not a priority for the Twig release.
+Not a priority for the PostHog Code release.
 
 We stay with task-generation grouping. Knowledge-base labeling is a separate concern.
 
@@ -151,9 +151,9 @@ E.g. instead of "workflow metrics issues" → "NaN display bug in workflow metri
 
 **Risk:** More specific queries might miss legitimate matches.
 
-### Area 3: Knowledge-base labeling (future, not for Twig)
+### Area 3: Knowledge-base labeling (future, not for PostHog Code)
 
-**Priority: P3 — separate concern, after Twig release**
+**Priority: P3 — separate concern, after PostHog Code release**
 
 A presentation layer that groups singletons by product area / owner for browsing.
 Does not change task-generation grouping.
@@ -180,7 +180,7 @@ plus UI work.
 2. **1c** (negative examples) — cheap prompt experiment, test in harness
 3. **2a** (candidate filtering) — simple code change, can combine with any of the above
 4. **1b** (PR framing in matching) — significant change, try only if 1-3 are insufficient
-5. **3a** (labeling) — after Twig release, separate workstream
+5. **3a** (labeling) — after PostHog Code release, separate workstream
 
 ---
 
