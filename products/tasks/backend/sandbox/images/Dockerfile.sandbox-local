@@ -16,7 +16,7 @@ RUN cd /local-shared && pnpm pack && \
     pnpm pack && \
     cd /local-agent && \
     sed -i 's/"@posthog\/shared": "workspace:\*"/"@posthog\/shared": "file:\/local-shared\/posthog-shared-1.0.0.tgz"/' package.json && \
-    sed -i 's/"@twig\/git": "workspace:\*"/"@twig\/git": "file:\/local-git\/twig-git-1.0.0.tgz"/' package.json && \
+    sed -i 's/"@posthog\/git": "workspace:\*"/"@posthog\/git": "file:\/local-git\/posthog-git-1.0.0.tgz"/' package.json && \
     pnpm pack && \
     cd /scripts && pnpm install /local-agent/*.tgz && \
     rm -rf /local-agent /local-shared /local-git

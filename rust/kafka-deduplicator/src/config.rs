@@ -5,6 +5,8 @@ use bytesize::ByteSize;
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 
+use crate::rocksdb::store::RocksDbConfig;
+
 /// Pipeline type for the deduplicator service.
 ///
 /// Each pipeline type handles a different event format:
@@ -98,6 +100,18 @@ pub struct Config {
     #[envconfig(default = "/tmp/deduplication-store")]
     pub store_path: String,
 
+    // RocksDB tuning (optional — omit to use compiled-in defaults from RocksDbConfig)
+    pub rocksdb_shared_cache_size_bytes: Option<usize>,
+    pub rocksdb_total_write_buffer_size_bytes: Option<usize>,
+    pub rocksdb_max_background_jobs: Option<i32>,
+    pub rocksdb_write_buffer_size_bytes: Option<usize>,
+    pub rocksdb_target_file_size_base_bytes: Option<u64>,
+    pub rocksdb_max_open_files: Option<i32>,
+    pub rocksdb_l0_compaction_trigger: Option<i32>,
+    pub rocksdb_l0_slowdown_writes_trigger: Option<i32>,
+    pub rocksdb_l0_stop_writes_trigger: Option<i32>,
+    pub rocksdb_write_buffer_manager_allow_stall: Option<bool>,
+
     #[envconfig(default = "1073741824")]
     // 1GB default, supports: raw bytes, scientific notation (9.663676416e+09), or units (9Gi, 1GB)
     pub max_store_capacity: String,
@@ -141,6 +155,10 @@ pub struct Config {
 
     #[envconfig(default = "200")] // 200ms (reduced from 500ms for lower latency)
     pub kafka_consumer_batch_timeout_ms: u64,
+
+    // Timeout for consumer.seek_partitions() after checkpoint import (seconds)
+    #[envconfig(default = "5")]
+    pub kafka_consumer_seek_timeout_secs: u64,
 
     // Kafka consumer fetch settings for throughput optimization
     #[envconfig(default = "1048576")] // 1MB minimum fetch size
@@ -263,12 +281,12 @@ pub struct Config {
     // Limits memory usage by bounding the number of in-flight HTTP connections
     // Critical during rebalance when many partitions are assigned simultaneously
     // Higher values speed up rebalance; streaming bounds memory per download to ~8KB
-    #[envconfig(default = "50")]
+    #[envconfig(default = "200")]
     pub max_concurrent_checkpoint_file_downloads: usize,
 
     // Maximum concurrent S3 file uploads during checkpoint export
     // Less critical than downloads since uploads are bounded by max_concurrent_checkpoints
-    #[envconfig(default = "25")]
+    #[envconfig(default = "200")]
     pub max_concurrent_checkpoint_file_uploads: usize,
 
     // Maximum time allowed for a complete checkpoint import for a single partition (seconds).
@@ -278,6 +296,24 @@ pub struct Config {
     pub checkpoint_partition_import_timeout_secs: u64,
 
     //// End checkpoint configuration ////
+    //// Kafka-assigner mode configuration ////
+    /// gRPC endpoint for the kafka-assigner service (e.g. "http://kafka-assigner:50051").
+    /// When set, the consumer uses externally-driven partition assignment instead of
+    /// Kafka's consumer group protocol.
+    pub kafka_assigner_endpoint: Option<String>,
+
+    /// Consumer name for registration with the kafka-assigner.
+    /// Defaults to HOSTNAME (pod name) if not set.
+    pub consumer_name: Option<String>,
+
+    //// End kafka-assigner mode configuration ////
+    /// Fail-open mode: bypass all deduplication and forward events directly to output topic.
+    /// When enabled, the deduplicator skips store operations, checkpoint import/export,
+    /// and treats all events as unique. Use as an emergency kill switch when the
+    /// deduplication store is causing issues.
+    #[envconfig(default = "false")]
+    pub fail_open: bool,
+
     #[envconfig(default = "true")]
     pub export_prometheus: bool,
 
@@ -303,38 +339,29 @@ impl Config {
 
     /// Validate configuration settings
     pub fn validate(&self) -> Result<()> {
-        // Check store path is writable
-        if let Err(e) = fs::create_dir_all(&self.store_path) {
-            return Err(anyhow::anyhow!(
-                "Cannot create RocksDB store directory '{}' for consumer group '{}': {}",
-                self.store_path,
-                self.kafka_consumer_group,
-                e
-            ));
-        }
+        fs::create_dir_all(&self.store_path).with_context(|| {
+            format!(
+                "Cannot create RocksDB store directory '{}' for consumer group '{}'",
+                self.store_path, self.kafka_consumer_group
+            )
+        })?;
 
-        // Check if we can write to the directory
         let test_file = self.store_path_buf().join(".write_test");
-        if let Err(e) = fs::write(&test_file, b"test") {
-            return Err(anyhow::anyhow!(
-                "RocksDB store path '{}' is not writable for consumer group '{}': {}",
-                self.store_path,
-                self.kafka_consumer_group,
-                e
-            ));
-        }
+        fs::write(&test_file, b"test").with_context(|| {
+            format!(
+                "RocksDB store path '{}' is not writable for consumer group '{}'",
+                self.store_path, self.kafka_consumer_group
+            )
+        })?;
         fs::remove_file(test_file).ok();
 
-        // Validate checkpoint path if S3 is configured
         if let Some(ref bucket) = self.s3_bucket {
-            if let Err(e) = fs::create_dir_all(&self.local_checkpoint_dir) {
-                return Err(anyhow::anyhow!(
-                    "Cannot create local checkpoint directory '{}' for S3 bucket '{}': {}",
-                    self.local_checkpoint_dir,
-                    bucket,
-                    e
-                ));
-            }
+            fs::create_dir_all(&self.local_checkpoint_dir).with_context(|| {
+                format!(
+                    "Cannot create local checkpoint directory '{}' for S3 bucket '{}'",
+                    self.local_checkpoint_dir, bucket
+                )
+            })?;
         }
 
         Ok(())
@@ -368,6 +395,11 @@ impl Config {
     /// Get kafka consumer batch timeout as Duration
     pub fn kafka_consumer_batch_timeout(&self) -> Duration {
         Duration::from_millis(self.kafka_consumer_batch_timeout_ms)
+    }
+
+    /// Get kafka consumer seek timeout as Duration (for seek_partitions after checkpoint import)
+    pub fn kafka_consumer_seek_timeout(&self) -> Duration {
+        Duration::from_secs(self.kafka_consumer_seek_timeout_secs)
     }
 
     /// Get flush interval as Duration
@@ -424,6 +456,54 @@ impl Config {
             .with_context(|| format!("Failed to parse storage capacity: '{s}'. Expected format: raw bytes, scientific notation, or units (1Gi, 1GB)"))
     }
 
+    /// Build a RocksDbConfig from env-configured overrides, falling back to defaults.
+    /// Validates max_background_jobs >= 1, clamping with a warning if invalid.
+    pub fn build_rocksdb_config(&self) -> RocksDbConfig {
+        let defaults = RocksDbConfig::default();
+        let max_background_jobs = match self.rocksdb_max_background_jobs {
+            Some(v) if v >= 1 => v,
+            Some(v) => {
+                tracing::warn!(
+                    value = v,
+                    default = defaults.max_background_jobs,
+                    "ROCKSDB_MAX_BACKGROUND_JOBS must be >= 1, using default"
+                );
+                defaults.max_background_jobs
+            }
+            None => defaults.max_background_jobs,
+        };
+        RocksDbConfig {
+            shared_cache_size_bytes: self
+                .rocksdb_shared_cache_size_bytes
+                .unwrap_or(defaults.shared_cache_size_bytes),
+            total_write_buffer_size_bytes: self
+                .rocksdb_total_write_buffer_size_bytes
+                .unwrap_or(defaults.total_write_buffer_size_bytes),
+            max_background_jobs,
+            write_buffer_size_bytes: self
+                .rocksdb_write_buffer_size_bytes
+                .unwrap_or(defaults.write_buffer_size_bytes),
+            target_file_size_base_bytes: self
+                .rocksdb_target_file_size_base_bytes
+                .unwrap_or(defaults.target_file_size_base_bytes),
+            max_open_files: self
+                .rocksdb_max_open_files
+                .unwrap_or(defaults.max_open_files),
+            l0_compaction_trigger: self
+                .rocksdb_l0_compaction_trigger
+                .unwrap_or(defaults.l0_compaction_trigger),
+            l0_slowdown_writes_trigger: self
+                .rocksdb_l0_slowdown_writes_trigger
+                .unwrap_or(defaults.l0_slowdown_writes_trigger),
+            l0_stop_writes_trigger: self
+                .rocksdb_l0_stop_writes_trigger
+                .unwrap_or(defaults.l0_stop_writes_trigger),
+            write_buffer_manager_allow_stall: self
+                .rocksdb_write_buffer_manager_allow_stall
+                .unwrap_or(defaults.write_buffer_manager_allow_stall),
+        }
+    }
+
     // Check multiple conditions for safe checkpoint export enablement
     pub fn checkpoint_export_enabled(&self) -> bool {
         self.checkpoint_export_enabled
@@ -464,6 +544,69 @@ impl Config {
     /// Get checkpoint partition import timeout as Duration
     pub fn checkpoint_partition_import_timeout(&self) -> Duration {
         Duration::from_secs(self.checkpoint_partition_import_timeout_secs)
+    }
+
+    /// Build Kafka consumer configuration for the group-based batch consumer.
+    /// Applies all relevant env-configured settings (connection, TLS, fetch/queued,
+    /// group membership, sticky assignment, offset reset).
+    pub fn build_batch_consumer_config(&self) -> rdkafka::ClientConfig {
+        use crate::kafka::config::ConsumerConfigBuilder;
+
+        ConsumerConfigBuilder::for_batch_consumer(&self.kafka_hosts, &self.kafka_consumer_group)
+            .with_tls(self.kafka_tls)
+            .with_max_partition_fetch_bytes(self.kafka_consumer_max_partition_fetch_bytes)
+            .with_topic_metadata_refresh_interval_ms(self.kafka_topic_metadata_refresh_interval_ms)
+            .with_metadata_max_age_ms(self.kafka_metadata_max_age_ms)
+            .with_sticky_partition_assignment(self.pod_hostname.as_deref())
+            .with_offset_reset(&self.kafka_consumer_offset_reset)
+            .with_fetch_min_bytes(self.kafka_consumer_fetch_min_bytes)
+            .with_fetch_max_bytes(self.kafka_consumer_fetch_max_bytes)
+            .with_fetch_wait_max_ms(self.kafka_consumer_fetch_wait_max_ms)
+            .with_queued_min_messages(self.kafka_consumer_queued_min_messages)
+            .with_queued_max_messages_kbytes(self.kafka_consumer_queued_max_messages_kbytes)
+            .with_max_poll_interval_ms(self.kafka_max_poll_interval_ms)
+            .with_session_timeout_ms(self.kafka_session_timeout_ms)
+            .with_heartbeat_interval_ms(self.kafka_heartbeat_interval_ms)
+            .build()
+    }
+
+    /// Build Kafka consumer configuration for the assigner-driven consumer.
+    /// Uses manual `assign()` with offset commits via the consumer group, but no
+    /// group-coordination settings (session, heartbeat, max.poll, sticky assignment).
+    pub fn build_assigner_consumer_config(&self) -> rdkafka::ClientConfig {
+        use crate::kafka::config::ConsumerConfigBuilder;
+
+        ConsumerConfigBuilder::for_assigner_consumer(&self.kafka_hosts, &self.kafka_consumer_group)
+            .with_tls(self.kafka_tls)
+            .with_max_partition_fetch_bytes(self.kafka_consumer_max_partition_fetch_bytes)
+            .with_topic_metadata_refresh_interval_ms(self.kafka_topic_metadata_refresh_interval_ms)
+            .with_metadata_max_age_ms(self.kafka_metadata_max_age_ms)
+            .with_offset_reset(&self.kafka_consumer_offset_reset)
+            .with_fetch_min_bytes(self.kafka_consumer_fetch_min_bytes)
+            .with_fetch_max_bytes(self.kafka_consumer_fetch_max_bytes)
+            .with_fetch_wait_max_ms(self.kafka_consumer_fetch_wait_max_ms)
+            .with_queued_min_messages(self.kafka_consumer_queued_min_messages)
+            .with_queued_max_messages_kbytes(self.kafka_consumer_queued_max_messages_kbytes)
+            .build()
+    }
+
+    /// Build Kafka consumer configuration for the assign-only watermark consumer.
+    /// Applies only connection, TLS, and fetch/queued settings — no group-coordination
+    /// options (session, heartbeat, max.poll, sticky, offset reset).
+    pub fn build_watermark_consumer_config(&self, group_id: &str) -> rdkafka::ClientConfig {
+        use crate::kafka::config::ConsumerConfigBuilder;
+
+        ConsumerConfigBuilder::for_watermark_consumer(&self.kafka_hosts, group_id)
+            .with_tls(self.kafka_tls)
+            .with_max_partition_fetch_bytes(self.kafka_consumer_max_partition_fetch_bytes)
+            .with_topic_metadata_refresh_interval_ms(self.kafka_topic_metadata_refresh_interval_ms)
+            .with_metadata_max_age_ms(self.kafka_metadata_max_age_ms)
+            .with_fetch_min_bytes(self.kafka_consumer_fetch_min_bytes)
+            .with_fetch_max_bytes(self.kafka_consumer_fetch_max_bytes)
+            .with_fetch_wait_max_ms(self.kafka_consumer_fetch_wait_max_ms)
+            .with_queued_min_messages(self.kafka_consumer_queued_min_messages)
+            .with_queued_max_messages_kbytes(self.kafka_consumer_queued_max_messages_kbytes)
+            .build()
     }
 
     /// Build Kafka producer configuration

@@ -8,11 +8,13 @@ use opentelemetry_sdk::{runtime, Resource};
 use tokio::signal;
 use tracing::level_filters::LevelFilter;
 use tracing_opentelemetry::OpenTelemetryLayer;
+use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
 use capture::config::Config;
+use capture::error_tracking_sampler;
 use capture::server::serve;
 
 common_alloc::used!();
@@ -69,20 +71,45 @@ async fn main() {
     let _profiling_agent = match config.continuous_profiling.start_agent() {
         Ok(agent) => agent,
         Err(e) => {
-            eprintln!("Failed to start continuous profiling agent: {e}");
+            eprintln!("Failed to start continuous profiling agent: {e:#}");
             None
         }
     };
 
-    // Instantiate tracing outputs:
-    //   - stdout with a level configured by the RUST_LOG envvar (default=ERROR)
-    //   - OpenTelemetry if enabled, for levels INFO and higher
-    let log_layer = tracing_subscriber::fmt::layer().with_filter(
-        EnvFilter::builder()
-            .with_default_directive(LevelFilter::INFO.into())
-            .from_env_lossy()
-            .add_directive("pyroscope=warn".parse().unwrap()),
-    );
+    let log_layer = {
+        let base = tracing_subscriber::fmt::layer()
+            .with_target(true)
+            .with_thread_ids(true)
+            .with_level(true);
+
+        if config.log_level == tracing::Level::DEBUG {
+            base.with_span_events(
+                FmtSpan::NEW | FmtSpan::CLOSE | FmtSpan::ENTER | FmtSpan::EXIT | FmtSpan::ACTIVE,
+            )
+            .with_ansi(true)
+            .with_filter(
+                EnvFilter::builder()
+                    .with_default_directive(LevelFilter::INFO.into())
+                    .from_env_lossy()
+                    .add_directive("pyroscope=warn".parse().unwrap()),
+            )
+            .boxed()
+        } else {
+            // Production: JSON format so Loki/Grafana can extract useful filter tags
+            base.json()
+                .flatten_event(true)
+                .with_span_list(true)
+                .with_current_span(true)
+                .with_filter(
+                    EnvFilter::builder()
+                        .with_default_directive(LevelFilter::INFO.into())
+                        .from_env_lossy()
+                        .add_directive("pyroscope=warn".parse().unwrap()),
+                )
+                .boxed()
+        }
+    };
+
     let otel_layer = config
         .otel_url
         .clone()
@@ -98,6 +125,22 @@ async fn main() {
         .with(log_layer)
         .with(otel_layer)
         .init();
+
+    // Root span with pod hostname for Loki/Grafana filtering
+    let pod = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
+    let _root_span = tracing::info_span!("service", pod = %pod).entered();
+
+    // Initialize feature flag configs
+    error_tracking_sampler::init_dual_write(
+        config.error_tracking_dual_write_enabled,
+        config.error_tracking_dual_write_sample_rate,
+    );
+    if config.error_tracking_dual_write_enabled {
+        tracing::info!(
+            sample_rate = config.error_tracking_dual_write_sample_rate,
+            "Error tracking dual-write enabled"
+        );
+    }
 
     // Open the TCP port and start the server
     let listener = tokio::net::TcpListener::bind(config.address)

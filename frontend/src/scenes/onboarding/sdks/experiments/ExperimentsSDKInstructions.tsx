@@ -9,7 +9,7 @@ import {
     FramerInstallation,
     GoInstallation,
     IOSInstallation,
-    JSWebInstallation,
+    WebInstallation,
     LaravelInstallation,
     NextJSInstallation,
     NodeJSInstallation,
@@ -20,6 +20,7 @@ import {
     ReactNativeInstallation,
     RemixInstallation,
     RubyInstallation,
+    RubyOnRailsInstallation,
     SvelteInstallation,
     VueInstallation,
     WebflowInstallation,
@@ -109,8 +110,8 @@ const JS_FRAMEWORK_SNIPPETS = {
 }
 
 // Wrapped instruction components
-const ExperimentsJSWebInstructionsWrapper = withOnboardingDocsWrapper({
-    Installation: JSWebInstallation,
+const ExperimentsWebInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: WebInstallation,
     snippets: JS_WEB_SNIPPETS,
 })
 const ExperimentsReactInstructionsWrapper = withOnboardingDocsWrapper({
@@ -132,6 +133,10 @@ const ExperimentsPHPInstructionsWrapper = withOnboardingDocsWrapper({
 })
 const ExperimentsRubyInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RubyInstallation,
+    snippets: SERVER_SDK_SNIPPETS,
+})
+const ExperimentsRubyOnRailsInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: RubyOnRailsInstallation,
     snippets: SERVER_SDK_SNIPPETS,
 })
 const ExperimentsGoInstructionsWrapper = withOnboardingDocsWrapper({
@@ -227,7 +232,7 @@ const ExperimentsLaravelInstructionsWrapper = withOnboardingDocsWrapper({
 })
 
 export const ExperimentsSDKInstructions: SDKInstructionsMap = {
-    [SDKKey.JS_WEB]: ExperimentsJSWebInstructionsWrapper,
+    [SDKKey.JS_WEB]: ExperimentsWebInstructionsWrapper,
     [SDKKey.ANDROID]: ExperimentsAndroidInstructionsWrapper,
     [SDKKey.ANGULAR]: ExperimentsAngularInstructionsWrapper,
     [SDKKey.ASTRO]: ExperimentsAstroInstructionsWrapper,
@@ -252,6 +257,7 @@ export const ExperimentsSDKInstructions: SDKInstructionsMap = {
     }),
     [SDKKey.REMIX]: ExperimentsRemixJSInstructionsWrapper,
     [SDKKey.RUBY]: ExperimentsRubyInstructionsWrapper,
+    [SDKKey.RUBY_ON_RAILS]: ExperimentsRubyOnRailsInstructionsWrapper,
     [SDKKey.SVELTE]: ExperimentsSvelteInstructionsWrapper,
     [SDKKey.VITE]: withOnboardingDocsWrapper({
         Installation: ReactInstallation,

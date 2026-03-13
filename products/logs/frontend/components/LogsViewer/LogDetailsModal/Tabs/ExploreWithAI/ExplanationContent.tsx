@@ -2,11 +2,11 @@ import { LemonCollapse } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
+import { SEVERITY_CONFIG } from './constants'
 import { ImmediateActionsSection } from './ImmediateActionsSection'
 import { KeyFieldsSection } from './KeyFieldsSection'
 import { ProbableCausesSection } from './ProbableCausesSection'
 import { SeverityBanner } from './SeverityBanner'
-import { SEVERITY_CONFIG } from './constants'
 import { LogExplanation } from './types'
 
 export interface ExplanationContentProps {

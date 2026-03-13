@@ -126,10 +126,10 @@ describe('Result Handling', () => {
         expect(dlqMessage.value).toEqual(message.value)
         expect(dlqMessage.key).toEqual(message.key)
         expect(dlqMessage.headers).toMatchObject({
-            'dlq-reason': 'Invalid data format',
-            'dlq-step': 'validationStep',
+            dlq_reason: 'Invalid data format',
+            dlq_step: 'validationStep',
         })
-        expect(dlqMessage.headers['dlq-timestamp']).toBeDefined()
+        expect(dlqMessage.headers['dlq_timestamp']).toBeDefined()
     })
 
     /**

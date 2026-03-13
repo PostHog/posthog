@@ -1,3 +1,4 @@
+import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 /**
  * Auto-generated from the Django backend OpenAPI schema.
  * To modify these types, update the Django serializers or views, then run:
@@ -7,10 +8,10 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ActivityLogPaginatedResponseApi,
     FeatureFlagApi,
+    FeatureFlagCreateRequestSchemaApi,
     FeatureFlagsActivityRetrieve2Params,
     FeatureFlagsActivityRetrieveParams,
     FeatureFlagsEvaluationReasonsRetrieveParams,
@@ -20,7 +21,7 @@ import type {
     LocalEvaluationResponseApi,
     MyFlagsResponseApi,
     PaginatedFeatureFlagListApi,
-    PatchedFeatureFlagApi,
+    PatchedFeatureFlagPartialUpdateRequestSchemaApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -109,14 +110,14 @@ export const getFeatureFlagsCreateUrl = (projectId: string) => {
 
 export const featureFlagsCreate = async (
     projectId: string,
-    featureFlagApi: NonReadonly<FeatureFlagApi>,
+    featureFlagCreateRequestSchemaApi: FeatureFlagCreateRequestSchemaApi,
     options?: RequestInit
 ): Promise<FeatureFlagApi> => {
     return apiMutator<FeatureFlagApi>(getFeatureFlagsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlagApi),
+        body: JSON.stringify(featureFlagCreateRequestSchemaApi),
     })
 }
 
@@ -175,14 +176,14 @@ export const getFeatureFlagsPartialUpdateUrl = (projectId: string, id: number) =
 export const featureFlagsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedFeatureFlagApi: NonReadonly<PatchedFeatureFlagApi>,
+    patchedFeatureFlagPartialUpdateRequestSchemaApi: PatchedFeatureFlagPartialUpdateRequestSchemaApi,
     options?: RequestInit
 ): Promise<FeatureFlagApi> => {
     return apiMutator<FeatureFlagApi>(getFeatureFlagsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedFeatureFlagApi),
+        body: JSON.stringify(patchedFeatureFlagPartialUpdateRequestSchemaApi),
     })
 }
 
@@ -404,6 +405,9 @@ Accepts either:
 - {"ids": [...]} - Explicit list of flag IDs (no limit)
 
 Returns same format as bulk_delete for UI compatibility.
+
+Uses bulk operations for efficiency: database updates are batched and cache
+invalidation happens once at the end rather than per-flag.
  */
 export const getFeatureFlagsBulkDeleteCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/feature_flags/bulk_delete/`

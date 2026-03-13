@@ -28,10 +28,10 @@ import { urls } from 'scenes/urls'
 import { groupsModel } from '~/models/groupsModel'
 import { RecurrenceInterval, ScheduledChangeOperationType, ScheduledChangeType } from '~/types'
 
-import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
-import { FeatureFlagVariantsForm } from './FeatureFlagVariantsForm'
-import { groupFilters } from './FeatureFlags'
 import { featureFlagLogic, validateFeatureFlagKey, variantKeyToIndexFeatureFlagPayloads } from './featureFlagLogic'
+import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
+import { groupFilters } from './FeatureFlags'
+import { FeatureFlagVariantsForm } from './FeatureFlagVariantsForm'
 
 export const DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
 
@@ -388,7 +388,10 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                         title={
                                             <>
                                                 Schedule will run through end of this day in the{' '}
-                                                <Link to={urls.settings('project', 'date-and-time')} target="_blank">
+                                                <Link
+                                                    to={urls.settings('environment-customization', 'date-and-time')}
+                                                    target="_blank"
+                                                >
                                                     project's timezone
                                                 </Link>
                                             </>

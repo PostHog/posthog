@@ -1,17 +1,9 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
+import { TextMorph } from 'torph/react'
 
-import {
-    IconCopy,
-    IconEye,
-    IconFlask,
-    IconPause,
-    IconPlay,
-    IconPlusSmall,
-    IconRefresh,
-    IconStopFilled,
-} from '@posthog/icons'
+import { IconCopy, IconEye, IconFlask, IconPause, IconPlay, IconPlusSmall, IconRefresh } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -38,12 +30,12 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
+import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { urls } from 'scenes/urls'
 
-import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
 import {
@@ -63,14 +55,14 @@ import {
     ActionFilter,
     AnyPropertyFilter,
     ExperimentConclusion,
-    ExperimentProgressStatus,
+    ExperimentStatus,
     InsightShortId,
 } from '~/types'
 
-import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
 import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
+import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
 import { experimentLogic } from '../experimentLogic'
-import { getExperimentStatusColor } from '../experimentsLogic'
+import { getExperimentStatusColor, getExperimentStatusLabel } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { getVariantColor } from '../utils'
 
@@ -87,7 +79,7 @@ export function VariantTag({
 
     if (variantKey === EXPERIMENT_VARIANT_MULTIPLE) {
         return (
-            <Tooltip title="This indicates a potential implementation issue where users are seeing multiple variants instead of a single consistent variant.">
+            <Tooltip title="Some users were exposed to more than one variant. If this percentage is high, there may be an implementation issue causing inconsistent variant assignment.">
                 <LemonTag type="danger">{variantKey}</LemonTag>
             </Tooltip>
         )
@@ -97,8 +89,8 @@ export function VariantTag({
         return <></>
     }
 
-    const variantColor = experiment.parameters?.feature_flag_variants
-        ? getVariantColor(variantKey, experiment.parameters.feature_flag_variants)
+    const variantColor = experiment.feature_flag?.filters.multivariate?.variants
+        ? getVariantColor(variantKey, experiment.feature_flag?.filters.multivariate?.variants)
         : 'var(--text-muted)'
 
     if (experiment.holdout && variantKey === `holdout-${experiment.holdout_id}`) {
@@ -280,7 +272,7 @@ export function EllipsisAnimation(): JSX.Element {
         return () => clearInterval(interval)
     }, [isPageVisible])
 
-    return <span>{ellipsis}</span>
+    return <TextMorph as="span">{ellipsis}</TextMorph>
 }
 
 export function PageHeaderCustom(): JSX.Element {
@@ -288,13 +280,9 @@ export function PageHeaderCustom(): JSX.Element {
         experiment,
         isExperimentDraft,
         isExperimentRunning,
+        isExperimentLaunched,
         isExperimentStopped,
-        isSingleVariantShipped,
-        hasPrimaryMetricSet,
         isCreatingExperimentDashboard,
-        primaryMetricsResults,
-        legacyPrimaryMetricsResults,
-        hasMinimumExposureForResults,
         experimentLoading,
     } = useValues(experimentLogic)
     const {
@@ -305,8 +293,7 @@ export function PageHeaderCustom(): JSX.Element {
         updateExperiment,
         setHogfettiTrigger,
     } = useActions(experimentLogic)
-    const { openShipVariantModal, openStopExperimentModal, openPauseExperimentModal, openResumeExperimentModal } =
-        useActions(modalsLogic)
+    const { openFinishExperimentModal, openPauseExperimentModal, openResumeExperimentModal } = useActions(modalsLogic)
     const [duplicateModalOpen, setDuplicateModalOpen] = useState(false)
     const [surveyModalOpen, setSurveyModalOpen] = useState(false)
     const { newTab } = useActions(sceneLogic)
@@ -317,12 +304,6 @@ export function PageHeaderCustom(): JSX.Element {
     })
 
     const exposureCohortId = experiment?.exposure_cohort
-
-    const shouldShowShipVariantButton =
-        !isExperimentDraft &&
-        !isSingleVariantShipped &&
-        hasMinimumExposureForResults &&
-        (legacyPrimaryMetricsResults.length > 0 || primaryMetricsResults.length > 0)
 
     return (
         <>
@@ -344,24 +325,19 @@ export function PageHeaderCustom(): JSX.Element {
                 saveOnBlur
                 actions={
                     <>
-                        {experiment && !isExperimentRunning && (
+                        {experiment && isExperimentDraft && (
                             <div className="flex items-center">
                                 <LemonButton
                                     type="primary"
                                     data-attr="launch-experiment"
                                     onClick={() => launchExperiment()}
-                                    disabledReason={
-                                        !hasPrimaryMetricSet
-                                            ? 'Add at least one primary metric before launching the experiment'
-                                            : undefined
-                                    }
                                     size="small"
                                 >
                                     Launch
                                 </LemonButton>
                             </div>
                         )}
-                        {experiment && isExperimentRunning && (
+                        {experiment && isExperimentLaunched && (
                             <div className="flex flex-row gap-2">
                                 {isExperimentStopped && (
                                     <LemonButton
@@ -396,19 +372,19 @@ export function PageHeaderCustom(): JSX.Element {
                                 )}
                             </div>
                         )}
-                        {shouldShowShipVariantButton && (
+                        {experiment && isExperimentRunning && !isExperimentStopped && (
                             <>
-                                <Tooltip title="Choose a variant and roll it out to all users">
+                                <Tooltip title="Conclude this experiment and decide which variant to keep">
                                     <LemonButton
                                         type="primary"
                                         icon={<IconFlask />}
-                                        onClick={() => openShipVariantModal()}
+                                        onClick={() => openFinishExperimentModal()}
                                         size="small"
                                     >
-                                        <b>Ship a variant</b>
+                                        <b>End experiment</b>
                                     </LemonButton>
                                 </Tooltip>
-                                <ShipVariantModal />
+                                <FinishExperimentModal />
                             </>
                         )}
                         {experiment && (
@@ -423,7 +399,7 @@ export function PageHeaderCustom(): JSX.Element {
             />
             <HogfettiComponent />
 
-            {experiment && isExperimentRunning && (
+            {experiment && (
                 <ScenePanel>
                     <ScenePanelActionsSection>
                         <ButtonPrimitive menuItem onClick={() => setDuplicateModalOpen(true)}>
@@ -431,88 +407,82 @@ export function PageHeaderCustom(): JSX.Element {
                             Duplicate
                         </ButtonPrimitive>
 
-                        {exposureCohortId ? (
-                            // TODO: add custom back button to the destination page
-                            <Link
-                                to={urls.cohort(exposureCohortId)}
-                                buttonProps={{
-                                    menuItem: true,
-                                }}
-                                data-attr="view-exposure-cohort"
-                                onClick={() => newTab(urls.cohort(exposureCohortId))}
-                            >
-                                <IconEye /> View exposure cohort as new tab
-                            </Link>
-                        ) : (
-                            <ButtonPrimitive
-                                menuItem
-                                onClick={() => createExposureCohort()}
-                                data-attr="create-exposure-cohort"
-                            >
-                                <IconPlusSmall /> Create exposure cohort
-                            </ButtonPrimitive>
-                        )}
-                        <ButtonPrimitive
-                            menuItem
-                            onClick={() => createExperimentDashboard()}
-                            disabledReasons={{
-                                'Creating dashboard...': isCreatingExperimentDashboard,
-                            }}
-                        >
-                            <IconPlusSmall /> Create dashboard
-                        </ButtonPrimitive>
-
-                        {experiment.feature_flag && (
-                            <ButtonPrimitive
-                                menuItem
-                                onClick={() => {
-                                    setSurveyModalOpen(true)
-                                    void addProductIntentForCrossSell({
-                                        from: ProductKey.EXPERIMENTS,
-                                        to: ProductKey.SURVEYS,
-                                        intent_context: ProductIntentContext.QUICK_SURVEY_STARTED,
-                                    })
-                                }}
-                            >
-                                <IconPlusSmall /> Create survey
-                            </ButtonPrimitive>
-                        )}
-
-                        <LemonDivider />
-
-                        <ResetButton />
-
-                        {!experiment.end_date &&
-                            experiment.feature_flag &&
-                            (experiment.feature_flag.active ? (
-                                <ButtonPrimitive
-                                    variant="danger"
-                                    menuItem
-                                    data-attr="pause-experiment"
-                                    onClick={() => openPauseExperimentModal()}
-                                >
-                                    <IconPause /> Pause experiment
-                                </ButtonPrimitive>
-                            ) : (
+                        {isExperimentLaunched && (
+                            <>
+                                {exposureCohortId ? (
+                                    // TODO: add custom back button to the destination page
+                                    <Link
+                                        to={urls.cohort(exposureCohortId)}
+                                        buttonProps={{
+                                            menuItem: true,
+                                        }}
+                                        data-attr="view-exposure-cohort"
+                                        onClick={() => newTab(urls.cohort(exposureCohortId))}
+                                    >
+                                        <IconEye /> View exposure cohort as new tab
+                                    </Link>
+                                ) : (
+                                    <ButtonPrimitive
+                                        menuItem
+                                        onClick={() => createExposureCohort()}
+                                        data-attr="create-exposure-cohort"
+                                    >
+                                        <IconPlusSmall /> Create exposure cohort
+                                    </ButtonPrimitive>
+                                )}
                                 <ButtonPrimitive
                                     menuItem
-                                    data-attr="resume-experiment"
-                                    onClick={() => openResumeExperimentModal()}
+                                    onClick={() => createExperimentDashboard()}
+                                    disabledReasons={{
+                                        'Creating dashboard...': isCreatingExperimentDashboard,
+                                    }}
                                 >
-                                    <IconPlay /> Resume experiment
+                                    <IconPlusSmall /> Create dashboard
                                 </ButtonPrimitive>
-                            ))}
 
-                        {!experiment.end_date && (
-                            <ButtonPrimitive
-                                variant="danger"
-                                menuItem
-                                data-attr="stop-experiment"
-                                onClick={() => openStopExperimentModal()}
-                            >
-                                <IconStopFilled /> Stop
-                            </ButtonPrimitive>
+                                {experiment.feature_flag && (
+                                    <ButtonPrimitive
+                                        menuItem
+                                        onClick={() => {
+                                            setSurveyModalOpen(true)
+                                            void addProductIntentForCrossSell({
+                                                from: ProductKey.EXPERIMENTS,
+                                                to: ProductKey.SURVEYS,
+                                                intent_context: ProductIntentContext.QUICK_SURVEY_STARTED,
+                                            })
+                                        }}
+                                    >
+                                        <IconPlusSmall /> Create survey
+                                    </ButtonPrimitive>
+                                )}
+
+                                <LemonDivider />
+
+                                {isExperimentRunning &&
+                                    experiment.feature_flag &&
+                                    (experiment.feature_flag.active ? (
+                                        <ButtonPrimitive
+                                            variant="danger"
+                                            menuItem
+                                            data-attr="pause-experiment"
+                                            onClick={() => openPauseExperimentModal()}
+                                        >
+                                            <IconPause /> Pause experiment
+                                        </ButtonPrimitive>
+                                    ) : (
+                                        <ButtonPrimitive
+                                            menuItem
+                                            data-attr="resume-experiment"
+                                            onClick={() => openResumeExperimentModal()}
+                                        >
+                                            <IconPlay /> Resume experiment
+                                        </ButtonPrimitive>
+                                    ))}
+
+                                <ResetButton />
+                            </>
                         )}
+
                         <PauseExperimentModal />
                         <ResumeExperimentModal />
                     </ScenePanelActionsSection>
@@ -630,58 +600,6 @@ export function EditConclusionModal(): JSX.Element {
     )
 }
 
-export function StopExperimentModal(): JSX.Element {
-    const { experiment } = useValues(experimentLogic)
-    const { endExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic)
-    const { closeStopExperimentModal } = useActions(modalsLogic)
-    const { isStopExperimentModalOpen } = useValues(modalsLogic)
-
-    return (
-        <LemonModal
-            isOpen={isStopExperimentModalOpen}
-            onClose={() => {
-                restoreUnmodifiedExperiment()
-                closeStopExperimentModal()
-            }}
-            title="Stop experiment"
-            width={600}
-            footer={
-                <div className="flex items-center gap-2">
-                    <LemonButton
-                        type="secondary"
-                        onClick={() => {
-                            restoreUnmodifiedExperiment()
-                            closeStopExperimentModal()
-                        }}
-                    >
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        onClick={() => endExperiment()}
-                        type="primary"
-                        disabledReason={!experiment.conclusion && 'Select a conclusion'}
-                    >
-                        Stop experiment
-                    </LemonButton>
-                </div>
-            }
-        >
-            <div className="space-y-4">
-                <div>
-                    Stopping the experiment will mark when to stop counting events in the results. Your feature flag
-                    will continue working normally and events will still be tracked. You can restart the experiment
-                    later if needed.
-                </div>
-                <div>
-                    To roll out a specific variant to all users instead, use the 'Ship a variant' button or adjust the
-                    feature flag settings.
-                </div>
-                <ConclusionForm />
-            </div>
-        </LemonModal>
-    )
-}
-
 export function PauseExperimentModal(): JSX.Element {
     const { experiment } = useValues(experimentLogic)
     const { pauseExperiment } = useActions(experimentLogic)
@@ -759,11 +677,11 @@ export function ResumeExperimentModal(): JSX.Element {
     )
 }
 
-export function ShipVariantModal(): JSX.Element {
-    const { experiment } = useValues(experimentLogic)
-    const { shipVariant, restoreUnmodifiedExperiment } = useActions(experimentLogic)
-    const { closeShipVariantModal } = useActions(modalsLogic)
-    const { isShipVariantModalOpen } = useValues(modalsLogic)
+export function FinishExperimentModal(): JSX.Element {
+    const { experiment, isSingleVariantShipped, shippedVariantKey } = useValues(experimentLogic)
+    const { finishExperiment, endExperimentWithoutShipping, restoreUnmodifiedExperiment } = useActions(experimentLogic)
+    const { closeFinishExperimentModal } = useActions(modalsLogic)
+    const { isFinishExperimentModalOpen } = useValues(modalsLogic)
     const { aggregationLabel } = useValues(groupsModel)
 
     const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>()
@@ -784,79 +702,101 @@ export function ShipVariantModal(): JSX.Element {
             ? aggregationLabel(experiment.filters.aggregation_group_type_index).plural
             : 'users'
 
+    const handleEndExperiment = (): void => {
+        if (isSingleVariantShipped || !selectedVariantKey) {
+            endExperimentWithoutShipping()
+        } else {
+            finishExperiment({ selectedVariantKey })
+        }
+    }
+
     return (
         <>
             <LemonModal
-                isOpen={isShipVariantModalOpen}
+                isOpen={isFinishExperimentModalOpen}
                 onClose={() => {
                     restoreUnmodifiedExperiment()
-                    closeShipVariantModal()
+                    closeFinishExperimentModal()
                 }}
                 width={600}
-                title="Ship a variant"
+                title="End experiment"
                 footer={
                     <div className="flex items-center gap-2">
                         <LemonButton
                             type="secondary"
                             onClick={() => {
                                 restoreUnmodifiedExperiment()
-                                closeShipVariantModal()
+                                closeFinishExperimentModal()
                             }}
                         >
                             Cancel
                         </LemonButton>
                         <LemonButton
-                            onClick={() => {
-                                shipVariant({ selectedVariantKey, shouldStopExperiment: true })
-                            }}
+                            onClick={handleEndExperiment}
                             type="primary"
                             disabledReason={!experiment.conclusion && 'Select a conclusion'}
                         >
-                            Ship variant
+                            End experiment
                         </LemonButton>
                     </div>
                 }
             >
-                <div className="deprecated-space-y-6">
-                    <div className="text-sm">
-                        This will roll out the selected variant to <b>100% of {aggregationTargetName}</b> and stop the
-                        experiment.
-                    </div>
-                    <div className="flex items-center">
-                        <div className="w-1/2 pr-4">
-                            <LemonSelect
-                                className="w-full"
-                                data-attr="metrics-selector"
-                                value={selectedVariantKey}
-                                onChange={(variantKey) => {
-                                    setSelectedVariantKey(variantKey)
-                                }}
-                                options={
-                                    experiment.parameters?.feature_flag_variants?.map(({ key }) => ({
-                                        value: key,
-                                        label: (
-                                            <div className="deprecated-space-x-2 inline-flex">
-                                                <VariantTag variantKey={key} />
-                                            </div>
-                                        ),
-                                    })) || []
-                                }
-                            />
+                <div className="space-y-4">
+                    {isSingleVariantShipped ? (
+                        <div>
+                            <LemonBanner type="info" className="mb-4">
+                                <b>
+                                    <VariantTag variantKey={shippedVariantKey || ''} />
+                                </b>{' '}
+                                is already rolled out to 100% of {aggregationTargetName}. Ending this experiment will
+                                mark it as complete without changing the feature flag.
+                            </LemonBanner>
                         </div>
-                    </div>
+                    ) : (
+                        <div>
+                            <LemonLabel>Variant to keep</LemonLabel>
+                            <div className="text-sm text-secondary">
+                                The selected variant will be rolled out to <b>100% of {aggregationTargetName}</b>.
+                            </div>
+                            <div className="w-1/2">
+                                <LemonSelect
+                                    className="w-full"
+                                    data-attr="metrics-selector"
+                                    value={selectedVariantKey}
+                                    placeholder="Select a variant"
+                                    onChange={(variantKey) => {
+                                        setSelectedVariantKey(variantKey)
+                                    }}
+                                    allowClear={true}
+                                    options={
+                                        experiment.feature_flag?.filters.multivariate?.variants?.map(({ key }) => ({
+                                            value: key,
+                                            label: (
+                                                <div className="deprecated-space-x-2 inline-flex">
+                                                    <VariantTag variantKey={key} />
+                                                </div>
+                                            ),
+                                        })) || []
+                                    }
+                                />
+                            </div>
+                        </div>
+                    )}
                     <ConclusionForm />
-                    <LemonBanner type="info" className="mb-4">
-                        For more precise control over your release, adjust the rollout percentage and release conditions
-                        in the{' '}
-                        <Link
-                            target="_blank"
-                            className="font-semibold"
-                            to={experiment.feature_flag ? urls.featureFlag(experiment.feature_flag.id) : undefined}
-                        >
-                            {experiment.feature_flag?.key}
-                        </Link>{' '}
-                        feature flag.
-                    </LemonBanner>
+                    {!isSingleVariantShipped && (
+                        <LemonBanner type="info" className="mb-4">
+                            For more precise control over your release, adjust the rollout percentage and release
+                            conditions in the{' '}
+                            <Link
+                                target="_blank"
+                                className="font-semibold"
+                                to={experiment.feature_flag ? urls.featureFlag(experiment.feature_flag.id) : undefined}
+                            >
+                                {experiment.feature_flag?.key}
+                            </Link>{' '}
+                            feature flag.
+                        </LemonBanner>
+                    )}
                 </div>
             </LemonModal>
         </>
@@ -869,7 +809,7 @@ export const ResetButton = (): JSX.Element => {
 
     const onClickReset = (): void => {
         LemonDialog.open({
-            title: 'Reset this experiment?',
+            title: 'Reset analysis?',
             content: (
                 <>
                     <div className="text-sm text-secondary max-w-md">
@@ -880,6 +820,9 @@ export const ResetButton = (): JSX.Element => {
                         <p>
                             All events collected thus far will still exist, but won't be applied to the experiment
                             unless you manually change the start date after launching the experiment again.
+                        </p>
+                        <p>
+                            The <b>feature flag remains untouched</b>, so variants stay visible to users.
                         </p>
                     </div>
                     {experiment.archived && (
@@ -903,15 +846,15 @@ export const ResetButton = (): JSX.Element => {
 
     return (
         <ButtonPrimitive variant="danger" menuItem onClick={onClickReset} data-attr="reset-experiment">
-            <IconRefresh /> Reset experiment
+            <IconRefresh /> Reset analysis
         </ButtonPrimitive>
     )
 }
 
-export function StatusTag({ status }: { status: ExperimentProgressStatus }): JSX.Element {
+export function StatusTag({ status, isPaused = false }: { status: ExperimentStatus; isPaused?: boolean }): JSX.Element {
     return (
-        <LemonTag type={getExperimentStatusColor(status)} className="cursor-default">
-            <b className="uppercase">{status}</b>
+        <LemonTag type={getExperimentStatusColor(status, isPaused)} className="cursor-default">
+            <b className="uppercase">{getExperimentStatusLabel(status, isPaused)}</b>
         </LemonTag>
     )
 }

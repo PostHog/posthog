@@ -33,7 +33,7 @@ class TestWebExperiment(APIBaseTest):
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_can_create_basic_web_experiment(self, mock_capture):
+    def test_can_create_basic_web_experiment(self, mock_report_user_action):
         response = self._create_web_experiment()
         response_data = response.json()
         assert response.status_code == status.HTTP_201_CREATED, response_data
@@ -58,7 +58,7 @@ class TestWebExperiment(APIBaseTest):
         assert web_experiment.type == "web"
         assert web_experiment.variants.get("control") is not None
         assert web_experiment.variants.get("test") is not None
-        mock_capture.assert_called_once_with(
+        mock_report_user_action.assert_called_once_with(
             ANY,
             "feature flag created",
             {
@@ -72,8 +72,36 @@ class TestWebExperiment(APIBaseTest):
                 "aggregating_by_groups": False,
                 "payload_count": 0,
                 "creation_context": "web_experiments",
-                "source": "web",
             },
+            team=ANY,
+            request=ANY,
+        )
+
+    @patch("posthog.api.web_experiment.report_user_action")
+    def test_web_experiment_creation_reports_experiment_created(self, mock_report_user_action):
+        response = self._create_web_experiment()
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+
+        web_experiment = WebExperiment.objects.get(id=response_data["id"])
+
+        mock_report_user_action.assert_called_once_with(
+            ANY,
+            "experiment created",
+            {
+                "experiment_id": web_experiment.id,
+                "experiment_name": web_experiment.name,
+                "feature_flag_key": web_experiment.feature_flag.key,
+                "type": "web",
+                "status": "draft",
+                "metrics_count": 0,
+                "secondary_metrics_count": 0,
+                "has_description": False,
+                "variant_count": 2,
+                "created_at": web_experiment.created_at,
+            },
+            team=ANY,
+            request=ANY,
         )
 
     def test_can_list_active_web_experiments(self):
@@ -286,30 +314,23 @@ class TestWebExperiment(APIBaseTest):
         # New variant should not have transforms (not in original experiment)
         assert "transforms" not in variants["new_variant"]
 
-    @patch("posthog.api.feature_flag.report_user_action")
-    def test_sanitizes_xss_in_transforms(self, mock_capture):
-        """Test that XSS attacks in text and html fields are sanitized"""
+    def test_rejects_xss_in_text_field(self):
+        """Test that XSS attacks in text field are rejected"""
         response = self.client.post(
             f"/api/projects/{self.team.id}/web_experiments/",
             data={
-                "name": "XSS Test Experiment",
+                "name": "XSS Text Test",
                 "variants": {
                     "control": {
-                        "transforms": [
-                            {
-                                "html": "",
-                                "text": "Safe text",
-                                "selector": "#page > #body > .header h1",
-                            }
-                        ],
+                        "transforms": [{"html": "", "text": "Safe text", "selector": "#test"}],
                         "rollout_percentage": 50,
                     },
                     "test": {
                         "transforms": [
                             {
-                                "html": "<img src=x onerror=\"alert('XSS')\">",
+                                "html": "",
                                 "text": '<script>alert("XSS")</script>Hello',
-                                "selector": "#page > #body > .header h1",
+                                "selector": "#test",
                             }
                         ],
                         "rollout_percentage": 50,
@@ -318,23 +339,140 @@ class TestWebExperiment(APIBaseTest):
             },
             format="json",
         )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         response_data = response.json()
-        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert "script" in str(response_data).lower()
 
-        # Verify the experiment was created and XSS was sanitized
+    def test_rejects_xss_event_handlers_in_html(self):
+        """Test that event handlers in html field are rejected"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/web_experiments/",
+            data={
+                "name": "XSS Event Handler Test",
+                "variants": {
+                    "control": {
+                        "transforms": [{"html": "", "text": "Safe", "selector": "#test"}],
+                        "rollout_percentage": 50,
+                    },
+                    "test": {
+                        "transforms": [
+                            {
+                                "html": "<img src=x onerror=\"alert('XSS')\">",
+                                "text": "Test",
+                                "selector": "#test",
+                            }
+                        ],
+                        "rollout_percentage": 50,
+                    },
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        response_data = response.json()
+        assert "event handler" in str(response_data).lower()
+
+    def test_rejects_javascript_protocol(self):
+        """Test that javascript: protocol is rejected"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/web_experiments/",
+            data={
+                "name": "XSS JavaScript Protocol Test",
+                "variants": {
+                    "control": {
+                        "transforms": [{"html": "", "text": "Safe", "selector": "#test"}],
+                        "rollout_percentage": 50,
+                    },
+                    "test": {
+                        "transforms": [
+                            {
+                                "html": '<a href="javascript:alert(1)">Click</a>',
+                                "text": "Test",
+                                "selector": "#test",
+                            }
+                        ],
+                        "rollout_percentage": 50,
+                    },
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        response_data = response.json()
+        assert "javascript:" in str(response_data).lower()
+
+    def test_rejects_iframe_tags(self):
+        """Test that iframe tags are rejected"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/web_experiments/",
+            data={
+                "name": "XSS Iframe Test",
+                "variants": {
+                    "control": {
+                        "transforms": [{"html": "", "text": "Safe", "selector": "#test"}],
+                        "rollout_percentage": 50,
+                    },
+                    "test": {
+                        "transforms": [
+                            {
+                                "html": '<iframe src="https://evil.com"></iframe>',
+                                "text": "Test",
+                                "selector": "#test",
+                            }
+                        ],
+                        "rollout_percentage": 50,
+                    },
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        response_data = response.json()
+        assert "iframe" in str(response_data).lower()
+
+    def test_accepts_safe_html_with_formatting(self):
+        """Test that safe HTML with complex formatting is accepted and preserved"""
+        complex_html = """<div class="flex h-4 items-center justify-center lg:h-12">
+  <div class="hidden lg:block" data-testid="nav-container">
+    <div class="flex h-full w-full">
+      <a href="https://example.com" class="nav-link">Link</a>
+      <span>Text content</span>
+    </div>
+  </div>
+</div>"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/web_experiments/",
+            data={
+                "name": "Safe HTML Test",
+                "variants": {
+                    "control": {
+                        "transforms": [{"html": "", "text": "Safe", "selector": "#test"}],
+                        "rollout_percentage": 50,
+                    },
+                    "test": {
+                        "transforms": [
+                            {
+                                "html": complex_html,
+                                "text": "Safe <b>formatted</b> text",
+                                "selector": "#test",
+                            }
+                        ],
+                        "rollout_percentage": 50,
+                    },
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        response_data = response.json()
+
+        # Verify the HTML is preserved exactly as submitted
         experiment_id = response_data["id"]
         web_experiment = WebExperiment.objects.get(id=experiment_id)
-
-        # Check that the script tags and event handlers were removed
         assert web_experiment.variants is not None
         test_variant = web_experiment.variants["test"]
         transforms = test_variant["transforms"][0]
 
-        # Script tags should be removed but safe text should remain
-        assert "<script>" not in transforms["text"]
-        assert "alert" not in transforms["text"]
-        assert "Hello" in transforms["text"]
-
-        # Event handlers should be removed but img tag may remain
-        assert "onerror" not in transforms["html"]
-        assert "alert" not in transforms["html"]
+        # HTML should be preserved with original formatting
+        assert transforms["html"] == complex_html
+        assert transforms["text"] == "Safe <b>formatted</b> text"

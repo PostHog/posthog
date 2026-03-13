@@ -1,5 +1,5 @@
 from typing import Any, cast
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, HttpResponseServerError
@@ -17,6 +17,7 @@ from posthog.api import (
     api_not_found,
     authentication,
     github,
+    hog_flow,
     hog_flow_template,
     hog_function_template,
     playwright_setup,
@@ -49,7 +50,7 @@ from posthog.temporal.codec_server import decode_payloads
 
 from products.early_access_features.backend.api import early_access_features
 from products.product_tours.backend.api import product_tours
-from products.slack_app.backend.api import slack_event_handler
+from products.slack_app.backend.api import slack_event_handler, twig_event_handler, twig_interactivity_handler
 from products.tasks.backend.webhooks import github_pr_webhook
 
 from .utils import opt_slash_path, render_template
@@ -119,7 +120,22 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
         or (redirect_url.hostname not in PERMITTED_FORUM_DOMAINS and is_forum_login)
         or (not is_forum_login and not hostname_in_allowed_url_list(current_team.app_urls, redirect_url.hostname))
     ):
-        return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
+        hostname = redirect_url.hostname or request.GET["redirect"]
+        return render_template(
+            "toolbar_oauth_error.html",
+            request,
+            context={
+                "error_title": "Domain not authorized",
+                "error_message": "The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",
+                "error_detail": (
+                    f"The hostname {hostname} needs to be added to your project's "
+                    "authorized URLs before the toolbar can be used on this site."
+                ),
+                "error_code": "403",
+                "settings_url": f"{settings.SITE_URL}/settings/project-toolbar#authorized-urls",
+            },
+            status_code=403,
+        )
 
     if referer_url.hostname != redirect_url.hostname:
         return HttpResponse(
@@ -146,6 +162,7 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
             "email": request.user,
             "domain": redirect_url.hostname,
             "redirect_url": request.GET["redirect"],
+            "authorization_url": f"/api/user/redirect_to_site/?{urlencode({'appUrl': request.GET['redirect']})}",
         },
     )
 
@@ -187,6 +204,10 @@ urlpatterns = [
     path("", include(tf_urls)),
     opt_slash_path("api/user/prepare_toolbar_preloaded_flags", user.prepare_toolbar_preloaded_flags),
     opt_slash_path("api/user/get_toolbar_preloaded_flags", user.get_toolbar_preloaded_flags),
+    opt_slash_path("api/user/toolbar_oauth_refresh", user.toolbar_oauth_refresh),
+    path("toolbar_oauth/authorize/", login_required(user.toolbar_oauth_authorize)),
+    path("toolbar_oauth/callback", user.toolbar_oauth_callback),
+    path("toolbar_oauth/check", user.toolbar_oauth_check),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
@@ -214,6 +235,15 @@ urlpatterns = [
     opt_slash_path(
         "api/public_hog_flow_templates",
         hog_flow_template.PublicHogFlowTemplateViewSet.as_view({"get": "list"}),
+    ),
+    # Internal service-to-service endpoints (authenticated with POSTHOG_INTERNAL_SERVICE_TOKEN)
+    path(
+        "api/projects/<str:team_id>/internal/hog_flows/user_blast_radius",
+        csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_user_blast_radius"})),
+    ),
+    path(
+        "api/projects/<str:team_id>/internal/hog_flows/user_blast_radius_persons",
+        csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_user_blast_radius_persons"})),
     ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),
@@ -257,6 +287,8 @@ urlpatterns = [
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", slack_interactivity_callback),
     opt_slash_path("slack/event-callback", slack_event_handler),
+    opt_slash_path("slack/twig-event-callback", twig_event_handler),
+    opt_slash_path("slack/twig-interactivity-callback", twig_interactivity_handler),
     # GitHub webhooks for task lifecycle events
     opt_slash_path("webhooks/github/pr", github_pr_webhook),
     # Message preferences

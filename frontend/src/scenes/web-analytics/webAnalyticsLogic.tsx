@@ -200,7 +200,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             direction,
         }),
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
-        setInterval: (interval: IntervalType) => ({ interval }),
+        setDateInterval: (interval: IntervalType) => ({ interval }),
         setDatesAndInterval: (dateFrom: string | null, dateTo: string | null, interval: IntervalType) => ({
             dateFrom,
             dateTo,
@@ -218,6 +218,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setTileVisualization: (tileId: TileId, visualization: TileVisualizationOption) => ({ tileId, visualization }),
         setTileVisibility: (tileId: TileId, visible: boolean) => ({ tileId, visible }),
         resetTileVisibility: () => true,
+        zoomIntoPeriod: (dateFrom: string, dateTo: string) => ({ dateFrom, dateTo }),
+        resetZoom: true,
+        setPreZoomDateFilter: (
+            filter: { dateFrom: string | null; dateTo: string | null; interval: IntervalType } | null
+        ) => ({ filter }),
         clearFilters: true,
     }),
     loaders(({ values }) => ({
@@ -366,7 +371,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         isIntervalManuallySet,
                     }
                 },
-                setInterval: ({ dateFrom, dateTo }, { interval }) => ({
+                setDateInterval: ({ dateFrom, dateTo }, { interval }) => ({
                     dateTo,
                     dateFrom,
                     interval,
@@ -396,6 +401,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     interval: INITIAL_INTERVAL,
                     isIntervalManuallySet: false,
                 }),
+            },
+        ],
+        preZoomDateFilter: [
+            null as { dateFrom: string | null; dateTo: string | null; interval: IntervalType } | null,
+            {
+                setPreZoomDateFilter: (_, { filter }) => filter,
+                setDates: () => null,
+                setDateInterval: () => null,
+                clearFilters: () => null,
             },
         ],
         shouldFilterTestAccounts: [
@@ -493,6 +507,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
 
                 return rawWebAnalyticsFilters.filter((filter) => {
+                    if (filter.type === PropertyFilterType.Cohort) {
+                        return true
+                    }
+
                     if (hasURLSearchParams(filter)) {
                         return true
                     }
@@ -616,6 +634,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 // Translate exact path filters to cleaned path filters
                 if (isPathCleaningEnabled) {
                     filters = filters.map((filter) => {
+                        if (filter.type === PropertyFilterType.Cohort) {
+                            return filter
+                        }
                         if (filter.operator !== PropertyOperator.Exact) {
                             return filter
                         }
@@ -1424,6 +1445,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         },
                         activeTabId: sourceTab,
                         setTabId: actions.setSourceTab,
+                        splitIndices: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REFERRER_URL_DRILLDOWN]
+                            ? [1, 3] // [Channel] [Referring Domain ▼ Referring URL] [UTM Source ▼ ...]
+                            : [2], // [Channel] [Referring Domain] [UTM Source ▼ ...]
                         tabs: [
                             createTableTab(
                                 TileId.SOURCES,
@@ -1485,12 +1509,32 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 {},
                                 {
                                     docs: {
-                                        url: 'https://posthog.com/docs/web-analytics/dashboard#referrers-channels-utms',
+                                        url: 'https://posthog.com/docs/web-analytics/dashboard#channels-referrers-utms',
                                         title: 'Referrers',
                                         description: 'Understand where your users are coming from',
                                     },
                                 }
                             ),
+                            ...(featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REFERRER_URL_DRILLDOWN]
+                                ? [
+                                      createTableTab(
+                                          TileId.SOURCES,
+                                          SourceTab.REFERRING_URL,
+                                          'Referrer URLs',
+                                          'Referring URL',
+                                          WebStatsBreakdown.InitialReferringURL,
+                                          {},
+                                          {
+                                              docs: {
+                                                  url: 'https://posthog.com/docs/web-analytics/dashboard#channels-referrers-utms',
+                                                  title: 'Referrer URLs',
+                                                  description:
+                                                      'Full referring URLs (without query parameters) showing where your users came from',
+                                              },
+                                          }
+                                      ),
+                                  ]
+                                : []),
                             createTableTab(
                                 TileId.SOURCES,
                                 SourceTab.UTM_SOURCE,
@@ -1698,6 +1742,45 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           canOpenInsight: true,
                                       }
                                     : null,
+                                shouldShowGeoIPQueries && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REGIONS_MAP]
+                                    ? {
+                                          id: GeographyTab.REGIONS_MAP,
+                                          title: 'Regions Map',
+                                          linkText: 'Regions Map',
+                                          query: {
+                                              kind: NodeKind.InsightVizNode,
+                                              source: {
+                                                  kind: NodeKind.TrendsQuery,
+                                                  breakdownFilter: {
+                                                      breakdowns: [
+                                                          { property: '$geoip_country_code', type: 'event' },
+                                                          { property: '$geoip_subdivision_1_code', type: 'event' },
+                                                      ],
+                                                  },
+                                                  dateRange,
+                                                  series: [
+                                                      {
+                                                          event: '$pageview',
+                                                          name: 'Pageview',
+                                                          kind: NodeKind.EventsNode,
+                                                          math: BaseMathType.UniqueUsers,
+                                                      },
+                                                  ],
+                                                  trendsFilter: {
+                                                      display: ChartDisplayType.WorldMap,
+                                                  },
+                                                  conversionGoal,
+                                                  filterTestAccounts,
+                                                  properties: webAnalyticsFilters,
+                                                  tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                              },
+                                              hidePersonsModal: true,
+                                              embedded: true,
+                                          },
+                                          insightProps: createInsightProps(TileId.GEOGRAPHY, GeographyTab.REGIONS_MAP),
+                                          canOpenInsight: true,
+                                      }
+                                    : null,
                                 shouldShowGeoIPQueries
                                     ? createTableTab(
                                           TileId.GEOGRAPHY,
@@ -1855,7 +1938,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                     bottom-right cell shows the grand total. The displayed time is based
                                                     on your project's date and time settings (UTC by default,
                                                     configurable in{' '}
-                                                    <Link to={urls.settings('project', 'date-and-time')}>
+                                                    <Link
+                                                        to={urls.settings('environment-customization', 'date-and-time')}
+                                                    >
                                                         project settings
                                                     </Link>
                                                     ).
@@ -1916,7 +2001,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                     bottom-right cell shows the grand total. The displayed time is based
                                                     on your project's date and time settings (UTC by default,
                                                     configurable in{' '}
-                                                    <Link to={urls.settings('project', 'date-and-time')}>
+                                                    <Link
+                                                        to={urls.settings('environment-customization', 'date-and-time')}
+                                                    >
                                                         project settings
                                                     </Link>
                                                     ).
@@ -2113,8 +2200,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
     tabAwareActionToUrl(({ values }) => {
         const stateToUrl = (): string => {
-            const searchParams = { ...router.values.searchParams }
-            const urlParams = new URLSearchParams(searchParams)
+            const urlParams = new URLSearchParams(router.values.location.search)
 
             const {
                 rawWebAnalyticsFilters,
@@ -2146,6 +2232,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             // spreading from their individual dropdowns to the global filters list
             if (rawWebAnalyticsFilters.length > 0) {
                 urlParams.set('filters', JSON.stringify(rawWebAnalyticsFilters))
+            } else {
+                urlParams.delete('filters')
             }
             if (conversionGoal) {
                 if ('actionId' in conversionGoal) {
@@ -2219,7 +2307,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             togglePropertyFilter: stateToUrl,
             setConversionGoal: stateToUrl,
             setDates: stateToUrl,
-            setInterval: stateToUrl,
+            setDateInterval: stateToUrl,
             setDeviceTab: stateToUrl,
             setSourceTab: stateToUrl,
             setGraphsTab: stateToUrl,
@@ -2293,6 +2381,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 (date_to && date_to !== values.dateFilter.dateTo) ||
                 (interval && interval !== values.dateFilter.interval)
             ) {
+                actions.setPreZoomDateFilter(null)
                 actions.setDatesAndInterval(date_from, date_to, interval)
             }
             if (device_tab && device_tab !== values._deviceTab) {
@@ -2390,6 +2479,23 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 })
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.FilterWebAnalytics)
             },
+            zoomIntoPeriod: ({ dateFrom, dateTo }) => {
+                if (values.preZoomDateFilter === null) {
+                    actions.setPreZoomDateFilter({
+                        dateFrom: values.dateFilter.dateFrom,
+                        dateTo: values.dateFilter.dateTo,
+                        interval: values.dateFilter.interval,
+                    })
+                }
+                actions.setDatesAndInterval(dateFrom, dateTo, getDefaultInterval(dateFrom, dateTo))
+            },
+            resetZoom: () => {
+                const preZoom = values.preZoomDateFilter
+                if (preZoom) {
+                    actions.setPreZoomDateFilter(null)
+                    actions.setDatesAndInterval(preZoom.dateFrom, preZoom.dateTo, preZoom.interval)
+                }
+            },
             setWebAnalyticsFilters: () => {
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.FilterWebAnalytics)
             },
@@ -2477,6 +2583,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             loadPreset: ({ filters }) => {
                 if (filters.dateFrom !== undefined || filters.dateTo !== undefined) {
                     const interval = filters.interval ?? values.dateFilter.interval
+                    actions.setPreZoomDateFilter(null)
                     actions.setDatesAndInterval(
                         filters.dateFrom ?? values.dateFilter.dateFrom,
                         filters.dateTo ?? values.dateFilter.dateTo,

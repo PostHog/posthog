@@ -1,10 +1,13 @@
 {
     "name": "@posthog/products-user-interviews",
+    "scripts": {
+        "backend:test": "echo 'No backend tests'"
+    },
     "dependencies": {
         "kea": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
-        "posthog-js": "1.345.5"
+        "posthog-js": "catalog:"
     },
     "peerDependencies": {
         "@posthog/icons": "*",

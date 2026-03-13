@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// replaces ts-json-schema-generator -f tsconfig.json --path 'frontend/src/queries/schema.ts' --no-type-check > frontend/src/queries/schema.json
 import fs from 'fs'
+// replaces ts-json-schema-generator -f tsconfig.json --path 'frontend/src/queries/schema.ts' --no-type-check > frontend/src/queries/schema.json
 import stableStringify from 'safe-stable-stringify'
 import tsj from 'ts-json-schema-generator'
 

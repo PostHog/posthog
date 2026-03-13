@@ -43,7 +43,7 @@ class TraversingVisitor(Visitor[None]):
     """Visitor that traverses the AST tree without returning anything"""
 
     def visit_cte(self, node: ast.CTE):
-        pass
+        self.visit(node.expr)
 
     def visit_alias(self, node: ast.Alias):
         self.visit(node.expr)
@@ -209,6 +209,12 @@ class TraversingVisitor(Visitor[None]):
 
     def visit_select_view_type(self, node: ast.SelectViewType):
         self.visit(node.select_query_type)
+
+    def visit_ctetable_type(self, node: ast.CTETableType):
+        self.visit(node.select_query_type)
+
+    def visit_ctetable_alias_type(self, node: ast.CTETableAliasType):
+        self.visit(node.cte_table_type)
 
     def visit_asterisk_type(self, node: ast.AsteriskType):
         self.visit(node.table_type)
@@ -405,6 +411,10 @@ class CloningVisitor(Visitor[Any]):
             name=node.name,
             expr=self.visit(node.expr),
             cte_type=node.cte_type,
+            recursive=node.recursive,
+            materialized=node.materialized,
+            using_key=list(node.using_key) if node.using_key else None,
+            columns=list(node.columns) if node.columns else None,
         )
 
     def visit_alias(self, node: ast.Alias):
@@ -849,3 +859,17 @@ class CloningVisitor(Visitor[Any]):
             expr=self.visit(node.expr),
             type_name=node.type_name,
         )
+
+
+class GetFieldsTraverser(TraversingVisitor):
+    """Traverser that collects all Field nodes from an expression tree"""
+
+    fields: list[ast.Field]
+
+    def __init__(self, expr: Expr):
+        super().__init__()
+        self.fields = []
+        super().visit(expr)
+
+    def visit_field(self, node: ast.Field):
+        self.fields.append(node)

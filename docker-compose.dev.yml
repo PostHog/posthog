@@ -89,6 +89,59 @@ services:
                     }
                 }
 
+    capture:
+        extends:
+            file: docker-compose.base.yml
+            service: capture
+        restart: on-failure
+        ports:
+            - '3307:3000'
+        depends_on:
+            kafka:
+                condition: service_healthy
+            redis7:
+                condition: service_healthy
+        healthcheck:
+            test: ['CMD', 'curl', '-f', 'http://localhost:3000/_liveness']
+            interval: 5s
+            timeout: 5s
+            retries: 24
+            start_period: 10s
+        profiles:
+            - capture
+
+    plugins:
+        extends:
+            file: docker-compose.base.yml
+            service: plugins
+        image: ghcr.io/posthog/posthog-node:master
+        ports:
+            - '6738:6738'
+        environment:
+            DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_DB_NAME:-posthog}
+            PERSONS_DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_PERSONS_DB_NAME:-posthog}
+            CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-posthog}
+            PLUGIN_SERVER_MODE: ${PLUGIN_SERVER_MODE:-}
+            # CDP Redis defaults to 127.0.0.1 — must point to the Docker service
+            CDP_REDIS_HOST: redis7
+            # Encryption keys default is only set when NODE_ENV=dev, but the image uses production
+            ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
+        depends_on:
+            kafka:
+                condition: service_started
+            redis7:
+                condition: service_healthy
+            db:
+                condition: service_healthy
+        healthcheck:
+            test: ['CMD', 'curl', '-f', 'http://localhost:6738/_ready']
+            interval: 5s
+            timeout: 5s
+            retries: 30
+            start_period: 15s
+        profiles:
+            - ingestion
+
     db:
         extends:
             file: docker-compose.base.yml
@@ -109,6 +162,33 @@ services:
             service: redis7
         ports:
             - '6379:6379'
+
+    redis-cluster:
+        image: redis:7.2
+        restart: on-failure
+        ports:
+            - '127.0.0.1:6399:6379'
+        command: >
+            bash -c "
+            redis-server
+            --port 6379
+            --cluster-enabled yes
+            --cluster-config-file /data/nodes.conf
+            --cluster-node-timeout 5000
+            --cluster-announce-ip 127.0.0.1
+            --cluster-announce-port 6399
+            --appendonly yes &
+            sleep 1 &&
+            redis-cli -p 6379 cluster addslots $$(seq 0 16383) &&
+            tail -f /dev/null
+            "
+        volumes:
+            - redis-cluster-data:/data
+        healthcheck:
+            test: ['CMD', 'redis-cli', '-p', '6379', 'cluster', 'info']
+            interval: 2s
+            timeout: 3s
+            retries: 10
 
     flower:
         extends:
@@ -216,8 +296,10 @@ services:
             file: docker-compose.base.yml
             service: feature-flags
         depends_on:
-            - redis7
-            - db
+            redis7:
+                condition: service_healthy
+            db:
+                condition: service_healthy
         environment:
             # Mode 2: Dual-write warming phase for developers
             FLAGS_REDIS_URL: 'redis://redis7:6379/1'
@@ -288,11 +370,44 @@ services:
         volumes:
             - 'seaweedfs-data:/data'
 
+    duckgres:
+        image: ghcr.io/posthog/duckgres:latest
+        restart: on-failure
+        profiles: ['duckgres']
+        ports:
+            - '15432:15432'
+        volumes:
+            - ./devenv/duckgres.yaml:/app/config.yaml:ro
+            - duckgres-data:/app/data
+        depends_on:
+            db:
+                condition: service_healthy
+            objectstorage:
+                condition: service_started
+        command: ['--config', '/app/config.yaml']
+
+    etcd:
+        image: quay.io/coreos/etcd:v3.6.8
+        restart: on-failure
+        environment:
+            ETCD_NAME: etcd0
+            ETCD_ADVERTISE_CLIENT_URLS: http://etcd:2379
+            ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+        ports:
+            - '127.0.0.1:2379:2379'
+        healthcheck:
+            test: ['CMD', 'etcdctl', 'endpoint', 'health']
+            interval: 5s
+            timeout: 5s
+            retries: 10
+
 networks:
     otel_network:
         driver: bridge
 
 volumes:
     postgres-15-data:
+    redis-cluster-data:
     redpanda-data:
     seaweedfs-data:
+    duckgres-data:

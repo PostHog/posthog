@@ -26,14 +26,6 @@
                 </replica>
             </shard>
         </posthog_migrations>
-        <posthog_batch_exports>
-            <shard>
-                <replica>
-                    <host>clickhouse</host>
-                    <port>9000</port>
-                </replica>
-            </shard>
-        </posthog_batch_exports>
         <posthog_writable>
             <shard>
                 <replica>
@@ -42,6 +34,14 @@
                 </replica>
             </shard>
         </posthog_writable>
+        <posthog_primary_replica>
+            <shard>
+                <replica>
+                    <host>clickhouse</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </posthog_primary_replica>
     </remote_servers>
 
     <named_collections>

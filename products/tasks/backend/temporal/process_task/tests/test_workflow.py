@@ -18,8 +18,10 @@ from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxStatus, SandboxTemplate
 from products.tasks.backend.temporal.process_task.activities import (
     cleanup_sandbox,
+    forward_pending_user_message,
     get_sandbox_for_repository,
     get_task_processing_context,
+    read_sandbox_logs,
     start_agent_server,
     track_workflow_event,
     update_task_run_status,
@@ -62,9 +64,11 @@ class TestProcessTaskWorkflow:
                 task_queue=settings.TASKS_TASK_QUEUE,
                 workflows=[ProcessTaskWorkflow],
                 activities=[
+                    forward_pending_user_message,
                     get_task_processing_context,
                     get_sandbox_for_repository,
                     start_agent_server,
+                    read_sandbox_logs,
                     cleanup_sandbox,
                     track_workflow_event,
                     update_task_run_status,
@@ -145,7 +149,6 @@ class TestProcessTaskWorkflow:
             await sync_to_async(snapshot.delete)()
 
     async def test_workflow_cleans_up_sandbox(self, test_task_run, github_integration):
-        """Workflow cleans up sandbox after completion."""
         snapshot = await sync_to_async(self._create_test_snapshot)(github_integration)
 
         try:
@@ -175,9 +178,11 @@ class TestProcessTaskWorkflow:
                 task_queue=settings.TASKS_TASK_QUEUE,
                 workflows=[ProcessTaskWorkflow],
                 activities=[
+                    forward_pending_user_message,
                     get_task_processing_context,
                     get_sandbox_for_repository,
                     start_agent_server,
+                    read_sandbox_logs,
                     cleanup_sandbox,
                     track_workflow_event,
                     update_task_run_status,

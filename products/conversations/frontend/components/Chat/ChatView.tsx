@@ -20,6 +20,20 @@ export interface ChatViewProps {
     maxHeight?: string
     /** Whether to show the "Send as private" option in the message input */
     showPrivateOption?: boolean
+    /** Number of team messages that haven't been read by the customer */
+    unreadCustomerCount?: number
+    /** Whether to show delivery status on team messages */
+    showDeliveryStatus?: boolean
+    /** Draft content to restore (for tab persistence) */
+    draftContent?: JSONContent | null
+    /** Called when draft content changes */
+    onDraftChange?: (content: JSONContent | null) => void
+    /** Whether the private note checkbox is checked */
+    isPrivate?: boolean
+    /** Called when private checkbox changes */
+    onPrivateChange?: (isPrivate: boolean) => void
+    /** Extra actions rendered next to the send button in MessageInput */
+    extraActions?: React.ReactNode
 }
 
 export function ChatView({
@@ -34,6 +48,13 @@ export function ChatView({
     minHeight,
     maxHeight,
     showPrivateOption = false,
+    unreadCustomerCount,
+    showDeliveryStatus = false,
+    draftContent,
+    onDraftChange,
+    isPrivate,
+    onPrivateChange,
+    extraActions,
 }: ChatViewProps): JSX.Element {
     const listMinHeight = minHeight ?? '400px'
     const listMaxHeight = maxHeight ?? '600px'
@@ -50,12 +71,19 @@ export function ChatView({
                 emptyMessage="No messages yet. Start the conversation!"
                 minHeight={listMinHeight}
                 maxHeight={listMaxHeight}
+                unreadCustomerCount={unreadCustomerCount}
+                showDeliveryStatus={showDeliveryStatus}
             />
             <div className="border-t pt-3">
                 <MessageInput
                     onSendMessage={onSendMessage}
                     messageSending={messageSending}
                     showPrivateOption={showPrivateOption}
+                    draftContent={draftContent}
+                    onDraftChange={onDraftChange}
+                    isPrivate={isPrivate}
+                    onPrivateChange={onPrivateChange}
+                    extraActions={extraActions}
                 />
             </div>
         </LemonCard>

@@ -7,7 +7,8 @@
 //!
 //! Rebalance triggers checkpoint imports (S3 downloads); exports are suppressed so imports get bandwidth.
 //! Workers take a token from `RebalanceTracker::get_export_token()` — cancelled on any rebalance start (0→1),
-//! recreated when all rebalances finish (1→0). Workers check before I/O and pass to exporter for upload cancellation.
+//! recreated when all rebalances finish (1→0). Workers check that token before local checkpoint
+//! creation, around checkpoint planning, and pass it to the exporter for upload cancellation.
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -19,7 +20,6 @@ use std::time::Duration;
 
 use crate::checkpoint::{
     CheckpointConfig, CheckpointExporter, CheckpointMetadata, CheckpointWorker,
-    UploadCancelledError,
 };
 use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::types::Partition;
@@ -30,6 +30,7 @@ use crate::store_manager::StoreManager;
 use anyhow::Result;
 use chrono::Utc;
 use dashmap::DashMap;
+use rand::seq::SliceRandom;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -173,11 +174,12 @@ impl CheckpointManager {
                     // the inner loop can block but if we miss a few ticks before
                     // completing the full partition loop, it's OK
                     _ = interval.tick() => {
-                        let candidates: Vec<Partition> = store_manager
+                        let mut candidates: Vec<Partition> = store_manager
                             .stores()
                             .iter()
                             .map(|entry| entry.key().clone())
                             .collect();
+                        candidates.shuffle(&mut rand::thread_rng());
                         let store_count = candidates.len();
                         if store_count == 0 {
                             debug!("No stores to flush");
@@ -361,19 +363,13 @@ impl CheckpointManager {
                                 // handle releasing locks and reporting outcome
                                 let status = match &result {
                                     Ok(Some(new_checkpoint_info)) => {
-                                        // Update counter and metadata atomically on success
                                         worker_checkpoint_state.insert(partition.clone(), (counter + 1, new_checkpoint_info.metadata.clone()));
                                         "success"
                                     },
                                     Ok(None) => "skipped",
                                     Err(e) => {
-                                        // Cancellation is NOT an error - s3_uploader already logged the detail
-                                        if e.downcast_ref::<UploadCancelledError>().is_some() {
-                                            "cancelled"
-                                        } else {
-                                            error!(partition = partition_tag, "Checkpoint worker thread: attempt failed: {}", e);
-                                            "error"
-                                        }
+                                        error!(partition = partition_tag, "Checkpoint worker thread: attempt failed: {e:#}");
+                                        "error"
                                     },
                                 };
                                 info!(worker_task_id, partition = partition_tag, result = status,
@@ -528,6 +524,7 @@ impl Drop for CheckpointManager {
 mod tests {
     use super::*;
     use crate::checkpoint::{CheckpointPlan, CheckpointUploader};
+    use crate::rocksdb::store::RocksDbConfig;
     use crate::store::{
         DeduplicationStore, DeduplicationStoreConfig, TimestampKey, TimestampMetadata,
     };
@@ -596,6 +593,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: TempDir::new().unwrap().path().to_path_buf(),
             max_capacity: 1_000_000,
+            rocksdb: RocksDbConfig::default(),
         };
         Arc::new(StoreManager::new(config, create_test_tracker()))
     }
@@ -604,6 +602,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: TempDir::new().unwrap().path().to_path_buf(),
             max_capacity: 1_000_000,
+            rocksdb: RocksDbConfig::default(),
         };
         DeduplicationStore::new(config.clone(), topic.to_string(), partition).unwrap()
     }
@@ -803,7 +802,7 @@ mod tests {
         assert!(health_reporter.is_some());
 
         // Wait for a few flush cycles
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        tokio::time::sleep(Duration::from_millis(800)).await;
 
         // Stop the manager
         manager.stop().await;

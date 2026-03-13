@@ -11,11 +11,9 @@ import {
     FramerInstallation,
     GoInstallation,
     GoogleTagManagerInstallation,
-    HTMLSnippetInstallation,
     HeliconeInstallation,
     IOSInstallation,
     JSEventCapture,
-    JSWebInstallation,
     LangfuseInstallation,
     LaravelInstallation,
     MoEngageInstallation,
@@ -32,6 +30,7 @@ import {
     RemixInstallation,
     RetoolInstallation,
     RubyInstallation,
+    RubyOnRailsInstallation,
     RudderstackInstallation,
     SegmentInstallation,
     SentryInstallation,
@@ -43,6 +42,7 @@ import {
     WebflowInstallation,
     WordpressInstallation,
     ZapierInstallation,
+    WebInstallation,
 } from '@posthog/shared-onboarding/product-analytics'
 
 import { SDKInstructionsMap, SDKKey, SDKTag, SDKTagOverrides } from '~/types'
@@ -86,12 +86,8 @@ const ProductAnalyticsRNInstructionsWrapper = withMobileReplay({
 })
 
 // JS Web SDKs
-const ProductAnalyticsJSWebInstructionsWrapper = withOnboardingDocsWrapper({
-    Installation: JSWebInstallation,
-    snippets: JS_WEB_SNIPPETS,
-})
-const ProductAnalyticsHTMLSnippetInstructionsWrapper = withOnboardingDocsWrapper({
-    Installation: HTMLSnippetInstallation,
+const ProductAnalyticsWebInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: WebInstallation,
     snippets: JS_WEB_SNIPPETS,
 })
 
@@ -174,6 +170,9 @@ const ProductAnalyticsGoInstructionsWrapper = withOnboardingDocsWrapper({ Instal
 const ProductAnalyticsPHPInstructionsWrapper = withOnboardingDocsWrapper({ Installation: PHPInstallation })
 const ProductAnalyticsLaravelInstructionsWrapper = withOnboardingDocsWrapper({ Installation: LaravelInstallation })
 const ProductAnalyticsRubyInstructionsWrapper = withOnboardingDocsWrapper({ Installation: RubyInstallation })
+const ProductAnalyticsRubyOnRailsInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: RubyOnRailsInstallation,
+})
 const ProductAnalyticsElixirInstructionsWrapper = withOnboardingDocsWrapper({ Installation: ElixirInstallation })
 
 // API
@@ -202,7 +201,7 @@ export const ProductAnalyticsSDKTagOverrides: SDKTagOverrides = {
 }
 
 export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
-    [SDKKey.JS_WEB]: ProductAnalyticsJSWebInstructionsWrapper,
+    [SDKKey.JS_WEB]: ProductAnalyticsWebInstructionsWrapper,
     [SDKKey.ANDROID]: ProductAnalyticsAndroidInstructionsWrapper,
     [SDKKey.ANGULAR]: ProductAnalyticsAngularInstructionsWrapper,
     [SDKKey.API]: ProductAnalyticsAPIInstructionsWrapper,
@@ -216,7 +215,6 @@ export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.GO]: ProductAnalyticsGoInstructionsWrapper,
     [SDKKey.GOOGLE_TAG_MANAGER]: ProductAnalyticsGoogleTagManagerInstructionsWrapper,
     [SDKKey.HELICONE]: ProductAnalyticsHeliconeInstructionsWrapper,
-    [SDKKey.HTML_SNIPPET]: ProductAnalyticsHTMLSnippetInstructionsWrapper,
     [SDKKey.IOS]: ProductAnalyticsIOSInstructionsWrapper,
     [SDKKey.LANGFUSE]: ProductAnalyticsLangfuseInstructionsWrapper,
     [SDKKey.LARAVEL]: ProductAnalyticsLaravelInstructionsWrapper,
@@ -232,6 +230,7 @@ export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.REMIX]: ProductAnalyticsRemixJSInstructionsWrapper,
     [SDKKey.RETOOL]: ProductAnalyticsRetoolInstructionsWrapper,
     [SDKKey.RUBY]: ProductAnalyticsRubyInstructionsWrapper,
+    [SDKKey.RUBY_ON_RAILS]: ProductAnalyticsRubyOnRailsInstructionsWrapper,
     [SDKKey.RUDDERSTACK]: ProductAnalyticsRudderstackInstructionsWrapper,
     [SDKKey.SEGMENT]: ProductAnalyticsSegmentInstructionsWrapper,
     [SDKKey.SENTRY]: ProductAnalyticsSentryInstructionsWrapper,

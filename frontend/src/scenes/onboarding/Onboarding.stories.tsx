@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 import billingUnsubscribedJson from '~/mocks/fixtures/_billing_unsubscribed.json'
+import domainConnectJson from '~/mocks/fixtures/_domain_connect_check.json'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
@@ -36,6 +37,7 @@ const meta: Meta = {
                 '/api/billing/': {
                     ...billingJson,
                 },
+                '/api/environments/:team_id/integrations/domain-connect/check': domainConnectJson,
                 '/api/environments/:team_id/external_data_sources/wizard': () => {
                     return [
                         200,
@@ -314,20 +316,6 @@ export const InviteTeammates = (): JSX.Element => {
         setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
         router.actions.push(
             urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.INVITE_TEAMMATES })
-        )
-    })
-
-    return <App />
-}
-
-export const ReverseProxy = (): JSX.Element => {
-    useMountedLogic(onboardingLogic)
-    const { setProduct } = useActions(onboardingLogic)
-
-    useDelayedOnMountEffect(() => {
-        setProduct(availableOnboardingProducts[ProductKey.FEATURE_FLAGS])
-        router.actions.push(
-            urls.onboarding({ productKey: ProductKey.FEATURE_FLAGS, stepKey: OnboardingStepKey.REVERSE_PROXY })
         )
     })
 

@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
 import api from 'lib/api'
-import { TeamMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -16,6 +16,14 @@ import { getAppContext, getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { NEW_INTERNAL_TAB } from 'lib/utils/newInternalTab'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { withForwardedSearchParams } from 'lib/utils/sceneLogicUtils'
+import {
+    emptySceneParams,
+    forwardedRedirectQueryParams,
+    preloadedScenes,
+    redirects,
+    routes,
+    sceneConfigurations,
+} from 'scenes/scenes'
 import {
     LoadedScene,
     Params,
@@ -26,25 +34,17 @@ import {
     SceneTab,
     sceneToAccessControlResourceType,
 } from 'scenes/sceneTypes'
-import {
-    emptySceneParams,
-    forwardedRedirectQueryParams,
-    preloadedScenes,
-    redirects,
-    routes,
-    sceneConfigurations,
-} from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel } from '~/types'
 
-import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
 import { parseCouponCampaign } from './coupons/utils'
 import { organizationLogic } from './organizationLogic'
+import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { sceneLogicType } from './sceneLogicType'
 import { inviteLogic } from './settings/organization/inviteLogic'
 import { teamLogic } from './teamLogic'
@@ -412,6 +412,9 @@ export const sceneLogic = kea<sceneLogicType>([
         pinTab: (tabId: string) => ({ tabId }),
         unpinTab: (tabId: string) => ({ tabId }),
         setTabScrollDepth: (tabId: string, scrollTop: number) => ({ tabId, scrollTop }),
+        setFrozenWidths: (widths: Record<string, number> | null) => ({ widths }),
+        clearFrozenWidths: true,
+        freezeTabWidths: true,
     }),
     reducers({
         // We store all state in "tabs". This allows us to have multiple tabs open, each with its own scene and parameters.
@@ -629,7 +632,12 @@ export const sceneLogic = kea<sceneLogicType>([
         lastSetScenePayload: [
             {} as Record<string, any>,
             {
-                setScene: (_, { sceneId, sceneKey, tabId, params }) => ({ sceneId, sceneKey, tabId, params }),
+                setScene: (_, { sceneId, sceneKey, tabId, params }) => ({
+                    sceneId,
+                    sceneKey,
+                    tabId,
+                    params,
+                }),
             },
         ],
         tabScrollDepths: [
@@ -655,6 +663,13 @@ export const sceneLogic = kea<sceneLogicType>([
                         {} as Record<string, number>
                     )
                 },
+            },
+        ],
+        frozenWidths: [
+            null as Record<string, number> | null,
+            {
+                setFrozenWidths: (_, { widths }) => widths,
+                clearFrozenWidths: () => null,
             },
         ],
     }),
@@ -841,6 +856,20 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
     }),
     listeners(({ values, actions, cache, props, selectors }) => ({
+        freezeTabWidths: () => {
+            const tabRow = document.querySelector('.scene-tab-row')
+            if (!tabRow) {
+                return
+            }
+            const widths: Record<string, number> = {}
+            tabRow.querySelectorAll<HTMLElement>('[data-tab-id]').forEach((el) => {
+                const id = el.getAttribute('data-tab-id')
+                if (id) {
+                    widths[id] = el.getBoundingClientRect().width
+                }
+            })
+            actions.setFrozenWidths(widths)
+        },
         [NEW_INTERNAL_TAB]: (payload) => {
             actions.newTab(payload.path, { source: payload?.source ?? 'internal_link' })
         },
@@ -1117,8 +1146,8 @@ export const sceneLogic = kea<sceneLogicType>([
                     return
                 }
 
-                // Redirect to org/project creation if there's no org/project respectively, unless using invite
                 if (sceneId !== Scene.InviteSignup) {
+                    // Redirect to org/project creation if there's no org/project respectively, unless using invite
                     if (organizationLogic.values.isCurrentOrganizationUnavailable) {
                         if (
                             location.pathname !== urls.organizationCreateFirst() &&
@@ -1150,6 +1179,8 @@ export const sceneLogic = kea<sceneLogicType>([
                             }
                         }
                     } else if (
+                        // Or redirect to onboarding in case we detect people have to do onboarding for their first project
+                        user.organization?.teams.length === 1 &&
                         teamLogic.values.currentTeam &&
                         !teamLogic.values.currentTeam.is_demo &&
                         !teamLogic.values.hasOnboardedAnyProduct &&
@@ -1378,6 +1409,14 @@ export const sceneLogic = kea<sceneLogicType>([
                     targetPathname = urls.projectHomepage()
                 }
                 router.actions.replace(targetPathname, homepage.search || '', homepage.hash || '')
+                return
+            }
+
+            const isAIFirst = posthog.isFeatureEnabled(FEATURE_FLAGS.AI_FIRST)
+            if (isAIFirst) {
+                router.actions.replace(
+                    withForwardedSearchParams(urls.projectHomepage(), searchParams, forwardedRedirectQueryParams)
+                )
                 return
             }
 

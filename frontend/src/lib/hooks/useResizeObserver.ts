@@ -40,7 +40,7 @@ export function useResizeBreakpoints<T extends string>(
                     newSize = breakpoints[key]
                 }
             }
-            if (newSize != size) {
+            if (newSize !== size) {
                 setSize(newSize)
             }
         },

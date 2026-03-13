@@ -11,12 +11,12 @@ import { NotFound } from 'lib/components/NotFound'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { isMobile, pluralize } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { openInAdminPanel } from 'lib/utils/person-actions'
@@ -25,8 +25,8 @@ import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/Note
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -40,11 +40,11 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { ActivityScope, PersonType, PersonsTabType, PropertyDefinitionType } from '~/types'
 
 import { MergeSplitPerson } from './MergeSplitPerson'
+import { asDisplay } from './person-utils'
 import { PersonCohorts } from './PersonCohorts'
 import PersonProfileCanvas from './PersonProfileCanvas'
-import { RelatedFeatureFlags } from './RelatedFeatureFlags'
-import { asDisplay } from './person-utils'
 import { PersonsLogicProps, personsLogic } from './personsLogic'
+import { RelatedFeatureFlags } from './RelatedFeatureFlags'
 
 export const scene: SceneExport<PersonsLogicProps> = {
     component: PersonScene,
@@ -61,13 +61,15 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
             <div className="flex deprecated-space-x-1">
                 <div>
                     <span className="text-secondary">IDs:</span>{' '}
-                    <CopyToClipboardInline
-                        tooltipMessage={null}
-                        description="person distinct ID"
-                        style={{ justifyContent: 'flex-end' }}
-                    >
-                        {person.distinct_ids[0]}
-                    </CopyToClipboardInline>
+                    <span data-attr="person-distinct-id">
+                        <CopyToClipboardInline
+                            tooltipMessage={null}
+                            description="person distinct ID"
+                            style={{ justifyContent: 'flex-end' }}
+                        >
+                            {person.distinct_ids[0]}
+                        </CopyToClipboardInline>
+                    </span>
                 </div>
                 {person.distinct_ids.length > 1 && (
                     <LemonMenu
@@ -176,8 +178,17 @@ export function PersonScene(): JSX.Element | null {
         exceptionsQuery,
         surveyResponsesQuery,
     } = useValues(mountedPersonsLogic)
-    const { loadPersons, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, setDistinctId } =
-        useActions(mountedPersonsLogic)
+    const {
+        loadPersons,
+        editProperty,
+        deleteProperty,
+        navigateToTab,
+        setSplitMergeModalShown,
+        setDistinctId,
+        setEventsQuery,
+        setExceptionsQuery,
+        setSurveyResponsesQuery,
+    } = useActions(mountedPersonsLogic)
     const { showPersonDeleteModal } = useActions(personDeleteModalLogic)
     const { deletedPersonLoading } = useValues(personDeleteModalLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
@@ -186,7 +197,7 @@ export function PersonScene(): JSX.Element | null {
     const { user } = useValues(userLogic)
 
     if (personError) {
-        throw new Error(personError)
+        return <NotFound object="person" meta={{ urlId }} />
     }
     if (!person) {
         return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="person" meta={{ urlId }} />
@@ -279,7 +290,13 @@ export function PersonScene(): JSX.Element | null {
                     {
                         key: PersonsTabType.EVENTS,
                         label: <span data-attr="persons-events-tab">Events</span>,
-                        content: <Query uniqueKey="person-profile-events" query={eventsQuery} />,
+                        content: (
+                            <Query
+                                uniqueKey="person-profile-events"
+                                query={eventsQuery}
+                                setQuery={(q) => setEventsQuery(q)}
+                            />
+                        ),
                     },
                     {
                         key: PersonsTabType.SESSION_RECORDINGS,
@@ -321,12 +338,12 @@ export function PersonScene(): JSX.Element | null {
                     {
                         key: PersonsTabType.EXCEPTIONS,
                         label: <span data-attr="persons-exceptions-tab">Exceptions</span>,
-                        content: <Query query={exceptionsQuery} />,
+                        content: <Query query={exceptionsQuery} setQuery={(q) => setExceptionsQuery(q)} />,
                     },
                     {
                         key: PersonsTabType.SURVEY_RESPONSES,
                         label: <span data-attr="persons-survey-responses-tab">Surveys</span>,
-                        content: <Query query={surveyResponsesQuery} />,
+                        content: <Query query={surveyResponsesQuery} setQuery={(q) => setSurveyResponsesQuery(q)} />,
                     },
                     {
                         key: PersonsTabType.COHORTS,

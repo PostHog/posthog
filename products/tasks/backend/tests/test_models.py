@@ -1,10 +1,12 @@
 import json
 import uuid
+import secrets
 
 from unittest.mock import patch
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError
 from django.test import TestCase
 
 from parameterized import parameterized
@@ -13,7 +15,7 @@ from posthog.models import Integration, Organization, Team
 from posthog.models.user import User
 from posthog.storage import object_storage
 
-from products.tasks.backend.models import SandboxEnvironment, SandboxSnapshot, Task, TaskRun
+from products.tasks.backend.models import CodeInvite, SandboxEnvironment, SandboxSnapshot, Task, TaskRun
 
 
 class TestTask(TestCase):
@@ -545,6 +547,58 @@ class TestTaskRun(TestCase):
         self.assertEqual(entry["notification"]["params"]["stderr"], stderr)
         self.assertEqual(entry["notification"]["params"]["exitCode"], exit_code)
 
+    @parameterized.expand(
+        [
+            ("background_mode", {"mode": "background"}, True),
+            ("default_mode_is_background", {}, True),
+            ("interactive_mode_skips", {"mode": "interactive"}, False),
+        ]
+    )
+    @patch("posthog.temporal.common.client.sync_connect")
+    def test_heartbeat_workflow_mode_filtering(self, _name, state, expect_signal, mock_connect):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state=state,
+        )
+
+        from django.core.cache import cache
+
+        cache.delete(f"tasks:task_run:heartbeat:{run.id}")
+
+        run.heartbeat_workflow()
+
+        if expect_signal:
+            mock_connect.assert_called_once()
+        else:
+            mock_connect.assert_not_called()
+
+        cache.delete(f"tasks:task_run:heartbeat:{run.id}")
+
+    @patch("posthog.temporal.common.client.sync_connect")
+    def test_heartbeat_workflow_rate_limited_by_cache(self, mock_connect):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"mode": "background"},
+        )
+
+        from django.core.cache import cache
+
+        cache_key = f"tasks:task_run:heartbeat:{run.id}"
+        cache.delete(cache_key)
+
+        run.heartbeat_workflow()
+        mock_connect.assert_called_once()
+
+        mock_connect.reset_mock()
+        run.heartbeat_workflow()
+        mock_connect.assert_not_called()
+
+        cache.delete(cache_key)
+
 
 class TestSandboxSnapshot(TestCase):
     def setUp(self):
@@ -903,3 +957,42 @@ class TestSandboxEnvironment(TestCase):
         domains = env.get_effective_domains()
         for expected in expected_contains:
             self.assertIn(expected, domains)
+
+
+class TestCodeInvite(TestCase):
+    def test_auto_generates_code_on_save(self):
+        invite = CodeInvite.objects.create()
+        self.assertEqual(len(invite.code), 8)
+        self.assertTrue(all(c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" for c in invite.code))
+
+    def test_preserves_explicit_code(self):
+        invite = CodeInvite.objects.create(code="MYCODE42")
+        self.assertEqual(invite.code, "MYCODE42")
+
+    def test_retries_on_code_collision(self):
+        existing = CodeInvite.objects.create(code="AAAAAAAA")
+        self.assertEqual(existing.code, "AAAAAAAA")
+
+        call_count = 0
+        original_choice = secrets.choice
+
+        def mock_choice(alphabet):
+            nonlocal call_count
+            call_count += 1
+            # First 8 calls (first attempt) return "A" to collide, rest are random
+            if call_count <= 8:
+                return "A"
+            return original_choice(alphabet)
+
+        with patch("products.tasks.backend.models.secrets.choice", side_effect=mock_choice):
+            invite = CodeInvite.objects.create()
+
+        self.assertNotEqual(invite.code, "AAAAAAAA")
+        self.assertEqual(len(invite.code), 8)
+
+    def test_raises_after_max_retries(self):
+        CodeInvite.objects.create(code="BBBBBBBB")
+
+        with patch("products.tasks.backend.models.secrets.choice", return_value="B"):
+            with self.assertRaises(IntegrityError):
+                CodeInvite.objects.create()

@@ -109,25 +109,20 @@ export function InsightSuggestions({ insightId, query }: InsightSuggestionsProps
     }
 
     if (suggestions.length === 0) {
-        return null
+        return <p className="text-muted mt-4">No suggestions this time. Try a different insight.</p>
     }
 
     return (
-        <div className="mt-4">
-            <h3 className="font-semibold text-base m-0 mb-2">Explore related insights</h3>
-            <p className="text-muted mb-4">Suggested follow-up insights to understand your data better</p>
-
-            <div className="space-y-2">
-                {suggestions.map((suggestion, index) => (
-                    <InsightSuggestionRow
-                        key={index}
-                        suggestion={suggestion}
-                        index={index}
-                        insightId={insightId}
-                        query={query}
-                    />
-                ))}
-            </div>
+        <div className="mt-4 space-y-2">
+            {suggestions.map((suggestion, index) => (
+                <InsightSuggestionRow
+                    key={index}
+                    suggestion={suggestion}
+                    index={index}
+                    insightId={insightId}
+                    query={query}
+                />
+            ))}
         </div>
     )
 }

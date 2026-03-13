@@ -1,5 +1,5 @@
-import { Scene } from 'scenes/sceneTypes'
 import { preloadedScenes } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 
 import { productScenes } from '~/products'
 
@@ -7,7 +7,6 @@ export const appScenes: Record<Scene | string, () => any> = {
     ...productScenes,
     [Scene.AdvancedActivityLogs]: () => import('./audit-logs/AdvancedActivityLogsScene'),
     [Scene.Approval]: () => import('./approvals/ApprovalDetail'),
-    [Scene.Apps]: () => import('./data-pipelines/AppsScene'),
     [Scene.AsyncMigrations]: () => import('./instance/AsyncMigrations/AsyncMigrations'),
     [Scene.MaterializedColumns]: () => import('./data-management/MaterializedColumns/MaterializedColumns'),
     [Scene.BatchExportNew]: () => import('./data-pipelines/batch-exports/BatchExportScene'),
@@ -17,6 +16,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Billing]: () => import('./billing/Billing'),
     [Scene.Canvas]: () => import('./notebooks/NotebookCanvasScene'),
     [Scene.CLIAuthorize]: () => import('./authentication/CLIAuthorize'),
+    [Scene.CLILive]: () => import('./authentication/CLILive'),
     [Scene.Cohort]: () => import('./cohorts/Cohort'),
     [Scene.CohortCalculationHistory]: () => import('./cohorts/CohortCalculationHistory'),
     [Scene.Cohorts]: () => import('./cohorts/Cohorts'),
@@ -32,7 +32,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Destinations]: () => import('./data-pipelines/DestinationsScene'),
     [Scene.DebugHog]: () => import('./debug/hog/HogRepl'),
     [Scene.DebugQuery]: () => import('./debug/DebugScene'),
-    [Scene.SignalsDebug]: () => import('./debug/SignalsDebug'),
+
     [Scene.Error404]: () => ({ default: preloadedScenes[Scene.Error404].component }),
     [Scene.ErrorNetwork]: () => ({ default: preloadedScenes[Scene.ErrorNetwork].component }),
     [Scene.ErrorProjectUnavailable]: () => ({ default: preloadedScenes[Scene.ErrorProjectUnavailable].component }),
@@ -50,6 +50,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.GroupsNew]: () => import('./groups/GroupsNew'),
     [Scene.Groups]: () => import('./groups/Groups'),
     [Scene.Heatmaps]: () => import('./heatmaps/scenes/heatmaps/HeatmapsScene'),
+    [Scene.Inbox]: () => import('./inbox/InboxScene'),
     [Scene.HeatmapNew]: () => import('./heatmaps/scenes/heatmap/HeatmapNewScene'),
     [Scene.HeatmapRecording]: () => import('./heatmaps/scenes/heatmap/HeatmapRecordingScene'),
     [Scene.Heatmap]: () => import('./heatmaps/scenes/heatmap/HeatmapScene'),
@@ -93,9 +94,11 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.ReplaySingle]: () => import('./session-recordings/detail/SessionRecordingDetail'),
     [Scene.ReplayKiosk]: () => import('./session-recordings/kiosk/SessionRecordingsKiosk'),
     [Scene.Replay]: () => import('./session-recordings/SessionRecordings'),
+    [Scene.ResourceTransfer]: () => import('./resource-transfer/ResourceTransfer'),
     [Scene.RevenueAnalytics]: () => import('products/revenue_analytics/frontend/RevenueAnalyticsScene'),
     [Scene.SQLEditor]: () => import('./data-warehouse/editor/EditorScene'),
     [Scene.SavedInsights]: () => import('./saved-insights/SavedInsights'),
+    [Scene.WebScripts]: () => import('./data-pipelines/WebScriptsScene'),
     [Scene.Health]: () => import('./health/HealthScene'),
     [Scene.PipelineStatus]: () => import('./health/pipelineStatus/PipelineStatusScene'),
     [Scene.SdkDoctor]: () => import('./onboarding/sdks/SdkDoctorScene'),
@@ -108,9 +111,9 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Site]: () => import('./sites/Site'),
     [Scene.Sources]: () => import('./data-pipelines/SourcesScene'),
     [Scene.StartupProgram]: () => import('./startups/StartupProgram'),
-    [Scene.SurveyTemplates]: () => import('./surveys/SurveyTemplates'),
     [Scene.Survey]: () => import('./surveys/Survey'),
     [Scene.SurveyWizard]: () => import('./surveys/wizard/SurveyWizard'),
+    [Scene.SurveyFormBuilder]: () => import('./surveys/forms/SurveyFormBuilder'),
     [Scene.Surveys]: () => import('./surveys/Surveys'),
     [Scene.ProductTours]: () => import('./product-tours/ProductTours'),
     [Scene.ProductTour]: () => import('./product-tours/ProductTour'),
@@ -118,6 +121,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.ToolbarLaunch]: () => import('./toolbar-launch/ToolbarLaunch'),
     [Scene.Transformations]: () => import('./data-pipelines/TransformationsScene'),
     [Scene.Unsubscribe]: () => import('./Unsubscribe/Unsubscribe'),
+    [Scene.VercelConnect]: () => import('./authentication/VercelConnect'),
     [Scene.VercelLinkError]: () => import('./authentication/VercelLinkError'),
     [Scene.VerifyEmail]: () => import('./authentication/signup/verify-email/VerifyEmail'),
     [Scene.WebAnalyticsMarketing]: () => import('./web-analytics/WebAnalyticsScene'),

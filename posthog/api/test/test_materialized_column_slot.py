@@ -7,7 +7,8 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
-from posthog.models.property_definition import PropertyType
+
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 
 class TestMaterializedColumnSlotAPI(APIBaseTest):

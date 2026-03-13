@@ -1,7 +1,10 @@
 from typing import Optional, cast
 
+from django.db.models import Q
+
 import structlog
 import posthoganalytics
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -211,6 +214,7 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
         return super().create(validated_data=validated_data)
 
 
+@extend_schema(tags=["workflows"])
 class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = HogFlowTemplate.objects.all()
@@ -222,8 +226,11 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
 
     def dangerously_get_queryset(self):
         # NOTE: we use the dangerous version as we want to bypass the team/org scoping and do it here instead depending on the scope
-        # Only return team-specific templates from DB (global templates now come from files)
-        qs = HogFlowTemplate.objects.filter(team_id=self.team_id).exclude(scope=HogFlowTemplate.Scope.GLOBAL)
+        # Return team-specific templates and org-scoped templates from any team in the same org
+        qs = HogFlowTemplate.objects.filter(
+            Q(team_id=self.team_id)
+            | Q(scope=HogFlowTemplate.Scope.ORGANIZATION, team__organization_id=self.organization.id)
+        ).exclude(scope=HogFlowTemplate.Scope.GLOBAL)
 
         if self.action == "list":
             qs = qs.order_by("-updated_at")

@@ -1,0 +1,21 @@
+.FunnelsQuerySteps {
+    .ActionFilterGroup {
+        margin-top: 0 !important;
+        border-bottom: 1px solid var(--color-border-primary);
+
+        .ActionFilterRow-content {
+            padding: 0.5rem 0 !important;
+            border: none !important;
+        }
+
+        .ActionFilterRow-filters {
+            padding: 0 !important;
+            border-bottom: none !important;
+        }
+
+        .ActionFilterGroup--events-list,
+        .ActionFilterGroup--footer {
+            background-color: var(--color-bg-primary);
+        }
+    }
+}

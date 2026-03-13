@@ -1,0 +1,39 @@
+.KioskSetup {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+
+    &__card {
+        width: 100%;
+        max-width: 420px;
+        padding: 2rem;
+        background: var(--color-bg-3000-light);
+        border-radius: 0.75rem;
+
+        h2 {
+            margin: 0 0 0.25rem;
+            font-size: 1.25rem;
+            color: var(--text-3000-light);
+        }
+    }
+
+    &__description {
+        margin: 0 0 1.5rem;
+        font-size: 0.875rem;
+        color: var(--muted-3000-light);
+    }
+
+    &__field {
+        margin-bottom: 1rem;
+
+        label {
+            display: block;
+            margin-bottom: 0.25rem;
+            font-size: 0.8125rem;
+            font-weight: 500;
+            color: var(--text-3000-light);
+        }
+    }
+}

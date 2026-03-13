@@ -1,11 +1,11 @@
-import { Properties } from '@posthog/plugin-scaffold'
+import { Properties } from '~/plugin-scaffold'
 
 import { OrganizationAvailableFeature, ProjectId, Team } from '../types'
 import { PostgresRouter, PostgresUse } from './db/postgres'
 import { LazyLoader } from './lazy-loader'
 import { captureTeamEvent } from './posthog'
 
-type RawTeam = Omit<Team, 'availableFeatures'> & {
+type RawTeam = Omit<Team, 'available_features'> & {
     available_product_features: { key: string; name: string }[]
 }
 
@@ -79,15 +79,6 @@ export class TeamManager {
         }
     }
 
-    public async getTeamForEvent(event: { team_id?: number | null; token?: string | null }): Promise<Team | null> {
-        if (event.team_id) {
-            return this.getTeam(event.team_id)
-        } else if (event.token) {
-            return this.getTeamByToken(event.token)
-        }
-        return null
-    }
-
     private async fetchTeams(teamIdOrTokens: string[]): Promise<Record<string, Team | null>> {
         const [teamIds, tokens] = teamIdOrTokens.reduce(
             ([teamIds, tokens], idOrToken) => {
@@ -127,6 +118,7 @@ export class TeamManager {
                 t.cookieless_server_hash_mode,
                 t.timezone,
                 t.logs_settings,
+                t.extra_settings,
                 extract('epoch' from t.drop_events_older_than) as drop_events_older_than_seconds,
                 o.available_product_features
             FROM posthog_team t

@@ -32,6 +32,7 @@ from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
+from posthog.event_usage import get_event_source, get_mcp_properties
 from posthog.geoip import get_geoip_properties
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
 from posthog.models.activity_logging.utils import activity_storage
@@ -254,7 +255,7 @@ class AutoProjectMiddleware:
                 feature_flag_id = path_parts[1]
                 if feature_flag_id.isnumeric():
                     # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
-                    return FeatureFlag.objects.filter(deleted=False, id=feature_flag_id)
+                    return FeatureFlag.objects.filter(id=feature_flag_id)
             elif path_parts[0] == "action":
                 action_id = path_parts[1]
                 if action_id.isnumeric():
@@ -339,6 +340,8 @@ class CHQueries:
             session_id=self._get_param(request, "session_id"),
             http_referer=request.headers.get("referer"),
             http_user_agent=request.headers.get("user-agent"),
+            source=get_event_source(request),
+            **get_mcp_properties(request),
         )
 
         try:
@@ -673,6 +676,30 @@ class Fix204Middleware:
         return response
 
 
+class ToolbarOAuthCoopMiddleware:
+    """
+    Override Cross-Origin-Opener-Policy for popup pages that need cross-origin communication.
+
+    Django's SecurityMiddleware sets COOP to "same-origin" by default. This severs
+    window.opener when a cross-origin popup navigates to our pages — breaking
+    Vercel's popup monitoring.
+
+    We set COOP to "unsafe-none" on the specific paths involved in popup flows
+    so the opener reference is preserved.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        is_toolbar_flow = request.path.startswith("/toolbar_oauth/")
+        is_vercel_connect = request.path.startswith("/connect/vercel/")
+        if is_toolbar_flow or is_vercel_connect:
+            response["Cross-Origin-Opener-Policy"] = "unsafe-none"
+        return response
+
+
 class ActivityLoggingMiddleware:
     """
     Middleware that sets the current user and impersonation status in activity storage
@@ -707,6 +734,12 @@ class CSPMiddleware:
 
         # nonce must be added to request (above) before generating response
         response = self.get_response(request)
+
+        content_type = response.get("Content-Type", "")
+        # csp headers only matter on html documents, so for defense in depth, add strong csp to all other requests
+        if "text/html" not in content_type:
+            response.headers["Content-Security-Policy"] = "default-src 'none'"
+            return response
 
         is_admin_view = request.path.startswith("/admin/")
         if is_admin_view:
@@ -751,7 +784,7 @@ class CSPMiddleware:
                 "media-src https://res.cloudinary.com",
                 f"img-src 'self' data: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
                 "frame-ancestors https://posthog.com https://preview.posthog.com https://vercel.com",
-                f"connect-src 'self' https://status.posthog.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
+                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
                 # allow all sites for displaying heatmaps
                 "frame-src https:",
                 "manifest-src 'self'",

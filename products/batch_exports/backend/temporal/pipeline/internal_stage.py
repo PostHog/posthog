@@ -25,7 +25,6 @@ if typing.TYPE_CHECKING:
 
 from structlog.contextvars import bind_contextvars
 
-from posthog.batch_exports.service import BackfillDetails, BatchExportField, BatchExportModel, BatchExportSchema
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import (
     ClickHouseCheckQueryStatusError,
@@ -39,6 +38,12 @@ from posthog.temporal.common.clickhouse import (
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.service import (
+    BackfillDetails,
+    BatchExportField,
+    BatchExportModel,
+    BatchExportSchema,
+)
 from products.batch_exports.backend.temporal.batch_exports import default_fields
 from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
@@ -85,10 +90,8 @@ def _get_s3_credentials() -> tuple[str | None, str | None]:
 
     If keyless S3 auth is enabled, we use no credentials as the IAM role will be used to authenticate.
     Otherwise, we use the credentials from the object storage settings.
-
-    TODO: Remove BATCH_EXPORT_USE_KEYLESS_S3_AUTH after rollout.
     """
-    use_keyless_s3_auth = not _is_local_or_test() and settings.BATCH_EXPORT_USE_KEYLESS_S3_AUTH
+    use_keyless_s3_auth = not _is_local_or_test()
     if use_keyless_s3_auth:
         aws_access_key_id = None
         aws_secret_access_key = None

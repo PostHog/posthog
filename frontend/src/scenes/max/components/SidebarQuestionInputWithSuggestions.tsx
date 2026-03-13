@@ -5,14 +5,14 @@ import { useState } from 'react'
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { MaxMemorySettings } from 'scenes/settings/environment/MaxMemorySettings'
 import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
+import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 
-import { maxLogic } from '../maxLogic'
+import { QUESTION_SUGGESTIONS_DATA, RESEARCH_SUGGESTIONS_DATA, maxLogic } from '../maxLogic'
+import { maxThreadLogic } from '../maxThreadLogic'
 import { FloatingSuggestionsDisplay } from './FloatingSuggestionsDisplay'
 import { SidebarQuestionInput } from './SidebarQuestionInput'
 
@@ -21,26 +21,23 @@ export function SidebarQuestionInputWithSuggestions({
 }: {
     hideSuggestions?: boolean
 }): JSX.Element {
-    const { dataProcessingAccepted, activeSuggestionGroup } = useValues(maxLogic)
+    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason, activeSuggestionGroup } = useValues(maxLogic)
     const { setActiveGroup } = useActions(maxLogic)
+    const { agentMode } = useValues(maxThreadLogic)
     const { coreMemory, coreMemoryLoading } = useValues(maxSettingsLogic)
-    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
-    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
     const [settingsModalOpen, setSettingsModalOpen] = useState(false)
 
     const handleSettingsClick = (): void => {
-        if (isRemovingSidePanelFlag) {
-            setSettingsModalOpen(true)
-        } else {
-            openSettingsPanel({ sectionId: 'environment-max' })
-        }
+        setSettingsModalOpen(true)
     }
 
     const tip =
         !coreMemoryLoading && !coreMemory?.text
             ? 'Tip: Run /init to initialize PostHog AI in this project'
-            : 'Try PostHog AI for…'
+            : agentMode === AgentMode.Research
+              ? 'Try PostHog AI Research Mode for…'
+              : 'Try PostHog AI for…'
 
     return (
         <DismissableLayer
@@ -63,6 +60,10 @@ export function SidebarQuestionInputWithSuggestions({
                 <FloatingSuggestionsDisplay
                     type="secondary"
                     dataProcessingAccepted={dataProcessingAccepted}
+                    dataProcessingApprovalDisabledReason={dataProcessingApprovalDisabledReason}
+                    suggestionsData={
+                        agentMode === AgentMode.Research ? RESEARCH_SUGGESTIONS_DATA : QUESTION_SUGGESTIONS_DATA
+                    }
                     additionalSuggestions={[
                         <LemonButton
                             key="edit-max-memory"
@@ -75,16 +76,14 @@ export function SidebarQuestionInputWithSuggestions({
                     ]}
                 />
             </div>
-            {isRemovingSidePanelFlag && (
-                <LemonModal
-                    title="PostHog AI memory"
-                    isOpen={settingsModalOpen}
-                    onClose={() => setSettingsModalOpen(false)}
-                    width="40rem"
-                >
-                    <MaxMemorySettings />
-                </LemonModal>
-            )}
+            <LemonModal
+                title="PostHog AI memory"
+                isOpen={settingsModalOpen}
+                onClose={() => setSettingsModalOpen(false)}
+                width="40rem"
+            >
+                <MaxMemorySettings />
+            </LemonModal>
         </DismissableLayer>
     )
 }

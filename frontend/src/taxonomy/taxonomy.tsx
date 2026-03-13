@@ -9,7 +9,7 @@ import { CoreFilterDefinition } from '~/types'
 import * as coreFilterDefinitionsByGroup from './core-filter-definitions-by-group.json'
 import { transformFilterDefinitions } from './transformations'
 
-type CoreFilterDefinitionsGroup = keyof typeof coreFilterDefinitionsByGroup
+export type CoreFilterDefinitionsGroup = Exclude<keyof typeof coreFilterDefinitionsByGroup, '//'>
 
 export const CORE_FILTER_DEFINITIONS_BY_GROUP = Object.entries(coreFilterDefinitionsByGroup).reduce(
     (acc, [key, group]) => {
@@ -147,12 +147,10 @@ export const conversionGoalPopoverFields: DataWarehousePopoverField[] = [
         key: UTM_CAMPAIGN_NAME_SCHEMA_FIELD,
         label: 'UTM Campaign Name',
         type: 'string',
-        optional: true,
     },
     {
         key: UTM_SOURCE_NAME_SCHEMA_FIELD,
         label: 'UTM Source Name',
         type: 'string',
-        optional: true,
     },
 ]

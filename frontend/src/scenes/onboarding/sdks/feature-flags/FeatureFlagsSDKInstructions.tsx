@@ -11,7 +11,7 @@ import {
     FramerInstallation,
     GoInstallation,
     IOSInstallation,
-    JSWebInstallation,
+    WebInstallation,
     LaravelInstallation,
     MultivariateFlagSnippet,
     NextJSInstallation,
@@ -26,6 +26,7 @@ import {
     ReloadFlagsSnippet,
     RemixInstallation,
     RubyInstallation,
+    RubyOnRailsInstallation,
     SvelteInstallation,
     VueInstallation,
     WebflowInstallation,
@@ -78,8 +79,8 @@ const SERVER_SDK_SNIPPETS = {
 }
 
 // Wrappers for SDKs that use Installation components from shared-onboarding
-const FeatureFlagsJSWebInstructionsWrapper = withOnboardingDocsWrapper({
-    Installation: JSWebInstallation,
+const FeatureFlagsWebInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: WebInstallation,
     snippets: JS_WEB_SNIPPETS,
 })
 const FeatureFlagsReactInstructionsWrapper = withOnboardingDocsWrapper({
@@ -100,6 +101,10 @@ const FeatureFlagsPHPInstructionsWrapper = withOnboardingDocsWrapper({
 })
 const FeatureFlagsRubyInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RubyInstallation,
+    snippets: SERVER_SDK_SNIPPETS,
+})
+const FeatureFlagsRubyOnRailsInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: RubyOnRailsInstallation,
     snippets: SERVER_SDK_SNIPPETS,
 })
 const FeatureFlagsGoInstructionsWrapper = withOnboardingDocsWrapper({
@@ -239,7 +244,7 @@ const FeatureFlagsNuxtJSInstructionsWrapper = withOnboardingDocsWrapper({
 })
 
 export const FeatureFlagsSDKInstructions: SDKInstructionsMap = {
-    [SDKKey.JS_WEB]: FeatureFlagsJSWebInstructionsWrapper,
+    [SDKKey.JS_WEB]: FeatureFlagsWebInstructionsWrapper,
     [SDKKey.ANGULAR]: FeatureFlagsAngularInstructionsWrapper,
     [SDKKey.ANDROID]: FeatureFlagsAndroidInstructionsWrapper,
     [SDKKey.API]: FeatureFlagsAPIInstructionsWrapper,
@@ -261,6 +266,7 @@ export const FeatureFlagsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.TANSTACK_START]: FeatureFlagsReactInstructionsWrapper,
     [SDKKey.REMIX]: FeatureFlagsRemixJSInstructionsWrapper,
     [SDKKey.RUBY]: FeatureFlagsRubyInstructionsWrapper,
+    [SDKKey.RUBY_ON_RAILS]: FeatureFlagsRubyOnRailsInstructionsWrapper,
     [SDKKey.SVELTE]: FeatureFlagsSvelteInstructionsWrapper,
     [SDKKey.VITE]: FeatureFlagsReactInstructionsWrapper,
     [SDKKey.VUE_JS]: FeatureFlagsVueInstructionsWrapper,

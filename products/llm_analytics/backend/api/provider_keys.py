@@ -1,4 +1,4 @@
-from typing import cast
+import logging
 
 from django.db import transaction
 from django.db.models import QuerySet
@@ -13,7 +13,6 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models import User
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
@@ -22,11 +21,18 @@ from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluations import Evaluation
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
+from .metrics import llma_track_latency
+
+logger = logging.getLogger(__name__)
 
 
 def validate_provider_key(provider: str, api_key: str) -> tuple[str, str | None]:
     """Validate an API key for any supported provider using the unified client."""
-    return Client.validate_key(provider, api_key)
+    try:
+        return Client.validate_key(provider, api_key)
+    except Exception:
+        logger.exception(f"Provider key validation failed for provider '{provider}'")
+        return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
 
 
 class LLMProviderKeySerializer(serializers.ModelSerializer):
@@ -59,7 +65,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         return "****"
 
     def validate_api_key(self, value: str) -> str:
-        provider = self.initial_data.get("provider", LLMProvider.OPENAI)
+        provider = self.initial_data.get("provider", self.instance.provider if self.instance else LLMProvider.OPENAI)
 
         if provider == LLMProvider.OPENAI:
             if not value.startswith(("sk-", "sk-proj-")):
@@ -69,7 +75,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         elif provider == LLMProvider.ANTHROPIC:
             if not value.startswith("sk-ant-"):
                 raise serializers.ValidationError("Invalid Anthropic API key format. Key should start with 'sk-ant-'.")
-        # Gemini and OpenRouter keys have no standard prefix, so no format validation needed
+        # Gemini, OpenRouter, and Fireworks keys have no standard prefix, so no format validation needed
 
         return value
 
@@ -129,13 +135,14 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
     def perform_create(self, serializer):
         instance = serializer.save()
         report_user_action(
-            cast(User, self.request.user),
+            self.request.user,
             "llma provider key created",
             {
                 "provider_key_id": str(instance.id),
                 "provider": instance.provider,
             },
-            self.team,
+            team=self.team,
+            request=self.request,
         )
 
     def perform_update(self, serializer):
@@ -149,29 +156,32 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
 
         if changed_fields:
             report_user_action(
-                cast(User, self.request.user),
+                self.request.user,
                 "llma provider key updated",
                 {
                     "provider_key_id": str(instance.id),
                     "provider": instance.provider,
                     "changed_fields": changed_fields,
                 },
-                self.team,
+                team=self.team,
+                request=self.request,
             )
 
     def perform_destroy(self, instance):
         report_user_action(
-            cast(User, self.request.user),
+            self.request.user,
             "llma provider key deleted",
             {
                 "provider_key_id": str(instance.id),
                 "provider": instance.provider,
             },
-            self.team,
+            team=self.team,
+            request=self.request,
         )
         instance.delete()
 
     @action(detail=True, methods=["post"])
+    @llma_track_latency("llma_provider_keys_validate")
     @monitor(feature=None, endpoint="llma_provider_keys_validate", method="POST")
     def validate(self, request: Request, **_kwargs) -> Response:
         instance = self.get_object()
@@ -189,40 +199,47 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
         instance.save(update_fields=["state", "error_message"])
 
         report_user_action(
-            cast(User, request.user),
+            request.user,
             "llma provider key validated",
             {
                 "provider_key_id": str(instance.id),
                 "provider": instance.provider,
                 "state": instance.state,
             },
-            self.team,
+            team=self.team,
+            request=self.request,
         )
 
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
+    @llma_track_latency("llma_provider_keys_list")
     @monitor(feature=None, endpoint="llma_provider_keys_list", method="GET")
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
 
+    @llma_track_latency("llma_provider_keys_retrieve")
     @monitor(feature=None, endpoint="llma_provider_keys_retrieve", method="GET")
     def retrieve(self, request, *args, **kwargs):
         return super().retrieve(request, *args, **kwargs)
 
+    @llma_track_latency("llma_provider_keys_create")
     @monitor(feature=None, endpoint="llma_provider_keys_create", method="POST")
     def create(self, request, *args, **kwargs):
         return super().create(request, *args, **kwargs)
 
+    @llma_track_latency("llma_provider_keys_update")
     @monitor(feature=None, endpoint="llma_provider_keys_update", method="PUT")
     def update(self, request, *args, **kwargs):
         return super().update(request, *args, **kwargs)
 
+    @llma_track_latency("llma_provider_keys_partial_update")
     @monitor(feature=None, endpoint="llma_provider_keys_partial_update", method="PATCH")
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
 
     @action(detail=True, methods=["get"])
+    @llma_track_latency("llma_provider_keys_dependent_configs")
     @monitor(feature=None, endpoint="llma_provider_keys_dependent_configs", method="GET")
     def dependent_configs(self, request: Request, **_kwargs) -> Response:
         """Get evaluations using this key and alternative keys for replacement."""
@@ -256,6 +273,7 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
             }
         )
 
+    @llma_track_latency("llma_provider_keys_destroy")
     @monitor(feature=None, endpoint="llma_provider_keys_destroy", method="DELETE")
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -296,6 +314,7 @@ class LLMProviderKeyValidationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "llm_provider_key"
     permission_classes = [IsAuthenticated, AccessControlPermission]
 
+    @llma_track_latency("llma_provider_key_validations_create")
     @monitor(feature=None, endpoint="llma_provider_key_validations_create", method="POST")
     def create(self, request: Request, **_kwargs) -> Response:
         api_key = request.data.get("api_key")

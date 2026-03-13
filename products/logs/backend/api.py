@@ -22,6 +22,7 @@ from posthog.models import User
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks.exporter import export_asset
 
+from products.logs.backend.alerts_api import LogsAlertViewSet
 from products.logs.backend.explain import LogExplainViewSet
 from products.logs.backend.has_logs_query_runner import HasLogsQueryRunner
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
@@ -29,7 +30,7 @@ from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
 from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
 from products.logs.backend.sparkline_query_runner import SparklineQueryRunner
 
-__all__ = ["LogsViewSet", "LogExplainViewSet"]
+__all__ = ["LogsViewSet", "LogExplainViewSet", "LogsAlertViewSet"]
 
 LOGS_MAX_EXPORT_ROWS = 10_000
 
@@ -47,15 +48,18 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         after_cursor = query_data.get("after", None)
         date_range = self.get_model(query_data.get("dateRange"), DateRange)
 
+        order_by = query_data.get("orderBy")
+        # Default to latest instead of erroring on invalid order_by
+        if order_by not in (OrderBy3.EARLIEST, OrderBy3.LATEST):
+            order_by = OrderBy3.LATEST
         # When using cursor pagination, narrow the date range based on the cursor timestamp.
         # This allows time-slicing optimization to work on progressively smaller ranges
         # as the user pages through results.
-        order_by = query_data.get("orderBy")
         if after_cursor:
             try:
                 cursor = json.loads(base64.b64decode(after_cursor).decode("utf-8"))
                 cursor_ts = dt.datetime.fromisoformat(cursor["timestamp"])
-                if order_by == OrderBy3.EARLIEST or order_by == "earliest":
+                if order_by == OrderBy3.EARLIEST:
                     # For "earliest" ordering, we're looking for logs AFTER the cursor
                     date_range = DateRange(
                         date_from=cursor_ts.isoformat(),
@@ -75,7 +79,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             "dateRange": date_range,
             "severityLevels": query_data.get("severityLevels", []),
             "serviceNames": query_data.get("serviceNames", []),
-            "orderBy": query_data.get("orderBy"),
+            "orderBy": order_by,
             "searchTerm": query_data.get("searchTerm", None),
             "filterGroup": query_data.get("filterGroup", None),
             "resourceFingerprint": query_data.get("resourceFingerprint", None),
@@ -98,7 +102,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
             Of logs at a time, stopping if we hit the limit first (most queries hit it in the first 3 minutes)
             """
-            runner = LogsQueryRunner(query, self.team)
+            runner = LogsQueryRunner(query, self.team, request=request)
 
             qdr = runner.query_date_range
             date_range_length = qdr.date_to() - qdr.date_from()
@@ -152,7 +156,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                         }
                     )
 
-                return LogsQueryRunner(slice_query, self.team), LogsQueryRunner(remainder_query, self.team)
+                return LogsQueryRunner(slice_query, self.team, request=request), LogsQueryRunner(
+                    remainder_query, self.team, request=request
+                )
 
             # Skip time-slicing for live tailing - we're always only looking at the most recent 1-2 minutes
             # Note: cursor pagination no longer skips time-slicing because we narrow the date range
@@ -234,7 +240,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             sparklineBreakdownBy=query_data.get("sparklineBreakdownBy"),
         )
 
-        runner = SparklineQueryRunner(team=self.team, query=query)
+        runner = SparklineQueryRunner(team=self.team, query=query, request=request)
         response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
         return Response(response.results, status=status.HTTP_200_OK)
@@ -346,7 +352,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         runner = LogValuesQueryRunner(team=self.team, query=query)
 
         result = runner.calculate()
-        return Response([r.model_dump() for r in result.results], status=status.HTTP_200_OK)
+        return Response(
+            {"results": [r.model_dump() for r in result.results], "refreshing": False},
+            status=status.HTTP_200_OK,
+        )
 
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def has_logs(self, request: Request, *args, **kwargs) -> Response:

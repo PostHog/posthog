@@ -1,18 +1,17 @@
+import '~/queries/utils'
+
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import { EventType } from '@posthog/rrweb-types'
+import { keyForSource } from '@posthog/replay-shared'
+import { SnapshotStore, SourceLoadingState } from '@posthog/replay-shared'
 
-import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
+import api, { RecordingDeletedError } from 'lib/api'
 import 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
-import { SourceKey, keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { windowIdRegistryLogic } from 'scenes/session-recordings/player/windowIdRegistryLogic'
 
-import '~/queries/utils'
 import {
     RecordingSnapshot,
     SessionRecordingId,
@@ -22,6 +21,7 @@ import {
     SnapshotSourceType,
 } from '~/types'
 
+import { LoadingScheduler } from './snapshot-store/LoadingScheduler'
 import type { snapshotDataLogicType } from './snapshotDataLogicType'
 
 const DEFAULT_V2_POLLING_INTERVAL_MS: number = 10000
@@ -35,28 +35,6 @@ export interface SnapshotLogicProps {
     accessToken?: string
 }
 
-/** Find which blob source index contains the given timestamp. Returns the index, clamped to bounds. */
-function getBlobIndexForTimestamp(snapshotSources: SessionRecordingSnapshotSource[], timestamp: number): number {
-    for (let i = 0; i < snapshotSources.length; i++) {
-        const source = snapshotSources[i]
-        const startTs = source.start_timestamp ? new Date(source.start_timestamp).getTime() : null
-        const endTs = source.end_timestamp ? new Date(source.end_timestamp).getTime() : null
-        if (startTs !== null && endTs !== null && timestamp >= startTs && timestamp <= endTs) {
-            return i
-        }
-    }
-    const firstStart = snapshotSources[0].start_timestamp
-    if (firstStart && timestamp < new Date(firstStart).getTime()) {
-        return 0
-    }
-    return snapshotSources.length - 1
-}
-
-export type LoadingPhase =
-    | 'sequential' // Default: load from start (existing behavior)
-    | 'find_target' // Loading blob window around target timestamp
-    | 'find_fullsnapshot' // Loading backwards to find FullSnapshot
-
 export const snapshotDataLogic = kea<snapshotDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'snapshotLogic', key]),
     props({} as SnapshotLogicProps),
@@ -66,8 +44,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         values: [
             windowIdRegistryLogic({ sessionRecordingId: props.sessionRecordingId }),
             ['uuidToIndex', 'getWindowId'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
     })),
     actions({
@@ -83,18 +59,18 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         stopPolling: true,
         setPollingInterval: (intervalMs: number) => ({ intervalMs }),
         resetPollingInterval: true,
-        // Timestamp-based loading actions
         setTargetTimestamp: (timestamp: number | null) => ({ timestamp }),
-        setLoadingPhase: (phase: LoadingPhase) => ({ phase }),
-        resetTimestampLoading: true,
-        // Playability tracking - records FullSnapshot + Meta timestamps before processing clears cache
-        recordPlayabilityMarkers: (markers: { fullSnapshots: number[]; metas: number[] }) => ({ markers }),
+        updatePlaybackPosition: (timestamp: number) => ({ timestamp }),
+        setPlayerActive: (active: boolean) => ({ active }),
+        loadAllSources: true,
+        // dispatch after any cache.store mutation to trigger a new Redux notification cycle
+        storeUpdated: true,
     }),
     reducers(() => ({
-        snapshotsBySourceSuccessCount: [
+        storeUpdateCount: [
             0,
             {
-                loadSnapshotsForSourceSuccess: (state) => state + 1,
+                storeUpdated: (state: number) => state + 1,
             },
         ],
         loadingSources: [
@@ -119,35 +95,12 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 stopPolling: () => false,
             },
         ],
-        // Timestamp-based loading state
-        targetTimestamp: [
-            null as number | null,
+        snapshotLoadError: [
+            null as Error | null,
             {
-                setTargetTimestamp: (_, { timestamp }) => timestamp,
-                resetTimestampLoading: () => null,
-            },
-        ],
-        loadingPhase: [
-            'sequential' as LoadingPhase,
-            {
-                setLoadingPhase: (_, { phase }) => phase,
-                resetTimestampLoading: () => 'sequential',
-            },
-        ],
-        // Tracks FullSnapshot + Meta timestamps before processing clears cache
-        // This persists even after processAllSnapshots clears snapshotsBySource
-        // NOTE: Do NOT reset on resetTimestampLoading - these markers should persist
-        // for the lifetime of the recording since they're metadata about the data itself
-        playabilityMarkers: [
-            { fullSnapshots: [] as number[], metas: [] as number[] },
-            {
-                recordPlayabilityMarkers: (state, { markers }) => ({
-                    fullSnapshots: [...new Set([...state.fullSnapshots, ...markers.fullSnapshots])].sort(
-                        (a, b) => a - b
-                    ),
-                    metas: [...new Set([...state.metas, ...markers.metas])].sort((a, b) => a - b),
-                }),
-                // Only reset when loading a new recording (logic is keyed by sessionRecordingId)
+                loadSnapshotsForSource: () => null,
+                loadSnapshotsForSourceSuccess: () => null,
+                loadSnapshotsForSourceFailure: (_, { errorObject }) => errorObject ?? null,
             },
         ],
     })),
@@ -156,9 +109,9 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             null as SessionRecordingSnapshotSource[] | null,
             {
                 loadSnapshotSources: async ({ breakpointLength }, breakpoint) => {
-                    if (breakpointLength) {
-                        await breakpoint(breakpointLength)
-                    }
+                    // Always breakpoint before the API call so orphaned loaders
+                    // from StrictMode's unmounted logic get cancelled.
+                    await breakpoint(breakpointLength || 1)
 
                     const headers: Record<string, string> = {}
                     if (props.accessToken) {
@@ -223,6 +176,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         headers
                     )
 
+                    breakpoint()
+
                     // Create a local copy of the registry state for synchronous lookups during parsing
                     const localWindowIds: Record<string, number> = { ...values.uuidToIndex }
                     const registerWindowIdCallback = (uuid: string): number => {
@@ -250,23 +205,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                             actions.registerWindowId(uuid)
                         }
                     }
-                    // we store the data in the cache because we want to avoid copying this data as much as possible
-                    // and kea's immutability means we were copying all the data on every snapshot call
-                    if (!cache.snapshotsBySource) {
-                        cache.snapshotsBySource = {}
-                    }
-
-                    // it doesn't matter which source we use as the key, since we combine the snapshots anyway
-                    const storageKey = keyForSource(sources[0])
-                    cache.snapshotsBySource[storageKey] = { snapshots: parsedSnapshots }
-
-                    // but we do want to mark the sources as loaded
-                    sources.forEach((s) => {
-                        const k = keyForSource(s)
-                        // we just need something against each key so we don't load it again
-                        cache.snapshotsBySource[k] = cache.snapshotsBySource[k] || {}
-                        cache.snapshotsBySource[k].sourceLoaded = true
-                    })
+                    cache.pendingBatch = { sources, snapshots: parsedSnapshots }
 
                     return { sources }
                 },
@@ -275,54 +214,69 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
     })),
     listeners(({ values, actions, cache, props }) => ({
         setTargetTimestamp: ({ timestamp }) => {
-            // Skip if same timestamp (debounce redundant calls)
-            if (timestamp === cache.lastTargetTimestamp) {
+            if (!cache.scheduler || !cache.store) {
                 return
             }
-            cache.lastTargetTimestamp = timestamp
-
             if (timestamp !== null) {
-                // If we don't have sources loaded yet, always start with find_target
-                // hasPlayableFullSnapshot returns true when no sources (safety default)
-                // but we need to actually load data first
-                if (!values.snapshotSources?.length) {
-                    cache.timestampLoadingRange = undefined
-                    cache.timestampLoadingBlobCount = undefined
-                    cache.timestampLoadingStartTime = undefined
-                    actions.setLoadingPhase('find_target')
+                cache.playbackPosition = timestamp
+
+                const currentMode = cache.scheduler.currentMode
+                // Don't interrupt load_all (e.g. during export)
+                if (currentMode.kind === 'load_all') {
+                    actions.loadNextSnapshotSource()
+                    return
+                }
+                // Don't re-seek to the same target
+                if (currentMode.kind === 'seek' && currentMode.targetTimestamp === timestamp) {
+                    return
+                }
+                // If we can already play at this position (data is loaded), no need to seek —
+                // this handles segment transitions during normal forward playback
+                if (cache.store?.canPlayAt(timestamp)) {
+                    actions.loadNextSnapshotSource()
+                    return
+                }
+                // Don't enter seek mode when at source 0 and already in buffer_ahead mode —
+                // buffer_ahead loading already starts from the beginning
+                const targetIndex = cache.store?.getSourceIndexForTimestamp(timestamp) ?? 0
+                if (targetIndex === 0 && currentMode.kind === 'buffer_ahead') {
+                    actions.loadNextSnapshotSource()
                     return
                 }
 
-                // Check if we already have playable data for this new timestamp
-                // The selector will recalculate with the new targetTimestamp value
-                // (reducer runs before listener, so values.targetTimestamp is already updated)
-                if (values.hasPlayableFullSnapshot) {
-                    // Keep in sequential phase - we have the data needed
-                    if (values.loadingPhase !== 'sequential') {
-                        actions.setLoadingPhase('sequential')
-                    }
-                } else {
-                    // If already in sequential phase, don't reset - sequential loading will eventually
-                    // make this timestamp playable. Only reset if we're in an earlier phase.
-                    if (values.loadingPhase !== 'sequential') {
-                        // Reset timestamp-based loading state for clean start
-                        cache.timestampLoadingRange = undefined
-                        cache.timestampLoadingBlobCount = undefined
-                        cache.timestampLoadingStartTime = undefined
-                        actions.setLoadingPhase('find_target')
-                    }
-                }
+                cache.scheduler.seekTo(timestamp)
+                actions.loadNextSnapshotSource()
+            }
+        },
+
+        updatePlaybackPosition: ({ timestamp }) => {
+            cache.playbackPosition = timestamp
+            // Trigger loading if the buffer ahead needs filling
+            actions.loadNextSnapshotSource()
+        },
+
+        setPlayerActive: ({ active }) => {
+            cache.playerActive = active
+            if (active) {
+                actions.loadNextSnapshotSource()
+            }
+        },
+
+        loadAllSources: () => {
+            if (cache.scheduler) {
+                cache.scheduler.loadAll()
+                actions.loadNextSnapshotSource()
             }
         },
 
         setSnapshots: ({ snapshots }: { snapshots: RecordingSnapshot[] }) => {
-            cache.snapshotsBySource = {
-                'file-file': {
-                    snapshots: snapshots,
-                    source: { source: SnapshotSourceType.file },
-                    sourceLoaded: true,
-                },
+            if (cache.store) {
+                const fileSource = { source: SnapshotSourceType.file } as SessionRecordingSnapshotSource
+                cache.store.setSources([fileSource])
+                cache.store.markLoaded(0, snapshots)
+                cache.pendingBatch = { snapshots, sources: [fileSource] }
             }
+
             // Set sources first, then trigger the success action
             // Otherwise processSnapshotsAsync will see null sources
             actions.loadSnapshotSourcesSuccess([{ source: SnapshotSourceType.file }])
@@ -361,47 +315,74 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 actions.setPollingInterval(newInterval)
             }
 
+            if (sourcesChanged) {
+                cache.store?.setSources(snapshotSources)
+            }
+
             actions.loadNextSnapshotSource()
         },
 
         loadSnapshotsForSourceSuccess: ({ snapshotsForSource }) => {
+            cache.loadFailureCount = 0
             const sources = values.snapshotSources
-            const sourceKey = snapshotsForSource.sources
-                ? keyForSource(snapshotsForSource.sources[0])
-                : keyForSource(snapshotsForSource.source)
-            const snapshotsData = (cache.snapshotsBySource || {})[sourceKey]
-            const snapshots = snapshotsData?.snapshots || []
+            if (!sources) {
+                return
+            }
 
-            // Extract playability markers BEFORE coordinator's processing clears snapshots
-            // This must happen synchronously before any async processing
-            const isTimestampBased = values.featureFlags[FEATURE_FLAGS.REPLAY_TIMESTAMP_BASED_LOADING] === 'test'
-            if (isTimestampBased && snapshots.length > 0) {
-                const fullSnapshotTs = snapshots
-                    .filter((s: RecordingSnapshot) => s.type === EventType.FullSnapshot)
-                    .map((s: RecordingSnapshot) => s.timestamp)
-                const metaTs = snapshots
-                    .filter((s: RecordingSnapshot) => s.type === EventType.Meta)
-                    .map((s: RecordingSnapshot) => s.timestamp)
+            const pending = cache.pendingBatch
+            cache.pendingBatch = null
+            const allBatchSnapshots: RecordingSnapshot[] = pending?.snapshots || []
+            const loadedSources: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[] = pending?.sources ||
+                snapshotsForSource.sources || [snapshotsForSource.source]
 
-                if (fullSnapshotTs.length > 0 || metaTs.length > 0) {
-                    actions.recordPlayabilityMarkers({ fullSnapshots: fullSnapshotTs, metas: metaTs })
+            if (!allBatchSnapshots.length && sources.length === 1 && sources[0].source !== SnapshotSourceType.file) {
+                posthog.capture('recording_snapshots_v2_empty_response', { source: sources[0] })
+            }
+
+            // Build ordered list of (sourceIndex, endMs) for the loaded sources
+            const sourceEntries: { sourceIndex: number; endMs: number }[] = []
+            for (const loaded of loadedSources) {
+                const sourceIndex = sources.findIndex((s) => keyForSource(s) === keyForSource(loaded))
+                if (sourceIndex < 0) {
+                    continue
                 }
+                const entry = cache.store?.getEntry(sourceIndex)
+                if (!entry) {
+                    continue
+                }
+                sourceEntries.push({ sourceIndex, endMs: entry.endMs })
             }
+            sourceEntries.sort((a, b) => a.endMs - b.endMs)
 
-            if (!snapshots.length && sources?.length === 1 && sources[0].source !== SnapshotSourceType.file) {
-                // We got only a single source to load, loaded it successfully, but it had no snapshots.
-                posthog.capture('recording_snapshots_v2_empty_response', {
-                    source: sources[0],
-                })
+            // Split snapshots across sources by timestamp range
+            const buckets = new Map<number, RecordingSnapshot[]>()
+            for (const se of sourceEntries) {
+                buckets.set(se.sourceIndex, [])
             }
-
-            // For timestamp-based loading: after initial batch, check for FullSnapshot and advance phase
-            if (values.loadingPhase === 'find_target' && values.targetTimestamp !== null) {
-                // After loading initial batch, check for FullSnapshot
-                actions.setLoadingPhase('find_fullsnapshot')
+            let seIdx = 0
+            for (const snap of allBatchSnapshots) {
+                if (sourceEntries.length === 0) {
+                    break
+                }
+                while (seIdx < sourceEntries.length - 1 && snap.timestamp > sourceEntries[seIdx].endMs) {
+                    seIdx++
+                }
+                buckets.get(sourceEntries[seIdx].sourceIndex)?.push(snap)
             }
+            for (const se of sourceEntries) {
+                cache.store?.markLoaded(se.sourceIndex, buckets.get(se.sourceIndex)!)
+            }
+            actions.storeUpdated()
 
-            // if not then whenever we load a set of data, we try to load the next set right away
+            actions.loadNextSnapshotSource()
+        },
+
+        loadSnapshotsForSourceFailure: async (_, breakpoint) => {
+            cache.loadFailureCount = (cache.loadFailureCount ?? 0) + 1
+            if (cache.loadFailureCount > 3) {
+                return
+            }
+            await breakpoint(cache.loadFailureCount * 2000)
             actions.loadNextSnapshotSource()
         },
 
@@ -422,6 +403,9 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         },
 
         loadNextSnapshotSource: async (_, breakpoint) => {
+            if (!cache.playerActive) {
+                return
+            }
             if (values.snapshotsForSourceLoading) {
                 return
             }
@@ -433,253 +417,33 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 return
             }
 
-            const isSourceLoaded = (source: SessionRecordingSnapshotSource): boolean => {
-                const sourceKey = keyForSource(source)
-                return !!cache.snapshotsBySource?.[sourceKey]?.sourceLoaded
+            if (!cache.scheduler || !cache.store) {
+                return
             }
-
-            const getUnloadedSources = (): SessionRecordingSnapshotSource[] => {
-                return sources.filter((s) => s.source !== SnapshotSourceType.file && !isSourceLoaded(s))
-            }
-
-            // Check if timestamp-based loading is enabled
-            const isTimestampBased = values.featureFlags[FEATURE_FLAGS.REPLAY_TIMESTAMP_BASED_LOADING] === 'test'
-            const hasBlobV2 = sources.some((s) => s.source === SnapshotSourceType.blob_v2)
-
-            if (isTimestampBased && hasBlobV2 && values.targetTimestamp !== null) {
-                // Safety timeout: if timestamp-based loading takes too long, fall back to sequential
-                const TIMESTAMP_LOADING_TIMEOUT_MS = 30000
-                const loadingStartTime = cache.timestampLoadingStartTime || 0
-                if (loadingStartTime > 0 && performance.now() - loadingStartTime > TIMESTAMP_LOADING_TIMEOUT_MS) {
-                    posthog.capture('recording_timestamp_loading_timeout', {
-                        targetTimestamp: values.targetTimestamp,
-                        phase: values.loadingPhase,
-                        elapsedMs: performance.now() - loadingStartTime,
-                    })
-                    // Clear target timestamp so player can start playing
-                    actions.resetTimestampLoading()
-                    // Fall through to sequential loading
-                }
-
-                // Timestamp-based loading state machine
-                switch (values.loadingPhase) {
-                    case 'find_target': {
-                        // Load window of blobs around target: [target-2, target+8]
-                        const targetIndex = values.blobIndexForTimestamp(values.targetTimestamp)
-                        if (targetIndex === null) {
-                            // Clear target timestamp so player can start playing
-                            actions.resetTimestampLoading()
-                            return actions.loadNextSnapshotSource()
-                        }
-
-                        const startIndex = Math.max(0, targetIndex - 2)
-                        const endIndex = Math.min(sources.length - 1, targetIndex + 7)
-                        const initialBatch = sources
-                            .slice(startIndex, endIndex + 1)
-                            .filter((s) => s.source !== SnapshotSourceType.file && !isSourceLoaded(s))
-
-                        cache.timestampLoadingRange = { start: startIndex, end: endIndex }
-                        cache.timestampLoadingBlobCount = initialBatch.length
-                        cache.timestampLoadingStartTime = performance.now()
-
-                        if (initialBatch.length > 0) {
-                            return actions.loadSnapshotsForSource(initialBatch)
-                        }
-                        // Initial batch already loaded, check for FullSnapshot
-                        actions.setLoadingPhase('find_fullsnapshot')
-                        return actions.loadNextSnapshotSource()
-                    }
-
-                    case 'find_fullsnapshot': {
-                        // Race condition check: if cache was reset (by a new setTargetTimestamp), restart from find_target
-                        if (!cache.timestampLoadingRange) {
-                            actions.setLoadingPhase('find_target')
-                            return actions.loadNextSnapshotSource()
-                        }
-
-                        if (values.hasPlayableFullSnapshot) {
-                            // FullSnapshot found with continuous coverage - clear target and switch to sequential
-                            const timeToPlayable = cache.timestampLoadingStartTime
-                                ? performance.now() - cache.timestampLoadingStartTime
-                                : null
-                            posthog.capture('recording_timestamp_loading_playable', {
-                                targetTimestamp: values.targetTimestamp,
-                                blobsLoadedForFullSnapshot: cache.timestampLoadingBlobCount || 0,
-                                timeToPlayableMs: timeToPlayable,
-                            })
-                            // Switch to sequential loading to load remaining blobs
-                            // Keep targetTimestamp so the player knows where to seek
-                            // isWaitingForPlayableFullSnapshot returns false when hasPlayableFullSnapshot is true
-                            actions.setLoadingPhase('sequential')
-                            return actions.loadNextSnapshotSource()
-                        }
-
-                        const range = cache.timestampLoadingRange
-
-                        // Check if we have any FullSnapshot (even without continuous coverage)
-                        // If so, we need to fill the gap between FullSnapshot and target
-                        const fullSnapshotInfo = values.findNearestFullSnapshot
-                        if (fullSnapshotInfo) {
-                            // We have a FullSnapshot but there's a gap - fill it
-                            const gapStart = fullSnapshotInfo.blobIndex + 1
-                            const gapEnd = range.start - 1
-
-                            if (gapStart <= gapEnd) {
-                                // Load gap blobs (up to 10 at a time)
-                                const gapBatchEnd = Math.min(gapEnd, gapStart + 9)
-                                const gapBatch = sources
-                                    .slice(gapStart, gapBatchEnd + 1)
-                                    .filter((s) => s.source !== SnapshotSourceType.file && !isSourceLoaded(s))
-
-                                // Update range to include gap we're filling
-                                cache.timestampLoadingRange = {
-                                    start: Math.min(range.start, gapStart),
-                                    end: range.end,
-                                }
-                                cache.timestampLoadingBlobCount =
-                                    (cache.timestampLoadingBlobCount || 0) + gapBatch.length
-
-                                if (gapBatch.length > 0) {
-                                    return actions.loadSnapshotsForSource(gapBatch)
-                                }
-                            }
-                        }
-
-                        // Need to load earlier blobs to find FullSnapshot
-                        // Find the earliest unloaded blob before our current range
-                        let searchEnd = range.start - 1
-                        while (searchEnd >= 0 && isSourceLoaded(sources[searchEnd])) {
-                            searchEnd--
-                        }
-
-                        if (searchEnd >= 0) {
-                            const searchStart = Math.max(0, searchEnd - 9)
-                            const searchBatch = sources
-                                .slice(searchStart, searchEnd + 1)
-                                .filter((s) => s.source !== SnapshotSourceType.file && !isSourceLoaded(s))
-
-                            cache.timestampLoadingRange = { start: searchStart, end: range.end }
-                            cache.timestampLoadingBlobCount =
-                                (cache.timestampLoadingBlobCount || 0) + searchBatch.length
-
-                            if (searchBatch.length > 0) {
-                                return actions.loadSnapshotsForSource(searchBatch)
-                            }
-                        }
-
-                        // No more previous blobs - proceed with sequential loading anyway
-                        posthog.capture('recording_timestamp_loading_no_fullsnapshot', {
-                            targetTimestamp: values.targetTimestamp,
-                            totalBlobsSearched: cache.timestampLoadingBlobCount || 0,
-                        })
-                        // Clear target timestamp so player can start playing even without optimal FullSnapshot
-                        actions.resetTimestampLoading()
-                        return actions.loadNextSnapshotSource()
-                    }
-
-                    case 'sequential':
-                    default: {
-                        // When timestamp-based loading switches to sequential, load forward first then backward
-                        // This prevents the player from jumping back to the beginning
-                        const range = cache.timestampLoadingRange
-
-                        if (range) {
-                            // First: load forward from range.end+1 to the end of sources
-                            const forwardSources = sources
-                                .slice(range.end + 1)
-                                .filter((s) => s.source !== SnapshotSourceType.file && !isSourceLoaded(s))
-
-                            if (forwardSources.length > 0) {
-                                return actions.loadSnapshotsForSource(forwardSources.slice(0, 10))
-                            }
-
-                            // Second: load backward from range.start-1 to start
-                            // Load from just-before-target toward the beginning
-                            // Use slice(-10) to get the last N items (closest to target) in original order
-                            // This maintains API compatibility while loading data nearest to playback first
-                            const backwardSources = sources
-                                .slice(0, range.start)
-                                .filter((s) => s.source !== SnapshotSourceType.file && !isSourceLoaded(s))
-
-                            if (backwardSources.length > 0) {
-                                // Take the last 10 unloaded sources (closest to the target)
-                                const batchToLoad = backwardSources.slice(-10)
-                                return actions.loadSnapshotsForSource(batchToLoad)
-                            }
-
-                            // All done - clear the range
-                            cache.timestampLoadingRange = undefined
-                        }
-                        // Fall through to regular sequential loading below
-                        break
-                    }
-                }
-            }
-
-            // Sequential loading (default behavior or fallback)
-            if (hasBlobV2) {
-                const nextSourcesToLoad = getUnloadedSources()
-
-                if (nextSourcesToLoad.length > 0) {
-                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 10))
-                }
-
+            const batch = cache.scheduler.getNextBatch(cache.store, 10, cache.playbackPosition)
+            if (!batch) {
                 actions.maybeStartPolling()
-            } else {
-                // V1 behavior unchanged
-                const nextSourceToLoad = sources.find((s) => {
-                    const sourceKey = keyForSource(s)
-                    return !cache.snapshotsBySource?.[sourceKey]?.sourceLoaded && s.source !== SnapshotSourceType.file
-                })
-
-                if (nextSourceToLoad) {
-                    return actions.loadSnapshotsForSource([nextSourceToLoad])
-                }
+                return
             }
+            const batchSources = batch.sourceIndices.map((i: number) => sources[i]).filter(Boolean)
+            if (batchSources.length > 0) {
+                return actions.loadSnapshotsForSource(batchSources)
+            }
+            actions.maybeStartPolling()
         },
     })),
     selectors(({ cache }) => ({
         snapshotsLoading: [
-            (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading, s.snapshotsBySources],
-            (
-                snapshotSourcesLoading: boolean,
-                snapshotsForSourceLoading: boolean,
-                snapshotsBySources: Record<string, RecordingSnapshot[]>
-            ): boolean => {
-                const snapshots = Object.values(snapshotsBySources).flat()
-                return snapshots?.length === 0 && (snapshotSourcesLoading || snapshotsForSourceLoading)
+            (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading, s.storeVersion],
+            (snapshotSourcesLoading: boolean, snapshotsForSourceLoading: boolean): boolean => {
+                return (
+                    (cache.store?.getAllLoadedSnapshots().length ?? 0) === 0 &&
+                    (snapshotSourcesLoading || snapshotsForSourceLoading)
+                )
             },
         ],
 
         snapshotsLoaded: [(s) => [s.snapshotSources], (snapshotSources): boolean => !!snapshotSources],
-
-        snapshotsBySources: [
-            (s) => [s.snapshotsBySourceSuccessCount],
-            (
-                snapshotsBySourceSuccessCount: number
-            ): Record<SourceKey, SessionRecordingSnapshotSourceResponse> & { _count?: number } => {
-                if (!cache.snapshotsBySource) {
-                    return {}
-                }
-
-                // KLUDGE: we keep the data in a cache so we can avoid creating large objects every time something changes
-                // KLUDGE: but if we change the data without changing the object instance then dependents don't recalculate
-                if (cache.snapshotsBySource['_count'] !== snapshotsBySourceSuccessCount) {
-                    // so we make a new object instance when the count changes
-                    // technically this should only be called when success count changes anyway...
-                    // but let's be very careful, it is relatively free to track the count
-                    // Create shallow copy to trigger dependent selectors
-                    // IMPORTANT: This must preserve the snapshot arrays from previous batches
-                    const newCache: Record<string, any> = {}
-                    for (const key of Object.keys(cache.snapshotsBySource)) {
-                        newCache[key] = cache.snapshotsBySource[key]
-                    }
-                    newCache['_count'] = snapshotsBySourceSuccessCount
-                    cache.snapshotsBySource = newCache
-                }
-                return cache.snapshotsBySource
-            },
-        ],
 
         isLoadingSnapshots: [
             (s) => [s.loadingSources],
@@ -689,141 +453,85 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         ],
 
         allSourcesLoaded: [
-            (s) => [s.snapshotSources, s.snapshotsBySourceSuccessCount],
+            (s) => [s.snapshotSources, s.storeUpdateCount],
             (snapshotSources): boolean => {
                 if (!snapshotSources || snapshotSources.length === 0) {
                     return false
                 }
-                return snapshotSources.every((source) => {
-                    const sourceKey = keyForSource(source)
-                    return cache.snapshotsBySource?.[sourceKey]?.sourceLoaded
-                })
+                return cache.store?.allLoaded ?? false
             },
         ],
 
-        // Timestamp-based loading selectors
-        blobIndexForTimestamp: [
-            (s) => [s.snapshotSources],
-            (snapshotSources): ((timestamp: number) => number | null) => {
-                return (timestamp: number): number | null => {
-                    if (!snapshotSources?.length) {
-                        return null
-                    }
-                    return getBlobIndexForTimestamp(snapshotSources, timestamp)
-                }
+        storeVersion: [
+            (s) => [s.storeUpdateCount, s.snapshotSources],
+            (): number => {
+                return cache.store?.version ?? 0
             },
         ],
 
-        // Find the nearest FullSnapshot before target timestamp (used for gap filling)
-        findNearestFullSnapshot: [
-            (s) => [s.playabilityMarkers, s.blobIndexForTimestamp, s.targetTimestamp],
-            (
-                playabilityMarkers: { fullSnapshots: number[]; metas: number[] },
-                blobIndexForTimestamp: (timestamp: number) => number | null,
-                targetTimestamp: number | null
-            ): { blobIndex: number; timestamp: number } | null => {
-                if (!targetTimestamp) {
-                    return null
-                }
-
-                const { fullSnapshots } = playabilityMarkers
-
-                // Find FullSnapshots at or before target timestamp
-                const validFullSnapshots = fullSnapshots.filter((ts) => ts <= targetTimestamp)
-                if (validFullSnapshots.length === 0) {
-                    return null
-                }
-
-                // Get the nearest (latest) FullSnapshot before target
-                const nearestFullSnapshotTs = validFullSnapshots[validFullSnapshots.length - 1]
-                const blobIndex = blobIndexForTimestamp(nearestFullSnapshotTs)
-                if (blobIndex === null) {
-                    return null
-                }
-
-                return { blobIndex, timestamp: nearestFullSnapshotTs }
+        snapshotStore: [
+            (s) => [s.storeVersion],
+            (): SnapshotStore => {
+                // Always created in afterMount; storeUpdated() ensures
+                // this selector re-evaluates with the real instance.
+                return cache.store ?? new SnapshotStore()
             },
         ],
 
-        hasPlayableFullSnapshot: [
-            (s) => [s.playabilityMarkers, s.snapshotsBySources, s.snapshotSources, s.targetTimestamp],
-            (
-                playabilityMarkers: { fullSnapshots: number[]; metas: number[] },
-                snapshotsBySources: Record<SourceKey, SessionRecordingSnapshotSourceResponse>,
-                snapshotSources: SessionRecordingSnapshotSource[] | null,
-                targetTimestamp: number | null
-            ): boolean => {
-                if (!targetTimestamp || !snapshotSources?.length) {
-                    return true // No target or sources, default playable
-                }
-
-                const { fullSnapshots } = playabilityMarkers
-
-                const isSourceLoaded = (index: number): boolean => {
-                    const source = snapshotSources[index]
-                    if (!source) {
-                        return false
-                    }
-                    const sourceKey = keyForSource(source)
-                    return !!snapshotsBySources[sourceKey]?.sourceLoaded
-                }
-
-                // Find FullSnapshots at or before target timestamp
-                const validFullSnapshots = fullSnapshots.filter((ts) => ts <= targetTimestamp)
-                if (validFullSnapshots.length === 0) {
-                    // Edge case: target is at or before the first FullSnapshot (e.g., seeking to t=0)
-                    // If we have blob 0 loaded AND there's at least one FullSnapshot, we can play from it
-                    // rrweb will start from the first available FullSnapshot
-                    if (fullSnapshots.length > 0) {
-                        // Check if blob 0 (first blob) is loaded - it should contain the first FullSnapshot
-                        if (isSourceLoaded(0)) {
-                            const firstFullSnapshotTs = fullSnapshots[0]
-                            // If target is within 1 second before the first FullSnapshot, consider playable
-                            // This handles the common case where recording starts slightly before first FullSnapshot
-                            if (targetTimestamp >= firstFullSnapshotTs - 1000) {
-                                return true
-                            }
-                        }
-                    }
-                    return false // No FullSnapshot before target
-                }
-
-                // Find the nearest FullSnapshot before target (largest timestamp <= targetTimestamp)
-                const nearestFullSnapshotTs = validFullSnapshots[validFullSnapshots.length - 1]
-
-                const fullSnapshotBlobIndex = getBlobIndexForTimestamp(snapshotSources, nearestFullSnapshotTs)
-                const targetBlobIndex = getBlobIndexForTimestamp(snapshotSources, targetTimestamp)
-
-                // Check continuous coverage from FullSnapshot blob to target blob
-                // Also check one blob before for potential Meta event
-                const startCheck = Math.max(0, fullSnapshotBlobIndex - 1)
-                for (let i = startCheck; i <= targetBlobIndex; i++) {
-                    if (!isSourceLoaded(i)) {
-                        return false // Gap in coverage
-                    }
-                }
-
-                return true
+        sourceLoadingStates: [
+            (s) => [s.storeVersion],
+            (): SourceLoadingState[] => {
+                return cache.store?.getSourceStates() ?? []
             },
         ],
 
-        // Returns true when timestamp-based loading is active and we don't have a playable FullSnapshot yet
-        // The player should stay in buffering state when this is true
         isWaitingForPlayableFullSnapshot: [
-            (s) => [s.targetTimestamp, s.hasPlayableFullSnapshot],
-            (targetTimestamp: number | null, hasPlayableFullSnapshot: boolean): boolean => {
-                if (targetTimestamp === null) {
-                    return false // Not doing timestamp-based loading
+            (s) => [s.storeVersion],
+            (): boolean => {
+                if (!cache.scheduler || !cache.store) {
+                    return false
                 }
-                if (hasPlayableFullSnapshot) {
-                    return false // We have a playable FullSnapshot, good to go
+                const mode = cache.scheduler.currentMode
+                if (mode.kind !== 'seek') {
+                    return false
                 }
-                // We have a target timestamp but no playable FullSnapshot yet
-                return true
+                return !cache.store.canPlayAt(mode.targetTimestamp)
+            },
+        ],
+
+        isRecordingDeleted: [
+            (s) => [s.snapshotLoadError],
+            (snapshotLoadError): boolean => {
+                return snapshotLoadError instanceof RecordingDeletedError
+            },
+        ],
+
+        recordingDeletedAt: [
+            (s) => [s.snapshotLoadError],
+            (snapshotLoadError): number | null => {
+                if (snapshotLoadError instanceof RecordingDeletedError) {
+                    return snapshotLoadError.deletedAt
+                }
+                return null
+            },
+        ],
+
+        recordingDeletedBy: [
+            (s) => [s.snapshotLoadError],
+            (snapshotLoadError): string | null => {
+                if (snapshotLoadError instanceof RecordingDeletedError) {
+                    return snapshotLoadError.deletedBy
+                }
+                return null
             },
         ],
     })),
     afterMount(({ actions, cache }) => {
+        cache.playerActive = true
+        cache.store = new SnapshotStore()
+        cache.scheduler = new LoadingScheduler()
+        actions.storeUpdated()
+
         cache.disposables.add(() => {
             const handleVisibilityChange = (): void => {
                 if (document.hidden) {
@@ -841,12 +549,13 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         }, 'visibilityChangeHandler')
     }),
     beforeUnmount(({ cache }) => {
-        cache.snapshotsBySource = undefined
+        cache.playerActive = false
+        cache.store = undefined
+        cache.scheduler = undefined
+        cache.pendingBatch = undefined
         cache.previousSourceKeys = undefined
         cache.lastSourcesChangeTime = undefined
-        cache.timestampLoadingRange = undefined
-        cache.timestampLoadingBlobCount = undefined
-        cache.timestampLoadingStartTime = undefined
-        cache.lastTargetTimestamp = undefined
+        cache.playbackPosition = undefined
+        cache.loadFailureCount = undefined
     }),
 ])

@@ -35,7 +35,6 @@ from posthog.temporal.data_modeling.run_workflow import (
     CleanupRunningJobsActivityInputs,
     CreateJobModelInputs,
     ModelNode,
-    NonRetryableException,
     RunDagActivityInputs,
     RunWorkflow,
     RunWorkflowInputs,
@@ -1624,7 +1623,7 @@ async def test_materialize_model_with_plain_datetime(ateam, bucket_name, minio_c
             workflow_id="test_workflow",
         )
 
-        key, delta_table, job_id = await materialize_model(
+        key, delta_table, _ = await materialize_model(
             saved_query.id.hex,
             ateam,
             saved_query,
@@ -1633,6 +1632,7 @@ async def test_materialize_model_with_plain_datetime(ateam, bucket_name, minio_c
         )
 
         assert key == saved_query.normalized_name
+        assert delta_table is not None
 
         table = delta_table.to_pyarrow_table()
         assert table.num_rows == 1
@@ -1678,25 +1678,18 @@ async def test_materialize_model_empty_results(ateam, bucket_name, minio_client)
             workflow_id="test_workflow",
         )
 
-        with pytest.raises(NonRetryableException) as exc_info:
-            await materialize_model(
-                saved_query.id.hex,
-                ateam,
-                saved_query,
-                job,
-                unittest.mock.AsyncMock(),
-            )
-
-        assert "returned no results" in str(exc_info.value)
+        await materialize_model(
+            saved_query.id.hex,
+            ateam,
+            saved_query,
+            job,
+            unittest.mock.AsyncMock(),
+        )
 
         await database_sync_to_async(job.refresh_from_db)()
-        assert job.status == DataModelingJob.Status.FAILED
+        assert job.status == DataModelingJob.Status.COMPLETED
         assert job.error is not None
         assert "returned no results" in job.error
-
-        await database_sync_to_async(saved_query.refresh_from_db)()
-        assert saved_query.latest_error is not None
-        assert "returned no results" in saved_query.latest_error
 
 
 child_ducklake_workflow_runs: list[dict] = []

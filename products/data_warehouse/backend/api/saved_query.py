@@ -40,6 +40,7 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.rate_limit import MaterializationRateThrottle, RunSavedQueryRateThrottle
 from posthog.temporal.common.client import sync_connect
 
 from products.data_warehouse.backend.data_load.saved_query_service import (
@@ -402,8 +403,9 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
 
     def validate_query(self, query):
         team_id = self.context["team_id"]
+        user = self.context["request"].user
 
-        context = HogQLContext(team_id=team_id, enable_select_queries=True)
+        context = HogQLContext(team_id=team_id, user=user, enable_select_queries=True)
         select_ast = parse_select(query["query"])
 
         find_placeholders = FindPlaceholders()
@@ -486,6 +488,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                 ),
             )
             .exclude(deleted=True)
+            .exclude(origin=DataWarehouseSavedQuery.Origin.ENDPOINT)
             .order_by(self.ordering)
         )
 
@@ -579,7 +582,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
-    @action(methods=["POST"], detail=True)
+    @action(
+        methods=["POST"],
+        detail=True,
+        throttle_classes=[RunSavedQueryRateThrottle],
+    )
     def run(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Run this saved query."""
         saved_query = self.get_object()
@@ -588,7 +595,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
         return response.Response(status=status.HTTP_200_OK)
 
-    @action(methods=["POST"], detail=True)
+    @action(
+        methods=["POST"],
+        detail=True,
+        required_scopes=["warehouse_view:write"],
+        throttle_classes=[MaterializationRateThrottle],
+    )
     def revert_materialization(self, request: request.Request, *args, **kwargs) -> response.Response:
         """
         Undo materialization, revert back to the original view.
@@ -613,7 +625,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
         return response.Response(status=status.HTTP_200_OK)
 
-    @action(methods=["POST"], detail=True)
+    @action(
+        methods=["POST"],
+        detail=True,
+        required_scopes=["warehouse_view:write"],
+        throttle_classes=[MaterializationRateThrottle],
+    )
     def materialize(self, request: request.Request, *args, **kwargs) -> response.Response:
         """
         Enable materialization for this saved query with a 24-hour sync frequency.
@@ -841,7 +858,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
         return response.Response({"upstream_count": len(upstream_ids), "downstream_count": len(downstream_ids)})
 
-    @action(methods=["GET"], detail=True)
+    @action(methods=["GET"], detail=True, required_scopes=["warehouse_view:read"])
     def run_history(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Return the recent run history (up to 5 most recent) for this materialized view."""
         saved_query = self.get_object()

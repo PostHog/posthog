@@ -36,7 +36,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     connect(() => ({
         values: [
             databaseTableListLogic,
-            ['dataWarehouseTables', 'databaseLoading'],
+            ['database', 'dataWarehouseTables', 'databaseLoading'],
             externalDataSourcesLogic,
             ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
             billingLogic,
@@ -300,15 +300,18 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             if (router.values.location.pathname.includes('data-warehouse')) {
                 cache.disposables.add(() => {
                     const timerId = setTimeout(() => {
-                        actions.loadSources(null)
+                        actions.loadSources()
                     }, REFRESH_INTERVAL)
                     return () => clearTimeout(timerId)
                 }, 'refreshTimeout')
             }
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadSources(null)
+    afterMount(({ actions, values }) => {
+        if (!values.database && !values.databaseLoading) {
+            actions.loadDatabase()
+        }
+        actions.loadSources()
         actions.loadRunningActivityResponse()
         actions.loadCompletedActivityResponse()
         actions.loadTotalRowsStats()

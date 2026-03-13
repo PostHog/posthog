@@ -919,6 +919,39 @@ def background_delete_model_task(
         raise
 
 
+def _queue_delete_team_recordings(team_ids: list[int], deleted_by: str) -> None:
+    import asyncio
+    from datetime import timedelta
+    from uuid import uuid4
+
+    from temporalio import common
+
+    from posthog.temporal.common.client import async_connect
+    from posthog.temporal.delete_recordings.types import DeletionConfig, RecordingsWithTeamInput
+
+    config = DeletionConfig(deleted_by=deleted_by, reason="team deletion")
+
+    async def start_all() -> None:
+        temporal = await async_connect()
+        await asyncio.gather(
+            *[
+                temporal.start_workflow(
+                    "delete-recordings-with-team",
+                    RecordingsWithTeamInput(team_id=team_id, config=config),
+                    id=f"delete-recordings-{team_id}-team-{uuid4()}",
+                    task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+                    retry_policy=common.RetryPolicy(
+                        maximum_attempts=2,
+                        initial_interval=timedelta(minutes=1),
+                    ),
+                )
+                for team_id in team_ids
+            ]
+        )
+
+    asyncio.run(start_all())
+
+
 def _delete_teams_and_data(team_ids: list[int], user_id: int, project_id: int | None = None) -> None:
     """
     Shared logic for deleting teams and all associated data (Postgres, batch exports, ClickHouse).
@@ -928,6 +961,16 @@ def _delete_teams_and_data(team_ids: list[int], user_id: int, project_id: int | 
     from posthog.models.team import Team
     from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
     from posthog.models.user import User
+
+    user = User.objects.filter(id=user_id).first()
+    if not user:
+        raise ValueError(f"Cannot delete team data: user {user_id} not found")
+
+    try:
+        _queue_delete_team_recordings(team_ids, deleted_by=user.email)
+    except Exception:
+        logger.exception("Failed to queue recording deletion workflows", team_ids=team_ids)
+        capture_exception()
 
     logger.info("Deleting bulky postgres data", team_ids=team_ids)
     delete_bulky_postgres_data(team_ids=team_ids)
@@ -942,7 +985,6 @@ def _delete_teams_and_data(team_ids: list[int], user_id: int, project_id: int | 
         Team.objects.filter(id__in=team_ids).delete()
 
     logger.info("Queueing ClickHouse deletion", team_ids=team_ids)
-    user = User.objects.filter(id=user_id).first()
     AsyncDeletion.objects.bulk_create(
         [
             AsyncDeletion(

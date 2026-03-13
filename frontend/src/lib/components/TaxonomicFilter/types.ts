@@ -4,6 +4,7 @@ import { ReactNode } from 'react'
 
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+// eslint-disable-next-line import/no-cycle
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { ReplayTaxonomicFilterProperty } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
 
@@ -12,14 +13,44 @@ import {
     ActionType,
     CohortType,
     EventDefinition,
+    EventPropertyFilter,
     PersonProperty,
+    PersonPropertyFilter,
     PropertyDefinition,
     PropertyFilterType,
+    PropertyOperator,
 } from '~/types'
 
 export interface SimpleOption {
     name: string
     propertyFilterType?: PropertyFilterType
+}
+
+export interface QuickFilterItem {
+    _type: 'quick_filter'
+    name: string
+    filterValue: string
+    operator: PropertyOperator
+    propertyKey: string
+    propertyFilterType: PropertyFilterType.Event | PropertyFilterType.Person
+    eventName?: string
+    extraProperties?: (EventPropertyFilter | PersonPropertyFilter)[]
+}
+
+export function isQuickFilterItem(item: unknown): item is QuickFilterItem {
+    return item != null && typeof item === 'object' && '_type' in item && item._type === 'quick_filter'
+}
+
+export function quickFilterToPropertyFilter(item: QuickFilterItem): EventPropertyFilter | PersonPropertyFilter {
+    const base = { key: item.propertyKey, value: item.filterValue, operator: item.operator }
+    if (item.propertyFilterType === PropertyFilterType.Event) {
+        return { ...base, type: PropertyFilterType.Event }
+    }
+    return { ...base, type: PropertyFilterType.Person }
+}
+
+export function quickFilterToPropertyFilters(item: QuickFilterItem): (EventPropertyFilter | PersonPropertyFilter)[] {
+    return [quickFilterToPropertyFilter(item), ...(item.extraProperties ?? [])]
 }
 
 export type TaxonomicFilterGroupValueMap = { [key in TaxonomicFilterGroupType]?: (PropertyKey | null)[] }
@@ -30,9 +61,7 @@ export type AllowedProperties = TaxonomicFilterGroupValueMap
 export interface TaxonomicFilterProps {
     groupType?: TaxonomicFilterGroupType
     value?: TaxonomicFilterValue
-    // sometimes the filter searches for a different value than provided e.g. a URL will be searched as $current_url
-    // in that case the original value is returned here as well as the property that the user chose
-    onChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any, originalQuery?: string) => void
+    onChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void
     onEnter?: (query: string) => void
     onClose?: () => void
     filter?: LocalFilter
@@ -66,6 +95,11 @@ export interface TaxonomicFilterProps {
     initialSearchQuery?: string
     /** Allow users to select events that haven't been captured yet (default: false) */
     allowNonCapturedEvents?: boolean
+    hogQLGlobals?: Record<string, any>
+    /** Optionally customize definition popover contents for selected items. */
+    definitionPopoverRenderer?: DefinitionPopoverRenderer
+    /** Override the group-level minSearchQueryLength for all groups in this instance. */
+    minSearchQueryLength?: number
 }
 
 export interface DataWarehousePopoverField {
@@ -91,6 +125,12 @@ export type TaxonomicFilterRenderProps = {
     infiniteListLogicProps: InfiniteListLogicProps
 }
 export type TaxonomicFilterRender = (props: TaxonomicFilterRenderProps) => JSX.Element | null
+export type DefinitionPopoverRendererProps = {
+    item: TaxonomicDefinitionTypes
+    group: TaxonomicFilterGroup
+    defaultView: JSX.Element
+}
+export type DefinitionPopoverRenderer = (props: DefinitionPopoverRendererProps) => JSX.Element | null
 
 export interface TaxonomicFilterGroup {
     name: string
@@ -129,6 +169,10 @@ export interface TaxonomicFilterGroup {
     propertyAllowList?: string[]
     /** Passed to the component specified via the `render` key */
     componentProps?: Record<string, any>
+    /** Minimum number of characters before a remote search is issued. */
+    minSearchQueryLength?: number
+    /** Description shown in the empty state when minSearchQueryLength is set. */
+    searchDescription?: string
 }
 
 export enum TaxonomicFilterGroupType {
@@ -150,7 +194,11 @@ export enum TaxonomicFilterGroupType {
     NumericalEventProperties = 'numerical_event_properties',
     PersonProperties = 'person_properties',
     PageviewUrls = 'pageview_urls',
+    PageviewEvents = 'pageview_events',
     Screens = 'screens',
+    ScreenEvents = 'screen_events',
+    EmailAddresses = 'email_addresses',
+    AutocaptureEvents = 'autocapture_events',
     CustomEvents = 'custom_events',
     Wildcards = 'wildcard',
     GroupsPrefix = 'groups',
@@ -172,6 +220,7 @@ export enum TaxonomicFilterGroupType {
     LogResourceAttributes = 'log_resource_attributes',
     // Misc
     Replay = 'replay',
+    ReplaySavedFilters = 'replay_saved_filters',
     RevenueAnalyticsProperties = 'revenue_analytics_properties',
     Resources = 'resources',
     ErrorTrackingProperties = 'error_tracking_properties',
@@ -180,6 +229,7 @@ export enum TaxonomicFilterGroupType {
     MaxAIContext = 'max_ai_context',
     // Workflows execution variables
     WorkflowVariables = 'workflow_variables',
+    SuggestedFilters = 'suggested_filters',
     Empty = 'empty',
 }
 
@@ -189,11 +239,7 @@ export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
 
 export interface ListStorage {
     results: TaxonomicDefinitionTypes[]
-    // Query used for the results currently in state
     searchQuery?: string
-    // some list logics alter the query to make it more useful
-    // the original query might be different to the search query
-    originalQuery?: string
     count: number
     expandedCount?: number
     queryChanged?: boolean
@@ -210,6 +256,16 @@ export type ListFuse = Fuse<{
     item: EventDefinition | CohortType
 }> // local alias for typegen
 
+export interface SkeletonItem {
+    _skeleton: true
+    group: TaxonomicFilterGroupType
+    groupName: string
+}
+
+export function isSkeletonItem(item: unknown): item is SkeletonItem {
+    return typeof item === 'object' && item !== null && '_skeleton' in item
+}
+
 export type TaxonomicDefinitionTypes =
     | EventDefinition
     | PropertyDefinition
@@ -219,3 +275,4 @@ export type TaxonomicDefinitionTypes =
     | DataWarehouseTableForInsight
     | MaxContextTaxonomicFilterOption
     | ReplayTaxonomicFilterProperty
+    | QuickFilterItem

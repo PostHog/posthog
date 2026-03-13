@@ -5,13 +5,13 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import { IconCheck, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
 
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
-import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { IconBlank } from 'lib/lemon-ui/icons'
+import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuSeparator } from 'lib/ui/Menus/Menus'
 import { cn } from 'lib/utils/css-classes'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { globalModalsLogic } from '~/layout/GlobalModals'
@@ -120,7 +120,13 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
                 updateCurrentOrganization(item.org.id)
             }
         },
-        [closeOrgSwitcher, updateCurrentOrganization, guardAvailableFeature, showCreateOrganizationModal]
+        [
+            closeOrgSwitcher,
+            updateCurrentOrganization,
+            guardAvailableFeature,
+            showCreateOrganizationModal,
+            setAccountMenuOpen,
+        ]
     )
 
     const getItemString = useCallback((item: ListItem | null): string => {

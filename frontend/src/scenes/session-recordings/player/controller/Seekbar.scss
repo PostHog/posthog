@@ -1,5 +1,5 @@
 .PlayerSeekbar {
-    --bar-height: 4px;
+    --bar-height: 6px;
     --slider-height: 20px;
     --thumb-size: 15px;
 
@@ -10,7 +10,7 @@
 
     &:hover,
     &--scrubbing {
-        --bar-height: 8px;
+        --bar-height: 10px;
 
         .PlayerSeekBarPreview {
             opacity: 1;
@@ -31,77 +31,6 @@
             height 150ms ease-in-out,
             top 150ms ease-in-out;
 
-        .PlayerSeekbar__bufferbar,
-        .PlayerSeekbar__currentbar,
-        .PlayerSeekbar__segments {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 0;
-            height: 100%;
-        }
-
-        .PlayerSeekbar__bufferbar {
-            z-index: 2;
-            background-color: var(--color-border-primary);
-            border-radius: var(--bar-height);
-
-            &--loading {
-                background-image: repeating-linear-gradient(
-                    45deg,
-                    var(--color-border-primary),
-                    var(--color-border-primary) 10px,
-                    var(--color-bg-surface-secondary) 10px,
-                    var(--color-bg-surface-secondary) 20px
-                );
-                background-size: 28px 28px;
-                animation: PlayerSeekbar__loading-stripes 0.8s linear infinite;
-            }
-        }
-
-        .PlayerSeekbar__currentbar {
-            z-index: 3;
-            background-color: var(--color-accent);
-            border-radius: var(--bar-height) 0 0 var(--bar-height);
-        }
-
-        .PlayerSeekbar__segments {
-            z-index: 4;
-            width: 100%;
-            height: 100%;
-            white-space: nowrap;
-
-            .PlayerSeekbar__segments__item {
-                float: left;
-                height: 100%;
-                background-color: var(--color-bg-surface-primary);
-                opacity: 0.5;
-
-                &--active {
-                    opacity: 0;
-                }
-
-                &--buffer {
-                    background-color: var(--color-bg-surface-tertiary);
-                    opacity: 0.6;
-                }
-
-                &--buffer-loading {
-                    background-color: var(--color-border-primary);
-                    background-image: repeating-linear-gradient(
-                        45deg,
-                        var(--color-border-primary),
-                        var(--color-border-primary) 10px,
-                        var(--color-bg-surface-secondary) 10px,
-                        var(--color-bg-surface-secondary) 20px
-                    );
-                    background-size: 28px 28px;
-                    opacity: 1;
-                    animation: PlayerSeekbar__loading-stripes 0.8s linear infinite;
-                }
-            }
-        }
-
         .PlayerSeekbar__thumb {
             position: absolute;
             top: calc(var(--bar-height) / 2);
@@ -116,14 +45,36 @@
             backface-visibility: hidden;
         }
 
-        @keyframes PlayerSeekbar__loading-stripes {
-            0% {
-                background-position: 0 0;
-            }
+        .PlayerSeekbar__sources {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 2;
+            display: flex;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            border-radius: var(--bar-height);
 
-            100% {
-                background-position: 28px 0;
+            .PlayerSeekbar__sources__item {
+                height: 100%;
+                background-color: var(--color-neutral-100);
+                transition: background-color 150ms ease;
+
+                &--loaded {
+                    background-color: var(--color-neutral-450);
+                }
             }
+        }
+
+        .PlayerSeekbar__played {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 3;
+            height: 100%;
+            background-color: hsl(25deg 85% 50% / 70%);
+            border-radius: var(--bar-height) 0 0 var(--bar-height);
         }
     }
 

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { useRestrictedArea } from 'lib/components/RestrictedArea'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 
 import { StatsMethodSelector } from '~/scenes/experiments/components/StatsMethodSelector'
 import { teamLogic } from '~/scenes/teamLogic'
@@ -11,9 +11,9 @@ export function DefaultExperimentStatsMethod(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
 
-    // TODO: This should probably be looking at the Experiment resource access level
     const restrictionReason = useRestrictedArea({
-        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
     const handleChange = (value: ExperimentStatsMethod): void => {
@@ -21,13 +21,11 @@ export function DefaultExperimentStatsMethod(): JSX.Element {
     }
 
     return (
-        <div className="mt-4">
-            <StatsMethodSelector
-                value={currentTeam?.default_experiment_stats_method ?? ExperimentStatsMethod.Bayesian}
-                onChange={handleChange}
-                disabled={!!restrictionReason || currentTeamLoading}
-                disabledReason={restrictionReason || (currentTeamLoading ? 'Loading...' : undefined)}
-            />
-        </div>
+        <StatsMethodSelector
+            value={currentTeam?.default_experiment_stats_method ?? ExperimentStatsMethod.Bayesian}
+            onChange={handleChange}
+            disabled={!!restrictionReason || currentTeamLoading}
+            disabledReason={restrictionReason || (currentTeamLoading ? 'Loading...' : undefined)}
+        />
     )
 }

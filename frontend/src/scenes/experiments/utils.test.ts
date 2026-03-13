@@ -26,8 +26,8 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { getNiceTickValues } from './MetricsView/shared/utils'
 import { filterToMetricConfig } from './metricQueryUtils'
+import { getNiceTickValues } from './MetricsView/shared/utils'
 import {
     exposureConfigToFilter,
     featureFlagEligibleForExperiment,
@@ -142,7 +142,7 @@ describe('utils', () => {
                 {
                     properties: [],
                     rollout_percentage: 100,
-                    description: 'Added automatically when the experiment variant was shipped',
+                    description: 'Added automatically when the experiment was ended to keep only one variant.',
                 },
                 { properties: [], rollout_percentage: 100 },
             ],
@@ -226,7 +226,7 @@ describe('utils', () => {
                 {
                     properties: [],
                     rollout_percentage: 100,
-                    description: 'Added automatically when the experiment variant was shipped',
+                    description: 'Added automatically when the experiment was ended to keep only one variant.',
                 },
                 { properties: [], rollout_percentage: 100 },
             ],
@@ -695,6 +695,7 @@ describe('checkFeatureFlagEligibility', () => {
         last_modified_by: null,
         evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
         evaluation_tags: [],
+        evaluation_contexts: [],
         bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
     }
     it('throws an error for a remote configuration feature flag', () => {

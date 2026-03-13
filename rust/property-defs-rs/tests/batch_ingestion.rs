@@ -34,6 +34,13 @@ async fn test_simple_batch_write(db: PgPool) {
         .unwrap();
     assert_eq!(String::from("$pageview"), event_def_name);
 
+    let enforcement_mode: String =
+        sqlx::query_scalar!(r#"SELECT enforcement_mode from posthog_eventdefinition"#)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+    assert_eq!(String::from("allow"), enforcement_mode);
+
     let prop_defs_count: Option<i64> =
         sqlx::query_scalar!(r#"SELECT count(*) from posthog_propertydefinition"#)
             .fetch_one(&db)

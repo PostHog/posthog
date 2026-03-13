@@ -43,9 +43,8 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
                 </>
             ) : (
                 conversationHistory.slice(0, 3).map((conversation) => (
-                    <span className="flex items-center gap-2">
+                    <span key={conversation.id} className="flex items-center gap-2">
                         <Link
-                            key={conversation.id}
                             className="grow text-sm text-primary hover:text-accent-hover active:text-accent-active"
                             to={urls.ai(conversation.id)}
                             onClick={(e) => {

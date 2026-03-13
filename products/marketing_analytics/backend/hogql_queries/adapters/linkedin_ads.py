@@ -35,10 +35,14 @@ class LinkedinAdsAdapter(MarketingSourceAdapter[LinkedinAdsConfig]):
 
         try:
             # Check for expected table name patterns
-            if self.config.campaign_table.name and "campaigns" not in self.config.campaign_table.name.lower():
-                errors.append(f"Campaign table name '{self.config.campaign_table.name}' doesn't contain 'campaigns'")
-            if self.config.stats_table.name and "campaign_stats" not in self.config.stats_table.name.lower():
-                errors.append(f"Stats table name '{self.config.stats_table.name}' doesn't contain 'campaign_stats'")
+            if self.config.campaign_table.name and "campaign_groups" not in self.config.campaign_table.name.lower():
+                errors.append(
+                    f"Campaign table name '{self.config.campaign_table.name}' doesn't contain 'campaign_groups'"
+                )
+            if self.config.stats_table.name and "campaign_group_stats" not in self.config.stats_table.name.lower():
+                errors.append(
+                    f"Stats table name '{self.config.stats_table.name}' doesn't contain 'campaign_group_stats'"
+                )
 
             is_valid = len(errors) == 0
             self._log_validation_errors(errors)
@@ -136,11 +140,17 @@ class LinkedinAdsAdapter(MarketingSourceAdapter[LinkedinAdsConfig]):
                         ast.Constant(value=0),
                     ],
                 )
+
+                converted = self._apply_currency_conversion(
+                    self.config.stats_table, stats_table_name, "currency", field_as_float
+                )
+                if converted:
+                    return ast.Call(name="SUM", args=[converted])
+
                 sum = ast.Call(name="SUM", args=[field_as_float])
                 return ast.Call(name="toFloat", args=[sum])
         except (TypeError, AttributeError, KeyError):
             pass
-        # Column doesn't exist or can't be checked, return 0
         return ast.Constant(value=0)
 
     def _get_from(self) -> ast.JoinExpr:
@@ -156,7 +166,7 @@ class LinkedinAdsAdapter(MarketingSourceAdapter[LinkedinAdsConfig]):
 
         # Build join condition: campaign_table.id = stats_table.id
         left_field = ast.Field(chain=[campaign_table_name, "id"])
-        right_field = ast.Field(chain=[stats_table_name, "campaign_id"])
+        right_field = ast.Field(chain=[stats_table_name, "campaign_group_id"])
         join_condition_expr = ast.CompareOperation(left=left_field, op=ast.CompareOperationOp.Eq, right=right_field)
 
         # Create JoinConstraint

@@ -593,6 +593,10 @@ async fn test_personal_api_key_with_scoped_organizations_allowed() {
         .create_user(&user_email, &org_id, team.id)
         .await
         .unwrap();
+    context
+        .add_user_to_organization(user_id, &org_id, 15)
+        .await
+        .unwrap();
 
     // Create personal API key with scoped_organizations restriction that includes our org
     let org_id_str = org_id.to_string();
@@ -687,6 +691,173 @@ async fn test_personal_api_key_with_scoped_organizations_denied() {
         response.status(),
         401,
         "Should deny access when organization is not in scoped_organizations"
+    );
+}
+
+#[tokio::test]
+async fn test_personal_api_key_with_scoped_organizations_removed_member() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let team = context.insert_new_team(None).await.unwrap();
+    let org_id = context.get_organization_id_for_team(&team).await.unwrap();
+
+    let test_uuid = uuid::Uuid::new_v4().to_string()[..8].to_string();
+    let user_email = format!("test_org_removed_{test_uuid}@posthog.com");
+    let user_id = context
+        .create_user(&user_email, &org_id, team.id)
+        .await
+        .unwrap();
+    context
+        .add_user_to_organization(user_id, &org_id, 15)
+        .await
+        .unwrap();
+
+    let org_id_str = org_id.to_string();
+    let (_pak_id, api_key_value) = context
+        .create_personal_api_key(
+            user_id,
+            "Test PAK Org Removed",
+            vec!["feature_flag:read"],
+            None,
+            Some(vec![org_id_str]),
+        )
+        .await
+        .unwrap();
+
+    let redis_client =
+        feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone())).await;
+    context
+        .populate_flag_definitions_cache(redis_client, team.id)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    // Verify access works while user is a member
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {api_key_value}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        200,
+        "Should authenticate while user is an org member"
+    );
+
+    // Remove user from organization
+    context
+        .remove_user_from_organization(user_id, &org_id)
+        .await
+        .unwrap();
+
+    // Should now fail because the user is no longer an org member
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {api_key_value}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        401,
+        "Should deny access after user is removed from organization"
+    );
+}
+
+#[tokio::test]
+async fn test_personal_api_key_unscoped_removed_member() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let team = context.insert_new_team(None).await.unwrap();
+    let org_id = context.get_organization_id_for_team(&team).await.unwrap();
+
+    let test_uuid = uuid::Uuid::new_v4().to_string()[..8].to_string();
+    let user_email = format!("test_unscoped_removed_{test_uuid}@posthog.com");
+    let user_id = context
+        .create_user(&user_email, &org_id, team.id)
+        .await
+        .unwrap();
+    context
+        .add_user_to_organization(user_id, &org_id, 15)
+        .await
+        .unwrap();
+
+    // Create PAK without scoped_organizations to confirm the mandatory membership
+    // check works for all PAK configurations, not just those with explicit org scoping.
+    let (_pak_id, api_key_value) = context
+        .create_personal_api_key(
+            user_id,
+            "Test PAK Unscoped",
+            vec!["feature_flag:read"],
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    let redis_client =
+        feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone())).await;
+    context
+        .populate_flag_definitions_cache(redis_client, team.id)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    // Verify access works while user is a member
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {api_key_value}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        200,
+        "Should authenticate while user is an org member"
+    );
+
+    // Remove user from organization
+    context
+        .remove_user_from_organization(user_id, &org_id)
+        .await
+        .unwrap();
+
+    // Should fail because the user is no longer an org member, even without scoped_organizations
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {api_key_value}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        401,
+        "Should deny access after user is removed from organization, even without scoped_organizations"
     );
 }
 
@@ -1276,4 +1447,277 @@ async fn test_flag_definitions_rate_limit_metrics_incremented() {
         metrics_text.contains(&key_label),
         "Metrics should include key label. Metrics: {metrics_text}"
     );
+}
+
+#[tokio::test]
+async fn test_etag_returns_304_when_matching() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    let etag_value = "a1b2c3d4e5f6g7h8";
+    context
+        .populate_cache_for_team_with_etag(team.id, etag_value)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .header("If-None-Match", format!("W/\"{etag_value}\""))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        304,
+        "Should return 304 when ETag matches. Body: {}",
+        response.text().await.unwrap_or_default()
+    );
+}
+
+#[tokio::test]
+async fn test_etag_304_includes_etag_and_cache_control_headers() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    let etag_value = "abcdef1234567890";
+    context
+        .populate_cache_for_team_with_etag(team.id, etag_value)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .header("If-None-Match", format!("W/\"{etag_value}\""))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 304);
+    assert_eq!(
+        response.headers().get("etag").unwrap().to_str().unwrap(),
+        format!("W/\"{etag_value}\"")
+    );
+    assert_eq!(
+        response
+            .headers()
+            .get("cache-control")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "private, must-revalidate"
+    );
+}
+
+#[tokio::test]
+async fn test_etag_returns_200_when_not_matching() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    context
+        .populate_cache_for_team_with_etag(team.id, "current_etag_value")
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .header("If-None-Match", "W/\"stale_etag_value\"")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        200,
+        "Should return 200 when ETag does not match"
+    );
+
+    assert_eq!(
+        response.headers().get("etag").unwrap().to_str().unwrap(),
+        "W/\"current_etag_value\""
+    );
+    assert_eq!(
+        response
+            .headers()
+            .get("cache-control")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "private, must-revalidate"
+    );
+}
+
+#[tokio::test]
+async fn test_etag_200_includes_etag_header_without_if_none_match() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    let etag_value = "freshdata12345678";
+    context
+        .populate_cache_for_team_with_etag(team.id, etag_value)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    // Request WITHOUT If-None-Match header
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.headers().get("etag").unwrap().to_str().unwrap(),
+        format!("W/\"{etag_value}\""),
+        "200 response should include ETag header even without If-None-Match"
+    );
+}
+
+#[tokio::test]
+async fn test_etag_graceful_degradation_without_stored_etag() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    // Populate cache WITHOUT an ETag
+    context.populate_cache_for_team(team.id).await.unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    // Send If-None-Match even though no ETag is stored — should get 200 (graceful degradation)
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .header("If-None-Match", "W/\"some_stale_etag\"")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        200,
+        "Should return 200 when no ETag is stored (graceful degradation)"
+    );
+    assert!(
+        response.headers().get("etag").is_none(),
+        "Should not include ETag header when no ETag is stored"
+    );
+}
+
+#[tokio::test]
+async fn test_flag_definitions_billing_limited_returns_402() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    // Create team with secret token in real PG (needed for auth)
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    // Start server with mock Redis where the team's token is billing-limited
+    let server = common::ServerHandle::for_config_with_mock_redis(
+        config,
+        vec![team.api_token.clone()],            // billing-limited
+        vec![(team.api_token.clone(), team.id)], // valid for team lookup
+    )
+    .await;
+
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    let status = response.status();
+    let body_text = response.text().await.unwrap();
+
+    assert_eq!(
+        status, 402,
+        "Should return 402 when billing quota is exceeded. Body: {body_text}"
+    );
+    // Response body matches Django's JSON format for SDK compatibility
+    let body: serde_json::Value = serde_json::from_str(&body_text).unwrap();
+    assert_eq!(body["type"], "quota_limited");
+    assert_eq!(body["code"], "payment_required");
 }

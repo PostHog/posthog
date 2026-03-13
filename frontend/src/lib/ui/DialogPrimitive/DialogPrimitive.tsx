@@ -1,6 +1,13 @@
 import { Dialog } from '@base-ui/react/dialog'
+import { Suspense, lazy } from 'react'
+
+import { IconX } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
+
+import { WrappingLoadingSkeleton } from '../WrappingLoadingSkeleton/WrappingLoadingSkeleton'
+
+const ButtonPrimitive = lazy(() => import('../Button/ButtonPrimitives').then((m) => ({ default: m.ButtonPrimitive })))
 
 function DialogPrimitive({
     children,
@@ -40,4 +47,25 @@ function DialogPrimitiveTitle({
     return <Dialog.Title className={className}>{children}</Dialog.Title>
 }
 
-export { DialogPrimitive, DialogPrimitiveTitle }
+function DialogClose({ className = '' }: { className?: string }): JSX.Element {
+    return (
+        <Suspense
+            fallback={
+                <WrappingLoadingSkeleton className={cn('size-[30px]', className)}>
+                    <IconX />
+                </WrappingLoadingSkeleton>
+            }
+        >
+            <Dialog.Close
+                className={className}
+                render={
+                    <ButtonPrimitive iconOnly>
+                        <IconX />
+                    </ButtonPrimitive>
+                }
+            />
+        </Suspense>
+    )
+}
+
+export { DialogPrimitive, DialogPrimitiveTitle, DialogClose }

@@ -23,7 +23,8 @@ from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 from posthog.models.property import Property, PropertyGroup
-from posthog.models.property_definition import PropertyDefinition
+
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 from ee.clickhouse.queries.enterprise_cohort_query import check_negation_clause
 

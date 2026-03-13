@@ -246,7 +246,9 @@ class OAuthValidator(OAuth2Validator):
             scoped_teams = grant.scoped_teams
             scoped_organizations = grant.scoped_organizations
 
-        if request.decoded_body:
+        # Only fall back to the authorization code when no other scope source exists,
+        # so a `code` param injected into a refresh request cannot escalate scopes.
+        if scoped_teams is None and scoped_organizations is None and request.decoded_body:
             try:
                 code = dict(request.decoded_body).get("code", None)
                 if code:
@@ -307,10 +309,15 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         # First-party apps skip consent screen entirely
         if application.is_first_party:
             try:
-                # Auto-approve with all user's accessible teams
-                teams = Team.objects.filter(organization__members=request.user).values_list("pk", flat=True)
-                credentials["scoped_teams"] = list(teams)
-                credentials["scoped_organizations"] = []
+                # Auto-approve with all user's accessible organizations.
+                org_ids = request.user.organizations.values_list("id", flat=True)
+                credentials["scoped_organizations"] = [str(org_id) for org_id in org_ids]
+
+                # TODO(charlesvien): Populate scoped_teams for backwards compat with old
+                # Code clients that throw "No team found in OAuth scopes" when
+                # scoped_teams is empty. Remove once Code reads scoped_organizations.
+                team_ids = Team.objects.filter(organization__members=request.user).values_list("pk", flat=True)
+                credentials["scoped_teams"] = list(team_ids)
 
                 uri, headers, body, status_code = self.create_authorization_response(
                     request=request, scopes=" ".join(scopes), credentials=credentials, allow=True
@@ -528,20 +535,19 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         """
         Allow self-introspection without the introspection scope.
 
-        Only access tokens can self-introspect (they're the only token type
-        usable as Bearer credentials). We validate the Bearer token is a valid
-        access token before granting access.
+        Per RFC 7662, expired tokens should get {"active": false} rather than
+        a 401/403 rejection. We allow self-introspection for any token that
+        exists in the database, regardless of expiry. The get_token_response
+        method handles returning active: false for expired tokens.
         """
         if self._is_self_introspection(request):
             bearer_token = request.headers.get("Authorization", "")[7:]
             token_checksum = hashlib.sha256(bearer_token.encode("utf-8")).hexdigest()
             try:
-                access_token = OAuthAccessToken.objects.get(token_checksum=token_checksum)
+                OAuthAccessToken.objects.get(token_checksum=token_checksum)
             except OAuthAccessToken.DoesNotExist:
                 return False, request
-            if access_token.is_valid():
-                return True, request
-            return False, request
+            return True, request
         return super().verify_request(request)
 
     @staticmethod
@@ -581,6 +587,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             }
             if access_token.application:
                 data["client_id"] = access_token.application.client_id
+                data["client_name"] = access_token.application.name
             return JsonResponse(data)
 
         # Fall back to refresh token (lookup by plaintext token — OAuthRefreshToken has
@@ -601,6 +608,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             }
             if refresh_token.application:
                 data["client_id"] = refresh_token.application.client_id
+                data["client_name"] = refresh_token.application.name
             return JsonResponse(data)
 
         return JsonResponse({"active": False}, status=200)

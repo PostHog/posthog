@@ -65,6 +65,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     )
     sync_frequency_interval = models.DurationField(default=timedelta(hours=6), null=True, blank=True)
     sync_time_of_day = models.TimeField(null=True, blank=True, help_text="Time of day to run the sync (UTC)")
+    initial_sync_complete = models.BooleanField(default=False)
 
     __repr__ = sane_repr("name")
 
@@ -185,6 +186,23 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
         return None
 
+    @property
+    def schema_metadata(self) -> dict[str, Any] | None:
+        if self.sync_type_config:
+            metadata = self.sync_type_config.get("schema_metadata")
+            if isinstance(metadata, dict):
+                return metadata
+        return None
+
+    @property
+    def foreign_keys(self) -> list[dict[str, str]] | None:
+        metadata = self.schema_metadata
+        if metadata:
+            foreign_keys = metadata.get("foreign_keys")
+            if isinstance(foreign_keys, list):
+                return foreign_keys
+        return None
+
     def set_partitioning_enabled(
         self,
         partitioning_keys: list[str],
@@ -213,6 +231,8 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config.pop("backfilled_partition_format", None)
         # We don't reset partition_format
         # We don't reset chunk_size_override
+
+        self.initial_sync_complete = False
 
         self.save()
 
@@ -330,9 +350,12 @@ def aget_schema_by_id(schema_id: str, team_id: int) -> ExternalDataSchema | None
 
 
 def update_should_sync(schema_id: str, team_id: int, should_sync: bool) -> ExternalDataSchema | None:
-    schema = ExternalDataSchema.objects.get(id=schema_id, team_id=team_id)
+    schema = ExternalDataSchema.objects.select_related("source").get(id=schema_id, team_id=team_id)
     schema.should_sync = should_sync
     schema.save()
+
+    if not schema.source.supports_scheduled_sync:
+        return schema
 
     schedule_exists = external_data_workflow_exists(schema_id)
 
@@ -362,9 +385,30 @@ def sync_old_schemas_with_new_schemas(
 
     schemas_to_possibly_delete = [schema for schema in old_schemas_names if schema not in new_schemas]
     deleted_schemas: list[str] = []
+    actually_created: list[str] = []
 
     for schema in schemas_to_create:
-        ExternalDataSchema.objects.create(name=schema, team_id=team_id, source_id=source_id, should_sync=False)
+        deleted_obj = (
+            ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, name=schema, deleted=True)
+            .order_by("-updated_at", "-created_at")
+            .first()
+        )
+        if deleted_obj is not None:
+            deleted_obj.deleted = False
+            deleted_obj.deleted_at = None
+            deleted_obj.save(update_fields=["deleted", "deleted_at", "updated_at"])
+            actually_created.append(schema)
+            continue
+
+        obj, created = ExternalDataSchema.objects.get_or_create(
+            team_id=team_id,
+            source_id=source_id,
+            name=schema,
+            deleted=False,
+            defaults={"should_sync": False},
+        )
+        if created:
+            actually_created.append(schema)
 
     for schema in schemas_to_possibly_delete:
         # There _could_ exist multiple schemas with the same name, there shouldn't be, but it's not impossible
@@ -380,7 +424,7 @@ def sync_old_schemas_with_new_schemas(
                 s.status = ExternalDataSchema.Status.COMPLETED
                 s.save()
 
-    return schemas_to_create, deleted_schemas
+    return actually_created, deleted_schemas
 
 
 def sync_frequency_to_sync_frequency_interval(frequency: str) -> timedelta | None:

@@ -1,3 +1,5 @@
+import { combineUrl } from 'kea-router'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
@@ -22,15 +24,28 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'Customer analytics configuration',
         },
+        CustomerJourneyBuilder: {
+            import: () => import('./frontend/scenes/CustomerJourneyBuilderScene/CustomerJourneyBuilderScene'),
+            projectBased: true,
+            name: 'New journey',
+        },
     },
     routes: {
-        // Single route for now, may want to split in the future
-        '/customer_analytics': ['CustomerAnalytics', 'customerAnalytics'],
+        '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
+        '/customer_analytics/journeys/new': ['CustomerJourneyBuilder', 'customerJourneyBuilder'],
+        '/customer_analytics/journeys': ['CustomerAnalytics', 'customerAnalyticsJourneys'],
         '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
+    },
+    redirects: {
+        '/customer_analytics': (_params, searchParams, hashParams) =>
+            combineUrl('/customer_analytics/dashboard', searchParams, hashParams).url,
     },
     urls: {
         customerAnalytics: (): string => '/customer_analytics',
+        customerAnalyticsDashboard: (): string => '/customer_analytics/dashboard',
+        customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
         customerAnalyticsConfiguration: (): string => '/customer_analytics/configuration',
+        customerJourneyBuilder: (): string => '/customer_analytics/journeys/new',
     },
     treeItemsProducts: [
         {
@@ -42,6 +57,7 @@ export const manifest: ProductManifest = {
             tags: ['beta'],
             flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS,
             sceneKey: 'CustomerAnalytics',
+            sceneKeys: ['CustomerAnalytics', 'CustomerJourneyBuilder'],
         },
     ],
 }

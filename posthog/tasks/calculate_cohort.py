@@ -15,6 +15,8 @@ from prometheus_client import Counter, Gauge, Histogram
 from posthog.api.monitoring import Feature
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags, update_tags
+from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorS3Error, CHQueryErrorTooManySimultaneousQueries
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Cohort
 from posthog.models.cohort import CohortOrEmpty
@@ -42,6 +44,10 @@ COHORT_STALENESS_HOURS_GAUGE = Gauge(
 
 COHORTS_STALE_COUNT_GAUGE = Gauge(
     "cohorts_stale", "Number of cohorts that haven't been calculated in more than X hours", ["hours"]
+)
+
+COHORTS_TOTAL_GAUGE = Gauge(
+    "cohorts_total", "Total number of eligible cohorts for recalculation (non-static, non-deleted)"
 )
 
 COHORT_STUCK_COUNT_GAUGE = Gauge(
@@ -142,6 +148,8 @@ def update_cohort_metrics() -> None:
         is_calculating=False,
         errors_calculating__lte=MAX_ERRORS_CALCULATING,
     ).exclude(is_static=True)
+
+    COHORTS_TOTAL_GAUGE.set(base_queryset.count())
 
     for hours in [24, 36, 48]:
         stale_count = base_queryset.filter(last_calculation__lte=now - relativedelta(hours=hours)).count()
@@ -266,12 +274,15 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
 
 
 def _prepare_cohort_for_calculation(cohort: Cohort) -> None:
+    """
+    Prepare cohort for calculation by incrementing version and setting calculating state.
+    When a new calculation is requested, we increment the pending_version which effectively
+    supersedes any older calculations - they will complete but won't update the final version.
+    """
     cohort.pending_version = Case(When(pending_version__isnull=True, then=1), default=F("pending_version") + 1)
     update_fields = ["pending_version"]
 
     if not cohort.is_static:
-        # avoid starting another cohort calculation if one is already expected to be in progress
-        # XXX: it is possible for a job to fail without resetting this field and need to be manually recovered
         cohort.is_calculating = True
         update_fields.append("is_calculating")
 
@@ -285,13 +296,36 @@ def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional
     calculate_cohort_ch.delay(cohort.id, cohort.pending_version, initiating_user.id if initiating_user else None)
 
 
-@shared_task(ignore_result=True, max_retries=2, queue=CeleryQueue.LONG_RUNNING.value)
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    # Auto-retry for transient ClickHouse errors with exponential backoff
+    autoretry_for=(
+        CHQueryErrorTooManySimultaneousQueries,
+        CHQueryErrorCannotScheduleTask,
+        ClickHouseAtCapacity,
+        CHQueryErrorS3Error,
+    ),
+    retry_backoff=60,
+    retry_backoff_max=1800,
+    max_retries=6,
+)
 def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None) -> None:
     with posthoganalytics.new_context():
         posthoganalytics.tag("feature", Feature.COHORT.value)
         posthoganalytics.tag("cohort_id", cohort_id)
 
         cohort: Cohort = Cohort.objects.get(pk=cohort_id)
+
+        # Skip calculation if this version is now obsolete (superseded by newer save)
+        if cohort.pending_version and pending_version < cohort.pending_version:
+            logger.info(
+                "cohort_calculation_skipped_obsolete",
+                cohort_id=cohort_id,
+                task_version=pending_version,
+                current_pending_version=cohort.pending_version,
+            )
+            return
 
         posthoganalytics.tag("team_id", cohort.team.id)
 

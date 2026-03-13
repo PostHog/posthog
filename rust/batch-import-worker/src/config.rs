@@ -74,6 +74,20 @@ pub struct Config {
     pub group_memory_cache_capacity: u64,
     #[envconfig(from = "GROUP_MEMORY_CACHE_TTL_SECONDS", default = "3600")]
     pub group_memory_cache_ttl_seconds: u64,
+
+    // Force disable person processing for specific token:distinct_id pairs
+    #[envconfig(from = "FORCE_DISABLE_PERSON_PROCESSING", default = "")]
+    pub force_disable_person_processing: String,
+
+    // Source chunk size for capture sink jobs. Kept smaller than the default
+    // because each chunk becomes a single HTTP request to the capture service,
+    // which enforces a 20MB body limit.
+    #[envconfig(default = "15000000")]
+    pub capture_chunk_size: usize,
+
+    // Internal capture service URL for the CaptureEmitter
+    #[envconfig(from = "CAPTURE_URL", default = "http://localhost:3307")]
+    pub capture_url: String,
 }
 
 impl Config {

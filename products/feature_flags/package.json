@@ -1,9 +1,17 @@
 {
     "name": "@posthog/products-feature-flags",
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+    },
     "dependencies": {
         "kea": "catalog:",
         "kea-loaders": "catalog:",
-        "kea-router": "catalog:"
+        "kea-router": "catalog:",
+        "posthog-js": "catalog:"
+    },
+    "devDependencies": {
+        "@storybook/react": "catalog:",
+        "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
         "@posthog/icons": "*",

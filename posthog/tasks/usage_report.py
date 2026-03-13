@@ -710,6 +710,7 @@ def get_teams_with_recording_count_in_period(
             WHERE min_first_timestamp >= %(begin)s AND min_first_timestamp < %(end)s
             GROUP BY session_id
             HAVING ifNull(argMinMerge(snapshot_source), 'web') == %(snapshot_source)s
+            AND max(is_deleted) = 0
         )
         WHERE session_id NOT IN (
             -- we want to exclude sessions that might have events with timestamps
@@ -751,6 +752,7 @@ def get_teams_with_zero_duration_recording_count_in_period(begin: datetime, end:
             WHERE min_first_timestamp >= %(begin)s AND min_first_timestamp < %(end)s
             GROUP BY session_id
             HAVING dateDiff('milliseconds', min(min_first_timestamp), max(max_last_timestamp)) = 0
+            AND max(is_deleted) = 0
         )
         WHERE session_id NOT IN (
             -- we want to exclude sessions that might have events with timestamps
@@ -788,6 +790,7 @@ def get_teams_with_mobile_billable_recording_count_in_period(begin: datetime, en
             GROUP BY session_id
             HAVING (ifNull(argMinMerge(snapshot_source), '') == 'mobile'
             AND ifNull(argMinMerge(snapshot_library), '') IN ('posthog-ios', 'posthog-android', 'posthog-react-native', 'posthog-flutter'))
+            AND max(is_deleted) = 0
         )
         WHERE session_id NOT IN (
             -- we want to exclude sessions that might have events with timestamps
@@ -1290,7 +1293,12 @@ def get_teams_with_rows_exported_in_period(begin: datetime, end: datetime) -> li
             status=BatchExportRun.Status.COMPLETED,
             batch_export__deleted=False,
         )
-        .exclude(batch_export__destination__type=BatchExportDestination.Destination.HTTP)
+        .exclude(
+            batch_export__destination__type__in=[
+                BatchExportDestination.Destination.HTTP,
+                BatchExportDestination.Destination.WORKFLOWS,
+            ]
+        )
         .values(team_id=F("batch_export__team_id"))
         .annotate(total=Sum("records_completed"))
     )
@@ -1501,6 +1509,7 @@ def get_teams_with_recording_bytes_in_period(
             WHERE min_first_timestamp >= %(begin)s AND min_first_timestamp < %(end)s
             GROUP BY session_id
             HAVING ifNull(argMinMerge(snapshot_source), 'web') == %(snapshot_source)s
+            AND max(is_deleted) = 0
         )
         WHERE session_id NOT IN (
             -- we want to exclude sessions that might have events with timestamps
@@ -1691,17 +1700,17 @@ def capture_report(
 ) -> None:
     if not organization_id:
         raise ValueError("Organization_id must be provided")
+
+    pha_client = get_ph_client(sync_mode=True)
+
     try:
-        pha_client = get_ph_client(sync_mode=True)
         capture_event(
             pha_client=pha_client,
             name="organization usage report",
             organization_id=organization_id,
             properties=full_report_dict,
-            group_properties={"has_non_zero_usage": full_report_dict.get("has_non_zero_usage")},
             timestamp=at_date,
         )
-
     except Exception as err:
         logger.exception(
             f"UsageReport sent to PostHog for organization {organization_id} failed: {str(err)}",
@@ -1712,6 +1721,35 @@ def capture_report(
             organization_id=organization_id,
             properties={"error": str(err)},
         )
+
+    # There are some billing-related flags we wanna set in customer.io
+    # and for that to work properly we need to make sure we include that
+    # for every single person in the organization, otherwise we might end up
+    # with some people having the property and some not,
+    # which makes it harder to filter on in customer.io
+    per_person_properties = {
+        "has_non_zero_usage": full_report_dict.get("has_non_zero_usage"),
+    }
+
+    for membership in OrganizationMembership.objects.filter(organization_id=organization_id).select_related("user"):
+        distinct_id = membership.user.distinct_id
+        if not distinct_id:
+            continue
+
+        try:
+            capture_event(
+                pha_client=pha_client,
+                name="organization usage report per person",
+                organization_id=organization_id,
+                distinct_id=distinct_id,
+                properties=per_person_properties,
+                timestamp=at_date,
+            )
+        except Exception as err:
+            logger.exception(
+                f"UsageReport sent to PostHog for user {distinct_id} in organization {organization_id} failed: {str(err)}",
+            )
+            capture_exception(err, {"distinct_id": distinct_id, "organization_id": organization_id})
 
 
 # extend this with future usage based products

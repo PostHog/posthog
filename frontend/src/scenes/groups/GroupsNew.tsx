@@ -134,8 +134,8 @@ export function GroupsNew(): JSX.Element {
                                                     <LemonSegmentedButton
                                                         onChange={(value: string) => {
                                                             const currentProperties = group.customProperties || []
-                                                            const updatedProperties = currentProperties.map(
-                                                                (prop, i) => (i === index ? { ...prop, value } : prop)
+                                                            const updatedProperties = currentProperties.map((prop, i) =>
+                                                                i === index ? { ...prop, value } : prop
                                                             )
                                                             setGroupValue('customProperties', updatedProperties)
                                                         }}

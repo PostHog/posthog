@@ -1,4 +1,5 @@
 import json
+import uuid as uuid_mod
 from typing import Optional, cast
 
 from django.db.models import QuerySet
@@ -7,6 +8,7 @@ import structlog
 import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -19,13 +21,19 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import log_activity_from_viewset
+from posthog.auth import InternalAPIAuthentication
 from posthog.cdp.validation import (
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
     InputsSerializer,
     generate_template_bytecode,
 )
-from posthog.models.feature_flag.user_blast_radius import get_user_blast_radius
+from posthog.models import Team
+from posthog.models.feature_flag.user_blast_radius import (
+    PERSON_BATCH_SIZE,
+    get_user_blast_radius,
+    get_user_blast_radius_persons,
+)
 from posthog.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test
@@ -65,6 +73,8 @@ class HogFlowActionSerializer(serializers.Serializer):
         return super().to_internal_value(data)
 
     def validate(self, data):
+        is_draft = self.context.get("is_draft")
+
         trigger_is_function = False
         if data.get("type") == "trigger":
             if data.get("config", {}).get("type") in ["webhook", "manual", "tracking_pixel", "schedule"]:
@@ -76,46 +86,57 @@ class HogFlowActionSerializer(serializers.Serializer):
                     filters["filter_test_accounts"] = data["config"].pop("filter_test_accounts")
                 if filters:
                     serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
-                    serializer.is_valid(raise_exception=True)
-                    data["config"]["filters"] = serializer.validated_data
+                    if is_draft:
+                        if serializer.is_valid():
+                            data["config"]["filters"] = serializer.validated_data
+                    else:
+                        serializer.is_valid(raise_exception=True)
+                        data["config"]["filters"] = serializer.validated_data
             elif data.get("config", {}).get("type") == "batch":
-                filters = data.get("config", {}).get("filters", {})
-                if not filters:
-                    raise serializers.ValidationError({"filters": "Filters are required for batch triggers."})
-                if not isinstance(filters, dict):
-                    raise serializers.ValidationError({"filters": "Filters must be a dictionary."})
-                properties = filters.get("properties", None)
-                if properties is not None and not isinstance(properties, list):
-                    raise serializers.ValidationError({"filters": {"properties": "Properties must be an array."}})
+                if not is_draft:
+                    filters = data.get("config", {}).get("filters", {})
+                    if not filters:
+                        raise serializers.ValidationError({"filters": "Filters are required for batch triggers."})
+                    if not isinstance(filters, dict):
+                        raise serializers.ValidationError({"filters": "Filters must be a dictionary."})
+                    properties = filters.get("properties", None)
+                    if properties is not None and not isinstance(properties, list):
+                        raise serializers.ValidationError({"filters": {"properties": "Properties must be an array."}})
             else:
-                raise serializers.ValidationError({"config": "Invalid trigger type"})
+                if not is_draft:
+                    raise serializers.ValidationError({"config": "Invalid trigger type"})
 
         if "function" in data.get("type", "") or trigger_is_function:
             template_id = data.get("config", {}).get("template_id", "")
             template = HogFunctionTemplate.get_template(template_id)
             if not template:
-                raise serializers.ValidationError({"template_id": "Template not found"})
+                if not is_draft:
+                    raise serializers.ValidationError({"template_id": "Template not found"})
+            else:
+                input_schema = template.inputs_schema
+                inputs = data.get("config", {}).get("inputs", {})
 
-            input_schema = template.inputs_schema
-            inputs = data.get("config", {}).get("inputs", {})
+                function_config_serializer = HogFlowConfigFunctionInputsSerializer(
+                    data={
+                        "inputs_schema": input_schema,
+                        "inputs": inputs,
+                    },
+                    context={"function_type": template.type},
+                )
 
-            function_config_serializer = HogFlowConfigFunctionInputsSerializer(
-                data={
-                    "inputs_schema": input_schema,
-                    "inputs": inputs,
-                },
-                context={"function_type": template.type},
-            )
-
-            function_config_serializer.is_valid(raise_exception=True)
-
-            data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
+                if is_draft:
+                    if function_config_serializer.is_valid():
+                        data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
+                else:
+                    function_config_serializer.is_valid(raise_exception=True)
+                    data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
 
         conditions = data.get("config", {}).get("conditions", [])
 
         single_condition = data.get("config", {}).get("condition", None)
         if conditions and single_condition:
-            raise serializers.ValidationError({"config": "Cannot specify both 'conditions' and 'condition' fields"})
+            if not is_draft:
+                raise serializers.ValidationError({"config": "Cannot specify both 'conditions' and 'condition' fields"})
         if single_condition:
             conditions = [single_condition]
 
@@ -124,11 +145,16 @@ class HogFlowActionSerializer(serializers.Serializer):
                 filters = condition.get("filters")
                 if filters is not None:
                     if "events" in filters:
-                        raise serializers.ValidationError("Event filters are not allowed in conditionals")
-
-                    serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
-                    serializer.is_valid(raise_exception=True)
-                    condition["filters"] = serializer.validated_data
+                        if not is_draft:
+                            raise serializers.ValidationError("Event filters are not allowed in conditionals")
+                    else:
+                        serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
+                        if is_draft:
+                            if serializer.is_valid():
+                                condition["filters"] = serializer.validated_data
+                        else:
+                            serializer.is_valid(raise_exception=True)
+                            condition["filters"] = serializer.validated_data
 
         return data
 
@@ -198,6 +224,14 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     trigger_masking = HogFlowMaskingSerializer(required=False, allow_null=True)
     variables = HogFlowVariableSerializer(required=False)
 
+    def to_internal_value(self, data):
+        status = data.get("status")
+        if status is None and self.instance:
+            status = self.instance.status
+        if status != "active":
+            self.context["is_draft"] = True
+        return super().to_internal_value(data)
+
     class Meta:
         model = HogFlow
         fields = [
@@ -231,6 +265,14 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     def validate(self, data):
         instance = cast(Optional[HogFlow], self.instance)
         actions = data.get("actions", instance.actions if instance else [])
+
+        # When activating a draft, re-validate actions from the instance with full (non-draft) checks
+        status = data.get("status", instance.status if instance else "draft")
+        if status == "active" and instance and instance.status != "active" and "actions" not in data:
+            action_serializer = HogFlowActionSerializer(data=instance.actions, many=True, context=self.context)
+            action_serializer.is_valid(raise_exception=True)
+            actions = action_serializer.validated_data
+
         # The trigger is derived from the actions. We can trust the action level validation and pull it out
         trigger_actions = [action for action in actions if action.get("type") == "trigger"]
 
@@ -245,6 +287,24 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             {action.get("type", "") for action in actions if action.get("type") in BILLABLE_ACTION_TYPES}
         )
         data["billable_action_types"] = billable_action_types
+
+        conversion = data.get("conversion")
+        if conversion is not None:
+            filters = conversion.get("filters")
+            if filters:
+                serializer = HogFunctionFiltersSerializer(data={"properties": filters}, context=self.context)
+                if self.context.get("is_draft"):
+                    if serializer.is_valid():
+                        compiled_filters = serializer.validated_data
+                        data["conversion"]["filters"] = compiled_filters.get("properties", [])
+                        data["conversion"]["bytecode"] = compiled_filters.get("bytecode", [])
+                else:
+                    serializer.is_valid(raise_exception=True)
+                    compiled_filters = serializer.validated_data
+                    data["conversion"]["filters"] = compiled_filters.get("properties", [])
+                    data["conversion"]["bytecode"] = compiled_filters.get("bytecode", [])
+            if "bytecode" not in data["conversion"]:
+                data["conversion"]["bytecode"] = []
 
         return data
 
@@ -277,8 +337,9 @@ class HogFlowFilterSet(FilterSet):
         fields = ["id", "created_by", "created_at", "updated_at"]
 
 
+@extend_schema(tags=["workflows"])
 class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "hog_flow"
     queryset = HogFlow.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_class = HogFlowFilterSet
@@ -402,8 +463,9 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             raise exceptions.ValidationError("Missing filters for which to get blast radius")
 
         filters = request.data.get("filters", {})
+        group_type_index = request.data.get("group_type_index", None)
 
-        users_affected, total_users = get_user_blast_radius(self.team, filters)
+        users_affected, total_users = get_user_blast_radius(self.team, filters, group_type_index)
 
         return Response(
             {
@@ -411,6 +473,22 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
                 "total_users": total_users,
             }
         )
+
+    @action(methods=["POST"], detail=False)
+    def bulk_delete(self, request: Request, **kwargs):
+        ids = request.data.get("ids", [])
+        if not ids or not isinstance(ids, list):
+            return Response({"error": "A non-empty list of 'ids' is required"}, status=400)
+
+        try:
+            validated_ids = [uuid_mod.UUID(str(id)) for id in ids]
+        except ValueError:
+            return Response({"error": "One or more IDs are not valid UUIDs"}, status=400)
+
+        queryset = self.get_queryset().filter(id__in=validated_ids, status="archived")
+        deleted_count, _ = queryset.delete()
+
+        return Response({"deleted": deleted_count})
 
     @action(detail=True, methods=["GET", "POST"])
     def batch_jobs(self, request: Request, *args, **kwargs):
@@ -432,3 +510,79 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             batch_jobs = HogFlowBatchJob.objects.filter(hog_flow=hog_flow, team=self.team).order_by("-created_at")
             serializer = HogFlowBatchJobSerializer(batch_jobs, many=True)
             return Response(serializer.data)
+
+
+class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
+    """
+    Internal endpoints for Node.js services to query user blast radius.
+    These endpoints require Bearer token authentication via INTERNAL_API_SECRET and are not exposed to Contour ingress
+    """
+
+    scope_object = "INTERNAL"
+    authentication_classes = [InternalAPIAuthentication]
+
+    # Internal service-to-service endpoints (authenticated with INTERNAL_API_SECRET)
+    def internal_user_blast_radius(self, request: Request, team_id: str) -> Response:
+        """
+        Internal endpoint for Node.js services to query user blast radius.
+        Requires Bearer token authentication via INTERNAL_API_SECRET.
+        """
+
+        if request.method != "POST":
+            return Response({"error": "Method not allowed"}, status=405)
+
+        try:
+            team = Team.objects.get(id=int(team_id))
+        except (Team.DoesNotExist, ValueError):
+            return Response({"error": "Team not found"}, status=404)
+
+        if "filters" not in request.data:
+            return Response({"error": "Missing filters for which to get blast radius"}, status=400)
+
+        filters = request.data.get("filters", {})
+        group_type_index = request.data.get("group_type_index", None)
+
+        try:
+            users_affected, total_users = get_user_blast_radius(team, filters, group_type_index)
+            return Response(
+                {
+                    "users_affected": users_affected,
+                    "total_users": total_users,
+                }
+            )
+        except Exception as e:
+            logger.exception("Error in internal_user_blast_radius", error=str(e), team_id=team_id)
+            return Response({"error": "Internal server error"}, status=500)
+
+    def internal_user_blast_radius_persons(self, request: Request, team_id: str) -> Response:
+        """
+        Internal endpoint for Node.js services to query user blast radius persons with pagination.
+        Requires Bearer token authentication via INTERNAL_API_SECRET.
+        """
+        if request.method != "POST":
+            return Response({"error": "Method not allowed"}, status=405)
+
+        try:
+            team = Team.objects.get(id=int(team_id))
+        except (Team.DoesNotExist, ValueError):
+            return Response({"error": "Team not found"}, status=404)
+
+        if "filters" not in request.data:
+            return Response({"error": "Missing filters for which to get blast radius"}, status=400)
+
+        filters = request.data.get("filters", {}) or {}
+        group_type_index = request.data.get("group_type_index", None)
+        cursor = request.data.get("cursor", None)
+
+        try:
+            users_affected = get_user_blast_radius_persons(team, filters, group_type_index, cursor)
+            return Response(
+                {
+                    "users_affected": users_affected,
+                    "cursor": users_affected[-1] if users_affected else None,
+                    "has_more": len(users_affected) == PERSON_BATCH_SIZE,
+                }
+            )
+        except Exception as e:
+            logger.exception("Error in internal_user_blast_radius_persons", error=str(e), team_id=team_id)
+            return Response({"error": "Internal server error"}, status=500)

@@ -1,4 +1,3 @@
-import json
 import urllib.parse
 from datetime import datetime
 from typing import Any
@@ -1137,10 +1136,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         passed_params = call_args[1]  # Second arg is params dict
         self.assertEqual(passed_params["start_date"], "2025-01-01")
         self.assertEqual(passed_params["team_ids"], f"[{str(self.team.pk)}]")
-        self.assertIn("teams_map", passed_params)
-
-        teams_map_dict = json.loads(passed_params["teams_map"])
-        self.assertEqual(teams_map_dict, {str(self.team.pk): self.team.name})
+        self.assertEqual(passed_params["teams_map"], {self.team.pk: self.team.name})
 
     @patch("ee.billing.billing_manager.BillingManager.get_spend_data")
     def test_get_spend_success(self, mock_get_spend_data):
@@ -1158,10 +1154,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertEqual(passed_params["start_date"], "2025-01-01")
         self.assertEqual(passed_params["usage_types"], "events")
         self.assertEqual(passed_params["team_ids"], f"[{str(self.team.pk)}]")
-        self.assertIn("teams_map", passed_params)
-
-        teams_map_dict = json.loads(passed_params["teams_map"])
-        self.assertEqual(teams_map_dict, {str(self.team.pk): self.team.name})
+        self.assertEqual(passed_params["teams_map"], {self.team.pk: self.team.name})
 
     def test_get_usage_permission_denied_for_member(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -1187,10 +1180,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         mock_get_usage_data.assert_called_once()
         call_args = mock_get_usage_data.call_args[0]
         passed_params = call_args[1]
-        self.assertIn("teams_map", passed_params)
-
-        teams_map_dict = json.loads(passed_params["teams_map"])
-        self.assertEqual(teams_map_dict, {})
+        self.assertEqual(passed_params["teams_map"], {})
         mock_get_teams_map.assert_called_once()
 
     @patch("ee.billing.billing_manager.BillingManager.get_spend_data")
@@ -1205,8 +1195,5 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         mock_get_spend_data.assert_called_once()
         call_args = mock_get_spend_data.call_args[0]
         passed_params = call_args[1]
-        self.assertIn("teams_map", passed_params)
-
-        teams_map_dict = json.loads(passed_params["teams_map"])
-        self.assertEqual(teams_map_dict, {})
+        self.assertEqual(passed_params["teams_map"], {})
         mock_get_teams_map.assert_called_once()

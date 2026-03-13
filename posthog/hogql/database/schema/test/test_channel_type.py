@@ -105,6 +105,26 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
         )
         return (person_response.results or [])[0][0]
 
+    def _get_person_initial_channel_type_with_rules(self, properties=None, custom_channel_rules=None):
+        person_id = str(uuid.uuid4())
+
+        _create_person(
+            uuid=person_id,
+            team_id=self.team.pk,
+            distinct_ids=[person_id],
+            properties=properties,
+        )
+
+        person_response = execute_hogql_query(
+            parse_select(
+                "select $virt_initial_channel_type as channel_type from persons where id = {person_id}",
+                placeholders={"person_id": ast.Constant(value=person_id)},
+            ),
+            self.team,
+            modifiers=HogQLQueryModifiers(customChannelTypeRules=custom_channel_rules),
+        )
+        return (person_response.results or [])[0][0]
+
     def _get_session_channel_type(self, properties=None, custom_channel_rules=None):
         person_id = str(uuid.uuid4())
         properties = {
@@ -862,4 +882,55 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
                 }
             )
             == "Email"
+        )
+
+    def test_initial_channel_type_custom_url_rule_matches_initial_current_url(self):
+        assert (
+            self._get_person_initial_channel_type_with_rules(
+                {"$initial_current_url": "https://example.com/login"},
+                custom_channel_rules=[
+                    CustomChannelRule(
+                        items=[CustomChannelCondition(key="url", op="icontains", value="/login", id="1")],
+                        channel_type="Login",
+                        combiner=FilterLogicalOperator.AND_,
+                        id="a",
+                    )
+                ],
+            )
+            == "Login"
+        )
+
+    def test_initial_channel_type_url_falls_back_to_initial_url(self):
+        assert (
+            self._get_person_initial_channel_type_with_rules(
+                {"$initial_url": "https://example.com/signup"},
+                custom_channel_rules=[
+                    CustomChannelRule(
+                        items=[CustomChannelCondition(key="url", op="icontains", value="/signup", id="1")],
+                        channel_type="Signup",
+                        combiner=FilterLogicalOperator.AND_,
+                        id="a",
+                    )
+                ],
+            )
+            == "Signup"
+        )
+
+    def test_initial_channel_type_url_prefers_initial_current_url_over_initial_url(self):
+        assert (
+            self._get_person_initial_channel_type_with_rules(
+                {
+                    "$initial_current_url": "https://example.com/correct",
+                    "$initial_url": "https://example.com/wrong",
+                },
+                custom_channel_rules=[
+                    CustomChannelRule(
+                        items=[CustomChannelCondition(key="url", op="icontains", value="/correct", id="1")],
+                        channel_type="Correct",
+                        combiner=FilterLogicalOperator.AND_,
+                        id="a",
+                    )
+                ],
+            )
+            == "Correct"
         )

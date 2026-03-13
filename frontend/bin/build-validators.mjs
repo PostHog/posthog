@@ -25,6 +25,7 @@ const validators = [
     'RevenueAnalyticsPropertyFilters',
     'SessionPropertyFilter',
     'CompareFilter',
+    'ExperimentMetric',
 ]
 
 // Compile validators - standaloneCode needs the schema references, not the compiled functions

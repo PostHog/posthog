@@ -1,9 +1,21 @@
 import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
+import { urls } from 'scenes/urls'
 
-export function DiscussionMentionNotifications(): JSX.Element {
+export function DiscussionMentionNotifications(): JSX.Element | null {
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+
+    if (restrictedReason) {
+        return null
+    }
+
     return (
         <div>
             <p className="flex items-center gap-1">
@@ -25,6 +37,9 @@ export function DiscussionMentionNotifications(): JSX.Element {
                 type="internal_destination"
                 subTemplateIds={['discussion-mention']}
                 emptyText="No notifications configured"
+                queryParams={{
+                    returnTo: urls.settings('environment-discussions', 'discussion-mention-integrations'),
+                }}
             />
         </div>
     )

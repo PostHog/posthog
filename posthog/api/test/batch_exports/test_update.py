@@ -22,10 +22,11 @@ from posthog.api.test.batch_exports.operations import (
     patch_batch_export,
     put_batch_export,
 )
-from posthog.batch_exports.service import sync_batch_export
 from posthog.models import BatchExport, BatchExportDestination
 from posthog.models.integration import Integration
 from posthog.temporal.common.codec import EncryptionCodec
+
+from products.batch_exports.backend.service import sync_batch_export
 
 pytestmark = [
     pytest.mark.django_db,
@@ -955,7 +956,7 @@ def test_can_patch_redshift_batch_export(client: HttpClient, temporal, organizat
             "user": "user",
             "password": "my-password",
             "database": "my-db",
-            "host": "test",
+            "host": "localhost",
             "schema": "public",
             "table_name": "my_events",
             "mode": "COPY",

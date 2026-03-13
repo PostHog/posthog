@@ -402,26 +402,30 @@ class VercelIntegration:
         installation = VercelIntegration._get_installation(installation_id)
         organization = installation.organization
 
-        # Notify billing service to cancel subscription and reset billing provider
         license = get_cached_instance_license()
-        if license:
-            try:
-                billing_manager = BillingManager(license)
-                billing_manager.deauthorize(organization, billing_provider=BillingProvider.VERCEL)
-                logger.info(
-                    "Deauthorized billing for Vercel installation",
-                    installation_id=installation_id,
-                    organization_id=str(organization.id),
-                )
-            except Exception as e:
-                logger.exception(
-                    "Failed to deauthorize billing for Vercel installation",
-                    installation_id=installation_id,
-                    organization_id=str(organization.id),
-                )
-                capture_exception(e)
-                # Continue with deletion even if billing deauthorization fails
-                # The billing service will handle the orphaned state gracefully
+        if not license:
+            raise RuntimeError("No license available to deauthorize billing")
+
+        org_membership = (
+            OrganizationMembership.objects.filter(
+                organization=organization, level__gte=OrganizationMembership.Level.ADMIN
+            )
+            .select_related("user")
+            .order_by("-level")
+            .first()
+        )
+        if not org_membership:
+            raise RuntimeError(
+                f"No admin or owner found for organization {organization.id} — cannot deauthorize billing"
+            )
+
+        billing_manager = BillingManager(license, user=org_membership.user)
+        billing_manager.deauthorize(organization, billing_provider=BillingProvider.VERCEL)
+        logger.info(
+            "Deauthorized billing for Vercel installation",
+            installation_id=installation_id,
+            organization_id=str(organization.id),
+        )
 
         installation.delete()
         logger.info(
@@ -812,9 +816,9 @@ class VercelIntegration:
     @staticmethod
     def _validate_client_credentials() -> tuple[str, str]:
         if not getattr(settings, "VERCEL_CLIENT_INTEGRATION_ID", None):
-            raise exceptions.NotFound("Vercel integration not configured: missing VERCEL_CLIENT_INTEGRATION_ID")
+            raise RuntimeError("Vercel integration not configured: missing VERCEL_CLIENT_INTEGRATION_ID")
         if not getattr(settings, "VERCEL_CLIENT_INTEGRATION_SECRET", None):
-            raise exceptions.NotFound("Vercel integration not configured: missing VERCEL_CLIENT_INTEGRATION_SECRET")
+            raise RuntimeError("Vercel integration not configured: missing VERCEL_CLIENT_INTEGRATION_SECRET")
         return settings.VERCEL_CLIENT_INTEGRATION_ID, settings.VERCEL_CLIENT_INTEGRATION_SECRET
 
     @staticmethod
@@ -1011,6 +1015,7 @@ class VercelIntegration:
             return login_url
         except Exception as e:
             logger.exception("Vercel SSO authentication failed", error=str(e), integration="vercel")
+            capture_exception(e)
             raise exceptions.AuthenticationFailed("Authentication failed")
 
     @staticmethod

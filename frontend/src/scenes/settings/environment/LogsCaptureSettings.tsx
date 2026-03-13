@@ -4,72 +4,52 @@ import { useState } from 'react'
 import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonSwitch } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-const MIN_POSTHOG_JS_VERSION = '1.329.0'
-
 export function LogsCaptureSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     return (
-        <div>
-            <h3>Browser console logs capture</h3>
-            <LemonBanner
-                type="info"
-                className="mb-4"
-                action={{
-                    children: 'View SDK docs',
-                    to: 'https://posthog.com/docs/libraries/js',
-                    targetBlank: true,
+        <AccessControlAction resourceType={AccessControlResourceType.Logs} minAccessLevel={AccessControlLevel.Editor}>
+            <LemonSwitch
+                data-attr="opt-in-logs-capture-console-log-switch"
+                onChange={(checked) => {
+                    updateCurrentTeam({
+                        logs_settings: { ...currentTeam?.logs_settings, capture_console_logs: checked },
+                    })
                 }}
-            >
-                This feature requires <code>posthog-js</code> version {MIN_POSTHOG_JS_VERSION} or higher.
-            </LemonBanner>
-            <p>
-                Automatically capture browser session logs from your application and send them to the Logs product for
-                analysis and debugging.
-            </p>
-            <p>
-                This is separate from session replay console log capture and specifically sends logs to PostHog's
-                dedicated Logs product.
-            </p>
-            <AccessControlAction
-                resourceType={AccessControlResourceType.Logs}
-                minAccessLevel={AccessControlLevel.Editor}
-            >
-                <LemonSwitch
-                    data-attr="opt-in-logs-capture-console-log-switch"
-                    onChange={(checked) => {
-                        updateCurrentTeam({
-                            logs_settings: { ...currentTeam?.logs_settings, capture_console_logs: checked },
-                        })
-                    }}
-                    label="Capture console logs to Logs product"
-                    bordered
-                    checked={!!currentTeam?.logs_settings?.capture_console_logs}
-                    loading={currentTeamLoading}
-                />
-            </AccessControlAction>
-        </div>
+                label="Capture console logs to Logs product"
+                bordered
+                checked={!!currentTeam?.logs_settings?.capture_console_logs}
+                loading={currentTeamLoading}
+                disabledReason={restrictedReason}
+            />
+        </AccessControlAction>
     )
 }
 
 export function LogsJsonParseSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const isJsonParseLogs = currentTeam?.logs_settings?.json_parse_logs ?? true
 
     return (
         <>
-            <p>
-                This will parse any log lines which are valid JSON and add those JSON fields as log attributes that can
-                be used in filters
-            </p>
             <AccessControlAction
                 resourceType={AccessControlResourceType.Logs}
                 minAccessLevel={AccessControlLevel.Editor}
@@ -85,6 +65,7 @@ export function LogsJsonParseSettings(): JSX.Element {
                     bordered
                     checked={isJsonParseLogs}
                     loading={currentTeamLoading}
+                    disabledReason={restrictedReason}
                 />
             </AccessControlAction>
         </>
@@ -94,6 +75,10 @@ export function LogsJsonParseSettings(): JSX.Element {
 export function LogsRetentionSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const savedRetentionDays = currentTeam?.logs_settings?.retention_days ?? 15
     const retentionLastUpdated = currentTeam?.logs_settings?.retention_last_updated
@@ -147,12 +132,8 @@ export function LogsRetentionSettings(): JSX.Element {
     return (
         <AccessControlAction resourceType={AccessControlResourceType.Logs} minAccessLevel={AccessControlLevel.Editor}>
             <div className="space-y-2">
-                <label className="font-semibold">Retention (days)</label>
-                <p className="text-muted">
-                    How long to retain logs before they are automatically deleted. You can only change this setting at
-                    most once per 24 hours
-                </p>
                 <LemonInput
+                    className="max-w-24"
                     data-attr="logs-retention-input"
                     type="number"
                     value={retentionDays}
@@ -162,6 +143,7 @@ export function LogsRetentionSettings(): JSX.Element {
                     min={2}
                     max={90}
                     suffix={<>days</>}
+                    disabledReason={restrictedReason}
                 />
                 {retentionDays < 15 && (
                     <LemonBanner type="info">
@@ -175,7 +157,7 @@ export function LogsRetentionSettings(): JSX.Element {
                     type="primary"
                     onClick={handleSave}
                     loading={currentTeamLoading}
-                    disabledReason={getDisabledReason()}
+                    disabledReason={restrictedReason ?? getDisabledReason()}
                     data-attr="logs-retention-save"
                 >
                     Save retention settings

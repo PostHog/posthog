@@ -1,13 +1,12 @@
 import { MessageHeader, SESv2Client, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
-import AWS from 'aws-sdk'
+import { SendMailOptions } from 'nodemailer'
 
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
-import { isFeatureFlagEnabled } from '~/utils/posthog'
 
-import { Hub } from '../../../types'
+import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient } from '../managers/recipients-manager.service'
 import { addTrackingToEmail } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
@@ -15,35 +14,42 @@ import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { generateEmailTrackingCode } from './helpers/tracking-code'
 import { RecipientTokensService } from './recipient-tokens.service'
 
-export type EmailServiceHub = Pick<
-    Hub,
-    | 'SES_ACCESS_KEY_ID'
-    | 'SES_SECRET_ACCESS_KEY'
-    | 'SES_REGION'
-    | 'SES_ENDPOINT'
-    | 'SITE_URL'
-    | 'ENCRYPTION_SALT_KEYS'
-    | 'integrationManager'
->
+export interface EmailServiceConfig {
+    sesAccessKeyId: string
+    sesSecretAccessKey: string
+    sesRegion: string
+    sesEndpoint: string
+}
+
+export function parseAddressList(value?: string): string[] | undefined {
+    if (!value || !value.trim()) {
+        return undefined
+    }
+    const result = value
+        .split(',')
+        .map((addr) => addr.trim())
+        .filter((addr) => addr.length > 0)
+    return result.length > 0 ? result : undefined
+}
 
 export class EmailService {
-    ses: AWS.SES
-    sesV2Client: SESv2Client
+    sesV2Client: SESv2Client | null
 
     private recipientTokensService: RecipientTokensService
 
-    constructor(private hub: EmailServiceHub) {
-        this.ses = new AWS.SES({
-            accessKeyId: this.hub.SES_ACCESS_KEY_ID,
-            secretAccessKey: this.hub.SES_SECRET_ACCESS_KEY,
-            region: this.hub.SES_REGION,
-            endpoint: this.hub.SES_ENDPOINT || undefined,
-        })
-        this.sesV2Client = new SESv2Client({
-            region: this.hub.SES_REGION,
-            endpoint: this.hub.SES_ENDPOINT || undefined,
-        })
-        this.recipientTokensService = new RecipientTokensService(hub)
+    constructor(
+        private sesConfig: EmailServiceConfig,
+        private integrationManager: IntegrationManagerService,
+        encryptionSaltKeys: string,
+        siteUrl: string
+    ) {
+        this.sesV2Client = this.sesConfig.sesRegion
+            ? new SESv2Client({
+                  region: this.sesConfig.sesRegion,
+                  endpoint: this.sesConfig.sesEndpoint || undefined,
+              })
+            : null
+        this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)
     }
 
     // Send email
@@ -64,7 +70,7 @@ export class EmailService {
         const addLog = createAddLogFunction(result.logs)
 
         const params = invocation.queueParameters
-        const integration = await this.hub.integrationManager.get(params.from.integrationId)
+        const integration = await this.integrationManager.get(params.from.integrationId)
 
         let success: boolean = false
 
@@ -80,21 +86,7 @@ export class EmailService {
                     await this.sendEmailWithMaildev(result, params)
                     break
                 case 'ses':
-                    if (
-                        await isFeatureFlagEnabled('workflows-ses-v2', `${invocation.teamId}`, {
-                            groups: { project: `${invocation.teamId}` },
-                            groupProperties: {
-                                project: {
-                                    id: `${invocation.teamId}`,
-                                },
-                            },
-                            sendFeatureFlagEvents: false,
-                        })
-                    ) {
-                        await this.sendEmailWithSESv2(result, params)
-                    } else {
-                        await this.sendEmailWithSES(result, params)
-                    }
+                    await this.sendEmailWithSES(result, params)
                     break
 
                 case 'unsupported':
@@ -116,8 +108,8 @@ export class EmailService {
 
         result.metrics.push({
             team_id: invocation.teamId,
-            app_source_id: invocation.functionId,
-            instance_id: invocation.id,
+            app_source_id: invocation.parentRunId ?? invocation.functionId,
+            instance_id: invocation.state.actionId || invocation.id,
             metric_kind: 'email',
             metric_name: success ? 'email_sent' : 'email_failed',
             count: 1,
@@ -150,13 +142,25 @@ export class EmailService {
         params: CyclotronInvocationQueueParametersEmailType
     ): Promise<void> {
         // This can timeout but there is no native timeout so we do our own one
-        const response = await mailDevTransport!.sendMail({
+        const mailOptions: SendMailOptions = {
             from: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
             to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
             subject: params.subject,
             text: params.text,
             html: addTrackingToEmail(params.html, result.invocation),
-        })
+        }
+
+        const ccAddresses = parseAddressList(params.cc)
+        const bccAddresses = parseAddressList(params.bcc)
+
+        if (ccAddresses) {
+            mailOptions.cc = ccAddresses
+        }
+        if (bccAddresses) {
+            mailOptions.bcc = bccAddresses
+        }
+
+        const response = await mailDevTransport!.sendMail(mailOptions)
 
         if (!response.accepted) {
             throw new Error(`Failed to send email to maildev: ${JSON.stringify(response)}`)
@@ -169,59 +173,9 @@ export class EmailService {
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersEmailType
     ): Promise<void> {
-        const trackingCode = generateEmailTrackingCode(result.invocation)
-        const htmlWithTracking = addTrackingToEmail(params.html, result.invocation)
-        const htmlWithTrackingAndPreheader = params.preheader
-            ? maybeAddPreheaderToEmail(htmlWithTracking, params.preheader)
-            : htmlWithTracking
-
-        const sendEmailParams: AWS.SES.SendEmailRequest = {
-            Source: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
-            ReturnPath: params.from.email,
-            Destination: {
-                ToAddresses: [params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email],
-            },
-            Message: {
-                Subject: {
-                    Data: params.subject,
-                    Charset: 'UTF-8',
-                },
-                Body: {
-                    Html: {
-                        Data: htmlWithTrackingAndPreheader,
-                        Charset: 'UTF-8',
-                    },
-                    Text: {
-                        Data: params.text,
-                        Charset: 'UTF-8',
-                    },
-                },
-            },
-            ConfigurationSetName: 'posthog-messaging', // This triggers the SNS notifications for email tracking
-            Tags: [{ Name: 'ph_id', Value: trackingCode }],
+        if (!this.sesV2Client) {
+            throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
-
-        if (params.replyTo && params.replyTo.trim()) {
-            sendEmailParams.ReplyToAddresses = params.replyTo
-                .split(',')
-                .map((addr) => addr.trim())
-                .filter((addr) => addr.length > 0)
-        }
-
-        try {
-            const response = await this.ses.sendEmail(sendEmailParams).promise()
-            if (!response.MessageId) {
-                throw new Error('No messageId returned from SES')
-            }
-        } catch (error) {
-            throw new Error(`Failed to send email via SES: ${error.message}`)
-        }
-    }
-
-    private async sendEmailWithSESv2(
-        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
-        params: CyclotronInvocationQueueParametersEmailType
-    ): Promise<void> {
         const trackingCode = generateEmailTrackingCode(result.invocation)
         const htmlWithTracking = addTrackingToEmail(params.html, result.invocation)
         const htmlWithTrackingAndPreheader = maybeAddPreheaderToEmail(htmlWithTracking, params.preheader)
@@ -263,11 +217,18 @@ export class EmailService {
             })
         }
 
-        if (params.replyTo && params.replyTo.trim()) {
-            sendEmailParams.ReplyToAddresses = params.replyTo
-                .split(',')
-                .map((addr) => addr.trim())
-                .filter((addr) => addr.length > 0)
+        const replyToAddresses = parseAddressList(params.replyTo)
+        const ccAddresses = parseAddressList(params.cc)
+        const bccAddresses = parseAddressList(params.bcc)
+
+        if (replyToAddresses) {
+            sendEmailParams.ReplyToAddresses = replyToAddresses
+        }
+        if (ccAddresses) {
+            sendEmailParams.Destination!.CcAddresses = ccAddresses
+        }
+        if (bccAddresses) {
+            sendEmailParams.Destination!.BccAddresses = bccAddresses
         }
 
         try {

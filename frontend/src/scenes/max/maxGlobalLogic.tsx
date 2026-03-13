@@ -94,6 +94,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         deregisterTool: (key: string) => ({ key }),
         prependOrReplaceConversation: (conversation: ConversationDetail | Conversation) => ({ conversation }),
         dismissLiabilityNotice: true,
+        dismissDataProcessing: true,
     }),
 
     loaders(({ values }) => ({
@@ -155,6 +156,12 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 dismissLiabilityNotice: () => true,
             },
         ],
+        dataProcessingDismissed: [
+            false,
+            {
+                dismissDataProcessing: () => true,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         acceptDataProcessing: async ({ testOnlyOverride }) => {
@@ -163,28 +170,9 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             })
         },
         askSidePanelMax: ({ prompt }) => {
-            const isRemovingSidePanelFlag = values.featureFlags[FEATURE_FLAGS.UX_REMOVE_SIDEPANEL]
-            if (isRemovingSidePanelFlag) {
-                newInternalTab(urls.ai(undefined, prompt))
-                return
-            }
-
-            let logic = maxLogic.findMounted({ tabId: 'sidepanel' })
-            if (!logic) {
-                logic = maxLogic({ tabId: 'sidepanel' })
-                logic.mount() // we're never unmounting this
-            }
-            actions.openSidePanelMax()
-            // HACK: Delay to ensure maxThreadLogic is mounted after the side panel opens - ugly, but works
-            window.setTimeout(() => logic!.actions.askMax(prompt), 100)
+            newInternalTab(urls.ai(undefined, prompt))
         },
         openSidePanelMax: ({ conversationId }) => {
-            const isRemovingSidePanelFlag = values.featureFlags[FEATURE_FLAGS.UX_REMOVE_SIDEPANEL]
-            if (isRemovingSidePanelFlag) {
-                newInternalTab(urls.ai(conversationId))
-                return
-            }
-
             if (!values.sidePanelOpen || values.selectedTab !== SidePanelTab.Max) {
                 actions.openSidePanel(SidePanelTab.Max)
             }
@@ -208,6 +196,10 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
     }),
 
     selectors({
+        currentConversationId: [
+            () => [router.selectors.searchParams],
+            (searchParams): string | null => searchParams?.chat ?? null,
+        ],
         dataProcessingAccepted: [
             (s) => [s.currentOrganization],
             (currentOrganization): boolean => !!currentOrganization?.is_ai_data_processing_approved,

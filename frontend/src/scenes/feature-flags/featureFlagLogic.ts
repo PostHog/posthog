@@ -14,6 +14,7 @@ import {
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import { createElement } from 'react'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { handleApprovalRequired } from 'lib/approvals/utils'
@@ -21,12 +22,13 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs } from 'lib/dayjs'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
+import { slugify } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
-import { type ModifiedField } from 'scenes/feature-flags/FeatureFlagTemplates'
 import { FeatureFlagsTab, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -72,12 +74,50 @@ import {
 } from '~/types'
 
 import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
+import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
 import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic'
+import { defaultReleaseConditionsLogic } from './defaultReleaseConditionsLogic'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
+import type { FlagIntent } from './featureFlagIntentWarningLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
+
+const VALID_INTENTS: FlagIntent[] = ['local-eval', 'first-page-load']
+
+function parseUrlIntent(): FlagIntent | undefined {
+    const raw = router.values.searchParams.intent
+    return VALID_INTENTS.includes(raw) ? (raw as FlagIntent) : undefined
+}
+
+/** Apply the intent from the URL param (idempotent — no-ops if already applied). */
+function maybeApplyUrlIntent(
+    values: { urlIntentApplied: boolean; featureFlag: FeatureFlagType },
+    actions: {
+        setFlagIntent: (intent: FlagIntent) => void
+        applyUrlIntent: () => void
+        setFeatureFlag: (flag: FeatureFlagType) => void
+    }
+): void {
+    if (values.urlIntentApplied) {
+        return
+    }
+    const intent = parseUrlIntent()
+    if (!intent) {
+        return
+    }
+    actions.setFlagIntent(intent)
+    actions.applyUrlIntent()
+    if (intent === 'local-eval') {
+        actions.setFeatureFlag({
+            ...values.featureFlag,
+            evaluation_runtime: FeatureFlagEvaluationRuntime.SERVER,
+            ensure_experience_continuity: false,
+        })
+    }
+    // 'first-page-load' applies no presets — it only surfaces warnings via featureFlagIntentWarningLogic
+}
 
 type FlagType = 'boolean' | 'multivariate' | 'remote_config'
 
@@ -118,6 +158,7 @@ export const NEW_FLAG: FeatureFlagType = {
     user_access_level: AccessControlLevel.Editor,
     tags: [],
     evaluation_tags: [],
+    evaluation_contexts: [],
     is_remote_configuration: false,
     has_encrypted_payloads: false,
     status: 'ACTIVE',
@@ -148,6 +189,36 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
 }
 
 const FLAG_DEPENDENCY_TIMEOUT_MS = 2000
+
+// Only returns true when groups are present and ALL explicitly set to 0.
+// In feature flags, null/undefined rollout_percentage means "serve to all" (100%), not 0%.
+export function hasZeroRollout(filters: FeatureFlagType['filters'] | undefined | null): boolean {
+    const groups = filters?.groups
+    if (!groups || groups.length === 0) {
+        return false
+    }
+    return groups.every((g) => g.rollout_percentage === 0)
+}
+
+// In feature flags, null/undefined rollout_percentage means "serve to all" (100%), so treat as active.
+export function hasMultipleVariantsActive(filters: FeatureFlagType['filters'] | undefined | null): boolean {
+    const variants = filters?.multivariate?.variants
+    if (!variants) {
+        return false
+    }
+    return variants.filter(({ rollout_percentage }) => rollout_percentage !== 0).length > 1
+}
+
+// Normalize a value into a valid feature flag key: spaces to dashes, strip invalid chars.
+// fromTitleInput: when auto-filling from a name field, downcase and trim both ends.
+// Direct key input preserves case and only trims the start (so users can can continue typing with spaces).
+// Note that lowercase should not be enforced as users do use camelCase or UPPERCASE
+export function slugifyFeatureFlagKey(
+    value: string,
+    { fromTitleInput = false }: { fromTitleInput?: boolean } = {}
+): string {
+    return slugify(value, { lowercase: fromTitleInput, trimBothEnds: fromTitleInput })
+}
 
 /** Check whether a string is a valid feature flag key. If not, a reason string is returned - otherwise undefined. */
 export function validateFeatureFlagKey(key: string): string | undefined {
@@ -323,6 +394,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['featureFlags as enabledFeatures'],
             defaultEvaluationContextsLogic,
             ['defaultEvaluationContexts'],
+            defaultReleaseConditionsLogic,
+            ['defaultReleaseConditions'],
         ],
         actions: [
             featureFlagsLogic,
@@ -333,6 +406,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['addProductIntent'],
             defaultEvaluationContextsLogic,
             ['loadDefaultEvaluationContexts'],
+            defaultReleaseConditionsLogic,
+            ['loadDefaultReleaseConditions'],
         ],
     })),
     actions({
@@ -349,7 +424,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         addVariant: true,
         duplicateVariant: (index: number) => ({ index }),
         removeVariant: (index: number) => ({ index }),
-        editFeatureFlag: (editing: boolean) => ({ editing }),
+        editFeatureFlag: (editing: boolean, options?: { expandAdvanced?: boolean }) => ({
+            editing,
+            expandAdvanced: options?.expandAdvanced ?? false,
+        }),
         distributeVariantsEqually: true,
         generateUsageDashboard: true,
         enrichUsageDashboard: true,
@@ -382,15 +460,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             dependentFlags: DependentFlag[]
             isBeingDisabled?: boolean
         }) => payload,
+        saveDescriptionInline: (name: string) => ({ name }),
         // V2 form UI actions
         setShowImplementation: (show: boolean) => ({ show }),
         setOpenVariants: (openVariants: string[]) => ({ openVariants }),
         setPayloadExpanded: (expanded: boolean) => ({ expanded }),
-        setHighlightedFields: (fields: ModifiedField[]) => ({ fields }),
-        clearHighlight: (field: ModifiedField) => ({ field }),
         setTemplateExpanded: (expanded: boolean) => ({ expanded }),
         applyUrlTemplate: (templateId: string) => ({ templateId }),
         applyTemplate: (templateId: string) => ({ templateId }),
+        setFlagIntent: (intent: FlagIntent | null) => ({ intent }),
+        applyUrlIntent: true,
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -632,6 +711,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 editFeatureFlag: (_, { editing }) => editing,
             },
         ],
+        expandAdvancedOnEdit: [
+            false,
+            {
+                editFeatureFlag: (_, { expandAdvanced }) => expandAdvanced,
+            },
+        ],
         copyDestinationProject: [
             null as number | null,
             {
@@ -729,15 +814,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 loadFeatureFlagSuccess: (_, { featureFlag }) => !!featureFlag?.filters?.payloads?.['true'],
             },
         ],
-        highlightedFields: [
-            [] as ModifiedField[],
-            {
-                setHighlightedFields: (_, { fields }) => fields,
-                clearHighlight: (state, { field }) => state.filter((f: ModifiedField) => f !== field),
-                // Reset when loading a new flag to avoid stale highlights
-                loadFeatureFlag: () => [],
-            },
-        ],
         templateExpanded: [
             true,
             {
@@ -752,8 +828,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             false,
             {
                 applyUrlTemplate: () => true,
-                // Reset when loading a new flag
                 loadFeatureFlag: () => false,
+            },
+        ],
+        urlIntentApplied: [
+            false,
+            {
+                applyUrlIntent: () => true,
+                loadFeatureFlag: () => false,
+            },
+        ],
+        flagIntent: [
+            null as FlagIntent | null,
+            {
+                setFlagIntent: (_, { intent }) => intent,
+                loadFeatureFlag: () => null,
             },
         ],
     }),
@@ -905,6 +994,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         _should_create_usage_dashboard: true,
                     }
 
+                    if (flagType !== 'remote_config') {
+                        const conditionsConfig = values.defaultReleaseConditions
+                        if (conditionsConfig?.enabled && conditionsConfig.default_groups?.length > 0) {
+                            baseFlagConfig = {
+                                ...baseFlagConfig,
+                                filters: {
+                                    ...baseFlagConfig.filters,
+                                    groups: conditionsConfig.default_groups,
+                                },
+                            }
+                        }
+                    }
+
                     // Apply type-specific configuration
                     if (flagType === 'multivariate') {
                         baseFlagConfig = {
@@ -938,12 +1040,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             console.warn('Failed to load default evaluation contexts:', error)
                         }
                         const defaultEnvs = values.defaultEvaluationContexts
-                        const defaultTags = defaultEnvs?.default_evaluation_tags || []
+                        const defaultContexts = defaultEnvs?.default_evaluation_contexts || []
 
                         return {
                             ...baseFlagConfig,
-                            tags: defaultTags.map((tag) => tag.name),
-                            evaluation_tags: defaultTags.map((tag) => tag.name),
+                            evaluation_contexts: defaultContexts.map((ctx) => ctx.name),
                         }
                     }
 
@@ -1398,6 +1499,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (templateId && featureFlag && !values.urlTemplateApplied) {
                 actions.applyTemplate(templateId)
             }
+
+            // Apply intent from URL param (when no template — with template, intent is applied after)
+            if (!templateId && featureFlag) {
+                maybeApplyUrlIntent(values, actions)
+            }
         },
         applyTemplate: ({ templateId }) => {
             const template = values.templates.find((t) => t.id === templateId)
@@ -1406,18 +1512,27 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
             const templateValues = template.getValues(values.featureFlag)
 
+            const defaultConfig = values.defaultReleaseConditions
+            const defaultGroups =
+                defaultConfig?.enabled && defaultConfig.default_groups?.length > 0 ? defaultConfig.default_groups : []
+            const templateGroups = templateValues.filters?.groups ?? []
+            const mergedGroups = defaultGroups.length > 0 ? [...defaultGroups, ...templateGroups] : templateGroups
+
             actions.setFeatureFlag({
                 ...values.featureFlag,
                 ...templateValues,
                 filters: {
                     ...values.featureFlag.filters,
                     ...templateValues.filters,
+                    groups: mergedGroups,
                 },
             } as FeatureFlagType)
 
             actions.setTemplateExpanded(false)
-            actions.setHighlightedFields(template.modifiedFields)
             actions.applyUrlTemplate(templateId)
+
+            // Apply intent after template so intent presets are not overwritten
+            maybeApplyUrlIntent(values, actions)
         },
         copyFlagSuccess: ({ featureFlagCopy }) => {
             if (featureFlagCopy?.success.length) {
@@ -1556,15 +1671,65 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 )
             }
         },
+        saveDescriptionInline: async ({ name }) => {
+            const flag = values.featureFlag
+            if (!flag.id || name === flag.name) {
+                return
+            }
+            try {
+                const savedFlag = await api.update(`api/projects/${values.currentProjectId}/feature_flags/${flag.id}`, {
+                    name,
+                })
+                actions.setFeatureFlag({ ...flag, name: savedFlag.name })
+                actions.updateFlag({ ...flag, name: savedFlag.name })
+                lemonToast.success('Description saved')
+            } catch {
+                lemonToast.error('Failed to save description')
+            }
+        },
         editFeatureFlag: async ({ editing }) => {
             if (editing) {
                 actions.loadFeatureFlag()
             }
         },
         submitFeatureFlagWithValidation: async ({ featureFlag }, breakpoint, action, previousState) => {
+            const originalFlag = values.originalFeatureFlag
+            const keyChanged = originalFlag && featureFlag.id && originalFlag.key !== featureFlag.key
+
+            if (keyChanged) {
+                const confirmed = await new Promise<boolean>((resolve) => {
+                    LemonDialog.open({
+                        title: 'Change flag key?',
+                        description: createElement(
+                            'span',
+                            null,
+                            'Renaming this key will break any existing code that references it (e.g. ',
+                            createElement(
+                                'code',
+                                { className: 'text-xs bg-fill-secondary rounded px-1 py-0.5' },
+                                `getFeatureFlag('${originalFlag.key}')`
+                            ),
+                            '). Make sure to update all SDK calls and integrations.'
+                        ),
+                        primaryButton: {
+                            children: 'Change key',
+                            status: 'danger',
+                            onClick: () => resolve(true),
+                        },
+                        secondaryButton: {
+                            children: 'Cancel',
+                        },
+                        onAfterClose: () => resolve(false),
+                    })
+                })
+                if (!confirmed) {
+                    return
+                }
+            }
+
             await sharedListeners.checkDependentFlagsAndConfirm(
                 {
-                    originalFlag: values.originalFeatureFlag,
+                    originalFlag,
                     updatedFlag: featureFlag,
                     onConfirm: () => {
                         if (featureFlag.id) {
@@ -1772,29 +1937,26 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 id: string
                 name: string
                 description: string
-                modifiedFields: ModifiedField[]
                 getValues: (flag: FeatureFlagType) => Partial<FeatureFlagType>
             }> => [
                 {
                     id: 'simple',
-                    name: 'Simple flag',
+                    name: TEMPLATE_NAMES.simple,
                     description: 'On/off for all users',
-                    modifiedFields: ['key', 'rollout'],
                     getValues: (flag) => ({
                         key: 'my-feature',
                         is_remote_configuration: false,
                         filters: {
                             ...flag.filters,
                             multivariate: null,
-                            groups: [{ properties: [], rollout_percentage: 100, variant: null }],
+                            groups: [{ properties: [], rollout_percentage: 0, variant: null }],
                         },
                     }),
                 },
                 {
                     id: 'targeted',
-                    name: 'Targeted release',
+                    name: TEMPLATE_NAMES.targeted,
                     description: 'Release to specific users',
-                    modifiedFields: ['key', 'conditions', 'rollout'],
                     getValues: (flag) => ({
                         key: 'targeted-release',
                         is_remote_configuration: false,
@@ -1811,7 +1973,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                                             operator: PropertyOperator.IContains,
                                         },
                                     ],
-                                    rollout_percentage: 100,
+                                    rollout_percentage: 0,
                                     variant: null,
                                 },
                             ],
@@ -1820,9 +1982,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
                 {
                     id: 'multivariate',
-                    name: 'Multivariate',
+                    name: TEMPLATE_NAMES.multivariate,
                     description: 'Multiple variants',
-                    modifiedFields: ['key', 'flagType', 'rollout'],
                     getValues: (flag) => ({
                         key: 'multivariate-flag',
                         is_remote_configuration: false,
@@ -1834,15 +1995,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                                     { key: 'test', rollout_percentage: 50 },
                                 ],
                             },
-                            groups: [{ properties: [], rollout_percentage: 100, variant: null }],
+                            groups: [{ properties: [], rollout_percentage: 0, variant: null }],
                         },
                     }),
                 },
                 {
                     id: 'targeted-multivariate',
-                    name: 'Targeted multivariate',
+                    name: TEMPLATE_NAMES['targeted-multivariate'],
                     description: 'Variants for specific users',
-                    modifiedFields: ['key', 'flagType', 'conditions', 'rollout'],
                     getValues: (flag) => ({
                         key: 'targeted-multivariate',
                         is_remote_configuration: false,
@@ -1864,7 +2024,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                                             operator: PropertyOperator.IContains,
                                         },
                                     ],
-                                    rollout_percentage: 100,
+                                    rollout_percentage: 0,
                                     variant: null,
                                 },
                             ],
@@ -1879,8 +2039,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
             if (method === 'PUSH') {
-                // Reset editing state when navigating to prevent it from persisting across flags
-                actions.editFeatureFlag(false)
+                // Set editing state based on URL parameter, or reset to prevent persisting across flags
+                actions.editFeatureFlag(searchParams.edit === true || searchParams.edit === 'true')
 
                 if (props.id) {
                     // When there is sourceId, we load the feature flag (for duplicating)
@@ -1895,6 +2055,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
                     // When there is template, we load the feature flag (for applying template)
                     if (props.id === 'new' && searchParams.template != null) {
+                        actions.loadFeatureFlag()
+                        return
+                    }
+                    // When there is intent, we load the feature flag (for applying intent presets)
+                    if (props.id === 'new' && searchParams.intent != null) {
                         actions.loadFeatureFlag()
                         return
                     }
@@ -1914,7 +2079,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             props.id === 'new' &&
             (router.values.searchParams.sourceId ||
                 router.values.searchParams.type ||
-                router.values.searchParams.template)
+                router.values.searchParams.template ||
+                router.values.searchParams.intent)
         ) {
             actions.loadFeatureFlag()
             return

@@ -29,6 +29,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "task_number",
             "slug",
             "title",
+            "title_manually_set",
             "description",
             "origin_product",
             "repository",
@@ -84,12 +85,19 @@ class TaskSerializer(serializers.ModelSerializer):
             if default_integration:
                 validated_data["github_integration"] = default_integration
 
-        # Auto-generate title from description if not provided or empty
         title = validated_data.get("title", "").strip()
         if not title and validated_data.get("description"):
             validated_data["title"] = generate_task_title(validated_data["description"])
+            validated_data.setdefault("title_manually_set", False)
+        elif title:
+            validated_data.setdefault("title_manually_set", True)
 
         return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        if "title" in validated_data and "title_manually_set" not in validated_data:
+            validated_data["title_manually_set"] = True
+        return super().update(instance, validated_data)
 
 
 class AgentDefinitionSerializer(serializers.Serializer):
@@ -218,6 +226,10 @@ class TaskRunAppendLogRequestSerializer(serializers.Serializer):
         return value
 
 
+class TaskRunRelayMessageRequestSerializer(serializers.Serializer):
+    text = serializers.CharField(max_length=10000)
+
+
 class TaskRunArtifactUploadSerializer(serializers.Serializer):
     ARTIFACT_TYPE_CHOICES = ["plan", "context", "reference", "output", "artifact"]
 
@@ -269,6 +281,53 @@ class TaskListQuerySerializer(serializers.Serializer):
     created_by = serializers.IntegerField(required=False, help_text="Filter by creator user ID")
 
 
+class RepositoryReadinessQuerySerializer(serializers.Serializer):
+    repository = serializers.CharField(required=True, help_text="Repository in org/repo format")
+    window_days = serializers.IntegerField(required=False, default=7, min_value=1, max_value=30)
+    refresh = serializers.BooleanField(required=False, default=False)
+
+    def validate_repository(self, value: str) -> str:
+        normalized = value.strip().lower()
+        parts = normalized.split("/")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise serializers.ValidationError("Repository must be in the format organization/repository")
+        return normalized
+
+
+class CapabilityStateSerializer(serializers.Serializer):
+    state = serializers.ChoiceField(
+        choices=["needs_setup", "detected", "waiting_for_data", "ready", "not_applicable", "unknown"],
+        help_text="Current state of the capability",
+    )
+    estimated = serializers.BooleanField(help_text="Whether the state is estimated from static analysis")
+    reason = serializers.CharField(help_text="Human-readable explanation")
+    evidence = serializers.DictField(required=False, default=dict, help_text="Supporting evidence")
+
+
+class ScanEvidenceSerializer(serializers.Serializer):
+    filesScanned = serializers.IntegerField(help_text="Number of files scanned")
+    detectedFilesCount = serializers.IntegerField(help_text="Total candidate files detected")
+    eventNameCount = serializers.IntegerField(help_text="Number of distinct event names found")
+    foundPosthogInit = serializers.BooleanField(help_text="Whether posthog.init() was found in scanned files")
+    foundPosthogCapture = serializers.BooleanField(help_text="Whether posthog.capture() was found in scanned files")
+    foundErrorSignal = serializers.BooleanField(help_text="Whether error tracking signals were found in scanned files")
+
+
+class RepositoryReadinessResponseSerializer(serializers.Serializer):
+    repository = serializers.CharField(help_text="Normalized repository identifier")
+    classification = serializers.CharField(help_text="Repository classification")
+    excluded = serializers.BooleanField(help_text="Whether the repository is excluded from readiness checks")
+    coreSuggestions = CapabilityStateSerializer(help_text="Tracking capability state")
+    replayInsights = CapabilityStateSerializer(help_text="Computer vision capability state")
+    errorInsights = CapabilityStateSerializer(help_text="Error tracking capability state")
+    overall = serializers.CharField(help_text="Overall readiness state")
+    evidenceTaskCount = serializers.IntegerField(help_text="Count of replay-derived evidence tasks")
+    windowDays = serializers.IntegerField(help_text="Lookback window in days")
+    generatedAt = serializers.CharField(help_text="ISO timestamp when the response was generated")
+    cacheAgeSeconds = serializers.IntegerField(help_text="Age of cached response in seconds")
+    scan = ScanEvidenceSerializer(required=False, help_text="Scan evidence details")
+
+
 class ConnectionTokenResponseSerializer(serializers.Serializer):
     """Response containing a JWT token for direct sandbox connection"""
 
@@ -284,6 +343,69 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         default="background",
         help_text="Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs",
     )
+    branch = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        max_length=255,
+        help_text="Git branch to checkout in the sandbox",
+    )
+
+
+class TaskRunCommandRequestSerializer(serializers.Serializer):
+    """JSON-RPC request to send a command to the agent server in the sandbox."""
+
+    ALLOWED_METHODS = [
+        "user_message",
+        "cancel",
+        "close",
+    ]
+
+    jsonrpc = serializers.ChoiceField(
+        choices=["2.0"],
+        help_text="JSON-RPC version, must be '2.0'",
+    )
+    method = serializers.ChoiceField(
+        choices=ALLOWED_METHODS,
+        help_text="Command method to execute on the agent server",
+    )
+    params = serializers.DictField(
+        required=False,
+        default=dict,
+        help_text="Parameters for the command",
+    )
+    id = serializers.JSONField(
+        required=False,
+        default=None,
+        help_text="Optional JSON-RPC request ID (string or number)",
+    )
+
+    def validate_id(self, value):
+        if value is not None and not isinstance(value, (str, int, float)):
+            raise serializers.ValidationError("id must be a string or number")
+        return value
+
+    def validate(self, attrs):
+        method = attrs["method"]
+        params = attrs.get("params", {})
+        if method == "user_message":
+            content = params.get("content")
+            if not content or not isinstance(content, str) or not content.strip():
+                raise serializers.ValidationError({"params": "content is required and must be a non-empty string"})
+        return attrs
+
+
+class TaskRunCommandResponseSerializer(serializers.Serializer):
+    """Response from the agent server command endpoint."""
+
+    jsonrpc = serializers.CharField(help_text="JSON-RPC version")
+    id = serializers.JSONField(required=False, default=None, help_text="Request ID echoed back (string or number)")
+    result = serializers.DictField(required=False, help_text="Command result on success")
+    error = serializers.DictField(required=False, help_text="Error details on failure")
+
+
+class CodeInviteRedeemRequestSerializer(serializers.Serializer):
+    code = serializers.CharField(max_length=50)
 
 
 class TaskRunSessionLogsQuerySerializer(serializers.Serializer):

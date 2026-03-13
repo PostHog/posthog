@@ -23,8 +23,11 @@ class ResearchAgentExecutable(PlanModeExecutable):
     MAX_TOKENS = 16_384
 
     def _get_model(self, state: AssistantState, tools: list["MaxTool"]):
+        is_research_mode = state.supermode == AgentMode.RESEARCH
+        model_name = "claude-opus-4-6" if is_research_mode else "claude-sonnet-4-6"
+
         base_model = MaxChatAnthropic(
-            model="claude-opus-4-5-20251101",
+            model=model_name,
             streaming=True,
             stream_usage=True,
             user=self._user,
@@ -49,8 +52,7 @@ class ResearchAgentToolsExecutable(PlanModeToolsExecutable):
     def transition_supermode(self) -> AgentMode:
         return AgentMode.RESEARCH
 
-    @property
-    def transition_prompt(self) -> str:
+    async def get_transition_prompt(self) -> str:
         return SWITCH_TO_RESEARCH_MODE_PROMPT
 
     def _should_transition(self, state: AssistantState, result: PartialAssistantState) -> bool:

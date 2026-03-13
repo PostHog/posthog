@@ -40,9 +40,8 @@ class PlanModeExecutable(AgentExecutable):
 
 
 class PlanModeToolsExecutable(AgentToolsExecutable):
-    @property
     @abstractmethod
-    def transition_prompt(self) -> str:
+    async def get_transition_prompt(self) -> str:
         """The prompt to display to the user when transitioning to the next mode."""
         ...
 
@@ -98,7 +97,8 @@ class PlanModeToolsExecutable(AgentToolsExecutable):
             # Replace the tool call message content with the transition prompt
             last_message = result.messages[-1] if result.messages else None
             if isinstance(last_message, AssistantToolCallMessage):
-                updated_message = last_message.model_copy(update={"content": self.transition_prompt})
+                transition_prompt = await self.get_transition_prompt()
+                updated_message = last_message.model_copy(update={"content": transition_prompt})
                 result = result.model_copy(update={"messages": [*result.messages[:-1], updated_message]})
 
         return result

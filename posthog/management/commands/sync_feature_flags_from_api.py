@@ -53,9 +53,13 @@ def sync_feature_flags_from_api(
         output_fn(f"\nProcessing project {project.id} - {project.name or ''}")
         output_fn("=" * 50)
 
-        existing_flags = FeatureFlag.objects.filter(team__project_id=project.id).values_list("key", flat=True)
-        deleted_flags = FeatureFlag.objects.filter(team__project_id=project.id, deleted=True).values_list(
-            "key", flat=True
+        existing_flags = set(
+            FeatureFlag.objects_including_soft_deleted.filter(team__project_id=project.id).values_list("key", flat=True)
+        )
+        deleted_flags = set(
+            FeatureFlag.objects_including_soft_deleted.filter(team__project_id=project.id, deleted=True).values_list(
+                "key", flat=True
+            )
         )
 
         enabled_flags = sum(1 for flag_data in data["flags"].values() if flag_data.get("enabled", False))
@@ -69,7 +73,7 @@ def sync_feature_flags_from_api(
         for flag_key, flag_data in data["flags"].items():
             is_enabled = flag_data.get("enabled", False)
             if flag_key in deleted_flags and is_enabled:
-                ff = FeatureFlag.objects.get(team__project_id=project.id, key=flag_key)
+                ff = FeatureFlag.objects_including_soft_deleted.get(team__project_id=project.id, key=flag_key)
                 ff.deleted = False
                 ff.active = True
                 ff.save()
@@ -79,7 +83,6 @@ def sync_feature_flags_from_api(
             elif flag_key not in existing_flags and is_enabled:
                 FeatureFlag.objects.create(
                     team=project.teams.first(),
-                    rollout_percentage=100,
                     name=flag_key,
                     key=flag_key,
                     created_by=first_user,

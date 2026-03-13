@@ -11,6 +11,7 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { apiHostOrigin } from 'lib/utils/apiHost'
+import { domainFor, proxyLogic } from 'scenes/settings/environment/proxyLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 export interface OnboardingComponentsContext {
@@ -49,6 +50,7 @@ export interface OnboardingComponentsContext {
     snippets?: Record<string, React.ComponentType<any>>
     selectedFile?: string | null
     setSelectedFile?: (file: string) => void
+    apiHost?: string
 }
 
 const OnboardingContext = createContext<OnboardingComponentsContext | null>(null)
@@ -129,11 +131,11 @@ function CodeBlock({
     const globalSelectedFile = context?.selectedFile
     const globalSetSelectedFile = context?.setSelectedFile
     const { currentTeam } = useValues(teamLogic)
-    const host = apiHostOrigin()
+    const host = context?.apiHost ?? apiHostOrigin()
 
     const replacePlaceholders = (codeString: string): string => {
         return codeString
-            .replace(/<ph_project_api_key>/g, currentTeam?.api_token ?? '<ph_project_api_key>')
+            .replace(/<ph_project_token>/g, currentTeam?.api_token ?? '<ph_project_token>')
             .replace(/<ph_client_api_host>/g, host)
             .replace(/<team_id>/g, currentTeam?.id?.toString() ?? '<team_id>')
     }
@@ -315,22 +317,44 @@ const Tab = Object.assign(TabItem, {
     Panel: TabPanel,
 })
 
+function MinimalSteps({ children }: StepsProps): JSX.Element {
+    return <div className="space-y-4">{children}</div>
+}
+
+function MinimalStep({ children }: StepProps & { stepNumber?: number }): JSX.Element | null {
+    return <div className="space-y-4">{children}</div>
+}
+
 // This is a wrapper to share certain onboarding instructions with the main website repo.
 export function OnboardingDocsContentWrapper({
     children,
     snippets,
     createSnippets,
+    minimal,
+    useReverseProxy,
 }: {
     children: ReactNode
     snippets?: Record<string, React.ComponentType<any>>
     createSnippets?: (components: OnboardingComponentsContext) => Record<string, React.ComponentType<any>>
+    minimal?: boolean
+    /** When true, code snippets show the reverse proxy domain (if one exists) instead of the default API host. */
+    useReverseProxy?: boolean
 }): JSX.Element {
     const [selectedFile, setSelectedFile] = React.useState<string | null>(null)
+    const { proxyRecords } = useValues(proxyLogic)
+
+    const apiHost = useMemo(() => {
+        if (useReverseProxy) {
+            return domainFor(proxyRecords.find((r) => r.status === 'valid'))
+        }
+
+        return apiHostOrigin()
+    }, [useReverseProxy, proxyRecords])
 
     const baseComponents = useMemo<Omit<OnboardingComponentsContext, 'snippets'>>(
         () => ({
-            Steps,
-            Step,
+            Steps: minimal ? MinimalSteps : Steps,
+            Step: minimal ? MinimalStep : Step,
             CodeBlock,
             CalloutBox,
             ProductScreenshot,
@@ -341,8 +365,9 @@ export function OnboardingDocsContentWrapper({
             Tab,
             selectedFile,
             setSelectedFile,
+            apiHost,
         }),
-        [selectedFile]
+        [selectedFile, minimal, apiHost]
     )
 
     const finalSnippets = useMemo(() => {

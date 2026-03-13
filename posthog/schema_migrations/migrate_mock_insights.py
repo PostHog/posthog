@@ -35,7 +35,7 @@ def main():
         migrate_file(filepath)
 
     subprocess.run(
-        ["pnpm", "prettier", "--write", MOCKS_DIR],
+        ["pnpm", "exec", "oxfmt", MOCKS_DIR],
     )
 
 

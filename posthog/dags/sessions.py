@@ -108,7 +108,7 @@ class SessionsBackfillConfig(Config):
     """
 
     clickhouse_settings: dict[str, Any] | None = None
-    team_id_chunks: int | None = 16
+    team_id_chunks: int | None = 64
     max_unmerged_parts: int = 100
     parts_check_poll_frequency_seconds: int = 30
     parts_check_max_wait_seconds: int = 3600
@@ -116,7 +116,7 @@ class SessionsBackfillConfig(Config):
 
 class ExperimentalSessionsBackfillConfig(Config):
     clickhouse_settings: dict[str, Any] | None = None
-    team_id_chunks: int | None = 16
+    team_id_chunks: int | None = 64
     max_unmerged_parts: int = 100
     parts_check_poll_frequency_seconds: int = 30
     parts_check_max_wait_seconds: int = 3600

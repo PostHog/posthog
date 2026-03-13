@@ -149,6 +149,12 @@ export interface ErrorTrackingRelease {
     created_at: string
 }
 
+export interface ErrorTrackingSpikeDetectionConfig {
+    snooze_duration_minutes: number
+    multiplier: number
+    threshold: number
+}
+
 export type SymbolSetStatus = 'valid' | 'invalid'
 export type SymbolSetStatusFilter = SymbolSetStatus | 'all'
 export type ErrorEventProperties = EventType['properties']

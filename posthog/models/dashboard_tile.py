@@ -55,6 +55,7 @@ class DashboardTile(models.Model):
     refreshing = models.BooleanField(null=True)
     refresh_attempt = models.IntegerField(null=True, blank=True)
     filters_overrides = models.JSONField(default=dict, null=True, blank=True)
+    show_description = models.BooleanField(null=True, blank=True)
 
     deleted = models.BooleanField(null=True, blank=True)
 
@@ -120,6 +121,7 @@ class DashboardTile(models.Model):
             text=self.text,
             color=self.color,
             layouts=self.layouts,
+            show_description=self.show_description,
         )
 
     @staticmethod

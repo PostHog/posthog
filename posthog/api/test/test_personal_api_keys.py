@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -266,6 +267,25 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert data["mask_value"] != original_key.mask_value
 
 
+class TestPersonalAPIKeysAPIValidation(APIBaseTest):
+    def test_cannot_create_key_with_empty_scopes(self):
+        response = self.client.post(
+            "/api/personal_api_keys/",
+            {"label": "empty", "scopes": [], "scoped_organizations": [], "scoped_teams": []},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_cannot_update_key_to_empty_scopes(self):
+        key = PersonalAPIKey.objects.create(
+            label="Test",
+            user=self.user,
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["insight:read"],
+        )
+        response = self.client.patch(f"/api/personal_api_keys/{key.id}", {"scopes": []})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
 class PersonalAPIKeysBaseTest(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
 
@@ -285,7 +305,7 @@ class PersonalAPIKeysBaseTest(APIBaseTest):
             label="Test",
             user=self.user,
             secure_value=hash_key_value(self.value),
-            scopes=[],
+            scopes=["*"],
             scoped_teams=[],
             scoped_organizations=[],
         )
@@ -388,12 +408,21 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
         response = self.client.get("/api/users/@me/", headers={"authorization": f"Bearer {self.value}"})
         assert response.status_code == status.HTTP_200_OK
 
-    def test_does_not_interfere_with_temporary_token_auth(self):
+    @pytest.mark.requires_secrets
+    def test_does_not_interfere_with_other_auth_methods(self):
+        from django.utils import timezone
+
+        from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+
+        self.client.logout()
+
+        # Personal API key works
         response = self.client.get(
             f"/api/projects/{self.team.id}/dashboards/", headers={"authorization": f"Bearer {self.value}"}
         )
         assert response.status_code == status.HTTP_200_OK
 
+        # JWT auth works
         impersonated_access_token = encode_jwt(
             {"id": self.user.id},
             timedelta(minutes=15),
@@ -403,6 +432,29 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
         response = self.client.get(
             f"/api/projects/{self.team.id}/dashboards/",
             headers={"authorization": f"Bearer {impersonated_access_token}"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        # OAuth token works
+        oauth_app = OAuthApplication.objects.create(
+            name="Test App",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        oauth_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=oauth_app,
+            token="pha_test_oauth_token",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="*",
+        )
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/",
+            headers={"authorization": f"Bearer {oauth_token.token}"},
         )
         assert response.status_code == status.HTTP_200_OK
 
@@ -430,7 +482,7 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
             label="Test last_updated_at",
             user=self.user,
             secure_value=hash_key_value(value),
-            scopes=[],
+            scopes=["*"],
         )
         assert key.last_used_at is None
 
@@ -458,6 +510,12 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         self.key.save()
         response = self._do_request("/api/users/@me/")
         assert response.status_code == status.HTTP_200_OK
+
+    def test_rejects_empty_scopes_list_as_not_legacy(self):
+        self.key.scopes = []
+        self.key.save()
+        response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_forbids_scoped_access_for_unsupported_endpoint(self):
         # Even * scope isn't allowed for unsupported endpoints
@@ -510,7 +568,7 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         assert response.status_code == status.HTTP_200_OK
 
     def test_errors_for_action_without_required_scopes(self):
-        response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/evaluation_reasons")
+        response = self._do_request(f"/api/projects/{self.team.id}/insights/my_last_viewed")
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json()["detail"] == "This action does not support Personal API Key access"
 

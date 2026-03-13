@@ -46,7 +46,7 @@ export const getDocusaurusSteps = (ctx: OnboardingComponentsContext): StepDefini
                                     [
                                       'posthog-docusaurus',
                                       {
-                                        apiKey: '<ph_project_api_key>',
+                                        apiKey: '<ph_project_token>',
                                         appUrl: '<ph_client_api_host>',
                                         enableInDevelopment: false,
                                       },

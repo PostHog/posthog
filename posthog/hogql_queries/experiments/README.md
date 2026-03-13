@@ -58,13 +58,13 @@ arraySort(t -> t.1, groupArray(tuple(
     timestamp_float,                   -- Sort key: timestamp
     uuid,                              -- Event identifier
     array(''),                         -- Breakdown value (empty = no breakdown)
-    arrayFilter(x -> x != 0, [...])    -- Step numbers this event matches
+    arrayFilter(x -> x > 0, [...])      -- Step numbers this event matches
 )))
 ```
 
 - **Purpose**: Creates the main input array for the UDF
 - **Sorting**: Events are sorted by timestamp (t.1) to ensure chronological order
-- **Filtering**: `arrayFilter(x -> x != 0, [...])` removes zeros, leaving only actual step numbers
+- **Filtering**: `arrayFilter(x -> x > 0, [...])` removes zeros and NULLs, leaving only actual step numbers
 - **Example result**: `[(1704110400.0, uuid1, '', [1]), (1704110700.0, uuid2, '', [2])]`
 
 ### 3. UDF function call

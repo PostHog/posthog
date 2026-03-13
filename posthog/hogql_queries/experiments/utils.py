@@ -1,6 +1,8 @@
 from enum import Enum
 from typing import Any, TypeVar
 
+import structlog
+
 from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
@@ -29,7 +31,14 @@ from products.experiments.stats.bayesian.enums import PriorType
 from products.experiments.stats.bayesian.method import BayesianConfig, BayesianMethod
 from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod, TestType
 from products.experiments.stats.shared.enums import DifferenceType
-from products.experiments.stats.shared.statistics import ProportionStatistic, RatioStatistic, SampleMeanStatistic
+from products.experiments.stats.shared.statistics import (
+    ProportionStatistic,
+    RatioStatistic,
+    SampleMeanStatistic,
+    StatisticError,
+)
+
+logger = structlog.get_logger(__name__)
 
 V = TypeVar("V", ExperimentVariantTrendsBaseStats, ExperimentVariantFunnelsBaseStats, ExperimentStatsBase)
 
@@ -92,14 +101,15 @@ def get_experiment_stats_method(experiment) -> str:
 
 def split_baseline_and_test_variants(
     variants: list[V],
+    baseline_key: str = CONTROL_VARIANT_KEY,
 ) -> tuple[V, list[V]]:
-    control_variants = [variant for variant in variants if variant.key == CONTROL_VARIANT_KEY]
+    control_variants = [variant for variant in variants if variant.key == baseline_key]
     if not control_variants:
         raise ValueError("No control variant found")
     if len(control_variants) > 1:
         raise ValueError("Multiple control variants found")
     control_variant = control_variants[0]
-    test_variants = [variant for variant in variants if variant.key != CONTROL_VARIANT_KEY]
+    test_variants = [variant for variant in variants if variant.key != baseline_key]
 
     return control_variant, test_variants
 
@@ -443,11 +453,17 @@ def get_frequentist_experiment_result(
     control_variant_validated = validate_variant_result(control_variant, metric, is_baseline=True)
     test_variants_validated = [validate_variant_result(test_variant, metric) for test_variant in test_variants]
 
-    control_stat = (
-        metric_variant_to_statistic(metric, control_variant_validated)
-        if not control_variant_validated.validation_failures
-        else None
-    )
+    control_stat = None
+    if not control_variant_validated.validation_failures:
+        try:
+            control_stat = metric_variant_to_statistic(metric, control_variant_validated)
+        except StatisticError as e:
+            logger.info(
+                "experiment_statistics_skipped",
+                variant_key=control_variant_validated.key,
+                number_of_samples=control_variant_validated.number_of_samples,
+                reason=str(e),
+            )
 
     variants: list[ExperimentVariantResultFrequentist] = []
 
@@ -473,15 +489,23 @@ def get_frequentist_experiment_result(
 
         # Check if we can perform statistical analysis
         if control_stat and not test_variant_validated.validation_failures:
-            test_stat = metric_variant_to_statistic(metric, test_variant_validated)
-            result = method.run_test(test_stat, control_stat)
+            try:
+                test_stat = metric_variant_to_statistic(metric, test_variant_validated)
+                result = method.run_test(test_stat, control_stat)
 
-            confidence_interval = [result.confidence_interval[0], result.confidence_interval[1]]
+                confidence_interval = [result.confidence_interval[0], result.confidence_interval[1]]
 
-            # Set statistical analysis fields
-            experiment_variant_result.p_value = result.p_value
-            experiment_variant_result.confidence_interval = confidence_interval
-            experiment_variant_result.significant = result.is_significant
+                # Set statistical analysis fields
+                experiment_variant_result.p_value = result.p_value
+                experiment_variant_result.confidence_interval = confidence_interval
+                experiment_variant_result.significant = result.is_significant
+            except StatisticError as e:
+                logger.info(
+                    "experiment_statistics_skipped",
+                    variant_key=test_variant_validated.key,
+                    number_of_samples=test_variant_validated.number_of_samples,
+                    reason=str(e),
+                )
 
         variants.append(experiment_variant_result)
 
@@ -514,11 +538,17 @@ def get_bayesian_experiment_result(
     control_variant_validated = validate_variant_result(control_variant, metric, is_baseline=True)
     test_variants_validated = [validate_variant_result(test_variant, metric) for test_variant in test_variants]
 
-    control_stat = (
-        metric_variant_to_statistic(metric, control_variant_validated)
-        if not control_variant_validated.validation_failures
-        else None
-    )
+    control_stat = None
+    if not control_variant_validated.validation_failures:
+        try:
+            control_stat = metric_variant_to_statistic(metric, control_variant_validated)
+        except StatisticError as e:
+            logger.info(
+                "experiment_statistics_skipped",
+                variant_key=control_variant_validated.key,
+                number_of_samples=control_variant_validated.number_of_samples,
+                reason=str(e),
+            )
 
     variants: list[ExperimentVariantResultBayesian] = []
 
@@ -544,16 +574,24 @@ def get_bayesian_experiment_result(
 
         # Check if we can perform statistical analysis
         if control_stat and not test_variant_validated.validation_failures:
-            test_stat = metric_variant_to_statistic(metric, test_variant_validated)
-            result = method.run_test(test_stat, control_stat)
+            try:
+                test_stat = metric_variant_to_statistic(metric, test_variant_validated)
+                result = method.run_test(test_stat, control_stat)
 
-            # Convert credible interval to percentage
-            credible_interval = [result.credible_interval[0], result.credible_interval[1]]
+                # Convert credible interval to percentage
+                credible_interval = [result.credible_interval[0], result.credible_interval[1]]
 
-            # Set statistical analysis fields
-            experiment_variant_result.chance_to_win = result.chance_to_win
-            experiment_variant_result.credible_interval = credible_interval
-            experiment_variant_result.significant = result.is_decisive  # Use is_decisive for significance
+                # Set statistical analysis fields
+                experiment_variant_result.chance_to_win = result.chance_to_win
+                experiment_variant_result.credible_interval = credible_interval
+                experiment_variant_result.significant = result.is_decisive  # Use is_decisive for significance
+            except StatisticError as e:
+                logger.info(
+                    "experiment_statistics_skipped",
+                    variant_key=test_variant_validated.key,
+                    number_of_samples=test_variant_validated.number_of_samples,
+                    reason=str(e),
+                )
 
         variants.append(experiment_variant_result)
 

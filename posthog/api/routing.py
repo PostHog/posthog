@@ -12,6 +12,7 @@ from rest_framework_extensions.settings import extensions_api_settings
 
 from posthog.api.utils import get_token
 from posthog.auth import (
+    InternalAPIAuthentication,
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
@@ -100,6 +101,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             return self.dangerously_get_permissions()
         except NotImplementedError:
             pass
+
+        if isinstance(self.request.successful_authenticator, InternalAPIAuthentication):
+            return [IsAuthenticated()]
 
         if isinstance(
             self.request.successful_authenticator,

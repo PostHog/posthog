@@ -44,5 +44,6 @@ from __future__ import annotations
 from hogli import (
     doctor,  # noqa: F401
     migrations,  # noqa: F401
+    product,  # noqa: F401
 )
 from hogli.devenv import cli as devenv_cli  # noqa: F401

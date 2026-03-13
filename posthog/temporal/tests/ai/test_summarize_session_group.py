@@ -24,7 +24,7 @@ from posthog.models import Team
 from posthog.models.user import User
 from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai import WORKFLOWS
+from posthog.temporal.ai import AI_WORKFLOWS, SIGNALS_WORKFLOWS
 from posthog.temporal.ai.session_summary.activities.capture_timing import capture_timing_activity
 from posthog.temporal.ai.session_summary.activities.patterns import (
     assign_events_to_patterns_activity,
@@ -1027,7 +1027,7 @@ class TestSummarizeSessionGroupWorkflow:
                 async with Worker(
                     activity_environment.client,
                     task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
-                    workflows=WORKFLOWS,
+                    workflows=AI_WORKFLOWS + SIGNALS_WORKFLOWS,
                     activities=[
                         get_llm_single_session_summary_activity,
                         extract_session_group_patterns_activity,
