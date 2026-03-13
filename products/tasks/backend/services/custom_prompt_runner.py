@@ -149,17 +149,18 @@ async def _poll_until_done(
 def _stream_new_lines(
     full_log: str | None, printed_lines: int, *, verbose: bool = False, output_fn: OutputFn = None
 ) -> int:
-    """Print new log lines. In verbose mode, prints every raw line; otherwise only agent messages."""
+    """Stream new log lines to output_fn if provided. Does nothing when output_fn is None."""
     if not full_log:
         return printed_lines
-    _write = output_fn or logger.info
     lines = full_log.strip().split("\n")
+    if output_fn is None:
+        return len(lines)
     for line in lines[printed_lines:]:
         line = line.strip()
         if not line:
             continue
         if verbose:
-            _write(line)
+            output_fn(line)
             continue
         try:
             entry = json.loads(line)
@@ -174,7 +175,7 @@ def _stream_new_lines(
             continue
         text = _extract_text(update)
         if text:
-            _write(text)
+            output_fn(text)
     return len(lines)
 
 
