@@ -48,7 +48,7 @@ export const SummarizeSessionReplaysButton = ({
         <LemonButton
             size="small"
             onClick={() => {
-                reportExperimentSessionReplaySummaryRequested(experiment, useSkill)
+                reportExperimentSessionReplaySummaryRequested(experiment, !!useSkill)
                 if (useSkill) {
                     // Open PostHog AI in a new tab with skill-based prompt
                     openPostHogAI(skillPrompt)
