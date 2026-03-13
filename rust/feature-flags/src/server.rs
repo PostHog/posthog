@@ -5,6 +5,10 @@ use std::time::Duration;
 
 use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
+use crate::cohorts::membership::{
+    CachedCohortMembershipProvider, CohortMembershipProvider, NoOpCohortMembershipProvider,
+    RealtimeCohortMembershipProvider,
+};
 use crate::config::Config;
 use crate::database_pools::DatabasePools;
 use crate::db_monitor::DatabasePoolMonitor;
@@ -114,6 +118,21 @@ pub async fn serve<F>(
         Some(config.cohort_cache_capacity_bytes),
         Some(config.cache_ttl_seconds),
     ));
+
+    // Initialize the cohort membership provider for realtime/behavioral cohorts.
+    // Uses the behavioral cohorts DB pool when configured, otherwise falls back to NoOp
+    // which conservatively returns false for all membership checks.
+    let cohort_membership_provider: Arc<dyn CohortMembershipProvider> =
+        if let Some(pool) = database_pools.behavioral_cohorts_reader.clone() {
+            let realtime = RealtimeCohortMembershipProvider::new(pool);
+            Arc::new(CachedCohortMembershipProvider::new(
+                realtime,
+                Some(config.cohort_membership_cache_ttl_seconds),
+                Some(config.cohort_membership_cache_max_entries),
+            ))
+        } else {
+            Arc::new(NoOpCohortMembershipProvider)
+        };
 
     let health = HealthRegistry::new("liveness");
 
@@ -361,6 +380,7 @@ pub async fn serve<F>(
         config_hypercache_reader,
         rayon_dispatcher,
         team_negative_cache,
+        cohort_membership_provider,
         config,
     );
 

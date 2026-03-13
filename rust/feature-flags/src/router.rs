@@ -37,7 +37,7 @@ use crate::{
         flag_definitions_rate_limiter::FlagDefinitionsRateLimiter,
         flags_rate_limiter::{FlagsRateLimiter, IpRateLimiter},
     },
-    cohorts::cohort_cache_manager::CohortCacheManager,
+    cohorts::{cohort_cache_manager::CohortCacheManager, membership::CohortMembershipProvider},
     config::{Config, TeamIdCollection},
     metrics::{
         consts::{
@@ -87,6 +87,8 @@ pub struct State {
     /// In-memory negative cache for invalid API tokens, preventing repeated
     /// Redis/S3/PG lookups for tokens that don't correspond to any team
     pub team_negative_cache: NegativeCache,
+    /// Provider for realtime/behavioral cohort membership lookups
+    pub cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -106,6 +108,7 @@ pub fn router(
     config_hypercache_reader: Arc<HyperCacheReader>,
     rayon_dispatcher: RayonDispatcher,
     team_negative_cache: NegativeCache,
+    cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
     config: Config,
 ) -> Router {
     // Initialize flag definitions rate limiter with default and custom team rates
@@ -187,6 +190,7 @@ pub fn router(
         config_hypercache_reader,
         rayon_dispatcher,
         team_negative_cache,
+        cohort_membership_provider,
     };
 
     // Very permissive CORS policy, as old SDK versions

@@ -39,6 +39,9 @@ pub const FLAG_DEFINITION_QUERY_TIME: &str = "flags_definition_query_time";
 pub const FLAG_PERSON_PROCESSING_TIME: &str = "flags_person_processing_time";
 pub const FLAG_COHORT_QUERY_TIME: &str = "flags_cohort_query_time";
 pub const FLAG_COHORT_PROCESSING_TIME: &str = "flags_cohort_processing_time";
+pub const FLAG_REALTIME_COHORT_QUERY_TIME: &str = "flags_realtime_cohort_query_time";
+pub const FLAG_REALTIME_COHORT_QUERY_ERROR_COUNTER: &str =
+    "flags_realtime_cohort_query_error_total";
 pub const FLAG_GROUP_QUERY_TIME: &str = "flags_group_query_time";
 pub const FLAG_GROUP_PROCESSING_TIME: &str = "flags_group_processing_time";
 pub const FLAG_DB_CONNECTION_TIME: &str = "flags_db_connection_time";
