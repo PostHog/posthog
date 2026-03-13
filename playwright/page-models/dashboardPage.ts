@@ -36,7 +36,9 @@ export class DashboardPage {
 
         if (dashboardName) {
             const textarea = this.page.locator('.scene-title-section textarea')
-            await textarea.or(this.page.locator('.scene-title-section')).first().click()
+            // Click the title button to enter edit mode (textarea is not auto-shown)
+            await this.page.locator('.scene-title-section').getByRole('button').first().click()
+            await expect(textarea).toBeVisible()
             await textarea.fill(dashboardName)
         }
 
