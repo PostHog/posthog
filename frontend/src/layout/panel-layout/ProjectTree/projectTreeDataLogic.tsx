@@ -464,8 +464,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                   href: item.href,
                               }
                     const response = await api.fileSystemShortcuts.create(shortcutItem)
-                    eventUsageLogic.actions.reportNavbarStarredItemAdded(shortcutItem.type, shortcutPath)
-                    const isAIFirst = values.featureFlags[FEATURE_FLAGS.AI_FIRST]
+                    const isAIFirst = !!values.featureFlags[FEATURE_FLAGS.AI_FIRST]
+                    eventUsageLogic.actions.reportNavbarStarredItemAdded(shortcutItem.type, shortcutPath, isAIFirst)
                     lemonToast.success(isAIFirst ? 'Added to starred' : 'Shortcut created successfully', {
                         button: {
                             label: 'View',
@@ -482,8 +482,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 deleteShortcut: async ({ id }) => {
                     const shortcut = values.shortcutData.find((s) => s.id === id)
                     await api.fileSystemShortcuts.delete(id)
-                    eventUsageLogic.actions.reportNavbarStarredItemRemoved(shortcut?.path ?? 'unknown')
-                    const isAIFirst = values.featureFlags[FEATURE_FLAGS.AI_FIRST]
+                    const isAIFirst = !!values.featureFlags[FEATURE_FLAGS.AI_FIRST]
+                    eventUsageLogic.actions.reportNavbarStarredItemRemoved(shortcut?.path ?? 'unknown', isAIFirst)
                     if (isAIFirst) {
                         lemonToast.success('Removed from starred')
                     }
