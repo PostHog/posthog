@@ -73,6 +73,7 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'annotation:write',
     'action:read',
     'action:write',
+    'activity_log:read',
     'cohort:read',
     'cohort:write',
     'dashboard:read',

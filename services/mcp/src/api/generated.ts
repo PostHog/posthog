@@ -29104,6 +29104,273 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
+    export type ActivityLogListParams = {
+    /**
+     * Filter by the ID of the affected resource.
+     * @minLength 1
+     */
+    item_id?: string;
+    /**
+     * Page number for pagination. When provided, uses page-based pagination ordered by most recent first.
+     * @minimum 1
+     */
+    page?: number;
+    /**
+     * Number of results per page (default: 100, max: 1000). Only used with page-based pagination.
+     * @minimum 1
+     * @maximum 1000
+     */
+    page_size?: number;
+    /**
+     * Filter by a single activity scope, e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment".
+
+    * `Cohort` - Cohort
+    * `FeatureFlag` - FeatureFlag
+    * `Person` - Person
+    * `Group` - Group
+    * `Insight` - Insight
+    * `Plugin` - Plugin
+    * `PluginConfig` - PluginConfig
+    * `HogFunction` - HogFunction
+    * `HogFlow` - HogFlow
+    * `DataManagement` - DataManagement
+    * `EventDefinition` - EventDefinition
+    * `PropertyDefinition` - PropertyDefinition
+    * `Notebook` - Notebook
+    * `Endpoint` - Endpoint
+    * `EndpointVersion` - EndpointVersion
+    * `Dashboard` - Dashboard
+    * `Replay` - Replay
+    * `Experiment` - Experiment
+    * `ExperimentHoldout` - ExperimentHoldout
+    * `ExperimentSavedMetric` - ExperimentSavedMetric
+    * `Survey` - Survey
+    * `EarlyAccessFeature` - EarlyAccessFeature
+    * `SessionRecordingPlaylist` - SessionRecordingPlaylist
+    * `Comment` - Comment
+    * `Team` - Team
+    * `Project` - Project
+    * `ErrorTrackingIssue` - ErrorTrackingIssue
+    * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
+    * `Organization` - Organization
+    * `OrganizationDomain` - OrganizationDomain
+    * `OrganizationMembership` - OrganizationMembership
+    * `Role` - Role
+    * `UserGroup` - UserGroup
+    * `BatchExport` - BatchExport
+    * `BatchImport` - BatchImport
+    * `Integration` - Integration
+    * `Annotation` - Annotation
+    * `Tag` - Tag
+    * `TaggedItem` - TaggedItem
+    * `Subscription` - Subscription
+    * `PersonalAPIKey` - PersonalAPIKey
+    * `User` - User
+    * `Action` - Action
+    * `AlertConfiguration` - AlertConfiguration
+    * `Threshold` - Threshold
+    * `AlertSubscription` - AlertSubscription
+    * `ExternalDataSource` - ExternalDataSource
+    * `ExternalDataSchema` - ExternalDataSchema
+    * `LLMTrace` - LLMTrace
+    * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
+    * `CustomerProfileConfig` - CustomerProfileConfig
+    * `Log` - Log
+    * `LogsAlertConfiguration` - LogsAlertConfiguration
+    * `ProductTour` - ProductTour
+    * `Ticket` - Ticket
+     * @minLength 1
+     */
+    scope?: ActivityLogListScope;
+    /**
+     * Filter by multiple activity scopes, comma-separated. Values must be valid ActivityScope enum values. E.g. "FeatureFlag,Insight".
+     */
+    scopes?: ActivityLogListScopesItem[];
+    /**
+     * Filter by user UUID who performed the action.
+     */
+    user?: string;
+    };
+
+    export type ActivityLogListScope = typeof ActivityLogListScope[keyof typeof ActivityLogListScope];
+
+
+    export const ActivityLogListScope = {
+      Cohort: 'Cohort',
+      FeatureFlag: 'FeatureFlag',
+      Person: 'Person',
+      Group: 'Group',
+      Insight: 'Insight',
+      Plugin: 'Plugin',
+      PluginConfig: 'PluginConfig',
+      HogFunction: 'HogFunction',
+      HogFlow: 'HogFlow',
+      DataManagement: 'DataManagement',
+      EventDefinition: 'EventDefinition',
+      PropertyDefinition: 'PropertyDefinition',
+      Notebook: 'Notebook',
+      Endpoint: 'Endpoint',
+      EndpointVersion: 'EndpointVersion',
+      Dashboard: 'Dashboard',
+      Replay: 'Replay',
+      Experiment: 'Experiment',
+      ExperimentHoldout: 'ExperimentHoldout',
+      ExperimentSavedMetric: 'ExperimentSavedMetric',
+      Survey: 'Survey',
+      EarlyAccessFeature: 'EarlyAccessFeature',
+      SessionRecordingPlaylist: 'SessionRecordingPlaylist',
+      Comment: 'Comment',
+      Team: 'Team',
+      Project: 'Project',
+      ErrorTrackingIssue: 'ErrorTrackingIssue',
+      DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
+      Organization: 'Organization',
+      OrganizationDomain: 'OrganizationDomain',
+      OrganizationMembership: 'OrganizationMembership',
+      Role: 'Role',
+      UserGroup: 'UserGroup',
+      BatchExport: 'BatchExport',
+      BatchImport: 'BatchImport',
+      Integration: 'Integration',
+      Annotation: 'Annotation',
+      Tag: 'Tag',
+      TaggedItem: 'TaggedItem',
+      Subscription: 'Subscription',
+      PersonalAPIKey: 'PersonalAPIKey',
+      User: 'User',
+      Action: 'Action',
+      AlertConfiguration: 'AlertConfiguration',
+      Threshold: 'Threshold',
+      AlertSubscription: 'AlertSubscription',
+      ExternalDataSource: 'ExternalDataSource',
+      ExternalDataSchema: 'ExternalDataSchema',
+      LLMTrace: 'LLMTrace',
+      WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
+      CustomerProfileConfig: 'CustomerProfileConfig',
+      Log: 'Log',
+      LogsAlertConfiguration: 'LogsAlertConfiguration',
+      ProductTour: 'ProductTour',
+      Ticket: 'Ticket',
+    } as const;
+
+    /**
+     * * `Cohort` - Cohort
+    * `FeatureFlag` - FeatureFlag
+    * `Person` - Person
+    * `Group` - Group
+    * `Insight` - Insight
+    * `Plugin` - Plugin
+    * `PluginConfig` - PluginConfig
+    * `HogFunction` - HogFunction
+    * `HogFlow` - HogFlow
+    * `DataManagement` - DataManagement
+    * `EventDefinition` - EventDefinition
+    * `PropertyDefinition` - PropertyDefinition
+    * `Notebook` - Notebook
+    * `Endpoint` - Endpoint
+    * `EndpointVersion` - EndpointVersion
+    * `Dashboard` - Dashboard
+    * `Replay` - Replay
+    * `Experiment` - Experiment
+    * `ExperimentHoldout` - ExperimentHoldout
+    * `ExperimentSavedMetric` - ExperimentSavedMetric
+    * `Survey` - Survey
+    * `EarlyAccessFeature` - EarlyAccessFeature
+    * `SessionRecordingPlaylist` - SessionRecordingPlaylist
+    * `Comment` - Comment
+    * `Team` - Team
+    * `Project` - Project
+    * `ErrorTrackingIssue` - ErrorTrackingIssue
+    * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
+    * `Organization` - Organization
+    * `OrganizationDomain` - OrganizationDomain
+    * `OrganizationMembership` - OrganizationMembership
+    * `Role` - Role
+    * `UserGroup` - UserGroup
+    * `BatchExport` - BatchExport
+    * `BatchImport` - BatchImport
+    * `Integration` - Integration
+    * `Annotation` - Annotation
+    * `Tag` - Tag
+    * `TaggedItem` - TaggedItem
+    * `Subscription` - Subscription
+    * `PersonalAPIKey` - PersonalAPIKey
+    * `User` - User
+    * `Action` - Action
+    * `AlertConfiguration` - AlertConfiguration
+    * `Threshold` - Threshold
+    * `AlertSubscription` - AlertSubscription
+    * `ExternalDataSource` - ExternalDataSource
+    * `ExternalDataSchema` - ExternalDataSchema
+    * `LLMTrace` - LLMTrace
+    * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
+    * `CustomerProfileConfig` - CustomerProfileConfig
+    * `Log` - Log
+    * `LogsAlertConfiguration` - LogsAlertConfiguration
+    * `ProductTour` - ProductTour
+    * `Ticket` - Ticket
+     */
+    export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
+
+
+    export const ActivityLogListScopesItem = {
+      Cohort: 'Cohort',
+      FeatureFlag: 'FeatureFlag',
+      Person: 'Person',
+      Group: 'Group',
+      Insight: 'Insight',
+      Plugin: 'Plugin',
+      PluginConfig: 'PluginConfig',
+      HogFunction: 'HogFunction',
+      HogFlow: 'HogFlow',
+      DataManagement: 'DataManagement',
+      EventDefinition: 'EventDefinition',
+      PropertyDefinition: 'PropertyDefinition',
+      Notebook: 'Notebook',
+      Endpoint: 'Endpoint',
+      EndpointVersion: 'EndpointVersion',
+      Dashboard: 'Dashboard',
+      Replay: 'Replay',
+      Experiment: 'Experiment',
+      ExperimentHoldout: 'ExperimentHoldout',
+      ExperimentSavedMetric: 'ExperimentSavedMetric',
+      Survey: 'Survey',
+      EarlyAccessFeature: 'EarlyAccessFeature',
+      SessionRecordingPlaylist: 'SessionRecordingPlaylist',
+      Comment: 'Comment',
+      Team: 'Team',
+      Project: 'Project',
+      ErrorTrackingIssue: 'ErrorTrackingIssue',
+      DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
+      Organization: 'Organization',
+      OrganizationDomain: 'OrganizationDomain',
+      OrganizationMembership: 'OrganizationMembership',
+      Role: 'Role',
+      UserGroup: 'UserGroup',
+      BatchExport: 'BatchExport',
+      BatchImport: 'BatchImport',
+      Integration: 'Integration',
+      Annotation: 'Annotation',
+      Tag: 'Tag',
+      TaggedItem: 'TaggedItem',
+      Subscription: 'Subscription',
+      PersonalAPIKey: 'PersonalAPIKey',
+      User: 'User',
+      Action: 'Action',
+      AlertConfiguration: 'AlertConfiguration',
+      Threshold: 'Threshold',
+      AlertSubscription: 'AlertSubscription',
+      ExternalDataSource: 'ExternalDataSource',
+      ExternalDataSchema: 'ExternalDataSchema',
+      LLMTrace: 'LLMTrace',
+      WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
+      CustomerProfileConfig: 'CustomerProfileConfig',
+      Log: 'Log',
+      LogsAlertConfiguration: 'LogsAlertConfiguration',
+      ProductTour: 'ProductTour',
+      Ticket: 'Ticket',
+    } as const;
+
     export type AlertsListParams = {
     /**
      * Number of results to return per page.
