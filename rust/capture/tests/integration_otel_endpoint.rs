@@ -6,7 +6,11 @@ use axum_test_helper::TestClient;
 use capture::ai_s3::MockBlobStorage;
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
-use capture::quota_limiters::CaptureQuotaLimiter;
+use capture::event_restrictions::{
+    EventRestrictionService, Restriction, RestrictionFilters, RestrictionManager, RestrictionScope,
+    RestrictionType,
+};
+use capture::quota_limiters::{is_llm_event, CaptureQuotaLimiter, EventInfo};
 use capture::router::router;
 use capture::sinks::Event;
 use capture::time::TimeSource;
@@ -15,12 +19,15 @@ use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
 use health::HealthRegistry;
 use integration_utils::DEFAULT_TEST_TIME;
+use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use opentelemetry_proto::tonic::common::v1::{any_value, AnyValue, KeyValue};
 use opentelemetry_proto::tonic::resource::v1::Resource;
 use opentelemetry_proto::tonic::trace::v1::{ResourceSpans, ScopeSpans, Span};
 use prost::Message;
+use serde_json::json;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -92,20 +99,44 @@ fn make_span(
     }
 }
 
+struct TestClientOptions {
+    redis: Option<Arc<MockRedisClient>>,
+    event_restriction_service: Option<EventRestrictionService>,
+    quota_limiter: Option<CaptureQuotaLimiter>,
+}
+
+impl Default for TestClientOptions {
+    fn default() -> Self {
+        Self {
+            redis: None,
+            event_restriction_service: None,
+            quota_limiter: None,
+        }
+    }
+}
+
 fn make_test_client(sink: &CapturingSink) -> TestClient {
+    make_test_client_with_options(sink, TestClientOptions::default())
+}
+
+fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOptions) -> TestClient {
     let liveness = HealthRegistry::new("otel_test");
     let timesource = FixedTime {
         time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)
             .expect("Invalid fixed time format")
             .with_timezone(&Utc),
     };
-    let redis = Arc::new(MockRedisClient::new());
+    let redis = options
+        .redis
+        .unwrap_or_else(|| Arc::new(MockRedisClient::new()));
 
     let mut cfg = DEFAULT_CONFIG.clone();
     cfg.capture_mode = CaptureMode::Events;
 
-    let quota_limiter =
-        CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
+    let quota_limiter = options.quota_limiter.unwrap_or_else(|| {
+        CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7))
+            .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event)
+    });
 
     let app = router(
         timesource,
@@ -116,7 +147,7 @@ fn make_test_client(sink: &CapturingSink) -> TestClient {
         None, // global_rate_limiter_token
         quota_limiter,
         TokenDropper::default(),
-        None,  // event_restriction_service
+        options.event_restriction_service,
         false, // metrics
         CaptureMode::Events,
         String::from("capture-otel-test"),
@@ -156,14 +187,26 @@ async fn send_request(sink: &CapturingSink, request: &ExportTraceServiceRequest)
     resp.status().as_u16()
 }
 
+async fn send_request_with_client(client: &TestClient, request: &ExportTraceServiceRequest) -> u16 {
+    let body = request.encode_to_vec();
+
+    let resp = client
+        .post(ENDPOINT)
+        .header("Content-Type", "application/x-protobuf")
+        .header("Authorization", format!("Bearer {}", TOKEN))
+        .body(body)
+        .send()
+        .await;
+
+    resp.status().as_u16()
+}
+
 fn parse_event_data(event: &ProcessedEvent) -> serde_json::Value {
     serde_json::from_str(&event.event.data).expect("event data is valid JSON")
 }
 
-#[tokio::test]
-async fn test_single_span_produces_one_event() {
-    let sink = CapturingSink::new();
-    let request = ExportTraceServiceRequest {
+fn make_single_span_request() -> ExportTraceServiceRequest {
+    ExportTraceServiceRequest {
         resource_spans: vec![ResourceSpans {
             resource: Some(Resource {
                 attributes: vec![make_kv(
@@ -188,7 +231,62 @@ async fn test_single_span_produces_one_event() {
             }],
             schema_url: String::new(),
         }],
-    };
+    }
+}
+
+fn make_two_span_request() -> ExportTraceServiceRequest {
+    ExportTraceServiceRequest {
+        resource_spans: vec![ResourceSpans {
+            resource: Some(Resource {
+                attributes: vec![make_kv(
+                    "posthog.distinct_id",
+                    any_value::Value::StringValue("user-1".to_string()),
+                )],
+                dropped_attributes_count: 0,
+            }),
+            scope_spans: vec![ScopeSpans {
+                scope: None,
+                spans: vec![
+                    make_span(
+                        vec![1; 16],
+                        vec![1; 8],
+                        vec![],
+                        1_704_067_200_000_000_000,
+                        vec![make_kv(
+                            "gen_ai.operation.name",
+                            any_value::Value::StringValue("chat".to_string()),
+                        )],
+                    ),
+                    make_span(
+                        vec![1; 16],
+                        vec![2; 8],
+                        vec![1; 8],
+                        1_704_067_200_000_000_000,
+                        vec![make_kv(
+                            "gen_ai.operation.name",
+                            any_value::Value::StringValue("embeddings".to_string()),
+                        )],
+                    ),
+                ],
+                schema_url: String::new(),
+            }],
+            schema_url: String::new(),
+        }],
+    }
+}
+
+async fn make_restriction_service(restrictions: Vec<Restriction>) -> EventRestrictionService {
+    let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+    let mut manager = RestrictionManager::new();
+    manager.restrictions.insert(TOKEN.to_string(), restrictions);
+    service.update(manager).await;
+    service
+}
+
+#[tokio::test]
+async fn test_single_span_produces_one_event() {
+    let sink = CapturingSink::new();
+    let request = make_single_span_request();
 
     let status = send_request(&sink, &request).await;
     assert_eq!(status, 200);
@@ -535,4 +633,319 @@ async fn test_too_many_spans_returns_400() {
         .await;
 
     assert_eq!(resp.status().as_u16(), 400);
+}
+
+// ----------------------------------------------------------------------------
+// Quota Limiter Tests
+// ----------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_quota_limit_exceeded_returns_400_with_no_events() {
+    let llm_key = format!(
+        "{}{}",
+        QUOTA_LIMITER_CACHE_KEY,
+        QuotaResource::LLMEvents.as_str()
+    );
+    let redis =
+        Arc::new(MockRedisClient::new().zrangebyscore_ret(&llm_key, vec![TOKEN.to_string()]));
+
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            redis: Some(redis),
+            ..Default::default()
+        },
+    );
+
+    let request = make_single_span_request();
+    let status = send_request_with_client(&client, &request).await;
+    assert_eq!(status, 400);
+
+    let events = sink.get_events().await;
+    assert!(events.is_empty());
+}
+
+#[tokio::test]
+async fn test_global_quota_exceeded_retains_scoped_llm_events() {
+    // When the global quota is exceeded but the scoped LLM limiter is not, the
+    // CaptureQuotaLimiter retains LLM events. Since all OTel spans are $ai_*
+    // events, they all get retained — no partial drop occurs and the batch
+    // goes through normally.
+    let global_key = format!(
+        "{}{}",
+        QUOTA_LIMITER_CACHE_KEY,
+        QuotaResource::Events.as_str()
+    );
+    let redis =
+        Arc::new(MockRedisClient::new().zrangebyscore_ret(&global_key, vec![TOKEN.to_string()]));
+
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            redis: Some(redis),
+            ..Default::default()
+        },
+    );
+
+    let request = make_single_span_request();
+    let status = send_request_with_client(&client, &request).await;
+    assert_eq!(status, 200);
+
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 1);
+}
+
+#[tokio::test]
+async fn test_both_global_and_scoped_quota_exceeded_returns_400() {
+    let llm_key = format!(
+        "{}{}",
+        QUOTA_LIMITER_CACHE_KEY,
+        QuotaResource::LLMEvents.as_str()
+    );
+    let global_key = format!(
+        "{}{}",
+        QUOTA_LIMITER_CACHE_KEY,
+        QuotaResource::Events.as_str()
+    );
+    let redis = Arc::new(
+        MockRedisClient::new()
+            .zrangebyscore_ret(&llm_key, vec![TOKEN.to_string()])
+            .zrangebyscore_ret(&global_key, vec![TOKEN.to_string()]),
+    );
+
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            redis: Some(redis),
+            ..Default::default()
+        },
+    );
+
+    let request = make_single_span_request();
+    let status = send_request_with_client(&client, &request).await;
+    assert_eq!(status, 400);
+
+    let events = sink.get_events().await;
+    assert!(events.is_empty());
+}
+
+#[tokio::test]
+async fn test_partial_quota_drop_rejects_entire_batch() {
+    // Use a custom scoped limiter that only matches $ai_generation (not $ai_embedding).
+    // When this limiter is exceeded, $ai_generation spans are dropped but $ai_embedding
+    // spans are retained → partial drop → all-or-nothing rejection returns 400.
+    let exceptions_key = format!(
+        "{}{}",
+        QUOTA_LIMITER_CACHE_KEY,
+        QuotaResource::Exceptions.as_str()
+    );
+    let redis = Arc::new(
+        MockRedisClient::new().zrangebyscore_ret(&exceptions_key, vec![TOKEN.to_string()]),
+    );
+
+    let cfg = DEFAULT_CONFIG.clone();
+    let quota_limiter =
+        CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7))
+            .add_scoped_limiter(QuotaResource::Exceptions, |info: EventInfo| {
+                info.name == "$ai_generation"
+            });
+
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            redis: Some(redis),
+            quota_limiter: Some(quota_limiter),
+            ..Default::default()
+        },
+    );
+
+    // Send two spans: one $ai_generation, one $ai_embedding
+    let request = make_two_span_request();
+    let status = send_request_with_client(&client, &request).await;
+    assert_eq!(status, 400);
+
+    let events = sink.get_events().await;
+    assert!(events.is_empty());
+}
+
+// ----------------------------------------------------------------------------
+// Event Restriction Tests
+// ----------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_drop_event_restriction_returns_400() {
+    let service = make_restriction_service(vec![Restriction {
+        restriction_type: RestrictionType::DropEvent,
+        scope: RestrictionScope::AllEvents,
+        args: None,
+    }])
+    .await;
+
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            event_restriction_service: Some(service),
+            ..Default::default()
+        },
+    );
+
+    let request = make_single_span_request();
+    let status = send_request_with_client(&client, &request).await;
+    assert_eq!(status, 400);
+
+    let events = sink.get_events().await;
+    assert!(events.is_empty());
+}
+
+#[tokio::test]
+async fn test_force_overflow_restriction_sets_flag() {
+    let service = make_restriction_service(vec![Restriction {
+        restriction_type: RestrictionType::ForceOverflow,
+        scope: RestrictionScope::AllEvents,
+        args: None,
+    }])
+    .await;
+
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            event_restriction_service: Some(service),
+            ..Default::default()
+        },
+    );
+
+    let request = make_single_span_request();
+    let status = send_request_with_client(&client, &request).await;
+    assert_eq!(status, 200);
+
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 1);
+    assert!(events[0].metadata.force_overflow);
+}
+
+#[tokio::test]
+async fn test_skip_person_processing_restriction_sets_flag() {
+    let service = make_restriction_service(vec![Restriction {
+        restriction_type: RestrictionType::SkipPersonProcessing,
+        scope: RestrictionScope::AllEvents,
+        args: None,
+    }])
+    .await;
+
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            event_restriction_service: Some(service),
+            ..Default::default()
+        },
+    );
+
+    let request = make_single_span_request();
+    let status = send_request_with_client(&client, &request).await;
+    assert_eq!(status, 200);
+
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 1);
+    assert!(events[0].metadata.skip_person_processing);
+}
+
+#[tokio::test]
+async fn test_redirect_to_dlq_restriction_sets_flag() {
+    let service = make_restriction_service(vec![Restriction {
+        restriction_type: RestrictionType::RedirectToDlq,
+        scope: RestrictionScope::AllEvents,
+        args: None,
+    }])
+    .await;
+
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            event_restriction_service: Some(service),
+            ..Default::default()
+        },
+    );
+
+    let request = make_single_span_request();
+    let status = send_request_with_client(&client, &request).await;
+    assert_eq!(status, 200);
+
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 1);
+    assert!(events[0].metadata.redirect_to_dlq);
+}
+
+#[tokio::test]
+async fn test_redirect_to_topic_restriction_sets_topic() {
+    let service = make_restriction_service(vec![Restriction {
+        restriction_type: RestrictionType::RedirectToTopic,
+        scope: RestrictionScope::AllEvents,
+        args: Some(json!({"topic": "custom_topic"})),
+    }])
+    .await;
+
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            event_restriction_service: Some(service),
+            ..Default::default()
+        },
+    );
+
+    let request = make_single_span_request();
+    let status = send_request_with_client(&client, &request).await;
+    assert_eq!(status, 200);
+
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 1);
+    assert_eq!(
+        events[0].metadata.redirect_to_topic,
+        Some("custom_topic".to_string())
+    );
+}
+
+#[tokio::test]
+async fn test_filtered_restriction_does_not_affect_otel_spans() {
+    // OTel restrictions are checked at the token level with an empty EventContext,
+    // so only AllEvents-scoped restrictions apply. Filtered restrictions (e.g.
+    // targeting a specific event name) should have no effect.
+    let mut event_names = HashSet::new();
+    event_names.insert("$ai_generation".to_string());
+
+    let service = make_restriction_service(vec![Restriction {
+        restriction_type: RestrictionType::DropEvent,
+        scope: RestrictionScope::Filtered(RestrictionFilters {
+            event_names,
+            ..Default::default()
+        }),
+        args: None,
+    }])
+    .await;
+
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            event_restriction_service: Some(service),
+            ..Default::default()
+        },
+    );
+
+    let request = make_two_span_request();
+    let status = send_request_with_client(&client, &request).await;
+    assert_eq!(status, 200);
+
+    // All spans pass through because the filtered restriction doesn't match
+    // the empty EventContext used for OTel token-level checks.
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 2);
 }
