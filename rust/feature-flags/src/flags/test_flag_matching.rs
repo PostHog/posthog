@@ -4683,6 +4683,198 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_feature_flag_with_new_holdout_format_zero_percent() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let _person = context
+            .insert_person(
+                team.id,
+                "example_id2".to_string(),
+                Some(json!({"$some_prop": 5})),
+            )
+            .await
+            .unwrap();
+
+        let flag = create_test_flag(
+            Some(1),
+            Some(team.id),
+            None,
+            Some("flag-zero-holdout".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "$some_prop".to_string(),
+                        value: Some(json!(4)),
+                        operator: Some(OperatorType::Gt),
+                        prop_type: PropertyType::Person,
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                holdout_groups: None,
+                holdout: Some(Holdout {
+                    id: 1,
+                    exclusion_percentage: 0.0,
+                }),
+                multivariate: Some(MultivariateFlagOptions {
+                    variants: vec![
+                        MultivariateFlagVariant {
+                            key: "control".to_string(),
+                            name: None,
+                            rollout_percentage: 50.0,
+                        },
+                        MultivariateFlagVariant {
+                            key: "test".to_string(),
+                            name: None,
+                            rollout_percentage: 50.0,
+                        },
+                    ],
+                }),
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            Some(true),
+            None,
+        );
+
+        // 0% exclusion — nobody is held out, should get a regular variant
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "example_id2".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        assert!(result.matches);
+        assert_eq!(result.reason, FeatureFlagMatchReason::ConditionMatch);
+        assert!(
+            result.variant == Some("control".to_string())
+                || result.variant == Some("test".to_string()),
+            "Expected a regular variant, got {:?}",
+            result.variant
+        );
+    }
+
+    #[tokio::test]
+    async fn test_feature_flag_with_new_holdout_format_hundred_percent() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let _person = context
+            .insert_person(
+                team.id,
+                "example_id".to_string(),
+                Some(json!({"$some_prop": 5})),
+            )
+            .await
+            .unwrap();
+
+        let _person2 = context
+            .insert_person(
+                team.id,
+                "example_id2".to_string(),
+                Some(json!({"$some_prop": 5})),
+            )
+            .await
+            .unwrap();
+
+        let flag = create_test_flag(
+            Some(1),
+            Some(team.id),
+            None,
+            Some("flag-full-holdout".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "$some_prop".to_string(),
+                        value: Some(json!(4)),
+                        operator: Some(OperatorType::Gt),
+                        prop_type: PropertyType::Person,
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                holdout_groups: None,
+                holdout: Some(Holdout {
+                    id: 1,
+                    exclusion_percentage: 100.0,
+                }),
+                multivariate: Some(MultivariateFlagOptions {
+                    variants: vec![
+                        MultivariateFlagVariant {
+                            key: "control".to_string(),
+                            name: None,
+                            rollout_percentage: 50.0,
+                        },
+                        MultivariateFlagVariant {
+                            key: "test".to_string(),
+                            name: None,
+                            rollout_percentage: 50.0,
+                        },
+                    ],
+                }),
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            Some(true),
+            None,
+        );
+
+        // 100% exclusion — everyone is held out, both users should get holdout variant
+        for distinct_id in ["example_id", "example_id2"] {
+            let router = context.create_postgres_router();
+            let mut matcher = FeatureFlagMatcher::new(
+                distinct_id.to_string(),
+                None,
+                team.id,
+                router,
+                cohort_cache.clone(),
+                None,
+                None,
+            );
+
+            matcher
+                .prepare_flag_evaluation_state(&[&flag])
+                .await
+                .unwrap();
+
+            let result = matcher.get_match(&flag, None, None, &None).unwrap();
+            assert!(result.matches);
+            assert_eq!(result.variant, Some("holdout-1".to_string()));
+            assert_eq!(result.reason, FeatureFlagMatchReason::HoldoutConditionValue);
+        }
+    }
+
+    #[tokio::test]
     async fn test_variants() {
         // Ported from posthog/test/test_feature_flag.py test_variants
         let context = TestContext::new(None).await;
