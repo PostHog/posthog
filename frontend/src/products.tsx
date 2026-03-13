@@ -53,7 +53,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/CustomerAnalyticsConfigurationScene'),
     CustomerJourneyBuilder: () =>
         import('../../products/customer_analytics/frontend/scenes/CustomerJourneyBuilderScene/CustomerJourneyBuilderScene'),
-    DataWarehouse: () => import('../../products/data_warehouse/DataWarehouseScene'),
+    DataOps: () => import('../../products/data_warehouse/DataWarehouseScene'),
     Models: () => import('../../frontend/src/scenes/models/ModelsScene'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
@@ -123,7 +123,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/customer_analytics/journeys/new': ['CustomerJourneyBuilder', 'customerJourneyBuilder'],
     '/customer_analytics/journeys': ['CustomerAnalytics', 'customerAnalyticsJourneys'],
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
-    '/data-warehouse': ['DataWarehouse', 'dataWarehouse'],
+    '/data-ops': ['DataOps', 'dataOps'],
     '/models': ['Models', 'models'],
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
@@ -276,8 +276,8 @@ export const productConfiguration: Record<string, any> = {
         name: 'Customer analytics configuration',
     },
     CustomerJourneyBuilder: { projectBased: true, name: 'New journey' },
-    DataWarehouse: {
-        name: 'Data warehouse',
+    DataOps: {
+        name: 'Data ops',
         projectBased: true,
         defaultDocsPath: '/docs/data-warehouse',
         activityScope: 'DataWarehouse',
@@ -571,7 +571,7 @@ export const productUrls = {
     dashboardSubscription: (id: string | number, subscriptionId: string): string =>
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
-    dataWarehouse: (): string => '/data-warehouse',
+    dataOps: (): string => '/data-ops',
     models: (): string => '/models',
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
@@ -1233,14 +1233,15 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Data warehouse',
+        displayLabel: 'Data ops',
         intents: [ProductKey.DATA_WAREHOUSE, ProductKey.DATA_WAREHOUSE_SAVED_QUERY],
         category: 'Unreleased',
-        href: urls.dataWarehouse(),
+        href: urls.dataOps(),
         flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
         iconType: 'data_warehouse',
         iconColor: ['var(--color-product-data-warehouse-light)'],
-        sceneKey: 'DataWarehouse',
-        sceneKeys: ['DataWarehouse', 'Models', 'SQLEditor'],
+        sceneKey: 'DataOps',
+        sceneKeys: ['DataOps', 'Models', 'SQLEditor'],
     },
     {
         path: 'Datasets',
@@ -1783,7 +1784,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         iconType: 'managed_viewsets',
         href: urls.dataWarehouseManagedViewsets(),
         flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
-        sceneKeys: ['DataWarehouse', 'Models', 'SQLEditor'],
+        sceneKeys: ['DataOps', 'Models', 'SQLEditor'],
     },
     {
         path: 'Models',

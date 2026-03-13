@@ -629,30 +629,29 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'header',
                             text: {
                                 type: 'plain_text',
-                                text: "Experiment '{event.properties.experiment_name}' has reached significance",
+                                text: "\ud83e\uddea Experiment '{event.properties.experiment_name}' has reached significance",
                             },
                         },
                         {
                             type: 'section',
                             text: {
                                 type: 'mrkdwn',
-                                text: 'Metric: *{event.properties.metric_name}* ({event.properties.variant_key} variant)',
+                                text: '*{event.properties.variant_key}* variant is winning on *{event.properties.metric_name}* {event.properties.relative_change}\nChance to win: *{event.properties.chance_to_win}* \u00b7 Goal: *{event.properties.goal_direction}*',
                             },
                         },
-                        {
-                            type: 'context',
-                            elements: [{ type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' }],
-                        },
-                        { type: 'divider' },
                         {
                             type: 'actions',
                             elements: [
                                 {
                                     url: '{project.url}{event.properties.experiment_url}',
-                                    text: { text: 'View Experiment', type: 'plain_text' },
+                                    text: { text: 'View experiment', type: 'plain_text' },
                                     type: 'button',
                                 },
                             ],
+                        },
+                        {
+                            type: 'context',
+                            elements: [{ type: 'mrkdwn', text: '{project.name}' }],
                         },
                     ],
                 },

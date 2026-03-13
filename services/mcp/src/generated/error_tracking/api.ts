@@ -212,7 +212,7 @@ export const ErrorTrackingExternalReferencesListResponse = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
-                    'slack-twig',
+                    'slack-posthog-code',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -260,7 +260,7 @@ export const ErrorTrackingExternalReferencesCreateBody = zod.object({
         id: zod.number(),
         kind: zod.enum([
             'slack',
-            'slack-twig',
+            'slack-posthog-code',
             'salesforce',
             'hubspot',
             'google-pubsub',
@@ -307,7 +307,7 @@ export const ErrorTrackingExternalReferencesRetrieveResponse = zod.object({
         id: zod.number(),
         kind: zod.enum([
             'slack',
-            'slack-twig',
+            'slack-posthog-code',
             'salesforce',
             'hubspot',
             'google-pubsub',
@@ -354,7 +354,7 @@ export const ErrorTrackingExternalReferencesUpdateBody = zod.object({
         id: zod.number(),
         kind: zod.enum([
             'slack',
-            'slack-twig',
+            'slack-posthog-code',
             'salesforce',
             'hubspot',
             'google-pubsub',
@@ -392,7 +392,7 @@ export const ErrorTrackingExternalReferencesUpdateResponse = zod.object({
         id: zod.number(),
         kind: zod.enum([
             'slack',
-            'slack-twig',
+            'slack-posthog-code',
             'salesforce',
             'hubspot',
             'google-pubsub',
@@ -445,7 +445,7 @@ export const ErrorTrackingExternalReferencesPartialUpdateResponse = zod.object({
         id: zod.number(),
         kind: zod.enum([
             'slack',
-            'slack-twig',
+            'slack-posthog-code',
             'salesforce',
             'hubspot',
             'google-pubsub',
@@ -776,7 +776,7 @@ export const ErrorTrackingIssuesListResponse = zod.object({
                         id: zod.number(),
                         kind: zod.enum([
                             'slack',
-                            'slack-twig',
+                            'slack-posthog-code',
                             'salesforce',
                             'hubspot',
                             'google-pubsub',
@@ -842,7 +842,7 @@ export const ErrorTrackingIssuesCreateBody = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
-                    'slack-twig',
+                    'slack-posthog-code',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -907,7 +907,7 @@ export const ErrorTrackingIssuesRetrieveResponse = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
-                    'slack-twig',
+                    'slack-posthog-code',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -972,7 +972,7 @@ export const ErrorTrackingIssuesUpdateBody = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
-                    'slack-twig',
+                    'slack-posthog-code',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -1028,7 +1028,7 @@ export const ErrorTrackingIssuesUpdateResponse = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
-                    'slack-twig',
+                    'slack-posthog-code',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -1096,7 +1096,7 @@ export const ErrorTrackingIssuesPartialUpdateBody = zod.object({
                     id: zod.number(),
                     kind: zod.enum([
                         'slack',
-                        'slack-twig',
+                        'slack-posthog-code',
                         'salesforce',
                         'hubspot',
                         'google-pubsub',
@@ -1153,7 +1153,7 @@ export const ErrorTrackingIssuesPartialUpdateResponse = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
-                    'slack-twig',
+                    'slack-posthog-code',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -1233,7 +1233,7 @@ export const ErrorTrackingIssuesAssignPartialUpdateBody = zod.object({
                     id: zod.number(),
                     kind: zod.enum([
                         'slack',
-                        'slack-twig',
+                        'slack-posthog-code',
                         'salesforce',
                         'hubspot',
                         'google-pubsub',
@@ -1298,7 +1298,7 @@ export const ErrorTrackingIssuesCohortUpdateBody = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
-                    'slack-twig',
+                    'slack-posthog-code',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -1362,7 +1362,7 @@ export const ErrorTrackingIssuesMergeCreateBody = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
-                    'slack-twig',
+                    'slack-posthog-code',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -1426,7 +1426,7 @@ export const ErrorTrackingIssuesSplitCreateBody = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
-                    'slack-twig',
+                    'slack-posthog-code',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -1497,7 +1497,7 @@ export const ErrorTrackingIssuesBulkCreateBody = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
-                    'slack-twig',
+                    'slack-posthog-code',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',

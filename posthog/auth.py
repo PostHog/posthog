@@ -85,7 +85,6 @@ def get_auth_brand_from_next_param(next_param: str | None) -> str | None:
         client_id = parse_qs(parsed.query).get("client_id", [None])[0]
         return get_auth_brand_for_client_id(client_id)
     except (ValueError, IndexError, KeyError):
-        # Only catch expected parsing errors
         return None
 
 

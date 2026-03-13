@@ -26,7 +26,7 @@ import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType }
 import { DashboardTextItem } from './items/DashboardTextItem'
 
 const DRAG_AUTO_SCROLL_THRESHOLD = 100
-const DRAG_AUTO_SCROLL_SPEED = 8
+const DRAG_AUTO_SCROLL_SPEED = 50
 
 export function DashboardItems(): JSX.Element {
     const {

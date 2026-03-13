@@ -474,6 +474,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 filters_override={},
                 variables_override={},
                 tile_filters_override={},
+                analytics_props=ANY,
             )
 
         with patch(
@@ -489,6 +490,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 filters_override={},
                 variables_override={},
                 tile_filters_override={},
+                analytics_props=ANY,
             )
 
     def test_get_insight_by_short_id(self) -> None:
