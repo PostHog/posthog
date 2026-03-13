@@ -87,6 +87,9 @@ class ClickHousePrinter(HogQLPrinter):
             raise InternalHogQLError("Printing queries with a FROM clause is not permitted before type resolution")
         return super().visit_join_expr(node)
 
+    def visit_values_query(self, node: ast.ValuesQuery):
+        raise QueryError("VALUES clause is not supported in ClickHouse dialect")
+
     def visit_and(self, node: ast.And):
         """
         optimizations:

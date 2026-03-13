@@ -57,6 +57,8 @@ VALID_JOIN_TYPES = frozenset(
         "FULL ANY JOIN",
         "FULL ALL JOIN",
         "ASOF LEFT JOIN",
+        "ANTI JOIN",
+        "SEMI JOIN",
     }
 )
 
@@ -64,6 +66,14 @@ VALID_JOIN_TYPES = frozenset(
 @dataclass(kw_only=True)
 class TypeCast(Expr):
     """A type cast expression."""
+
+    expr: Expr
+    type_name: str
+
+
+@dataclass(kw_only=True)
+class TryCast(Expr):
+    """A try-cast expression."""
 
     expr: Expr
     type_name: str
@@ -755,6 +765,13 @@ class Not(Expr):
 
 
 @dataclass(kw_only=True)
+class IsDistinctFrom(Expr):
+    left: Expr
+    right: Expr
+    negated: bool = False
+
+
+@dataclass(kw_only=True)
 class BetweenExpr(Expr):
     expr: Expr
     low: Expr
@@ -774,6 +791,13 @@ class ArrayAccess(Expr):
     array: Expr
     property: Expr
     nullish: bool = False
+
+
+@dataclass(kw_only=True)
+class ArraySlice(Expr):
+    array: Expr
+    start_expr: Optional[Expr] = None
+    end_expr: Optional[Expr] = None
 
 
 @dataclass(kw_only=True)
@@ -802,6 +826,7 @@ class Tuple(Expr):
 class Lambda(Expr):
     args: list[str]
     expr: Expr | Block
+    style: Literal["arrow", "lambda"] = "arrow"
 
 
 @dataclass(kw_only=True)
@@ -819,6 +844,9 @@ class Field(Expr):
 class ColumnsExpr(Expr):
     regex: Optional[str] = None
     columns: Optional[list[Expr]] = None
+    all_columns: bool = False
+    exclude: Optional[list[str]] = None
+    replace: Optional[dict[str, Expr]] = None
 
 
 @dataclass(kw_only=True)
@@ -840,6 +868,17 @@ class Placeholder(Expr):
     @property
     def field(self) -> str | None:
         return ".".join(str(chain) for chain in self.chain) if self.chain else None
+
+
+@dataclass(kw_only=True)
+class NamedArgument(Expr):
+    name: str
+    value: Expr
+
+
+@dataclass(kw_only=True)
+class PositionalRef(Expr):
+    index: int
 
 
 @dataclass(kw_only=True)
@@ -872,14 +911,30 @@ class JoinConstraint(Expr):
 
 
 @dataclass(kw_only=True)
+class UnpivotColumn(Expr):
+    value_columns: Expr
+    name_columns: Expr
+    unpivot_values: list[Expr]
+
+
+@dataclass(kw_only=True)
+class UnpivotExpr(Expr):
+    table: Expr
+    columns: list[UnpivotColumn]
+
+
+@dataclass(kw_only=True)
 class JoinExpr(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[TableOrSelectType] = None
 
     join_type: Optional[str] = None
-    table: Optional[Union["SelectQuery", "SelectSetQuery", "Placeholder", "HogQLXTag", "Field"]] = None
+    table: Optional[
+        Union["SelectQuery", "SelectSetQuery", "ValuesQuery", "UnpivotExpr", "Placeholder", "HogQLXTag", "Field"]
+    ] = None
     table_args: Optional[list[Expr]] = None
     alias: Optional[str] = None
+    column_aliases: Optional[list[str]] = None
     table_final: Optional[bool] = None
     constraint: Optional[JoinConstraint] = None
     next_join: Optional["JoinExpr"] = None
@@ -899,7 +954,7 @@ class JoinExpr(Expr):
 @dataclass(kw_only=True)
 class WindowFrameExpr(Expr):
     frame_type: Optional[Literal["CURRENT ROW", "PRECEDING", "FOLLOWING"]] = None
-    frame_value: Optional[int] = None
+    frame_value: Optional[Union[int, Expr]] = None
 
 
 @dataclass(kw_only=True)
@@ -953,6 +1008,7 @@ class SelectQuery(Expr):
     limit: Optional[Expr] = None
     limit_by: Optional[LimitByExpr] = None
     limit_with_ties: Optional[bool] = None
+    limit_percent: Optional[bool] = None
     offset: Optional[Expr] = None
     settings: Optional[HogQLQuerySettings] = None
     view_name: Optional[str] = None
@@ -981,6 +1037,12 @@ class SelectQuery(Expr):
         )
 
 
+@dataclass(kw_only=True)
+class ValuesQuery(Expr):
+    type: Optional[SelectQueryType] = None
+    rows: list[list[Expr]]
+
+
 SetOperator = Literal[
     "UNION ALL",
     "UNION DISTINCT",
@@ -989,8 +1051,13 @@ SetOperator = Literal[
     "INTERSECT",
     "INTERSECT ALL",
     "INTERSECT DISTINCT",
+    "INTERSECT BY NAME",
+    "INTERSECT ALL BY NAME",
+    "INTERSECT DISTINCT BY NAME",
     "EXCEPT",
     "EXCEPT ALL",
+    "EXCEPT BY NAME",
+    "EXCEPT ALL BY NAME",
 ]
 
 
@@ -1013,6 +1080,10 @@ class SelectSetQuery(Expr):
     type: Optional[SelectSetQueryType] = None
     initial_select_query: Union["SelectQuery", "SelectSetQuery"]
     subsequent_select_queries: list[SelectSetNode]
+    limit: Optional[Expr] = None
+    offset: Optional[Expr] = None
+    limit_percent: Optional[bool] = None
+    limit_with_ties: Optional[bool] = None
 
     def select_queries(self):
         return [self.initial_select_query] + [node.select_query for node in self.subsequent_select_queries]
