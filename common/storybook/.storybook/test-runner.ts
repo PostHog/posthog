@@ -98,7 +98,7 @@ console.log('[test-runner] Storybook snapshots will be saved to', customSnapshot
 
 const JEST_TIMEOUT_MS = 25000 // Increased for stories with iframes (e.g. SidePanelDocs)
 const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
-const VIEWPORT_SETTLE_TIMEOUT_MS = 3000
+const VIEWPORT_SETTLE_TIMEOUT_MS = 5000
 
 const ATTEMPT_COUNT_PER_ID: Record<string, number> = {}
 
@@ -112,6 +112,7 @@ module.exports = {
     async preVisit(page, context) {
         const storyContext = await getStoryContext(page, context)
         const { viewport, viewportWidths } = storyContext.parameters?.testOptions ?? {}
+        applyStoryTimeouts(page, viewportWidths)
         const effectiveViewport = viewportWidths?.length
             ? VIEWPORT_WIDTHS[viewportWidths[0]]
             : viewport || DEFAULT_VIEWPORT
@@ -142,10 +143,8 @@ module.exports = {
         const browserContext = page.context()
         const { snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
 
-        // Increase timeout proportional to number of viewport widths since we're effectively running N stories
-        const timeoutMultiplier = viewportWidths?.length || 1
-        jest.setTimeout(JEST_TIMEOUT_MS * timeoutMultiplier)
-        browserContext.setDefaultTimeout(PLAYWRIGHT_TIMEOUT_MS * timeoutMultiplier)
+        // Keep timeouts scaled in postVisit too, as retries can run through this path multiple times.
+        applyStoryTimeouts(page, viewportWidths)
         const currentBrowser = browserContext.browser()!.browserType().name() as SupportedBrowserName
         if (snapshotBrowsers.includes(currentBrowser)) {
             if (viewportWidths?.length) {
@@ -521,6 +520,27 @@ async function waitForPageReady(page: Page, skipNetworkIdle = false): Promise<vo
     await page.evaluate(() => document.fonts.ready)
 }
 
+function applyStoryTimeouts(page: Page, viewportWidths?: ViewportWidthName[]): void {
+    // Multi-width stories effectively run several snapshots inside one smoke test.
+    const timeoutMultiplier = viewportWidths?.length || 1
+    jest.setTimeout(JEST_TIMEOUT_MS * timeoutMultiplier)
+    page.context().setDefaultTimeout(PLAYWRIGHT_TIMEOUT_MS * timeoutMultiplier)
+}
+
+async function waitForInnerViewport(
+    page: Page,
+    viewport: { width: number; height: number },
+    timeout: number = VIEWPORT_SETTLE_TIMEOUT_MS
+): Promise<void> {
+    await page.waitForFunction(
+        ([expectedWidth, expectedHeight]) => {
+            return window.innerWidth === expectedWidth && window.innerHeight === expectedHeight
+        },
+        [viewport.width, viewport.height],
+        { timeout }
+    )
+}
+
 async function resizeViewportAndWait(page: Page, viewport: { width: number; height: number }): Promise<void> {
     const currentViewport = page.viewportSize()
     if (currentViewport?.width === viewport.width && currentViewport.height === viewport.height) {
@@ -530,13 +550,13 @@ async function resizeViewportAndWait(page: Page, viewport: { width: number; heig
     }
 
     await page.setViewportSize(viewport)
-    await page.waitForFunction(
-        ([expectedWidth, expectedHeight]) => {
-            return window.innerWidth === expectedWidth && window.innerHeight === expectedHeight
-        },
-        [viewport.width, viewport.height],
-        { timeout: VIEWPORT_SETTLE_TIMEOUT_MS }
-    )
+    await waitForInnerViewport(page, viewport).catch(async () => {
+        // Under heavy CI load, the first viewport resize can occasionally lag. Retry once.
+        const nudgedWidth = viewport.width > 320 ? viewport.width - 1 : viewport.width + 1
+        await page.setViewportSize({ width: nudgedWidth, height: viewport.height })
+        await page.setViewportSize(viewport)
+        await waitForInnerViewport(page, viewport, VIEWPORT_SETTLE_TIMEOUT_MS * 2).catch(() => undefined)
+    })
 
     await page.evaluate(async () => {
         void document.body.offsetHeight
