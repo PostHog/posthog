@@ -302,8 +302,8 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             deduplicated_conditions=deduplicated_conditions,
             cohort_ids=[100, 200],
             batch_size=100,
-            offset=0,
-            limit=2,
+            start_uuid="00000000-0000-0000-0000-000000000000",
+            end_uuid="ffffffff-ffff-ffff-ffff-ffffffffffff",
         )
 
         # Mock dependencies
