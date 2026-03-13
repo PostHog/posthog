@@ -154,12 +154,13 @@ def filter_key_for_query(node: InsightQueryNode) -> str:
         raise ValidationError(f"Expected an insight node, got {node.__name__}")
 
 
+# keep in sync with frontend/src/scenes/insights/utils/queryUtils.ts `groupedChartDisplayTypes` object
 def grouped_chart_display_types(display: ChartDisplayType) -> ChartDisplayType:
     match display:
         case (
             ChartDisplayType.ACTIONS_LINE_GRAPH
-            | ChartDisplayType.ACTIONS_BAR
             | ChartDisplayType.ACTIONS_AREA_GRAPH
+            | ChartDisplayType.ACTIONS_BAR
             | ChartDisplayType.ACTIONS_UNSTACKED_BAR
             | ChartDisplayType.ACTIONS_STACKED_BAR
             | ChartDisplayType.TWO_DIMENSIONAL_HEATMAP
