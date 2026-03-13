@@ -215,6 +215,9 @@ Respond with a JSON object matching this schema:
 </jsonschema>"""
 
 
+# TODO: When deciding on priority - also look at top N reports now, to decide if it should be higher/lower?
+
+
 def build_priority_prompt(total_signals: int) -> str:
     """Build the prompt asking for a priority assessment (only sent when actionable)."""
     schema = json.dumps(PriorityAssessment.model_json_schema(), indent=2)
