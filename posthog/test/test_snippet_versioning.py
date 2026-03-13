@@ -239,7 +239,7 @@ class TestSyncTask(SimpleTestCase):
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
     @patch("posthog.models.snippet_versioning.validate_version_artifacts")
     @patch("posthog.models.snippet_versioning.object_storage.read")
-    def test_rejects_update_when_artifacts_missing(self, mock_read, mock_validate):
+    def test_rejects_update_when_no_viable_version(self, mock_read, mock_validate):
         entries = [{"version": "99.99.99", "timestamp": "2025-01-20T00:00:00Z"}]
         mock_read.return_value = json.dumps(entries)
         mock_validate.return_value = False
@@ -247,6 +247,28 @@ class TestSyncTask(SimpleTestCase):
         sync_snippet_manifest()
 
         assert cache.get(REDIS_POINTER_MAP_KEY) is None
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    @patch("posthog.models.snippet_versioning.validate_version_artifacts")
+    @patch("posthog.models.snippet_versioning.object_storage.read")
+    def test_falls_back_to_next_version_when_latest_missing(self, mock_read, mock_validate):
+        # 1.9.0 vs 1.10.0: string sort would rank "1.9.0" > "1.10.0",
+        # but semver correctly ranks 1.10.0 > 1.9.0
+        entries = json.dumps(
+            [
+                {"version": "1.9.0", "timestamp": "2025-01-15T00:00:00Z"},
+                {"version": "1.10.0", "timestamp": "2025-01-20T00:00:00Z"},
+            ]
+        )
+        mock_read.return_value = entries
+        # 1.10.0 is missing artifacts, 1.9.0 is fine
+        mock_validate.side_effect = lambda v: v != "1.10.0"
+
+        sync_snippet_manifest()
+
+        raw = cache.get(REDIS_POINTER_MAP_KEY)
+        manifest = json.loads(raw)
+        assert manifest["pointers"]["1"] == "1.9.0"
 
     @override_settings(POSTHOG_JS_S3_BUCKET="")
     def test_noop_when_versioning_disabled(self):
