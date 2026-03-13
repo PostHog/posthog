@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import React from 'react'
 import { Transition } from 'react-transition-group'
 
-import { IconPieChart } from '@posthog/icons'
+import { IconInfo, IconPieChart } from '@posthog/icons'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { useDelayedHover } from 'lib/hooks/useDelayedHover'
@@ -102,7 +102,7 @@ export function CardMeta({
         visible: detailsPopoverVisible,
         show: showDetails,
         hide: hideDetails,
-    } = useDelayedHover({ showDelay: 500, hideDelay: 200 })
+    } = useDelayedHover({ showDelay: 300, hideDelay: 400 })
 
     return (
         <div
@@ -137,66 +137,72 @@ export function CardMeta({
                                         ))}
                                 </div>
                             </div>
-                            <Popover
-                                visible={detailsPopoverVisible}
-                                placement="bottom-start"
-                                showArrow
-                                onMouseEnterInside={showDetails}
-                                onMouseLeaveInside={hideDetails}
-                                overlay={
-                                    <div className="p-4 max-w-md space-y-2" onMouseDown={(e) => e.stopPropagation()}>
-                                        {(popoverTopHeading ?? topHeading) && (
-                                            <h5 className="uppercase text-xs font-bold text-muted tracking-wide m-0">
-                                                {popoverTopHeading ?? topHeading}
-                                            </h5>
-                                        )}
-                                        {onMetaSave ? (
-                                            <>
-                                                <EditableField
-                                                    name="title"
-                                                    value={metaTitle || ''}
-                                                    onSave={(value) => onMetaSave({ name: value })}
-                                                    placeholder="Untitled"
-                                                    saveOnBlur
-                                                    clickToEdit
-                                                    compactButtons
-                                                    compactIcon
-                                                    className="font-semibold text-sm"
-                                                    data-attr="insight-card-title"
-                                                />
-                                                <EditableField
-                                                    name="description"
-                                                    value={metaDescriptionText || ''}
-                                                    onSave={(value) => onMetaSave({ description: value })}
-                                                    placeholder="Enter description (optional)"
-                                                    saveOnBlur
-                                                    clickToEdit
-                                                    multiline
-                                                    markdown
-                                                    compactButtons
-                                                    compactIcon
-                                                    className="text-xs w-full"
-                                                    data-attr="insight-card-description"
-                                                />
-                                            </>
-                                        ) : (
-                                            <>
-                                                {metaTitle && <p className="font-semibold m-0">{metaTitle}</p>}
-                                                {metaDescription}
-                                            </>
-                                        )}
-                                        {metaDetails}
-                                    </div>
-                                }
-                            >
-                                <div
-                                    className="overflow-hidden min-w-0"
-                                    onMouseEnter={showDetails}
-                                    onMouseLeave={hideDetails}
+                            <div className="flex items-center gap-1">
+                                <div className="overflow-hidden min-w-0">{meta}</div>
+                                <Popover
+                                    visible={detailsPopoverVisible}
+                                    placement="bottom"
+                                    showArrow
+                                    onMouseEnterInside={showDetails}
+                                    onMouseLeaveInside={hideDetails}
+                                    overlay={
+                                        <div
+                                            className="p-4 max-w-md space-y-2"
+                                            onMouseDown={(e) => e.stopPropagation()}
+                                        >
+                                            {(popoverTopHeading ?? topHeading) && (
+                                                <h5 className="uppercase text-xs font-bold text-muted tracking-wide m-0">
+                                                    {popoverTopHeading ?? topHeading}
+                                                </h5>
+                                            )}
+                                            {onMetaSave ? (
+                                                <>
+                                                    <EditableField
+                                                        name="title"
+                                                        value={metaTitle || ''}
+                                                        onSave={(value) => onMetaSave({ name: value })}
+                                                        placeholder="Untitled"
+                                                        saveOnBlur
+                                                        clickToEdit
+                                                        compactButtons
+                                                        compactIcon
+                                                        className="font-semibold text-sm"
+                                                        data-attr="insight-card-title"
+                                                    />
+                                                    <EditableField
+                                                        name="description"
+                                                        value={metaDescriptionText || ''}
+                                                        onSave={(value) => onMetaSave({ description: value })}
+                                                        placeholder="Enter description (optional)"
+                                                        saveOnBlur
+                                                        clickToEdit
+                                                        multiline
+                                                        markdown
+                                                        compactButtons
+                                                        compactIcon
+                                                        className="text-xs w-full"
+                                                        data-attr="insight-card-description"
+                                                    />
+                                                </>
+                                            ) : (
+                                                <>
+                                                    {metaTitle && <p className="font-semibold m-0">{metaTitle}</p>}
+                                                    {metaDescription}
+                                                </>
+                                            )}
+                                            {metaDetails}
+                                        </div>
+                                    }
                                 >
-                                    {meta}
-                                </div>
-                            </Popover>
+                                    <div
+                                        className="shrink-0 cursor-default"
+                                        onMouseEnter={showDetails}
+                                        onMouseLeave={hideDetails}
+                                    >
+                                        <IconInfo className="text-default text-lg align-middle" />
+                                    </div>
+                                </Popover>
+                            </div>
                         </>
                     ) : (
                         <>
