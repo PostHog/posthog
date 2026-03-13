@@ -1327,7 +1327,11 @@ async fn test_rate_limit_backwards_compat_log_only() -> Result<()> {
         .json(&payload)
         .send()
         .await?;
-    assert_eq!(response.status(), StatusCode::OK, "Request 1 should succeed");
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "Request 1 should succeed"
+    );
     assert!(
         response
             .headers()
