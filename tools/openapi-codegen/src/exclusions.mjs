@@ -11,6 +11,10 @@
  * component schemas (`#/components/schemas/...`) untouched.
  */
 
+function isUnsafeKey(key) {
+    return key === '__proto__' || key === 'constructor' || key === 'prototype'
+}
+
 /**
  * If `schema` is a `$ref`, deep-clone the referenced component and return it.
  * Otherwise return `schema` unchanged.
@@ -57,6 +61,10 @@ function excludePath(spec, parentObj, parentKey, segments) {
     }
 
     const [head, ...tail] = segments
+
+    if (isUnsafeKey(head)) {
+        return
+    }
 
     if (tail.length === 0) {
         if (schema.properties?.[head]) {
