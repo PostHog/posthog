@@ -816,6 +816,12 @@ class Field(Expr):
 
 
 @dataclass(kw_only=True)
+class ColumnsExpr(Expr):
+    regex: Optional[str] = None
+    columns: Optional[list[Expr]] = None
+
+
+@dataclass(kw_only=True)
 class Placeholder(Expr):
     expr: Expr
 

@@ -578,6 +578,9 @@ class HogQLPrinter(Visitor[str]):
         # When printing HogQL, we print the properties out as a chain as they are.
         return ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])
 
+    def visit_columns_expr(self, node: ast.ColumnsExpr):
+        raise ImpossibleASTError("Unexpected ast.ColumnsExpr. This should have been expanded by the resolver.")
+
     def visit_call(self, node: ast.Call):
         func_meta = (
             find_hogql_aggregation(node.name)
