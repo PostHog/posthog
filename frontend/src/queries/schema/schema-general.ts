@@ -2993,6 +2993,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     reason?: UserProductListReason
     /** Custom reason text for custom product suggestion (from UserProductList) */
     reasonText?: string | null
+    /** Display label override — when set, shown in the nav instead of the last segment of `path` */
+    displayLabel?: string
 }
 
 export interface FileSystemViewLogEntry {
