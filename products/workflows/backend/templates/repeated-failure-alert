@@ -215,7 +215,6 @@
             "templating": "hog"
           },
           "slack_workspace": {
-            "value": 54567,
             "templating": "hog"
           }
         },
