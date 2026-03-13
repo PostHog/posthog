@@ -48,9 +48,9 @@ function hashString(input) {
     return hash >>> 0
 }
 
-// Greedy bin-packing: assign each test (longest first) to the lightest shard.
-// Tests without timing data go into a separate pool and are spread evenly
-// after the known tests are placed.
+// Greedy bin-packing: assign each timed test (longest first) to the lightest shard.
+// Tests without timing data are assigned deterministically by file hash so
+// verify/update reruns keep each unknown test on the same shard.
 function binPackShard(tests, shardCount, shardIndex, timings, browser) {
     const known = []
     const unknown = []
