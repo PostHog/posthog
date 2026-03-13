@@ -7,6 +7,8 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 
 
 class ReviewQueue(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields):
+    objects: models.Manager["ReviewQueue"]
+
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     name = models.CharField(max_length=255)
 
@@ -33,13 +35,15 @@ class ReviewQueue(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFi
         self.deleted_at = now
         self.save(update_fields=["deleted", "deleted_at", "updated_at"])
 
-        self.items.filter(deleted=False).update(deleted=True, deleted_at=now, updated_at=now)
+        ReviewQueueItem.objects.filter(queue=self, deleted=False).update(deleted=True, deleted_at=now, updated_at=now)
 
-    def delete(self, *args: object, **kwargs: object) -> None:
+    def delete(self, *args: object, **kwargs: object) -> tuple[int, dict[str, int]]:
         raise Exception("Cannot hard delete ReviewQueue. Use soft_delete() instead.")
 
 
 class ReviewQueueItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields):
+    objects: models.Manager["ReviewQueueItem"]
+
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     queue = models.ForeignKey(ReviewQueue, on_delete=models.CASCADE, related_name="items")
     trace_id = models.CharField(max_length=255)
@@ -66,5 +70,5 @@ class ReviewQueueItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMe
         self.deleted_at = timezone.now()
         self.save(update_fields=["deleted", "deleted_at", "updated_at"])
 
-    def delete(self, *args: object, **kwargs: object) -> None:
+    def delete(self, *args: object, **kwargs: object) -> tuple[int, dict[str, int]]:
         raise Exception("Cannot hard delete ReviewQueueItem. Use soft_delete() instead.")
