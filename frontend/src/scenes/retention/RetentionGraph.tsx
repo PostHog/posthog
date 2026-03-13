@@ -32,7 +32,7 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
         retentionFilter,
         filteredTrendSeries,
         incompletenessOffsetFromEnd,
-        aggregationGroupTypeIndex,
+        labelGroupType,
         shouldShowMeanPerBreakdown,
         showTrendLines,
         xAxisLabels,
@@ -60,7 +60,7 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
             isInProgress={incompletenessOffsetFromEnd < 0}
             inSharedMode={!!inSharedMode}
             showPersonsModal={false}
-            labelGroupType={aggregationGroupTypeIndex}
+            labelGroupType={labelGroupType}
             // in retention graph, we want the bars side by side so it's easier
             // to see the retention trend change for each cohort
             isStacked={retentionFilter?.display !== ChartDisplayType.ActionsBar}

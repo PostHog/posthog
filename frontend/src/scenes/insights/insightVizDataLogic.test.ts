@@ -12,11 +12,20 @@ import {
     EventsNode,
     FunnelsQuery,
     InsightQueryNode,
+    LifecycleQuery,
     NodeKind,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { BaseMathType, ChartDisplayType, InsightModel, InsightShortId, InsightType } from '~/types'
+import {
+    BaseMathType,
+    ChartDisplayType,
+    InsightModel,
+    InsightShortId,
+    InsightType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
 
@@ -118,6 +127,121 @@ describe('insightVizDataLogic', () => {
                             funnelToStep: 1,
                         },
                         trendsFilter: {}, // we currently don't remove insight filters of previous query kinds
+                        version: 2,
+                    },
+                },
+            })
+        })
+
+        it('clears a custom lifecycle aggregation target when switching away from a data warehouse series', () => {
+            const lifecycleQuery: LifecycleQuery = {
+                kind: NodeKind.LifecycleQuery,
+                customAggregationTarget: true,
+                series: [
+                    {
+                        kind: NodeKind.LifecycleDataWarehouseNode,
+                        id: 'warehouse_orders',
+                        table_name: 'warehouse_orders',
+                        name: 'Orders',
+                        timestamp_field: 'created_at',
+                        aggregation_target_field: 'order_id',
+                        created_at_field: 'created_at',
+                    },
+                ],
+            }
+
+            builtInsightVizDataLogic.actions.updateQuerySource(lifecycleQuery)
+
+            expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    kind: NodeKind.LifecycleQuery,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                } as LifecycleQuery)
+            }).toMatchValues({
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.LifecycleQuery,
+                        customAggregationTarget: undefined,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: '$pageview',
+                                event: '$pageview',
+                            },
+                        ],
+                        trendsFilter: {},
+                        version: 2,
+                    },
+                },
+            })
+        })
+
+        it('clears unsupported lifecycle globals when switching to a data warehouse series', () => {
+            const lifecycleQuery: LifecycleQuery = {
+                kind: NodeKind.LifecycleQuery,
+                filterTestAccounts: true,
+                samplingFactor: 0.1,
+                properties: [
+                    {
+                        key: '$browser',
+                        value: 'Chrome',
+                        type: PropertyFilterType.Event,
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        name: '$pageview',
+                        event: '$pageview',
+                    },
+                ],
+            }
+
+            builtInsightVizDataLogic.actions.updateQuerySource(lifecycleQuery)
+
+            expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    kind: NodeKind.LifecycleQuery,
+                    series: [
+                        {
+                            kind: NodeKind.LifecycleDataWarehouseNode,
+                            id: 'warehouse_orders',
+                            table_name: 'warehouse_orders',
+                            name: 'Orders',
+                            timestamp_field: 'created_at',
+                            aggregation_target_field: 'order_id',
+                            created_at_field: 'created_at',
+                        },
+                    ],
+                } as LifecycleQuery)
+            }).toMatchValues({
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.LifecycleQuery,
+                        properties: undefined,
+                        filterTestAccounts: undefined,
+                        samplingFactor: undefined,
+                        series: [
+                            {
+                                kind: NodeKind.LifecycleDataWarehouseNode,
+                                id: 'warehouse_orders',
+                                table_name: 'warehouse_orders',
+                                name: 'Orders',
+                                timestamp_field: 'created_at',
+                                aggregation_target_field: 'order_id',
+                                created_at_field: 'created_at',
+                            },
+                        ],
+                        trendsFilter: {},
                         version: 2,
                     },
                 },

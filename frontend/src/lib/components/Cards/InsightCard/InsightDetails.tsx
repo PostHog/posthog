@@ -35,6 +35,7 @@ import {
     StickinessQuery,
     TrendsFormulaNode,
     TrendsQuery,
+    AnyDataWarehouseNode,
 } from '~/queries/schema/schema-general'
 import {
     isActionsNode,
@@ -78,7 +79,7 @@ export function InsightDetailSectionDisplay({
     )
 }
 
-function EntityDisplay({ entity }: { entity: AnyEntityNode }): JSX.Element {
+function EntityDisplay({ entity }: { entity: AnyEntityNode<AnyDataWarehouseNode> }): JSX.Element {
     return (
         <>
             {entity.custom_name && <b> "{entity.custom_name}"</b>}

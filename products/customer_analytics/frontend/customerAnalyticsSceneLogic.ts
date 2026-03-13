@@ -11,7 +11,14 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
-import { ActionsNode, AnyEntityNode, EventsNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import {
+    ActionsNode,
+    AnyEntityNode,
+    EventsNode,
+    InsightVizNode,
+    LifecycleDataWarehouseNode,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import {
     BaseMathType,
@@ -833,7 +840,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             kind: NodeKind.LifecycleQuery,
                             tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                             ...(businessType === 'b2c' ? {} : { aggregation_group_type_index: selectedGroupType }),
-                            series: [dauSeries as AnyEntityNode],
+                            series: [dauSeries as AnyEntityNode<LifecycleDataWarehouseNode>],
                             interval: 'week',
                             dateRange: {
                                 date_from: dateRange.date_from,
