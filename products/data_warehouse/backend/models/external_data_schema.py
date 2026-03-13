@@ -46,6 +46,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         MONTHLY = "month", "Monthly"
 
     name = models.CharField(max_length=400)
+    label = models.CharField(max_length=400, null=True, blank=True)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     source = models.ForeignKey("data_warehouse.ExternalDataSource", related_name="schemas", on_delete=models.CASCADE)
     table = models.ForeignKey("data_warehouse.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
@@ -74,6 +75,10 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     def folder_path(self) -> str:
         return f"team_{self.team_id}_{self.source.source_type}_{str(self.id)}".lower().replace("-", "_")
+
+    @property
+    def display_name(self) -> str:
+        return self.label if self.label else self.name
 
     @property
     def normalized_name(self):
@@ -375,40 +380,67 @@ def get_all_schemas_for_source_id(source_id: str, team_id: int):
     return list(ExternalDataSchema.objects.exclude(deleted=True).filter(team_id=team_id, source_id=source_id).all())
 
 
+def _update_labels(
+    old_schemas: list["ExternalDataSchema"],
+    new_schemas: dict[str, str | None],
+) -> None:
+    """Update labels on existing schemas when the display name changes."""
+    for old_schema in old_schemas:
+        new_label = new_schemas.get(old_schema.name)
+        if new_label is not None and old_schema.label != new_label:
+            old_schema.label = new_label
+            old_schema.save(update_fields=["label"])
+
+
 def sync_old_schemas_with_new_schemas(
-    new_schemas: list[str], source_id: str, team_id: int
+    new_schemas: dict[str, str | None], source_id: str, team_id: int
 ) -> tuple[list[str], list[str]]:
     old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
     old_schemas_names = [schema.name for schema in old_schemas]
 
-    schemas_to_create = [schema for schema in new_schemas if schema not in old_schemas_names]
+    # Update display labels on existing schemas
+    _update_labels(old_schemas, new_schemas)
 
-    schemas_to_possibly_delete = [schema for schema in old_schemas_names if schema not in new_schemas]
+    new_schema_names = list(new_schemas.keys())
+    schemas_to_create = [name for name in new_schema_names if name not in old_schemas_names]
+
+    schemas_to_possibly_delete = [schema for schema in old_schemas_names if schema not in new_schema_names]
     deleted_schemas: list[str] = []
     actually_created: list[str] = []
 
-    for schema in schemas_to_create:
+    for schema_name in schemas_to_create:
+        label = new_schemas.get(schema_name)
+
         deleted_obj = (
-            ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, name=schema, deleted=True)
+            ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, name=schema_name, deleted=True)
             .order_by("-updated_at", "-created_at")
             .first()
         )
         if deleted_obj is not None:
             deleted_obj.deleted = False
             deleted_obj.deleted_at = None
-            deleted_obj.save(update_fields=["deleted", "deleted_at", "updated_at"])
-            actually_created.append(schema)
+            if label is not None:
+                deleted_obj.label = label
+            update_fields = ["deleted", "deleted_at", "updated_at"]
+            if label is not None:
+                update_fields.append("label")
+            deleted_obj.save(update_fields=update_fields)
+            actually_created.append(schema_name)
             continue
+
+        defaults: dict[str, Any] = {"should_sync": False}
+        if label is not None:
+            defaults["label"] = label
 
         obj, created = ExternalDataSchema.objects.get_or_create(
             team_id=team_id,
             source_id=source_id,
-            name=schema,
+            name=schema_name,
             deleted=False,
-            defaults={"should_sync": False},
+            defaults=defaults,
         )
         if created:
-            actually_created.append(schema)
+            actually_created.append(schema_name)
 
     for schema in schemas_to_possibly_delete:
         # There _could_ exist multiple schemas with the same name, there shouldn't be, but it's not impossible
