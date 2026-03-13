@@ -74,6 +74,81 @@
             "readOnlyHint": false
         }
     },
+    "annotations-list": {
+        "description": "List annotations in the current project, newest first. Use this to review existing deployment markers and analysis notes before adding new annotations.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "List annotations",
+        "title": "List annotations",
+        "required_scopes": ["annotation:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "annotation-create": {
+        "description": "Create an annotation to mark an important change (for example, a deployment) on charts and trends. Provide a note in `content`, when it happened in `date_marker` (ISO 8601), and whether it is scoped to the current `project` or the whole `organization`.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "Create annotation",
+        "title": "Create annotation",
+        "required_scopes": ["annotation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "annotation-retrieve": {
+        "description": "Retrieve a single annotation by ID from the current project. Use this when you already know the annotation ID and want complete details.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "Retrieve annotation",
+        "title": "Retrieve annotation",
+        "required_scopes": ["annotation:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "annotations-partial-update": {
+        "description": "Update an existing annotation by ID. You can change its text (`content`), when it happened (`date_marker`, ISO 8601), or its visibility scope (`project` or `organization`). Only the fields you provide are updated.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "Update annotation",
+        "title": "Update annotation",
+        "required_scopes": ["annotation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "annotation-delete": {
+        "description": "Soft-delete an annotation by ID. This hides the annotation from normal lists while preserving historical records.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "Delete annotation",
+        "title": "Delete annotation",
+        "required_scopes": ["annotation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "cdp-function-templates-list": {
         "description": "List available function templates. Templates are pre-built function configurations for common integrations (Slack, webhooks, email, etc.) and transformations (GeoIP, etc.). Filter by type (destination, site_destination, site_app, transformation, etc.) via the 'type' query parameter. Results are sorted by popularity (number of active functions using each template).",
         "category": "Function templates",
@@ -292,6 +367,96 @@
         "title": "Remove person from static cohort",
         "required_scopes": ["cohort:write"],
         "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "dashboards-get-all": {
+        "description": "Get all dashboards in the project with optional filtering by pinned status or search term. Returns name, description, pinned status, tags, and creation metadata.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Get all dashboards",
+        "title": "Get all dashboards",
+        "required_scopes": ["dashboard:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "dashboard-create": {
+        "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Create dashboard",
+        "title": "Create dashboard",
+        "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "dashboard-get": {
+        "description": "Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights and layout information.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Get dashboard",
+        "title": "Get dashboard",
+        "required_scopes": ["dashboard:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "dashboard-update": {
+        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Update dashboard",
+        "title": "Update dashboard",
+        "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "dashboard-delete": {
+        "description": "Delete a dashboard by ID. The dashboard will be soft-deleted and no longer appear in lists.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Delete dashboard",
+        "title": "Delete dashboard",
+        "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "dashboard-reorder-tiles": {
+        "description": "Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. Computes a 2-column grid layout (6 columns wide, 5 rows tall per tile). First, use dashboard-get to see current tile IDs.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Reorder dashboard tiles",
+        "title": "Reorder dashboard tiles",
+        "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

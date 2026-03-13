@@ -448,6 +448,8 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             properties={
                 "source": ANY,
                 "$current_url": ANY,
+                "$host": ANY,
+                "$pathname": ANY,
                 "$session_id": ANY,
                 "was_impersonated": ANY,
                 "mcp_user_agent": ANY,
@@ -455,6 +457,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                 "mcp_client_version": ANY,
                 "mcp_protocol_version": ANY,
                 "mcp_oauth_client_name": ANY,
+                "$set_once": ANY,
                 "name": "test_property",
                 "type": "event",
             },
