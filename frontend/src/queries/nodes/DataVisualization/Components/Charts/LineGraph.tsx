@@ -133,13 +133,7 @@ export const LineGraph = ({
     goalLines = [],
     className,
 }: LineGraphProps): JSX.Element => {
-    const {
-        tooltipId,
-        getTooltip,
-        showTooltip: showInsightTooltip,
-        hideTooltip: hideInsightTooltip,
-        positionTooltip,
-    } = useInsightTooltip()
+    const { tooltipId, getTooltip, showTooltip, hideTooltip, positionTooltip } = useInsightTooltip()
     const { ref: containerRef, height } = useResizeObserver()
 
     const logicKey = useMemo(() => uuid(), [])
@@ -418,13 +412,13 @@ export const LineGraph = ({
 
                             const [tooltipRoot, tooltipEl] = getTooltip()
                             if (tooltip.opacity === 0) {
-                                hideInsightTooltip()
+                                hideTooltip()
                                 return
                             }
 
                             tooltipEl.classList.remove('above', 'below', 'no-transform')
                             tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
-                            showInsightTooltip()
+                            showTooltip()
 
                             if (tooltip.body) {
                                 const referenceDataPoint = tooltip.dataPoints[0]
