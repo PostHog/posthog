@@ -83,7 +83,13 @@ export function formatTickValue(value: number): string {
         decimals = 0
     }
 
-    return `${(value * 100).toFixed(decimals)}%`
+    const percentage = value * 100
+    // Drop unnecessary trailing decimals (e.g. "50.0%" → "50%")
+    if (decimals > 0 && percentage === Math.round(percentage)) {
+        decimals = 0
+    }
+
+    return `${percentage.toFixed(decimals)}%`
 }
 
 /**
