@@ -227,6 +227,7 @@ export const urls = {
         `/links${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     link: (id: string): string => `/link/${id}`,
     tracing: (): string => '/tracing',
+    metrics: (): string => '/metrics',
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
     sessionProfile: (id: string): string => `/sessions/${id}`,
     wizard: (): string => `/wizard`,

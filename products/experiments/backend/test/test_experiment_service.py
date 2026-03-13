@@ -10,6 +10,7 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.models import FeatureFlag, Team
+from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from posthog.models.experiment import (
     Experiment,
     ExperimentHoldout,
@@ -1257,6 +1258,58 @@ class TestExperimentService(APIBaseTest):
         service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"}, fingerprint="fp1")
 
         assert ExperimentMetricResult.objects.filter(experiment=experiment, metric_uuid="m1").count() == 0
+
+    # ------------------------------------------------------------------
+    # Eligible feature flags
+    # ------------------------------------------------------------------
+
+    def test_get_eligible_feature_flags_only_returns_control_first_multivariate_flags(self) -> None:
+        eligible_flag = self._create_flag(key="eligible-flag")
+        self._create_flag(
+            key="wrong-order-flag",
+            variants=[
+                {"key": "test", "name": "Test", "rollout_percentage": 50},
+                {"key": "control", "name": "Control", "rollout_percentage": 50},
+            ],
+        )
+        self._create_flag(
+            key="single-variant-flag",
+            variants=[{"key": "control", "name": "Control", "rollout_percentage": 100}],
+        )
+
+        result = self._service().get_eligible_feature_flags(order="key")
+
+        assert result["count"] == 1
+        assert [flag.key for flag in result["results"]] == [eligible_flag.key]
+
+    def test_get_eligible_feature_flags_applies_search_and_pagination(self) -> None:
+        self._create_flag(key="search-alpha")
+        self._create_flag(key="search-beta")
+        self._create_flag(key="other-flag")
+
+        result = self._service().get_eligible_feature_flags(
+            search="search",
+            order="key",
+            limit=1,
+            offset=1,
+        )
+
+        assert result["count"] == 2
+        assert [flag.key for flag in result["results"]] == ["search-beta"]
+
+    def test_get_eligible_feature_flags_filters_by_evaluation_tags(self) -> None:
+        flag_with_tags = self._create_flag(key="flag-with-tags")
+        self._create_flag(key="flag-without-tags")
+        evaluation_context = EvaluationContext.objects.create(name="app", team=self.team)
+        FeatureFlagEvaluationContext.objects.create(feature_flag=flag_with_tags, evaluation_context=evaluation_context)
+
+        service = self._service()
+
+        flags_with_tags = service.get_eligible_feature_flags(has_evaluation_tags="true", order="key")
+        flags_without_tags = service.get_eligible_feature_flags(has_evaluation_tags="false", order="key")
+
+        assert [flag.key for flag in flags_with_tags["results"]] == ["flag-with-tags"]
+        assert [flag.key for flag in flags_without_tags["results"]] == ["flag-without-tags"]
 
     # ------------------------------------------------------------------
     # Velocity stats
