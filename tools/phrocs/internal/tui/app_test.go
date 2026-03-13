@@ -361,13 +361,13 @@ func TestSearch_navigateWithNAndShiftN(t *testing.T) {
 	if m.searchCursor != 0 {
 		t.Fatalf("after enter cursor should be 0, got %d", m.searchCursor)
 	}
-	// n → next match
-	m = update(m, keypress('n'))
+	// ↵ → next match
+	m = update(m, tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
 	if m.searchCursor != 1 {
 		t.Errorf("n: want cursor 1, got %d", m.searchCursor)
 	}
-	// N → prev match
-	m = update(m, keypress('N'))
+	// ⇧↵ → prev match
+	m = update(m, tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift, Text: "shift+enter"})
 	if m.searchCursor != 0 {
 		t.Errorf("N: want cursor 0, got %d", m.searchCursor)
 	}
