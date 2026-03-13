@@ -26,19 +26,19 @@ import { getApiErrorDetail } from './reviewQueueUtils'
 export const REVIEW_QUEUES_PER_PAGE = 15
 export const REVIEW_QUEUE_ITEMS_PER_PAGE = 30
 
-interface ReviewQueueFilters {
+export interface ReviewQueueFilters {
     page: number
     search: string
     order_by: string
 }
 
-interface ReviewQueueItemFilters {
+export interface ReviewQueueItemFilters {
     page: number
     search: string
     order_by: string
 }
 
-type ReviewQueueEditorMode = 'create' | 'rename'
+export type ReviewQueueEditorMode = 'create' | 'rename'
 
 export interface QueuePickerResult {
     queueId: string
@@ -258,6 +258,13 @@ export const llmAnalyticsReviewQueuesLogic = kea<llmAnalyticsReviewQueuesLogicTy
                 openQueuePicker: (_, { defaultQueueId }) => defaultQueueId,
                 closeQueuePicker: () => null,
                 handleQueuePickerSuccess: () => null,
+            },
+        ],
+        hasLoadedQueuesOnce: [
+            false,
+            {
+                loadQueuesSuccess: () => true,
+                loadQueuesFailure: () => true,
             },
         ],
     }),

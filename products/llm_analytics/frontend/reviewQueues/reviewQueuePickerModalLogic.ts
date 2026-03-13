@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { pluralize } from '~/lib/utils'
 
-import type { PaginatedReviewQueueListApi, ReviewQueueApi } from '../generated/api.schemas'
+import type { PaginatedReviewQueueListApi, ReviewQueueApi, ReviewQueueItemApi } from '../generated/api.schemas'
 import type { reviewQueuePickerModalLogicType } from './reviewQueuePickerModalLogicType'
 import { reviewQueuesApi } from './reviewQueuesApi'
 import { formatTraceIdsInput, getApiErrorDetail, parseTraceIdsInput } from './reviewQueueUtils'
@@ -149,7 +149,7 @@ export const reviewQueuePickerModalLogic = kea<reviewQueuePickerModalLogicType>(
                 )
 
                 const succeeded = results.filter(
-                    (result): result is PromiseFulfilledResult<unknown> => result.status === 'fulfilled'
+                    (result): result is PromiseFulfilledResult<ReviewQueueItemApi> => result.status === 'fulfilled'
                 )
                 const failed = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
 

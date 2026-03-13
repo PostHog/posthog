@@ -15,9 +15,10 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonModalContent, LemonModalFooter, LemonModalHeader } from 'lib/lemon-ui/LemonModal/LemonModal'
 import { Link } from 'lib/lemon-ui/Link'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 
-import { createdAtColumn, createdByColumn, updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
+import { createdAtColumn, updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { urls } from '~/scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -67,6 +68,7 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
         isQueuePickerOpen,
         queuePickerInitialTraceIds,
         queuePickerDefaultQueueId,
+        hasLoadedQueuesOnce,
     } = useValues(logic)
 
     const queueColumns: LemonTableColumns<ReviewQueueApi> = [
@@ -89,8 +91,8 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
             dataIndex: 'pending_item_count',
             key: 'pending_item_count',
             align: 'right',
-            render: function renderPendingCount(pendingItemCount) {
-                return <span className="font-medium">{pendingItemCount}</span>
+            render: function renderPendingCount(_, queue) {
+                return <span className="font-medium">{queue.pending_item_count}</span>
             },
         },
         updatedAtColumn<ReviewQueueApi>() as LemonTableColumn<ReviewQueueApi, keyof ReviewQueueApi | undefined>,
@@ -121,10 +123,32 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
                 )
             },
         },
-        createdByColumn<ReviewQueueItemApi>() as LemonTableColumn<
-            ReviewQueueItemApi,
-            keyof ReviewQueueItemApi | undefined
-        >,
+        {
+            title: 'Created by',
+            dataIndex: 'created_by',
+            key: 'created_by',
+            render: function renderCreatedBy(_, item) {
+                const createdBy = item.created_by
+
+                return (
+                    <div className="flex flex-row items-center flex-nowrap">
+                        <ProfilePicture
+                            user={{
+                                first_name: createdBy.first_name,
+                                last_name: createdBy.last_name,
+                                email: createdBy.email,
+                            }}
+                            size="md"
+                            showName
+                        />
+                    </div>
+                )
+            },
+            sorter: (a, b) =>
+                (a.created_by.first_name || a.created_by.email || '').localeCompare(
+                    b.created_by.first_name || b.created_by.email || ''
+                ),
+        },
         createdAtColumn<ReviewQueueItemApi>() as LemonTableColumn<
             ReviewQueueItemApi,
             keyof ReviewQueueItemApi | undefined
@@ -149,6 +173,8 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
             },
         },
     ]
+
+    const showEmptyQueueState = hasLoadedQueuesOnce && queues.count === 0 && !queuesLoading
 
     return (
         <div className="space-y-4">
@@ -190,7 +216,7 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
                 </div>
             </div>
 
-            {queues.count === 0 && !queuesLoading ? (
+            {showEmptyQueueState ? (
                 <div className="border rounded bg-bg-light">
                     <InsightEmptyState
                         heading="No review queues yet"

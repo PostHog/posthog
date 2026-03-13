@@ -11,6 +11,16 @@ import {
 } from './llmAnalyticsReviewQueuesLogic'
 import { reviewQueuesApi } from './reviewQueuesApi'
 
+const MOCK_CREATED_BY = {
+    id: 1,
+    uuid: 'user-1',
+    distinct_id: 'user-1',
+    first_name: 'Test',
+    last_name: 'User',
+    email: 'test@example.com',
+    hedgehog_config: null,
+} as const
+
 jest.mock('./reviewQueuesApi', () => ({
     reviewQueuesApi: {
         listQueues: jest.fn(),
@@ -40,7 +50,7 @@ describe('llmAnalyticsReviewQueuesLogic', () => {
                     pending_item_count: 2,
                     created_at: '2026-03-13T12:00:00Z',
                     updated_at: '2026-03-13T12:00:00Z',
-                    created_by: null,
+                    created_by: MOCK_CREATED_BY,
                     team: MOCK_DEFAULT_TEAM.id,
                 },
                 {
@@ -49,7 +59,7 @@ describe('llmAnalyticsReviewQueuesLogic', () => {
                     pending_item_count: 1,
                     created_at: '2026-03-13T12:00:00Z',
                     updated_at: '2026-03-13T12:00:00Z',
-                    created_by: null,
+                    created_by: MOCK_CREATED_BY,
                     team: MOCK_DEFAULT_TEAM.id,
                 },
             ],
@@ -66,14 +76,7 @@ describe('llmAnalyticsReviewQueuesLogic', () => {
                     trace_id: 'trace_1',
                     created_at: '2026-03-13T12:00:00Z',
                     updated_at: '2026-03-13T12:00:00Z',
-                    created_by: {
-                        id: 1,
-                        uuid: 'user-1',
-                        distinct_id: 'user-1',
-                        first_name: 'Test',
-                        email: 'test@example.com',
-                        hedgehog_config: null,
-                    },
+                    created_by: MOCK_CREATED_BY,
                     team: MOCK_DEFAULT_TEAM.id,
                 },
             ],
