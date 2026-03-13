@@ -40,7 +40,7 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.rate_limit import MaterializationRateThrottle
+from posthog.rate_limit import MaterializationRateThrottle, RunSavedQueryRateThrottle
 from posthog.temporal.common.client import sync_connect
 
 from products.data_warehouse.backend.data_load.saved_query_service import (
@@ -598,15 +598,23 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
-    @action(methods=["POST"], detail=True, required_scopes=["warehouse_view:write"])
+    @extend_schema(request=None, responses={200: DataWarehouseSavedQuerySerializer})
+    @action(
+        methods=["POST"],
+        detail=True,
+        required_scopes=["warehouse_view:write"],
+        throttle_classes=[RunSavedQueryRateThrottle],
+    )
     def run(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Run this saved query."""
         saved_query = self.get_object()
 
         trigger_saved_query_schedule(saved_query)
 
-        return response.Response(status=status.HTTP_200_OK)
+        serializer = self.get_serializer(saved_query)
+        return response.Response(serializer.data, status=status.HTTP_200_OK)
 
+    @extend_schema(request=None, responses={200: DataWarehouseSavedQuerySerializer})
     @action(
         methods=["POST"],
         detail=True,
@@ -635,8 +643,10 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             capture_exception(e)
             logger.exception("Failed to update node type to view", saved_query_name=saved_query.name)
 
-        return response.Response(status=status.HTTP_200_OK)
+        serializer = self.get_serializer(saved_query)
+        return response.Response(serializer.data, status=status.HTTP_200_OK)
 
+    @extend_schema(request=None, responses={200: DataWarehouseSavedQuerySerializer})
     @action(
         methods=["POST"],
         detail=True,
@@ -682,7 +692,8 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             capture_exception(e)
             logger.exception("Failed to update node type to matview", saved_query_name=saved_query.name)
 
-        return response.Response(status=status.HTTP_200_OK)
+        serializer = self.get_serializer(saved_query)
+        return response.Response(serializer.data, status=status.HTTP_200_OK)
 
     @action(methods=["POST"], detail=False)
     def resume_schedules(self, request: request.Request, *args, **kwargs) -> response.Response:

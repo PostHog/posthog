@@ -11,7 +11,6 @@ from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 from tenacity import RetryCallState, retry, retry_if_exception_type, retry_if_result, stop_after_attempt
 
-from posthog.security.outbound_proxy import external_requests
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.common.rest_source.fanout import build_dependent_resource
@@ -186,7 +185,7 @@ def _request_with_retry(
     params: dict[str, Any] | None,
     timeout: int = _REQUEST_TIMEOUT,
 ) -> requests.Response:
-    return external_requests.get(url, headers=headers, params=params, timeout=timeout)
+    return requests.get(url, headers=headers, params=params, timeout=timeout)
 
 
 def _iter_endpoint_rows(
@@ -339,7 +338,7 @@ def validate_credentials(
     headers = _auth_headers(auth_token)
 
     try:
-        response = external_requests.get(url, headers=headers, timeout=10)
+        response = requests.get(url, headers=headers, timeout=10)
         if response.status_code == 200:
             return True, None
         if response.status_code == 401:

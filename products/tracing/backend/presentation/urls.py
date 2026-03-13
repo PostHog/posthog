@@ -2,7 +2,8 @@
 
 from rest_framework.routers import DefaultRouter
 
-# from .views import ...
+from .views import SpansViewSet
 
 router = DefaultRouter()
+router.register(r"spans", SpansViewSet, basename="tracing-spans")
 urlpatterns = router.urls

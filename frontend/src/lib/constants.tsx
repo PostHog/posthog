@@ -260,6 +260,7 @@ export const FEATURE_FLAGS = {
     DATA_WAREHOUSE_SCENE: 'data-warehouse-scene', // owner: #team-data-stack
     DEFAULT_EVALUATION_ENVIRONMENTS: 'default-evaluation-environments', // owner: @dmarticus #team-feature-flags
     DROP_PERSON_LIST_ORDER_BY: 'drop-person-list-order-by', // owner: @arthurdedeus #team-customer-analytics
+    LLM_ANALYTICS_TRACE_REVIEW: 'llma-trace-review', // owner: #team-llm-analytics
     DWH_FREE_SYNCS: 'dwh-free-syncs', // owner: @Gilbert09  #team-data-stack
     DWH_POSTGRES_DIRECT_QUERY: 'dwh-postgres-direct-query', // owner: #team-data-stack
     DWH_JOIN_TABLE_PREVIEW: 'dwh-join-table-preview', // owner: @arthurdedeus #team-customer-analytics
@@ -341,6 +342,7 @@ export const FEATURE_FLAGS = {
     NOTEBOOK_PYTHON: 'notebook-python', // owner: #team-data-tools
     PAGE_REPORTS_AVERAGE_PAGE_VIEW: 'page-reports-average-page-view', // owner: @jordanm-posthog #team-web-analytics
     PHAI_PLAN_MODE: 'phai-plan-mode', // owner: #team-posthog-ai
+    PHAI_SANDBOX_MODE: 'phai-sandbox-mode', // owner: #team-posthog-ai
     PHAI_TASKS: 'phai-tasks', // owner: #team-array
     PRODUCT_ANALYTICS_AI_INSIGHT_ANALYSIS: 'product-analytics-ai-insight-analysis', // owner: #team-analytics-platform, used to show AI analysis section in insights
     PRODUCT_ANALYTICS_AUTONAME_INSIGHTS_WITH_AI: 'autoname-insights-with-ai', // owner: @gesh #team-product-analytics

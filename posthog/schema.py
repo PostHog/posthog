@@ -49,6 +49,7 @@ class AgentMode(StrEnum):
     RESEARCH = "research"
     FLAGS = "flags"
     LLM_ANALYTICS = "llm_analytics"
+    SANDBOX = "sandbox"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -173,6 +174,7 @@ class AssistantEventType(StrEnum):
     NOTEBOOK = "notebook"
     UPDATE = "update"
     APPROVAL = "approval"
+    SANDBOX = "sandbox"
 
 
 class AssistantFormOption(BaseModel):

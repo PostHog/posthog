@@ -1161,14 +1161,11 @@ export const getWarehouseSavedQueriesMaterializeCreateUrl = (projectId: string, 
 export const warehouseSavedQueriesMaterializeCreate = async (
     projectId: string,
     id: string,
-    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
     options?: RequestInit
 ): Promise<DataWarehouseSavedQueryApi> => {
     return apiMutator<DataWarehouseSavedQueryApi>(getWarehouseSavedQueriesMaterializeCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataWarehouseSavedQueryApi),
     })
 }
 
@@ -1183,7 +1180,6 @@ export const getWarehouseSavedQueriesRevertMaterializationCreateUrl = (projectId
 export const warehouseSavedQueriesRevertMaterializationCreate = async (
     projectId: string,
     id: string,
-    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
     options?: RequestInit
 ): Promise<DataWarehouseSavedQueryApi> => {
     return apiMutator<DataWarehouseSavedQueryApi>(
@@ -1191,8 +1187,6 @@ export const warehouseSavedQueriesRevertMaterializationCreate = async (
         {
             ...options,
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dataWarehouseSavedQueryApi),
         }
     )
 }
@@ -1207,14 +1201,11 @@ export const getWarehouseSavedQueriesRunCreateUrl = (projectId: string, id: stri
 export const warehouseSavedQueriesRunCreate = async (
     projectId: string,
     id: string,
-    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
     options?: RequestInit
 ): Promise<DataWarehouseSavedQueryApi> => {
     return apiMutator<DataWarehouseSavedQueryApi>(getWarehouseSavedQueriesRunCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataWarehouseSavedQueryApi),
     })
 }
 
