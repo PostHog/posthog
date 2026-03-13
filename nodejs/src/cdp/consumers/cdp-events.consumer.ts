@@ -317,6 +317,7 @@ export class CdpEventsConsumer<
                 const isQuotaLimited = await shouldBlockHogFlowDueToQuota(item, {
                     quotaLimiting: this.deps.quotaLimiting,
                     hogFunctionMonitoringService: this.hogFunctionMonitoringService,
+                    hogFunctionTemplateManager: this.hogFunctionTemplateManager,
                 })
 
                 if (isQuotaLimited) {

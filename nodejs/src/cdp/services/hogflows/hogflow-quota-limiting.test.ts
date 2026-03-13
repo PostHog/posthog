@@ -1,6 +1,7 @@
 import { QuotaLimiting } from '../../../common/services/quota-limiting.service'
 import { HogFlow } from '../../../schema/hogflow'
-import { CyclotronJobInvocationHogFlow } from '../../types'
+import { CyclotronJobInvocationHogFlow, DBHogFunctionTemplate } from '../../types'
+import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
 import {
     checkHogFlowQuotaLimits,
@@ -10,10 +11,37 @@ import {
 
 describe('HogFlow Quota Limiting', () => {
     let mockQuotaLimiting: jest.Mocked<QuotaLimiting>
+    let mockTemplateManager: jest.Mocked<HogFunctionTemplateManagerService>
+
+    const paidTemplate: DBHogFunctionTemplate = {
+        id: 'paid-uuid',
+        template_id: 'template-webhook',
+        sha: 'abc',
+        name: 'Webhook',
+        inputs_schema: [],
+        bytecode: ['_h'],
+        type: 'destination',
+        free: false,
+    }
+
+    const freeTemplate: DBHogFunctionTemplate = {
+        id: 'free-uuid',
+        template_id: 'template-posthog-capture',
+        sha: 'def',
+        name: 'Capture a PostHog event',
+        inputs_schema: [],
+        bytecode: ['_h'],
+        type: 'destination',
+        free: true,
+    }
 
     beforeEach(() => {
         mockQuotaLimiting = {
             isTeamQuotaLimited: jest.fn(),
+        } as any
+
+        mockTemplateManager = {
+            getHogFunctionTemplates: jest.fn().mockResolvedValue({}),
         } as any
     })
 
@@ -27,19 +55,23 @@ describe('HogFlow Quota Limiting', () => {
             enabled: true,
             actions: [],
             trigger: { type: 'event' },
-            billable_action_types: [],
         } as unknown as HogFlow
 
         it('should not limit workflow when team has no quota limits', async () => {
             mockQuotaLimiting.isTeamQuotaLimited.mockResolvedValue(false)
+            mockTemplateManager.getHogFunctionTemplates.mockResolvedValue({
+                'template-webhook': paidTemplate,
+            })
 
             const hogFlow: HogFlow = {
                 ...baseHogFlow,
-                actions: [{ type: 'function_email' } as any, { type: 'function' } as any],
-                billable_action_types: ['function_email', 'function'],
+                actions: [
+                    { type: 'function_email', config: { template_id: 'template-webhook' } } as any,
+                    { type: 'function', config: { template_id: 'template-webhook' } } as any,
+                ],
             }
 
-            const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting)
+            const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting, mockTemplateManager)
 
             expect(result.isLimited).toBe(false)
             expect(mockQuotaLimiting.isTeamQuotaLimited).toHaveBeenCalledTimes(2)
@@ -50,34 +82,45 @@ describe('HogFlow Quota Limiting', () => {
             )
         })
 
-        it('should limit workflow with email action when team has email quota limit', async () => {
+        it('should limit workflow with paid email action when team has email quota limit', async () => {
             mockQuotaLimiting.isTeamQuotaLimited.mockImplementation((_teamId, resource) => {
                 return Promise.resolve(resource === 'workflow_emails')
+            })
+            mockTemplateManager.getHogFunctionTemplates.mockResolvedValue({
+                'template-webhook': paidTemplate,
             })
 
             const hogFlow: HogFlow = {
                 ...baseHogFlow,
-                actions: [{ type: 'function_email' } as any, { type: 'function' } as any],
-                billable_action_types: ['function_email', 'function'],
+                actions: [
+                    { type: 'function_email', config: { template_id: 'template-webhook' } } as any,
+                    { type: 'function', config: { template_id: 'template-webhook' } } as any,
+                ],
             }
 
-            const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting)
+            const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting, mockTemplateManager)
 
             expect(result.isLimited).toBe(true)
         })
 
-        it('should limit workflow with destination action when team has destination quota limit', async () => {
+        it('should limit workflow with paid destination action when team has destination quota limit', async () => {
             mockQuotaLimiting.isTeamQuotaLimited.mockImplementation((_teamId, resource) => {
                 return Promise.resolve(resource === 'workflow_destinations_dispatched')
+            })
+            mockTemplateManager.getHogFunctionTemplates.mockResolvedValue({
+                'template-webhook': paidTemplate,
             })
 
             const hogFlow: HogFlow = {
                 ...baseHogFlow,
-                actions: [{ type: 'delay' } as any, { type: 'function' } as any, { type: 'function_email' } as any],
-                billable_action_types: ['function', 'function_email'],
+                actions: [
+                    { type: 'delay' } as any,
+                    { type: 'function', config: { template_id: 'template-webhook' } } as any,
+                    { type: 'function_email', config: { template_id: 'template-webhook' } } as any,
+                ],
             }
 
-            const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting)
+            const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting, mockTemplateManager)
 
             expect(result.isLimited).toBe(true)
         })
@@ -88,63 +131,84 @@ describe('HogFlow Quota Limiting', () => {
             const hogFlow: HogFlow = {
                 ...baseHogFlow,
                 actions: [{ type: 'delay' } as any, { type: 'conditional_branch' } as any],
-                billable_action_types: [],
             }
 
-            const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting)
+            const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting, mockTemplateManager)
 
             expect(result.isLimited).toBe(false)
             expect(mockQuotaLimiting.isTeamQuotaLimited).not.toHaveBeenCalled()
         })
 
-        it('should not limit workflow when billable_action_types is null', async () => {
+        it('should not limit workflow with only free template actions', async () => {
             mockQuotaLimiting.isTeamQuotaLimited.mockResolvedValue(true)
+            mockTemplateManager.getHogFunctionTemplates.mockResolvedValue({
+                'template-posthog-capture': freeTemplate,
+            })
 
             const hogFlow: HogFlow = {
                 ...baseHogFlow,
-                actions: [{ type: 'function' } as any],
-                billable_action_types: null,
+                actions: [{ type: 'function', config: { template_id: 'template-posthog-capture' } } as any],
             }
 
-            const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting)
+            const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting, mockTemplateManager)
 
             expect(result.isLimited).toBe(false)
             expect(mockQuotaLimiting.isTeamQuotaLimited).not.toHaveBeenCalled()
         })
 
-        it('should not check quota limits when billable_action_types is undefined', async () => {
-            mockQuotaLimiting.isTeamQuotaLimited.mockResolvedValue(true)
+        it('should limit workflow with mix of free and paid actions if any paid action hits quota', async () => {
+            mockQuotaLimiting.isTeamQuotaLimited.mockImplementation((_teamId, resource) => {
+                return Promise.resolve(resource === 'workflow_destinations_dispatched')
+            })
+            mockTemplateManager.getHogFunctionTemplates.mockResolvedValue({
+                'template-posthog-capture': freeTemplate,
+                'template-webhook': paidTemplate,
+            })
 
             const hogFlow: HogFlow = {
                 ...baseHogFlow,
-                actions: [{ type: 'function' } as any],
-                billable_action_types: undefined,
+                actions: [
+                    { type: 'function', config: { template_id: 'template-posthog-capture' } } as any,
+                    { type: 'function', config: { template_id: 'template-webhook' } } as any,
+                ],
             }
 
-            const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting)
+            const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting, mockTemplateManager)
 
-            expect(result.isLimited).toBe(false)
-            expect(mockQuotaLimiting.isTeamQuotaLimited).not.toHaveBeenCalled()
+            expect(result.isLimited).toBe(true)
         })
 
-        it('should only check relevant quota limits based on billable action types', async () => {
-            mockQuotaLimiting.isTeamQuotaLimited.mockResolvedValue(false)
+        it('should treat actions without template_id as billable', async () => {
+            mockQuotaLimiting.isTeamQuotaLimited.mockImplementation((_teamId, resource) => {
+                return Promise.resolve(resource === 'workflow_destinations_dispatched')
+            })
 
             const hogFlow: HogFlow = {
                 ...baseHogFlow,
-                actions: [{ type: 'function' } as any, { type: 'delay' } as any],
-                billable_action_types: ['function'],
+                actions: [{ type: 'function', config: {} } as any],
             }
 
-            const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting)
+            const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting, mockTemplateManager)
 
-            expect(result.isLimited).toBe(false)
-            expect(mockQuotaLimiting.isTeamQuotaLimited).toHaveBeenCalledTimes(2)
-            expect(mockQuotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(teamId, 'workflow_emails')
-            expect(mockQuotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
-                teamId,
-                'workflow_destinations_dispatched'
-            )
+            expect(result.isLimited).toBe(true)
+        })
+
+        it('should treat actions with unknown template as billable', async () => {
+            mockQuotaLimiting.isTeamQuotaLimited.mockImplementation((_teamId, resource) => {
+                return Promise.resolve(resource === 'workflow_destinations_dispatched')
+            })
+            mockTemplateManager.getHogFunctionTemplates.mockResolvedValue({
+                'template-unknown': null as any,
+            })
+
+            const hogFlow: HogFlow = {
+                ...baseHogFlow,
+                actions: [{ type: 'function', config: { template_id: 'template-unknown' } } as any],
+            }
+
+            const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting, mockTemplateManager)
+
+            expect(result.isLimited).toBe(true)
         })
     })
 
@@ -162,7 +226,6 @@ describe('HogFlow Quota Limiting', () => {
                 enabled: true,
                 actions: [],
                 trigger: { type: 'event' },
-                billable_action_types: [],
             } as unknown as HogFlow,
         } as CyclotronJobInvocationHogFlow
 
@@ -171,7 +234,6 @@ describe('HogFlow Quota Limiting', () => {
             mockHogFunctionMonitoringService = {
                 queueAppMetric: jest.fn(),
             } as any
-            // Reset the counter spy
             jest.spyOn(counterHogFlowQuotaLimited, 'labels').mockReturnValue({
                 inc: jest.fn(),
             } as any)
@@ -179,18 +241,22 @@ describe('HogFlow Quota Limiting', () => {
 
         it('should not block invocation when not quota limited', async () => {
             mockQuotaLimiting.isTeamQuotaLimited.mockResolvedValue(false)
+            mockTemplateManager.getHogFunctionTemplates.mockResolvedValue({
+                'template-webhook': paidTemplate,
+            })
 
             const item: CyclotronJobInvocationHogFlow = {
                 ...baseItem,
                 hogFlow: {
                     ...baseItem.hogFlow,
-                    billable_action_types: ['function_email'],
+                    actions: [{ type: 'function_email', config: { template_id: 'template-webhook' } } as any],
                 },
             }
 
             const result = await shouldBlockHogFlowDueToQuota(item, {
                 quotaLimiting: mockQuotaLimiting,
                 hogFunctionMonitoringService: mockHogFunctionMonitoringService,
+                hogFunctionTemplateManager: mockTemplateManager,
             })
 
             expect(result).toBe(false)
@@ -202,18 +268,22 @@ describe('HogFlow Quota Limiting', () => {
             mockQuotaLimiting.isTeamQuotaLimited.mockImplementation((_teamId, resource) => {
                 return Promise.resolve(resource === 'workflow_emails')
             })
+            mockTemplateManager.getHogFunctionTemplates.mockResolvedValue({
+                'template-webhook': paidTemplate,
+            })
 
             const item: CyclotronJobInvocationHogFlow = {
                 ...baseItem,
                 hogFlow: {
                     ...baseItem.hogFlow,
-                    billable_action_types: ['function_email'],
+                    actions: [{ type: 'function_email', config: { template_id: 'template-webhook' } } as any],
                 },
             }
 
             const result = await shouldBlockHogFlowDueToQuota(item, {
                 quotaLimiting: mockQuotaLimiting,
                 hogFunctionMonitoringService: mockHogFunctionMonitoringService,
+                hogFunctionTemplateManager: mockTemplateManager,
             })
 
             expect(result).toBe(true)
@@ -230,20 +300,24 @@ describe('HogFlow Quota Limiting', () => {
             )
         })
 
-        it('should handle workflow with no billable actions', async () => {
-            mockQuotaLimiting.isTeamQuotaLimited.mockResolvedValue(false)
+        it('should not block workflow with only free actions even when quota is exceeded', async () => {
+            mockQuotaLimiting.isTeamQuotaLimited.mockResolvedValue(true)
+            mockTemplateManager.getHogFunctionTemplates.mockResolvedValue({
+                'template-posthog-capture': freeTemplate,
+            })
 
             const item: CyclotronJobInvocationHogFlow = {
                 ...baseItem,
                 hogFlow: {
                     ...baseItem.hogFlow,
-                    billable_action_types: [],
+                    actions: [{ type: 'function', config: { template_id: 'template-posthog-capture' } } as any],
                 },
             }
 
             const result = await shouldBlockHogFlowDueToQuota(item, {
                 quotaLimiting: mockQuotaLimiting,
                 hogFunctionMonitoringService: mockHogFunctionMonitoringService,
+                hogFunctionTemplateManager: mockTemplateManager,
             })
 
             expect(result).toBe(false)

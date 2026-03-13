@@ -62,7 +62,8 @@ export class HogFunctionHandler implements ActionHandler {
         }
 
         // Add billable_invocation metric only if the function actually executed (not skipped)
-        if (!functionResult.skipped) {
+        // and the template is not free (internal PostHog actions like "Capture event" are free)
+        if (!functionResult.skipped && !functionResult.invocation.hogFunction.free) {
             trackHogFlowBillableInvocation(result, {
                 invocation: functionResult.invocation,
                 billingMetricType: this.hogFlowActionBillingType,

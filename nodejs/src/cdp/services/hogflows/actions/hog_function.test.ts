@@ -86,6 +86,7 @@ describe('HogFunctionHandler', () => {
         template = await insertHogFunctionTemplate(hub.postgres, {
             id: 'template-test-hogflow-executor',
             name: 'Test Template',
+            free: false,
             code: `fetch('http://localhost/test', { 'method': 'POST', 'body': inputs })`,
             inputs_schema: [
                 {
@@ -372,5 +373,165 @@ describe('HogFunctionHandler', () => {
         // Verify the function was still marked as finished with the right log
         expect(invocationResult.logs).toHaveLength(1)
         expect(invocationResult.logs[0].message).toContain('Recipient has opted out')
+    })
+
+    it('should not emit a billable_invocation metric when template is free', async () => {
+        // Create a free template and rebuild the flow
+        const freeTemplate = await insertHogFunctionTemplate(hub.postgres, {
+            id: 'template-test-free',
+            name: 'Free Template',
+            free: true,
+            code: `fetch('http://localhost/test', { 'method': 'POST', 'body': inputs })`,
+            inputs_schema: [
+                {
+                    key: 'name',
+                    type: 'string',
+                    required: true,
+                },
+                {
+                    key: 'oauth',
+                    type: 'integration',
+                    required: true,
+                },
+            ],
+        })
+
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withWorkflow({
+                actions: {
+                    function: {
+                        type: 'function',
+                        config: {
+                            template_id: freeTemplate.template_id,
+                            inputs: {
+                                name: {
+                                    value: 'John Doe',
+                                },
+                                oauth: {
+                                    value: 1,
+                                },
+                            },
+                            mappings: [
+                                {
+                                    name: 'input mapping field',
+                                },
+                            ],
+                        },
+                    },
+                    exit: {
+                        type: 'exit',
+                        config: {},
+                    },
+                },
+                edges: [
+                    {
+                        from: 'function',
+                        to: 'exit',
+                        type: 'continue',
+                    },
+                ],
+            })
+            .build()
+
+        const freeAction = findActionByType(hogFlow, 'function')!
+        const freeInvocation = createExampleHogFlowInvocation(hogFlow)
+        freeInvocation.state.currentAction = {
+            id: freeAction.id,
+            startedAtTimestamp: DateTime.utc().toMillis(),
+        }
+
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(freeInvocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        await hogFunctionHandler.execute({ invocation: freeInvocation, action: freeAction, result: invocationResult })
+
+        const billableMetrics = invocationResult.metrics.filter(
+            (metric) => metric.metric_name === 'billable_invocation'
+        )
+
+        expect(billableMetrics).toHaveLength(0)
+    })
+
+    it('should emit a billable_invocation metric when template is not free', async () => {
+        // Create a paid template (free: false) and rebuild the flow
+        const paidTemplate = await insertHogFunctionTemplate(hub.postgres, {
+            id: 'template-test-paid',
+            name: 'Paid Template',
+            free: false,
+            code: `fetch('http://localhost/test', { 'method': 'POST', 'body': inputs })`,
+            inputs_schema: [
+                {
+                    key: 'name',
+                    type: 'string',
+                    required: true,
+                },
+                {
+                    key: 'oauth',
+                    type: 'integration',
+                    required: true,
+                },
+            ],
+        })
+
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withWorkflow({
+                actions: {
+                    function: {
+                        type: 'function',
+                        config: {
+                            template_id: paidTemplate.template_id,
+                            inputs: {
+                                name: {
+                                    value: 'John Doe',
+                                },
+                                oauth: {
+                                    value: 1,
+                                },
+                            },
+                            mappings: [
+                                {
+                                    name: 'input mapping field',
+                                },
+                            ],
+                        },
+                    },
+                    exit: {
+                        type: 'exit',
+                        config: {},
+                    },
+                },
+                edges: [
+                    {
+                        from: 'function',
+                        to: 'exit',
+                        type: 'continue',
+                    },
+                ],
+            })
+            .build()
+
+        const paidAction = findActionByType(hogFlow, 'function')!
+        const paidInvocation = createExampleHogFlowInvocation(hogFlow)
+        paidInvocation.state.currentAction = {
+            id: paidAction.id,
+            startedAtTimestamp: DateTime.utc().toMillis(),
+        }
+
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(paidInvocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        await hogFunctionHandler.execute({ invocation: paidInvocation, action: paidAction, result: invocationResult })
+
+        const billableMetrics = invocationResult.metrics.filter(
+            (metric) => metric.metric_name === 'billable_invocation' && metric.metric_kind === 'fetch'
+        )
+
+        expect(billableMetrics).toHaveLength(1)
     })
 })

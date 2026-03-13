@@ -1,8 +1,9 @@
 import { Counter } from 'prom-client'
 
 import { QuotaLimiting } from '../../../common/services/quota-limiting.service'
-import { HogFlow } from '../../../schema/hogflow'
+import { HogFlow, HogFlowAction } from '../../../schema/hogflow'
 import { CyclotronJobInvocationHogFlow } from '../../types'
+import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
 
 export const counterHogFlowQuotaLimited = new Counter({
@@ -11,24 +12,67 @@ export const counterHogFlowQuotaLimited = new Counter({
     labelNames: ['team_id'],
 })
 
+const BILLABLE_ACTION_TYPES = new Set(['function', 'function_email', 'function_sms', 'function_push'])
+
 export interface HogFlowQuotaLimitResult {
     isLimited: boolean
 }
 
 /**
+ * Computes the set of billable action types for a hogflow by checking each action's
+ * template `free` flag. Actions with `free: true` templates are excluded.
+ * Actions without a template_id default to billable.
+ */
+async function computeBillableActionTypes(
+    hogFlow: HogFlow,
+    hogFunctionTemplateManager: HogFunctionTemplateManagerService
+): Promise<Set<string>> {
+    // Filter to actions with billable types that have a config with template_id
+    const candidateActions = hogFlow.actions.filter(
+        (a): a is HogFlowAction & { config: { template_id: string } } =>
+            BILLABLE_ACTION_TYPES.has(a.type) && 'config' in a && 'template_id' in a.config
+    )
+
+    // Actions with billable types but no template_id are always billable
+    const actionsWithoutTemplate = hogFlow.actions.filter(
+        (a) => BILLABLE_ACTION_TYPES.has(a.type) && !('config' in a && 'template_id' in a.config)
+    )
+
+    const billableTypes = new Set(actionsWithoutTemplate.map((a) => a.type))
+
+    if (candidateActions.length === 0) {
+        return billableTypes
+    }
+
+    // Resolve templates to check free status
+    const templateIds = [...new Set(candidateActions.map((a) => a.config.template_id))]
+    const templates = await hogFunctionTemplateManager.getHogFunctionTemplates(templateIds)
+
+    for (const action of candidateActions) {
+        const template = templates[action.config.template_id]
+        // If template not found or not free, the action is billable
+        if (!template || !template.free) {
+            billableTypes.add(action.type)
+        }
+    }
+
+    return billableTypes
+}
+
+/**
  * Checks if a hogflow is quota limited based on its billable action types.
- * Uses the pre-computed billable_action_types field for efficient quota checking.
+ * Dynamically computes billable types by checking template `free` flags.
  */
 export async function checkHogFlowQuotaLimits(
     hogFlow: HogFlow,
     teamId: number,
-    quotaLimiting: QuotaLimiting
+    quotaLimiting: QuotaLimiting,
+    hogFunctionTemplateManager: HogFunctionTemplateManagerService
 ): Promise<HogFlowQuotaLimitResult> {
-    // Ensure billable_action_types is an array (handle null, undefined, or non-array values)
-    const billableActionTypes = Array.isArray(hogFlow.billable_action_types) ? hogFlow.billable_action_types : []
+    const billableActionTypes = await computeBillableActionTypes(hogFlow, hogFunctionTemplateManager)
 
     // If no billable action types, no need to check quotas
-    if (billableActionTypes.length === 0) {
+    if (billableActionTypes.size === 0) {
         return { isLimited: false }
     }
 
@@ -39,11 +83,11 @@ export async function checkHogFlowQuotaLimits(
     ])
 
     // Check if any billable action type is quota limited
-    if (isEmailQuotaLimited && billableActionTypes.includes('function_email')) {
+    if (isEmailQuotaLimited && billableActionTypes.has('function_email')) {
         return { isLimited: true }
     }
 
-    if (isDestinationQuotaLimited && billableActionTypes.includes('function')) {
+    if (isDestinationQuotaLimited && billableActionTypes.has('function')) {
         return { isLimited: true }
     }
 
@@ -53,6 +97,7 @@ export async function checkHogFlowQuotaLimits(
 export interface HogFlowQuotaLimitingContext {
     quotaLimiting: QuotaLimiting
     hogFunctionMonitoringService: HogFunctionMonitoringService
+    hogFunctionTemplateManager: HogFunctionTemplateManagerService
 }
 
 /**
@@ -63,7 +108,12 @@ export async function shouldBlockHogFlowDueToQuota(
     item: CyclotronJobInvocationHogFlow,
     context: HogFlowQuotaLimitingContext
 ): Promise<boolean> {
-    const quotaLimitResult = await checkHogFlowQuotaLimits(item.hogFlow, item.teamId, context.quotaLimiting)
+    const quotaLimitResult = await checkHogFlowQuotaLimits(
+        item.hogFlow,
+        item.teamId,
+        context.quotaLimiting,
+        context.hogFunctionTemplateManager
+    )
 
     if (quotaLimitResult.isLimited) {
         counterHogFlowQuotaLimited.labels({ team_id: item.teamId }).inc()

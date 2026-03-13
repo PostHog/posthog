@@ -28,7 +28,6 @@ class HogFlowAdmin(admin.ModelAdmin):
         "edges",
         "actions",
         "variables",
-        "billable_action_types",
     )
     fields = (
         "name",
@@ -47,7 +46,6 @@ class HogFlowAdmin(admin.ModelAdmin):
         "edges",
         "actions",
         "variables",
-        "billable_action_types",
     )
 
     @admin.display(description="Team")

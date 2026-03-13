@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING
 
 from django.db import models
 from django.db.models.signals import post_save
@@ -15,15 +15,6 @@ if TYPE_CHECKING:
     pass
 
 logger = structlog.get_logger(__name__)
-
-# Billable action types that are subject to rate limiting and quota tracking
-# These action types incur costs and are counted against customer quotas
-BILLABLE_ACTION_TYPES: Final[set[str]] = {
-    "function",  # General function/webhook actions
-    "function_email",  # Email sending actions
-    "function_sms",  # SMS sending actions
-    "function_push",  # Push notification actions
-}
 
 
 class HogFlow(UUIDTModel):
@@ -71,10 +62,6 @@ class HogFlow(UUIDTModel):
     actions = models.JSONField(default=dict)
     abort_action = models.CharField(max_length=400, null=True, blank=True)
     variables = models.JSONField(default=list, null=True, blank=True)
-
-    # Pre-computed set of billable action types in this workflow for efficient quota checking
-    # Contains only billable action types: 'function', 'function_email', 'function_sms', 'function_push'
-    billable_action_types = models.JSONField(default=list, null=True, blank=True)
 
     # Draft storage for active workflows: stores pending edits separately from live config
     draft = models.JSONField(null=True, blank=True)

@@ -385,6 +385,7 @@ export type HogFunctionType = {
     mappings?: HogFunctionMappingType[] | null
     masking?: HogFunctionMasking | null
     template_id?: string
+    free?: boolean
     execution_order?: number
     created_at: string
     updated_at: string

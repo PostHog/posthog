@@ -42,6 +42,7 @@ export class HogFlowFunctionsService {
             inputs,
             inputs_schema: template.inputs_schema,
             template_id: template.template_id,
+            free: template.free,
             mappings,
             created_at: '',
             updated_at: '',
