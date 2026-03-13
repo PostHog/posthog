@@ -1,6 +1,7 @@
 from posthog.temporal.messaging.backfill_precalculated_person_properties_coordinator_workflow import (
     BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow,
     get_person_count_activity,
+    get_person_uuid_range_activity,
 )
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesWorkflow,
@@ -24,6 +25,7 @@ WORKFLOWS = [
 ]
 ACTIVITIES = [
     get_person_count_activity,
+    get_person_uuid_range_activity,
     get_realtime_cohort_selection_activity,
     get_query_percentile_thresholds_activity,
     backfill_precalculated_person_properties_activity,

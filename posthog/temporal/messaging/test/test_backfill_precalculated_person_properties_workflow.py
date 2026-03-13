@@ -315,8 +315,8 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             filters=filters,
             cohort_ids=[100, 200],
             batch_size=100,
-            offset=0,
-            limit=2,
+            start_uuid="00000000-0000-0000-0000-000000000000",
+            end_uuid="ffffffff-ffff-ffff-ffff-ffffffffffff",
         )
 
         # Mock dependencies
@@ -485,8 +485,8 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             filters=filters,
             cohort_ids=[100, 200],
             batch_size=100,
-            offset=0,
-            limit=1,
+            start_uuid="00000000-0000-0000-0000-000000000000",
+            end_uuid="ffffffff-ffff-ffff-ffff-ffffffffffff",
         )
 
         # Track how many times execute_bytecode is called
