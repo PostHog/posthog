@@ -44,7 +44,7 @@ async def run_sandbox_agent_get_structured_output(
         json_data = extract_json_from_text(text=last_message, label="Sandbox output")
         return model_to_validate.model_validate(json_data)
     except Exception:
-        logger.exception("Error processing sandbox output")
+        logger.exception("Error processing sandbox output. Raw last_message: %s", repr(last_message[:500]))
         raise
 
 
