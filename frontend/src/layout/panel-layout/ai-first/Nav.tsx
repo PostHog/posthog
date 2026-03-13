@@ -21,6 +21,7 @@ import { NavExperimentTab, panelLayoutLogic } from '~/layout/panel-layout/panelL
 
 import { navigation3000Logic } from '../../navigation-3000/navigationLogic'
 import { NavBarFooter } from '../NavBarFooter'
+import { PROJECT_TREE_KEY, ProjectTree } from '../ProjectTree/ProjectTree'
 import { NavTabBrowse } from './tabs/NavTabBrowse'
 const NavTabChat = lazy(() => import('./tabs/NavTabChat').then((m) => ({ default: m.NavTabChat })))
 
@@ -73,10 +74,11 @@ const TAB_CONFIG: { id: NavExperimentTab; label: string; icon: JSX.Element }[] =
     { id: 'chat', label: 'Chat', icon: <IconSparkles className="text-ai" /> },
 ]
 
-export function Nav({ children }: { children?: React.ReactNode }): JSX.Element {
+export function Nav(): JSX.Element {
     const containerRef = useRef<HTMLDivElement | null>(null)
     const { toggleLayoutNavCollapsed, setNavExperimentTab } = useActions(panelLayoutLogic)
-    const { isLayoutPanelVisible, isLayoutNavCollapsed, navExperimentActiveTab } = useValues(panelLayoutLogic)
+    const { isLayoutPanelVisible, isLayoutNavCollapsed, navExperimentActiveTab, activePanelIdentifier } =
+        useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { firstTabIsActive } = useValues(sceneLogic)
     const { toggleCommand } = useActions(commandLogic)
@@ -224,7 +226,21 @@ export function Nav({ children }: { children?: React.ReactNode }): JSX.Element {
                 )}
             </nav>
 
-            {children}
+            {activePanelIdentifier === 'DataAndPeople' && (
+                <ProjectTree root="data-and-people://" searchPlaceholder="Search data" />
+            )}
+            {activePanelIdentifier === 'Project' && (
+                <ProjectTree
+                    root="project://"
+                    logicKey={PROJECT_TREE_KEY}
+                    searchPlaceholder="Search files"
+                    showRecents
+                />
+            )}
+            {activePanelIdentifier === 'Products' && <ProjectTree root="products://" searchPlaceholder="Search apps" />}
+            {activePanelIdentifier === 'Shortcuts' && (
+                <ProjectTree root="shortcuts://" searchPlaceholder="Search starred items" />
+            )}
         </div>
     )
 }
