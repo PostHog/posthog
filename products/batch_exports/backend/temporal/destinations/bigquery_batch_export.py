@@ -315,7 +315,9 @@ class BigQueryTable(Table[BigQueryField]):
 
 
 class AWSCredentialsMissingError(Exception):
-    def __init__(self, missing: collections.abc.Sequence[str]):
+    def __init__(self, missing: collections.abc.Sequence[str] | str):
+        if isinstance(missing, str):
+            missing = (missing,)
         super().__init__(f"One or more required credentials are missing: {', '.join(missing)}")
 
 
@@ -390,7 +392,13 @@ class BigQueryClient:
 
     @classmethod
     def from_service_account_integration(cls, integration: GoogleCloudServiceAccountIntegration) -> typing.Self:
-        if integration.is_impersonated():
+        """Initialize a client from a service account integration.
+
+        The integration can contain the keys of the service account we are meant to use,
+        in which case we just use it. If no keys are present, then we are meant to
+        impersonate the service account using our own.
+        """
+        if not integration.has_key():
             our_credentials = google.auth.impersonated_credentials.Credentials(
                 source_credentials=google.auth.aws.Credentials(
                     audience=settings.BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD,

@@ -1225,14 +1225,14 @@ class GoogleCloudServiceAccountIntegration:
 
         return integration
 
-    def is_impersonated(self) -> bool:
-        """Return if this integration refers to an impersonated service account.
+    def has_key(self) -> bool:
+        """Return if this integration has a key associated with a service account.
 
-        If not, then it is an actual service account.
+        If not, then it is a service account we are meant to impersonate.
         """
-        actual_credentials = ("private_key", "private_key_id", "token_uri")
-        return all(key in self.integration.sensitive_config for key in actual_credentials) and all(
-            self.integration.sensitive_config[key] for key in actual_credentials
+        keys = ("private_key", "private_key_id")
+        return all(key in self.integration.sensitive_config for key in keys) and all(
+            self.integration.sensitive_config[key] for key in keys
         )
 
     @property
