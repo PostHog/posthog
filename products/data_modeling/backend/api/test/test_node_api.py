@@ -249,13 +249,25 @@ class TestNodeViewSet(APIBaseTest):
             name="view_c", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
         )
         view_b = Node.objects.create(
-            team=self.team, dag_id_text=self.dag_id, name="view_b", type=NodeType.VIEW, saved_query=sq_b
+            team=self.team,
+            dag_fk=self.dag,
+            dag_id_text=self.dag_id,
+            name="view_b",
+            type=NodeType.VIEW,
+            saved_query=sq_b,
         )
         view_c = Node.objects.create(
-            team=self.team, dag_id_text=self.dag_id, name="view_c", type=NodeType.VIEW, saved_query=sq_c
+            team=self.team,
+            dag_fk=self.dag,
+            dag_id_text=self.dag_id,
+            name="view_c",
+            type=NodeType.VIEW,
+            saved_query=sq_c,
         )
-        Edge.objects.create(team=self.team, dag_id_text=self.dag_id, source=self.view_node, target=view_b)
-        Edge.objects.create(team=self.team, dag_id_text=self.dag_id, source=view_b, target=view_c)
+        Edge.objects.create(
+            team=self.team, dag_fk=self.dag, dag_id_text=self.dag_id, source=self.view_node, target=view_b
+        )
+        Edge.objects.create(team=self.team, dag_fk=self.dag, dag_id_text=self.dag_id, source=view_b, target=view_c)
 
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{view_b.id}/lineage/")
 
@@ -271,7 +283,12 @@ class TestNodeViewSet(APIBaseTest):
             name="standalone", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
         )
         standalone = Node.objects.create(
-            team=self.team, dag_id_text=self.dag_id, name="standalone", type=NodeType.VIEW, saved_query=sq_standalone
+            team=self.team,
+            dag_fk=self.dag,
+            dag_id_text=self.dag_id,
+            name="standalone",
+            type=NodeType.VIEW,
+            saved_query=sq_standalone,
         )
 
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{standalone.id}/lineage/")
@@ -283,21 +300,31 @@ class TestNodeViewSet(APIBaseTest):
 
     def test_lineage_filters_by_team(self):
         other_team = Team.objects.create(organization=self.organization)
+        other_dag = DAG.objects.create(team=other_team, name=f"posthog_{other_team.id}")
         other_table = Node.objects.create(
-            team=other_team, dag_id_text=f"posthog_{other_team.id}", name="other_table", type=NodeType.TABLE
+            team=other_team,
+            dag_fk=other_dag,
+            dag_id_text=f"posthog_{other_team.id}",
+            name="other_table",
+            type=NodeType.TABLE,
         )
         other_sq = DataWarehouseSavedQuery.objects.create(
             name="other_view", team=other_team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
         )
         other_view = Node.objects.create(
             team=other_team,
+            dag_fk=other_dag,
             dag_id_text=f"posthog_{other_team.id}",
             name="other_view",
             type=NodeType.VIEW,
             saved_query=other_sq,
         )
         Edge.objects.create(
-            team=other_team, dag_id_text=f"posthog_{other_team.id}", source=other_table, target=other_view
+            team=other_team,
+            dag_fk=other_dag,
+            dag_id_text=f"posthog_{other_team.id}",
+            source=other_table,
+            target=other_view,
         )
 
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/lineage/")
