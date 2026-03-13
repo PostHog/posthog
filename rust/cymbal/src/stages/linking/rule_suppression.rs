@@ -29,12 +29,10 @@ impl ValueOperator for RuleSuppression {
             Err(_) => return Ok(Ok(input)),
         };
 
-        let mut conn = ctx.app_context.posthog_pool.acquire().await?;
-
         let mut rules = ctx
             .app_context
             .team_manager
-            .get_suppression_rules(&mut *conn, input.team_id)
+            .get_suppression_rules(&ctx.app_context.posthog_pool, input.team_id)
             .await?;
 
         if rules.is_empty() {
@@ -51,9 +49,13 @@ impl ValueOperator for RuleSuppression {
                     return Ok(Err(EventError::SuppressedByRule(rule.id)));
                 }
                 Err(err) => {
-                    rule.disable(&mut *conn, err.to_string(), props_json.clone())
-                        .await
-                        .map_err(UnhandledError::from)?;
+                    rule.disable(
+                        &ctx.app_context.posthog_pool,
+                        err.to_string(),
+                        props_json.clone(),
+                    )
+                    .await
+                    .map_err(UnhandledError::from)?;
                     ctx.app_context
                         .team_manager
                         .suppression_rules
